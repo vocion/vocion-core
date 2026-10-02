@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { CompositeBackend, createDeepAgent, StateBackend } from 'deepagents';
 import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory.js';
 import { createMemoryDigestMiddleware } from './memoryDigest.js';
-import { buildChatModel } from './model.js';
+import { buildChatModel, resolvedModelId } from './model.js';
 import { readOnlyBackend } from './readOnlyBackend.js';
 import { stepLimitStreamConfig, turnFailureMessage } from './stepLimit.js';
 import { sessionIdFor, withSession } from './telemetry.js';
@@ -236,6 +236,17 @@ export async function runInvocation(
   return invocationContext.run(context, () => withSession(sessionIdFor(req), () => runTurn(req, emit, signal)));
 }
 
+/**
+ * Whether one of `run.messages`' streams is a tool result rather than
+ * something the model said. The v3 messages projection tags each stream with
+ * the graph node that produced it; the agent's tool results come from the
+ * `tools` node.
+ * @param msg - One stream from `run.messages`.
+ */
+export function isToolResultStream(msg: unknown): boolean {
+  return (msg as { node?: unknown } | null)?.node === 'tools';
+}
+
 async function runTurn(
   req: InvocationRequest,
   emit: (event: AgentEvent) => void,
@@ -251,6 +262,7 @@ async function runTurn(
     userId: req.trace?.userId,
     sessionId: req.sessionId,
     input: { message: req.message },
+    modelId: resolvedModelId(req.agent.model),
     onTurnEnd: turn => emit({ type: 'usage', ...turn }),
   });
 
@@ -317,6 +329,16 @@ async function runTurn(
     await Promise.all([
       (async () => {
         for await (const msg of run.messages) {
+          // `run.messages` carries every message a top-level node streams,
+          // and the `tools` node streams each tool RESULT as a message. Read
+          // as answer text, every tool output — a lookup's JSON, a refused
+          // call's "Tool error: …", a delegate's whole reply — was streamed to
+          // the person and prepended to `done.response` (seen live on the
+          // first production turns, 2026-09-28). The answer is what the model
+          // says; tool results reach the stream as `tool_end` below.
+          if (isToolResultStream(msg)) {
+            continue;
+          }
           await Promise.all([
             (async () => {
               let started = false;

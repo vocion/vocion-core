@@ -93,7 +93,9 @@ export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): 
   }
 
   for (const root of ROOTS) {
-    const abs = join(ROOT, root);
+    // turbopackIgnore: this path is only known at runtime, so the build must not
+    // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+    const abs = join(/* turbopackIgnore: true */ ROOT, root);
     for (const file of walk(abs)) {
       if (!file.endsWith('.md') || file.includes('node_modules')) {
         continue;

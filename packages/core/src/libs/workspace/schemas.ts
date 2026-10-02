@@ -1,5 +1,7 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
+import { VoiceSchema } from '@/libs/agents/voice';
+import { TYPE_CODE_PATTERN } from '@/libs/codes';
 import { agentSkillsNameError } from '@/libs/skills/name';
 import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
@@ -46,6 +48,57 @@ const ActivationSelectorSchema = z.object({
   skills: z.array(z.string()).default([]),
   playbooks: z.array(z.string()).default([]),
 }).partial();
+
+/**
+ * Who a declared notification goes to (backlog 048). `accountable` is the
+ * workspace's accountable human (`accountableUser`), falling back to its
+ * admins when none is named; `admins` and `members` are the people who can
+ * open the workspace; `{ user: email }` names one person; `{ field }` reads a
+ * user id or an email off the event's payload.
+ */
+export const NotificationWhoSchema = z.union([
+  z.enum(['accountable', 'admins', 'members']),
+  z.object({ user: z.string().email() }).strict(),
+  z.object({ field: z.string().min(1) }).strict(),
+]);
+
+/**
+ * One `notifications:` entry — in a plugin's `plugin.yaml` or the workspace's
+ * `workspace.yaml`. Nothing notifies unless an entry says so (Chris,
+ * 2026-09-30: few, declared, typed): an event type, an optional payload
+ * filter with the same `===` rule automations use, who hears it, the title
+ * and body as `{field}` templates over the payload, the record it is about
+ * (its page is where the notification opens, unless `link` names an app
+ * path) and what makes two events one notification (`dedupe`, default the
+ * record). A workspace entry with a plugin entry's `kind` replaces it whole;
+ * `status: disabled` turns a plugin's kind off.
+ */
+export const NotificationRuleManifestSchema = z.object({
+  kind: SlugSchema,
+  label: z.string().min(1).max(60),
+  description: z.string().max(300).optional(),
+  status: z.enum(['active', 'disabled']).default('active'),
+  event: z.string().min(1),
+  filter: z.record(z.string(), z.unknown()).optional(),
+  who: z.union([NotificationWhoSchema, z.array(NotificationWhoSchema).min(1)]).default('accountable'),
+  title: z.string().min(1).max(200),
+  body: z.string().max(1000).optional(),
+  link: z.string().regex(/^\/[^/]/, 'link must be an app path starting with / (e.g. /dashboard/p/feature/{requestId}), never an outside URL').optional(),
+  record: z.object({ type: z.string().min(1), id: z.string().min(1) }).strict().optional(),
+  dedupe: z.string().min(1).max(200).optional(),
+}).strict();
+export type NotificationRuleManifest = z.infer<typeof NotificationRuleManifestSchema>;
+
+/** A `notifications:` list: kinds unique within one layer. */
+const NotificationListSchema = z.array(NotificationRuleManifestSchema).default([]).superRefine((rules, ctx) => {
+  const seen = new Set<string>();
+  for (const [i, rule] of rules.entries()) {
+    if (seen.has(rule.kind)) {
+      ctx.addIssue({ code: 'custom', path: [i, 'kind'], message: `notification kind "${rule.kind}" is declared twice — a kind is one entry` });
+    }
+    seen.add(rule.kind);
+  }
+});
 
 export const WorkspaceManifestSchema = z.object({
   version: z.literal(1).describe('manifest format version'),
@@ -216,6 +269,18 @@ export const WorkspaceManifestSchema = z.object({
    * are pulled in automatically. Omit for none.
    */
   plugins: z.array(SlugSchema).default([]),
+  /**
+   * Processes that run as durable workflows here instead of as automations
+   * reacting to events (backlog 054), e.g. `[factory]`: each record such a
+   * process owns has one workflow that owns its next step. Omit for none.
+   */
+  durable: z.array(SlugSchema).default([]),
+  /**
+   * The workspace's own notification kinds, and its overrides of a plugin's
+   * (same `kind` replaces it; `status: disabled` turns it off). See
+   * {@link NotificationRuleManifestSchema}. Omit for none.
+   */
+  notifications: NotificationListSchema,
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
 
@@ -231,6 +296,26 @@ export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
  * the connector slugs it works better with, so the same suggestion can say
  * which system to connect.
  */
+/**
+ * A factory plugin's roles, each the slug of an object type the plugin ships:
+ * the ask (`request`), the unit a worker builds (`task`), the approach a
+ * person approves before a build (`plan`), where a product runs
+ * (`environment`), what shipped (`release`), what is built (`product`), and
+ * the code it is built in (`repo`).
+ */
+export const FactoryManifestSchema = z.object({
+  types: z.object({
+    request: SlugSchema,
+    task: SlugSchema,
+    plan: SlugSchema,
+    environment: SlugSchema,
+    release: SlugSchema,
+    product: SlugSchema,
+    repo: SlugSchema,
+  }),
+});
+export type FactoryManifest = z.infer<typeof FactoryManifestSchema>;
+
 export const PluginManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().min(1),
@@ -256,6 +341,19 @@ export const PluginManifestSchema = z.object({
     when: z.array(z.string().min(1)).default([]),
     connectors: z.array(z.string().min(1)).default([]),
   }).default({ when: [], connectors: [] }),
+  /**
+   * The moments this plugin tells a person about — the only events that
+   * notify while it is on. Few on purpose: noise is the failure (backlog 048).
+   * See {@link NotificationRuleManifestSchema}.
+   */
+  notifications: NotificationListSchema,
+  /**
+   * The object types a factory plugin's records are, by role (backlog 045).
+   * Core's factory services read their type slugs from here
+   * (`libs/factory/types.ts`) and never name one in code, so a plugin that
+   * calls its work item something else runs the same loop.
+   */
+  factory: FactoryManifestSchema.optional(),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
@@ -656,6 +754,8 @@ export const AgentManifestSchema = z.object({
   team: z.string().optional(),
   model: z.string().optional(),
   temperature: z.union([z.string(), z.number()]).optional(),
+  /** How it talks in chat: length, narration, creativity, a style page (`libs/agents/voice.ts`). */
+  voice: VoiceSchema.optional(),
   systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
   systemPrompt: z.string().optional().describe('inline system prompt — prefer systemPromptFile for long prompts'),
   skills: z.array(z.string()).default([]).describe('skill slugs this agent can invoke'),
@@ -835,6 +935,12 @@ export const AgentManifestSchema = z.object({
      */
     grantTools: z.array(z.string()).default([]),
     model: z.string().optional(),
+    /**
+     * How hard the model thinks: low, medium, high, max. An external worker
+     * passes it to its model (`seatModelPolicy` puts it on the contract's
+     * `model_policy`); without this key the applier dropped it silently.
+     */
+    effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
      * Ask the vendor to cache this agent's prompt prefix, or forbid it.
@@ -862,6 +968,14 @@ export const AgentManifestSchema = z.object({
      * mode and it stops calling the tool (observed 3→0 card regression).
      */
     recommendActionBackstop: z.boolean().optional(),
+    /**
+     * How many times one turn may go on while it is making progress — each
+     * pass making calls it has not made before — when it has not answered
+     * yet or ended on a promise (Chris, 2026-09-29: "if we are making real
+     * progress maybe we need higher retry limits"). A pass that repeats
+     * itself or makes no call ends it whatever this says. Default 6.
+     */
+    maxContinuations: z.number().int().min(0).max(20).optional(),
     /**
      * Action kinds this agent earns trust for on its OWN ledger. A proposal
      * of a listed kind keys the autonomy ladder on `<kind>.<agent-slug>`
@@ -1164,6 +1278,15 @@ export type OperatingIntentManifest = z.infer<typeof OperatingIntentManifestSche
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().optional(),
+  /**
+   * What one finished run of it did, past tense, as a list row reads it:
+   * "Checked it live", "Drew the mockup", "QA reviewed". Every list of runs
+   * titles a run with it (`libs/factory/runTitle.ts`) instead of the run's
+   * stored title, which is plumbing. Absent, the name.
+   */
+  label: z.string().min(1).max(60).optional(),
+  /** The same while a run is going: "Checking it live". Absent, the name. */
+  doing: z.string().min(1).max(60).optional(),
   description: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
   /**
@@ -1362,6 +1485,10 @@ export type GateRequirementManifest = {
   allItems?: { field: string; equals: string | number | boolean; label?: string };
   anyOf?: GateRequirementManifest[];
   if?: { field: string; oneOf: string[] };
+  unless?: { field: string; oneOf: string[] };
+  notMatches?: { pattern: string; flags?: string };
+  /** The sources at `field` include the page `includes` resolves to, read in the writing turn (`GateTurn`). */
+  readThisTurn?: { includes?: string };
   valueMessages?: Record<string, string>;
   missingMessage?: string;
   message?: string;
@@ -1375,10 +1502,24 @@ const GateRequirementSchema: z.ZodType<GateRequirementManifest> = z.lazy(() => z
   allItems: z.object({ field: z.string().min(1), equals: z.union([z.string(), z.number(), z.boolean()]), label: z.string().min(1).optional() }).optional(),
   anyOf: z.array(GateRequirementSchema).min(2).optional(),
   if: z.object({ field: z.string().min(1), oneOf: z.array(z.string()).min(1) }).optional(),
+  unless: z.object({ field: z.string().min(1), oneOf: z.array(z.string()).min(1) }).optional(),
+  /** A text value must not match: the words that do not belong in a field, as one pattern a test can hold. */
+  notMatches: z.object({
+    pattern: z.string().min(1).refine((p) => {
+      try {
+        void new RegExp(p);
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'not a valid regular expression'),
+    flags: z.string().regex(/^[imsu]*$/, 'flags may be i, m, s, u').optional(),
+  }).optional(),
+  readThisTurn: z.object({ includes: z.string().regex(/^\w+\.\w+$/, 'includes is <link field>.<field on the linked record>, e.g. product.capabilitiesPage').optional() }).optional(),
   valueMessages: z.record(z.string(), z.string()).optional(),
   missingMessage: z.string().optional(),
   message: z.string().optional(),
-}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems or anyOf' }));
+}).refine(r => r.present || r.minItems !== undefined || r.oneOf || r.maxAgeDays !== undefined || r.allItems || r.anyOf || r.notMatches || r.readThisTurn, { message: 'a requirement needs present, minItems, oneOf, maxAgeDays, allItems, anyOf, notMatches or readThisTurn' }));
 
 /**
  * The judgement half of a gate: after the deterministic checks pass, one
@@ -1399,7 +1540,9 @@ export const GateJudgeSchema = z.object({
 
 export const HandoffGateSchema = z.object({
   name: z.string().min(1),
-  when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1) }),
+  /** A transition (`becomes`), or every write that sets the field (`written: true`). */
+  when: z.object({ field: z.string().min(1), becomes: z.array(z.string().min(1)).min(1).optional(), written: z.literal(true).optional() })
+    .refine(w => (w.becomes !== undefined) !== (w.written === true), { message: 'a gate runs on a transition (becomes) or on every write of the field (written: true), one of the two' }),
   producedBy: z.string().min(1).describe('the agent slug whose work this is — where a failure is returned'),
   require: z.array(GateRequirementSchema).min(1),
   judge: GateJudgeSchema.optional(),
@@ -1410,6 +1553,13 @@ export const ObjectTypeManifestSchema = z.object({
   label: z.string(),
   description: z.string().optional(),
   icon: z.string().optional(),
+  /**
+   * The prefix a person reads this type's records by: `code: FE` makes record
+   * 294 read FE-294 in the app and in chat (`libs/codes.ts`). 2–5 uppercase
+   * letters, unique within the workspace, never a core noun's (RUN, ACT, ASK,
+   * CHAT, ART, AUTO). Absent, one is derived from the slug.
+   */
+  code: z.string().regex(TYPE_CODE_PATTERN, 'a code is 2–5 uppercase letters, e.g. FE').optional(),
   schema: z.record(z.string(), z.unknown()).optional().describe('JSON Schema for metadata shape'),
   sourceRelevance: z.record(z.string(), z.number()).optional(),
   classificationPromptFile: z.string().optional(),
@@ -1779,7 +1929,7 @@ export const SourceManifestSchema = z.object({
   /** Resolved per-connector config (validated against the connector\'s configSchema at apply time). */
   config: z.record(z.string(), z.unknown()).default({}),
   /**
-   * Sync schedule (cron expression) for Temporal scheduled syncs. When
+   * Sync schedule (cron expression) for durable scheduled syncs. When
    * omitted, the source only syncs on manual trigger via /dashboard/connectors.
    */
   schedule: z.string().optional().describe('Cron expression for scheduled sync. Manual-only when omitted.'),

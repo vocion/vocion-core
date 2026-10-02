@@ -147,3 +147,64 @@ describe('source-gated tools over the endpoint', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+/**
+ * What a turn on the container carries back on each tool call.
+ *
+ * The in-process harness builds its tools on a context that knows the mission
+ * run, the person's zone, the page they are on and which plugins the workspace
+ * has on. This endpoint rebuilds that context per call, from the claim and the
+ * database, and it used to rebuild less of it: a mission run's calls landed on
+ * no run, and the wiki tools (built only when the `wiki` plugin is listed)
+ * did not exist at all for an agent on the container.
+ */
+describe('executeToolCall — the context a container turn gets back', () => {
+  it('hands the tool the page the claim was signed with', async () => {
+    const pageContext = { path: '/dashboard/p/feature/40', title: 'Feature 40' };
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'helper', pageContext });
+
+    const result = await executeToolCall({ token, tool: 'page_context', input: {} });
+
+    expect(result.ok).toBe(true);
+    expect(JSON.parse((result as { output: string }).output)).toMatchObject({ present: true, path: '/dashboard/p/feature/40' });
+  });
+
+  it('records the call against the mission run the claim names', async () => {
+    const { toolCallSchema } = await import('@/models/Schema');
+    await db.delete(toolCallSchema);
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'helper', missionRunId: 4242 });
+
+    await executeToolCall({ token, tool: 'page_context', input: {} });
+
+    await vi.waitFor(async () => {
+      const rows = await db.select().from(toolCallSchema);
+
+      expect(rows.map(r => r.missionRunId)).toEqual([4242]);
+    });
+  });
+
+  it('offers the wiki when the workspace has the wiki plugin on', async () => {
+    const PluginService = await import('@/services/PluginService');
+    const spy = vi.spyOn(PluginService, 'enabledPluginsForOrg').mockResolvedValue(['wiki']);
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'helper' });
+
+    const result = await executeToolCall({ token, tool: 'list_wiki_pages', input: {} });
+
+    expect(result.ok).toBe(true);
+    expect(spy).toHaveBeenCalledWith(ORG_A);
+
+    spy.mockRestore();
+  });
+
+  it('still has no wiki when the plugin is off', async () => {
+    const PluginService = await import('@/services/PluginService');
+    const spy = vi.spyOn(PluginService, 'enabledPluginsForOrg').mockResolvedValue([]);
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'helper' });
+
+    const result = await executeToolCall({ token, tool: 'list_wiki_pages', input: {} });
+
+    expect(result).toEqual({ ok: false, status: 404, error: 'unknown tool: list_wiki_pages' });
+
+    spy.mockRestore();
+  });
+});

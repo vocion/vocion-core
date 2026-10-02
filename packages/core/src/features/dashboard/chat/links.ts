@@ -76,6 +76,12 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
  * resolver; everything else navigates as before.
  * @param link - A classified dashboard link.
  */
-export function previewRefFor(link: DashboardLink): { type: 'object'; id: string } | null {
+export function previewRefFor(link: DashboardLink): { type: 'object' | 'record_history'; id: string } | null {
+  // A version in a record's history (`libs/versions/versionRef.ts`): the
+  // "Changed …" line peeks the history at that version beside the chat.
+  const history = /[?&]preview=record_history(?::|%3A)([\d@%]+)(?:&|#|$)/i.exec(link.href);
+  if (history) {
+    return { type: 'record_history', id: decodeURIComponent(history[1]!) };
+  }
   return link.kind === 'room' && link.id ? { type: 'object', id: link.id } : null;
 }

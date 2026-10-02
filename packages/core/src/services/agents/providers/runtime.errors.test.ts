@@ -25,7 +25,10 @@ const mintBedrockSessionForRuntime = vi.fn(async () => null);
 const chargeUsage = vi.fn(async () => {});
 const preflightCheck = vi.fn(async (): Promise<unknown> => ({ ok: true }));
 vi.mock('@/libs/llm/bedrockCredentials', () => ({ mintBedrockSessionForRuntime }));
-vi.mock('@/services/agents/harness', () => ({ buildInitialFiles: vi.fn(async () => ({})) }));
+vi.mock('@/services/agents/harness', () => ({
+  buildInitialFiles: vi.fn(async () => ({})),
+  buildAgentDefinition: vi.fn(async () => ({ agentRow: {}, systemPrompt: 'Be helpful.', subagentSpecs: [], defaultTimeZone: 'UTC', enabledPlugins: [] })),
+}));
 vi.mock('@/services/agents/tools/registry', () => ({ buildToolCatalog: vi.fn(() => []) }));
 vi.mock('@/services/agents/claims', () => ({ signClaim: vi.fn(() => 'signed-claim') }));
 vi.mock('@/services/BudgetService', () => ({ chargeUsage, preflightCheck }));

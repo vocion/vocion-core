@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { jsonError } from '@/app/api/v1/_shared';
 import { auth } from '@/libs/Auth';
-import { accountForUser, listProjectsForUser } from '@/services/ProjectService';
+import { accountsForUser, listProjectsForUser } from '@/services/ProjectService';
 
 /**
  * `GET /api/mobile/workspaces` — the native workspace picker's list.
@@ -13,6 +13,12 @@ import { accountForUser, listProjectsForUser } from '@/services/ProjectService';
  *
  * `active` is the workspace a bare `/dashboard` would land in, so a first
  * launch can pre-select it.
+ *
+ * Only the account the session is in. A person in two accounts can hold the
+ * same slug in both, and the share route names a workspace by slug alone, so
+ * listing the other account here would offer a target the share could resolve
+ * to the wrong one. The web switcher is where accounts are switched
+ * (vocion-core#128).
  */
 export async function GET() {
   const session = await auth();
@@ -20,7 +26,9 @@ export async function GET() {
   if (!user?.id) {
     return jsonError('UNAUTHORIZED', 'Sign in first', 401);
   }
-  const [projects, account] = await Promise.all([listProjectsForUser(user.id), accountForUser(user.id)]);
+  const [everyProject, accounts] = await Promise.all([listProjectsForUser(user.id), accountsForUser(user.id)]);
+  const projects = everyProject.filter(p => p.accountId === user.accountId);
+  const account = accounts.find(a => a.id === user.accountId) ?? null;
   const active = projects.find(p => p.id === user.projectId)?.slug ?? null;
   return NextResponse.json(
     {

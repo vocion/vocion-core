@@ -30,7 +30,7 @@ describe('toolsMarker', () => {
       { type: 'card', label: 'File this as a request', actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'Uploads drop on cellular and the file is gone' }, runId: 3691 },
     ];
 
-    expect(toolsMarker(runs)).toBe('\n\n[Earlier in this turn you ran: lookup_objects{type_slug: request} → 0 rows. And you put up a card: "File this as a request" → objects.propose_candidate "Uploads drop on cellular and the file is gone" (proposal #3691). "Approve", "file it" or "go ahead" means THAT card — decide it or make its call, never a different record]');
+    expect(toolsMarker(runs)).toBe('\n\n[Earlier in this turn you ran: lookup_objects{type_slug: request} → 0 rows. And you put up a card: "File this as a request" → objects.propose_candidate "Uploads drop on cellular and the file is gone" (proposal #3691). "Approve", "go", "file it" or "go ahead" means THAT card when it is still waiting — decide it or make its call, never a different record; a card that ran is done]');
     expect(toolsMarker([{ type: 'card', label: 'Roll back 912e4be0', actionId: 'deploy.release' }])).toContain('you put up a card: "Roll back 912e4be0" → deploy.release.');
   });
 });
@@ -74,8 +74,22 @@ describe('historyMessages', () => {
 
     const long = historyMessages({ role: 'assistant', content: 'Done.', runs: [{ type: 'tool', name: 't', input: {}, output: 'x'.repeat(5000) }] });
 
-    expect((long[1] as { content: string }).content.length).toBe(1200);
-    expect((long[1] as { content: string }).content.endsWith('…')).toBe(true);
+    expect((long[1] as { content: string }).content.startsWith(`${'x'.repeat(1199)}…`)).toBe(true);
+  });
+
+  it('says a cut replay is a cut, never an absence', () => {
+    // Conversation 364 (2026-09-29): request #224's read was 3,452 characters,
+    // its history began at 1,225, and the next turn — seeing only 1,200 —
+    // said the gate that had fired twice "wasn't in the record".
+    const cut = historyMessages({ role: 'assistant', content: 'Done.', runs: [{ type: 'tool', name: 'read_object', input: { id: 224 }, output: 'x'.repeat(3452) }] });
+    const content = (cut[1] as { content: string }).content;
+
+    expect(content).toContain('[cut on replay:');
+    expect(content).toContain('Read it again before saying it is not there.');
+
+    const whole = historyMessages({ role: 'assistant', content: 'Done.', runs: [{ type: 'tool', name: 'read_object', input: { id: 224 }, output: 'short' }] });
+
+    expect((whole[1] as { content: string }).content).toBe('short');
   });
 
   it('flattens to the one-line marker for the loops that take text only', () => {
@@ -85,7 +99,7 @@ describe('historyMessages', () => {
     ]);
 
     expect(flat[0]).toEqual({ role: 'user', content: 'what is up' });
-    expect(flat[1]?.content).toBe('Filed.\n\n[Earlier in this turn you put up a card: "File it" → objects.propose_candidate (proposal #7). "Approve", "file it" or "go ahead" means THAT card — decide it or make its call, never a different record]');
+    expect(flat[1]?.content).toBe('Filed.\n\n[Earlier in this turn you put up a card: "File it" → objects.propose_candidate (proposal #7). "Approve", "go", "file it" or "go ahead" means THAT card when it is still waiting — decide it or make its call, never a different record; a card that ran is done]');
   });
 
   it('a card that ran says what it created, so the next turn reads the record instead of asking for its id', () => {

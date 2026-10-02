@@ -1,31 +1,31 @@
+# A FACTORY PULL REQUEST WHOSE CI FAILED IS ANSWERED (Chris,
+# 2026-09-30, #269: "Why is it stuck? Why did chat lie and not try to progress
+# it"). QA starts only on a green CI, so a red one left the task "awaiting
+# review" with nothing running for seven hours. This file used to wake the PM
+# on a `ci.check_failed` event nothing emitted; it now answers the event the
+# GitHub intake does emit, and the answer is deterministic: the attempt is
+# built again at once, carrying the failing checks and what GitHub's
+# annotations say, on the same per-stage limit (services/factory/ciFailed.ts).
+#
+# 2.25.0 (backlog 049): why it is red decides where it goes. A typed read of
+# GitHub's evidence says the change broke it (back to the engineer), a flaky
+# test (the failed jobs re-run once), a red default branch (one fix on it for
+# every pull request behind it) or the pipeline (an ask to its owner, the
+# Release engineer).
 slug: factory-ci-failure
-name: A failed check reopens the task
+name: A failed check is answered
 description: >-
-  The intake shape, as the smallest useful case: an event says a check failed
-  on a branch the factory pushed, and the PM turns that into the next
-  attempt rather than waiting for a person to notice.
-  The event name is whatever the deployment's intake emits — core ships no CI
-  adapter, so a workspace overrides this file by slug to name its own event and
-  filter. The PM still decides; the event only wakes it.
+  When the checks on a factory pull request finish without passing, read why
+  and answer it — back to the engineer, a re-run once, one fix on the default
+  branch, or an ask to the pipeline's owner — instead of leaving it waiting on
+  a review that never starts.
 status: active
-agent: product-manager
+agent: release-engineer
 when:
-  event: ci.check_failed
+  event: pr.checks_completed
   filter:
     conclusion: failure
 do:
-  checkMission: close-the-gap
-  prompt: >-
-    A required check failed. Find the engineering task whose branch or pull
-    request carries it, read the check's output, and decide: dispatch the next
-    attempt with the failing check named in the contract and what you now know
-    written into it — never raising the attempt without adding something the
-    previous contract did not say — or, on the third failed attempt, or when
-    the failure says the contract was wrong rather than the work, STOP
-    dispatching and escalate: write `blocker` on the request (what is failing,
-    owner: the product owner, next: decide), and file ONE ask for the product
-    owner carrying what failed and why, what each attempt tried, and your
-    revised recommendation — narrow the scope, change the approach, or answer
-    the asker honestly instead. An approved commitment is never turned into a
-    no by the factory on its own (review, 2026-09-24). Report: PR, task,
-    failing checks, attempt, what you did.
+  job: factory-ci-failed
+  input:
+    owner: release-engineer

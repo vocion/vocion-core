@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clockLine, dayDistance, dayKey, dayPlus, formatDateTime, isoInZone, isValidTimeZone, resolveTimeZone, sameDay, startOfDay, zoneOffsetMinutes } from './zone';
+import { clockLine, dayDistance, dayKey, dayPlus, formatDateTime, instantInZone, isoInZone, isValidTimeZone, resolveTimeZone, sameDay, startOfDay, zoneOffsetMinutes } from './zone';
 
 const LA = 'America/Los_Angeles';
 // Thu 2026-09-17 17:30 PDT = Fri 2026-09-18 00:30 UTC — the moment the UTC day had already flipped on Chris.
@@ -63,5 +63,20 @@ describe('time zones', () => {
     expect(line).toContain('NOW: Fri, Sep 18, 2026, 5:01 AM PDT (America/Los_Angeles)');
     expect(line).toContain('2026-09-18T12:01:36.000Z UTC');
     expect(line).toContain('Today is Fri, Sep 18, 2026');
+  });
+});
+
+describe('instantInZone', () => {
+  it('reads a wall-clock time in a zone as the instant it names', () => {
+    expect(instantInZone('2026-10-01T15:00:00', 'America/New_York').toISOString()).toBe('2026-10-01T19:00:00.000Z');
+    expect(instantInZone('2026-11-05T15:00:00', 'America/New_York').toISOString()).toBe('2026-11-05T20:00:00.000Z');
+    expect(instantInZone('2026-10-01T15:00:00', 'UTC').toISOString()).toBe('2026-10-01T15:00:00.000Z');
+  });
+
+  it('answers an invalid date for a time no clock shows, rather than throwing', () => {
+    expect(Number.isNaN(instantInZone('2026-13-40T19:30:00', 'America/New_York').getTime())).toBe(true);
+    expect(Number.isNaN(instantInZone('2026-02-31T19:30:00', 'America/New_York').getTime())).toBe(true);
+    expect(Number.isNaN(instantInZone('2026-10-01T24:00:00', 'America/New_York').getTime())).toBe(true);
+    expect(Number.isNaN(instantInZone('0050-01-05T15:00:00', 'America/New_York').getTime())).toBe(true);
   });
 });

@@ -27,4 +27,11 @@ describe('the card contract', () => {
     expect(readCard({ id: 'c', kind: 'gate-verdict', title: 'Returned to PM' })).toEqual({ ok: false, reason: 'a gate verdict names its gate' });
     expect(readCard({ id: 'c', kind: 'gate-verdict', title: 'Returned to PM', fields: [{ label: 'Gate', value: 'decision-ready' }] })).toMatchObject({ ok: true });
   });
+
+  it('carries the page of the record a card is about, both ways', () => {
+    const card = cardFromRecommendation({ actionId: 'factory.dispatch_task', input: { requestId: 201 }, label: 'Approve build: link expiry', href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' }, 'card_2');
+
+    expect(card).toMatchObject({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
+    expect(recommendationFromCard(card)).toMatchObject({ href: '/w/kestrel/dashboard/p/feature/201', hrefLabel: 'Open feature' });
+  });
 });

@@ -38,13 +38,15 @@ import { Buffer } from 'node:buffer';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { mintBedrockSessionForRuntime } from '@/libs/llm/bedrockCredentials';
+import { clockLine, resolveTimeZone } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
 import { chargeUsage } from '@/services/BudgetService';
 import { conversationSessionId } from '@/services/evals/sessionIds';
 import { TurnBudgetGuard } from '../budgetStop';
 import { signClaim } from '../claims';
-import { buildInitialFiles } from '../harness';
+import { buildAgentDefinition, buildInitialFiles } from '../harness';
 import { memoryMountPaths } from '../memoryDigest';
+import { runtimeContextFromScope } from '../runtimeContext';
 import { buildToolCatalog } from '../tools/registry';
 
 /**
@@ -70,8 +72,14 @@ export type RuntimeRunOptions = {
   userId?: string;
   allowedSourceSlugs?: string[];
   missionSlug?: string;
+  /** The mission_run driving this turn — carried in the claim so the tool calls it makes are the run's. */
+  missionRunId?: number;
   /** Persisted conversation id — keys the AgentCore Memory session (Phase 5). */
   conversationId?: number;
+  /** The person's zone for this turn; the workspace's when absent. */
+  timeZone?: string;
+  /** Where the person is in the app — carried in the claim for `page_context` and record-scoped tools. */
+  pageContext?: import('@/services/chat/pageContext').PageContext;
   /**
    * What this turn's spans are grouped under, as `session.id`.
    *
@@ -109,21 +117,28 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     throw new Error(`agent ${opts.agentSlug} not found`);
   }
 
+  // The SAME definition the in-process loop compiles: the system prompt with
+  // the shared rules appended (clock, output discipline, capabilities,
+  // initiative, operating intent) and the delegation roster derived from the
+  // registry. The container used to get the bare `system_prompt` column and
+  // the deprecated inline `subagents`, which made a lead that moved here
+  // unable to reach its own team.
+  const definition = await buildAgentDefinition(opts.orgId, opts.agentSlug);
+  const timeZone = resolveTimeZone(opts.timeZone, definition.defaultTimeZone);
+
   // The catalog needs the same ctx shape the endpoint rebuilds at
-  // execution time — descriptions embed source/operation lists.
-  const catalog = buildToolCatalog({
-    orgId: opts.orgId,
+  // execution time — descriptions embed source/operation lists, and
+  // plugin-owned tools exist only when their plugin is on. The definition
+  // already carries the resolved scope, so nothing is read twice.
+  const catalog = buildToolCatalog(runtimeContextFromScope(opts.orgId, row, definition, {
     userId: opts.userId,
-    citationSeq: { current: 0 },
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    searchConfig: (row.searchConfig as never) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
-    emit: () => {},
-  });
+    missionRunId: opts.missionRunId,
+    timeZone,
+    pageContext: opts.pageContext,
+    conversationId: opts.conversationId,
+  }));
 
   const claim = signClaim({
     orgId: opts.orgId,
@@ -131,7 +146,10 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     userId: opts.userId,
     allowedSourceSlugs: opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
+    missionRunId: opts.missionRunId,
     conversationId: opts.conversationId,
+    timeZone,
+    pageContext: opts.pageContext,
   });
 
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
@@ -190,13 +208,13 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     agent: {
       slug: row.slug,
       name: row.name,
-      systemPrompt: row.systemPrompt,
+      systemPrompt: definition.systemPrompt ?? row.systemPrompt,
       model: hc.model,
       temperature: row.temperature ? Number(row.temperature) : undefined,
       maxTokens: hc.maxTokens,
       // Absent when unset, so the runtime keeps deepagents' own limit.
       ...(hc.maxSteps ? { maxSteps: hc.maxSteps } : {}),
-      subagents: (row.subagents ?? []).map(s => ({
+      subagents: definition.subagentSpecs.map(s => ({
         name: s.name,
         description: s.description,
         systemPrompt: s.systemPrompt,
@@ -208,7 +226,10 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       // `chatModelOptionsFor` keeps on the in-process loop.
       ...(hc.promptCache !== undefined ? { promptCache: hc.promptCache } : {}),
     },
-    message: opts.message,
+    // NOW rides on the turn, exactly as on the in-process loop (`clockLine`
+    // in `runAgentDeep`): the prompt's clock rules say what to do with it, and
+    // a turn that carries no date cannot tell a stale document from today's.
+    message: `${clockLine(new Date(), timeZone)}\n\n${opts.message}`,
     ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
     conversationHistory: omitHistory ? undefined : opts.conversationHistory,

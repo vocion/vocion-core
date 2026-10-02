@@ -7,13 +7,22 @@
  * peek uses: a side panel at a desk, a bottom sheet on a phone, linkable,
  * closed by Back, never stacked (principle 6).
  *
+ * EACH THING SAID ONCE (Chris, 2026-09-28, on #126: "what should be on this
+ * preview pane?"). The pane's header already carries the title, so a drawer
+ * never prints it again; its one line under the title is the status, so the
+ * facts and the body never repeat it; a reason is listed where it is named,
+ * never "listed below"; and every reference is a link in words to the thing
+ * itself — a run, the plan record, the pull request — never a bare id.
+ *
  * Pure: a report in, the pane's content out, so what a drawer says is tested
- * from fixtures (`featureDrawer.test.ts`). Nothing is dropped on the way to a
- * drawer — every section the report assembles is reachable from one.
+ * from fixtures (`featureDrawer.test.ts`). What a drawer leaves out is one
+ * link away: the plan record, the run page, the release.
  */
 
-import type { FeatureDrawerKey, FeatureReport, ReportEntry, ReportSection, TimelineEntry } from './featureReport';
-import { formatAge, formatStamp, money } from './featureReport';
+import type { FeatureDrawerKey, FeatureReport, HistoryCost, HistoryRow, ReportAttempt, ReportCheck, ReportEntry, ReportSection } from './featureReport';
+import { nounCode } from '@/libs/codes';
+import { historyCostLine } from './featureHistory';
+import { formatStamp, money } from './featureReport';
 
 /** What a drawer shows: the pane's heading, one line under it, a few facts and the body. */
 export type FeatureDrawer = {
@@ -21,9 +30,17 @@ export type FeatureDrawer = {
   subtitle?: string;
   facts?: Array<{ label: string; value: string }>;
   body: string;
+  /** The full page of what this drawer summarises (the plan record, the latest run), for the pane's link out. */
+  href?: string;
+  /**
+   * The Timeline, drawn in the pane by the same component the page draws it
+   * with, at full density (`FeatureTimeline`). The body is the same list as
+   * text, for a surface that reads a drawer plainly.
+   */
+  timeline?: { rows: HistoryRow[]; cost: HistoryCost };
 };
 
-const DRAWER_KEY = /^(?:status|plan|implementation|acceptance|release|activity|work|cost|details|criterion-\d+)$/;
+const DRAWER_KEY = /^(?:status|plan|implementation|acceptance|release|timeline|activity|work|cost|details|criterion-\d+)$/;
 
 /**
  * Read `<requestId>.<key>` back into its parts, or null for anything else.
@@ -60,6 +77,37 @@ function peek(type: string, id: number | string): string {
 }
 
 /**
+ * An engineering run's own page.
+ * @param runId - The run.
+ */
+function runPage(runId: number): string {
+  return `/dashboard/p/runs/${runId}`;
+}
+
+/**
+ * A pull request as words: `northwind-portal#12`, else the link as it is.
+ * @param url - The pull request URL.
+ */
+function prName(url: string): string {
+  const m = /github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/.exec(url);
+  return m ? `${m[1]}#${m[2]}` : url;
+}
+
+/**
+ * Clauses as one sentence: "a", "a and b", "a; b; and c".
+ * @param items - The clauses.
+ */
+function joinClauses(items: string[]): string {
+  if (items.length <= 1) {
+    return items[0] ?? '';
+  }
+  if (items.length === 2) {
+    return `${items[0]} and ${items[1]}`;
+  }
+  return `${items.slice(0, -1).join('; ')}; and ${items.at(-1)}`;
+}
+
+/**
  * An evidence link as a peek when it names something the pane can show (an
  * artifact, a run), so opening the evidence swaps the pane rather than
  * leaving the page. Anything else stays the link it is.
@@ -92,22 +140,26 @@ function entryMd(e: ReportEntry): string {
 }
 
 /**
- * A whole section as markdown, nothing left out.
+ * A whole section as markdown.
  * @param s - The section.
- * @param heading - Whether to print the section's own title.
+ * @param opts - What to leave out because the drawer already says it.
+ * @param opts.heading - Whether to print the section's own title.
+ * @param opts.absence - Whether to print the "it did not happen" sentence.
+ * @param opts.omit - Fact labels the drawer already carries.
  */
-function sectionMd(s: ReportSection | undefined, heading = true): string {
+function sectionMd(s: ReportSection | undefined, opts: { heading?: boolean; absence?: boolean; omit?: readonly string[] } = {}): string {
   if (!s) {
     return '';
   }
+  const { heading = true, absence = true, omit = [] } = opts;
   const parts: string[] = [];
   if (heading) {
     parts.push(`## ${s.title}`);
   }
-  if (s.absence) {
+  if (s.absence && absence) {
     parts.push(s.absence);
   }
-  const facts = s.facts.filter(f => f.value !== null && !EMPTY.test(f.value.trim()));
+  const facts = s.facts.filter(f => f.value !== null && !EMPTY.test(f.value.trim()) && !omit.includes(f.label));
   if (facts.length > 0) {
     parts.push(facts.map(f => (f.format === 'quote' ? `**${f.label}**\n\n> ${f.value!.replace(/\n/g, '\n> ')}` : `- **${f.label}:** ${f.href ? `[${f.value}](${f.href})` : f.value}`)).join('\n'));
   }
@@ -126,16 +178,58 @@ function sectionMd(s: ReportSection | undefined, heading = true): string {
   for (const f of s.flags) {
     parts.push(`> ${f}`);
   }
-  return parts.join('\n\n');
+  return parts.length === (heading ? 1 : 0) ? '' : parts.join('\n\n');
 }
 
 /**
- * One timeline entry as a line.
- * @param e - The entry.
+ * One Timeline row as a line, its rows under it indented: the title as a
+ * link to what it opens, its code, when, and what it cost.
+ * @param r - The row.
+ * @param depth - How deep it sits.
  */
-function timelineLine(e: TimelineEntry): string {
-  const title = e.href ? `[${e.title}](${e.href})` : e.title;
-  return `- **${formatStamp(e.at)}**${e.cents !== null ? ` · ${money(e.cents)}` : ''} — ${title}${e.detail ? `\n  ${e.detail.replace(/\s+/g, ' ').slice(0, 280)}` : ''}`;
+function historyLine(r: HistoryRow, depth = 0): string {
+  const href = r.open ? peek(r.open.type, r.open.id) : r.href;
+  const title = href ? `[${r.title}](${href})` : r.title;
+  const meta = [r.code, r.at ? formatStamp(new Date(r.at)) : null, r.cents !== null ? money(r.cents) : null].filter(Boolean).join(' · ');
+  const line = `${'  '.repeat(depth)}- ${title}${meta ? ` · ${meta}` : ''}`;
+  const notes = (r.notes ?? []).map(n => `${'  '.repeat(depth + 1)}- _${n.replace(/\s+/g, ' ').slice(0, 280)}_`);
+  return [line, ...notes, ...(r.children ?? []).map(c => historyLine(c, depth + 1))].join('\n');
+}
+
+/**
+ * What an attempt's checks reported, in one clause.
+ * @param checks - The checks.
+ */
+function checksLine(checks: ReportCheck[]): string {
+  if (checks.length === 0 || checks.every(c => c.passed === null)) {
+    return 'none reported';
+  }
+  const failed = checks.filter(c => c.passed === false).map(c => c.name);
+  const passed = checks.filter(c => c.passed === true).length;
+  return [
+    failed.length > 0 ? `${failed.length} failed (${failed.join(', ')})` : null,
+    passed > 0 ? `${passed} passed` : null,
+  ].filter(Boolean).join(', ');
+}
+
+/**
+ * One attempt: its outcome as a link to its run page, then the PR, the
+ * checks and why it stopped.
+ * @param a - The attempt.
+ * @param n - Its number, oldest = 1.
+ * @param of
+ */
+function attemptMd(a: ReportAttempt, of: number): string {
+  // A run as a row, opening in the pane: its status, its number, which
+  // attempt it was (Chris, 2026-09-29: "the summary should indicate active
+  // runs as rows").
+  const head = `**[${nounCode('run', a.runId)} · ${a.outcome}](${peek('worker_run', a.runId)})** · attempt ${a.n} of ${Math.max(of, a.n)} · ${formatStamp(a.at)}${a.cents !== null ? ` · ${money(a.cents)}` : ''}`;
+  const lines = [
+    a.prUrl ? `- Pull request: [${prName(a.prUrl)}](${a.prUrl})` : null,
+    a.executed ? `- Checks: ${checksLine(a.checks)}` : null,
+    a.why && a.outcome !== 'Completed' ? `- Why it stopped: ${a.why}` : null,
+  ].filter(Boolean);
+  return [head, ...lines].join('\n');
 }
 
 /**
@@ -143,131 +237,160 @@ function timelineLine(e: TimelineEntry): string {
  * (a criterion past the end of the list).
  * @param report - The assembled report.
  * @param key - Which drawer.
- * @param now - The clock, for "2 days ago".
  */
-export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now: Date = new Date()): FeatureDrawer | null {
+export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey): FeatureDrawer | null {
   const section = (k: string) => report.sections.find(s => s.key === k);
-  const ago = (d: Date) => formatAge(now.getTime() - d.getTime());
-  const name = report.title;
+  const self = (k: FeatureDrawerKey) => peek('feature_section', featureDrawerId(report.requestId, k));
   switch (key) {
     case 'status': {
       const notices = report.notices.map(n => `### ${n.known}\n\n${n.blocks}\n\n> As recorded: ${n.evidence}`).join('\n\n');
       return {
-        title: `Delivery status · ${name}`,
+        title: 'Delivery status',
         subtitle: report.status.sentence,
-        facts: report.implementation.ladder.map(s => ({ label: s.label, value: s.value })),
         body: [
-          `**Where it is:** ${report.status.headline}.`,
           report.state.question ? `**On the record:** ${report.state.question}` : '',
-          notices ? `## What the records disagree about\n\nNothing here was resolved for you: both facts are shown as recorded.\n\n${notices}` : 'The records agree with each other.',
+          notices ? `## What the records disagree about\n\nNothing here was resolved for you: both facts are shown as recorded.\n\n${notices}` : '',
           `## Stage\n\n${report.lifecycle.map(s => `- ${s.label}: ${s.state === 'done' ? 'done' : s.state === 'now' ? '**now**' : 'not yet'}`).join('\n')}`,
         ].filter(Boolean).join('\n\n'),
       };
     }
     case 'plan': {
       const p = report.planSummary;
-      const approvals = [
-        ...report.timeline.filter(e => e.kind === 'plan' || e.kind === 'decision').map(timelineLine),
-      ];
+      // ONE status line: where the plan stands, who decided, when.
+      const statusLine = p.status === null
+        ? p.absence ?? 'No plan yet.'
+        : [
+            p.status === 'Approved' && p.approver ? `Approved by ${p.approver}` : p.status,
+            p.approvedAt ? formatStamp(p.approvedAt) : null,
+          ].filter(Boolean).join(' · ');
+      // ONE sentence on why a plan was needed, with the reasons in it.
+      const why = p.reasons.length > 0
+        ? `A plan was required because ${joinClauses(p.reasons)}.`
+        : p.requirement?.startsWith('Optional')
+          ? 'A plan was optional here; it could be skipped with a written reason.'
+          : p.requirement === 'No' ? 'The plan rule did not require one.' : '';
+      const record = p.href;
       return {
-        title: `Plan · ${name}`,
-        subtitle: p.scope ?? p.absence ?? undefined,
-        facts: [
-          p.status && { label: 'Status', value: p.status },
-          p.approver && { label: 'Approved by', value: p.approver },
-          p.approvedAt && { label: 'Approved', value: formatStamp(p.approvedAt) },
-          p.requirement && { label: 'Was a plan needed?', value: p.requirement },
-        ].filter((f): f is { label: string; value: string } => Boolean(f)),
-        body: [
-          sectionMd(section('plan'), false),
-          approvals.length > 0 ? `## Approval history\n\n${approvals.join('\n')}` : '## Approval history\n\nNo approval is on the record.',
-          sectionMd(section('contract')),
-        ].filter(Boolean).join('\n\n'),
+        title: 'Plan',
+        subtitle: statusLine,
+        body: p.planId === null
+          ? why
+          : [
+              why,
+              p.approach ? `## Approach\n\n${p.approach}` : '',
+              `## What changes\n\n${p.components.length > 0 ? p.components.map((c, i) => `${i + 1}. ${c}`).join('\n') : 'The plan names no components.'}`,
+              `## Risks\n\n${p.risks.length > 0 ? p.risks.map(r => `- ${r}`).join('\n') : 'The plan names no risks.'}`,
+              `[Open the plan record](${record})`,
+            ].filter(Boolean).join('\n\n'),
+        ...(record ? { href: record } : {}),
       };
     }
     case 'implementation': {
       const impl = report.implementation;
-      const runs = section('runs');
-      const attempts = (runs?.entries ?? []).map(e => `${entryMd(e)}\n\n[Open this run](${peek('worker_run', e.key.replace(/^run-/, ''))})`).join('\n\n---\n\n');
+      const n = impl.attempts.length;
+      const attempts = impl.attempts.map(a => attemptMd(a, n)).join('\n\n');
+      // What is running now leads, one row each, before the history.
+      const running = impl.attempts.filter(a => a.live).map(a => `- [${nounCode('run', a.runId)} · ${a.outcome}](${peek('worker_run', a.runId)}) · attempt ${a.n} of ${n} · started ${a.ago}`).join('\n');
+      const latest = impl.latest ? runPage(impl.latest.runId) : null;
+      // The five delivery facts, each a link to what it rests on.
+      const evidence: Record<string, string | null> = {
+        run: latest,
+        checks: latest,
+        merged: impl.prUrl,
+        acceptance: self('acceptance'),
+        released: report.release.href ?? self('release'),
+      };
+      const ladder = impl.ladder
+        .map((s) => {
+          const href = evidence[s.key];
+          return `- **${s.label}:** ${href ? `[${s.value}](${href})` : s.value}`;
+        })
+        .join('\n');
+      const files = (section('change')?.lists ?? []).map(l => `**${l.label}**\n\n${l.items.map(i => `- ${i}`).join('\n')}`).join('\n\n');
       return {
-        title: `Implementation · ${name}`,
-        subtitle: impl.latest
-          ? `Latest run · ${impl.latest.outcome} · ${ago(impl.latest.at)}${impl.latest.cents !== null ? ` · ${money(impl.latest.cents)}` : ''}${impl.earlier > 0 ? ` · ${impl.earlier} earlier attempt${impl.earlier === 1 ? '' : 's'}` : ''}`
-          : impl.absence ?? undefined,
-        facts: [
-          ...impl.ladder.map(s => ({ label: s.label, value: s.value })),
-          { label: 'Cost', value: impl.costLine },
-        ],
+        title: 'Implementation',
+        subtitle: n === 0 ? impl.absence ?? undefined : `${n} attempt${n === 1 ? '' : 's'} · ${impl.costLine}`,
         body: [
-          impl.prUrl ? `**Pull request:** [${impl.prUrl}](${impl.prUrl})` : '',
-          attempts ? `## Attempts, newest first\n\n${attempts}` : '',
-          sectionMd(section('change')),
-          sectionMd(section('money')),
+          running ? `## Running now\n\n${running}` : '',
+          attempts ? `## Runs, newest first\n\n${attempts}` : '',
+          `## Where it stands\n\n${ladder}`,
+          files,
         ].filter(Boolean).join('\n\n'),
+        ...(latest ? { href: latest } : {}),
       };
     }
     case 'acceptance': {
       const a = report.acceptance;
       const word = { passed: 'Passed', failed: 'Failed', unverified: 'Unverified' } as const;
-      const items = a.items.map((c, i) => `${i + 1}. **${word[c.state]}** — ${c.statement}${c.evidenceUrl ? ` ([evidence](${evidenceHref(c.evidenceUrl)}))` : ''}${c.note ? `\n   _${c.note}_` : ''}`).join('\n');
+      const line = (c: typeof a.items[number], i: number) => `${i + 1}. **${word[c.state]}** — ${c.statement}${c.evidenceUrl ? ` ([evidence](${evidenceHref(c.evidenceUrl)}))` : ''}${c.note ? `\n   _${c.note}_` : ''}`;
+      const items = a.items.map(line).join('\n');
+      const risks = a.risks.map((c, i) => line(c, a.items.length + i)).join('\n');
+      const attempt = a.attempt ? `Judged on task ${a.attempt.taskId}, ${a.attempt.why === 'shipped' ? 'the attempt that shipped' : 'the newest attempt QA judged'}.` : '';
       const verdict = report.state.key === 'changes' ? `## What QA asked for\n\n${report.state.detail}` : '';
       return {
-        title: `Acceptance · ${name}`,
-        subtitle: a.total === 0 ? 'Nothing says what done means for this work yet.' : `${a.verified} of ${a.total} verified${a.source === 'task' ? ' · criteria from the engineering task' : ''}${a.frozenAt === null && a.source === 'request' ? ' · still a draft' : ''}`,
+        title: 'Acceptance',
+        subtitle: a.total === 0 ? 'Nothing says what done means for this work yet.' : `${a.verified} of ${a.total} verified${a.risksLine ? ` · ${a.risksLine}` : ''}${a.source === 'task' ? ' · criteria from the task' : ''}${a.frozenAt === null && a.source === 'request' ? ' · still a draft' : ''}`,
         body: [
           verdict,
+          attempt,
           items ? `## Criteria\n\n${items}` : '',
+          risks ? `## Plan risks · ${a.risksLine}\n\n${risks}` : '',
           a.procedure ? `## How it is reviewed\n\n${a.procedure}` : '## How it is reviewed\n\nNo review procedure is written for this work.',
           sectionMd(section('qa')),
-          sectionMd(section('result')),
         ].filter(Boolean).join('\n\n'),
       };
     }
     case 'release': {
       const r = report.release;
+      const internal = r.href?.startsWith('/') ? r.href : undefined;
       return {
-        title: `Release · ${name}`,
+        title: 'Release',
+        // The sentence carries the state and the date; nothing below repeats it.
         subtitle: r.sentence,
-        facts: [{ label: 'Release', value: r.label }, ...(r.at ? [{ label: 'Shipped', value: formatStamp(r.at) }] : [])],
         body: [
-          r.href ? `[Open it](${r.href})` : '',
-          sectionMd(section('release'), false),
+          r.href ? `[${r.state === 'live' ? 'Open it where it runs' : 'Open the release record'}](${r.href})` : '',
+          // What the live check itself reported, for whoever fixes the flow: the line above says it in a sentence.
+          r.seen?.detail ? `**What the live check reported**\n\n\`\`\`\n${r.seen.detail}\n\`\`\`` : '',
+          sectionMd(section('release'), { heading: false, absence: false }),
           sectionMd(section('result')),
         ].filter(Boolean).join('\n\n'),
+        ...(internal ? { href: internal } : {}),
       };
     }
+    // ONE LIST (Chris, 2026-10-02): the old event log ("activity") and
+    // "Connected work" ("work") open the Timeline, so their links still land.
+    case 'timeline':
     case 'activity':
+    case 'work':
       return {
-        title: `Activity · ${name}`,
-        subtitle: `${report.timeline.length} event${report.timeline.length === 1 ? '' : 's'}, oldest first`,
-        body: report.timeline.length === 0 ? 'Nothing on this work is dated, so there is no order to show.' : report.timeline.map(timelineLine).join('\n'),
+        title: 'Timeline',
+        // The cost is the list's own foot; the pane's line under the title stays empty.
+        body: report.history.length === 0 ? 'Nothing has happened on this work yet.' : [...report.history.map(r => historyLine(r)), '', historyCostLine(report.historyCost, money)].join('\n'),
+        timeline: { rows: report.history, cost: report.historyCost },
       };
-    case 'work': {
-      const items = report.activity ?? [];
-      const word = { conversation: 'Conversation', mission_run: 'Agent run', worker_run: 'Engineering run' } as const;
+    case 'cost': {
+      const impl = report.implementation;
+      const n = impl.attempts.length;
+      const agentLines = (report.activity ?? [])
+        .filter(i => i.kind !== 'worker_run' && typeof i.cents === 'number')
+        .map(i => `- [${i.origin ? 'Requested in chat' : i.title}](${peek(i.kind, i.id)}): ${money(i.cents!)}`);
       return {
-        title: `Connected work · ${name}`,
-        subtitle: `${items.length} conversation${items.length === 1 ? '' : 's'} and runs tied to this work, newest first`,
-        body: items.length === 0
-          ? 'No conversation or run names this work.'
-          : items.map(i => `- [${i.title}](${peek(i.kind, i.id)}) · ${word[i.kind]}${i.status ? ` · ${i.status}` : ''}${i.detail ? ` · ${i.detail}` : ''} · ${ago(i.at)}`).join('\n'),
-      };
-    }
-    case 'cost':
-      return {
-        title: `Cost · ${name}`,
-        subtitle: report.implementation.costLine,
+        title: 'Cost',
+        subtitle: impl.costLine,
         body: [
-          sectionMd(section('money'), false),
-          report.notices.filter(n => n.key === 'cost-disagree').map(n => `> ${n.evidence}`).join('\n\n'),
-          (section('runs')?.entries ?? []).length > 0
-            ? `## By run\n\n${section('runs')!.entries.map(e => `- ${e.title}: ${e.cents === null ? 'no charge recorded' : money(e.cents)}`).join('\n')}`
+          // The spend is the line above; the working behind it is what is left.
+          sectionMd(section('money'), { heading: false, omit: ['Spent'] }),
+          n > 0
+            ? `## By run\n\n${impl.attempts.map(a => `- [${nounCode('run', a.runId)} · ${a.outcome}](${runPage(a.runId)}): ${a.cents === null ? 'no charge recorded' : money(a.cents)}`).join('\n')}`
             : '',
+          // The agent runs and chats the figure counts, each with its share.
+          agentLines.length > 0 ? `## Agents and chat\n\n${agentLines.join('\n')}` : '',
         ].filter(Boolean).join('\n\n'),
       };
+    }
     case 'details':
       return {
-        title: `The records · ${name}`,
+        title: 'The records',
         subtitle: 'The ask as written, triage, the contracts and the approvals.',
         facts: [
           { label: 'Asked', value: report.summary.askedAt ? formatStamp(report.summary.askedAt) : 'not recorded' },
@@ -277,11 +400,12 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
           { label: 'Human decisions', value: report.summary.humanDecisions === null ? 'not linked' : String(report.summary.humanDecisions) },
           { label: 'Attempts', value: report.summary.attempts === null ? 'not linked' : String(report.summary.attempts) },
         ],
-        body: ['ask', 'triage', 'contract', 'approvals', 'today', 'visuals'].map(k => sectionMd(section(k))).filter(Boolean).join('\n\n'),
+        // "Asked" is a fact above; the ask's own section does not say it again.
+        body: ['ask', 'triage', 'contract', 'approvals', 'today', 'visuals'].map(k => sectionMd(section(k), { omit: ['Asked'] })).filter(Boolean).join('\n\n'),
       };
     default: {
       const n = Number(/^criterion-(\d+)$/.exec(key)?.[1]);
-      const c = Number.isInteger(n) ? report.acceptance.items[n] : undefined;
+      const c = Number.isInteger(n) ? [...report.acceptance.items, ...report.acceptance.risks][n] : undefined;
       if (!c) {
         return null;
       }
@@ -290,7 +414,9 @@ export function featureDrawer(report: FeatureReport, key: FeatureDrawerKey, now:
         title: `Criterion ${n + 1} · ${word}`,
         subtitle: c.statement,
         body: [
-          c.evidenceUrl ? `**Evidence:** [open it](${evidenceHref(c.evidenceUrl)})` : 'No evidence is attached to this criterion, so it cannot read as passed.',
+          c.evidenceUrl ? `**Evidence:** [open it](${evidenceHref(c.evidenceUrl)})` : c.evidence ? '' : 'No evidence is attached to this criterion, so it cannot read as passed.',
+          c.evidence ? `> ${c.evidence}` : '',
+          report.acceptance.attempt && c.from === 'verdict' ? `_From task ${report.acceptance.attempt.taskId}'s QA verdict (${report.acceptance.attempt.why === 'shipped' ? 'the attempt that shipped' : 'the newest judged attempt'})._` : '',
           c.note ? `_${c.note}_` : '',
           report.acceptance.procedure ? `## How it is reviewed\n\n${report.acceptance.procedure}` : '',
         ].filter(Boolean).join('\n\n'),

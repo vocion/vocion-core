@@ -9,8 +9,10 @@
 # that waits (#631).
 #
 # It watches the build job's "Cache Next.js build output" step rather than
-# the job itself, so a shard doesn't also wait on the job's post-steps, which
-# save the webpack cache and take 12–26s.
+# the job itself, so a shard doesn't also wait on the job's post-steps. Those
+# used to save webpack's compile cache and took 12–26s. That cache is gone
+# since #670, so the post-steps take about a second, except when the
+# node_modules cache missed and its post-step has to save it.
 #
 # It exits non-zero, so the shard fails fast, when:
 #   - the build job finished without saving the output (the build failed, was

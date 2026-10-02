@@ -2,7 +2,7 @@
  * Writing a run's case rows, twice.
  *
  * `persistTranscripts` is the one write in the eval path that genuinely runs
- * more than once for the same work: a Temporal activity is at-least-once, and
+ * more than once for the same work: a background job is at-least-once, and
  * a retry reuses the run it finds through its run group. So it clears the
  * run's rows and writes them again, and the rule that matters is that those
  * two statements are one thing. A delete that lands while the insert fails

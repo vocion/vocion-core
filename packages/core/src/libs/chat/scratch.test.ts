@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { splitScratch, stripScratch } from './scratch';
 
 describe('splitScratch — a scratch block is thinking wherever it lands', () => {
+  it('drops a tag the model started and never finished (conversation 348: "<scThe Releases page")', () => {
+    expect(splitScratch('<scThe Releases page shows what reached people.')).toEqual([
+      { kind: 'answer', text: 'The Releases page shows what reached people.' },
+    ]);
+    expect(stripScratch('Done.</scra So the count is 4.')).toBe('Done. So the count is 4.');
+    expect(stripScratch('<scratch Now the answer.')).toBe(' Now the answer.');
+  });
+
+  it('keeps words and markup that only start like the tag', () => {
+    expect(stripScratch('Use <s>strike</s> and <script> is escaped; <small>ok</small> <scale.')).toBe('Use <s>strike</s> and <script> is escaped; <small>ok</small> <scale.');
+    expect(splitScratch('<scratch>raw</scratch>The answer.')).toEqual([
+      { kind: 'scratch', text: 'raw' },
+      { kind: 'answer', text: 'The answer.' },
+    ]);
+  });
+
   it('leaves a plain answer whole', () => {
     expect(splitScratch('Fifteen runs, two still going.')).toEqual([
       { kind: 'answer', text: 'Fifteen runs, two still going.' },

@@ -131,6 +131,11 @@ where the default is the wrong answer, and it has its own section below.
 that varies per call — a timestamp in the system prompt, a re-ordered tool list — misses
 every time.
 
+**A Bedrock model from a vendor other than Anthropic or Amazon.** Such a model refuses a
+request carrying a `cachePoint` ("You invoked an unsupported model or your request did not
+allow prompt caching", DeepSeek V3.2, 2026-09-29), so it is called without one and
+`cacheWriteTokens` stays 0. `bedrockTakesCachePoint` in `libs/llm/bedrock.ts` decides.
+
 ## Reading the numbers
 
 Bedrock reports `inputTokens` as the **uncached remainder only**. The whole input side is
@@ -209,10 +214,12 @@ saving — run the same work twice, once with it set.
 | The mechanism | `packages/core/src/libs/llm/promptCache.ts` |
 | Same module for the BYOA artifact | `packages/agent-runtime/src/promptCache.ts` |
 | Choosing the caching class | `libs/llm/langchain.ts` (`buildChatModel`), `packages/agent-runtime/src/model.ts` |
+| Which Bedrock models take a cache point | `libs/llm/bedrock.ts` (`bedrockTakesCachePoint`), mirrored in `packages/agent-runtime/src/model.ts` |
 | Raw one-shot adapters | `libs/llm/bedrock.ts`, `libs/llm/anthropic.ts` |
 | Per-agent switch | `libs/workspace/schemas.ts` (`harness.promptCache`) → `services/agents/harness.ts` |
 | Cost | `libs/pricing.ts` |
 | Trace | `libs/Langfuse.ts` |
 
-The two `promptCache.ts` files are deliberate copies: the runtime artifact is bundled and
-deployed separately and cannot import core. Change one, change the other.
+The two `promptCache.ts` files, and the two `bedrockTakesCachePoint` functions, are
+deliberate copies: the runtime artifact is bundled and deployed separately and cannot import
+core. Change one, change the other; `promptCache.parity.test.ts` fails when they drift.

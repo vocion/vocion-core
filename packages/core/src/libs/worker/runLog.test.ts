@@ -1,6 +1,6 @@
 import type { AgentCallView, AgentTaskView, RunHeader, RunLogData, RunLogEvent } from './runLog';
 import { describe, expect, it } from 'vitest';
-import { agentSteps, deriveSteps, eventLines, fallbackWorkerSteps, focusStep, formatDuration, mergeRunLog, refusedBeforeStart, stepOfPhase, stopReason, stripAnsi, workerSteps } from './runLog';
+import { agentSteps, deriveSteps, detailLines, eventLines, fallbackWorkerSteps, fireFailedLine, focusStep, formatDuration, mergeRunLog, refusedBeforeStart, startingFireId, stepOfPhase, stopReason, stripAnsi, workerSteps } from './runLog';
 
 function header(over: Partial<RunHeader> = {}): RunHeader {
   return {
@@ -200,6 +200,9 @@ describe('a run refused at its contract (red team, run 401, 2026-09-28)', () => 
     expect(stopReason(reason)).toBe(reason);
     expect(stopReason(reason, 200)).toBe('task contract refused: plan: this task needs an approved plan (risk_class schema). A required plan cannot be skipped.');
     expect(stopReason('short reason')).toBe('short reason');
+    // The worker ends a sentence and then appends its own stop (run 401): one stop, and an ellipsis stays.
+    expect(stopReason('A required plan cannot be skipped.. The contract must match the schema.')).toBe('A required plan cannot be skipped. The contract must match the schema.');
+    expect(stopReason('It waited... then stopped.')).toBe('It waited... then stopped.');
     expect(stopReason(`${'word '.repeat(120)}end`)).toMatch(/word…$/);
   });
 
@@ -276,5 +279,48 @@ describe('small print', () => {
     expect(formatDuration(64_000)).toBe('1m 04s');
     expect(formatDuration(3_780_000)).toBe('1h 03m');
     expect(formatDuration(null)).toBe('');
+  });
+});
+
+describe('a mission run under a failed fire (backlog 032)', () => {
+  it('finds the fire that started the run', () => {
+    expect(startingFireId([{ automationSlug: 'contract-red-team-evidence', automationRunId: 7571 }])).toBe(7571);
+    expect(startingFireId([{ automationSlug: 'x' }, { automationSlug: 'y', automationRunId: 12 }])).toBe(12);
+    expect(startingFireId(null)).toBeNull();
+    expect(startingFireId([{ automationSlug: 'x', automationRunId: 'nope' }])).toBeNull();
+  });
+
+  it('says the fire\'s failure in its first clause, without the automation\'s name', () => {
+    expect(fireFailedLine('automation "contract-red-team-evidence": run #5737 ended without record_verdict, and the recording pass did not land it (Not recorded: a search box …)'))
+      .toBe('failed: run #5737 ended without record_verdict');
+    expect(fireFailedLine('abandoned: worker restart or activity timeout — the fire never reported an outcome'))
+      .toBe('failed: abandoned: worker restart or activity timeout');
+    expect(fireFailedLine(null)).toBe('failed: the automation reported an error');
+  });
+});
+
+describe('the engineer\'s log reads like a Claude Code terminal (2026-09-29)', () => {
+  const ev = (phase: string, fields: Record<string, unknown>, seq = 1) => ({ seq, ts: '2026-09-29T17:30:00Z', step: null, level: 'info' as const, phase, message: null, fields });
+
+  it('draws the engineer\'s words as prose, a diff as +/- lines, and a command\'s output under it', () => {
+    expect(eventLines(ev('claude.text', { text: 'The route reads the org from the session; the helper should take it as an argument.' }))).toEqual([
+      { text: 'The route reads the org from the session; the helper should take it as an argument.', level: 'info', kind: 'say' },
+    ]);
+
+    const edit = eventLines(ev('claude.tool', { tool: 'Edit', target: 'apps/api/src/routes/documents.ts', diff: '- const doc = await loadDocument(id);\n+ const doc = await loadDocument(id, actingOrg);' }), { ok: true, error: null });
+
+    expect(edit.map(l => l.kind)).toEqual([undefined, 'del', 'add']);
+
+    const bash = eventLines(ev('claude.tool', { tool: 'Bash', target: 'npm test' }), { ok: true, error: null, output: 'Tests  12 passed (12)' });
+
+    expect(bash[1]).toEqual({ text: '  Tests  12 passed (12)', level: 'info', kind: 'out' });
+  });
+
+  it('caps a long diff and says how much was left out', () => {
+    const diff = Array.from({ length: 60 }, (_, i) => `+ line ${i}`).join('\n');
+    const lines = detailLines(diff, null);
+
+    expect(lines).toHaveLength(41);
+    expect(lines.at(-1)!.text).toBe('  … 20 more lines');
   });
 });

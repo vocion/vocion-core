@@ -37,6 +37,8 @@ describe('dashboardNav registry', () => {
 
     // The one report in WORK is the client scorecard (#342): the view a
     // business user opens on their own, so it must not sit under MANAGE.
+    // Automations is the one configuration row in WORK, under More (Chris,
+    // 2026-10-01: "Make it on main nav under More dropdown").
     expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/rooms']);
     // Chat and Review are the surface; the rest earn a row by being pinned, Briefings and the Scorecard from the start.
     expect(workCoreRoutes().map(r => r.url)).toEqual(['/dashboard/chat', '/dashboard/inbox']);

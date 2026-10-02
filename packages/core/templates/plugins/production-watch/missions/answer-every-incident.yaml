@@ -1,0 +1,19 @@
+slug: answer-every-incident
+name: Every incident is read and answered
+description: >-
+  The on-call engineer's standing responsibility: no incident stays open
+  without a reading of its stack and a move written on it.
+goal: >-
+  Every incident says what broke (the line of the exception that settles it,
+  and the file and line), what caused it, and what was done — a revert by the
+  pipeline's owner, a fix asked of the software factory, or why neither —
+  with a link.
+agent: on-call-engineer
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every incident's action names a move and its link, or says why there is none
+  - A cause is read from the evidence (the release against the deploy, the stack), never guessed
+  - A major code bug has a factory request carrying its stack when the software factory is on, and no request is filed twice for one issue
+desiredArtifacts:
+  - The incident's action, causeWhy and requestId

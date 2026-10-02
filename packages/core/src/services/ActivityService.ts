@@ -11,8 +11,10 @@ import type { SQL } from 'drizzle-orm';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { summarizeResult } from '@/features/dashboard/automationResult';
 import { db } from '@/libs/DB';
+import { runTitle } from '@/libs/factory/runTitle';
 import {
   automationRunSchema,
+  automationSchema,
   eventLogSchema,
   knowledgeSourceSchema,
   missionRunSchema,
@@ -106,9 +108,14 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
             createdBy: missionRunSchema.createdBy,
             createdAt: missionRunSchema.createdAt,
             missionSlug: missionSchema.slug,
+            // The automation that started it gives it its words (`runTitle`).
+            automationName: automationSchema.name,
+            label: sql<string | null>`${automationSchema.doConfig} ->> 'label'`,
+            doing: sql<string | null>`${automationSchema.doConfig} ->> 'doing'`,
           })
           .from(missionRunSchema)
           .leftJoin(missionSchema, eq(missionRunSchema.missionId, missionSchema.id))
+          .leftJoin(automationSchema, and(eq(automationSchema.orgId, missionRunSchema.orgId), eq(automationSchema.slug, sql`${missionRunSchema.causedBy} -> 0 ->> 'automationSlug'`)))
           .where(missionWhere())
           .orderBy(desc(missionRunSchema.createdAt))
           .limit(limit)
@@ -203,7 +210,10 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
     ...missionRuns.map((r): ActivityItem => ({
       kind: 'mission',
       key: `mission-${r.id}`,
-      title: r.title ?? r.missionSlug ?? 'Mission run',
+      // What the run did, in the automation's words — never `<slug>: <charter>`.
+      title: r.automationName
+        ? runTitle({ kind: 'agent', status: r.status ?? 'running', label: r.label ?? r.automationName, doing: r.doing ?? r.automationName })
+        : r.title ?? r.missionSlug ?? 'Mission run',
       slug: r.missionSlug ?? null,
       status: r.status ?? 'running',
       invokedBy: r.createdBy,

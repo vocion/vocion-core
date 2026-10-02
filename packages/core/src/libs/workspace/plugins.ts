@@ -194,12 +194,14 @@ export function readPluginReadme(plugin: LoadedPlugin): string | null {
  */
 export function enabledPluginsFromWorkspaceDir(workspaceDir: string): LoadedPlugin[] {
   for (const name of ['workspace.yaml', 'workspace.yml']) {
-    const file = join(workspaceDir, name);
-    if (!existsSync(file)) {
+    // turbopackIgnore: this path is only known at runtime, so the build must not
+    // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+    const file = join(/* turbopackIgnore: true */ workspaceDir, name);
+    if (!existsSync(/* turbopackIgnore: true */ file)) {
       continue;
     }
     try {
-      const raw = parseYaml(readFileSync(file, 'utf8')) as { plugins?: unknown } | null;
+      const raw = parseYaml(readFileSync(/* turbopackIgnore: true */ file, 'utf8')) as { plugins?: unknown } | null;
       const slugs = Array.isArray(raw?.plugins) ? raw.plugins.filter((s): s is string => typeof s === 'string') : [];
       return resolvePlugins(slugs);
     } catch {

@@ -7,7 +7,7 @@ Vocion is a multi-tenant SaaS application built on Next.js 16. It provides conte
 ## Design principles — read before any product decision
 
 `docs/DESIGN-PRINCIPLES.md` is the bar for every feature, page, default, entity field and agent
-behaviour in this repo. Four values and twelve principles. A PR description for user-facing work
+behaviour in this repo. Four values and thirteen principles. A PR description for user-facing work
 should say which of them it serves.
 
 **The four values**, which settle arguments:
@@ -50,7 +50,7 @@ metrics as the evidence layer underneath.
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
 - **Retrieval:** Native first-party — pgvector (HNSW cosine) + Postgres FTS (tsvector + ts_rank), reciprocal rank fusion, optional LLM rerank. No third-party retrieval engine.
-- **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (Temporal async workflow queued). Built-in: `web`. Demo: `local-files` (see Phase B).
+- **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (a `source.sync` durable job on schedule or on demand). Built-in: `web`. Demo: `local-files` (see Phase B).
 - **Styling:** Tailwind CSS 4 + Shadcn UI (Radix primitives)
 - **Auth:** Auth.js / NextAuth v5 (`next-auth` ^5.0.0-beta + `@auth/drizzle-adapter`) with multi-tenancy via accounts/projects + RBAC. Config: `src/libs/Auth.ts`; RPC guards: `src/routers/AuthGuards.ts`.
 - **Database:** PostgreSQL (Docker Compose; pgvector/pgvector:pg16) + Drizzle ORM
@@ -96,9 +96,9 @@ Write path: `services/IngestionService.ingestDocument()` — chunks via `libs/re
 
 Embeddings run on OpenAI `text-embedding-3-small` by default and on Amazon Bedrock Titan when a workspace or the environment says so — `libs/retrieval/embeddingBackend.ts` owns the vendor specifics, the embedder owns batching, retry and tracing. Provider precedence: `project.embeddingConfig` (authored as `defaults.embeddingProvider` in `workspace.yaml`), then `VOCION_EMBEDDING_PROVIDER`, then `VOCION_LLM_PROVIDER`, then OpenAI. The `embedding` column is `vector(1536)`, fixed in the DDL — every backend checks the width it got back and refuses a mismatch rather than failing at insert, because storing a different width needs a schema migration plus a re-embed of every chunk. Titan G1 (`amazon.titan-embed-text-v1`) does return 1536, verified with a live `InvokeModel` on 2026-09-03; AWS's own docs contradict each other on this, so trust the check, not the docs.
 
-Connectors implement `libs/sources/types.ts` `SourceConnector` interface (`sync(ctx): AsyncIterable<IngestDoc>`). Registry at `libs/sources/registry.ts`. Sync orchestrator: `services/SourceSyncService.runSync(orgId, sourceId, onProgress?)` — synchronous today; Temporal async variant queued.
+Connectors implement `libs/sources/types.ts` `SourceConnector` interface (`sync(ctx): AsyncIterable<IngestDoc>`). Registry at `libs/sources/registry.ts`. Sync orchestrator: `services/SourceSyncService.runSync(orgId, sourceId, onProgress?)` — synchronous in-process; the scheduled and on-demand async path is the `source.sync` durable job (`services/background/catalog.ts`).
 
-Port map: Vocion :3000, Postgres :5432, Langfuse :3200, Temporal UI :8233. See `infra/README.md` for the platform compose.
+Port map: Vocion :3000, Postgres :5432, Langfuse :3200. See `infra/README.md` for the platform compose.
 
 ## Running with Docker PostgreSQL
 
@@ -181,8 +181,9 @@ Neither AgentCore path is a model gateway: inference is a direct Bedrock Convers
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
+- **Same agent on both loops.** The payload's prompt and roster come from `buildAgentDefinition` (`services/agents/harness.ts`), the half of the in-process blueprint that is not the model; the message carries the same NOW line; the claim carries `missionRunId`, `timeZone` and `pageContext`, and the endpoint adds the workspace's plugins and zone. Missions and automations dispatch through `runAgentDeep`, so `runsOn` reaches them; before 2026-09-28 their tool calls on the container landed on no run. A bare `claude-` model id is rewritten to its Bedrock profile inside the artifact (`bedrockModelId`).
 - Core targets the artifact via `VOCION_AGENT_RUNTIME_ARN` (deployed, SigV4) or `VOCION_AGENT_RUNTIME_URL` (local HTTP, default `:8080`). Budget charging rides `usage` events back from the artifact.
-- **Bedrock implies `agentcore-container`**: an agent with `harness.modelProvider: bedrock` and NO `harness.runsOn` is dispatched to the container — `defaultHarnessTargetFor` in `AgentService.ts`. Choosing the vendor also chooses where the loop runs, since on a deployed installation the artifact IS AgentCore Runtime. `runsOn: in-process` next to it opts back out, `VOCION_AGENT_PROVIDER` still overrides fleet-wide, and `VOCION_DISABLE_RUNTIME=1` still forces the in-process loop. `harness.runsOn` is deliberately NOT defaulted in `libs/workspace/schemas.ts` — a stored value would make this default unreachable for every workspace-applied agent, so **agents applied before this change need one `workspace:apply` to pick it up**.
+- **Bedrock implies `agentcore-container`**: an agent with `harness.modelProvider: bedrock` and NO `harness.runsOn` is dispatched to the container — `defaultHarnessTargetFor` in `AgentService.ts`. Choosing the vendor also chooses where the loop runs, since on a deployed installation the artifact IS AgentCore Runtime. `runsOn: in-process` next to it opts back out, `VOCION_AGENT_PROVIDER` still overrides fleet-wide, and `VOCION_DISABLE_RUNTIME=1` still forces the in-process loop. `VOCION_DEFAULT_RUNS_ON=agentcore-container` is the fleet DEFAULT, read last: it moves every agent that named no target and leaves an explicit `external-worker` / managed harness / `in-process` where it is (`fleetDefaultHarnessTarget`). `harness.runsOn` is deliberately NOT defaulted in `libs/workspace/schemas.ts` — a stored value would make this default unreachable for every workspace-applied agent, so **agents applied before this change need one `workspace:apply` to pick it up**.
 - **Bedrock credentials cross the transport**: the artifact has no DB and no KMS grant, so core mints a short-lived STS session from the org's stored AWS key (`mintBedrockSessionForRuntime`) and sends it in the payload's `aws` block; the artifact's model client reads it through a per-invocation ref (`packages/agent-runtime/src/model.ts`), so spend lands on the customer's account and the cached graph never signs with a previous caller's credential. No stored key means no block and the artifact falls through to its own chain — the platform's account. A stored key that STS refuses throws rather than falling back, because falling back would silently move that org's spend onto us. `VOCION_BEDROCK_SESSION_SECONDS` tunes the session (default 3600). The graph cache is partitioned by `orgId` for the same reason.
 - **Cutover status**: `sales-assistant` runs on `provider: runtime` (workspace YAML). Dev therefore needs the artifact running — `npm run dev:agent-runtime` (:8080) — or set `VOCION_DISABLE_RUNTIME=1` to force the in-process loop (symmetric to `VOCION_DISABLE_AGENTCORE`).
 - **AgentCore Memory (Phase 5, live)**: when `VOCION_AGENTCORE_MEMORY_ID` is set (core = flag only; the artifact needs it plus AWS creds), runtime-provider conversations with a persisted `conversation_id` get a Memory session (`vocion-conv-<id>-<org>`); the loop loads history from Memory and appends each completed turn (`packages/agent-runtime/src/memory.ts`). Default is belt-and-suspenders — payload history still rides along and the richer source wins; `VOCION_MEMORY_AUTHORITATIVE=1` omits payload history (verified live: turn answered from Memory alone). Postgres stays the system of record for the UI; Memory failures degrade silently to payload history.
@@ -307,8 +308,11 @@ from crossing over afterwards by the `api_token_platform_immutable_tg` trigger
   before that landed have the hash only and can never be shown again.
 - **Supplied** (every other platform) — the key a workspace holds *with* a
   vendor, AES-256-GCM encrypted under that org's DEK so we can read it back and
-  call out with it. One live key per platform per org, enforced by a partial
-  unique index; saving a second revokes the first in the same transaction.
+  call out with it. How many an org may hold is the descriptor's
+  `credentialsPerOrg`. An LLM platform, `aws` and `custom` hold one live key,
+  enforced by a partial unique index, and saving a second revokes the first in
+  the same transaction. A connector platform holds as many as the workspace
+  wants, told apart by `name`, each connector naming the one it uses.
 
 `src/libs/platforms/registry.ts` is the only list of platforms. Adding one is a
 descriptor there — nothing in the service, router or UI enumerates them.
@@ -448,8 +452,7 @@ product and is **not wired in core** — leave the variable at its default.
 ```
 infra/
 ├── README.md                       # Full infrastructure docs
-├── docker-compose.platform.yml     # Postgres + Langfuse + Temporal compose
-├── temporal/                       # Temporal worker entrypoint + activities
+├── docker-compose.platform.yml     # Langfuse + OTel compose
 ├── otel/                           # OpenTelemetry collector config
 ├── aws/                            # AWS deploy stubs
 └── terraform/                      # IaC
@@ -482,22 +485,50 @@ requirements/                       # Product specs and case studies
 
 ## Conventions
 
-- **Structural over prompting.** When a model behavior is a REQUIREMENT (cards
-  must emit, raw data must never dump, events must be typed), do not iterate
-  system-prompt wording — prompt once, and if the behavior is still
-  inconsistent, enforce it in code. Levers in order of strength: typed
-  contracts/events the UI consumes, deterministic post-processing, a gated
-  backstop LLM pass that fires only on violation (see
-  `harnessConfig.recommendActionBackstop` in AgentService), recency reminders
-  inside tool outputs (weakest). Prove behavior with a harness/E2E run —
-  "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
-  to restore action cards; the backstop guaranteed them. Same story for the
-  `<scratch>` strip and the typed trace.) **Worked example, all four levers in
-  one change:** "this turn produces an artifact" — a typed `deliverable` field
-  on the turn request, armed by an explicit `@artifact` tag the person types,
-  with deterministic wrapping of a long-form answer, a gated backstop pass only
-  for the short-answer case, and a prompt line carried into the out-of-process
-  loop as the weakest lever. See `docs/agent-chat-surface.md` → *Deliverables*.
+- **Faster, then better, then safer when possible — in that order (Chris, 2026-09-30).** Every
+  feature, and above all every agentic workflow and step, is built for speed first, quality
+  second, and safety where it does not cost the speed. An agent gets the outcome and the freedom
+  to reach it; a plan, contract or scope is where it starts, never a fence (the factory worker's
+  `allowed_paths` is scope; `humanOwned` is the only wall). The system finishes its own work:
+  verified work merges itself on its trust rule, ruled by the risk of what the diff touched
+  (`recordVerdict`), and a replaced attempt closes its pull request (`supersededPulls.ts`).
+- **Accelerate, never block (Chris, 2026-09-29 — core, non-negotiable).** Vocion exists to
+  speed a person up and raise quality, never to stop them (`docs/DESIGN-PRINCIPLES.md`,
+  principle 13). In code that means:
+  1. **The person's word runs.** What a person tells an agent to do runs as their action, with
+     undo, and shows no card. Consent is a model's reading of their own words
+     (`services/agents/turnJudge.saidToDecide`). Cards and review are for what an agent decides
+     on its own.
+  2. **Checks inform; they never hard-stop a person.** A quality check (capabilities, wiki, the
+     proposal bar, declared gates) returns its finding as advice (`GateTurn.onPersonsWord`,
+     `runProposal`'s advice). The person hears it only when it changes the ask, in one line.
+  3. **Nothing fails silently; everything heals.** Every step delivers, or fails with its reason
+     where the person is looking, retries itself carrying that reason, and asks once only when
+     recovery runs out. A step that "completes" without its deliverable is a failure.
+  4. **Meaning is read by a model, never matched.** Intent, consent, "did it answer", "did it
+     claim work": a small model returns typed fields (`turnJudge.ts`), and code routes on them. No
+     regexes, keyword lists or `includes()` over a person's words or an agent's reply, and no
+     editing an agent's words after it writes them. Voice is the agent's `voice:` setting.
+  5. **No concretions in core logic.** No type slugs, product names or tool names written into
+     core behaviour. Read them from the record, the action's result (`result.record`), the
+     automation's own config (`do.requireTool`), or one shared definition
+     (`libs/factory/requestStates.ts`).
+
+  Before shipping, answer six questions. Can this stop a person who asked for it? Can it fail
+  without saying why? Does it read meaning from words? Does it name a type in core? Does it fence
+  an agent in? Does it leave finished work for a person to push through? Any yes means it is not
+  done.
+- **Structural over prompting.** When a model behavior is a REQUIREMENT (cards must emit, raw
+  data must never dump, events must be typed), do not iterate system-prompt wording. Prompt once,
+  and if the behavior is still inconsistent, enforce it structurally. Levers in order of strength:
+  1. typed contracts and events the UI consumes;
+  2. a model read with typed output that code routes on (`turnJudge.ts`);
+  3. a gated backstop pass that fires only on violation (the owed-write and owed-change passes);
+  4. the right tool channel (results as tool messages, never pasted text);
+  5. recency reminders inside tool outputs (weakest).
+
+  Never rewrite the model's copy after the fact. Prove behavior with a harness or E2E run: "the
+  prompt says so" is not evidence.
 - **Principles first.** Product decisions are judged against `docs/DESIGN-PRINCIPLES.md` (see the section
   near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)

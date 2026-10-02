@@ -10,13 +10,15 @@ import { DASHBOARD_GROUPS, routeVisible } from '@/features/navigation/dashboardN
 
 export type PaletteEntity = { slug: string; name: string; description?: string };
 export type PaletteConversation = { id: number; title: string; agentSlug: string };
+/** What a typed code named (`GET /api/v1/codes/:code`), for the query it was read for. */
+export type PaletteCodeHit = { query: string; code: string; title?: string; href: string };
 
 export type PaletteRow = {
   /** Stable key + the string cmdk filters on. */
   value: string;
   label: string;
   hint?: string;
-  kind: 'route' | 'agent' | 'team' | 'mission' | 'conversation' | 'action' | 'ask';
+  kind: 'route' | 'agent' | 'team' | 'mission' | 'conversation' | 'action' | 'ask' | 'code';
   /** Navigation target, when the row is a link. */
   url?: string;
   /** Named action, when the row runs something instead. */
@@ -29,6 +31,14 @@ export type PaletteGroup = { heading: string; rows: PaletteRow[] };
 /** Page headings in registry order — the same order the sidebar's MANAGE view uses, with You (Profile) last. */
 export const ROUTE_GROUP_ORDER: readonly string[] = DASHBOARD_GROUPS.map(g => g.title);
 
+/**
+ * The `value` of a code's row — what cmdk filters and highlights it by.
+ * @param hit - What the code named.
+ */
+export function codeRowValue(hit: PaletteCodeHit): string {
+  return `${hit.query} ${hit.code} ${hit.title ?? ''}`.trim();
+}
+
 export function buildPaletteGroups(input: {
   query: string;
   routes: readonly DashboardRoute[];
@@ -39,10 +49,21 @@ export function buildPaletteGroups(input: {
   teams?: PaletteEntity[];
   missions?: PaletteEntity[];
   conversations?: PaletteConversation[];
+  /** The record or run a typed code names — FE-294 — when the query is one. */
+  codeHit?: PaletteCodeHit | null;
   themeIsDark?: boolean;
 }): PaletteGroup[] {
   const q = input.query.trim();
   const groups: PaletteGroup[] = [];
+
+  // A code typed is a thing to open, first (FE-294, `libs/codes.ts`).
+  const hit = input.codeHit && input.codeHit.query.toLowerCase() === q.toLowerCase() ? input.codeHit : null;
+  if (hit) {
+    groups.push({
+      heading: 'Go to',
+      rows: [{ value: codeRowValue(hit), label: hit.title ? `${hit.code} ${hit.title}` : hit.code, kind: 'code', url: hit.href, shortcut: '↵' }],
+    });
+  }
 
   if (q) {
     groups.push({

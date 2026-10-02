@@ -27,13 +27,6 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/WorkflowService', () => ({
   startWorkflow: vi.fn(async () => ({ id: 77 })),
 }));
-vi.mock('@/libs/temporal/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/libs/temporal/client')>();
-  return { ...actual, getTemporalClient: vi.fn(async () => {
-    throw new Error('temporal unavailable in this suite');
-  }) };
-});
-
 const { db } = await import('@/libs/DB');
 const {
   actionRunSchema,
@@ -182,6 +175,18 @@ describe('the guard refuses the four paths that start work', () => {
     expect((err as Error).message).toContain('Chris');
   });
 
+  it('an automation that matches and cannot start leaves an error row, never nothing (2026-09-30, PR #140)', async () => {
+    await db.insert(automationSchema).values({ orgId: ORG, slug: 'broken-answer', name: 'broken-answer', status: 'active', whenConfig: { event: 'pr.checks_completed' } as never, doConfig: { job: 'no-such-job' } as never });
+
+    const result = await emitEvent({ orgId: ORG, type: 'pr.checks_completed', payload: { url: 'https://github.com/northwind/app/pull/7', conclusion: 'failure' } });
+
+    expect(result.skipped).toEqual([{ slug: 'broken-answer', automationRunId: expect.any(Number), reason: 'fire_failed' }]);
+
+    const { runs } = await listAutomationRuns(ORG, { slug: 'broken-answer' });
+
+    expect(runs.some(r => r.status === 'error' && (r.result as { reason?: string } | null)?.reason === 'fire_failed')).toBe(true);
+  });
+
   it('refuses a scheduled automation fire and writes a skipped run saying why', async () => {
     await seedAutomation('hourly-check', { schedule: '0 * * * *' });
     await pull();
@@ -311,17 +316,20 @@ describe('what the switch deliberately allows', () => {
     const { executeAction } = await import('@/services/ActionService');
     const { getAction } = await import('@/libs/actions/registry');
     const { isManualAction } = await import('@/libs/actions/manual');
-    // `git.merge` is the factory's own hand-off — the one Chris performs by
-    // hand, which is exactly why a paused workspace still releases it.
-    const handoff = getAction('git.merge');
+    // `deploy.provision` is a hand-off — a person performs it by hand, which is
+    // exactly why a paused workspace still releases it. (`git.merge` was the
+    // example until 2026-09-29, when approving it began merging the PR itself —
+    // so a paused workspace now refuses it like any other code that runs.)
+    const handoff = getAction('deploy.provision');
 
     expect(handoff && isManualAction(handoff)).toBe(true);
+    expect(isManualAction(getAction('git.merge'))).toBe(false);
 
     const [run] = await db.insert(actionRunSchema).values({
       orgId: ORG,
-      actionId: 'git.merge',
+      actionId: 'deploy.provision',
       status: 'pending',
-      input: { riskClass: 'docs' },
+      input: { title: 'Provision the bucket', summary: 'A new bucket.', recipe: 'terraform apply' },
     } as never).returning();
     await pull();
 

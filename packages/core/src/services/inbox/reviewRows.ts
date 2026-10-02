@@ -1,5 +1,5 @@
 import type { ActionDescription } from './describeActionRun';
-import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lte, not, or, sql } from 'drizzle-orm';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema, reviewAssignmentSchema } from '@/models/Schema';
@@ -43,7 +43,44 @@ export type ReviewRow = {
   described: ActionDescription;
 };
 
-const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved', 'undone'];
+// `closed`: the review sweep closed it because its reason was gone (backlog 039).
+const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved', 'undone', 'closed'];
+
+/**
+ * A run the review sweep closed because it had already expired (backlog
+ * 039): it left Review at its expiry, so nobody saw it, and a row per item on
+ * the decided tab would be noise. It shows as one line per sweep instead.
+ */
+const EXPIRED_CLOSURE = sql`(${actionRunSchema.status} = 'closed' and coalesce(${actionRunSchema.result}->'closed'->>'rule', '') = 'expired')`;
+
+/** One sweep's expired closures in one workspace: the decided tab's single line for them. */
+export type ExpiredClosureGroup = {
+  /** When the sweep ran (ISO): the group's key and its date. */
+  sweptAt: string;
+  members: Array<{ id: number; actionId: string; title: string; note: string | null }>;
+};
+
+/**
+ * The runs the sweep closed as already expired, grouped by the sweep that
+ * closed them, newest sweep first.
+ * @param orgId - The project.
+ */
+export async function listExpiredClosures(orgId: string): Promise<ExpiredClosureGroup[]> {
+  const rows = await db
+    .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, input: actionRunSchema.input, error: actionRunSchema.error, result: actionRunSchema.result })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.orgId, orgId), EXPIRED_CLOSURE))
+    .orderBy(desc(actionRunSchema.id));
+  const groups = new Map<string, ExpiredClosureGroup>();
+  for (const r of rows) {
+    const sweptAt = String((r.result as { closed?: { sweptAt?: unknown } } | null)?.closed?.sweptAt ?? '');
+    const group = groups.get(sweptAt) ?? { sweptAt, members: [] };
+    const title = (r.input as { title?: unknown } | null)?.title;
+    group.members.push({ id: r.id, actionId: r.actionId, title: typeof title === 'string' && title.trim() ? title : r.actionId, note: r.error ?? null });
+    groups.set(sweptAt, group);
+  }
+  return [...groups.values()].sort((a, b) => b.sweptAt.localeCompare(a.sweptAt));
+}
 
 /**
  * Action-plane rows for one tab. `limit` bounds the decided tab, which is
@@ -65,7 +102,9 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
   );
   const notExpired = or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now));
   const where = tab === 'decided'
-    ? and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.status, DECIDED_STATUSES))
+    // A run the sweep closed because it had ALREADY expired was never in front
+    // of anyone; it is one grouped line per sweep (`listExpiredClosures`), not a row.
+    ? and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.status, DECIDED_STATUSES), not(EXPIRED_CLOSURE))
     : tab === 'snoozed'
       ? and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending'), notExpired, gt(reviewAssignmentSchema.snoozedUntil, now))
       : and(
@@ -90,6 +129,7 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
       decidedAt: actionRunSchema.decidedAt,
       decidedBy: actionRunSchema.decidedBy,
       approvedByAgent: actionRunSchema.approvedByAgent,
+      error: actionRunSchema.error,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       assignedTo: reviewAssignmentSchema.assignedTo,
@@ -110,7 +150,8 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
     approvedByAgent: row.approvedByAgent === true,
     undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
     snoozedUntil: row.snoozedUntil ?? null,
-    note: row.note ?? null,
+    // A run the sweep closed carries its reason in `error` ("closed: … — link"): that IS its note.
+    note: row.status === 'closed' ? (row.error ?? null) : (row.note ?? null),
     assignedTo: row.assignedTo ?? null,
     input: row.input ?? {},
     proposal: (row.proposal as Record<string, unknown> | null) ?? null,

@@ -1,6 +1,7 @@
-import { and, count, eq, gte } from 'drizzle-orm';
+import { and, count, eq, gte, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, agentSchema, askSchema } from '@/models/Schema';
+import { assessReviewItems } from './ReviewTruthService';
 
 /**
  * THE PROPOSAL BUDGET — no runaway queues.
@@ -70,6 +71,44 @@ export function isAgentsOwnSchedule(ctx: { userId?: string | null; conversationI
 }
 
 /**
+ * Is this proposal the FACTORY'S OWN STEP — planning, recovery, an intake
+ * card — rather than the agent's own initiative on a schedule or a person's
+ * chat turn? Identified structurally by who the run says invoked it, never
+ * by the model: the factory stamps `factory:<seat>` as the `invokedBy` on
+ * the event it raises for its own step (`services/factory/carry.ts`), which
+ * rides the mission run's `createdBy` onto this turn's `ctx.userId`
+ * (`services/missions/runtime.ts`).
+ *
+ * Prod, 2026-09-29: request #224 stalled at "Planning" because the planning
+ * automation's plan filing was refused by the PM's weekly proposal limit
+ * ("11 of 10") — the factory's own step spending the seat's personal
+ * allowance. A factory step is bounded already, by its own attempt limit
+ * (`services/factory/recovery.ts`, 3 per request), so it neither counts
+ * toward nor is refused by the agent's weekly idea cap. A person-facing
+ * proposal the same agent makes in chat carries no `factory:` stamp and
+ * still counts in full.
+ * @param ctx - What the runtime knows about the turn.
+ * @param ctx.userId
+ */
+export function isFactoryStep(ctx: { userId?: string | null }): boolean {
+  return typeof ctx.userId === 'string' && ctx.userId.startsWith('factory:');
+}
+
+/**
+ * The `invoked_by` stamps that both mean "this agent seat's own work" for
+ * budget purposes: its own initiative (`agent:<slug>`), or the factory
+ * acting in its name (`factory:<slug>`, `isFactoryStep`). Used by the OPEN
+ * limit and by withdrawal — both are about what is in front of a person in
+ * this seat's name, whoever structurally filed it; only the WEEKLY idea cap
+ * (`weeklyIdeaCount`) reads `agent:<slug>` alone, so a factory step never
+ * spends it.
+ * @param agentSlug - The agent.
+ */
+function seatInvokedBy(agentSlug: string): [string, string] {
+  return [`agent:${agentSlug}`, `factory:${agentSlug}`];
+}
+
+/**
  * The budget in force for one agent: its row's, else the built-in.
  * @param orgId - The project.
  * @param agentSlug - The agent.
@@ -92,33 +131,51 @@ export type OpenProposal = { kind: 'run' | 'ask'; id: number; title: string; cre
 
 /**
  * What this agent is holding in front of a person right now: its pending
- * action runs and its open asks, oldest first.
+ * action runs and its open asks that are still TRUE, oldest first.
+ *
+ * The same definition Review uses (backlog 039): an expired run already left
+ * Review, and an item whose reason is gone — its record deleted, decided on
+ * its own record, the question's subject settled, superseded by a newer one
+ * — is not in front of anyone, whatever its status column still says. On
+ * 2026-09-28 seven of the eight items that refused the product-manager were
+ * like that. The review sweep closes them; this count does not wait for it.
  * @param orgId - The project.
  * @param agentSlug - The agent.
+ * @param now - The clock.
  */
-export async function openProposals(orgId: string, agentSlug: string): Promise<OpenProposal[]> {
-  const invokedBy = `agent:${agentSlug}`;
+export async function openProposals(orgId: string, agentSlug: string, now: Date = new Date()): Promise<OpenProposal[]> {
   const [runs, asks] = await Promise.all([
     db
-      .select({ id: actionRunSchema.id, input: actionRunSchema.input, actionId: actionRunSchema.actionId, createdAt: actionRunSchema.createdAt })
+      .select({ id: actionRunSchema.id, orgId: actionRunSchema.orgId, input: actionRunSchema.input, actionId: actionRunSchema.actionId, dedupKey: actionRunSchema.dedupKey, expiresAt: actionRunSchema.expiresAt, createdAt: actionRunSchema.createdAt })
       .from(actionRunSchema)
-      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.invokedBy, invokedBy), eq(actionRunSchema.status, 'pending'))),
+      .where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.invokedBy, seatInvokedBy(agentSlug)), eq(actionRunSchema.status, 'pending'))),
     db
-      .select({ id: askSchema.id, title: askSchema.title, createdAt: askSchema.createdAt })
+      .select({ id: askSchema.id, orgId: askSchema.orgId, title: askSchema.title, objectRefs: askSchema.objectRefs, createdAt: askSchema.createdAt })
       .from(askSchema)
       .where(and(eq(askSchema.orgId, orgId), eq(askSchema.agentSlug, agentSlug), eq(askSchema.status, 'open'))),
   ]);
+  const truth = await assessReviewItems(orgId, { runs, asks }, now);
   const out: OpenProposal[] = [
-    ...runs.map(r => ({ kind: 'run' as const, id: r.id, title: String((r.input as { title?: unknown }).title ?? r.actionId), createdAt: r.createdAt })),
-    ...asks.map(a => ({ kind: 'ask' as const, id: a.id, title: a.title, createdAt: a.createdAt })),
+    ...runs
+      .filter(r => truth.get(`run:${r.id}`)?.true !== false)
+      .map(r => ({ kind: 'run' as const, id: r.id, title: String((r.input as { title?: unknown }).title ?? r.actionId), createdAt: r.createdAt })),
+    ...asks
+      .filter(a => truth.get(`ask:${a.id}`)?.true !== false)
+      .map(a => ({ kind: 'ask' as const, id: a.id, title: a.title, createdAt: a.createdAt })),
   ];
   out.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   return out;
 }
 
 /**
- * How many new records this agent proposed in the last seven days, whatever
- * happened to them — the weekly idea count.
+ * How many new records this agent proposed ON ITS OWN — `invokedBy:
+ * agent:<slug>` — in the last seven days, whatever happened to them — the
+ * weekly idea count.
+ *
+ * Deliberately scoped to `agent:<slug>` alone, never `factory:<slug>`: a
+ * factory step filed in this seat's name is bounded by its own attempt limit
+ * (`isFactoryStep`), not by the seat's personal weekly allowance, so it must
+ * never inflate this count either.
  * @param orgId - The project.
  * @param agentSlug - The agent.
  * @param now - The clock.
@@ -151,11 +208,17 @@ export type BudgetVerdict
  * @param opts.agentSlug
  * @param opts.actionId - The action being proposed; `objects.propose_candidate` is an idea.
  * @param opts.now
+ * @param opts.queuesForPerson - False when the proposal will execute within bounds and never reach Review; the open limit then does not apply.
+ * @param opts.factoryStep - True when this filing is the factory's own step (`isFactoryStep`), not the agent's own initiative; the weekly idea cap then does not apply — it is bounded by the factory's own attempt limit instead.
  */
-export async function checkProposalBudget(opts: { orgId: string; agentSlug: string; actionId?: string; now?: Date }): Promise<BudgetVerdict> {
+export async function checkProposalBudget(opts: { orgId: string; agentSlug: string; actionId?: string; now?: Date; queuesForPerson?: boolean; factoryStep?: boolean }): Promise<BudgetVerdict> {
   const budget = await proposalBudgetFor(opts.orgId, opts.agentSlug);
-  const open = await openProposals(opts.orgId, opts.agentSlug);
-  if (open.length >= budget.openMax) {
+  const open = await openProposals(opts.orgId, opts.agentSlug, opts.now);
+  // THE REVIEW LIMIT IS ABOUT REVIEW (backlog 038): a proposal the trust
+  // ladder will execute within bounds never lands in front of a person, so it
+  // is not refused for what is already waiting there. The planner was refused
+  // filing a plan the bar would have filed on its own.
+  if (opts.queuesForPerson !== false && open.length >= budget.openMax) {
     const list = open.slice(0, 8).map(o => `${o.kind === 'run' ? 'proposal' : 'ask'} #${o.id} — ${o.title} (${o.createdAt.toISOString().slice(0, 10)})`).join('\n');
     return {
       ok: false,
@@ -166,7 +229,12 @@ export async function checkProposalBudget(opts: { orgId: string; agentSlug: stri
       message: `Refused: you already have ${open.length} undecided item${open.length === 1 ? '' : 's'} in Review and your limit while acting on your own schedule is ${budget.openMax}. A person has not caught up; adding more does not help them. Withdraw one of yours first with withdraw_proposal (name what supersedes it), or wait for a decision. Yours, oldest first:\n${list}`,
     };
   }
-  if (opts.actionId === IDEA_ACTION_ID) {
+  // THE WEEKLY CAP IS ABOUT THE SEAT'S OWN INITIATIVE (backlog 038, prod
+  // 2026-09-29: request #224 stalled — the factory's own plan filing was
+  // refused "11 of 10"). A factory step is already bounded by its own
+  // attempt limit; charging it against the PM's personal weekly allowance
+  // too just stalls the factory for a cap it was never meant to trip.
+  if (opts.actionId === IDEA_ACTION_ID && !opts.factoryStep) {
     const weekly = await weeklyIdeaCount(opts.orgId, opts.agentSlug, opts.now);
     if (weekly >= budget.weeklyMax) {
       return {
@@ -199,18 +267,28 @@ export async function withdrawProposal(opts: { orgId: string; agentSlug: string;
   const note = `Withdrawn by ${opts.agentSlug}: ${opts.reason.trim()}${opts.supersededBy ? ` — superseded by ${opts.supersededBy}` : ''}`;
   if (opts.kind === 'run') {
     const [row] = await db
-      .select({ id: actionRunSchema.id, invokedBy: actionRunSchema.invokedBy, status: actionRunSchema.status })
+      .select({ id: actionRunSchema.id, invokedBy: actionRunSchema.invokedBy, status: actionRunSchema.status, proposal: actionRunSchema.proposal })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.orgId, opts.orgId), eq(actionRunSchema.id, opts.id)))
       .limit(1);
     if (!row) {
       return { ok: false, message: `No proposal #${opts.id}.` };
     }
-    if (row.invokedBy !== `agent:${opts.agentSlug}`) {
-      return { ok: false, message: `Proposal #${opts.id} is not yours to withdraw.` };
-    }
+    // What it IS comes first: a proposal that already ran is not a duplicate
+    // card to tidy away, and "not yours" hid that it had executed
+    // (conversation 360: the PM tried to withdraw #5016, which had started
+    // the build, and learned only that it was not its to withdraw).
     if (row.status !== 'pending') {
-      return { ok: false, message: `Proposal #${opts.id} is already ${row.status}.` };
+      return { ok: false, message: `Proposal #${opts.id} is already ${row.status === 'done' ? 'done — it ran; read what it did before anything else' : row.status}. Nothing was withdrawn.` };
+    }
+    // ITS OWN RECOMMENDATION, WHOEVER FILED IT (#201's dock, 2026-09-29: the
+    // PM could not withdraw #5232 or #5233 — "not yours" — because the chat
+    // card files the recommendation as the person looking at it). Undecided,
+    // and recommended by this seat (`proposal.agentSlug`), it is the agent's
+    // to take back.
+    const recommendedBy = (row.proposal as { agentSlug?: unknown } | null)?.agentSlug;
+    if (!seatInvokedBy(opts.agentSlug).includes(row.invokedBy ?? '') && recommendedBy !== opts.agentSlug) {
+      return { ok: false, message: `Proposal #${opts.id} is not yours to withdraw.` };
     }
     const { rejectAction } = await import('@/services/ActionService');
     await rejectAction(opts.id, opts.orgId, note, { reviewedBy: `agent:${opts.agentSlug}` });

@@ -72,14 +72,22 @@ describe('buildChatModel — thinking off on models that think unless told not t
     expect(args.thinking).toEqual({ type: 'disabled' });
   });
 
-  it.each(['claude-sonnet-4-6', 'claude-fable-5', 'claude-mythos-5', 'claude-opus-5-5'])('sends no thinking field to %s for off', async (model) => {
-    // Sonnet 4.6 does not think unless asked; Fable 5 and Mythos 5 answer
-    // `disabled` with a 400; Opus 5.5 is not known to accept it.
+  it('sends no thinking field to claude-sonnet-4-6 for off: it does not think unless asked', async () => {
+    const { buildChatModel } = await import('./langchain');
+    buildChatModel('extractor', { provider: 'anthropic', model: 'claude-sonnet-4-6', thinking: 'off' });
+    const args = ctor.mock.calls[0]?.[0] as Record<string, unknown>;
+
+    expect(args).not.toHaveProperty('thinking');
+  });
+
+  it.each(['claude-fable-5', 'claude-mythos-5', 'claude-opus-5-5'])('sends adaptive to %s, which answers disabled with a 400, even for off', async (model) => {
+    // No field is not "no thinking": LangChain's ChatAnthropic then sends
+    // `disabled` (production, 2026-10-02: claude-opus-5-5 failed every turn).
     const { buildChatModel } = await import('./langchain');
     buildChatModel('extractor', { provider: 'anthropic', model, thinking: 'off' });
     const args = ctor.mock.calls[0]?.[0] as Record<string, unknown>;
 
-    expect(args).not.toHaveProperty('thinking');
+    expect(args.thinking).toEqual({ type: 'adaptive' });
   });
 
   it('changes nothing for a caller that did not ask for off', async () => {

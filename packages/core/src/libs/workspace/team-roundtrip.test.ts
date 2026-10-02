@@ -3,7 +3,7 @@
  * `lead:`, a workspace `accountableUser:`, and teams applies cleanly;
  * re-applying is a no-op; and the export mapping reproduces the authored
  * YAML — with inherited accountability NOT baked in as explicit values.
- * DB is the PGlite mock; Temporal is stubbed unreachable (the applier
+ * DB is the PGlite mock; schedules land on the in-memory engine (the applier
  * skips schedule reconciliation by design).
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,12 +13,6 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/temporal/client', () => ({
-  getTemporalClient: vi.fn(async () => {
-    throw new Error('temporal unavailable in tests');
-  }),
-}));
-
 const { db } = await import('@/libs/DB');
 const { agentSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { applyWorkspace } = await import('./applier');

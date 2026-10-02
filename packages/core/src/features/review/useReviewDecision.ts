@@ -4,8 +4,10 @@ import type { ContentEdit } from './contentKinds';
 import type { ReviewCardRun } from './ReviewSurface';
 import type { ReviewContentEdit } from '@/libs/actions/types';
 import { useEffect, useState } from 'react';
+import { answerInput } from '@/features/dashboard/chat/rulingChoices';
 import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
+import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
 import { currentCopy, currentHash, seedApprovals, seedEditsFromApprovals } from './contentWalk';
@@ -152,10 +154,20 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     return { contentEdits: edits.length > 0 ? edits : undefined, editedInput };
   };
 
-  const decide = async (decision: ReviewDecision) => {
+  // One press, one decision: the guard closes before the next render.
+  const once = useSingleFlight();
+  /**
+   * @param decision - The verb.
+   * @param opts - A ruling's choice rides the approval as its answer, exactly
+   * as the chat card sends it (`answerInput`).
+   * @param opts.answer - The chosen option's id.
+   */
+  const decide = (decision: ReviewDecision, opts?: { answer?: string }) => once(async () => {
     setBusy(true);
     try {
-      const { contentEdits: ce, editedInput } = buildDecision();
+      const built = buildDecision();
+      const ce = built.contentEdits;
+      const editedInput = opts?.answer && decision === 'approve' ? answerInput(built.editedInput ?? run.input, opts.answer) : built.editedInput;
       // Never less than ~400ms in flight: a decision that lands instantly
       // reads as nothing having happened.
       const outcome = await withMinimumPending(client.review.decideAction({
@@ -164,7 +176,18 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
-      }));
+      })).catch((err: unknown) => {
+        // Already what was asked (a second press, another tab): decided, not failed.
+        if ((decision === 'approve' || decision === 'reject') && alreadySettled((err as Error)?.message, decision)) {
+          return { settled: true } as const;
+        }
+        throw err;
+      });
+      if ('settled' in outcome) {
+        setExecError(null);
+        onDecided?.(decision);
+        return;
+      }
       // A failed execution is NOT a completed decision: the surface stays
       // with the error on it and Approve becomes Retry.
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
@@ -176,7 +199,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   const snooze = async (untilOrDays: number | Date) => {
     setBusy(true);

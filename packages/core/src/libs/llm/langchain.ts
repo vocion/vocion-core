@@ -17,6 +17,7 @@ import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatBedrockConverse } from '@langchain/aws';
 import { ChatOpenAI } from '@langchain/openai';
+import { bedrockTakesCachePoint } from './bedrock';
 import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 import { thinkingBudgetFor } from './modelPrefs';
 import { resolveOrgProviderKey } from './orgKey';
@@ -78,6 +79,19 @@ export function anthropicAdaptiveThinking(model: string): boolean {
  * until its behaviour is known.
  * @param model - The model id, bare or Bedrock-decorated.
  */
+/**
+ * Whether this Anthropic model takes ONLY adaptive thinking: it answers both
+ * `{ type: 'disabled' }` and a budget with a 400 ("Use thinking.type.adaptive
+ * and output_config.effort"). LangChain's ChatAnthropic sends `disabled` when
+ * no thinking is given, so these models are always sent `adaptive`
+ * (2026-10-02: the Squatch product manager on claude-opus-5-5 failed every
+ * turn). Fable 5, Mythos 5 and the 5 family past its first release.
+ * @param model - The model id, bare or Bedrock-decorated.
+ */
+export function anthropicAdaptiveOnly(model: string): boolean {
+  return /claude-(?:fable-5|mythos-5|(?:sonnet|opus)-5-\d)/.test(model);
+}
+
 export function anthropicThinksUnlessDisabled(model: string): boolean {
   return /claude-(?:sonnet|opus)-5(?!-\d)/.test(model);
 }
@@ -378,7 +392,7 @@ export function buildChatModel(
   // Replay mode builds a model it never calls, so the choice is moot there.
   const caching = (opts.promptCache ?? true) && promptCacheAllowed();
   const Anthropic = caching ? CachingChatAnthropic : ChatAnthropic;
-  const Bedrock = caching ? CachingChatBedrockConverse : ChatBedrockConverse;
+  const Bedrock = caching && bedrockTakesCachePoint(model) ? CachingChatBedrockConverse : ChatBedrockConverse;
 
   switch (provider) {
     case 'anthropic': {
@@ -428,8 +442,15 @@ export function buildChatModel(
         ...(anthropicOmitsSampling(model) ? {} : { temperature }),
         streaming,
         apiKey,
-        ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
-        ...(opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
+        // The same cap as the thinking branch. Unset, LangChain falls back to
+        // 4,096 for any id its table does not know — every Claude 5 id — so a
+        // turn with thinking OFF ran a 32k-capped model at 4k (conversation
+        // 349, 2026-09-28: the propose_action that stopped mid-payload was on
+        // this branch, `max_tokens: 4096`).
+        maxTokens: opts.maxTokens ?? defaultAnthropicMaxTokens(model),
+        ...(anthropicAdaptiveOnly(model)
+          ? { thinking: { type: 'adaptive' as const } }
+          : opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
       }));
     }
     case 'openai': {

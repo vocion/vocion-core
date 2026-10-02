@@ -113,6 +113,13 @@ export function createRuntimeTrace(opts: {
   userId?: string;
   sessionId?: string;
   input: unknown;
+  /**
+   * The model id this turn's chat model was built with. Bedrock's Converse
+   * response names no model, so without it every Bedrock turn reported
+   * `model: 'unknown'`, which core's price table cannot price: the tokens were
+   * counted and the dollars charged were zero.
+   */
+  modelId?: string;
   onTurnEnd: (turn: TurnUsage) => void;
 }): RuntimeTrace {
   const lf = client();
@@ -201,7 +208,7 @@ export function createRuntimeTrace(opts: {
 
       try {
         opts.onTurnEnd({
-          model: llmOutput.model ?? 'unknown',
+          model: llmOutput.model ?? opts.modelId ?? 'unknown',
           inputTokens: normalised?.inputTokens ?? usage?.promptTokens ?? anthropicInputTokens,
           outputTokens: normalised?.outputTokens ?? usage?.completionTokens ?? anthropicUsage?.output_tokens,
           cacheReadTokens: normalised?.cacheReadTokens ?? anthropicUsage?.cache_read_input_tokens,

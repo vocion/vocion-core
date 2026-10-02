@@ -30,6 +30,43 @@ describe('merge — scalars & objects replace', () => {
     expect(mergeManifest(base, patch)).toEqual({ searchConfig: { maxResults: 20 } });
   });
 
+  it('merges harness key by key, so pinning a model keeps the base\'s tool exclusions', () => {
+    const base = { harness: { excludeTools: ['render_document', 'generate_image'], recommendActionBackstop: true } };
+    const patch = { harness: { modelProvider: 'anthropic', model: 'claude-opus-5' } };
+
+    expect(mergeManifest(base, patch)).toEqual({ harness: { excludeTools: ['render_document', 'generate_image'], recommendActionBackstop: true, modelProvider: 'anthropic', model: 'claude-opus-5' } });
+    // A list inside harness still replaces whole, or takes a directive.
+    expect(mergeManifest(base, { harness: { excludeTools: ['propose_action'] } }).harness).toMatchObject({ excludeTools: ['propose_action'] });
+    expect(mergeManifest(base, { harness: { excludeTools: { $remove: ['generate_image'] } } }).harness).toMatchObject({ excludeTools: ['render_document'] });
+  });
+
+  it('adds an override\'s grantTools to the base\'s, so an override never loses a plugin grant', () => {
+    // The squatch-factory change-reviewer (2026-10-01): the override named two tools and the
+    // plugin's check_live vanished.
+    const base = { harness: { grantTools: ['record_verdict', 'product_access', 'check_live'] } };
+    const patch = { harness: { model: 'claude-opus-5', grantTools: ['record_verdict', 'product_access', 'github_read_check_logs'] } };
+
+    expect(mergeManifest(base, patch).harness).toEqual({
+      model: 'claude-opus-5',
+      grantTools: ['record_verdict', 'product_access', 'check_live', 'github_read_check_logs'],
+    });
+  });
+
+  it('replaces grantTools only when the override says grantToolsMode: replace, and never stores the mode', () => {
+    const base = { harness: { grantTools: ['record_verdict', 'check_live'] } };
+
+    expect(mergeManifest(base, { harness: { grantTools: ['product_access'], grantToolsMode: 'replace' } }).harness)
+      .toEqual({ grantTools: ['product_access'] });
+    expect(mergeManifest(base, { harness: { grantTools: { $remove: ['check_live'] } } }).harness)
+      .toEqual({ grantTools: ['record_verdict'] });
+    expect(mergeManifest({}, { harness: { grantTools: ['a'], grantToolsMode: 'replace' } }).harness)
+      .toEqual({ grantTools: ['a'] });
+  });
+
+  it('keeps grantTools additive only inside harness', () => {
+    expect(mergeManifest({ grantTools: ['a'] }, { grantTools: ['b'] })).toEqual({ grantTools: ['b'] });
+  });
+
   it('inherits base keys not named in the patch', () => {
     const base = { slug: 'x', name: 'X', model: 'a', skills: ['s1'] };
 

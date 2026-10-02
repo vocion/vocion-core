@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inboxHref, inboxRef, parseInboxRef } from './inboxRef';
+import { inboxHref, inboxRef, isReviewPath, parseInboxRef } from './inboxRef';
 
 /**
  * The detail route resolves a row by the kind in its ref. A bare number stays
@@ -30,5 +30,16 @@ describe('inboxRef', () => {
     expect(parseInboxRef('abc')).toBeNull();
     expect(parseInboxRef('')).toBeNull();
     expect(parseInboxRef('proposal-1; drop table')).toBeNull();
+  });
+});
+
+describe('the Review queue\'s own pages (#269)', () => {
+  it('tells the queue from everywhere else, with or without the workspace and locale', () => {
+    expect(isReviewPath('/dashboard/inbox')).toBe(true);
+    expect(isReviewPath('/w/northwind/dashboard/inbox/proposal-12?kind=proposal')).toBe(true);
+    expect(isReviewPath('/en/dashboard/inbox?tab=decided')).toBe(true);
+    expect(isReviewPath('/w/northwind/dashboard/p/work')).toBe(false);
+    expect(isReviewPath('/w/northwind/dashboard/p/feature/269')).toBe(false);
+    expect(isReviewPath('/dashboard/inboxes')).toBe(false);
   });
 });

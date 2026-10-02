@@ -15,7 +15,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { tokenFromCredentials } from '@/libs/github/client';
+import { resolveGithubToken } from '@/libs/github/client';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
 const PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/files|\.diff|\.patch)?\/?(?:[?#].*)?$/i;
@@ -32,7 +32,7 @@ export function parsePullUrl(url: string): { owner: string; repo: string; number
   return m ? { owner: m[1]!, repo: m[2]!, number: Number(m[3]) } : null;
 }
 
-async function tokenForRepo(orgId: string, fullName: string): Promise<string | null> {
+export async function tokenForRepo(orgId: string, fullName: string): Promise<string | null> {
   const rows = await db
     .select({ config: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId })
     .from(knowledgeSourceSchema)
@@ -45,9 +45,32 @@ async function tokenForRepo(orgId: string, fullName: string): Promise<string | n
       continue;
     }
     const creds = await getCredentialsForConnector({ orgId, connectorSlug: 'github', apiTokenId: row.apiTokenId }).catch(() => undefined);
-    const token = tokenFromCredentials(creds as Record<string, unknown> | undefined) ?? null;
+    const token = (await resolveGithubToken(creds as Record<string, unknown> | undefined).catch(() => undefined)) ?? null;
     if (token) {
       return token;
+    }
+  }
+  return null;
+}
+
+/**
+ * The settings of the workspace's `github` source that lists a repository —
+ * its deploy branch and branch prefix — read from the same rows as its token.
+ * Null when no enabled source lists it.
+ * @param orgId - The workspace.
+ * @param fullName - `owner/name`.
+ */
+export async function sourceConfigForRepo(orgId: string, fullName: string): Promise<{ deployBranch: string | null; branchPrefix: string | null } | null> {
+  const rows = await db
+    .select({ config: knowledgeSourceSchema.configJson })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, 'github'), eq(knowledgeSourceSchema.enabled, 'true')));
+  const wanted = fullName.toLowerCase();
+  for (const row of rows) {
+    const config = (row.config ?? {}) as { repos?: unknown; deployBranch?: unknown; branchPrefix?: unknown };
+    const repos = Array.isArray(config.repos) ? config.repos.map(String) : [];
+    if (repos.some(r => r.toLowerCase() === wanted)) {
+      return { deployBranch: typeof config.deployBranch === 'string' && config.deployBranch.trim() ? config.deployBranch.trim() : null, branchPrefix: typeof config.branchPrefix === 'string' && config.branchPrefix.trim() ? config.branchPrefix.trim() : null };
     }
   }
   return null;

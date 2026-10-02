@@ -154,6 +154,43 @@ export function startOfDay(day: string, tz: string): Date {
 }
 
 /**
+ * The last instant of a calendar day in a zone.
+ * @param day - `YYYY-MM-DD`.
+ * @param tz - The zone.
+ */
+export function endOfDay(day: string, tz: string): Date {
+  return new Date(startOfDay(dayPlus(day, 1), tz).getTime() - 1);
+}
+
+/**
+ * Whole days from one calendar day to another, the inverse of dayPlus.
+ * @param from - The starting day, `YYYY-MM-DD`.
+ * @param to - The day counted to, `YYYY-MM-DD`.
+ */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * The instant a zone's wall clock names, as UTC. Two passes so a time inside
+ * a clock change still lands on the offset in force. A time the clocks skip
+ * resolves to the offset after the jump; a time they show twice, to the first.
+ * A string in that form that names no time (month 13, February 31, 24:00) is
+ * an invalid date, never one rolled over into the next day or month, and so is
+ * a year before 1000, which `Date.UTC` would read as a 19xx one.
+ * @param local - `YYYY-MM-DDTHH:MM:SS` on the zone's clock.
+ * @param tz - The zone.
+ */
+export function instantInZone(local: string, tz: string): Date {
+  const guess = Date.parse(`${local}Z`);
+  if (local < '1000' || Number.isNaN(guess) || new Date(guess).toISOString().slice(0, 19) !== local) {
+    return new Date(Number.NaN);
+  }
+  const first = new Date(guess - zoneOffsetMinutes(new Date(guess), tz) * 60_000);
+  return new Date(guess - zoneOffsetMinutes(first, tz) * 60_000);
+}
+
+/**
  * `Fri, Sep 18, 2026`.
  * @param d
  * @param tz

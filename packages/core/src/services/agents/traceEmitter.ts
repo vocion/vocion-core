@@ -25,10 +25,10 @@ import type { TraceActor, TraceCitation, TraceNodeEvent, TraceNodeKind } from '.
  * Pure + stateful but deterministic: feed it recorded events and it produces
  * the same nodes every time (see traceEmitter.test.ts). No LLM, no IO.
  */
-import type { StepLabels } from '@/libs/chat/stepLabels';
+import type { StepLabelHints, StepLabels } from '@/libs/chat/stepLabels';
 
 /** The subset of a raw LangChain v2 stream event we consume. */
-import { fallbackStepLabels, stepLabelFor } from '@/libs/chat/stepLabels';
+import { fallbackStepLabels, proposalStepLabels, restSourceOfTool, stepLabelFor } from '@/libs/chat/stepLabels';
 
 export type RawStreamEvent = {
   event?: string;
@@ -303,8 +303,9 @@ function kindFor(tool: string): TraceNodeKind {
  * @param kind
  * @param status
  * @param subject
+ * @param hints
  */
-function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject: string): string {
+function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject: string, hints?: StepLabelHints): string {
   const running = status === 'start' || status === 'progress';
   if (status === 'error' && kind !== 'delegate') {
     return kind === 'search' ? `Search failed ${subject}`.trim() : `${subject} failed`.trim();
@@ -327,7 +328,7 @@ function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject
       // "Used get_brand" named the mechanism; the deterministic table names
       // the act (`libs/chat/stepLabels.ts`). The model half may refine it
       // later through `applyLabels`.
-      return stepLabelFor(fallbackStepLabels(subject), status);
+      return stepLabelFor(fallbackStepLabels(subject, hints), status);
   }
 }
 
@@ -378,6 +379,13 @@ function specialistName(subagentType: string, description = ''): string {
 export type TraceEmitterOptions = {
   /** Display name of the front-door (lead) agent. */
   leadName: string;
+  /**
+   * What the workspace knows that a tool name alone does not — its REST
+   * sources and their prefixes — so `delivery_list_projects` reads as "Acme
+   * Delivery API · Listing projects…" and a `rest.request` proposal as
+   * "Proposed update milestone on Acme Delivery API".
+   */
+  labelHints?: StepLabelHints;
 };
 
 /**
@@ -416,9 +424,18 @@ export class TraceEmitter {
    * indistinguishable from a delegation that is still running.
    */
   private readonly openDelegations = new Map<string, { actor: TraceActor; parentId?: string; name: string }>();
+  /** What the workspace knows about its tools' names (see `TraceEmitterOptions`). */
+  private readonly hints?: StepLabelHints;
+  /**
+   * Nodes whose label came from the hints — a REST source's tool, a
+   * `rest.request` proposal. Those already say which system was asked, which
+   * is the one thing the model half could only lose; `wantsLabels` skips them.
+   */
+  private readonly hintLabelled = new Set<string>();
 
   constructor(opts: TraceEmitterOptions) {
     this.leadName = opts.leadName;
+    this.hints = opts.labelHints;
   }
 
   private leadActor(): TraceActor {
@@ -446,7 +463,7 @@ export class TraceEmitter {
    */
   wantsLabels(id: string): boolean {
     const meta = this.nodeMeta.get(id);
-    return Boolean(meta && (meta.kind === 'tool' || meta.kind === 'skill'));
+    return Boolean(meta && (meta.kind === 'tool' || meta.kind === 'skill') && !this.hintLabelled.has(id));
   }
 
   /**
@@ -644,6 +661,17 @@ export class TraceEmitter {
         this.nodeSubjects.set(id, subject);
         this.nodeMeta.set(id, { actor, parentId, kind });
         this.nodeStatus.set(id, 'start');
+        // A step the workspace can name better than a generic rule: a REST
+        // source's tool says which system was asked, a `rest.request`
+        // proposal says which endpoint on which source. Kept for `done` and
+        // withheld from the model half, which could only lose the source.
+        const hinted = tool === 'propose_action'
+          ? proposalStepLabels(args, this.hints)
+          : restSourceOfTool(tool, this.hints) ? fallbackStepLabels(tool, this.hints) : null;
+        if (hinted) {
+          this.nodeLabels.set(id, hinted);
+          this.hintLabelled.add(id);
+        }
         return [{
           type: 'trace_node',
           id,
@@ -651,7 +679,8 @@ export class TraceEmitter {
           actor,
           kind,
           status: 'start',
-          label: labelFor(kind, 'start', subject),
+          label: hinted ? stepLabelFor(hinted, 'start') : labelFor(kind, 'start', subject, this.hints),
+          ...(hinted ? { labels: hinted } : {}),
           detail,
           tool,
           args: argsPreview(args),
@@ -693,6 +722,7 @@ export class TraceEmitter {
           // opposite of what happened.
           const subject = this.nodeSubjects.get(id) ?? tool;
           this.nodeStatus.set(id, 'error');
+          const failedPair = this.nodeLabels.get(id);
           return [{
             type: 'trace_node',
             id,
@@ -700,7 +730,7 @@ export class TraceEmitter {
             actor,
             kind,
             status: 'error',
-            label: labelFor(kind, 'error', subject),
+            label: failedPair ? stepLabelFor(failedPair, 'error') : labelFor(kind, 'error', subject, this.hints),
             result: toolErrorMessage(content).slice(0, 160),
           }];
         }
@@ -732,7 +762,7 @@ export class TraceEmitter {
           actor,
           kind,
           status: 'done',
-          label: pair ? stepLabelFor(pair, 'done') : labelFor(kind, 'done', subject),
+          label: pair ? stepLabelFor(pair, 'done') : labelFor(kind, 'done', subject, this.hints),
           ...(pair ? { labels: pair } : {}),
           result,
           resultDetail,
@@ -762,6 +792,7 @@ export class TraceEmitter {
           this.openDelegations.delete(id);
         }
         this.nodeStatus.set(id, 'error');
+        const errorPair = this.nodeLabels.get(id);
         return [{
           type: 'trace_node',
           id,
@@ -769,7 +800,7 @@ export class TraceEmitter {
           actor,
           kind,
           status: 'error',
-          label: labelFor(kind, 'error', subject),
+          label: errorPair ? stepLabelFor(errorPair, 'error') : labelFor(kind, 'error', subject, this.hints),
           detail: kind === 'delegate' ? undefined : this.nodeSubjects.get(id),
           tool,
           result: message.slice(0, 160),

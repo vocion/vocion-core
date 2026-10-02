@@ -132,7 +132,7 @@ The platform draws the proposal visual itself, from the record, every time the
 record changes what the picture would say — the surface it lands on, the
 criteria it carries, this plan's `components` and `interfaces`
 (`services/factory/proposalVisual.ts`). You do not have to file one, and you
-must not treat `visuals.beforeArtifactIds` as an empty box to fill with a
+must not treat `visuals.mockupArtifactIds` as an empty box to fill with a
 screenshot of something else.
 
 Two things follow for you.

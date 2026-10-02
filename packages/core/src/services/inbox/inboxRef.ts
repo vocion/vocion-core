@@ -63,3 +63,14 @@ export function parseInboxRef(segment: string): InboxRef | null {
   const id = Number.parseInt(m[2]!, 10);
   return Number.isSafeInteger(id) && id > 0 ? { kind, id } : null;
 }
+
+/**
+ * Whether a page is the Review queue — its list or one of its decisions —
+ * with or without the workspace and locale prefixes. A decision opened from
+ * anywhere else goes back there once decided (`ReviewFocus`).
+ * @param url - The page, path and query.
+ */
+export function isReviewPath(url: string): boolean {
+  const path = url.split(/[?#]/)[0]!.replace(/^\/[a-z]{2}(?=\/)/, '').replace(/^\/w\/[\w-]+/, '');
+  return path === '/dashboard/inbox' || path.startsWith('/dashboard/inbox/');
+}

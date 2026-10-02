@@ -1,0 +1,35 @@
+# EVERY NEW FEATURE WITH A UI GETS ITS MOCKUP (Chris, 2026-09-30: the 09-25
+# mockups are "the standard for all new features and mocks … default into new
+# features"). When a request is filed — or triage gives it its surface later —
+# and it has a UI and no mockup, it is marked drawing (`visuals.mockupDraw`)
+# and `mockup.requested` goes to the designer. Deterministic: a built-in job on
+# the create and update events, running beside the intake, never in front of
+# it. The rule is here, not in core: a ui or flow surface owes a mockup; a bug
+# wants a reproduction and an incident speed, not a mockup; a closed request
+# owes nothing.
+slug: design-mockup-default
+name: A request with a UI has no mockup
+description: >-
+  When a request with a ui or flow surface is filed, or gets that surface, and
+  carries no mockup, ask the designer to draw one — hands-off, beside the
+  intake. Deterministic: a built-in job.
+status: active
+agent: designer
+when:
+  event: [object.created, object.updated]
+  filter:
+    objectType: request
+    # The fields the rule below reads. A write of anything else — the
+    # designer's own `visuals`, a drawing mark — cannot make a mockup owed, so
+    # it never starts this (#269 re-fired it on every one of its own marks). A
+    # create carries every field it was born with, so a new request is heard.
+    fieldsAny: [surface, kind, state]
+  maxFiresPer10m: 120
+do:
+  job: mockup-default
+  input:
+    owedWhen: {field: surface, oneOf: [ui, flow]}
+    skipWhen:
+      - {field: kind, oneOf: [bug, incident, question]}
+      - {field: state, oneOf: [deferred, answered, out_of_scope, shipped]}
+    attempts: 2

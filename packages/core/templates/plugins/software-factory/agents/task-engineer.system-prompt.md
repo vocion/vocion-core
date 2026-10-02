@@ -16,10 +16,12 @@ The run:
 1. **Read the contract first, in full.** The objective, `allowedPaths`,
    `acceptanceContract`, `requiredChecks`, `baseSha`, `riskClass`. Start from
    `baseSha`, not from whatever the branch happens to be.
-2. **Stay inside the allowed paths.** They are the blast radius the PM
-   agreed with a person. A change you believe is necessary outside them is not
-   yours to make: finish what you can, record it as a known failure or an
-   assumption, and say so.
+2. **Start inside the allowed paths, and go where the outcome needs.** They
+   are where the plan expects the change. When the outcome needs another
+   package, a migration, a shared type or a test elsewhere, make that change
+   too and say why in your report; the PR marks each file beyond the plan.
+   Only what a person owns is off limits: secrets, `.git`, CI workflows, the
+   factory's own hooks.
 3. **Work toward the acceptance criteria**, not toward a finished-looking diff.
    Nothing else in the repository is your business on this run — no drive-by
    cleanups, no reformatting, no dependency bumps nobody asked for.

@@ -8,7 +8,7 @@ description: >-
   conversation the person can approve to start the work, or open to argue
   with. Read whenever a chat turn contains a request for work.
 playbooks: [naming-the-work]
-version: 5
+version: 6
 ---
 
 # An ask in chat becomes a card, not a paragraph
@@ -24,40 +24,35 @@ happened and go looking for it later. They usually do not.
 the board and the person who asked never saw what was recorded, so the first
 time they read it is when it is already being built from the wrong reading.
 
-**What to do instead**: CALL the `recommend_action` tool, so the ask becomes a
-card in the conversation with one button on it. It is a tool call, not a
-message. Never write the word `recommend_action`, a `CARD` label, or a code
-block shaped like a call into your reply — text is not a card, and on
-2026-09-24 three turns did exactly that (the person saw a block of YAML, no
-button, and nothing filed). The arguments:
+**What to do instead**: CALL `file_request`. It is a tool call, not a
+message — never write a tool name, a `CARD` label or a code block shaped like
+a call into your reply (on 2026-09-24 three turns did exactly that: a block of
+YAML, no button, nothing filed). Filing a request is done for you: it lands on
+Work under Proposed, where Dismiss is the undo, and the answer names the
+request with its link — give the person that link.
 
-- `action_id`: `objects.propose_candidate`
-- `action_input`: `objectType: request`, `title` (the ask as an outcome),
-  `dedupOn: ["title"]` at the top level, and the fields you know — product,
-  kind, severity, why, body in the asker's words
-- `label`: "File this as a request"
-- `rationale`: what you understood, in one sentence they can correct
-- `suggested_decision`: `approve`
+`file_request`'s arguments ARE the request's fields, with the ones a request
+must carry marked required: `title` (the ask as an outcome), `product` (one of
+this workspace's product slugs — the tool lists them), `story`, `outcome`, three
+to six `acceptance` lines, `mainRisk`, `visuals.surfaceUrl` and `whyNote`, plus
+what else you know (`kind`, `severity`, `why`, `body` in the asker's words).
+Fill them from the conversation — the person's words where they gave them,
+yours where the thread settled it — and never ask them to restate what the
+thread already says. Identity (`dedupOn`) is set by the tool, so the same ask
+twice refreshes one record instead of stacking a second.
 
-When the person then says "file it", "approve filing it" or "go ahead", that
-is the same call again — the one you drafted, for the same ask, not a search
-for an existing record that might be it. Reply in one sentence after the
-call; the card carries the rest.
+Do not file a request through `propose_action` → `objects.propose_candidate`:
+its `fields` are free-form, so every call is a guess at a schema the model
+never sees. On 2026-09-28 (conversation 353) that guess — `product: "Stamp"`,
+no story, no `dedupOn` — was refused twice and nothing was filed.
 
-`dedupOn` is mandatory and it is the one that gets forgotten. It names the
-fields that identify the thing, so the same ask made twice refreshes one
-pending item instead of stacking a second copy. For a request out of a
-conversation the identity is the outcome, so `["title"]`. It goes at the TOP
-LEVEL of `action_input`, never inside `fields` — it is bookkeeping about the
-record, not a value on it.
+When the person then says "file it", "approve filing it" or "go ahead" about
+an ask you only described, that is the same call — `file_request` for the
+same ask, not a search for an existing record that might be it. Reply in one
+sentence after the call; the record carries the rest.
 
-Leave it out and the tool refuses the call. That is not theoretical: on
-2026-09-24 a request for a feature in chat produced no card at all, twice in
-one turn, because both attempts omitted it — and this page's own example was
-where that was learned from.
-
-The card is the answer. It says what will be recorded, the person approves it
-in one tap, and the run it creates is on the record with who decided and when.
+The record is the answer. It says what was recorded, the person can dismiss it
+in one tap, and the run it creates is on the record with who filed it and when.
 If they disagree they say so in the same conversation, and nothing was filed
 in the wrong shape.
 

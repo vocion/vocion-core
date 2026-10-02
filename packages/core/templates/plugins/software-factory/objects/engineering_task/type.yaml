@@ -11,8 +11,18 @@ description: >-
   artifacts, what it could not establish — lands on the same record, so the
   contract, its result and the evidence behind it are read in one place.
 icon: hammer
+# Its records read TK-<id> in the app and in chat (core: libs/codes.ts).
+code: TK
 schema:
   type: object
+  # A Review item about a task closes itself once the task ends (backlog 039).
+  x-settled: {field: status, in: [accepted, rejected, abandoned]}
+  # RELATED (core: libs/workspace/related.ts): what a task is connected to.
+  x-related:
+    - {key: request, label: Feature, from: links, field: requestId}
+    - {key: plan, label: Plan, from: links, field: planId}
+    - {key: runs, label: Engineering runs, from: runs}
+    - {key: pull, label: Pull request, from: url, field: prUrl}
   properties:
     repoSlug:
       x-display: {label: Repository, format: link, to: repo, group: Where}
@@ -320,7 +330,7 @@ gates:
     require:
       - {field: objective, present: true}
       - {field: baseSha, present: true, message: pin the base commit the worker starts from}
-      - {field: allowedPaths, minItems: 1, message: fence the change to the paths it may touch}
+      - {field: allowedPaths, minItems: 1, message: name where the change is expected to land}
       - {field: requiredChecks, minItems: 1, message: name the checks that must pass}
       - {field: acceptanceContract, minItems: 1, message: carry the criteria a reviewer can check}
       - {field: riskClass, present: true}

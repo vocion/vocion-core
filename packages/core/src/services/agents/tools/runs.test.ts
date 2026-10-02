@@ -12,7 +12,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } = await import('@/models/Schema');
+const { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, eventLogSchema, workerRunSchema } = await import('@/models/Schema');
 const { listRecentRunsTool } = await import('./runs');
 
 const ORG = 'org_runs_tool';
@@ -40,6 +40,8 @@ async function call(args: Record<string, unknown> = {}): Promise<Record<string, 
 const at = (iso: string) => new Date(iso);
 
 beforeEach(async () => {
+  await db.delete(eventLogSchema);
+  await db.delete(actionRunSchema);
   await db.delete(workerRunSchema);
   await db.delete(businessObjectSchema);
   await db.delete(businessObjectTypeSchema);
@@ -96,6 +98,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(eventLogSchema);
+  await db.delete(actionRunSchema);
   await db.delete(workerRunSchema);
   await db.delete(businessObjectSchema);
   await db.delete(businessObjectTypeSchema);
@@ -206,11 +210,92 @@ describe('list_recent_runs — the factory\'s runs, whether or not a task exists
     expect(out.workerRuns).toEqual([]);
   });
 
+  it('a filter that matched nothing says so, with what the workspace does have (conversation 397)', async () => {
+    const out = await call({ kinds: ['board'] });
+
+    expect(out.workerRunCount).toBe(0);
+    expect(out.note).toMatch(/^No worker runs match this filter \(kinds board\)\. The workspace has \d+ on record: /);
+    expect(out.note).not.toMatch(/in this workspace yet/);
+  });
+
   it('keeps the self-improver\'s view: feedback only, no worker runs\' releases', async () => {
     const out = await call({ withFeedbackOnly: true });
 
     expect(out.workflowRuns).toEqual([]);
     expect(out.actionRuns).toEqual([]);
     expect(out.releases).toBeUndefined();
+  });
+});
+
+/**
+ * "COMPLETED" NEVER STANDS ALONE (backlog 044). Conversation 392: the PM read
+ * run 424 "completed, 6/6 checks, PR #128" as "#248 shipped clean, green and
+ * merged". QA had sent it back (5 of 6) and PR #128 was unmerged.
+ */
+describe('list_recent_runs — every run says what it completed, and where the work is', () => {
+  const PR = 'https://github.com/northwind/portal/pull/128';
+
+  async function attempt(meta: Record<string, unknown>, status: string): Promise<number> {
+    await db.delete(workerRunSchema);
+    const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'engineering_task', label: 'Task' }).returning();
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Theme toggle', status, metadata: { requestId: 248, prUrl: PR, commitSha: 'abc1234def', riskClass: 'ui', ...meta } }).returning();
+    await db.insert(workerRunSchema).values({
+      orgId: ORG,
+      agentSlug: 'task-engineer',
+      kind: 'worker',
+      status: 'completed',
+      input: { record: { type: 'engineering_task', id: task!.id } },
+      result: { pr_url: PR, commit_sha: 'abc1234def', files_changed: ['a.ts', 'b.ts'], checks: Array.from({ length: 6 }, (_, i) => ({ name: `check-${i}`, passed: true })) },
+      claimedAt: at('2026-09-30T13:01:00Z'),
+      completedAt: at('2026-09-30T17:49:00Z'),
+      createdAt: at('2026-09-30T13:00:00Z'),
+    });
+    return task!.id;
+  }
+
+  it('conversation 392: a completed run whose attempt QA sent back, with its PR unmerged, says exactly that', async () => {
+    const taskId = await attempt({ verdict: { value: 'changes', proven: 5, total: 6, commitSha: 'abc1234def' } }, 'changes_requested');
+    await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.checks_completed', payload: { url: PR, conclusion: 'success', headSha: 'abc1234def', failedChecks: '' }, dedupeKey: 'checks-128' });
+
+    const out = await call();
+    const [run] = out.workerRuns;
+
+    expect(run).toMatchObject({
+      status: 'completed',
+      completed: 'the run finished: 2 files changed, 6/6 checks passed, #128',
+      task: { id: taskId, stage: 'changes_requested' },
+      verdict: { value: 'changes', proven: 5, total: 6, line: 'QA sent it back: 5 of 6 proven' },
+      pullRequest: { merge: 'not_merged', line: 'PR #128 is not merged (nothing records a merge)' },
+      ci: { state: 'passed' },
+      request: { id: 248 },
+      next: 'The next attempt builds with what QA found',
+    });
+    expect(out.note).toContain('"completed" means the run ended, not that QA passed it, that it merged or that it shipped');
+  });
+
+  it('#269: a completed run awaiting review with CI failed says CI failed and QA has not started', async () => {
+    await attempt({}, 'awaiting_review');
+    await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.checks_completed', payload: { url: PR, conclusion: 'failure', headSha: 'abc1234def', failedChecks: 'integration' }, dedupeKey: 'checks-128-red' });
+
+    const [run] = (await call()).workerRuns;
+
+    expect(run).toMatchObject({
+      verdict: { value: null, line: 'QA has not judged it yet' },
+      ci: { state: 'failed', failedChecks: 'integration' },
+      pullRequest: { merge: 'not_merged' },
+      next: 'CI failed, so QA does not start; the factory sends it back to the engineer with what failed',
+    });
+  });
+
+  it('merged only when a record says merged: the done merge action counts', async () => {
+    await attempt({ verdict: { value: 'approve', proven: 6, total: 6 } }, 'accepted');
+    await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'git.merge', status: 'done', input: { externalRef: { system: 'github', id: 'northwind/portal/pull/128', url: PR } }, executedAt: at('2026-09-30T17:58:00Z') });
+
+    const [run] = (await call()).workerRuns;
+
+    expect(run.pullRequest).toMatchObject({ merge: 'merged' });
+    expect(run.verdict.value).toBe('approve');
+    expect(run.mergeRule).toBeDefined();
+    expect(run.next).toBe('Merged; the release is recorded once it is live');
   });
 });

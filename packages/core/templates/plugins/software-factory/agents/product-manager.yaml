@@ -13,6 +13,13 @@ accent: rose
 active: true
 agentType: operational
 temperature: '0.2'
+# How it talks in chat (Chris, 2026-09-29: "DONT TELL ME WHAT YOURE GOING TO
+# TELL ME, JUST TELL ME"). A person can change it from the agent's page, MCP,
+# the API or by asking in chat; that setting survives an apply.
+voice:
+  length: brief
+  narration: off
+  creativity: 0.2
 eyebrow: Software factory · PM
 team: software-factory
 handles:
@@ -48,6 +55,9 @@ initiative: high
 # line; Chris, 2026-09-24: "I would have expected action cards for this").
 harness:
   recommendActionBackstop: true
+  # The product's production URLs and QA sign-in, to plan and check against the live product.
+  grantTools:
+    - product_access
 playbooks:
   - naming-the-work
   - designing-a-surface
@@ -59,6 +69,10 @@ skills:
   - rank-the-backlog
   - write-release-notes
   - rubric-product-manager
+  - intake-from-chat
+  - intake-from-the-tracker
+  - mirror-the-tracker
+  - tell-the-requester
 objectTypes:
   - request
   - architecture_plan

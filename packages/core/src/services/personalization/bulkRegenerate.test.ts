@@ -1,6 +1,6 @@
 /**
- * The bulk job row and its guards (Metacto ticket 071). The workflow itself
- * runs on Temporal; here the client is a stub, so what is under test is what
+ * The bulk job row and its guards (Metacto ticket 071). The job itself runs
+ * on the durable engine; here its start is a stub, so what is under test is what
  * may enter a job, what a job that cannot start leaves behind (nothing), and
  * how outcomes settle the counters.
  */
@@ -8,11 +8,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
-const workflowStart = vi.fn(async () => ({ workflowId: 'wf' }));
-vi.mock('@/libs/temporal/client', () => ({
-  getTemporalClient: vi.fn(async () => ({ workflow: { start: workflowStart } })),
-  VOCION_WORKFLOWS_TASK_QUEUE: 'vocion-workflows',
-}));
+const workflowStart = vi.fn(async (_id: string, _call: unknown) => ({ id: 'wf' }));
+vi.mock('@/libs/durable/jobs', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/durable/jobs')>('@/libs/durable/jobs');
+  return { ...actual, startJob: workflowStart };
+});
 
 const { db } = await import('@/libs/DB');
 const { leadBriefSchema, personalizationBulkJobSchema } = await import('@/models/Schema');
@@ -34,7 +34,7 @@ async function lead(id: number, name: string, status = 'ready_for_review'): Prom
 
 beforeEach(async () => {
   workflowStart.mockClear();
-  workflowStart.mockResolvedValue({ workflowId: 'wf' });
+  workflowStart.mockResolvedValue({ id: 'wf' });
   await db.delete(personalizationBulkJobSchema);
   await db.delete(leadBriefSchema);
 });
@@ -56,10 +56,10 @@ describe('startBulkBriefRegenerate', () => {
       { leadId: b, contactName: 'Bo', state: 'queued' },
     ]);
     expect(job!.workflowId).toBe(`bulk-brief-regenerate:${ORG}:${job!.id}`);
-    expect(workflowStart).toHaveBeenCalledWith('bulkBriefRegenerate', expect.objectContaining({
-      workflowId: `bulk-brief-regenerate:${ORG}:${job!.id}`,
-      args: [{ orgId: ORG, jobId: job!.id, leadIds: [a, b], note: 'Use a Personalized Nurture rung.', by: 'usr-1' }],
-    }));
+    expect(workflowStart).toHaveBeenCalledWith(`bulk-brief-regenerate:${ORG}:${job!.id}`, {
+      job: 'brief.bulk-regenerate',
+      input: { orgId: ORG, jobId: job!.id, leadIds: [a, b], note: 'Use a Personalized Nurture rung.', by: 'usr-1' },
+    });
   });
 
   it('refuses a lead that is not waiting in Review, by name, and starts nothing', async () => {
@@ -104,7 +104,7 @@ describe('recordBulkLeadOutcome', () => {
 
     expect(job).toMatchObject({ done: 0, failed: 1, status: 'running' });
 
-    // Temporal's retry lands the same lead: the failure is overwritten, not added to.
+    // The engine's retry lands the same lead: the failure is overwritten, not added to.
     await recordBulkLeadOutcome(ORG, jobId, { leadId: a, contactName: 'Ada', state: 'landed' });
     await recordBulkLeadOutcome(ORG, jobId, { leadId: b, contactName: 'Bo', state: 'landed' });
     job = await getBulkJob(ORG, jobId);

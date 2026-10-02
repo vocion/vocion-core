@@ -109,6 +109,53 @@ describe('ConnectorList', () => {
     expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }));
   });
 
+  it('names the account a grant is on and marks each listed repository against what it granted', async () => {
+    const GITHUB = tile('github', 'GitHub');
+    const rows = buildConnectorRows([GITHUB], [source({
+      id: 9,
+      slug: 'github',
+      kind: 'github',
+      config: { repos: ['The-NocoCompany/warranty-app', 'The-NocoCompany/noco-sales'] },
+      grant: {
+        account: 'The-NocoCompany (organization)',
+        granted: { label: 'Repositories', items: ['The-NocoCompany/warranty-app', 'The-NocoCompany/amazon-ads-reporting'] },
+      },
+    })]);
+    const noop = () => {};
+    render(<ConnectorList rows={rows} syncingId={null} onConnectNew={noop} onSync={noop} onTest={noop} onEdit={noop} onDelete={noop} onConnect={noop} />);
+
+    await userEvent.click(page.getByRole('button', { name: /GitHub/ }).first());
+
+    const grant = page.getByTestId('connector-grant');
+
+    await expect.element(grant).toBeVisible();
+    await expect.element(grant.getByText('The-NocoCompany (organization)')).toBeVisible();
+    // Listed and granted: read. Listed, not granted: the one fact a green card hid.
+    expect(grant.getByText('The-NocoCompany/warranty-app').element().closest('li')?.getAttribute('data-grant-state')).toBe('read');
+    expect(grant.getByText('The-NocoCompany/noco-sales').element().closest('li')?.getAttribute('data-grant-state')).toBe('not-granted');
+    await expect.element(grant.getByText(/A repository this source lists is not in the installation/)).toBeVisible();
+    // Granted but not listed: shown, muted, so the person sees what the source leaves unread.
+    expect(grant.getByText('The-NocoCompany/amazon-ads-reporting').element().closest('li')?.getAttribute('data-grant-state')).toBe('not-listed');
+  });
+
+  it('says on the row when the last run read items and kept none, with the rule that dropped them', async () => {
+    renderList([source({
+      slug: 'github',
+      config: { _connector: 'zoom' },
+      documentCount: 0,
+      sync: {
+        status: 'completed',
+        startedAt: '2026-09-30T21:20:00.000Z',
+        completedAt: '2026-09-30T21:20:30.000Z',
+        error: null,
+        counts: { created: 0, updated: 0, unchanged: 0, errors: 0, skipped: 12 },
+        skipped: [{ uri: 'https://github.com/The-NocoCompany/warranty-app/pull/58', message: 'branch fix-date-range-last-day is outside the factory/ prefix', at: '2026-09-30T21:20:10.000Z' }],
+      },
+    })]);
+
+    await expect.element(page.getByTestId('sync-skipped-line')).toHaveTextContent('Last sync read 12 items and kept none: branch fix-date-range-last-day is outside the factory/ prefix');
+  });
+
   it('shows a running sync\'s progress on the row without opening it', async () => {
     renderList([source({ sync: { status: 'running', startedAt: new Date(Date.now() - 120_000).toISOString(), completedAt: null, error: null, counts: { created: 40, updated: 2 } } })]);
 

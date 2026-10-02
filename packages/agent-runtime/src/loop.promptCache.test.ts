@@ -17,7 +17,7 @@ import type { InvocationRequest } from './contract.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const buildChatModel = vi.fn(async (_options: Record<string, unknown>) => ({ _modelType: () => 'fake' }));
-vi.mock('./model.js', () => ({ buildChatModel }));
+vi.mock('./model.js', () => ({ buildChatModel, resolvedModelId: (model?: string) => model ?? 'test-model' }));
 
 /** An async iterable that yields nothing, for a stream the test does not use. */
 async function* nothing(): AsyncGenerator<never> {}

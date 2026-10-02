@@ -15,6 +15,7 @@
 
 import type { Card } from '@/libs/cards/card';
 import type { AgentEvent } from '@/services/agents/types';
+import type { RunCostScope } from '@/services/budget/runCost';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
@@ -25,6 +26,7 @@ import { track } from '@/services/adoption/track';
 import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
+import { withRunCost } from '@/services/budget/runCost';
 import { cardAsRecommendation, surfaceCard } from '@/services/cards/surface';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
@@ -57,10 +59,14 @@ export async function POST(request: Request): Promise<Response> {
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
   const { mergeScopeRef, readContextRefs, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
-  const { autoProposeRecommendationDetailed, readAutonomy } = await import('@/services/chat/autoPropose');
+  const { fileRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
-  const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
+  // The page's record, typed: `/dashboard/p/feature/124` is request 124, read
+  // off the workspace's page manifest and the row — never "a feature record"
+  // (`services/chat/pageRecord.ts`, conversation 355).
+  const { pageRecordDepsFor, typePageRecord } = await import('@/services/chat/pageRecord');
+  const pageContext = mergeScopeRef(await typePageRecord(readPageContext(body.page_context), pageRecordDepsFor(orgId)), typeof body.scope_ref === 'string' ? body.scope_ref : null);
   // The person's zone, from the browser — the day boundary for this turn's
   // dates. Invalid or missing falls back to the workspace's.
   const { isValidTimeZone } = await import('@/libs/time/zone');
@@ -87,10 +93,10 @@ export async function POST(request: Request): Promise<Response> {
   // (agent-chat-surface.md §9.10), falling back to the first agent when no
   // lead is configured. 404 when zero agents authored.
   //
-  // `route: true` asks the workspace to choose: the router matches the message
-  // against what each agent `handles`, its description and its suggestions,
-  // and defaults to the lead when nothing convinces it
-  // (`services/agents/router.ts`). The decision is the turn's first frame and
+  // `route: true` asks the workspace to choose: a small model reads the
+  // message against the roster and what each seat owns, and the lead answers
+  // when it is unsure; the keyword scorer is only its fallback
+  // (`services/agents/router.ts`, conversation 397). The decision is the turn's first frame and
   // is written on the person's message, so "why did this agent answer" has an
   // answer a person can read. Sent by the composer when the person picked no
   // agent; absent, the lead answers as before.
@@ -108,8 +114,23 @@ export async function POST(request: Request): Promise<Response> {
     const { getWorkspaceLead } = await import('@/services/TeamService');
     const lead = await getWorkspaceLead(orgId);
     if (body.route === true && typeof message === 'string' && message.trim()) {
-      const { chooseAgent, routableFromRow } = await import('@/services/agents/router');
-      routing = chooseAgent({ agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
+      const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn } = await import('@/services/agents/router');
+      // A follow-up stays with the agent the thread is with; the router
+      // picks only a conversation's first turn, or an agent the person names
+      // (conversation 349: "Please file it now." left the product manager's
+      // thread for change-reviewer on a keyword score).
+      const { threadAgentOf } = await import('@/services/ConversationService');
+      const threadAgent = typeof body.conversation_id === 'number' ? await threadAgentOf({ orgId, id: body.conversation_id }) : null;
+      const routable = agents.map(routableFromRow);
+      // On a record's page the record's owner answers the first turn — the
+      // page is the context, a keyword is not (conversation 362).
+      const pageRecord = pageContext?.record?.objectType ? { objectType: pageContext.record.objectType, id: pageContext.record.id } : null;
+      routing = followUpDecision({ agents: routable, message, threadAgent, surface: 'chat' })
+        ?? pageOwnerDecision({ agents: routable, message, record: pageRecord, ownerSlug: pageRecord ? await recordOwnerSlug(orgId, pageRecord.objectType) : null, surface: 'chat' })
+        // Otherwise the first turn is read by a model against the roster and
+        // what each seat owns (conversation 397: "file it and build it" went
+        // to the wiki researcher on a keyword score).
+        ?? await routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
     }
     agentSlug = routing?.chosen
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
@@ -235,7 +256,7 @@ export async function POST(request: Request): Promise<Response> {
   // (refresh / phone lock) can replay what it missed and re-attach LIVE via
   // /rpc/agent/stream/resume. stream_meta tells the client its stream id.
   const streamId = crypto.randomUUID();
-  const buffered = openStream(streamId, { orgId, userId });
+  const buffered = openStream(streamId, { orgId, userId }, conversationId);
 
   // Multiplex the agent event stream + a 15s keepalive timer into one
   // ReadableStream. Whichever fires first gets written; on disconnect
@@ -250,6 +271,8 @@ export async function POST(request: Request): Promise<Response> {
       // Why it ended that way, in the runtime's own words — persisted beside
       // the status so a reloaded turn can still say what happened.
       let endingReason: string | null = null;
+      // What the turn spent, counted while it runs (`budget/runCost.ts`).
+      const counted: { cost: RunCostScope | null } = { cost: null };
       const safeEnqueue = (chunk: Uint8Array) => {
         if (!closed) {
           try {
@@ -279,8 +302,10 @@ export async function POST(request: Request): Promise<Response> {
           } else if (event.type === 'artifact' && !event.pending) {
             collector.onArtifact(event.artifact.id);
           } else if (event.type === 'recommended_action') {
-            const r = event.recommendation as { label: string; actionId: string; input?: Record<string, unknown>; runId?: number };
-            collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId });
+            const r = event.recommendation as { label: string; actionId: string; input?: Record<string, unknown>; runId?: number; href?: string; hrefLabel?: string };
+            collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId, href: r.href, hrefLabel: r.hrefLabel });
+          } else if (event.type === 'record_links') {
+            collector.onRecordLinks(event.links);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -302,8 +327,9 @@ export async function POST(request: Request): Promise<Response> {
             write: writeEvent,
             collector,
             where: { conversationId, agentSlug },
-            ...(autonomy === 'act-within-bounds'
-              ? { file: (c: Card) => autoProposeRecommendationDetailed({ orgId, userId, rec: cardAsRecommendation(c) }) }
+            // A "Draft needed" card is never filed as it stands (`surfaceCard`).
+            ...(autonomy === 'act-within-bounds' && !card.draft
+              ? { file: (c: Card) => fileRecommendation({ orgId, userId, rec: cardAsRecommendation(c) }) }
               : {}),
           }));
           return;
@@ -328,7 +354,7 @@ export async function POST(request: Request): Promise<Response> {
       writeEvent({ type: 'turn_agent', agent: turnAgent });
 
       try {
-        await runAgentDeep({
+        const turn = () => runAgentDeep({
           allowedSourceSlugs,
           orgId,
           agentSlug,
@@ -343,6 +369,17 @@ export async function POST(request: Request): Promise<Response> {
           modelPrefs,
           onEvent: sendEvent,
         });
+        // What this turn cost — its own model calls and every specialist it
+        // delegated to — is counted while it runs and written with the
+        // answer (`services/budget/runCost.ts`).
+        if (conversationId === null) {
+          await turn();
+        } else {
+          await withRunCost({ conversationId }, async (scope) => {
+            counted.cost = scope;
+            return turn();
+          });
+        }
       } catch (err) {
         const m = (err as Error).message ?? 'agent error';
         // The turn died here. Whatever text the collector holds is a fragment,
@@ -467,7 +504,12 @@ export async function POST(request: Request): Promise<Response> {
                 status: ending,
                 ...(endingReason ? { statusReason: endingReason } : {}),
                 agentSlug,
+                ...(counted.cost ? { cost: { tokens: counted.cost.tokens, microCents: counted.cost.microCents } } : {}),
               });
+              // The features this turn was about are re-totalled with it.
+              if (counted.cost && counted.cost.microCents > 0) {
+                void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(orgId)).catch(() => {});
+              }
               // The thread's name, once its first answer has landed — in the
               // background, after the row is written, so the stream never waits
               // on it. It only ever replaces a title nobody chose

@@ -72,7 +72,7 @@ describe('file_ask', () => {
       confidence: 0.9,
     });
 
-    expect(out).toMatch(/^Ask #\d+ filed \(recommendation, run #\d+\)\. It is on Needs you: .*\/w\/acme\/dashboard\/inbox\/\d+ Part of decision sheet "product:batch-1"\./);
+    expect(out).toMatch(/^Ask #\d+ filed \(recommendation, run #\d+\)\. It is on Needs you: .*\/w\/acme\/dashboard\/inbox\/\d+\?account=acme Part of decision sheet "product:batch-1"\./);
     expect(out).toMatch(/say the question was asked, not answered/);
 
     const [ask] = await db.select().from(askSchema);

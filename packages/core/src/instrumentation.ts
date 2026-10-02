@@ -25,6 +25,11 @@ const sentryOptions: Sentry.NodeOptions | Sentry.EdgeOptions = {
 };
 
 export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // The one durable executor (backlog 054): resumes waiting runs after every deploy.
+    // Never awaited: a database that is slow to answer must not hold the server's boot.
+    void import('./libs/durable/executor').then(m => m.startDurableExecutor());
+  }
   if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
     if (process.env.NEXT_RUNTIME === 'nodejs') {
       // Node.js Sentry configuration

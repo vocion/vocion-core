@@ -25,7 +25,7 @@ import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, eq } from 'drizzle-orm';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { actionForPolicyKey } from '@/libs/actions/policyKey';
-import { listActions } from '@/libs/actions/registry';
+import { aliasesOf, listActions } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { autonomyPolicySchema, trustRuleSchema } from '@/models/Schema';
 import { evidenceFor, scoresByKey } from '@/services/alignment/AlignmentService';
@@ -104,6 +104,20 @@ export async function effectivePolicy(orgId: string, actionId: string): Promise<
   ]);
   if (policy || trustRule) {
     return resolve(actionId, policy ?? null, trustRule ?? null);
+  }
+  // A RULE WRITTEN AGAINST THE ACTION'S FORMER ID STILL GOVERNS IT. An action
+  // renamed from its vendor's name to its family's (`slack.post_message` →
+  // `chat.post_message`) keeps the rule and the policy a workspace wrote
+  // under the old id until the workspace rewrites them; the run itself is
+  // recorded under the new id.
+  for (const alias of aliasesOf(actionId)) {
+    const [[aliasPolicy], [aliasRule]] = await Promise.all([
+      db.select().from(autonomyPolicySchema).where(and(eq(autonomyPolicySchema.orgId, orgId), eq(autonomyPolicySchema.actionId, alias))).limit(1),
+      db.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.actionId, alias))).limit(1),
+    ]);
+    if (aliasPolicy || aliasRule) {
+      return resolve(actionId, aliasPolicy ?? null, aliasRule ?? null);
+    }
   }
   // A DERIVED KEY WITH NO ROWS OF ITS OWN IS GOVERNED BY ITS ACTION'S ROWS.
   //

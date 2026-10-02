@@ -89,6 +89,41 @@ Only `CREATE INDEX` and `DROP INDEX` belong in `concurrent/`. Those files have n
 transaction around them, so a statement that fails halfway leaves the schema
 half-changed with nothing to roll back.
 
+### The one exemption
+
+A *partial* unique index has neither route. It cannot go in `concurrent/`,
+because it is unique; and it cannot be rebuilt in a numbered migration, because
+that is the blocking build this rule exists to stop. Expand and contract does
+not help either — there is no second column to write to while the first is
+retired, only one index that has to be dropped and made again.
+
+`api_token_org_platform_live_idx` is that index. It caps an org at one live
+credential per platform, and carves out the platforms where several are the
+point, so every new connector platform means rebuilding it. It was rebuilt in
+`0076` and `0077` while the rule still exempted them, and by `0153` there was no
+legal way left to touch it.
+
+So a migration may claim an exemption, in the file, naming the table and saying
+why:
+
+```sql
+-- migration-safety: allow blocking-index on "api_token" because a partial
+-- UNIQUE index has no concurrent route, and the table holds one row per
+-- credential per org — the build is milliseconds against writes that arrive
+-- by hand.
+```
+
+`check:migrations` then allows `blocking-index` on that table, for the builds
+below the comment, in that file only. Nothing else relaxes: a different table
+still fails, a missing rationale still fails, and the `concurrent/` rules are
+untouched — those are correctness, not judgement.
+
+The judgement it stands in for is **how big the table is**, which the checker
+cannot see. Write the exemption when the lock is bounded by a table that is
+small and rarely written, and say which of those two you are relying on. On a
+table with real volume it is the wrong answer however true the rest of the
+rationale is, and the only reviewer is whoever reads the pull request.
+
 ### Keeping `Schema.ts` in step
 
 Declare the index in `src/models/Schema.ts` as usual — that is what the ORM and

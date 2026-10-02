@@ -8,7 +8,9 @@
  *   2. **Hard drops and the operator's knobs**, this file. Everything here is
  *      deterministic and configuration-driven: a tenant cannot run code inside
  *      core's processor, so each rule a tenant needs is a knob whose name says
- *      what it does to a record and never whose rule it is.
+ *      what it does to a record and never whose rule it is. Under
+ *      `occurrenceFields` a series is written out first (`occurrences.ts`),
+ *      so each occurrence meets the same knobs.
  *   3. **The object type's JSON Schema**, report only, through the action's
  *      own `describeSchemaProblems`. A candidate that does not fit still
  *      reaches the queue with the mismatch written on it, because a human
@@ -24,16 +26,19 @@
 
 import type { CandidateExtractorConfig } from './config';
 import type { ExtractedRecord } from './model';
+import type { FeedSeries } from './occurrences';
 import type { PageLink } from '@/libs/sources/pageMetadata';
-import { normaliseForKey } from '@/libs/actions/objects-propose-candidate';
+import { normaliseForKey, pageKey } from '@/libs/actions/objects-propose-candidate';
 import { dayPlus } from '@/libs/time/zone';
+import { RULE_EVIDENCE_CAP } from './config';
 import { calendarDayOf } from './knownCards';
+import { expandOccurrences } from './occurrences';
 
 /** An adopted rule a record cites, with the text the model was shown. */
 export type CitedRule = { id: string; title?: string; text: string; evidence?: string };
 
 /** A record that survived the gates, with whatever the gates had to say. */
-export type ValidatedRecord = Omit<ExtractedRecord, 'scores' | 'matchedRules'> & {
+export type ValidatedRecord = Omit<ExtractedRecord, 'scores' | 'matchedRules' | 'repeats'> & {
   scores?: Record<string, number>;
   /** Absent: not recorded. `[]`: the rules were checked and none decided it. */
   matchedRules?: CitedRule[];
@@ -54,10 +59,11 @@ export type ValidationOutput = {
   counts: Record<string, number>;
   /** Run-level notes, for the processor result. */
   notes: string[];
+  /** The first day a rule falls on that no record was written for, `YYYY-MM-DD`: past the horizon, or left out at a limit. */
+  nextUnwritten?: string;
 };
 
 const RULE_TITLE_CAP = 60;
-const RULE_EVIDENCE_CAP = 300;
 
 /**
  * Lowercase, quotes dropped, whitespace collapsed: enough that evidence the
@@ -153,6 +159,32 @@ function digitRuns(value: unknown): string[] {
 }
 
 /**
+ * The runs of letters in a text, in NFC, so a composed and a decomposed accent
+ * are the same word.
+ * @param text - Squashed text.
+ */
+function letterRuns(text: string): string[] {
+  return text.normalize('NFC').match(/[\p{L}\p{M}]+/gu) ?? [];
+}
+
+/**
+ * Whether the document has a word whole, or with a plural "s" or "es".
+ * @param page - The document's letter runs.
+ * @param word - One word of a value.
+ */
+function hasWord(page: Set<string>, word: string): boolean {
+  return page.has(word) || page.has(`${word}s`) || page.has(`${word}es`);
+}
+
+/**
+ * The images an HTML page's text shows, in the form the gate compares.
+ * @param images - `metadata.images`.
+ */
+function shownImages(images: unknown): Set<string> {
+  return new Set((Array.isArray(images) ? images : []).filter((url): url is string => typeof url === 'string').map(squashUrl));
+}
+
+/**
  * Whether a value reads as filled in.
  * @param value - The field value.
  */
@@ -191,6 +223,19 @@ function resolvedAgainst(value: string, baseUrl: string | undefined): string | u
     return new URL(value, baseUrl).toString();
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Whether a link names an SVG file, a site's icon or logo rather than a
+ * picture of a record.
+ * @param url - The image's address.
+ */
+function namesSvg(url: string): boolean {
+  try {
+    return /\.svg$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
   }
 }
 
@@ -266,11 +311,16 @@ function documentUrls(
  * declared for itself, for the same gate.
  * @param opts.ogImage - `metadata.ogImage`, the image the document stated for
  * itself, for the same gate and for the fallback at the end of this file.
+ * @param opts.images - `metadata.images`, the images the page's text shows, for the image fields only.
  * @param opts.baseUrl - The document's own address, so a URL the model hands
  * back as a path can be resolved before the gate compares it.
+ * @param opts.ownUrl - The document's own URI, as stored; a link field that resolves to it is dropped.
+ * @param opts.entryUrl - `metadata.entryUrl`, the page a feed entry named as its own; a link field that resolves to it is dropped.
  * @param opts.knownIds - Run ids the prompt actually carried.
  * @param opts.today - Today as a calendar day in the config's timezone.
  * @param opts.rules - The adopted rules the prompt carried, by `step#id`.
+ * @param opts.feedSeries - A split calendar entry's own series, which writes its occurrences under `occurrenceFields`.
+ * @param opts.calendarEntry - Whether the document is a split calendar entry, so its dates are never read off a rule the model stated.
  */
 export function validateRecords(opts: {
   records: ExtractedRecord[];
@@ -280,10 +330,15 @@ export function validateRecords(opts: {
   jsonLd?: unknown[];
   publishedUrls?: string[];
   ogImage?: string;
+  images?: string[];
   baseUrl?: string;
+  ownUrl?: string;
+  entryUrl?: string;
   knownIds: Set<number>;
   today: string;
   rules?: Array<{ id: string; text: string }>;
+  feedSeries?: FeedSeries;
+  calendarEntry?: boolean;
 }): ValidationOutput {
   const { config } = opts;
   const counts: Record<string, number> = {};
@@ -322,15 +377,32 @@ export function validateRecords(opts: {
     }
     return urls.blob !== '' && urls.blob.includes(url) ? url : undefined;
   };
+  // A page's own images publish an image and nothing else, so they answer the
+  // image fields here and never reach `published`.
+  const images = shownImages(opts.images);
+  const publishedImage = (url: string | undefined): string | undefined =>
+    published(url) ?? (url && images.has(squashUrl(url)) ? squashUrl(url) : undefined);
 
   const kept: ValidatedRecord[] = [];
   const pageBlob = () => `${opts.pageText}\n${opts.jsonLd?.length ? JSON.stringify(opts.jsonLd) : ''}`;
   let pageHaystack: string | null = null;
   let quotedHaystack: string | null = null;
+  let pageWords: Set<string> | null = null;
+  const onPage = (quote: string): boolean => {
+    pageHaystack ??= squash(pageBlob());
+    const needle = squash(quote);
+    return needle.length > 0 && pageHaystack.includes(needle);
+  };
   const horizon = dayPlus(opts.today, config.recurrenceHorizonDays);
-  for (const raw of opts.records) {
-    const { scores: rawScores, matchedRules: rawRules, ...rest } = raw;
-    const record: ValidatedRecord = { ...rest, fields: { ...raw.fields }, issues: [] };
+  const ownKey = pageKey(opts.ownUrl);
+  const entryKey = pageKey(opts.entryUrl);
+  const expansion = expandOccurrences({ records: opts.records, config, today: opts.today, feedSeries: opts.feedSeries, calendarEntry: opts.calendarEntry, knownIds: opts.knownIds, onPage });
+  Object.assign(counts, expansion.counts);
+  notes.push(...expansion.notes);
+  const originOf = new Map<ValidatedRecord, number>();
+  for (const { record: raw, origin, computed, issues } of expansion.items) {
+    const { scores: rawScores, matchedRules: rawRules, repeats: _repeats, ...rest } = raw;
+    const record: ValidatedRecord = { ...rest, fields: { ...raw.fields }, issues: [...(issues ?? [])] };
 
     // Defaults first: they are what a venue site's page leaves unsaid, and the
     // identity check below has to see them.
@@ -349,7 +421,7 @@ export function validateRecords(opts: {
 
     const blankIdentity = config.dedupOn.filter(field => isBlank(record.fields[field]));
     if (blankIdentity.length > 0) {
-      bump('skipped.incomplete');
+      bump(config.dedupOn.every(field => isBlank(raw.fields[field])) ? 'skipped.no_identity' : 'skipped.incomplete');
       continue;
     }
 
@@ -413,23 +485,35 @@ export function validateRecords(opts: {
     }
 
     // "Never guess a price" as a check rather than a request: every digit run
-    // in the value has to occur in the document.
+    // in the value has to occur in the document, and a string with none has to
+    // show each of its words there.
     for (const field of config.mustAppearInDocument ?? []) {
       const value = record.fields[field];
-      if (isBlank(value)) {
+      if (isBlank(value) || defaulted.has(field) || computed?.has(field)) {
         continue;
       }
+      quotedHaystack ??= squash(unescaped(pageBlob()));
+      const haystack = quotedHaystack;
       const runs = digitRuns(value);
-      if (runs.length > 0 && !runs.every(run => opts.pageText.includes(run))) {
+      let missing: string | undefined;
+      if (runs.length > 0 || typeof value !== 'string') {
+        missing = runs.every(run => haystack.includes(run)) ? undefined : 'digits';
+      } else {
+        pageWords ??= new Set(letterRuns(haystack));
+        const page = pageWords;
+        missing = letterRuns(squash(unescaped(value))).every(word => hasWord(page, word)) ? undefined : 'words';
+      }
+      if (missing) {
         delete record.fields[field];
-        record.issues.push(`${field}: dropped, its digits do not appear anywhere in the document`);
+        record.issues.push(`${field}: dropped "${String(value)}", its ${missing} do not appear anywhere in the document`);
+        bump('dropped.not_in_document');
       }
     }
 
-    // A value the operator supplied is not the document's to print.
+    // A value the operator supplied, or one computed from a rule, is not the document's to print.
     for (const field of config.quotedFields ?? []) {
       const value = record.fields[field];
-      if (typeof value !== 'string' || isBlank(value) || defaulted.has(field)) {
+      if (typeof value !== 'string' || isBlank(value) || defaulted.has(field) || computed?.has(field)) {
         continue;
       }
       quotedHaystack ??= squash(unescaped(pageBlob()));
@@ -448,7 +532,7 @@ export function validateRecords(opts: {
       }
     }
     if (record.imageUrl) {
-      const declared = published(record.imageUrl);
+      const declared = publishedImage(record.imageUrl);
       if (declared === undefined) {
         record.issues.push('the image URL was not published by the document, so it was dropped');
         delete record.imageUrl;
@@ -459,7 +543,7 @@ export function validateRecords(opts: {
     if (config.imageFrom) {
       const fromField = record.fields[config.imageFrom];
       if (typeof fromField === 'string' && fromField !== '') {
-        const declared = published(fromField);
+        const declared = publishedImage(fromField);
         if (declared === undefined) {
           delete record.fields[config.imageFrom];
           record.issues.push(`${config.imageFrom}: dropped, the document did not publish that URL`);
@@ -467,6 +551,31 @@ export function validateRecords(opts: {
           record.fields[config.imageFrom] = declared;
         }
       }
+    }
+    for (const field of config.linkFields ?? []) {
+      const value = record.fields[field];
+      if (typeof value !== 'string' || value === '') {
+        continue;
+      }
+      const declared = published(value);
+      if (declared === undefined) {
+        delete record.fields[field];
+        record.issues.push(`${field}: dropped, the document did not publish that URL`);
+        continue;
+      }
+      const linkKey = pageKey(resolvedAgainst(declared, opts.ownUrl) ?? declared);
+      const recordKey = record.sourceUrl ? pageKey(resolvedAgainst(record.sourceUrl, opts.ownUrl) ?? record.sourceUrl) : null;
+      if (linkKey !== null && (linkKey === ownKey || linkKey === recordKey)) {
+        delete record.fields[field];
+        record.issues.push(`${field}: dropped, it is the page itself`);
+        continue;
+      }
+      if (linkKey !== null && linkKey === entryKey) {
+        delete record.fields[field];
+        record.issues.push(`${field}: dropped, it is the entry's own page`);
+        continue;
+      }
+      record.fields[field] = declared;
     }
 
     // The hallucination guard: an id the prompt never sent is not a fact about
@@ -499,7 +608,6 @@ export function validateRecords(opts: {
 
     const known = opts.rules ?? [];
     if (rawRules !== undefined && known.length > 0) {
-      pageHaystack ??= squash(pageBlob());
       const cited: CitedRule[] = [];
       for (const answer of rawRules) {
         const rule = resolveRule(answer.id, known);
@@ -512,8 +620,7 @@ export function validateRecords(opts: {
           continue;
         }
         const evidence = answer.evidence?.trim() ?? '';
-        const needle = squash(evidence);
-        const found = needle.length > 0 && pageHaystack.includes(needle);
+        const found = onPage(evidence);
         if (evidence && !found) {
           record.issues.push(`matchedRules: the evidence for ${rule.id} is not in the document, so it was dropped`);
           bump('skipped.evidence_not_in_document');
@@ -531,6 +638,7 @@ export function validateRecords(opts: {
     }
 
     kept.push(record);
+    originOf.set(record, origin);
   }
 
   let records = kept;
@@ -562,7 +670,8 @@ export function validateRecords(opts: {
   //
   // Applied ONLY to a document that produced exactly one record, because an
   // og:image describes the DOCUMENT rather than any record in it. When the
-  // document describes one thing, the document's image is that thing's image.
+  // document describes one thing, the document's image is that thing's image,
+  // and so the image of every occurrence written from it.
   // When it lists many, the image belongs to the page, and putting it on each
   // record would state on every card something the document never said about
   // any of them.
@@ -573,22 +682,28 @@ export function validateRecords(opts: {
   // the card; an `imageFrom` field is part of the record's data, and writing a
   // fact about the document into it would be the inventing the prompt forbids.
   //
-  // It goes THROUGH `published`, the same gate every model-returned URL
+  // It goes THROUGH `publishedImage`, the same gate every model-returned image
   // passes, rather than around it. The gate knows this value only because
   // `documentUrls` was told about it, so the fallback cannot outlive the
   // declaration that justifies it: take the og:image back out of the gate and
   // this fills nothing, rather than quietly writing past it.
-  const only = records.length === 1 ? records[0] : undefined;
-  if (ogImage && only && !only.imageUrl) {
-    const declared = published(ogImage);
-    if (declared !== undefined) {
-      only.imageUrl = declared;
-      // Said on the card, because a reviewer reading a picture of the wrong
-      // thing should be able to see where it came from.
-      only.issues.push('the image is the one the document published for itself, no image was stated for this record');
-      bump('image_from_document');
+  //
+  // An SVG og:image is a site's icon or logo: share previews, the reason
+  // og:image exists, do not render SVG.
+  const oneRecord = records.length > 0 && new Set(records.map(record => originOf.get(record))).size === 1;
+  const documentImage = ogImage && oneRecord ? publishedImage(ogImage) : undefined;
+  const svg = documentImage !== undefined && namesSvg(documentImage);
+  for (const record of documentImage === undefined ? [] : records.filter(candidate => !candidate.imageUrl)) {
+    if (svg) {
+      bump('image_from_document.svg');
+      continue;
     }
+    record.imageUrl = documentImage;
+    // Said on the card, because a reviewer reading a picture of the wrong
+    // thing should be able to see where it came from.
+    record.issues.push('the image is the one the document published for itself, no image was stated for this record');
+    bump('image_from_document');
   }
 
-  return { records, counts, notes };
+  return { records, counts, notes, ...(expansion.nextUnwritten ? { nextUnwritten: expansion.nextUnwritten } : {}) };
 }

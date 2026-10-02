@@ -5,8 +5,9 @@
  * usually expensive, usually a model call. The whole design of the hook is
  * about containment, so that is what these tests pin:
  *
- *   - it runs for created and updated documents, and again for one whose last
- *     run did not finish, up to a cap;
+ *   - it runs for created and updated documents, again for one whose last
+ *     run did not finish, up to a cap, and again once a finished run's
+ *     revisit time has passed;
  *   - a processor that throws, or hangs, costs its own document and nothing
  *     else: the sync still completes, `errors` stays where it was, the
  *     watermark still advances and documents gone from the source are still
@@ -305,8 +306,9 @@ describe('the document processor hook', () => {
 
     const checkpoint = await checkpointFor(sourceId);
 
-    // toEqual, so an extra key fails: the six a processor-less run has always
-    // written, and not one more. (Key ORDER is jsonb's business, not ours.)
+    // toEqual, so an extra key fails: the seven a processor-less run has always
+    // written (`skipped` since 2026-10-01, what the run read and set aside by
+    // rule), and not one more. (Key ORDER is jsonb's business, not ours.)
     expect(checkpoint?.counts).toEqual({
       created: 2,
       updated: 0,
@@ -314,6 +316,7 @@ describe('the document processor hook', () => {
       metadataRefreshed: 0,
       tombstoned: 2,
       errors: 0,
+      skipped: 0,
     });
     expect(processorLog.loads).toBe(0);
     expect(processorLog.ran).toEqual([]);
@@ -483,6 +486,7 @@ describe('a document whose processor did not finish', () => {
 
     expect(processorLog.ran.map(r => r.externalId).sort()).toEqual(['deferred', 'once', 'twice']);
     expect((await checkpointFor(sourceId))?.counts.processorRetries).toBe(3);
+    expect((await checkpointFor(sourceId))?.counts).not.toHaveProperty('processorRevisits');
     expect(processorLog.marks).toContainEqual({ documentId: 3, kind: 'finished', contentHash: 'h3' });
     expect(processorLog.marks.some(m => m.documentId === 1 || m.documentId === 5)).toBe(false);
   });
@@ -589,6 +593,68 @@ describe('a document whose processor did not finish', () => {
     expect(processorLog.marks).toEqual([
       { documentId: 40, kind: 'deferred', error: 'the sync ran out of time before this document', claimed: false },
     ]);
+  });
+
+  it('runs the processor again on unchanged content once a finished run\'s revisit time has passed', async () => {
+    registerFixtureConnector('proc-revisit-gate', ['stale', 'fresh']);
+    const sourceId = await createSource('proc-revisit-gate', { slug: FIXTURE_SLUG, config: {} });
+    const outcomes: Record<string, Record<string, unknown>> = {
+      stale: { status: 'unchanged', documentId: 50, contentHash: 'r50', processorAttempts: 0, processorDue: false, revisitDue: true },
+      fresh: { status: 'unchanged', documentId: 51, contentHash: 'r51', processorAttempts: 0, processorDue: false, revisitDue: false },
+    };
+    processorLog.outcomeFor = id => outcomes[id]!;
+    const next = new Date('2031-03-01T05:00:00.000Z');
+    processorLog.behaviour = async () => ({ produced: 1, skipped: 0, revisitAt: next });
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.ran.map(r => r.externalId)).toEqual(['stale']);
+    expect(processorLog.marks).toEqual([
+      { documentId: 50, kind: 'started' },
+      { documentId: 50, kind: 'finished', contentHash: 'r50', revisitAt: next },
+    ]);
+
+    const counts = (await checkpointFor(sourceId))?.counts;
+
+    expect(counts?.processorRevisits).toBe(1);
+    expect(counts).not.toHaveProperty('processorRetries');
+  });
+
+  it('stores no revisit time a processor returned as an invalid date', async () => {
+    registerFixtureConnector('proc-revisit-invalid', ['a']);
+    const sourceId = await createSource('proc-revisit-invalid', { slug: FIXTURE_SLUG, config: {} });
+    processorLog.outcomeFor = () => ({ status: 'created', documentId: 52, chunks: 1, contentHash: 'r52' });
+    processorLog.behaviour = async () => ({ produced: 1, skipped: 0, revisitAt: new Date(Number.NaN) });
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.marks[1]).toStrictEqual({ documentId: 52, kind: 'finished', contentHash: 'r52' });
+  });
+
+  it('counts a revisit that fails as a try, so it retries under the same cap', async () => {
+    registerFixtureConnector('proc-revisit-fails', ['revisit', 'last-try', 'spent']);
+    const sourceId = await createSource('proc-revisit-fails', { slug: FIXTURE_SLUG, config: {} });
+    const outcomes: Record<string, Record<string, unknown>> = {
+      'revisit': { status: 'unchanged', documentId: 60, contentHash: 'f60', processorAttempts: 0, processorDue: false, revisitDue: true },
+      // What the store reads back once a revisit failed: a try is spent, so it is due as a retry, not as a revisit.
+      'last-try': { status: 'unchanged', documentId: 61, contentHash: 'f61', processorAttempts: 2, processorDue: true, revisitDue: false },
+      'spent': { status: 'unchanged', documentId: 62, contentHash: 'f62', processorAttempts: 3, processorDue: true, revisitDue: false },
+    };
+    processorLog.outcomeFor = id => outcomes[id]!;
+    processorLog.countAfter.set(60, 1);
+    processorLog.countAfter.set(61, 3);
+    processorLog.behaviour = async () => {
+      throw new Error('upstream exploded');
+    };
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.ran.map(r => r.externalId).sort()).toEqual(['last-try', 'revisit']);
+    expect(processorLog.marks).toContainEqual({ documentId: 60, kind: 'failed', error: 'upstream exploded' });
+
+    const counts = (await checkpointFor(sourceId))?.counts;
+
+    expect(counts).toMatchObject({ processorRevisits: 1, processorRetries: 1, processorRetriesExhausted: 1, processorErrors: 2 });
   });
 
   it('completes the sync with no ingest errors when recording a run fails', async () => {

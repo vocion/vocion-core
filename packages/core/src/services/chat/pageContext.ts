@@ -75,6 +75,17 @@ export type RecordRef = {
   label?: string;
   /** In-app route for the chip. Relative, never absolute. */
   href?: string;
+  /**
+   * For an `object`: the object type's slug (`request`, `release`) — what the
+   * record IS, which a page slug is not. `/dashboard/p/feature/124` is request
+   * 124; the chat was handed `object 124` and the path, read "feature" as the
+   * type, and told the person it could not write "a feature record" (Chris,
+   * 2026-09-28). Resolved server-side from the page manifest and the record
+   * itself (`services/chat/pageRecord.ts`), never guessed from the slug.
+   */
+  objectType?: string;
+  /** For a typed `object`: what a person reads it by — FE-294 (`libs/codes.ts`). */
+  code?: string;
 };
 
 /** One message in a chat thread, as the agent needs to see it. */
@@ -207,6 +218,8 @@ const MAX_STATE = 8;
 const MAX_STATE_FIELD = 160;
 
 const RECORD_TYPE_SET: ReadonlySet<string> = new Set(RECORD_TYPES);
+/** An object type's slug, as type.yaml names it. */
+const OBJECT_TYPE_SLUG = /^[a-z][\w-]{0,63}$/;
 
 function str(v: unknown, max: number): string | null {
   if (typeof v !== 'string') {
@@ -234,6 +247,10 @@ export function readRecordRef(raw: unknown): RecordRef | null {
     return null;
   }
   const ref: RecordRef = { type: type as RecordType, id: i };
+  const objectType = (raw as Record<string, unknown>).objectType;
+  if (type === 'object' && typeof objectType === 'string' && OBJECT_TYPE_SLUG.test(objectType)) {
+    ref.objectType = objectType;
+  }
   const l = str(label, MAX_LABEL);
   if (l) {
     ref.label = l;
@@ -283,10 +300,16 @@ export function readContextRefs(raw: unknown): RecordRef[] {
  * `/dashboard/objects/<id>`, `/dashboard/p/<page>/<id>` (a report page's
  * record; `runs` pages are engineering runs), with or without the
  * `/w/<workspace>` and locale prefixes.
+ *
+ * The page slug is NOT the record's type: `feature` is the page a request
+ * opens on. `pageType` maps a page slug to the object type the workspace's
+ * manifest says that page opens (`recordTypeOfPage`); without it the ref
+ * carries no `objectType` rather than an invented one.
  * @param path - The page path.
  * @param title - The page title, for the label.
+ * @param pageType - Page slug → the object type its manifest opens, or null.
  */
-export function recordFromPath(path: string, title = ''): RecordRef | null {
+export function recordFromPath(path: string, title = '', pageType?: (pageSlug: string) => string | null): RecordRef | null {
   const p = path.split(/[?#]/)[0]!.replace(/^\/[a-z]{2}(?=\/)/, '').replace(/^\/w\/[\w-]+/, '');
   const object = /^\/dashboard\/objects\/(\d+)\/?$/.exec(p);
   if (object) {
@@ -299,9 +322,11 @@ export function recordFromPath(path: string, title = ''): RecordRef | null {
   const page = /^\/dashboard\/p\/([\w-]+)\/(\d+)\/?$/.exec(p);
   if (page) {
     const [, slug, id] = page;
-    return slug === 'runs'
-      ? { type: 'worker_run', id: id!, label: title || `Run #${id}`, href: `/dashboard/p/runs/${id}` }
-      : { type: 'object', id: id!, label: title || `#${id}`, href: `/dashboard/p/${slug}/${id}` };
+    if (slug === 'runs') {
+      return { type: 'worker_run', id: id!, label: title || `Run #${id}`, href: `/dashboard/p/runs/${id}` };
+    }
+    const objectType = pageType?.(slug!) ?? null;
+    return { type: 'object', id: id!, label: title || `#${id}`, href: `/dashboard/p/${slug}/${id}`, ...(objectType ? { objectType } : {}) };
   }
   return null;
 }
@@ -474,6 +499,11 @@ export function describeThread(t: ThreadContext): string {
 
 function describeRecord(ref: RecordRef): string {
   const name = ref.label ? `"${ref.label}"` : ref.id;
+  // A typed record names its type and id the way the tools take them, so
+  // "this" is `update_object {objectType: "request", id: 124}`, not a guess.
+  if (ref.type === 'object' && ref.objectType) {
+    return `${ref.code ?? `${ref.objectType.replace(/[_-]+/g, ' ')} #${ref.id}`}${ref.label ? ` "${ref.label}"` : ''}${ref.href ? ` (${ref.href})` : ''} — objectType "${ref.objectType}", id ${ref.id}`;
+  }
   return `${ref.type.replace('_', ' ')} ${name}${ref.href ? ` (${ref.href})` : ''}`;
 }
 
@@ -508,7 +538,7 @@ export function withPageContext(message: string, ctx: PageContext | null, refs: 
     lines.push(`I am looking at ${where} in the app.`);
   }
   if (ctx.record) {
-    lines.push(`This page is about the ${describeRecord(ctx.record)}.`);
+    lines.push(`This page is about ${ctx.record.code ? '' : 'the '}${describeRecord(ctx.record)}.`);
   }
   if (ctx.refs && ctx.refs.length > 0) {
     lines.push(`I mentioned: ${ctx.refs.map(describeRecord).join('; ')}.`);

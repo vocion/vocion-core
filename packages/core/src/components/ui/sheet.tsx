@@ -43,6 +43,67 @@ function SheetOverlay({
   );
 }
 
+/**
+ * THE GRABBER ON A BOTTOM SHEET, DRAGGED DOWN, CLOSES IT (Chris, 2026-09-29,
+ * on the phone chat drawer: "Toggle drag bar on mobile app drawer doesn't do
+ * anything. It should allow drag to close."). The bar and a 28px band around
+ * it take the drag; the sheet follows the finger, and past a quarter of its
+ * height — or on a quick flick — it closes, otherwise it springs back.
+ * @param props - Props.
+ * @param props.onDismiss - Close the sheet (its `onOpenChange(false)`).
+ * @param props.className - Extra classes for the band.
+ */
+function SheetGrabber({ onDismiss, className }: { onDismiss: () => void; className?: string }) {
+  const drag = React.useRef<{ y: number; t: number; sheet: HTMLElement | null } | null>(null);
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d?.sheet) {
+      return;
+    }
+    const dy = Math.max(0, e.clientY - d.y);
+    d.sheet.style.transform = `translateY(${dy}px)`;
+  };
+  const end = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.sheet) {
+      return;
+    }
+    const dy = Math.max(0, e.clientY - d.y);
+    const speed = dy / Math.max(1, e.timeStamp - d.t);
+    d.sheet.style.transition = '';
+    if (dy > d.sheet.offsetHeight / 4 || speed > 0.6) {
+      onDismiss();
+      return;
+    }
+    d.sheet.style.transform = '';
+  };
+  return (
+    <div
+      data-slot="sheet-grabber"
+      role="presentation"
+      className={cn('flex h-7 w-full shrink-0 cursor-grab touch-none items-center justify-center active:cursor-grabbing', className)}
+      onPointerDown={(e) => {
+        const sheet = e.currentTarget.closest('[data-slot="sheet-content"]') as HTMLElement | null;
+        drag.current = { y: e.clientY, t: e.timeStamp, sheet };
+        if (sheet) {
+          sheet.style.transition = 'none';
+        }
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // A pointer the browser no longer tracks: the drag still follows moves on the band.
+        }
+      }}
+      onPointerMove={move}
+      onPointerUp={end}
+      onPointerCancel={end}
+    >
+      <div aria-hidden className="h-1 w-9 rounded-full bg-border" />
+    </div>
+  );
+}
+
 function SheetContent({
   className,
   children,
@@ -140,6 +201,7 @@ export {
   SheetContent,
   SheetDescription,
   SheetFooter,
+  SheetGrabber,
   SheetHeader,
   SheetTitle,
   SheetTrigger,

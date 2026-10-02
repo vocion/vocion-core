@@ -81,4 +81,22 @@ export default antfu(
       'jsdoc/require-hyphen-before-param-description': 'error', // Enforce hyphen before param description
     },
   },
+  // --- The runner (packages/runner) ---
+  // Plain Node ESM with no dependencies and its suite on node:test, run inside a container: its
+  // JSDoc is prose for people rather than TypeScript's types, its log is one JSON line per phase
+  // on stdout, and its CLI (`contract.mjs check-flows`) prints.
+  {
+    files: ['packages/runner/**/*.mjs'],
+    rules: {
+      'jsdoc/require-param': 'off',
+      'jsdoc/require-param-description': 'off',
+      'jsdoc/require-returns-description': 'off',
+      'jsdoc/require-hyphen-before-param-description': 'off',
+      'jsdoc/no-types': 'off',
+      'test/no-import-node-test': 'off',
+      'node/prefer-global/buffer': 'off',
+      'style/max-statements-per-line': 'off',
+      'no-console': 'off',
+    },
+  },
 );

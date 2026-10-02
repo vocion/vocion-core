@@ -1,12 +1,13 @@
 import type { FieldChange } from './recordBodyFormat';
 import type { MarkdownSpec } from '@/libs/cards/specs';
-import type { ArtifactRow, Author } from '@/services/ArtifactService';
+import type { ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
+import { bookkeepingPaths, withoutBookkeeping } from '@/libs/workspace/bookkeeping';
 import { artifactSchema, businessObjectSchema, businessObjectTypeSchema, userSchema } from '@/models/Schema';
 import { createArtifact, listArtifactVersions, updateArtifact } from '@/services/ArtifactService';
-import { fieldDiff, locateChange, RECORD_BODY_ROLE, recordBodyEnabled, recordFields, renderRecordBody, restoreSet, stableJson } from './recordBodyFormat';
+import { fieldDiff, RECORD_BODY_ROLE, recordBodyEnabled, recordFields, renderRecordBody, restoreSet, stableJson } from './recordBodyFormat';
 
 /**
  * A record's body is an artifact (backlog 035).
@@ -119,6 +120,19 @@ export function authorFor(by: string | null | undefined): Author {
 }
 
 /**
+ * A record's current version and when it was written — what its version chip
+ * reads (`features/dashboard/versions/VersionChip`). A read only: a record
+ * whose body was never made has no version yet, and says null rather than
+ * making one to count.
+ * @param orgId - The workspace.
+ * @param objectId - The record.
+ */
+export async function recordVersionOf(orgId: string, objectId: number): Promise<{ version: number; at: string } | null> {
+  const body = await findBody(orgId, objectId);
+  return body ? { version: body.currentVersion, at: body.updatedAt.toISOString() } : null;
+}
+
+/**
  * The record's body artifact, created from the row on first use.
  * @param orgId - The workspace.
  * @param objectId - The record (`business_object.id`).
@@ -208,7 +222,11 @@ export async function writeRecordBodyVersion(input: {
     };
     const spec = specFor(rec, meta);
     const headFields = ((body.spec as MarkdownSpec).record?.fields ?? null) as Record<string, unknown> | null;
-    if (headFields && stableJson(headFields) === stableJson(spec.record!.fields) && body.title === rec.title) {
+    // A write that changed only what the type keeps for itself
+    // (`x-bookkeeping` — a drawing mark, the runs already handled) is not a
+    // version of the record: nobody reading its history asked for it.
+    const quiet = bookkeepingPaths(rec.schema);
+    if (headFields && stableJson(withoutBookkeeping(headFields, quiet)) === stableJson(withoutBookkeeping(spec.record!.fields as Record<string, unknown>, quiet)) && body.title === rec.title) {
       return { status: 'unchanged', artifactId: body.id, version: body.currentVersion };
     }
     const { version } = await updateArtifact({
@@ -410,37 +428,93 @@ export async function restoreRecordVersion(input: { orgId: string; objectId: num
   return writeThroughUpdateMeta({ orgId: input.orgId, userId: input.userId, objectType: rec.typeSlug, objectId: rec.id, set, reason: `Restored version ${input.version}` });
 }
 
-export type RecordChangeOutcome = RecordWriteOutcome & { field: string; label: string; before: unknown; after: unknown };
+/**
+ * A person saving a record's body artifact from the artifact pane (edit,
+ * or a version's Restore there): the ROW is the source of truth, the way a
+ * workspace file is for a mission, so the save is read back into fields
+ * (`recordBodyParse.ts`) and written through `objects.update_meta` — plus
+ * `objects.rename` for a new heading — and the new version comes out of that
+ * write. Never a version the row does not know about.
+ * @param input - The save.
+ * @param input.orgId - The workspace.
+ * @param input.userId - The person.
+ * @param input.artifact - The body artifact.
+ * @param input.spec - The saved spec (`record.fields`, else `md`).
+ * @param input.contentMarkdown - The saved markdown.
+ * @param input.title - A new title.
+ * @param input.changeSummary - The person's line, when they gave one.
+ * @returns The body after the write, and its head version.
+ * @throws {Error} When nothing changed, the body does not parse, or the write did not land.
+ */
+export async function saveRecordBodyAsPerson(input: { orgId: string; userId: string; artifact: ArtifactRow; spec?: Record<string, unknown>; contentMarkdown?: string; title?: string; changeSummary?: string }): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow }> {
+  const objectId = Number(input.artifact.recordId);
+  const rec = await readRecord(input.orgId, objectId);
+  if (!rec) {
+    throw new Error(`The record behind this body (#${objectId}) is gone.`);
+  }
+  const { parseRecordBody, setBetween } = await import('./recordBodyParse');
+  const current = recordFields(rec.metadata, rec.schema);
+  const specFields = (input.spec as MarkdownSpec | undefined)?.record?.fields;
+  const md = input.contentMarkdown ?? (typeof input.spec?.md === 'string' ? input.spec.md : null);
+  const parsed = specFields && typeof specFields === 'object' ? { fields: specFields as Record<string, unknown>, title: null } : md !== null ? parseRecordBody(md, rec.schema, current) : { fields: current, title: null };
+  const set = setBetween(current, parsed.fields);
+  const title = (input.title ?? parsed.title ?? '').trim();
+  const reason = input.changeSummary?.trim() || 'Edited the record';
+  if (title && title !== rec.title) {
+    const { proposeAction } = await import('@/services/ActionService');
+    const res = await proposeAction({
+      orgId: input.orgId,
+      actionId: 'objects.rename',
+      input: { objectType: rec.typeSlug, id: rec.id, title, reason },
+      principal: { kind: 'user', id: input.userId, role: 'member', scope: { orgId: input.orgId } },
+      invokedBy: input.userId,
+    });
+    if (res.status !== 'done') {
+      throw new Error(res.error ?? `The rename is ${res.status}.`);
+    }
+  }
+  if (Object.keys(set).length > 0) {
+    const out = await writeThroughUpdateMeta({ orgId: input.orgId, userId: input.userId, objectType: rec.typeSlug, objectId: rec.id, set, reason });
+    if (out.status !== 'done') {
+      throw new Error(out.error ?? `The change is ${out.status}.`);
+    }
+  } else if (!title || title === rec.title) {
+    throw new Error('Nothing changed: the body says what the record already says.');
+  }
+  return headOf(input.orgId, input.artifact.id);
+}
 
 /**
- * Change on a record: the selected words replaced with the person's new
- * wording, in the field they belong to, as an `objects.update_meta` write.
- * @param input - The selection and the instruction.
+ * Restore from the artifact pane's version menu on a record's body: the
+ * record's own Restore (`restoreRecordVersion`), then the body's head.
+ * @param input - Which body, which version, who.
  * @param input.orgId - The workspace.
- * @param input.objectId - The record.
- * @param input.quote - The words the person selected.
- * @param input.instruction - What they should say instead.
  * @param input.userId - The person.
- * @param input.field - The field the page says the selection was in, when it knows.
+ * @param input.artifact - The body artifact.
+ * @param input.version - The version to restore.
  */
-export async function proposeRecordChange(input: { orgId: string; objectId: number; quote: string; instruction: string; userId: string; field?: string | null }): Promise<RecordChangeOutcome> {
-  const rec = await readRecord(input.orgId, input.objectId);
-  if (!rec) {
-    throw new Error(`No record #${input.objectId} in this workspace.`);
+export async function restoreRecordBodyAsPerson(input: { orgId: string; userId: string; artifact: ArtifactRow; version: number }): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow }> {
+  const out = await restoreRecordVersion({ orgId: input.orgId, objectId: Number(input.artifact.recordId), version: input.version, userId: input.userId });
+  if (out.status !== 'done' && out.status !== 'unchanged') {
+    throw new Error(out.error ?? `The restore is ${out.status}.`);
   }
-  const replacement = input.instruction.trim();
-  if (!replacement) {
-    throw new Error('Say what it should read instead.');
+  return headOf(input.orgId, input.artifact.id);
+}
+
+async function headOf(orgId: string, artifactId: number): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow }> {
+  const { getArtifact, getArtifactVersion } = await import('@/services/ArtifactService');
+  const artifact = await getArtifact({ orgId, id: artifactId });
+  const version = artifact ? await getArtifactVersion({ orgId, artifactId, version: artifact.currentVersion }) : null;
+  if (!artifact || !version) {
+    throw new Error(`Artifact #${artifactId} is gone.`);
   }
-  const fields = recordFields(rec.metadata, rec.schema);
-  const hit = locateChange(rec.schema, fields, input.quote, replacement, input.field);
-  if (!hit) {
-    throw new Error('Those words are not in a field this record can change here. Use Ask to have the agent change it.');
-  }
-  // The body exists before the write, so the change reads as a diff from v1.
-  await ensureRecordBody(input.orgId, rec.id);
-  const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-  const reason = `Changed ${hit.label.toLowerCase()}: “${clip(input.quote.trim(), 120)}” → “${clip(replacement, 200)}”`;
-  const out = await writeThroughUpdateMeta({ orgId: input.orgId, userId: input.userId, objectType: rec.typeSlug, objectId: rec.id, set: { [hit.key]: hit.after }, reason });
-  return { ...out, field: hit.key, label: hit.label, before: hit.before, after: hit.after };
+  return { artifact, version };
+}
+
+/**
+ * Is this artifact a record's body? Then its source of truth is the row.
+ * @param a - The artifact.
+ */
+export function isRecordBodyArtifact(a: Pick<ArtifactRow, 'recordType' | 'recordRole' | 'recordId'> | null | undefined): boolean {
+  return !!a && a.recordType === 'object' && a.recordRole === RECORD_BODY_ROLE && /^\d+$/.test(a.recordId ?? '');
 }

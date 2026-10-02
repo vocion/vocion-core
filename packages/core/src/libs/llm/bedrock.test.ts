@@ -1,6 +1,6 @@
 import type { BedrockRuntimeClient, ConverseCommandInput } from '@aws-sdk/client-bedrock-runtime';
 import { describe, expect, it, vi } from 'vitest';
-import { bedrockClient, buildBedrockRuntimeClient } from './bedrock';
+import { bedrockClient, bedrockTakesCachePoint, buildBedrockRuntimeClient } from './bedrock';
 
 /**
  * Bedrock adapter tests — request shape and response flattening.
@@ -176,6 +176,20 @@ describe('bedrockClient request shape', () => {
     expect(sent[0]?.inferenceConfig).toEqual({ temperature: 0 });
   });
 
+  it('sends no cachePoint to a model from a vendor that refuses one', async () => {
+    const { client, sent } = stubClient();
+
+    await bedrockClient(client).generate({
+      model: 'deepseek.v3.2',
+      messages: [
+        { role: 'system', content: 'Be terse.' },
+        { role: 'user', content: 'Hi' },
+      ],
+    });
+
+    expect(sent[0]?.system).toEqual([{ text: 'Be terse.' }]);
+  });
+
   it('names the model the caller asked for', async () => {
     const { client, sent } = stubClient();
 
@@ -335,5 +349,30 @@ describe('bedrockClient cache accounting', () => {
     const result = await bedrockClient(client).generate({ model: 'm', messages: [{ role: 'user', content: 'Hi' }] });
 
     expect(result.usage?.inputTokens).toBeUndefined();
+  });
+});
+
+describe('bedrockTakesCachePoint', () => {
+  it.each([
+    'anthropic.claude-opus-5-5',
+    'global.anthropic.claude-sonnet-4-6',
+    'us-gov.anthropic.claude-sonnet-4-6',
+    'jp.anthropic.claude-sonnet-4-6',
+    'us.anthropic.claude-opus-4-6-v1',
+    'au.anthropic.claude-haiku-4-5-20251001-v1:0',
+    'us.amazon.nova-pro-v1:0',
+    'arn:aws:bedrock:us-west-2:111122223333:inference-profile/us.anthropic.claude-sonnet-4-6',
+    'arn:aws:bedrock:us-west-2:111122223333:application-inference-profile/abc123',
+  ])('gives %s a cachePoint', (model) => {
+    expect(bedrockTakesCachePoint(model)).toBe(true);
+  });
+
+  it.each([
+    'deepseek.v3.2',
+    'us.deepseek.r1-v1:0',
+    'meta.llama3-70b-instruct-v1:0',
+    'arn:aws:bedrock:us-west-2::foundation-model/deepseek.v3.2',
+  ])('gives %s none', (model) => {
+    expect(bedrockTakesCachePoint(model)).toBe(false);
   });
 });

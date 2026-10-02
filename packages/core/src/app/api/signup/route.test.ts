@@ -76,7 +76,7 @@ describe('POST /api/signup', () => {
     expect(res.status).toBe(403);
   });
 
-  it('rejects an email that already has an account', async () => {
+  it('refuses to make a second user for an email that already has a login, and tells the form to send them to sign in', async () => {
     queryResults = [[{ id: 'usr-existing' }]];
 
     const res = await POST(signupRequest({
@@ -87,6 +87,9 @@ describe('POST /api/signup', () => {
     }));
 
     expect(res.status).toBe(409);
+    // The form turns this into "sign in to accept", which joins the account
+    // on the existing user (`/api/invites/accept`).
+    await expect(res.json()).resolves.toMatchObject({ code: 'EXISTING_USER' });
   });
 
   it('rejects an invite token that does not exist', async () => {

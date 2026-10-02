@@ -28,8 +28,10 @@
  */
 
 import type { SubAgent } from 'deepagents';
+import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import type { RestSourceSpec } from '@/libs/rest/spec';
 import type { OperatingIntentManifest } from '@/libs/workspace/schemas';
 import type { Initiative } from '@/services/agents/initiative';
 import { tool as makeTool } from '@langchain/core/tools';
@@ -41,8 +43,6 @@ import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
 import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
-import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
-import { resolveTimeZone } from '@/libs/time/zone';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
@@ -54,6 +54,7 @@ import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentServi
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
+import { agentScope, runtimeContextFromScope } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -241,6 +242,10 @@ type AgentBlueprint = {
   hasMounts: boolean;
   /** The workspace's enabled plugin slugs; plugin-owned tools are built only with their plugin. */
   enabledPlugins: string[];
+  /** The agent's types filed through their own typed tool (`tools/fileRecord.ts`). */
+  filingTypes?: FilingType[];
+  /** The agent's `rest` sources with their declared endpoints (`tools/restDirect.ts`). */
+  restSources?: RestSourceSpec[];
 };
 
 /**
@@ -263,11 +268,33 @@ export type AgentRequest = {
   conversationId?: number;
   /** Where the person is in the app right now, read by the `page_context` tool. */
   pageContext?: RuntimeContext['pageContext'];
+  /** The person's message this turn, for gates on the turn's own ask. */
+  turnMessage?: string;
   /** The person's own time zone for this turn; falls back to the workspace's. */
   timeZone?: string;
 };
 
-async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
+/**
+ * The part of a blueprint that is the agent's DEFINITION rather than its
+ * machinery: the row, the compiled system prompt, the delegation roster, the
+ * workspace's zone and plugins. No model is built here.
+ *
+ * Split out of `buildBlueprint` so that the out-of-process loop sends the SAME
+ * definition the in-process loop runs. The container used to receive the
+ * authored `system_prompt` column and the deprecated inline `subagents` JSONB
+ * — no clock rules, no output discipline, no capabilities or operating-intent
+ * notes, and no registered specialists to delegate to — so moving an agent to
+ * `agentcore-container` quietly made it a different agent.
+ */
+export type AgentDefinition = Omit<AgentBlueprint, 'model' | 'hasMounts'>;
+
+/**
+ * The definition an agent runs with, wherever its loop runs. See
+ * {@link AgentDefinition}.
+ * @param orgId - Tenant scope.
+ * @param agentSlug - The agent to load.
+ */
+export async function buildAgentDefinition(orgId: string, agentSlug: string): Promise<AgentDefinition> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -281,12 +308,14 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
     throw new Error(`agent ${agentSlug} not found in org ${orgId}`);
   }
 
-  const harnessConfig = row.harnessConfig ?? {};
-  const defaultTimeZone = await workspaceTimeZone(orgId);
-  // Plugins the workspace has on, once per blueprint: plugin-owned tool sets
-  // are present only with their plugin, and the prompt names what is off. An
-  // apply resets the blueprint cache, so a toggle reaches the next turn.
-  const enabledPlugins = await enabledPluginsForOrg(orgId).catch(() => [] as string[]);
+  // The agent's scope, once per blueprint, from the one builder every loop
+  // uses (`runtimeContext.ts`): the workspace's zone; the plugins it has on
+  // (plugin-owned tool sets are present only with their plugin, and the
+  // prompt names what is off); the agent's types filed through their own
+  // tool (`file_<slug>`), references resolved to this workspace's record
+  // slugs; and the REST sources it holds with the endpoints each declares.
+  // An apply resets the blueprint cache, so a toggle reaches the next turn.
+  const { enabledPlugins, defaultTimeZone, filingTypes, restSources } = await agentScope(orgId, row);
   // The workspace's stated operating intent, once per blueprint, from the
   // column the applier writes. `null` is "nobody has told this factory
   // anything", which the note says out loud rather than treating as permission.
@@ -394,12 +423,21 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   // pretty-prints/reformats so nothing matches). Instead give it a sanctioned
   // place to lay data out — a <scratch> block we strip deterministically — so
   // the user only ever sees what's AFTER it. Delimiter-based = format-agnostic.
+  const { resolveVoice, voicePrompt } = await import('@/libs/agents/voice');
+  const voice = resolveVoice(row.voice, row.voiceOverride);
+  const stylePage = voice.style
+    ? await import('@/services/wiki/WikiService').then(w => w.getWikiPage(orgId, voice.style!)).catch(() => null)
+    : null;
+  const voiceSection = voicePrompt(voice, stylePage ? { slug: stylePage.slug, content: stylePage.md } : null);
   const OUTPUT_DISCIPLINE = [
     'OUTPUT FORMAT (strict):',
     'You may lay out raw data to reason over — record JSON, and ESPECIALLY search results and email contents (From/Subject/body, message lists) — but ONLY inside a single <scratch>…</scratch> block at the very START of your reply.',
     'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — erinb@northwind.example"), never the search results you read to find it.',
     'If you have no raw data to lay out, skip the scratch block and just answer.',
-    'VOICE (chat replies): write like a sharp human chief of staff texting a busy founder — not a chatbot. In a conversational reply, hard bans: NO decorative or "stoplight" emoji (🔴🟡🟢✅) as bullets or status markers; NO templated scaffolding ("Here are your top three moves right now:", "I hope this helps", "Let me know if…"); NO filler closers ("Want me to draft all three now for your review?"). Keep a short ranked list tight (a bold lead-in + one line each), no per-item ##/### headers or --- rules. Lead with the move, be specific, cut hedging. EXCEPTION — a PUBLISHED, scannable document (a daily briefing via publish_briefing, or an explicitly long report): there, clear section structure and priority markers ARE appropriate (that\'s a document meant to be scanned, not a chat message). The ban is on chatbot slop in conversation, not on structure in documents.',
+    // Codes (`libs/codes.ts`): every tool names records and runs by one, so the answer can too.
+    'RECORD REFERENCES: name a record, run, ask or conversation by its code exactly as tool output gives it — FE-294, PL-295, RUN-439, ACT-5590, ASK-267, CHAT-405 — the one reference a person may read in your answer. Never a bare number or "#294"; a pull request stays repo#number (squatch-core#147). Tools take the code as input too (read_object FE-294).',
+    // How this agent talks: its `voice:` (YAML, then a person's override), composed once here (`libs/agents/voice.ts`).
+    voiceSection,
     'CITATIONS: tool output that carries a bracketed number — search_knowledge hits rendered as "[3] **title** [source]", and a briefing returned as "[4] Latest … briefing" — is a citable source. When a sentence states a fact you took from one, cite it inline with that number immediately after the claim, e.g. "He owns healthcare-IT at Kestrel [3]." Use the exact numbers you were given (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Not every sentence needs a marker — your own synthesis, judgement and sequencing do not. But ANY concrete claim about the reader\'s world does: a meeting and its time, a dollar amount, a deal stage, a date, a person\'s name, how long something has been waiting. Those are the claims a reader needs to check, and an uncited one is indistinguishable from an invented one.',
   ].join(' ');
   systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
@@ -419,15 +457,30 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
     });
   }
 
-  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsWithOverride(harnessConfig, modelOverride));
+  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes, restSources };
+}
+
+async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
+  const definition = await buildAgentDefinition(orgId, agentSlug);
+  const row = definition.agentRow;
+  // Creativity sets the sampling temperature only when a voice sets it: an
+  // agent with no voice keeps the builder's deterministic default, and a model
+  // that refuses sampling parameters never receives one (the builder drops it).
+  const creativity = row.voiceOverride?.creativity ?? row.voice?.creativity;
+  const model = await buildChatModelForOrg('main', orgId, {
+    ...chatModelOptionsWithOverride(row.harnessConfig ?? {}, modelOverride),
+    ...(typeof creativity === 'number' ? { temperature: creativity } : {}),
+  });
 
   // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
   // mounts something. The middleware requires initialized state fields and
   // fails in the webpack production bundle ("Middleware SkillsMiddleware
   // has required state fields that must be initialized") — dev/Turbopack
-  // tolerated it, so this broke PROD chat only. With nothing mounted the
-  // middleware buys nothing; bodies still mount via initialFiles for the
-  // file tools.
+  // tolerated it, so this broke PROD chat only while production built with
+  // webpack. Production builds on Turbopack since #670, and nobody has checked
+  // whether a Turbopack production build tolerates it too, so the gate stays.
+  // With nothing mounted the middleware buys nothing; bodies still mount via
+  // initialFiles for the file tools.
   const [playbookCount] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(playbookSchema)
@@ -435,7 +488,7 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
-  return { agentRow: row, systemPrompt, subagentSpecs, model, defaultTimeZone, hasMounts, enabledPlugins };
+  return { ...definition, model, hasMounts };
 }
 
 /**
@@ -472,33 +525,13 @@ async function getBlueprint(orgId: string, agentSlug: string): Promise<AgentBlue
  * @param request - What this one request brings.
  */
 function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: AgentRequest): RuntimeContext {
-  const row = blueprint.agentRow;
-  return {
-    orgId,
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    enabledPlugins: blueprint.enabledPlugins,
-    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
-    defaultTimeZone: blueprint.defaultTimeZone,
-    // The person's zone for this turn, else the workspace's.
-    timeZone: resolveTimeZone(request.timeZone, blueprint.defaultTimeZone),
-    emit: request.emit,
-    userId: request.userId,
-    allowedSourceSlugs: request.allowedSourceSlugs,
-    missionSlug: request.missionSlug,
-    missionRunId: request.missionRunId,
-    conversationId: request.conversationId,
-    pageContext: request.pageContext,
+  return runtimeContextFromScope(orgId, blueprint.agentRow, blueprint, {
+    ...request,
     provider: 'local',
     // Delegation attribution for this turn only: the tool-call record reads
     // it to credit a specialist's calls (taskId → specialist name).
     delegations: new Map(),
-    // Citation numbering restarts each turn, and the numbers the model cites
-    // must belong to the sources THIS turn retrieved.
-    citationSeq: { current: 0 },
-  };
+  });
 }
 
 /**
@@ -580,6 +613,16 @@ export async function compileAgentForRequest(
   });
 
   return { graph, agentRow: blueprint.agentRow, ctx };
+}
+
+/**
+ * Drop one agent's compiled blueprint, so its next turn reads what changed on
+ * its row (a voice set from the page, MCP, the API or chat).
+ * @param orgId - Tenant scope.
+ * @param agentSlug - The agent.
+ */
+export function forgetAgentBlueprint(orgId: string, agentSlug: string): void {
+  blueprintCache.delete(cacheKey(orgId, agentSlug));
 }
 
 /** Test/dev hook: flush the cache (e.g. after `workspace:apply`). */

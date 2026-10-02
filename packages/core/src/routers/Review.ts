@@ -219,6 +219,8 @@ export const proposeFromRecommendationRoute = os
         principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
         invokedBy: userId ?? agentId,
         proposal: {
+          // Who recommended it, so that seat can take it back (`withdrawProposal`).
+          ...(input.agentSlug ? { agentSlug: input.agentSlug } : {}),
           confidence: input.confidence,
           rationale: input.rationale,
           suggestedDecision: input.suggestedDecision,
@@ -280,6 +282,8 @@ export const actionStatusRoute = os
         approvedByAgent: actionRunSchema.approvedByAgent,
         actionId: actionRunSchema.actionId,
         proposal: actionRunSchema.proposal,
+        input: actionRunSchema.input,
+        result: actionRunSchema.result,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -291,8 +295,34 @@ export const actionStatusRoute = os
       throw ApiError.notFound(`no action ${input.id}`);
     }
     const { getAction } = await import('@/libs/actions/registry');
+    // The record the run made (a filed request), so the card that filed it
+    // links to it the moment it exists (Chris, 2026-09-28).
+    const { refOf } = await import('@/services/chat/autoPropose');
+    const made = row.status === 'done' ? refOf({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, label: '' }, row.result as Record<string, unknown> | null) : null;
+    const { recordHref } = await import('@/services/objects/recordHref');
+    const { openLabelFor } = await import('@/libs/workspace/recordHref');
+    // A type is only a record type when the run named one; an action's own id is not.
+    const recordLink = made && made.type !== row.actionId ? await recordHref(orgId, { objectType: made.type, id: made.id }).catch(() => null) : null;
+    // What it did, from its own result — the words a done card reads.
+    const { chosenOption, doneSummary } = await import('@/libs/actions/doneSummary');
+    const summary = row.status === 'done' ? doneSummary({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, made) : null;
+    // Everything it made — the run it started, the request it planned, the
+    // PR — so the settled card opens each in one move (Chris, 2026-09-29).
+    const { resultLinks } = await import('@/libs/actions/resultLinks');
+    const { recordLinksForOrg } = await import('@/services/objects/recordHref');
+    const { recordLinker } = await import('@/libs/workspace/recordHref');
+    const recordLinks = row.status === 'done' ? await recordLinksForOrg(orgId) : null;
+    const links = recordLinks
+      ? resultLinks({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, recordLinker(recordLinks), recordLinks.codes)
+      : [];
     return {
       status: row.status,
+      summary,
+      recordHref: recordLink,
+      recordHrefLabel: recordLink ? openLabelFor(recordLink) : null,
+      links,
+      // A ruling's answer, for the card's settled line ("You chose X · Undo").
+      choice: row.status === 'done' ? chosenOption({ actionId: row.actionId, result: row.result as Record<string, unknown> | null }) : null,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
       // Done for you: the ladder released it, and the kind can be put back.

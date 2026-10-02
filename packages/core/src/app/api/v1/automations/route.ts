@@ -6,7 +6,9 @@ import { authApi, isErrorResponse } from '../_shared';
  * GET /api/v1/automations — every automation, with its state.
  *
  * What an operator needs before deciding which one to stop: each
- * automation's `status` (the authored one), `paused` (a person's hold — who,
+ * automation's `state` (what it is doing now: `paused` while a person holds
+ * it, else its status — #294 was answered by nothing for two hours while
+ * `status` read `active` over a pause), `status` (the authored one), `paused` (a person's hold — who,
  * when, the note — or null), `when` and `do`, its `lastFire` (the most recent
  * real fire: id, kind, status, when it started and finished — a pause or a
  * refused match is not a fire), and `skips` — what the guards refused in the
@@ -20,7 +22,7 @@ export async function GET(req: Request) {
   }
   const rows = await listAutomations(caller.orgId);
   const [pauses, lastRuns, skips] = await Promise.all([
-    pausesFor(rows),
+    pausesFor(rows, caller.orgId),
     lastRunBySlug(caller.orgId),
     recentSkipsBySlug(caller.orgId),
   ]);
@@ -30,6 +32,7 @@ export async function GET(req: Request) {
       slug: a.slug,
       name: a.name,
       description: a.description,
+      state: a.status === 'active' && a.pausedAt ? 'paused' : a.status,
       status: a.status,
       ownerAgentSlug: a.ownerAgentSlug,
       when: a.whenConfig,

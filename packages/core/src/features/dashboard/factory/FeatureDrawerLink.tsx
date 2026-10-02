@@ -2,6 +2,7 @@
 
 import type { RecordRef } from '@/services/chat/pageContext';
 import type { FeatureDrawerKey } from '@/services/factory/featureReport';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { useOpenPreviewRef, usePreviewOpener } from '@/features/preview/previewState';
 import { previewKey } from '@/libs/preview/types';
 import { featureDrawerId } from '@/services/factory/featureDrawer';
@@ -16,7 +17,8 @@ import { cn } from '@/utils/Helpers';
  */
 
 const LOOK = {
-  primary: 'inline-flex h-9 items-center gap-2 rounded-md bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90',
+  // The patterns' button (`buttonVariants`), not a hand-rolled ink block.
+  primary: buttonVariants({ variant: 'default', size: 'default' }),
   quiet: 'inline-flex h-8 items-center rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground',
   link: 'text-[13px] text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground',
   row: 'block w-full min-w-0 rounded-md text-left hover:bg-surface-hover',
@@ -42,7 +44,10 @@ export function PreviewOpen(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
       aria-expanded={isOpen}
       data-testid={props.testId}
       data-preview-key={previewKey(props.recordRef)}
-      className={cn(LOOK[props.look ?? 'link'], isOpen && 'text-foreground', props.className)}
+      // Open reads as "you are here" — in ink on a quiet trigger, never on the
+      // primary, whose ink BACKGROUND made it black on black (Chris,
+      // 2026-09-29, "View progress" with the pane open).
+      className={cn(LOOK[props.look ?? 'link'], isOpen && props.look !== 'primary' && 'text-foreground', props.className)}
     >
       {props.children}
     </button>

@@ -1,0 +1,41 @@
+# A DEPLOY THAT BROKE PRODUCTION GOES TO THE SEAT THAT OWNS REVERTS (2026-10-01:
+# a build fix shipped an API whose runtime could not start its database
+# engine, and every signed-in call answered 500 for hours). Loose coupling:
+# `incident.opened` is raised by the production-watch plugin's error watch
+# when it is on, with the cause read from the evidence. With production-watch
+# off the event never fires and this automation never runs. Nothing in the
+# factory knows the plugin beyond this subscription.
+slug: incident-deploy-caused
+name: A deploy that broke production is answered
+label: Answered the incident
+doing: Answering the incident
+description: >-
+  When a production incident opens whose cause is a deploy, the Release
+  engineer finds the release behind it and rolls it back, or says why not.
+status: active
+agent: release-engineer
+when:
+  event: incident.opened
+  filter:
+    cause: deploy
+do:
+  checkMission: keep-the-pipeline-answered
+  prompt: >-
+    Production broke after a deploy: incident #{{incidentId}}, {{shortId}}
+    "{{title}}" on {{project}} ({{environment}}), product {{product}},
+    {{events}} events in the last hour. It first appeared in release
+    {{release}}. Why the watch says a deploy caused it: {{why}} {{url}}
+
+    1. Find what that release shipped: lookup_objects for the release whose
+    commitSha is {{release}} (its prUrls) and the environment whose
+    lastDeployedSha is {{release}} (its pipelineLog names the run and the
+    merge). Read the deploy run with repo_read_pipeline_runs when that is not
+    enough.
+    2. When the release is what production runs and its change is what the
+    error is about, roll it back: propose_action repo.revert_pull with the
+    pull request's url, recordId the environment's id, and a reason naming
+    {{shortId}}, its events and the line that settles it. It merges itself
+    on green, and Undo puts the release back.
+    3. When it is not the release's (a later deploy already replaced it, or
+    the change it shipped cannot cause this), make no move and say why.
+    Report in two lines: what you found and what you did, with the links.

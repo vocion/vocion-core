@@ -6,8 +6,8 @@
  *     whose pause it lifted.
  *   - A paused automation does not fire: the event matcher skips it and a
  *     fire that reaches `beginAutomationFire` anyway is refused and recorded.
- *   - A schedule-when's Temporal Schedule is paused and unpaused alongside,
- *     and Temporal being away does not undo the pause.
+ *   - A schedule-when's durable schedule is paused and resumed alongside,
+ *     and the engine being away does not undo the pause.
  *   - A `control` row is not a fire: it is not a card's "last run".
  */
 import { eq } from 'drizzle-orm';
@@ -18,27 +18,16 @@ vi.mock('@/services/WorkflowService', () => ({
   startWorkflow: vi.fn(async () => ({ id: 210 })),
 }));
 
-const schedule = {
-  pause: vi.fn(async () => {}),
-  unpause: vi.fn(async () => {}),
-  update: vi.fn(async (_updater: unknown) => {}),
-  describe: vi.fn(async () => ({ info: { nextActionTimes: [] }, state: { paused: false } })),
-};
-const temporal = {
-  reachable: true,
-  create: vi.fn(async () => {}),
-};
-vi.mock('@/libs/temporal/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/libs/temporal/client')>();
-  return {
-    ...actual,
-    getTemporalClient: vi.fn(async () => {
-      if (!temporal.reachable) {
-        throw new Error('temporal unavailable');
-      }
-      return { schedule: { create: temporal.create, getHandle: () => schedule } };
-    }),
+const engine = { reachable: true };
+vi.mock('@/libs/durable/jobs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/durable/jobs')>();
+  const gate = <A extends unknown[]>(fn: (...a: A) => Promise<void>) => async (...a: A) => {
+    if (!engine.reachable) {
+      throw new Error('durable engine unavailable');
+    }
+    return fn(...a);
   };
+  return { ...actual, pauseSchedule: gate(actual.pauseSchedule), resumeSchedule: gate(actual.resumeSchedule) };
 });
 
 const { db } = await import('@/libs/DB');
@@ -46,7 +35,6 @@ const { automationRunSchema, automationSchema, eventLogSchema, userSchema } = aw
 const { startWorkflow } = await import('@/services/WorkflowService');
 const {
   AutomationPauseStateError,
-  buildAutomationScheduleOptions,
   CONTROL_RUN_KIND,
   ensureAutomationSchedule,
   fireAutomation,
@@ -57,6 +45,9 @@ const {
   resumeAutomation,
 } = await import('@/services/AutomationService');
 const { emitEvent } = await import('@/services/EventService');
+const { describeSchedule, scheduleJob } = await import('@/libs/durable/jobs');
+const { resetMemorySchedules } = await import('@/libs/durable/memory');
+const SCHEDULE = `automation-${'org_pause'}-hourly-check`;
 const { summarizeResult } = await import('@/features/dashboard/automationResult');
 
 const ORG = 'org_pause';
@@ -76,7 +67,8 @@ beforeEach(async () => {
   await db.delete(automationSchema);
   await db.delete(eventLogSchema);
   await db.delete(userSchema);
-  temporal.reachable = true;
+  engine.reachable = true;
+  resetMemorySchedules();
   vi.clearAllMocks();
 });
 
@@ -124,29 +116,28 @@ describe('pauseAutomation', () => {
     expect(summarizeResult(runs[0]!.result)).toBe('Paused by Chris — holding until the CRM sync is fixed');
   });
 
-  it('pauses the Temporal Schedule of a schedule-when, with the person and note on it', async () => {
+  it('pauses the schedule of a schedule-when', async () => {
     await seed('hourly-check', { schedule: '0 * * * *' });
+    await ensureAutomationSchedule({ orgId: ORG, slug: 'hourly-check', cron: '0 * * * *' });
 
     await pauseAutomation(ORG, 'hourly-check', { by: CHRIS, note: 'CRM' });
 
-    expect(schedule.pause).toHaveBeenCalledWith('Chris: CRM');
+    expect((await describeSchedule(SCHEDULE))?.paused).toBe(true);
   });
 
-  it('touches no Temporal Schedule for an event-when — there is none', async () => {
+  it('touches no schedule for an event-when — there is none', async () => {
     await seed('on-reply', { event: 'prospect.reply' });
 
     await pauseAutomation(ORG, 'on-reply', { by: CHRIS });
-
-    expect(schedule.pause).not.toHaveBeenCalled();
 
     const { runs } = await listAutomationRuns(ORG, { slug: 'on-reply' });
 
     expect((runs[0]!.result as { schedule: unknown }).schedule).toBeNull();
   });
 
-  it('still pauses when Temporal is away, and says so on the record', async () => {
+  it('still pauses when the engine is away, and says so on the record', async () => {
     await seed('hourly-check', { schedule: '0 * * * *' });
-    temporal.reachable = false;
+    engine.reachable = false;
 
     await pauseAutomation(ORG, 'hourly-check', { by: CHRIS });
 
@@ -155,7 +146,7 @@ describe('pauseAutomation', () => {
     const { runs } = await listAutomationRuns(ORG, { slug: 'hourly-check' });
 
     expect((runs[0]!.result as { schedule: unknown }).schedule).toBe('unreachable');
-    expect(summarizeResult(runs[0]!.result)).toMatch(/Temporal was unreachable/);
+    expect(summarizeResult(runs[0]!.result)).toMatch(/schedule could not be reached/);
   });
 
   it('refuses a second pause rather than overwriting whose pause it is', async () => {
@@ -176,6 +167,7 @@ describe('pauseAutomation', () => {
 describe('resumeAutomation', () => {
   it('clears the pause, unpauses the Schedule, and records whose pause it lifted', async () => {
     await seed('hourly-check', { schedule: '0 * * * *' });
+    await ensureAutomationSchedule({ orgId: ORG, slug: 'hourly-check', cron: '0 * * * *' });
     const pausedAt = new Date('2026-09-20T15:00:00Z');
     await pauseAutomation(ORG, 'hourly-check', { by: CHRIS, note: 'CRM', now: pausedAt });
 
@@ -186,7 +178,7 @@ describe('resumeAutomation', () => {
     expect(r.pausedAt).toBeNull();
     expect(r.pausedBy).toBeNull();
     expect(r.pausedNote).toBeNull();
-    expect(schedule.unpause).toHaveBeenCalledWith('Sam: sync is back');
+    expect((await describeSchedule(SCHEDULE))?.paused).toBe(false);
 
     const { runs } = await listAutomationRuns(ORG, { slug: 'hourly-check' });
 
@@ -208,19 +200,33 @@ describe('resumeAutomation', () => {
   });
 });
 
+describe('who paused it, by name', () => {
+  it('an API token is named as one, never left as a bare id', async () => {
+    const pauses = await pausesFor([{ slug: 'x', pausedAt: new Date('2026-09-21T13:01:00Z'), pausedBy: 'token:abc123', pausedNote: null }], ORG);
+
+    expect(pauses.get('x')!.by).toEqual({ id: 'token:abc123', name: 'API token abc123' });
+  });
+});
+
 describe('a paused automation does not fire', () => {
-  it('is skipped by the event matcher — silently, not as a refused row per event', async () => {
+  it('is skipped by the event matcher, and the match is written down — never silently (#294)', async () => {
     await seed('on-reply', { event: 'prospect.reply' });
-    await pauseAutomation(ORG, 'on-reply', { by: CHRIS });
+    await pauseAutomation(ORG, 'on-reply', { by: CHRIS, note: 'holding the replies' });
 
     const res = await emitEvent({ orgId: ORG, type: 'prospect.reply', payload: { dealId: 1 } });
 
     expect(res.triggered).toEqual([]);
     expect(vi.mocked(startWorkflow)).not.toHaveBeenCalled();
+    expect(res.skipped).toEqual([expect.objectContaining({ slug: 'on-reply', reason: 'automation_paused' })]);
 
     const { runs } = await listAutomationRuns(ORG, { slug: 'on-reply' });
 
-    expect(runs.map(r => r.kind)).toEqual([CONTROL_RUN_KIND]);
+    expect(runs.map(r => r.kind).sort()).toEqual([CONTROL_RUN_KIND, 'skipped'].sort());
+
+    const skip = runs.find(r => r.kind === 'skipped')!.result as { reason: string; detail: string };
+
+    expect(skip.reason).toBe('automation_paused');
+    expect(skip.detail).toMatch(/^Would have run "on-reply", but "on-reply" is paused \(since .*, by usr-chris: "holding the replies"\)\. Resume it at \/dashboard\/automation\/on-reply/);
   });
 
   it('refuses a fire that reaches it anyway, and records the refusal', async () => {
@@ -289,33 +295,18 @@ describe('pausesFor', () => {
   });
 });
 
-describe('the Schedule carries the pause through an apply', () => {
-  it('creates the Schedule paused, with the note, when the row is paused', () => {
-    const options = buildAutomationScheduleOptions({ orgId: ORG, slug: 'hourly-check', cron: '0 * * * *', paused: { note: 'CRM' } });
+describe('the schedule carries the pause through an apply', () => {
+  it('re-asserts a person\'s pause on every apply', async () => {
+    await ensureAutomationSchedule({ orgId: ORG, slug: 'hourly-check', cron: '0 * * * *', paused: { note: 'CRM' } });
 
-    expect(options.state).toEqual({ paused: true, note: 'CRM' });
+    expect((await describeSchedule(SCHEDULE))?.paused).toBe(true);
   });
 
-  it('states nothing about pause when the row is not paused', () => {
-    const options = buildAutomationScheduleOptions({ orgId: ORG, slug: 'hourly-check', cron: '0 * * * *' });
-
-    expect(options.state).toBeUndefined();
-  });
-
-  it('re-asserts the pause on an existing Schedule, and never unpauses one', async () => {
-    temporal.create.mockRejectedValueOnce(Object.assign(new Error('schedule already exists'), { name: 'ScheduleAlreadyRunning' }));
-
+  it('never unpauses a paused schedule when the row says nothing', async () => {
+    await scheduleJob({ name: SCHEDULE, cron: '0 * * * *', job: 'automation.fire' });
     await ensureAutomationSchedule({ orgId: ORG, slug: 'hourly-check', cron: '0 * * * *', paused: { note: null } });
-
-    const updater = schedule.update.mock.calls[0]![0] as unknown as (prev: { state: { paused: boolean; note?: string } }) => { state: unknown };
-
-    expect(updater({ state: { paused: false } }).state).toEqual({ paused: true, note: undefined });
-
-    temporal.create.mockRejectedValueOnce(Object.assign(new Error('schedule already exists'), { name: 'ScheduleAlreadyRunning' }));
     await ensureAutomationSchedule({ orgId: ORG, slug: 'hourly-check', cron: '0 * * * *' });
-    const plain = schedule.update.mock.calls[1]![0] as unknown as (prev: { state: { paused: boolean; note?: string } }) => { state: unknown };
 
-    // The row says nothing; a Schedule someone paused in Temporal stays paused.
-    expect(plain({ state: { paused: true, note: 'by hand' } }).state).toEqual({ paused: true, note: 'by hand' });
+    expect((await describeSchedule(SCHEDULE))?.paused).toBe(true);
   });
 });

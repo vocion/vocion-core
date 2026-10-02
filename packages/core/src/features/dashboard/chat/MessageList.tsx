@@ -1,6 +1,7 @@
 'use client';
 
 import type { ChatMessage, ConversationAutonomy } from './types';
+import type { FollowExclude } from '@/libs/chat/turnFollowups';
 import { Quote } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef } from 'react';
@@ -9,6 +10,7 @@ import { turnAttribution } from './routing';
 import { SelectionToolbar } from './SelectionToolbar';
 import { UserMessage } from './UserMessage';
 import { useSelectionReply } from './useSelectionReply';
+import { useThreadRecords } from './useThreadRecords';
 
 /**
  * Message list (Phase C).
@@ -36,14 +38,16 @@ export type MessageListProps = {
    * "via"; any other agent's turn is attributed to it (backlog 009).
    */
   ownAgentSlug?: string;
+  /** The record the page beside the conversation is about: it refreshes itself, so a turn's follow chips leave it out. */
+  pageRecord?: FollowExclude | null;
   /** Provided when streaming so the latest message scrolls into view. */
   streaming?: boolean;
   /** Live status line while streaming — rendered in the last agent message's work timeline. */
   activity?: string | null;
   /** Opens the Sources drawer when a message's "Sources · N" pill is clicked. */
-  onShowSources?: () => void;
+  onShowSources?: (messageId?: number) => void;
   /** Opens the Sources drawer focused on citation `[n]` when an inline marker is tapped. */
-  onCitationClick?: (n: number) => void;
+  onCitationClick?: (n: number, messageId?: number) => void;
   /**
    * Non-message content that lives in the transcript at a position (058):
    * the dock's guided review cards. `afterIndex` is the message the block
@@ -64,7 +68,7 @@ export type MessageListProps = {
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId, pageRecord }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -149,6 +153,9 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
   }, []);
 
   const lastIdx = messages.length - 1;
+  // WHAT THIS THREAD IS ABOUT, under the latest turn whatever it was about:
+  // read from the records, so it survives a reload (Chris, 2026-09-30, #269).
+  const threadRecords = useThreadRecords(conversationId, `${messages.length}:${streaming ? 1 : 0}`);
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
     <div ref={containerRef} onScroll={handleScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onWheel={onWheel} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-8 overflow-x-clip overflow-y-auto overscroll-y-contain px-4 pt-16 pb-6 sm:px-6">
@@ -200,6 +207,9 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                     autonomy={autonomy}
                     onOpenArtifact={onOpenArtifact}
                     conversationId={conversationId}
+                    pageRecord={pageRecord}
+                    latest={i === lastIdx}
+                    threadRecords={i === lastIdx ? threadRecords : undefined}
                   />
                 )}
             {blocksAfter(i)}

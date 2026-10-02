@@ -18,7 +18,6 @@ import {
   automationRunFacets,
   automationSourceFreshness,
   CONTROL_RUN_KIND,
-  describeAutomationSchedule,
   getAutomation,
   listAutomationRuns,
   pausesFor,
@@ -68,10 +67,9 @@ export default async function AutomationDetailPage(props: {
   const cron = automation.whenConfig.schedule ?? null;
   const now = await currentTime();
   const query = parseRunLogQuery(await props.searchParams, { slug, limit: 200 });
-  const [{ runs, total }, facets, live, strip, pauses, skips] = await Promise.all([
+  const [{ runs, total }, facets, strip, pauses, skips] = await Promise.all([
     listAutomationRuns(orgId, query),
     automationRunFacets(orgId),
-    cron ? describeAutomationSchedule(orgId, slug) : Promise.resolve(null),
     // The strip is drawn from an UNFILTERED window: a status filter on the log
     // must not silently remove hours from the history above it.
     listAutomationRuns(orgId, {
@@ -79,7 +77,7 @@ export default async function AutomationDetailPage(props: {
       since: new Date(now.getTime() - STRIP_DAYS * 24 * 3_600_000),
       limit: 500,
     }),
-    pausesFor([automation]),
+    pausesFor([automation], orgId),
     recentSkipsBySlug(orgId, now),
   ]);
   const pause = pauses.get(slug) ?? null;
@@ -94,7 +92,7 @@ export default async function AutomationDetailPage(props: {
     null,
   );
   const freshness = await automationSourceFreshness(orgId, checkResultOf(lastRun?.result)?.mirror?.sources ?? []);
-  const health = scheduleHealth({ cron, lastFireAt: lastRun?.startedAt ?? null, paused: live?.paused || pause !== null, now });
+  const health = scheduleHealth({ cron, lastFireAt: lastRun?.startedAt ?? null, paused: pause !== null, now });
   const interval = cron ? cronIntervalMs(cron, now) : null;
   const runsEveryHour = interval !== null && interval <= 3_600_000;
 
@@ -150,11 +148,6 @@ export default async function AutomationDetailPage(props: {
           </div>
         </div>
         <div className="text-right text-[11px] text-muted-foreground">
-          {live?.paused && !pause && (
-            <div className="text-amber-600" title="The Temporal schedule is paused, but not from this app — nobody is on the record for it. Pause it here to put a name on it, or resume it in Temporal.">
-              paused in Temporal, not from here
-            </div>
-          )}
           <AutomationCardStatus run={lastRun} health={health} freshness={freshness} slug={slug} skips={skips.get(slug) ?? null} />
         </div>
       </div>

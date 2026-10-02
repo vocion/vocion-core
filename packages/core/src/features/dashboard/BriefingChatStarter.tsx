@@ -17,7 +17,7 @@ export { CHAT_HANDOFF_KEY, type ChatHandoff } from '@/features/dashboard/chat/ag
  * Selecting text is now the PLATFORM's pattern, not this page's: the brief
  * sits inside a `CommentLayerProvider`, and the Detail archetype's own
  * `Section` carries `data-comment-field`, so a highlight anywhere in the
- * rendered document raises the standard control — *Ask about this*
+ * rendered document raises the standard control — *Ask*
  * (`docs/design/patterns.md` § Select → talk). One selection control in the
  * app, not one per page.
  * @param props

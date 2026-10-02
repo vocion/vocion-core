@@ -217,7 +217,7 @@ describe('splitReviewContext — the line, and what is one click behind it', () 
     expect(why.facts).toEqual([
       { label: 'Recommended by', value: 'revenue-lead' },
       { label: 'Waiting', value: '3d' },
-      { label: 'Run', value: '#41207' },
+      { label: 'Run', value: 'ACT-41207' },
       { label: 'Confidence', value: '65%' },
       { label: 'Earlier decisions', value: '22' },
     ]);
@@ -226,7 +226,7 @@ describe('splitReviewContext — the line, and what is one click behind it', () 
   it('leaves out a fact it does not have rather than rendering an empty one', () => {
     const { why } = splitReviewContext({ ...base, askedBy: null, waiting: null, confidence: null, earlierDecisions: 0 });
 
-    expect(why.facts).toEqual([{ label: 'Run', value: '#41207' }]);
+    expect(why.facts).toEqual([{ label: 'Run', value: 'ACT-41207' }]);
   });
 });
 

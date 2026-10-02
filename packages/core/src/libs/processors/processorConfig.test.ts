@@ -74,6 +74,7 @@ describe('candidate-extractor config', () => {
       onViolation: 'dropRecord',
       mustAppearInDocument: ['price'],
       quotedFields: ['price'],
+      linkFields: ['ticketUrl'],
       collapseWithinDocument: true,
       resolveAgainst: [{
         objectType: 'venue-candidate',
@@ -133,6 +134,14 @@ describe('candidate-extractor config', () => {
     })).toThrow(/evidenceField/);
   });
 
+  it('accepts occurrence fields naming only a day, and rejects an unknown key', () => {
+    const parsed = candidateExtractorConfigSchema.parse({ ...minimal, occurrenceFields: { day: 'startDate' } });
+
+    expect(parsed.occurrenceFields).toEqual({ day: 'startDate' });
+    expect(candidateExtractorConfigSchema.parse(minimal).occurrenceFields).toBeUndefined();
+    expect(() => candidateExtractorConfigSchema.parse({ ...minimal, occurrenceFields: { day: 'startDate', starts: 'start' } })).toThrow(/starts/);
+  });
+
   it('caps followLinks at twenty pages a document', () => {
     expect(() => candidateExtractorConfigSchema.parse({
       ...minimal,
@@ -173,12 +182,9 @@ describe('the sync budget', () => {
   });
 
   it('lets a source lower modelTimeoutMs but never raise it', () => {
-    // The deadline is a cap like any other: the 60s default is the ceiling,
-    // and it is 60s because 20s was below what a healthy call costs and so
-    // abandoned every real extraction mid-flight.
-    expect(SYNC_BUDGET_DEFAULTS.modelTimeoutMs).toBe(60_000);
+    expect(SYNC_BUDGET_DEFAULTS.modelTimeoutMs).toBe(120_000);
     expect(createSyncBudget({ limits: { modelTimeoutMs: 30_000 } }).caps.modelTimeoutMs).toBe(30_000);
-    expect(createSyncBudget({ limits: { modelTimeoutMs: 600_000 } }).caps.modelTimeoutMs).toBe(60_000);
+    expect(createSyncBudget({ limits: { modelTimeoutMs: 600_000 } }).caps.modelTimeoutMs).toBe(120_000);
     expect(candidateExtractorConfigSchema.parse({
       ...minimal,
       limits: { modelTimeoutMs: 30_000 },

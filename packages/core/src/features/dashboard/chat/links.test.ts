@@ -25,4 +25,11 @@ describe('classifyDashboardLink', () => {
     expect(previewRefFor(room!)).toEqual({ type: 'object', id: '22' });
     expect(previewRefFor(classifyDashboardLink('/dashboard/agents/lead')!)).toBeNull();
   });
+
+  it('peeks a record\'s history at the version the "Changed …" line names (backlog 035)', () => {
+    const link = classifyDashboardLink('/dashboard/objects/214?preview=record_history%3A214%405');
+
+    expect(link).toMatchObject({ kind: 'object', id: '214' });
+    expect(previewRefFor(link!)).toEqual({ type: 'record_history', id: '214@5' });
+  });
 });

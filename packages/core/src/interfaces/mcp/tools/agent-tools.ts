@@ -8,9 +8,10 @@
  * the fourth consumer, so the source/grant gates inside `buildDomainTools`
  * apply here identically.
  *
- * Tools run AS AN AGENT: the ctx is rebuilt from a real `agent` row exactly
- * the way `toolEndpoint.ts` does (connectorSources, objectTypeSlugs,
- * searchConfig, harnessConfig from the row). The default
+ * Tools run AS AN AGENT: the ctx is built from a real `agent` row by the one
+ * builder every loop uses (`services/agents/runtimeContext.ts`), so the
+ * workspace's plugins and zone, the typed filing tools and the REST sources
+ * reach MCP exactly as they reach chat and the tool endpoint. The default
  * agent is `config.agentSlug` (env `VOCION_MCP_AGENT_SLUG`) or the org's
  * workspace lead; every bridged tool also accepts an optional `agent_slug`
  * to run as another agent, re-resolved and re-gated at call time.
@@ -32,6 +33,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { agentSchema, projectSchema } from '@/models/Schema';
+import { runtimeContextForAgent } from '@/services/agents/runtimeContext';
 import { buildDomainTools } from '@/services/agents/tools/registry';
 
 type ToolModule = {
@@ -78,26 +80,17 @@ async function loadAgentRow(orgId: string, slug: string): Promise<AgentRow | und
 }
 
 /**
- * Rebuild the exact RuntimeContext the harness would use for this agent —
- * fresh per call: the emit buffer and citation counter must never be shared
- * across concurrent tool calls.
+ * The exact RuntimeContext the harness would use for this agent — plugins,
+ * zone, typed filing tools and REST sources included, through the one shared
+ * builder — fresh per call: the emit buffer and citation counter must never
+ * be shared across concurrent tool calls.
  * @param orgId
  * @param row
  * @param userId
  * @param events
  */
-function ctxFor(orgId: string, row: AgentRow, userId: string, events: AgentEvent[]): RuntimeContext {
-  return {
-    orgId,
-    userId,
-    citationSeq: { current: 0 },
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
-    emit: e => events.push(e),
-  };
+function ctxFor(orgId: string, row: AgentRow, userId: string, events: AgentEvent[]): Promise<RuntimeContext> {
+  return runtimeContextForAgent(orgId, row, { userId, emit: e => events.push(e) });
 }
 
 function bridgeableTools(ctx: RuntimeContext): StructuredToolInterface[] {
@@ -162,7 +155,7 @@ export async function agentTools(
 
   // Catalog ctx: names/descriptions/schemas only — real calls build a fresh
   // ctx (and events buffer) per invocation.
-  const catalogCtx = ctxFor(config.orgId, defaultRow, userId, []);
+  const catalogCtx = await ctxFor(config.orgId, defaultRow, userId, []);
 
   return bridgeableTools(catalogCtx).map((t) => {
     const baseShape
@@ -183,7 +176,7 @@ export async function agentTools(
         }
 
         const events: AgentEvent[] = [];
-        const ctx = ctxFor(config.orgId, row, userId, events);
+        const ctx = await ctxFor(config.orgId, row, userId, events);
         // Re-gate at call time: a different agent's sources/grants/exclusions
         // decide what IT can reach, not what the default agent could.
         const toolObj = bridgeableTools(ctx).find(candidate => candidate.name === t.name);

@@ -5,6 +5,8 @@
 # is renegotiated after it without saying so (review, 2026-09-24).
 slug: factory-decision-landed
 name: A build decision landed
+label: Picked up the decision
+doing: Picking up the decision
 description: >-
   Fires when a person decides one of the PM's recommendation asks. Approve:
   freeze the acceptance criteria (`acceptanceFrozenAt`), move the request to

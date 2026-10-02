@@ -1,8 +1,10 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageRow } from '@/libs/workspace/pageFields';
 import type { RecordField, RecordSections } from '@/libs/workspace/records';
+import type { RelatedItem } from '@/libs/workspace/related';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Related } from '@/components/patterns';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { resolveField } from '@/libs/workspace/pageFields';
 
@@ -54,14 +56,16 @@ function Prose({ row, field, now, links }: { row: PageRow; field: RecordField; n
  * @param root0.links - Resolved record references.
  * @param root0.aside - Extra cards for the side column (system info).
  * @param root0.children - Extra cards for the primary column, above the prose.
+ * @param root0.related - What the record is connected to (`relatedOf`): when given, the one Related block stands where the link fields were.
  */
-export function RecordBody({ row, sections, now, links, aside, children }: {
+export function RecordBody({ row, sections, now, links, aside, children, related }: {
   row: PageRow;
   sections: RecordSections;
   now: number;
   links: LinkMap;
   aside?: React.ReactNode;
   children?: React.ReactNode;
+  related?: readonly RelatedItem[];
 }) {
   const { prose, facts, links: linkFields, timestamps, otherKeys } = sections;
   return (
@@ -70,7 +74,14 @@ export function RecordBody({ row, sections, now, links, aside, children }: {
         {children}
         {prose.map(f => <Prose key={f.key} row={row} field={f} now={now} links={links} />)}
 
-        {linkFields.length > 0 && (
+        {related && related.length > 0 && (
+          <section className="rounded-lg border border-border p-5" aria-label="Related">
+            <h2 className="mb-1 text-sm font-semibold">Related</h2>
+            <Related items={related} />
+          </section>
+        )}
+
+        {!related && linkFields.length > 0 && (
           <section className="rounded-lg border border-border p-5">
             <h2 className="mb-3 text-sm font-semibold">Links</h2>
             <dl className="divide-y divide-border">
@@ -116,7 +127,8 @@ export function RecordBody({ row, sections, now, links, aside, children }: {
             <h2 className="mb-2 text-sm font-semibold">{group.group}</h2>
             <dl className="divide-y divide-border">
               {group.fields.map(f => (
-                <div key={f.key} className="py-2">
+                // Named, so a version that changed this fact marks it (`versions/VersionWatch`).
+                <div key={f.key} className="py-2" data-version-section={f.key}>
                   <dt className="text-xs font-medium text-muted-foreground" title={f.hint}>{f.label ?? f.key}</dt>
                   <dd className="mt-0.5 min-w-0 text-sm break-words">
                     <FieldValue row={row} field={f} now={now} links={links} />

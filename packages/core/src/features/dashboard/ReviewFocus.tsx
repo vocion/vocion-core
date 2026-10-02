@@ -5,6 +5,8 @@ import type { ProposalQueueEntry } from '@/services/InboxService';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/ui/toast';
+import { cameFrom } from '@/features/navigation/cameFrom';
+import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
 import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
@@ -12,7 +14,7 @@ import { showLearnedToast } from '@/features/review/showLearnedToast';
 import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
-import { inboxHref } from '@/services/inbox/inboxRef';
+import { inboxHref, isReviewPath } from '@/services/inbox/inboxRef';
 import { decisionCrumbs } from './inbox/inboxMeta';
 import { withMinimumPending } from './inbox/pending';
 
@@ -77,6 +79,17 @@ export function ReviewFocus(props: {
   const hrefFor = useCallback((id: number) => `${inboxHref('proposal', id)}${search}`, [search]);
   const goTo = useCallback((id: number) => router.push(hrefFor(id)), [router, hrefFor]);
   const leave = useCallback(() => {
+    // A card opened from another page — the Work page, the feature page, a
+    // chat link — is an errand, not the queue: deciding it goes back there
+    // (Chris, 2026-09-30, #269: Merge took him on to the next recommendation;
+    // "I would have liked if this went back to our work page"). Only a person
+    // working the queue from Review walks on to the next proposal.
+    const from = cameFrom();
+    if (from && !isReviewPath(from)) {
+      router.push(from);
+      router.refresh();
+      return;
+    }
     if (next) {
       router.push(hrefFor(next.id));
       router.refresh();
@@ -129,12 +142,21 @@ export function ReviewFocus(props: {
     return undefined;
   };
 
-  const onDecide = async (decision: 'approve' | 'reject') => {
+  const once = useSingleFlight();
+  const onDecide = (decision: 'approve' | 'reject') => once(async () => {
     setBusy(true);
     const title = describeAction(run).title;
     try {
       const editedInput = decision === 'approve' ? buildEditedInput() : undefined;
-      const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) }));
+      // A second press (or another tab) that finds the run already where it
+      // was asked to go is the decision landing, not a failure.
+      const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) }))
+        .catch((err: unknown) => {
+          if (alreadySettled((err as Error)?.message, decision)) {
+            return { execution: undefined };
+          }
+          throw err;
+        });
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
         toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'The action threw. It stays on the review queue; Approve again to retry.' });
         router.refresh();
@@ -154,7 +176,7 @@ export function ReviewFocus(props: {
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   const onSnooze = async (days: number) => {
     setBusy(true);

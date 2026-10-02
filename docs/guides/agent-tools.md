@@ -14,7 +14,10 @@ loses a tool altogether with `harness.excludeTools` ([agent](../entities/agent.m
 
 The tool surface is one list, `packages/core/src/services/agents/tools/registry.ts`, and every
 harness — in-process, AgentCore, and the MCP server at `/api/mcp` — serves the same tools with the
-same gates.
+same gates, built from one context (`services/agents/runtimeContext.ts`). The Tools page
+(`/dashboard/tools`) reads that same list per agent and shows the union by family — the built-ins,
+the typed filing tools, each connected source, each REST source's reads and writes — with the
+agents that hold each tool, so what the page says an agent has is what the agent has.
 
 ## The tools
 
@@ -29,7 +32,28 @@ same gates.
 | `update_mission_notes` | `mission.update_notes` | The running mission's working notes. | inside a mission check (not over MCP) | self-improving: the learning dial |
 | `remember_preference`, `add_learning`, `update_learning`, `remove_learning` | `learning.adopt_rule` and the learning services | Standing rules the agent reads on later turns. | every agent | self-improving: the learning dial |
 | `file_feedback` | — proposes a rule for a person | A suggested rule on Needs you. | every agent | always a person |
+| `propose_action` with `rest.request` (after reading `<prefix>_list_actions`) | `rest.request` | An endpoint a [`rest` source](./rest.md) declares under `actions[]` — a write to the workspace's own API. | agents with a REST source in `connectorSources:` | external, not reversible → always asks, until `trust.yaml` promotes one endpoint (`rest.request.<source>.<action>`) |
 | `apollo_add_to_list`, `apollo_remove_from_list` | Apollo, direct | A prospect list that can feed a live cadence. | agents granted them (`harness.grantTools`) with an Apollo source | the grant is the gate |
+| `repo_read_pull`, `repo_read_diff`, `repo_read_file` | — (reads) | Nothing: a pull request, a diff (with the files outside a task's `allowedPaths`), a file at a ref, read live from the connected code host with the workspace's own connection. | agents with a code-host source (`github` today) in `connectorSources` | — |
+| `repo_read_check_logs`, `repo_read_pipeline_runs` | — (reads) | Nothing: a red check's failing step and log tail; a pipeline's runs with their jobs. Former names `github_read_check_logs`, `github_read_workflow_runs`. | agents granted them (`harness.grantTools`) | the grant is the gate |
+| `propose_action` with `repo.comment_pull`, `repo.submit_review`, `repo.cancel_pipeline_run` | the same ids | A comment on a pull request (Undo deletes it); a review with inline findings (Undo dismisses it); a pipeline run stopped (Undo starts it again). | every agent with the family in scope | low / medium / low → done for you at 0.8 |
+| `propose_action` with `repo.rerun_failed_checks`, `repo.open_pull`, `repo.dispatch_pipeline`, `repo.revert_pull` | the same ids (formerly `github.rerun_failed_jobs`, `github.open_pull`, `github.dispatch_workflow`, `github.revert_pull`) | The failed jobs re-run; a pipeline fix opened as a pull request; a pipeline started; a merged pull request reverted. Each with Undo. | the pipeline's owner — a seat whose harness grants the id — or a person | the software-factory plugin's trust.yaml: done for you at 0.8 |
+| `tracker_read_issue`, `tracker_search_issues`, `tracker_read_attachment` | — (reads) | Nothing: an issue live with its comments, attachments and transitions; a search in the tracker's own language bounded to the configured projects; an attachment (an image becomes an artifact). | agents with a tracker source (`jira` today) in `connectorSources` | — |
+| `propose_action` with `tracker.create_issue`, `tracker.transition_issue`, `tracker.update_issue`, `tracker.attach_file` | the same ids | An issue filed from a request; its status moved; its priority, labels, version or remote link; a file attached. Each with Undo. | every agent with the family in scope | medium / low / low / low → done for you at 0.8 |
+| `propose_action` with `tracker.comment` | `tracker.comment`, or `tracker.comment.<kind>` | A comment the asker reads on their issue. Undo deletes it. | every agent with the family in scope | medium; the plugin holds it at a person's approval like `notify.requester` |
+| `chat_read_thread`, `chat_read_file` | — (reads) | Nothing: a thread read live with the chat's own token (the workspace's `slack` source first, the deployment's app second); a file on a message (an image becomes an artifact). | agents with a chat source (`slack` today) in `connectorSources` | — |
+| `propose_action` with `chat.post_message` (formerly `slack.post_message`) | `chat.post_message` | A post in a channel the workspace bound; Undo deletes it. | every agent | medium → a person approves until promoted |
+| `propose_action` with `chat.reply_in_thread` | `chat.reply_in_thread`, or `.<kind>` | A reply in the thread the ask came from; Undo deletes it. | every agent with the family in scope | medium; a kind reads the parent's rule unless given its own |
+| `propose_action` with `chat.add_reaction` | `chat.add_reaction` | A reaction on a message; Undo removes it. | every agent with the family in scope | low → done for you at 0.8 |
+| `lookup_person` | — (read) | Nothing: one person's chat user, tracker account and code-host login, found by email across the families the agent reaches. | agents with any of the three families in scope | — |
+
+The `repo`, `tracker` and `chat` rows are the three **connector families**
+(`libs/connectors/families.ts`): tools and actions named for the construct —
+a pull request, an issue, a thread — never for the vendor. GitHub, Jira and
+Slack are the first provider of each; the source a workspace connected decides
+which answers. An action renamed from its vendor's id keeps the old id as an
+alias (`Action.aliases`), so a run, a trust rule or a grant written against
+`github.open_pull` still resolves to `repo.open_pull`.
 
 Data-room filing (`file_to_data_room`, `unfile_from_data_room`) and artifact editing
 (`update_artifact`, `edit_document`) write inside the workspace and the conversation and are not
@@ -117,6 +141,17 @@ skip the router, `conversation_id` to continue a thread (its agent answers, no r
 name a new one. A turn longer than `VOCION_CHAT_TURN_LIMIT_MS` (120s) returns what was said so far
 with `truncated: true`; the rest lands in the conversation when the turn finishes. `list_agents` is
 the roster the router chooses from — slug, name, `handles`, `initiative`, suggestions, `lead`.
+
+### Deciding what waits on a person
+
+The Review queue is decided the same way on every surface: the Review page, chat (`decide_proposal`,
+`decide_ask`), the API and MCP. Over MCP, `review_list` and `review_get` read the queue
+(`GET /api/v1/reviews`, `/api/v1/reviews/:kind/:id`). `review_decide` approves, rejects or closes a
+hand-off (`POST /api/v1/reviews/decide`), and `ask_decide` answers an ask with one of its options
+(`POST /api/v1/asks/:id/decide`). They run as the **token**, not an agent: each calls the same
+function its API route calls, needs the same `approve` capability, and records the token as the
+decider. `review-tools.test.ts` holds the parity table; a review verb added to one surface and not
+the others fails it.
 
 ## Related
 

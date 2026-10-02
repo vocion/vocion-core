@@ -15,14 +15,16 @@ export const dynamic = 'force-dynamic';
 export async function GET(): Promise<NextResponse> {
   const raw = process.env.VOCION_DEMO_SEED_DIR ?? '(unset)';
   const candidates = [
-    join(process.cwd(), raw),
+    // turbopackIgnore: this path is only known at runtime, so the build must not
+    // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+    join(/* turbopackIgnore: true */ process.cwd(), raw),
     join(process.cwd(), 'packages', 'core', raw),
   ];
   const report: Record<string, unknown> = {
     cwd: process.cwd(),
     databaseUrl: (process.env.DATABASE_URL ?? '').split('://')[0],
     seedRaw: raw,
-    seedCandidates: candidates.map(c => ({ path: c, exists: existsSync(c) })),
+    seedCandidates: candidates.map(c => ({ path: c, exists: existsSync(/* turbopackIgnore: true */ c) })),
     llmMode: process.env.VOCION_LLM_MODE ?? 'live',
   };
   try {

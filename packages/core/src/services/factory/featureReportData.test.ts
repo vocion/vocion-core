@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { artifactSchema, businessObjectSchema, businessObjectTypeSchema, conversationSchema, toolCallSchema, userSchema } = await import('@/models/Schema');
+const { artifactSchema, automationRunSchema, businessObjectSchema, businessObjectTypeSchema, conversationSchema, missionRunSchema, toolCallSchema, userSchema } = await import('@/models/Schema');
 const { loadFeatureReport } = await import('./featureReportData');
 
 const ORG = 'org_report_visuals';
@@ -65,5 +65,39 @@ describe('the pictures on a feature page', () => {
     // "candidate" with an approval on it resolves to Approved, by name.
     expect(report!.planSummary).toMatchObject({ status: 'Approved', approver: 'Priya Kestrel' });
     expect(JSON.stringify(report!.sections.find(s => s.key === 'plan'))).not.toContain('user_9nobodyfixture02');
+  });
+
+  it('finds the run writing its plan from the fire that names it, whatever the automation is called (#265)', async () => {
+    const orgId = 'org_report_live_plan';
+    const [type] = await db.insert(businessObjectTypeSchema).values({ orgId, slug: 'request', label: 'Request', schema: { type: 'object', properties: {} } } as never).returning({ id: businessObjectTypeSchema.id });
+    const [request] = await db.insert(businessObjectSchema).values({ orgId, typeId: type!.id, title: 'Fix the header overflow', metadata: { state: 'building', recovery: { stage: 'planning', line: 'Planning — the change spans two packages' } } } as never).returning({ id: businessObjectSchema.id });
+    const team = { lead: 'product-manager', members: [] };
+    const [planning] = await db.insert(missionRunSchema).values({ orgId, title: 'Any name at all', brief: 'plan it', status: 'running', team } as never).returning({ id: missionRunSchema.id });
+    const [finished] = await db.insert(missionRunSchema).values({ orgId, title: 'An earlier pass', brief: 'plan it', status: 'completed', team } as never).returning({ id: missionRunSchema.id });
+    const [unrelated] = await db.insert(missionRunSchema).values({ orgId, title: 'Someone else', brief: 'other work', status: 'running', team } as never).returning({ id: missionRunSchema.id });
+    await db.insert(automationRunSchema).values([
+      { orgId, slug: 'whatever-the-workspace-named-it', kind: 'mission_check', status: 'running', input: { requestId: request!.id }, targetRunId: planning!.id },
+      { orgId, slug: 'whatever-the-workspace-named-it', kind: 'mission_check', status: 'ok', input: { requestId: request!.id }, targetRunId: finished!.id },
+      { orgId, slug: 'another', kind: 'mission_check', status: 'running', input: { requestId: request!.id + 999 }, targetRunId: unrelated!.id },
+    ] as never);
+
+    const report = await loadFeatureReport(orgId, request!.id, new Date());
+
+    expect(report!.live).toMatchObject({ kind: 'planning', label: 'Writing the plan', runRef: { type: 'mission_run', id: String(planning!.id) } });
+    expect(report!.status.action).toEqual({ kind: 'link', label: 'Watch the plan being written', href: `/dashboard/p/runs/agent-${planning!.id}` });
+  });
+
+  it('finds an agent run working on its task from the tool calls that name it', async () => {
+    const orgId = 'org_report_live_review';
+    const [reqType] = await db.insert(businessObjectTypeSchema).values({ orgId, slug: 'request', label: 'Request', schema: { type: 'object', properties: {} } } as never).returning({ id: businessObjectTypeSchema.id });
+    const [taskType] = await db.insert(businessObjectTypeSchema).values({ orgId, slug: 'engineering_task', label: 'Task', schema: { type: 'object', properties: {} } } as never).returning({ id: businessObjectTypeSchema.id });
+    const [request] = await db.insert(businessObjectSchema).values({ orgId, typeId: reqType!.id, title: 'Expiring links', metadata: { state: 'building' } } as never).returning({ id: businessObjectSchema.id });
+    const [task] = await db.insert(businessObjectSchema).values({ orgId, typeId: taskType!.id, title: 'Sign the link', status: 'awaiting_review', metadata: { requestId: request!.id, prUrl: 'https://github.com/example/northwind-portal/pull/135' } } as never).returning({ id: businessObjectSchema.id });
+    const [review] = await db.insert(missionRunSchema).values({ orgId, title: 'Review', brief: 'check it', status: 'running', team: { lead: 'change-reviewer', members: [] } } as never).returning({ id: missionRunSchema.id });
+    await db.insert(toolCallSchema).values({ orgId, agentSlug: 'change-reviewer', tool: 'read_object', input: { object_type: 'engineering_task', id: task!.id }, output: 'ok', missionRunId: review!.id } as never);
+
+    const report = await loadFeatureReport(orgId, request!.id, new Date());
+
+    expect(report!.live).toMatchObject({ kind: 'reviewing', runRef: { type: 'mission_run', id: String(review!.id) } });
   });
 });

@@ -81,6 +81,7 @@ Per slug, the loader resolves one of five outcomes:
 Merge semantics for YAML kinds (agents, object types, missions):
 
 - Scalars and objects (`model`, `systemPromptFile`, `searchConfig`) — your value replaces the base value.
+- `harness` is the exception: it is merged key by key, so an override that sets `harness.model` keeps the base's `harness.excludeTools` (and arrays inside it take `$append` / `$remove`).
 - Arrays (`skills`, `connectorSources`, `objectTypes`) — replace by default; use `{$append: [x]}` or `{$remove: [y]}` to extend the base list instead.
 
 Skills and playbooks fold differently: a workspace `SKILL.md` with an activated

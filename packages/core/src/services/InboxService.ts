@@ -5,7 +5,7 @@ import type { FailedRun } from '@/services/inbox/failureEscalation';
 import type { InboxRef } from '@/services/inbox/inboxRef';
 import type { InboxKind, InboxSort, InboxTab } from '@/services/inbox/kinds';
 import type { AgendaCandidate, PolicyGap, Reclassified } from '@/services/inbox/reviewAgenda';
-import type { ReviewRow } from '@/services/inbox/reviewRows';
+import type { ExpiredClosureGroup, ReviewRow } from '@/services/inbox/reviewRows';
 import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
@@ -21,7 +21,7 @@ import { planApprovalRows } from '@/services/inbox/planApprovalRows';
 import { chainReAsks, chaseLine } from '@/services/inbox/reAskChain';
 import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
 import { reviewAgenda } from '@/services/inbox/reviewAgenda';
-import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
+import { groupByRecord, listExpiredClosures, listReviewRows } from '@/services/inbox/reviewRows';
 
 /**
  * InboxService — THE list of everything waiting on a person, wherever it is
@@ -104,13 +104,19 @@ export type InboxItem = {
   confidence?: number | null;
   amount?: number | null;
   currency?: string | null;
-  /** Decided tab: what was chosen — `approved`, `rejected`, `undone`, or `done for you` when the ladder released it. */
+  /** Decided tab: what was chosen — `approved`, `rejected`, `undone`, `done for you` when the ladder released it, or `closed` when its reason was gone (the note says why). */
   decision?: string | null;
   /** Decided tab: a done run the row can put back in place. */
   undoable?: boolean;
   decidedBy?: string | null;
   /** Decided tab: the note that travelled with the decision. */
   note?: string | null;
+  /**
+   * Decided tab: the items one line stands for, which the row expands to —
+   * the runs one review sweep closed because they had already expired
+   * (backlog 039). Each links to its own record.
+   */
+  members?: Array<{ id: number; title: string; href: string; note: string | null }>;
   /**
    * What must be decided, what the system thinks, why, what waiting costs and
    * the labelled choices, so the ROW is decision support rather than metadata
@@ -184,7 +190,12 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
     href: inboxHref('proposal', r.id),
     detail: r.status === 'awaiting_execution'
       ? `Approved${r.decidedBy ? ` by ${r.decidedBy.replace(/^agent:/, '')}` : ''} — waiting to be done by hand`
-      : tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
+      : tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date()
+        ? `Snoozed until ${r.snoozedUntil.toLocaleString()}`
+        // Surfaced once by the review sweep (backlog 039): still true, and old.
+        : tab !== 'decided' && typeof r.proposal?.stillWaitingSince === 'string'
+          ? `Still waiting since ${r.proposal.stillWaitingSince.slice(0, 10)}`
+          : undefined,
     reviewId: r.id,
     actionId: r.actionId,
     heldBy: typeof r.proposal?.heldBy === 'string' ? r.proposal.heldBy : null,
@@ -192,9 +203,41 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
     amount: r.described.amount,
     currency: r.described.currency,
     ...(tab === 'decided'
-      ? { decision: r.status === 'rejected' ? 'rejected' : r.status === 'undone' ? 'undone' : r.approvedByAgent ? 'done for you' : 'approved', decidedBy: r.decidedBy, note: r.note, undoable: r.undoable }
+      ? { decision: r.status === 'rejected' ? 'rejected' : r.status === 'undone' ? 'undone' : r.status === 'closed' ? 'closed' : r.approvedByAgent ? 'done for you' : 'approved', decidedBy: r.decidedBy, note: r.note, undoable: r.undoable }
       : {}),
   };
+}
+
+/**
+ * The decided tab's ONE line per review sweep for the runs it closed because
+ * they had already expired (backlog 039): they were never in front of anyone,
+ * so a row each would bury the decisions people did make. The line expands to
+ * the list, each with its link and reason.
+ * @param groups - From `listExpiredClosures`.
+ */
+export function expiredClosureItems(groups: ExpiredClosureGroup[]): InboxItem[] {
+  return groups.map((g) => {
+    const date = g.sweptAt.slice(0, 10) || 'an earlier sweep';
+    const n = g.members.length;
+    return {
+      key: `review-expired:${g.sweptAt}`,
+      kind: 'proposal' as const,
+      shape: 'sheet' as const,
+      title: `${n} expired item${n === 1 ? '' : 's'} closed on ${date} — their reason is gone`,
+      subline: 'They had already left Review without a decision; nothing was sent',
+      agentSlug: null,
+      teamSlug: null,
+      risk: null,
+      status: 'closed',
+      at: g.sweptAt ? new Date(g.sweptAt) : new Date(0),
+      href: inboxHref('proposal', g.members[0]!.id),
+      groupKey: `expired:${g.sweptAt}`,
+      count: n,
+      decision: 'closed',
+      decidedBy: 'system:review-sweep',
+      members: g.members.map(m => ({ id: m.id, title: m.title, href: inboxHref('proposal', m.id), note: m.note })),
+    };
+  });
 }
 
 /**
@@ -681,16 +724,17 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   // you clicked it (Chris, 2026-09-15: "decided counts show 0 when not
   // selected and 7 when selected") — a count on a tab is a promise about what
   // is behind it, so it cannot depend on which tab you are standing on.
-  const [candidates, snoozedRows, decidedRows, decidedAsks, decidedRules] = await Promise.all([
+  const [candidates, snoozedRows, decidedRows, decidedAsks, decidedRules, expiredClosures] = await Promise.all([
     openItems(orgId),
     listReviewRows(orgId, 'snoozed'),
     listReviewRows(orgId, 'decided'),
     decidedAskItems(orgId),
     decidedLearningItems(orgId),
+    listExpiredClosures(orgId),
   ]);
   const { items: open, reclassified, policyGaps } = admitted(candidates);
   const snoozed = proposalItems(snoozedRows, 'snoozed');
-  const decided = [...proposalItems(decidedRows, 'decided'), ...decidedAsks, ...decidedRules];
+  const decided = [...proposalItems(decidedRows, 'decided'), ...expiredClosureItems(expiredClosures), ...decidedAsks, ...decidedRules];
   const tabs: Record<InboxTab, number> = { open: open.length, snoozed: snoozed.length, decided: decided.length };
 
   const all = tab === 'open' ? open : tab === 'snoozed' ? snoozed : decided;

@@ -82,10 +82,14 @@ rowLink: /dashboard/p/releases/{id}
 queryFilters:
   - {param: product, field: meta.product, label: Product, picker: {labelFrom: meta.productName}}
 # The release's own page, `/dashboard/p/releases/<id>`
-# (`services/factory/releaseReport.ts`). The announcement's one move per
-# state, in the workspace's words: each opens a chat with the release as
-# context and its prompt sent. Publishing is `release.announce`, a gated
-# action — a person decides it on the card, whatever the button says.
+# (`services/factory/releaseReport.ts`). The announcement's moves, in the
+# workspace's words: draft and review each open a chat with the release as
+# context and its prompt sent. Publishing is one press on the page itself
+# (2.27.0): `release.announce` runs as the person, posting the words with the
+# live screenshot to the workspace's Slack channel (Undo deletes the post), or,
+# with no Slack connection, a copy as rich text with the picture and the picture
+# as a download. The `publish` prompt below is what an agent is asked when a
+# person asks for it in chat instead.
 recordPage:
   kind: release
   actions:
@@ -96,7 +100,8 @@ recordPage:
         Draft the announcement for this release, following write-release-notes:
         one or two sentences on what people can now do, written only from the
         verified changes on the release page, never from internal or reverted
-        commits. Write it to the release's `announcement` with
+        commits, and never mentioning QA, criteria, proof counts, pull request
+        numbers or plan risks (the page shows those beside it). Write it to the release's `announcement` with
         `notesSource: agent` and `announcementState: draft`. Do not publish it. Then show me the draft beside
         the evidence for each claim.
     review:
@@ -111,6 +116,7 @@ recordPage:
       label: Publish
       agent: product-manager
       prompt: >-
-        Propose `release.announce` for this release with its approved
-        announcement, naming the channels it goes to. It is a person's
-        decision on the card; do not publish anything yourself.
+        Propose `release.announce` for this release with its `releaseId`; it
+        posts the approved announcement with its live picture to the
+        workspace's Slack channel. The words and the picture are read off the
+        release, so do not restate them.

@@ -22,7 +22,7 @@ This is the deployment side only. What gets traced is a code concern:
 - Self-hosted needs a hostname, six secrets and an S3 bucket. All of it
   is listed in `infra/aws/.env.production.example`.
 - **Traces are kept for a year by default** and deleted after that by a
-  daily job, which needs the Temporal worker running.
+  daily job, which needs the durable executor running.
 - Set `LANGFUSE_ENABLED` explicitly either way, so "no traces" is
   always something someone chose.
 
@@ -114,7 +114,7 @@ has no way to un-declare a service.
 ### What you are taking on
 
 Six containers, on an instance already running the app, the feedback
-worker, Caddy, the application Postgres, Temporal and the OTel
+worker, Caddy, the application Postgres and the OTel
 collector:
 
 | Container | Job |
@@ -137,7 +137,7 @@ ClickHouse assumes it owns the machine. Left alone it claims
 `max_server_memory_usage_to_ram_ratio` of total RAM, which defaults to
 **0.9** ([server settings](https://clickhouse.com/docs/operations/server-configuration-parameters/settings),
 checked 2026-09-03) — about 57 GB on a 64 GB box. It shares that RAM
-with the app, Postgres, Temporal, Redis, Caddy and the two other
+with the app, Postgres, Redis, Caddy and the two other
 Langfuse containers, so an uncapped ClickHouse can starve the thing
 clients actually use.
 
@@ -219,8 +219,8 @@ compose file stays the single place the number is set.
 
 7. **Check retention.** It defaults to one year, so there is nothing to
    set unless this deployment wants a different window — see the section
-   below. What does need checking is that the Temporal worker runs
-   (`ENABLE_TEMPORAL_WORKER=1`), because that is what executes the
+   below. What does need checking is that the durable executor runs
+   (`VOCION_SCHEDULE_OWNER=1` on the app), because that is what executes the
    deletion; without it the default is just a number.
 
 8. **Verify.** In order, because each step rules out the one before:
@@ -284,9 +284,9 @@ public API, with the project keys already in the environment:
   a first run against a never-pruned instance cannot run for hours. The
   rest goes on the next run.
 
-It runs on a daily Temporal schedule at 03:20 UTC, created and removed
-by the worker on start to match the variable. **It needs the Temporal
-worker running** (`ENABLE_TEMPORAL_WORKER=1`); without it the schedule
+It runs on a daily durable schedule at 03:20 UTC, created and removed
+by the worker on start to match the variable. **It needs the durable
+worker running** (`VOCION_SCHEDULE_OWNER=1` on the app); without it the schedule
 is never created and nothing is deleted.
 
 This works the same on Langfuse Cloud, where it is usually redundant —
@@ -297,16 +297,16 @@ shorter window than the plan gives you.
 To check what it did:
 
 ```bash
-# Did the worker create the schedule on start?
-docker compose -p vocion logs worker | grep 'Langfuse retention schedule'
+# Did the executor apply the schedule on start?
+docker compose -p vocion logs app | grep 'deployment schedules'
 
 # What did the last run delete?
-docker compose -p vocion logs worker | grep 'Langfuse retention complete'
+docker compose -p vocion logs app | grep 'Langfuse retention complete'
 ```
 
-The schedule itself is `langfuse-retention` in the Temporal UI
-(`/dashboard/workflows`, or the Temporal web UI on 8233), which also
-shows when it last fired and whether the run failed.
+The schedule itself is `langfuse-retention` in `durable.workflow_schedules`,
+whose `last_fired_at` says when it last fired; each tick is a
+`vocion.job.tick` row in `durable.workflow_status`.
 
 ## Turning tracing off
 
@@ -369,7 +369,7 @@ Tracked on [vocion-core#95](https://github.com/vocion/vocion-core/issues/95):
 - **Their weak defaults and published ports** (7233, 8233, 4317, 4318)
   come from the same dev compose file Langfuse's did. Only Langfuse is
   covered here.
-- **Temporal and the OTel collector are still on laptop defaults.**
+- **the OTel collector are still on laptop defaults.**
   Unlike Langfuse they have no managed alternative to fall back to, so
   they were left out of the replica default as well as the secret
   handling.

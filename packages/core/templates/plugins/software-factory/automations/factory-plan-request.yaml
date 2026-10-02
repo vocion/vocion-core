@@ -7,6 +7,8 @@
 # (`factory-plan-approved`).
 slug: factory-plan-request
 name: Write the plan the build needs
+label: Planned it
+doing: Writing the plan
 description: >-
   The factory asked for an architecture plan before it builds a request. The PM
   writes one plan, per write-architecture-plan, and files it; approval and the
@@ -18,20 +20,22 @@ when:
   maxFiresPer10m: 6
 do:
   checkMission: close-the-gap
-  requireTool: propose_action
+  # The plan filed is the step: a run that ends without it gets the forced
+  # recording pass, and one that proposes anything else does not count.
+  requireTool: file_architecture_plan
   prompt: >-
     Request #{{requestId}} ("{{title}}") needs an architecture plan before it is
     built. The plan rule says why: {{why}}. Read the request, its acceptance and
     the product it lands in, and follow write-architecture-plan — check the gap
-    is still there first. Then file ONE plan with propose_action
-    objects.propose_candidate: objectType architecture_plan, dedupOn
-    [requestId], fields requestId {{requestId}}, productSlug, repoSlugs, approach
+    is still there first. Then file ONE plan with file_architecture_plan: requestId
+    {{requestId}}, productSlug, repoSlugs, approach
     (one paragraph, the reason included), components (one line per package or
     app, the path first, "apps/web — what changes"; these become the contract's
     allowed paths, so name every package the change touches, its tests and any
     migrations directory), interfaces, dataImpact ("None" is an answer),
     risks (each with its cost), alternatives (each with why not), verification,
     writtenBy agent, status in_review, ruleLevel required, ruleTriggers [the
-    rule's sentences above, one per item]. Do not dispatch, approve or file a
-    card: the plan's approval and the build follow on their own. Report in one
+    rule's sentences above, one per item]. Filing the plan is the whole job:
+    never propose factory.approve_plan or factory.dispatch_task — the factory
+    proposes the approval itself once the plan exists, and the build follows. Report in one
     line: the plan id, its components, and anything you could not establish.

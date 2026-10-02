@@ -1,32 +1,46 @@
+import type { ReactNode } from 'react';
 import type { DotTone } from '@/components/patterns';
-import type { FeatureReport, LiveBuild, ReportAction, ReportEvidence, ReportNotice, ReportStatus, Tone } from '@/services/factory/featureReport';
+import type { RecordStatus } from '@/libs/factory/liveStatus';
+import type { RelatedItem } from '@/libs/workspace/related';
+import type { FeatureReport, LiveBuild, ReportAction, ReportEvidence, ReportNotice, ReportReleaseSummary, ReportStatus, Tone } from '@/services/factory/featureReport';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Section, StatusDot } from '@/components/patterns';
-import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
+import { Related, Section, StatusDot } from '@/components/patterns';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
-import { money } from '@/services/factory/featureReport';
-import { FeatureActivity } from './FeatureActivity';
-import { FeatureBuild } from './FeatureBuild';
+import { showsAnError } from '@/libs/factory/mockup';
+import { prNumberLabel } from '@/libs/factory/runTitle';
+import { liveTopic } from '@/libs/live/topics';
+import { featureStatusOf, oneOfEachPicture } from '@/services/factory/featureReport';
+import { CheckLiveAgain } from './CheckLiveAgain';
+import { FeatureBuild, FeatureHeadline } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
-import { FeatureDrawerLink, PreviewOpen } from './FeatureDrawerLink';
+import { FeatureDrawerLink } from './FeatureDrawerLink';
+import { FeatureTimeline } from './FeatureTimeline';
 import { LocalDate } from './LocalDate';
 import { MediaCarousel } from './MediaCarousel';
+import { WorkStatus } from './WorkStatus';
 
 /**
  * The feature page, drawn for the person who owns the outcome (Chris,
  * 2026-09-28).
  *
- * One column, in the order a product owner reads it:
+ * One column, each section answering one question (Chris, 2026-10-02,
+ * FE-370 — the page had two sections called "Activity" and listed its runs
+ * in three places):
  *
- *   1. Introduction — the title and subtitle (the route's title bar), the
- *      user story as a short paragraph, and what it should change for people
- *   2. Where it is — one or two sentences and one action
- *   3. What it looks like — the gallery, intact
- *   4. Connected work — the three newest conversations and runs
- *   5. Plan · 6. Implementation · 7. Acceptance · 8. Release · 9. Activity —
- *      each a few lines, with the full record one tap away in the preview
- *      pane (`FeatureDrawerLink` → `feature_section:<id>.<key>`)
+ *   1. Where is it, and do I need to act? — the title bar, the story, and
+ *      Current state (You / Now / Next)
+ *   2. What does it look like? — the gallery, intact
+ *   3. Did it work? — live, seen live, each criterion with its evidence, the
+ *      pull request that shipped and its checks
+ *   4. What happened? — the Timeline, newest first: the few newest rows, the
+ *      whole list in the side panel (`FeatureTimeline`)
+ *   5. What is it connected to? — Related: records only (product, plan,
+ *      chat, pull request, release)
+ *
+ * Each full record is one tap away in the preview pane (`FeatureDrawerLink`
+ * → `feature_section:<id>.<key>`).
  *
  * Everything the old page printed is still reachable: the sections the report
  * assembles all render into a drawer (`services/factory/featureDrawer.ts`).
@@ -43,6 +57,7 @@ const DOT_TONE: Record<Tone, DotTone> = { ok: 'pass', warn: 'amber', bad: 'fail'
 /** What this evidence is FOR, in the reader's words rather than the field's. */
 const ROLE_WORD: Record<string, string> = {
   'proposed': 'Proposed',
+  'reported': 'Reported',
   'shipped': 'After',
   'qa-screenshot': 'Screenshot',
   'qa-video': 'Video',
@@ -94,25 +109,39 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
  * @param props
  * @param props.pictures - The pictures, ranked.
  * @param props.docs - Mockups that are documents rather than pictures.
+ * @param props.mockupStatus
  */
-function HeroMedia({ pictures, docs }: { pictures: ReportEvidence[]; docs: ReportEvidence[] }) {
+function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[]; docs: ReportEvidence[]; mockupStatus?: FeatureReport['mockupStatus'] }) {
+  // Where the default mockup stands, said where it would be: drawing, or why
+  // it drew nothing (`visuals.mockupDraw`).
+  // A failure line never stands over pictures of the change: the page is not
+  // missing a picture, it has them (Chris, 2026-09-30, #269).
+  const status = mockupStatus && (pictures.length === 0 || mockupStatus.tone === 'info')
+    ? (
+        <p data-testid="report-mockup-status" data-tone={mockupStatus.tone} className={`rounded-lg border border-dashed px-3 py-2 text-sm ${mockupStatus.tone === 'warn' ? 'border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300' : 'border-border text-muted-foreground'}`}>
+          {mockupStatus.line}
+        </p>
+      )
+    : null;
   if (pictures.length === 0) {
     return (
-      <div id="report-visuals" data-section="visuals">
+      <div id="report-visuals" data-section="visuals" className="space-y-4">
         {docs.length > 0
           ? <Gallery items={docs} />
-          : (
-              <p data-testid="report-preview-pending" className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
-                Preview pending — no mockup or screenshot yet.
-              </p>
-            )}
+          : status ?? (
+            <p data-testid="report-preview-pending" className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
+              Preview pending — no mockup or screenshot yet.
+            </p>
+          )}
+        {docs.length > 0 && status}
       </div>
     );
   }
-  const word = (e: ReportEvidence) => (e.role === 'today' ? 'Today' : ROLE_WORD[e.role] ?? e.role);
+  const word = (e: ReportEvidence) => e.section ?? (e.role === 'today' ? 'Today' : ROLE_WORD[e.role] ?? e.role);
   return (
     <div id="report-visuals" data-section="visuals" className="space-y-4">
-      <MediaCarousel slides={pictures.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption }))} />
+      <MediaCarousel slides={pictures.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption, source: p.source ?? null }))} />
+      {status}
       {docs.length > 0 && <Gallery items={docs} />}
     </div>
   );
@@ -163,9 +192,10 @@ function WatchTheBuild({ live }: { live: LiveBuild }) {
  * report column once clipped it to two grey specks (2026-09-23).
  * @param props - The context bits.
  * @param props.bits - Short facts, in reading order.
+ * @param props.end - What closes the line: the record's version chip.
  */
-export function ReportContextLine({ bits }: { bits: readonly string[] }) {
-  if (bits.length === 0) {
+export function ReportContextLine({ bits, end }: { bits: readonly string[]; end?: ReactNode }) {
+  if (bits.length === 0 && !end) {
     return null;
   }
   return (
@@ -176,8 +206,30 @@ export function ReportContextLine({ bits }: { bits: readonly string[] }) {
           {bit}
         </span>
       ))}
+      {end && (
+        <span className="flex items-center gap-2">
+          {bits.length > 0 && <span aria-hidden className="text-border">·</span>}
+          {end}
+        </span>
+      )}
     </p>
   );
+}
+
+/**
+ * How the feature page re-reads itself, or null when there is nothing to
+ * follow and nothing running: when anything the page is made of changes —
+ * its tasks, their runs, its cards, asks and evidence — pushed on the live
+ * stream, so the Now line and the stage move without a reload or a poll. The
+ * record itself is followed by the route's VersionWatch. While the stream is
+ * down it polls every 5s, only while something runs. The version chip
+ * carries it (`versions/VersionChip`).
+ * @param report - The report.
+ */
+export function reportLiveRefresh(report: Pick<FeatureReport, 'live' | 'timeline' | 'follow' | 'requestId'>): { everyMs: number; follow: string[]; poll: boolean } | null {
+  const moving = report.live !== null || report.timeline.some(e => e.live);
+  const followed = (report.follow ?? []).filter(t => t !== liveTopic.record(report.requestId));
+  return followed.length > 0 || moving ? { everyMs: 5000, follow: followed, poll: moving } : null;
 }
 
 /**
@@ -205,7 +257,7 @@ function ActionButton({ action, report, primary, children }: { action: ReportAct
   if (action.kind === 'build') {
     return (
       <div data-testid="feature-decide">
-        <FeatureBuild requestId={report.requestId} planId={report.planId} label={action.label}>{children}</FeatureBuild>
+        <FeatureBuild requestId={report.requestId} planId={report.planId} label={action.label} pendingRunId={action.runId} disabledReason={action.disabledReason}>{children}</FeatureBuild>
       </div>
     );
   }
@@ -219,7 +271,7 @@ function ActionButton({ action, report, primary, children }: { action: ReportAct
       {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
       data-testid={primary ? 'report-primary-action' : undefined}
       className={primary
-        ? 'inline-flex h-9 items-center rounded-md bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90'
+        ? buttonVariants({ variant: 'default' })
         : 'inline-flex h-8 items-center rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground'}
     >
       {action.label}
@@ -228,36 +280,50 @@ function ActionButton({ action, report, primary, children }: { action: ReportAct
 }
 
 /**
- * WHERE IT IS, AND THE ONE MOVE. One or two sentences — what is known, and
- * what is not established — and one action that follows the state.
+ * WHERE IT IS: the stage, then You, Now, Next (Chris, 2026-09-30: "so I
+ * understand when I'm waiting. What's next. What's running."). The same
+ * three lines the chat, the preview pane and the Work row draw
+ * (`WorkStatus`). The stage keeps its one sentence while nothing runs — what
+ * is known and what is not; while something runs, the Now line says it, and
+ * opens the run. The move sits on the You line when it is a person's; any
+ * other move follows the lines.
  * @param props
  * @param props.report - The report.
+ * @param props.status - The three lines, as the page's route read them.
  */
-function StatusBlock({ report }: { report: FeatureReport }) {
+function StatusBlock({ report, status }: { report: FeatureReport; status: RecordStatus }) {
   const s: ReportStatus = report.status;
   const secondary = s.secondary === null
     ? null
     : s.secondary.kind === 'dismiss'
       ? <FeatureDismiss requestId={report.requestId} />
-      : <ActionButton action={s.secondary} report={report} primary={false} />;
+      : s.secondary.kind === 'check_live'
+        ? <CheckLiveAgain releaseId={s.secondary.releaseId} label={s.secondary.label} />
+        : <ActionButton action={s.secondary} report={report} primary={false} />;
+  // The move that IS the running run ("Watch the plan being written") is
+  // the Now line already; drawn twice it would be two ways to one place.
+  const moveIsLive = s.action?.kind === 'link' && report.live !== null && s.action.href === report.live.runHref;
+  const actions = s.action && !moveIsLive
+    ? s.action.kind === 'build'
+      ? <ActionButton action={s.action} report={report} primary>{secondary}</ActionButton>
+      : (
+          <>
+            <ActionButton action={s.action} report={report} primary />
+            {secondary}
+          </>
+        )
+    : null;
+  const yours = report.state.needsYou && actions !== null;
   return (
-    <section id="report-state" data-testid="report-status" aria-label="Where this work is" className="space-y-3">
-      <p className="max-w-prose text-[15px] leading-relaxed text-foreground">
-        <StatusDot tone={DOT_TONE[s.tone]} label={<span className="font-semibold">{s.headline}</span>} className="mr-2 align-baseline" />
-        <span data-testid="report-status-sentence">{s.sentence}</span>
-      </p>
-      {s.action && (
-        <div className="flex flex-wrap items-center gap-2">
-          {s.action.kind === 'build'
-            ? <ActionButton action={s.action} report={report} primary>{secondary}</ActionButton>
-            : (
-                <>
-                  <ActionButton action={s.action} report={report} primary />
-                  {secondary}
-                </>
-              )}
-        </div>
-      )}
+    <section id="report-state" data-testid="report-status" aria-label="Current state" className="space-y-3">
+      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Current state</div>
+      {/* While a run of Vocion's carries it, the Now line says it and the
+          sentence would repeat it. After the merge the run is GitHub's, and
+          the sentence is the part the Now line cannot say: who merged it,
+          when, and who is watching until the release lands (#269). */}
+      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live && report.live.kind !== 'deploying' ? '' : s.sentence} />
+      <WorkStatus status={status} hideStage youAction={yours ? <span className="flex flex-wrap items-center gap-2">{actions}</span> : undefined} className="max-w-prose" />
+      {!yours && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       {report.notices.length > 0 && <Notices notices={report.notices} requestId={report.requestId} />}
     </section>
   );
@@ -288,204 +354,153 @@ function Notices({ notices, requestId }: { notices: ReportNotice[]; requestId: n
   );
 }
 
-/**
- * PLAN — the scope in a sentence, its status in a word, who approved it and
- * when, and a risk it names. Steps, rationale, boundaries, paths and the
- * approval history are in "View plan".
- * @param props
- * @param props.report - The report.
- */
-function PlanBlock({ report }: { report: FeatureReport }) {
-  const p = report.planSummary;
-  const tone: DotTone = p.status === 'Approved' ? 'pass' : p.status === 'Superseded' || p.status === 'Rejected' ? 'neutral' : 'amber';
-  return (
-    <Section id="report-plan" data-testid="report-plan" eyebrow="Plan" action={<FeatureDrawerLink requestId={report.requestId} drawer="plan">View plan</FeatureDrawerLink>}>
-      {p.status === null
-        ? <p className="text-[15px] text-muted-foreground">{p.absence}</p>
-        : (
-            <div className="space-y-1.5">
-              {p.scope && <p className="max-w-prose text-[15px] leading-relaxed text-foreground">{p.scope}</p>}
-              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
-                <StatusDot tone={tone} label={<span className="text-foreground">{p.status}</span>} />
-                {p.approver && <span>{`· ${p.approver}`}</span>}
-                {p.approvedAt && (
-                  <span>
-                    {'· '}
-                    <LocalDate at={p.approvedAt} />
-                  </span>
-                )}
-                {p.steps > 0 && <span>{`· ${p.steps} step${p.steps === 1 ? '' : 's'}`}</span>}
-              </p>
-              {p.risk && (
-                <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
-                  <span className="text-foreground/80">Risk it names: </span>
-                  {p.risk}
-                </p>
-              )}
-            </div>
-          )}
-    </Section>
-  );
-}
-
-/**
- * IMPLEMENTATION — build and the change as one. The latest attempt as a row,
- * the earlier ones counted, the five delivery facts kept apart (run completed
- * ≠ checks passed ≠ merged ≠ acceptance verified ≠ released), and the spend.
- * @param props
- * @param props.report - The report.
- */
-function ImplementationBlock({ report }: { report: FeatureReport }) {
-  const impl = report.implementation;
-  const live = report.timeline.find(e => e.live)?.live ?? null;
-  const pr = impl.prUrl ? /\/pull\/(\d+)/.exec(impl.prUrl)?.[1] : null;
-  return (
-    <Section id="report-implementation" data-testid="report-implementation" eyebrow="Implementation" action={<FeatureDrawerLink requestId={report.requestId} drawer="implementation">Details</FeatureDrawerLink>}>
-      {impl.latest === null
-        ? <p className="text-[15px] text-muted-foreground">{impl.absence}</p>
-        : (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px]" data-testid="report-latest-run">
-                <StatusDot tone={DOT_TONE[impl.latest.tone]} label={<span className="font-medium text-foreground">{impl.latest.outcome}</span>} />
-                <span className="text-[13px] text-muted-foreground tabular-nums">
-                  {`Latest run · ${impl.latest.ago}${impl.latest.cents !== null ? ` · ${money(impl.latest.cents)}` : ''}`}
-                </span>
-                {impl.prUrl && (
-                  <a href={impl.prUrl} target="_blank" rel="noreferrer" className="text-[13px] break-all text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
-                    {pr ? `Pull request #${pr}` : 'Pull request'}
-                  </a>
-                )}
-                <PreviewOpen recordRef={{ type: 'worker_run', id: String(impl.latest.runId) }} testId="report-view-run">View run</PreviewOpen>
-              </div>
-              {impl.latest.why && impl.latest.tone !== 'ok' && <p className="max-w-prose text-[13px] leading-relaxed break-words text-muted-foreground">{impl.latest.why}</p>}
-              {live && <WatchTheBuild live={live} />}
-              {impl.earlier > 0 && (
-                <FeatureDrawerLink requestId={report.requestId} drawer="implementation" testId="report-earlier-attempts">
-                  {`${impl.earlier} earlier attempt${impl.earlier === 1 ? '' : 's'}`}
-                </FeatureDrawerLink>
-              )}
-            </div>
-          )}
-      <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px]" data-testid="report-ladder" aria-label="Delivery, step by step">
-        {impl.ladder.map(step => (
-          <li key={step.key} data-step={step.key} data-state={step.state}>
-            <StatusDot
-              // "Not released" is a fact, not a failure: only a step that
-              // went wrong (a failed run, failed checks, a failed criterion) is red.
-              tone={step.state === 'yes' ? 'pass' : step.state === 'no' && step.key !== 'released' ? 'fail' : 'neutral'}
-              label={(
-                <span className="text-muted-foreground">
-                  {`${step.label}: `}
-                  <span className="text-foreground">{step.value}</span>
-                </span>
-              )}
-            />
-          </li>
-        ))}
-      </ul>
-      <p className="mt-3 text-[13px] text-muted-foreground tabular-nums" data-testid="report-cost">
-        {impl.costLine}
-        {' · '}
-        <FeatureDrawerLink requestId={report.requestId} drawer="cost">Cost breakdown</FeatureDrawerLink>
-      </p>
-    </Section>
-  );
-}
-
 const CRITERION_WORD = { passed: 'Passed', failed: 'Failed', unverified: 'Unverified' } as const;
 const CRITERION_TONE: Record<keyof typeof CRITERION_WORD, DotTone> = { passed: 'pass', failed: 'fail', unverified: 'neutral' };
 
 /**
- * ACCEPTANCE — "N of M verified" and the criteria, each Unverified, Passed or
- * Failed. Passed needs evidence; each criterion opens it. The review
- * procedure is one click away.
+ * One group of criteria, each opening its drawer. `offset` places the group
+ * in the drawer keys: acceptance lines first, then the plan-risk lines.
+ * @param props
+ * @param props.report - The report.
+ * @param props.items - The criteria.
+ * @param props.offset - The first drawer index.
+ * @param props.testId - The row's test id.
+ */
+function CriterionList({ report, items, offset, testId }: { report: FeatureReport; items: FeatureReport['acceptance']['items']; offset: number; testId: string }) {
+  return (
+    <ul className="-mx-2 space-y-0.5">
+      {items.map((c, i) => (
+        <li key={c.statement}>
+          <FeatureDrawerLink requestId={report.requestId} drawer={`criterion-${offset + i}`} look="row" className="flex items-start gap-3 px-2 py-1.5" testId={testId}>
+            <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
+              <StatusDot tone={CRITERION_TONE[c.state]} label={<span className={c.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{CRITERION_WORD[c.state]}</span>} />
+            </span>
+            <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
+          </FeatureDrawerLink>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * "seen live 4 of 4", "partly seen live 2 of 4", "not seen live", "not yet
+ * seen live" — what QA saw on the live product, from the release summary.
+ * @param seen - The release summary's `seen`.
+ */
+function seenLive(seen: ReportReleaseSummary['seen']): string | null {
+  if (!seen) {
+    return null;
+  }
+  const count = seen.reached !== undefined && seen.total !== undefined && seen.total > 0 ? ` ${seen.reached} of ${seen.total}` : '';
+  return seen.state === 'seen' ? `seen live${count}` : seen.state === 'partial' ? `partly seen live${count}` : seen.state === 'not_seen' ? 'not seen live' : 'not yet seen live';
+}
+
+/**
+ * DID IT WORK? — Acceptance and Release in one (Chris, 2026-10-02, FE-370).
+ * One line says whether it is live and whether QA saw it there — "Live since
+ * 2 Oct · REL-375 · seen live 4 of 4" — then each criterion with its
+ * evidence, then the pull request that shipped and its checks. The checks
+ * are the shipped attempt's, never an earlier one's (FE-370 read "Checks
+ * passed: Failed" beside "Merged: Yes").
  * @param props
  * @param props.report - The report.
  */
-function AcceptanceBlock({ report }: { report: FeatureReport }) {
+function OutcomeBlock({ report }: { report: FeatureReport }) {
+  const r = report.release;
   const a = report.acceptance;
+  const impl = report.implementation;
+  const attempt = impl.shipped ?? (impl.latest?.prUrl ? impl.latest : null);
+  const external = r.href !== null && /^https?:\/\//i.test(r.href);
+  // The checks of the attempt that counts — the shipped one — never an earlier attempt's.
+  const known = (attempt && (impl.shipped ?? impl.latest)?.runId === attempt.runId ? impl.checks : attempt?.checks ?? []).filter(c => c.passed !== null);
+  const failed = known.find(c => c.passed === false);
+  const seen = seenLive(r.seen);
   return (
     <Section
-      id="report-acceptance"
-      data-testid="report-acceptance"
-      eyebrow={a.total === 0 ? 'Acceptance' : `Acceptance · ${a.verified} of ${a.total} verified`}
+      id="report-outcome"
+      data-testid="report-outcome"
+      eyebrow="Did it work?"
       commentField="Acceptance"
       action={<FeatureDrawerLink requestId={report.requestId} drawer="acceptance">{a.procedure ? 'How it is reviewed' : 'Details'}</FeatureDrawerLink>}
     >
-      {a.total === 0
-        ? <p className="max-w-prose text-[15px] text-muted-foreground">Nothing says what done means for this work yet, so it can be shown to run but not shown to be done.</p>
-        : (
-            <ul className="-mx-2 space-y-0.5">
-              {a.items.map((c, i) => (
-                <li key={c.statement}>
-                  <FeatureDrawerLink requestId={report.requestId} drawer={`criterion-${i}`} look="row" className="flex items-start gap-3 px-2 py-1.5" testId="report-criterion">
-                    <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
-                      <StatusDot tone={CRITERION_TONE[c.state]} label={<span className={c.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{CRITERION_WORD[c.state]}</span>} />
-                    </span>
-                    <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
-                  </FeatureDrawerLink>
-                </li>
-              ))}
-            </ul>
+      {/* Where the old sections' links land (`#report-release`, `#report-acceptance`). */}
+      <p id="report-release" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]" data-testid="report-outcome-line">
+        <StatusDot
+          tone={r.state === 'live' ? (r.seen?.state === 'seen' ? 'pass' : r.seen?.state === 'not_seen' ? 'fail' : 'amber') : r.state === 'unverified' ? 'amber' : 'neutral'}
+          label={(
+            <span className="font-medium text-foreground">
+              {r.state === 'live' && r.at
+                ? (
+                    <>
+                      {'Live since '}
+                      <LocalDate at={r.at} />
+                    </>
+                  )
+                : r.state === 'not_released' ? 'Not live yet' : r.label}
+            </span>
           )}
-    </Section>
-  );
-}
-
-/**
- * RELEASE — Live (with its evidence), Release not verified, or Not released
- * (confirmed: nothing merged). Deployment detail is in the drawer.
- * @param props
- * @param props.report - The report.
- */
-function ReleaseBlock({ report }: { report: FeatureReport }) {
-  const r = report.release;
-  const external = r.href !== null && /^https?:\/\//i.test(r.href);
-  return (
-    <Section id="report-release" data-testid="report-release" eyebrow="Release" action={<FeatureDrawerLink requestId={report.requestId} drawer="release">Details</FeatureDrawerLink>}>
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
-        <StatusDot tone={r.state === 'live' ? 'pass' : r.state === 'unverified' ? 'amber' : 'neutral'} label={<span className="font-medium text-foreground">{r.label}</span>} />
-        <span className="text-[13px] text-muted-foreground">
-          {r.state === 'live' && r.at
-            ? (
-                <>
-                  {'since '}
-                  <LocalDate at={r.at} />
-                </>
-              )
-            : r.sentence}
-        </span>
-        {r.href && (
-          <a href={r.href} {...(external ? { target: '_blank', rel: 'noreferrer' } : {})} className="text-[13px] text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
-            {r.state === 'live' ? 'Open it' : 'Open the record'}
-          </a>
+        />
+        {r.state === 'live' && r.code && (
+          <FeatureDrawerLink requestId={report.requestId} drawer="release" look="link" className="text-[13px]">{r.code}</FeatureDrawerLink>
+        )}
+        {r.state === 'live' && seen && <span className="text-[13px] text-muted-foreground">{seen}</span>}
+        {r.href && r.state === 'live' && (
+          <a href={r.href} {...(external ? { target: '_blank', rel: 'noreferrer' } : {})} className="text-[13px] text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">Open it</a>
         )}
       </p>
+      {r.state !== 'live' && <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-muted-foreground">{r.sentence}</p>}
+
+      <div id="report-acceptance" className="mt-4">
+        <p className="text-[12px] text-muted-foreground" data-testid="report-acceptance-count">
+          {a.total === 0 ? 'No acceptance criteria yet' : `${a.verified} of ${a.total} criteria verified${a.risksLine ? ` · ${a.risksLine}` : ''}`}
+        </p>
+        {a.total === 0
+          ? <p className="mt-1 max-w-prose text-[15px] text-muted-foreground">Nothing says what done means for this work yet, so it can be shown to run but not shown to be done.</p>
+          : (
+              <div className="mt-1">
+                <CriterionList report={report} items={a.items} offset={0} testId="report-criterion" />
+                {a.risks.length > 0 && (
+                  <>
+                    <p className="mt-3 text-[12px] text-muted-foreground" data-testid="report-risks-line">{`Plan risks · ${a.risksLine}`}</p>
+                    <CriterionList report={report} items={a.risks} offset={a.items.length} testId="report-risk" />
+                  </>
+                )}
+              </div>
+            )}
+      </div>
+
+      {attempt?.prUrl && (
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground" data-testid="report-shipped-pr">
+          <a href={attempt.prUrl} target="_blank" rel="noreferrer" className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">
+            {prNumberLabel(attempt.prUrl) ?? 'Pull request'}
+          </a>
+          {known.length > 0 && <span>{failed ? `· ${known.filter(c => c.passed).length}/${known.length} checks, \`${failed.name.replace(/^npm run /, '')}\` failed` : `· ${known.length}/${known.length} checks`}</span>}
+          <span>{`· attempt ${attempt.n} of ${Math.max(impl.attempts.length, attempt.n)}`}</span>
+          {impl.merged && impl.shipped && <span>· merged</span>}
+        </p>
+      )}
     </Section>
   );
 }
 
 /**
- * ACTIVITY — the few events worth a glance, newest first. The whole log is
- * "View all activity".
+ * TIMELINE — what happened, newest first: the few newest rows here, the
+ * whole list in the side panel (`FeatureTimeline`). While a build runs, what
+ * it is doing and the tail of its log sit above the rows.
  * @param props
  * @param props.report - The report.
  */
-function ActivityBlock({ report }: { report: FeatureReport }) {
+function TimelineBlock({ report }: { report: FeatureReport }) {
+  const live = report.timeline.find(e => e.live)?.live ?? null;
   return (
-    <Section id="report-activity" data-testid="report-activity" eyebrow="Activity" action={<FeatureDrawerLink requestId={report.requestId} drawer="activity">View all activity</FeatureDrawerLink>}>
-      {report.activityPreview.length === 0
-        ? <p className="text-[13px] text-muted-foreground">Nothing on this work is dated yet.</p>
-        : (
-            <ol className="space-y-1.5">
-              {report.activityPreview.map(e => (
-                <li key={e.key} data-timeline-entry={e.key} className="flex min-w-0 items-baseline gap-3 text-[13px]">
-                  <span className="w-24 shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">{e.ago}</span>
-                  <span className="min-w-0 flex-1 truncate text-foreground/90">{e.title}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+    <Section id="report-timeline" data-testid="report-timeline" eyebrow="Timeline">
+      {live && <WatchTheBuild live={live} />}
+      {/* Where the old links to the runs and the plan land. */}
+      <div id="report-runs" className={live ? 'mt-3' : undefined}>
+        <span id="report-plan" aria-hidden />
+        <FeatureTimeline rows={report.history} cost={report.historyCost} density="compact" requestId={report.requestId} />
+      </div>
     </Section>
   );
 }
@@ -517,25 +532,42 @@ function StickyAction({ report }: { report: FeatureReport }) {
   );
 }
 
-export function FeatureReportView({ report }: { report: FeatureReport }) {
+/**
+ * @param props
+ * @param props.report - The assembled report.
+ * @param props.status - Its three lines as the route read them (the record's own page href). Absent, read off the report here.
+ * @param props.related
+ */
+export function FeatureReportView({ report, status, related = [] }: { report: FeatureReport; status?: RecordStatus; related?: readonly RelatedItem[] }) {
+  const lines = status ?? featureStatusOf(report, { objectType: '', href: '' }, new Date());
   const visuals = report.sections.find(x => x.key === 'visuals');
   const today = report.sections.find(x => x.key === 'today');
-  // THE BEST REAL PICTURE LEADS: what shipped, then the product today, then a
-  // mockup somebody made — the platform's own drawing only when nothing else
-  // exists. Before it is built the proposal leads (2026-09-25).
+  const qa = report.sections.find(x => x.key === 'qa');
+  // THE BEST REAL PICTURE LEADS: what shipped, then QA's shot of the change,
+  // then the product today, then a mockup somebody made — the platform's own
+  // drawing only when nothing else exists. Before it is built the proposal
+  // leads (2026-09-25). QA's before-shots follow the rest: the screen today
+  // already says what they say.
   const drawn = (e: ReportEvidence) => e.role === 'proposed' && e.title === 'Proposed change';
   const landed = report.phase === 'released' || report.phase === 'qa';
-  const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : drawn(e) ? 4 : e.role === 'today' ? (landed ? 1 : 3) : 2);
-  const ranked = [...(visuals?.evidence ?? []), ...(today?.evidence ?? [])]
-    .filter((e, i, all) => e.imageUrl !== null && all.findIndex(x => x.id === e.id) === i)
-    .sort((a, b) => rank(a) - rank(b));
+  const rank = (e: ReportEvidence) => (e.role === 'shipped' ? 0 : drawn(e) ? 6 : e.section === 'QA after' ? 1 : e.section === 'QA before' ? 5 : e.role === 'today' ? (landed ? 2 : 4) : 3);
+  // A capture QA itself named as the app's error state stays in the QA
+  // record; it is not a picture of the change.
+  const qaPictures = (qa?.evidence ?? []).filter(e => e.role === 'qa-screenshot' && !showsAnError({ title: e.title, spec: { caption: e.caption } }));
+  // One slide per picture: the same artifact through two sections, or the
+  // same image filed twice, is drawn once — the best-ranked (`oneOfEachPicture`).
+  const ranked = oneOfEachPicture([...(visuals?.evidence ?? []), ...(today?.evidence ?? []), ...qaPictures]
+    .filter(e => e.imageUrl !== null)
+    .sort((a, b) => rank(a) - rank(b)));
   const pictures = ranked.some(p => !drawn(p)) ? ranked.filter(p => !drawn(p)) : ranked;
   const docs = (visuals?.evidence ?? []).filter(e => e.imageUrl === null && e.body !== null);
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
       {/* One pane for every drawer on this page, and for every peek. */}
       <PreviewPanel />
-      {report.timeline.some(e => e.live) && <LiveRefresh everyMs={5000} />}
+      {/* The re-read — pushed on the live stream for what the page is made
+          of, polled every 5s while it is down and something runs — rides the
+          version chip in the title's metadata line (`reportLiveRefresh`). */}
 
       {/* 1 + 2. THE INTRODUCTION, THEN WHERE IT IS. The title, subtitle and
           context line are the route's title bar; the story is a short plain
@@ -556,23 +588,27 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
             )}
           </div>
         )}
-        <StatusBlock report={report} />
+        <StatusBlock report={report} status={lines} />
       </div>
 
       {/* 3. WHAT IT LOOKS LIKE — the gallery, as it was. */}
-      <HeroMedia pictures={pictures} docs={docs} />
+      <HeroMedia pictures={pictures} docs={docs} mockupStatus={report.mockupStatus} />
 
-      {/* 4. CONNECTED WORK — compact; the whole list opens in the pane. */}
-      {(report.activity?.length ?? 0) > 0 && <FeatureActivity items={report.activity!} requestId={report.requestId} />}
-
-      {/* 5–9. Each stage in a few lines, the full record one tap away. */}
+      {/* 3. DID IT WORK? 4. TIMELINE — one question each. */}
       <div>
-        <PlanBlock report={report} />
-        <ImplementationBlock report={report} />
-        <AcceptanceBlock report={report} />
-        <ReleaseBlock report={report} />
-        <ActivityBlock report={report} />
+        <OutcomeBlock report={report} />
+        <TimelineBlock report={report} />
       </div>
+
+      {/* 5. RELATED — the records it is connected to: the chat that started
+          it, its product, plan, pull requests and releases (`relatedOf`).
+          Its runs and tasks are the Timeline. */}
+      {related.length > 0 && (
+        <section id="report-related" aria-labelledby="report-related-heading" data-testid="feature-related">
+          <h2 id="report-related-heading" className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Related</h2>
+          <Related items={related} className="mt-1" />
+        </section>
+      )}
 
       <p className="text-[13px] text-muted-foreground">
         <FeatureDrawerLink requestId={report.requestId} drawer="details">The records behind this page</FeatureDrawerLink>

@@ -9,13 +9,11 @@
  */
 
 import type { WorkspaceRole } from '@/services/authz';
-import { and, asc, eq } from 'drizzle-orm';
 import { cookies, headers } from 'next/headers';
-import { accountMembershipSchema, projectSchema } from '@/models/Schema';
-import { accessibleProjects, effectiveRole, enforcementEnabled } from '@/services/WorkspaceAccessService';
+import { resolveProjectForUser } from '@/services/ProjectService';
+import { resolveActiveWorkspace } from '@/services/WorkspaceAccessService';
 import { ACTIVE_PROJECT_COOKIE } from './activeProject';
-import { db } from './DB';
-import { WORKSPACE_HEADER } from './links';
+import { parseWorkspacePath, WORKSPACE_ACCOUNT_PARAM, WORKSPACE_HEADER } from './links';
 
 export type Tenancy = {
   accountId: string | null;
@@ -25,127 +23,107 @@ export type Tenancy = {
 };
 
 /**
- * Find the user's current tenant + active project. Self-hosted: each user
- * belongs to exactly one tenant_account; the active project is, in order:
+ * The workspace the page that sent this request is on, from its `Referer`.
+ *
+ * A browser fetch (`/rpc`, `/api/chat`, the session poll) carries no
+ * workspace of its own; only page loads go through the proxy's `/w/<slug>`
+ * rewrite. Without this, those calls fell back to the last-active cookie, so
+ * with two tabs open on two workspaces, the tab switched to first made its
+ * reads and saves in the other tab's workspace, and with two accounts that is
+ * another client's data (vocion-core#128). Browsers send the page's URL as
+ * `Referer` on same-origin requests by default, so the tab's own `/w/<slug>`
+ * (and `?account=`, when the URL has it) decides instead.
+ *
+ * A Referer is caller-supplied, like the header; it only ever picks among
+ * workspaces this person can open, because the slug is resolved on their own
+ * accounts and `resolveActiveWorkspace` checks membership again.
+ * @param userId - The signed-in person.
+ * @param referer - The request's `Referer`, if any.
+ * @param lastActiveProjectId - The cookie, to break a slug tie between accounts.
+ * @returns The workspace id, or undefined when the Referer names none they can open.
+ */
+async function workspaceFromReferer(userId: string, referer: string | null, lastActiveProjectId: string | undefined): Promise<string | undefined> {
+  if (!referer || !URL.canParse(referer)) {
+    return undefined;
+  }
+  const pageUrl = new URL(referer);
+  const canonical = parseWorkspacePath(pageUrl.pathname);
+  if (!canonical) {
+    return undefined;
+  }
+  const project = await resolveProjectForUser(userId, { slug: canonical.slug }, {
+    accountSlug: pageUrl.searchParams.get(WORKSPACE_ACCOUNT_PARAM),
+    lastActiveProjectId,
+  });
+  return project?.id;
+}
+
+/**
+ * The workspace this request names, before anything checks it: the URL's
+ * (`/w/<slug>/…`, resolved by the proxy and forwarded as
+ * `WORKSPACE_HEADER.projectId`), else the page's the request came from
+ * (`Referer`, see {@link workspaceFromReferer}), else the
+ * `vocion_active_project` cookie.
+ *
+ * `headers()` and `cookies()` are available in Route Handlers, Server Actions
+ * and Server Components — the JWT and session callbacks run in one of those
+ * contexts; both throw outside a request scope (a script, the worker), where
+ * there is nothing picked and the caller falls back to the default.
+ * @param userId - The signed-in person, to resolve a Referer's slug for.
+ */
+async function requestedWorkspaceId(userId: string): Promise<string | undefined> {
+  let requestHeaders: Awaited<ReturnType<typeof headers>>;
+  let cookie: string | undefined;
+  try {
+    requestHeaders = await headers();
+    cookie = (await cookies()).get(ACTIVE_PROJECT_COOKIE)?.value || undefined;
+  } catch {
+    // Not in a request scope — there is no URL, page or cookie to read.
+    return undefined;
+  }
+  const fromUrl = requestHeaders.get(WORKSPACE_HEADER.projectId)?.trim();
+  if (fromUrl) {
+    return fromUrl;
+  }
+  return (await workspaceFromReferer(userId, requestHeaders.get('referer'), cookie)) ?? cookie;
+}
+
+/**
+ * Find the user's current tenant + active project.
+ *
+ * **The account follows the workspace** (vocion-core#128). The picked
+ * workspace is, in order:
  *
  * 1. the one the **URL** names — `/w/<slug>/…`, resolved by the proxy and
  *    forwarded as `WORKSPACE_HEADER.projectId` (`src/proxy.ts`). The URL wins
- *    so two tabs on two workspaces both stay right, and a refresh cannot
- *    resolve a record against whichever workspace was switched to last.
- * 2. the one the `vocion_active_project` cookie names — "last active", which
+ *    so a refresh cannot resolve a record against whichever workspace was
+ *    switched to last.
+ * 2. for a browser fetch from a page (`/rpc`, `/api/…`), the page's own
+ *    `/w/<slug>`, from the `Referer` — so a tab's saves land in the tab's
+ *    workspace, not whichever one another tab switched to last.
+ * 3. the one the `vocion_active_project` cookie names — "last active", which
  *    is all a bare `/dashboard/…` URL has to go on.
- * 3. the first project on the account.
  *
- * Both 1 and 2 are CANDIDATES only. Unenforced, each is accepted when the
- * project belongs to this user's account, which stops a forged header reaching
- * another tenant. Enforced, that is not enough: workspaces inside one account
- * stop being interchangeable, so each candidate must be one this person
- * actually holds.
+ * `resolveActiveWorkspace` makes the decision from there: the picked
+ * workspace's account when the person is a member of it (and, enforced, holds
+ * the workspace), otherwise the first workspace they can open. So switching
+ * workspace in the sidebar is also how a person in two accounts switches
+ * account: the switch lands on `/w/<slug>/…`, and the proxy moves the cookie
+ * with it.
  *
  * Exported for its test. This function decides what a request may touch, and
  * the header it reads is attacker-suppliable on every `/api/` route (the proxy
  * returns early for those and nothing strips it), so the decision is worth
  * pinning directly rather than inferring from a layer above it.
- * @param userId
+ * @param userId - The signed-in person.
  */
 export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
-  const [membership] = await db
-    .select({
-      accountId: accountMembershipSchema.accountId,
-      role: accountMembershipSchema.role,
-    })
-    .from(accountMembershipSchema)
-    .where(eq(accountMembershipSchema.userId, userId))
-    .limit(1);
-
-  if (!membership) {
+  const active = await resolveActiveWorkspace(userId, await requestedWorkspaceId(userId));
+  if (!active) {
     return { accountId: null, projectId: null, role: null, workspaceRole: null };
   }
-  const accountRole = membership.role as 'admin' | 'member';
-
-  // The URL first, then "last active". `headers()` and `cookies()` are
-  // available in Route Handlers, Server Actions and Server Components — the
-  // JWT and session callbacks run in one of those contexts; both throw
-  // outside a request scope (a script, the worker), where the first project
-  // is the only sensible answer.
-  let requestedId: string | undefined;
-  try {
-    const hdrs = await headers();
-    requestedId = hdrs.get(WORKSPACE_HEADER.projectId)?.trim() || undefined;
-  } catch {
-    // Not in a request scope — fall through.
-  }
-  if (!requestedId) {
-    try {
-      const jar = await cookies();
-      requestedId = jar.get(ACTIVE_PROJECT_COOKIE)?.value;
-    } catch {
-      // cookies() throws when called outside a request scope; fall through
-      // to the default first-project selection.
-    }
-  }
-
-  // ENFORCED: a candidate is accepted only when this person actually holds the
-  // workspace. The header this reads is set by the proxy on a `/w/<slug>/…`
-  // rewrite, but `proxy.ts` returns early for everything under `/api/`, so on
-  // those routes it arrives from the caller and nothing strips it. Checking it
-  // against the ACCOUNT — which is all the unenforced path below can do — is
-  // therefore not a check at all once workspaces stop being interchangeable:
-  // one header would name any workspace on the account, including someone's
-  // personal one. This is the line that has to hold, not `ProjectService`.
-  if (enforcementEnabled()) {
-    if (requestedId) {
-      const role = await effectiveRole(userId, requestedId);
-      if (role) {
-        return { accountId: membership.accountId, projectId: requestedId, role: accountRole, workspaceRole: role };
-      }
-      // Not theirs. Fall through to what IS theirs rather than erroring, so a
-      // stale cookie or a bad link lands them somewhere they belong.
-    }
-    const reachable = await accessibleProjects(userId);
-    const first = [...reachable].sort((a, b) => a.projectId.localeCompare(b.projectId))[0];
-    return {
-      accountId: membership.accountId,
-      projectId: first?.projectId ?? null,
-      role: accountRole,
-      // Null projectId is a real state now: a person can hold no workspace at
-      // all. `guardAuth` already 401s on it, and the dashboard needs an empty
-      // state rather than assuming a project exists.
-      workspaceRole: first?.role ?? null,
-    };
-  }
-
-  // UNENFORCED: unchanged. Every member of the account reaches every project,
-  // and the workspace role IS the account role. There is no longer a mapping to
-  // state: a workspace role and an account role are the same two names.
-
-  if (requestedId) {
-    const [chosen] = await db
-      .select({ id: projectSchema.id })
-      .from(projectSchema)
-      .where(and(eq(projectSchema.id, requestedId), eq(projectSchema.accountId, membership.accountId)))
-      .limit(1);
-    if (chosen) {
-      return { accountId: membership.accountId, projectId: chosen.id, role: accountRole, workspaceRole: accountRole };
-    }
-  }
-
-  // Ordered, because "the first project" with no ORDER BY is whatever Postgres
-  // hands back. With four company workspaces that is stable enough to look
-  // deliberate; it is not. Once an account holds many projects, an unordered
-  // pick drops a person into an arbitrary one, and a person's landing workspace
-  // should not change between requests.
-  const [proj] = await db
-    .select({ id: projectSchema.id })
-    .from(projectSchema)
-    .where(eq(projectSchema.accountId, membership.accountId))
-    .orderBy(asc(projectSchema.createdAt), asc(projectSchema.id))
-    .limit(1);
-
-  return {
-    accountId: membership.accountId,
-    projectId: proj?.id ?? null,
-    role: accountRole,
-    workspaceRole: proj ? accountRole : null,
-  };
+  // Null projectId is a real state: a person can hold no workspace at all.
+  // `guardAuth` already 401s on it, and the dashboard needs an empty state
+  // rather than assuming a project exists.
+  return { accountId: active.accountId, projectId: active.projectId, role: active.accountRole, workspaceRole: active.workspaceRole };
 }

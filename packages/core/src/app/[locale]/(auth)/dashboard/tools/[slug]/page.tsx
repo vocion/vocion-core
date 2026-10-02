@@ -1,14 +1,17 @@
-import { ArrowLeft, Bot, FileCode2, Wrench } from 'lucide-react';
+import { ArrowLeft, FileCode2, Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { liveCredentialName, memberKeyExplanation } from '@/features/tools/keyExplanations';
 import { ReadinessBadge } from '@/features/tools/ReadinessBadge';
+import { HoldingAgents, ToolDetailView } from '@/features/tools/ToolDetailView';
+import { ToolInputFields } from '@/features/tools/ToolInputFields';
 import { ToolProviderKeyCard } from '@/features/tools/ToolProviderKeyCard';
 import { Link } from '@/libs/I18nNavigation';
 import { platformForToolProvider } from '@/libs/platforms/registry';
 import { BUILTIN_TOOLS, capabilityStatus } from '@/libs/tools/catalog';
+import { catalogToolByName, toolCatalogForOrg } from '@/libs/tools/orgCatalog';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
@@ -20,9 +23,13 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 /**
  * Tool detail — what the tool does, the exact parameters an agent passes
- * when calling it, provider/key readiness, and where the implementation
- * lives. Tools are built in: every agent can call every one of them,
- * no wiring required.
+ * when calling it, which agents hold it, and where it comes from.
+ *
+ * Two kinds of page from one catalog. A built-in also carries its provider
+ * and key readiness and, for an admin, the card that stores the workspace's
+ * own key. Every other tool an agent holds — a typed filing tool, a source
+ * family's read, a REST source's endpoint — resolves through
+ * `toolCatalogForOrg`, which used to be a 404.
  * @param props
  * @param props.params
  */
@@ -32,11 +39,18 @@ export default async function ToolDetailPage(props: {
   const { locale, slug } = await props.params;
   setRequestLocale(locale);
 
+  const { orgId, has } = await requireOrganization();
+  // Without the paid built-ins' status: resolving one decrypts the org's key
+  // for it, and this page asks about one capability at most, below.
+  const catalog = await toolCatalogForOrg(orgId, { withStatuses: false });
+  const entry = catalogToolByName(catalog, slug);
   const tool = BUILTIN_TOOLS.find(t => t.name === slug);
   if (!tool) {
-    notFound();
+    if (!entry) {
+      notFound();
+    }
+    return <ToolDetailView tool={entry.tool} family={entry.family} agents={catalog.agents} />;
   }
-  const { orgId, has } = await requireOrganization();
   // Only this tool's capability: resolving a status decrypts the org's key
   // for it, and the other four are not on this page.
   const status = await capabilityStatus(tool.capability, orgId);
@@ -63,6 +77,8 @@ export default async function ToolDetailPage(props: {
   // integration is not built — would otherwise sit on "Needs key" with
   // nothing to click and no reason given.
   const perOrgKeysUnsupported = !platform && !isReady;
+  // Who holds it, from the same catalog every other tool's page reads.
+  const held = entry?.tool ?? { name: tool.name, title: tool.title, description: tool.description, familyId: 'builtin', agents: [], inputSchema: {} };
 
   return (
     <>
@@ -167,43 +183,11 @@ export default async function ToolDetailPage(props: {
 
       <section className="mb-6 rounded-md border border-border p-5">
         <h2 className="mb-3 text-base font-semibold">Parameters</h2>
-        {tool.params.length === 0
-          ? <p className="text-sm text-muted-foreground">This tool takes no parameters.</p>
-          : (
-              <div className="flex flex-col">
-                {tool.params.map(p => (
-                  <div key={p.name} className="flex items-start gap-3 border-b border-border py-2.5 last:border-0">
-                    <code className="shrink-0 rounded bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">{p.name}</code>
-                    <div className="min-w-0 flex-1 text-xs">
-                      <div>{p.description}</div>
-                      <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                        {p.type}
-                        {p.required && <span className="ml-1.5 font-sans">· required</span>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        <ToolInputFields fields={tool.params} />
       </section>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        <section className="rounded-md border border-border p-5">
-          <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
-            <Bot className="size-4 text-primary" />
-            Available to
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            All agents — built-in tools ship with the runtime, so every agent can call
-            {' '}
-            <code className="font-mono text-xs">{tool.name}</code>
-            {' '}
-            out of the box. No per-agent wiring required.
-          </p>
-          <Link href="/dashboard/agents" className="mt-3 inline-block text-sm font-medium text-primary hover:underline">
-            View agents →
-          </Link>
-        </section>
+        <HoldingAgents tool={held} agents={catalog.agents} />
 
         <section className="rounded-md border border-border p-5">
           <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">

@@ -1,0 +1,25 @@
+# A FIX ASKED OF THE PIPELINE'S OWNER IS READ BACK WHEN ITS RUN ENDS (backlog
+# 049). A run that "completed" without a move is a failed step, not an answer
+# (principle 13: nothing silent). The job reads the action rail: a pipeline
+# change, a re-run or a dispatch the seat made since the run started means it
+# acted, and the reconciler carries the change from there; nothing means one
+# ask to a person with what the run said, and the request reads Stopped.
+# Deterministic: a built-in job.
+slug: pipeline-fix-ended
+name: A pipeline fix run ended
+description: >-
+  When the Release engineer's run on a pipeline fix finishes, check it made a
+  move on GitHub; if it did not, stop and ask a person once, with its reason.
+status: active
+agent: release-engineer
+when:
+  # Ended with a result, or ended in an error (the model failed, the mission
+  # was missing): either way the fix is read back, never left unanswered.
+  event: [automation_run.completed, automation_run.failed]
+  filter:
+    slug: pipeline-fix
+do:
+  job: factory-pipeline-fix-ended
+  input:
+    # The seat whose moves are read back.
+    owner: release-engineer

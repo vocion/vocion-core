@@ -18,6 +18,7 @@
 import type { Action } from './types';
 import { z } from 'zod';
 import { manualAction } from './manual';
+import { MERGE_ACTION_ID } from './mergeAction';
 
 /**
  * A merge is not one decision. The class names what the diff touches, and
@@ -25,7 +26,14 @@ import { manualAction } from './manual';
  * `git.merge.<riskClass>` (`policyKeyFor`), so docs can earn its way to
  * running within bounds while schema never does.
  */
-export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise'] as const;
+/**
+ * `pipeline` is a change the seat that owns CI opened itself
+ * (`repo.open_pull`): its workflows, its runner setup, its checks' config,
+ * merged on green with a revert as the undo (backlog 049). `rollback` is the
+ * revert of a release an environment's recovery opened (`repo.revert_pull`)
+ * after the environment went down on it: what was live before, put back.
+ */
+export const MERGE_RISK_CLASSES = ['docs', 'deps', 'marketing', 'ui', 'logic', 'auth', 'billing', 'schema', 'infra', 'promise', 'pipeline', 'rollback'] as const;
 export type MergeRiskClass = typeof MERGE_RISK_CLASSES[number];
 
 export const gitPushBranchAction = manualAction({
@@ -37,10 +45,10 @@ export const gitPushBranchAction = manualAction({
   reversible: true,
 });
 
-export const gitMergeAction = manualAction({
-  id: 'git.merge',
+const gitMergeHandoff = manualAction({
+  id: MERGE_ACTION_ID,
   name: 'Merge a branch',
-  description: 'Merge a reviewed branch into the mainline. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Cannot be put back. Hand-off: a person merges, then marks it done.',
+  description: 'Merge a reviewed pull request into the mainline (squash), only onto the commit QA judged and only with its checks green. Carries a riskClass (docs, deps, marketing, ui, logic, auth, billing, schema, infra, promise, pipeline, rollback) — the trust rule and the ledger key on git.merge.<riskClass>, so each class earns on its own. Undo opens the revert pull request.',
   system: 'Git',
   grant: 'factory_write',
   extend: {
@@ -103,6 +111,65 @@ export const gitMergeAction = manualAction({
     }
   },
 });
+
+/**
+ * The pull request a merge card is about: its externalRef, else its first step's link.
+ * @param input
+ */
+function pullUrlOf(input: Record<string, unknown>): string | null {
+  const ref = input.externalRef as { url?: unknown } | undefined;
+  if (typeof ref?.url === 'string') {
+    return ref.url;
+  }
+  const steps = Array.isArray(input.steps) ? input.steps as Array<{ url?: unknown }> : [];
+  const url = steps.find(st => typeof st.url === 'string' && /github\.com\/.+\/pull\/\d+/.test(st.url))?.url;
+  return typeof url === 'string' ? url : null;
+}
+
+/**
+ * ONE PRESS (Chris, 2026-09-29: "simplify my work"). The merge is performed
+ * here, not handed off: approving the card — a person's press, or the trust
+ * rule for its risk class — merges the pull request (`githubMerge.ts`), onto
+ * the commit QA judged with its checks green. Undo opens the revert.
+ */
+export const gitMergeAction: Action = {
+  ...gitMergeHandoff,
+  manual: undefined,
+  external: true,
+  async reviewCard(ctx, raw) {
+    const card = await gitMergeHandoff.reviewCard!(ctx, raw);
+    return { ...card, nextAction: 'Approving merges the pull request now (squash), onto the commit QA judged, only with every check green — the merge is the deploy. Undo opens the revert.', verbs: { approve: 'Merge', reject: 'Hold' } };
+  },
+  async execute(ctx, raw) {
+    const input = raw as Record<string, unknown>;
+    const url = pullUrlOf(input);
+    if (!url) {
+      throw new Error('This merge card names no pull request, so there is nothing to merge.');
+    }
+    const { mergePull } = await import('@/services/factory/githubMerge');
+    const judged = typeof input.verdictCommitSha === 'string' ? input.verdictCommitSha : typeof input.commitSha === 'string' ? input.commitSha : null;
+    const res = await mergePull(ctx.orgId, url, judged);
+    // VOCION KNOWS ITS OWN MERGE AT ONCE (2026-10-01, FE-314: merged 23:51:30,
+    // the page read "Nothing running" over a running deploy until the next
+    // GitHub sync raised pr.merged at 23:55). The same event, same dedupe key.
+    if (res.pull) {
+      const { mergedPullEvent } = await import('@/libs/github/events');
+      const { emitEvent } = await import('@/services/EventService');
+      const event = mergedPullEvent(res.repo, res.pull);
+      await emitEvent({ orgId: ctx.orgId, type: event.type, payload: event.payload, dedupeKey: event.dedupeKey, invokedBy: 'action:git.merge' }).catch((err: Error) => console.warn('[git.merge] pr.merged was not raised; the sync will raise it', { url, message: err.message }));
+    }
+    return { merged: true, pullRequest: url, mergeSha: res.sha, alreadyMerged: res.already };
+  },
+  async undo(ctx, raw) {
+    const url = pullUrlOf(raw as Record<string, unknown>);
+    if (!url) {
+      throw new Error('This merge names no pull request, so there is nothing to revert.');
+    }
+    const { revertPull } = await import('@/services/factory/githubMerge');
+    const { revertUrl } = await revertPull(ctx.orgId, url);
+    return { reverted: false, revertPullRequest: revertUrl, note: 'The revert pull request is open; merging it takes the change back out.' };
+  },
+};
 
 /**
  * A person held the merge: the task reads Changes asked, the reason is QA's note.
@@ -175,13 +242,52 @@ export const credentialsWriteAction = manualAction({
   grant: 'factory_write',
 });
 
-export const releaseAnnounceAction = manualAction({
+const releaseAnnounceHandoff = manualAction({
   id: 'release.announce',
   name: 'Announce a release',
-  description: 'Publish release notes or a changelog entry under the company\'s name — a blog post, a changelog page, a customer email. A wrong one cannot be unsent. Hand-off: a person publishes and marks it done with the URL.',
+  description: 'Publish a release\'s announcement under the company\'s name, with the live screenshot it leads with: posted to the workspace\'s Slack channel (the picture uploaded with it). Carries the release\'s id; the words and the picture are read off the release, never from the proposal. Undo deletes the post.',
   system: 'Release',
   grant: 'factory_write',
+  extend: {
+    /** The release whose announcement this publishes. Its words and picture are read off the record at execution. */
+    releaseId: z.number().int().positive(),
+  },
+  extraFields: input => [{ label: 'Release', value: `#${input.releaseId}` }],
 });
+
+/**
+ * ONE PRESS, WITH ITS PICTURE (backlog 043). Publishing is performed here,
+ * not handed off: a person's press on the release page (their own action) or
+ * an approved card posts the announcement to the workspace's Slack channel
+ * with the live screenshot uploaded beside it, and records where it landed on
+ * the release (`services/factory/releaseAnnounce.ts`). Undo deletes the post.
+ * A workspace with no Slack connection publishes by copy from the page, which
+ * runs nothing here.
+ */
+export const releaseAnnounceAction: Action = {
+  ...releaseAnnounceHandoff,
+  manual: undefined,
+  external: true,
+  async reviewCard(ctx, raw) {
+    const card = await releaseAnnounceHandoff.reviewCard!(ctx, raw);
+    return { ...card, nextAction: 'Approving posts the announcement to the workspace\'s Slack channel now, with its picture. Undo deletes the post.', verbs: { approve: 'Publish', reject: 'Hold' } };
+  },
+  async execute(ctx, raw) {
+    const input = raw as { releaseId: number };
+    const { publishAnnouncementToSlack } = await import('@/services/factory/releaseAnnounce');
+    const { post, line } = await publishAnnouncementToSlack({ orgId: ctx.orgId, releaseId: input.releaseId, runId: ctx.runId ?? null, by: ctx.reviewedBy ?? ctx.invokedBy ?? null });
+    return { published: true, releaseId: input.releaseId, post, line };
+  },
+  async undo(ctx, raw, result) {
+    const input = raw as { releaseId: number };
+    const post = (result?.post ?? null) as { channelId?: string; ts?: string | null; fileIds?: string[] } | null;
+    if (!post?.channelId) {
+      throw new Error('This run recorded no post, so there is nothing to take back.');
+    }
+    const { unpublishAnnouncement } = await import('@/services/factory/releaseAnnounce');
+    return unpublishAnnouncement(ctx.orgId, input.releaseId, { channelId: post.channelId, ts: post.ts ?? null, fileIds: post.fileIds ?? [] });
+  },
+};
 
 /**
  * Telling the asker is two different things (review, 2026-09-24). A routine,

@@ -6,7 +6,7 @@ import { controlActor, controlErrorResponse, readControlNote } from '../../_cont
 /**
  * POST /api/v1/automations/:slug/pause  { note } — the emergency stop.
  *
- * Holds the automation: a schedule-when's Temporal Schedule is paused, an
+ * Holds the automation: a schedule-when's durable schedule is paused, an
  * event-when is skipped by the matcher, and any fire that reaches
  * `beginAutomationFire` anyway is refused and recorded. The same service path
  * as the dashboard's Pause button, so the record is the same: who (the

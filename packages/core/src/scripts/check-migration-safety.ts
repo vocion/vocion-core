@@ -25,6 +25,9 @@
  * changes, which is documentation only and not checked here — is written in
  * `packages/core/migrations/CONVENTIONS.md`.
  *
+ * One exemption exists, for the partial unique index that has neither route:
+ * see {@link findLockOverrides}.
+ *
  * Two deliberate limits. Nested block comments (Postgres allows them) are
  * unwound only as far as the first closing delimiter, and a keyword sitting
  * inside a string literal counts as real SQL. Both make the check too eager
@@ -254,6 +257,54 @@ export function findCreatedTables(blankedSql: string): Set<string> {
     created.add(normaliseIdentifier(match[1]!));
   }
   return created;
+}
+
+/**
+ * A reviewed exemption from `blocking-index`, written into the migration that
+ * needs it:
+ *
+ * ```sql
+ * -- migration-safety: allow blocking-index on "api_token" because <rationale>
+ * ```
+ *
+ * It exists because one index has no safe route at all. `CREATE INDEX
+ * CONCURRENTLY` is the answer to the lock, and `concurrent/` is where those
+ * builds live — but a UNIQUE index is refused there, since dev and the tests
+ * never run that directory and would accept rows production rejects. A partial
+ * UNIQUE index therefore cannot be rebuilt by any route this checker allows,
+ * and `api_token_org_platform_live_idx` has already been rebuilt twice as
+ * platforms were added (migrations 0076 and 0077). The lock only matters in
+ * proportion to the table, so the judgement the checker cannot make — "this
+ * table is small and its writes are rare" — is made by a person and left in
+ * the file for whoever reviews it.
+ *
+ * Deliberately narrow: it suppresses this one rule, on the one table it names,
+ * for builds below it in the same file, and only with a rationale. Nothing here
+ * relaxes the `concurrent/` rules, which are correctness rather than judgement.
+ */
+const LOCK_OVERRIDE_PATTERN = new RegExp(
+  String.raw`--[ \t]*migration-safety:[ \t]*allow[ \t]+blocking-index[ \t]+on[ \t]+(${IDENTIFIER})[ \t]+because[ \t]+\S`,
+  'gi',
+);
+
+type LockOverride = {
+  /** Table the exemption names, normalised like an index build's table. */
+  table: string;
+  /** Character offset of the comment, so it only covers builds below it. */
+  offset: number;
+};
+
+/**
+ * Every lock exemption the file claims. Read from the raw SQL rather than the
+ * blanked copy, because the exemption *is* a comment.
+ * @param sql - Raw file contents, comments intact.
+ */
+export function findLockOverrides(sql: string): LockOverride[] {
+  const overrides: LockOverride[] = [];
+  for (const match of sql.matchAll(LOCK_OVERRIDE_PATTERN)) {
+    overrides.push({ table: normaliseIdentifier(match[1]!), offset: match.index });
+  }
+  return overrides;
 }
 
 /**
@@ -634,6 +685,7 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
     }
 
     const createdTables = findCreatedTables(blanked);
+    const lockOverrides = findLockOverrides(file.sql);
     const isEnforced = number === null || number >= FIRST_ENFORCED_MIGRATION_NUMBER;
     const concurrentTarget = `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/${number === null ? 'NNNN' : String(number).padStart(4, '0')}_<name>.sql`;
 
@@ -647,7 +699,10 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
         });
         continue;
       }
-      if (isEnforced && !createdTables.has(build.table)) {
+      const isExempted = lockOverrides.some(
+        override => override.table === build.table && override.offset < build.offset,
+      );
+      if (isEnforced && !createdTables.has(build.table) && !isExempted) {
         problems.push({
           file: file.file,
           line: lineNumberAt(blanked, build.offset),

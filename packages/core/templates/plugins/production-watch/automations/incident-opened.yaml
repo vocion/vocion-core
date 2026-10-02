@@ -1,0 +1,24 @@
+# A NEW INCIDENT IS READ BY THE ON-CALL ENGINEER, and ends with a move written
+# on it (debug-a-production-error).
+slug: incident-opened
+name: A new incident is read and answered
+description: >-
+  When an incident opens, the on-call engineer reads the issue's stack and
+  request, writes what broke and what it did on the incident, and asks the
+  software factory for a fix when the bug is major.
+status: active
+agent: on-call-engineer
+when:
+  event: incident.opened
+  maxFiresPer10m: 6
+do:
+  checkMission: answer-every-incident
+  prompt: >-
+    Incident #{{incidentId}} opened: {{shortId}} "{{title}}" on {{project}}
+    ({{environment}}), product {{product}}, {{events}} events in the last
+    hour, first seen in release {{release}}. {{url}}
+    The watch read its cause as {{cause}}: {{why}}
+    Follow debug-a-production-error. Read it with sentry_issue, quote the line
+    that settles what broke, map the app frames to the repository, and write
+    what you found and did on incident #{{incidentId}} (update_object: cause
+    when the evidence says otherwise, causeWhy, action). Report in three lines.

@@ -1,8 +1,9 @@
 'use client';
 
 import type { TextAnchor } from '@/libs/anchors/resolve';
-import { PencilLine, Sparkles, X } from 'lucide-react';
+import { MessageSquareText, Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { buildAnchor } from '@/libs/anchors/resolve';
 import { client } from '@/libs/Orpc';
 import { clearMarks, markRange, offsetWithin } from './anchorSelection';
@@ -315,11 +316,11 @@ export function useAnchoredComments({ targetRef, root }: CommentTargetProps) {
  * The control at the selection — the ONE thing that happens when a person
  * highlights words anywhere in the app (2026-09-16).
  *
- * Ask about this* is the default and carries no special meaning: the passage
+ * Ask* is the default and carries no special meaning: the passage
  * goes into the composer as `PageContext.selection` and the person says what
  * they want. It is the same motion on a briefing, a lead brief, an object.
  *
- * Add change* appears only where a page declares an intent it can carry out
+ * Change* appears only where a page declares an intent it can carry out
  * — today the personalization sequence draft. It stores the anchored note AND
  * puts `@change` in the composer, so the SAME gesture acquires the special
  * semantics through a tag rather than through a second control. Select →
@@ -381,41 +382,28 @@ export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, chang
   };
 
   if (!writing) {
+    // ONE SELECTION TOOLBAR (principle 6, Chris 2026-09-29: "the ask/change
+    // tooltip on the Review Recommendation page looks different"). The first
+    // step is the same `SelectionToolbar` every page shows — Ask, and Change
+    // where the page can carry it out; only the note that follows is this
+    // layer's own.
     return (
-      <div
-        data-comment-popover
-        role="dialog"
-        aria-label="What to do with the selection"
-        style={position}
-        className="fixed z-50 flex items-center gap-1 rounded-full border border-border bg-background p-1 shadow-(--shadow-pop)"
-      >
-        <button
-          type="button"
-          // mousedown, not click: click collapses the selection first, and
-          // the passage is the whole point.
-          onMouseDown={(e) => {
-            e.preventDefault();
-            onAsk?.();
-          }}
-          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition hover:bg-muted"
-        >
-          <Sparkles className="size-3.5 text-brand-amber" aria-hidden />
-          Ask about this
-        </button>
-        {changeLabel && (
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setWriting(true);
-              onBegin?.();
-            }}
-            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          >
-            <PencilLine className="size-3.5" aria-hidden />
-            {changeLabel}
-          </button>
-        )}
+      <div data-comment-popover className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0 [&>*]:pointer-events-auto">
+        <SelectionToolbar
+          x={pending.rect.left + pending.rect.width / 2}
+          y={pending.rect.top}
+          width={window.innerWidth}
+          testId="comment"
+          actions={[
+            { label: 'Ask', icon: MessageSquareText, onClick: () => onAsk?.() },
+            ...(changeLabel
+              ? [{ label: 'Change', icon: Pencil, onClick: () => {
+                  setWriting(true);
+                  onBegin?.();
+                } }]
+              : []),
+          ]}
+        />
       </div>
     );
   }

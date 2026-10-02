@@ -5,7 +5,7 @@ import { SURFACE_PATH_SEGMENTS } from './features/navigation/surfaces';
 import { ACTIVE_PROJECT_COOKIE, ACTIVE_PROJECT_COOKIE_OPTIONS } from './libs/activeProject';
 import { publicOrigin } from './libs/http/publicOrigin';
 import { routing } from './libs/I18nRouting';
-import { isWorkspacePath, parseWorkspacePath, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
+import { isWorkspacePath, parseWorkspacePath, WORKSPACE_ACCOUNT_PARAM, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
 
 const handleI18nRouting = createMiddleware(routing);
 
@@ -19,6 +19,8 @@ const handleI18nRouting = createMiddleware(routing);
 const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', 'api-docs', WORKSPACE_ENTRY_SEGMENT, ...SURFACE_PATH_SEGMENTS];
 const PROTECTED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${PROTECTED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
+// The sign-up page itself, locale-prefixed or not: where an invite link lands.
+const SIGN_UP_PAGE = /^\/(?:[^/]+\/)?sign-up\/?$/;
 
 // Extract the locale prefix from a path — but ONLY if the first segment is an
 // actual configured locale. With `as-needed` prefixing, unprefixed paths like
@@ -82,8 +84,11 @@ export default async function proxy(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  // Sign-in / sign-up pages: if already signed in, redirect to dashboard
-  if (AUTH_PATH.test(path) && !path.includes('/setup') && !path.includes('/invite')) {
+  // Sign-in / sign-up pages: if already signed in, redirect to dashboard.
+  // Except an invite link (`/sign-up?invite=…`): a signed-in person opens it to
+  // join another account on the login they have (vocion-core#128).
+  const isInviteLink = SIGN_UP_PAGE.test(path) && request.nextUrl.searchParams.has('invite');
+  if (AUTH_PATH.test(path) && !path.includes('/setup') && !path.includes('/invite') && !isInviteLink) {
     if (user.signedIn) {
       const locale = localeOf(path);
       return NextResponse.redirect(new URL(`/${locale ? `${locale}/` : ''}dashboard`, origin));
@@ -122,7 +127,13 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
   const { activeWorkspaceForUser, resolveProjectForUser } = await import('./services/ProjectService');
 
   if (canonical) {
-    const project = await resolveProjectForUser(ctx.userId, { slug: canonical.slug });
+    // A slug can exist on more than one of this person's accounts: a link that
+    // names an account resolves there only, else on the account they are
+    // already in (the cookie).
+    const project = await resolveProjectForUser(ctx.userId, { slug: canonical.slug }, {
+      accountSlug: request.nextUrl.searchParams.get(WORKSPACE_ACCOUNT_PARAM),
+      lastActiveProjectId: request.cookies.get(ACTIVE_PROJECT_COOKIE)?.value,
+    });
     // Unknown slug and a slug on someone else's account are the same 404 on
     // purpose: the reader learns nothing about other tenants' workspaces.
     if (!project) {

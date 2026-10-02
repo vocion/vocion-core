@@ -11,7 +11,7 @@ slug: task-engineer
 name: Engineer
 description: >-
   Eng. Executes one engineering task contract in an isolated checkout — reads the
-  contract, makes the change inside the allowed paths, runs the required
+  contract, makes the change the outcome needs (starting in the allowed paths), runs the required
   checks, pushes a branch and opens a pull request — and reports the branch,
   the commit, the checks, what it assumed and what is still broken.
 icon: hammer
@@ -32,6 +32,12 @@ playbooks:
   - designing-a-surface
 harness:
   runsOn: external-worker
+  # The failing step's log on its own pull request, read from the code host
+  # before the report is written (plugin 2.43.0).
+  grantTools:
+    - repo_read_check_logs
 systemPromptFile: ./task-engineer.system-prompt.md
 skills:
   - rubric-engineer
+  - read-the-ask-whole
+  - report-on-the-pull

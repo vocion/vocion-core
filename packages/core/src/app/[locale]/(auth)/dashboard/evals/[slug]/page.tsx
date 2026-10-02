@@ -268,7 +268,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
         models inside the one request, so anything past a handful of cases times
         out before it answers. Nobody is using it, and a broken control on this
         page costs more attention than it is worth. Put this block back when the
-        run moves onto the same Temporal workflow the refresh uses.
+        run moves onto the same durable job the refresh uses.
       */}
 
       {/* A dataset that has never run has no results to pick a period for; the

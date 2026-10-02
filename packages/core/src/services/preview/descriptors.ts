@@ -1,12 +1,15 @@
 import type { DocumentVerification } from '@/libs/cards/specs';
+import type { TurnSource } from '@/libs/preview/sourcesRef';
 import type { PreviewDoc, PreviewFact } from '@/libs/preview/types';
 import type { RecordRef } from '@/services/chat/pageContext';
 import type { KnowledgeDocumentDetail } from '@/services/SourceSyncService';
 import { and, asc, desc, eq } from 'drizzle-orm';
+import { nounCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
+import { parseSourcesRefId, sourcesMarkdown } from '@/libs/preview/sourcesRef';
 import { canOpenArtifact } from '@/libs/share/audience';
-import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
+import { agentSchema, artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema, missionRunSchema, toolCallSchema, workerRunSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
 import { registerPreview } from './registry';
 
@@ -198,15 +201,35 @@ async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: strin
     const { getBusinessObject } = await import('@/services/BusinessObjectService');
     const obj = await getBusinessObject(Number.parseInt(ref.id, 10), ctx.orgId);
     if (obj) {
+      // The record itself — its prose fields and short facts, read from its
+      // type's declaration (`recordPreview.ts`): a request previewed as
+      // "approved · No text was synced" over a full record (journey 4).
       const { recordHref } = await import('@/services/objects/recordHref');
+      const { openRecordLabel, recordPreviewParts } = await import('./recordPreview');
       const typeSlug = obj.type?.slug ?? null;
+      const meta = (obj.metadata ?? {}) as Record<string, unknown>;
+      const parts = recordPreviewParts({ id: obj.id, title: obj.title, status: obj.status ?? null, createdAt: obj.createdAt ?? null, meta }, obj.type?.schema ?? null);
+      const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
+      const href = await recordHref(ctx.orgId, { objectType: typeSlug, id: obj.id });
+      // Its versions, the way an artifact's preview shows them (backlog 035):
+      // the version as a fact, the history one click away in this pane.
+      const { recordBody } = await import('@/services/objects/recordBody');
+      const bodyRow = await recordBody(ctx.orgId, obj.id).catch(() => null);
+      const historyLink = bodyRow ? `[History — v${bodyRow.currentVersion}](?preview=${encodeURIComponent(`record_history:${obj.id}`)})` : '';
+      // WHERE IT IS, at the top — the same three lines its page draws, for
+      // a record whose type has a report page. A status that cannot be read
+      // leaves the preview as it was rather than failing it.
+      const { loadRecordStatus } = await import('@/services/objects/recordStatus');
+      const status = await loadRecordStatus(ctx.orgId, obj.id).catch(() => null);
       return {
         ref,
+        ...(status?.ok ? { status: status.status } : {}),
         title: obj.title,
         sourceLabel: obj.type?.label ?? 'Record',
-        facts: facts(obj.status && { label: 'Status', value: obj.status }),
-        ...body(typeof obj.summary === 'string' ? obj.summary : null),
-        href: await recordHref(ctx.orgId, { objectType: typeSlug, id: obj.id }),
+        facts: facts(...parts.facts, obj.status && { label: 'Status', value: obj.status }, bodyRow && { label: 'Version', value: `v${bodyRow.currentVersion}` }),
+        ...body([summary, parts.body, historyLink].filter(Boolean).join('\n\n')),
+        href,
+        hrefLabel: openRecordLabel(href),
       };
     }
   }
@@ -329,6 +352,9 @@ registerPreview('artifact', {
       kind: row.kind,
       subtitle: row.folder ?? undefined,
       facts: facts(
+        // A picture's line, as the feature page's carousel reads it: what it
+        // shows, written when it was filed (`carouselSource.ts`).
+        str(spec.caption) && { label: 'Caption', value: str(spec.caption)! },
         { label: 'Kind', value: row.kind },
         { label: 'Version', value: String(row.version) },
         row.author && { label: 'Last edited by', value: row.author },
@@ -372,8 +398,13 @@ registerPreview('briefing', {
 
 registerPreview('conversation', {
   sourceLabel: 'Conversation',
-  href: ref => `/dashboard/chat?c=${encodeURIComponent(ref.id)}`,
+  href: ref => `/dashboard/chat?c=${encodeURIComponent(String(parseSourcesRefId(ref.id)?.conversationId ?? ref.id))}`,
   resolve: async (ref, ctx) => {
+    // A turn's sources — the rail's "Sources · N" chip (`libs/preview/sourcesRef`).
+    const sources = parseSourcesRefId(ref.id);
+    if (sources) {
+      return resolveSources(ref, ctx, sources);
+    }
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id)) {
       return null;
@@ -425,8 +456,46 @@ registerPreview('conversation', {
   },
 });
 
+/**
+ * The sources a conversation's answers drew on — one turn's when the chip
+ * named it — from what each turn persisted (`documents_json`), so the pane
+ * lists exactly what the chip counted.
+ * @param ref - The preview ref.
+ * @param ctx - The caller.
+ * @param ctx.orgId - Their org; a conversation in another org resolves to nothing.
+ * @param which - From `parseSourcesRefId`.
+ * @param which.conversationId - The conversation.
+ * @param which.messageId - The one turn, or null for every turn.
+ */
+async function resolveSources(ref: RecordRef, ctx: { orgId: string }, which: { conversationId: number; messageId: number | null }): Promise<PreviewDoc | null> {
+  const [convo] = await db
+    .select({ id: conversationSchema.id, title: conversationSchema.title })
+    .from(conversationSchema)
+    .where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationSchema.id, which.conversationId)))
+    .limit(1);
+  if (!convo) {
+    return null;
+  }
+  const rows = await db
+    .select({ id: conversationMessageSchema.id, documents: conversationMessageSchema.documentsJson })
+    .from(conversationMessageSchema)
+    .where(which.messageId !== null
+      ? and(eq(conversationMessageSchema.conversationId, convo.id), eq(conversationMessageSchema.id, which.messageId))
+      : eq(conversationMessageSchema.conversationId, convo.id))
+    .orderBy(asc(conversationMessageSchema.id))
+    .limit(200);
+  const docs: TurnSource[] = rows.flatMap(r => (Array.isArray(r.documents) ? r.documents : []));
+  return {
+    ref,
+    title: `Sources · ${docs.length}`,
+    sourceLabel: 'Sources',
+    facts: facts({ label: 'Conversation', value: convo.title ?? nounCode('conversation', convo.id) }, which.messageId !== null && { label: 'Answer', value: `#${which.messageId}` }),
+    ...(docs.length > 0 ? body(sourcesMarkdown(docs), LOG_LIMIT) : { body: 'No sources were kept for this answer.' }),
+  };
+}
+
 registerPreview('worker_run', {
-  sourceLabel: 'Engineering run',
+  sourceLabel: 'Run',
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id)) {
@@ -444,8 +513,12 @@ registerPreview('worker_run', {
     const stoppedAt = typeof progress.phase === 'string' ? progress.phase : null;
     const failed = ['failed', 'lost', 'cancelled'].includes(run.status);
     // The Claude Code block a stopped run carries — the same one its run page prints.
-    const { workerRunAttach } = await import('@/services/runs/RunLogService');
+    const { readRunGlance, workerRunAttach } = await import('@/services/runs/RunLogService');
     const attach = await workerRunAttach(run);
+    // What the pane draws: the run page's own header, why-line, Now line and
+    // steps without their logs (`RunGlanceView`). The text below stays for a
+    // surface that reads a preview as text.
+    const glance = await readRunGlance(ctx.orgId, String(run.id)).catch(() => null);
     const text = [
       failed ? `**Stopped${stoppedAt ? ` at ${stoppedAt}` : ''}** — ${run.error ? run.error.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
       input.task?.objective ? `**Objective** — ${input.task.objective}` : null,
@@ -459,11 +532,14 @@ registerPreview('worker_run', {
     ].filter(Boolean).join('\n\n');
     return {
       ref,
-      title: input.task?.task_id ?? `Engineering run ${run.id}`,
-      sourceLabel: 'Engineering run',
+      // The feature's name, as the run page's title — never the worker's task id.
+      title: glance?.header.title ?? input.task?.task_id ?? `Engineering run ${run.id}`,
+      sourceLabel: 'Run',
       href: `/dashboard/p/runs/${run.id}`,
+      ...(glance ? { run: glance } : {}),
       facts: facts(
-        { label: 'Run', value: `#${run.id}` },
+        { label: 'Run', value: nounCode('run', run.id) },
+        input.task?.task_id && { label: 'Task', value: input.task.task_id },
         { label: 'Status', value: run.status },
         stoppedAt && { label: failed ? 'Stopped at' : 'Stage', value: stoppedAt },
         { label: 'Agent', value: run.agentSlug },
@@ -479,58 +555,94 @@ registerPreview('worker_run', {
   },
 });
 
-// AN AGENT RUN READS AS WHAT IT DID. Every agent-run row on a feature's
-// Activity opened "Nothing in Vocion reads this kind of reference yet" (Chris,
-// 2026-09-28, run 5507). The run's brief, each task with its status, output
-// and error, the tools it called, and on a failed run the same Claude Code
-// block an engineering run carries.
+const RUN_STATUS_WORD: Record<string, string> = {
+  planning: 'Planning',
+  running: 'Running',
+  paused: 'Paused',
+  awaiting_review: 'Waiting for review',
+  completed: 'Completed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+};
+
+// AN AGENT RUN LEADS WITH WHAT IT DID AND HOW IT ENDED (Chris, 2026-09-28:
+// "what should be on this preview pane?", run 5974). How it ended and its
+// final report's first lines; what it filed or changed, each a link, read off
+// its tool calls; how long it took and what it cost. Then its steps in the
+// run page's own shape — one per plan task, a line per tool call — collapsed
+// except a failed one. The brief it was given is kept, collapsed, last: it is
+// what the run was told, not what it did.
 registerPreview('mission_run', {
   sourceLabel: 'Agent run',
+  href: ref => (/^\d+$/.test(ref.id) ? `/dashboard/p/runs/agent-${ref.id}` : null),
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
-    if (!Number.isSafeInteger(id)) {
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return null;
+    }
+    const { missionRunAttach, readRunLog } = await import('@/services/runs/RunLogService');
+    const data = await readRunLog(ctx.orgId, `agent-${id}`);
+    if (!data) {
       return null;
     }
     const [run] = await db.select().from(missionRunSchema).where(and(eq(missionRunSchema.orgId, ctx.orgId), eq(missionRunSchema.id, id))).limit(1);
     if (!run) {
       return null;
     }
-    const tasks = ((run.plan ?? {}) as { tasks?: Array<{ title?: string; status?: string; ownerAgentSlug?: string; output?: unknown; error?: unknown }> }).tasks ?? [];
+    const { deriveSteps, formatDuration, stopReason } = await import('@/libs/worker/runLog');
+    const { reportLead, runChanges } = await import('@/libs/worker/runChanges');
     const calls = await db
-      .select({ tool: toolCallSchema.tool, error: toolCallSchema.error, ms: toolCallSchema.durationMs })
+      .select({ tool: toolCallSchema.tool, input: toolCallSchema.input, output: toolCallSchema.output, error: toolCallSchema.error })
       .from(toolCallSchema)
       .where(and(eq(toolCallSchema.orgId, ctx.orgId), eq(toolCallSchema.missionRunId, id)))
-      .orderBy(toolCallSchema.id)
-      .limit(60);
-    const failed = run.status === 'failed';
-    const { missionRunAttach, missionRunError } = await import('@/services/runs/RunLogService');
-    const firstError = missionRunError(run);
+      .orderBy(asc(toolCallSchema.id))
+      .limit(2000);
+    const { recordLinkerForOrg } = await import('@/services/objects/recordHref');
+    const changes = runChanges(calls, await recordLinkerForOrg(ctx.orgId));
+    const tasks = data.tasks;
+    const failedTask = tasks.find(t => t.error);
+    const report = [...tasks].reverse().find(t => t.output)?.output ?? null;
+    const lead = report ? reportLead(report) : null;
+    const stoppedWhy = failedTask?.error ? `${failedTask.title}: ${failedTask.error.split('\n')[0]!}` : run.error?.split('\n')[0] ?? null;
+    // The fire that started it is where a review's outcome lands: a run that
+    // finished under a fire that failed is a failed review (backlog 032).
+    const { failedFireLines } = await import('@/services/automations/failedFires');
+    const fireFailed = (await failedFireLines(ctx.orgId, [run])).get(run.id) ?? null;
+    const outcome = fireFailed !== null
+      ? `Its automation ${fireFailed}`
+      : run.status === 'failed'
+        ? `Stopped — ${stoppedWhy ? stopReason(stoppedWhy, 300) : 'the run ended without saying why'}`
+        : run.status === 'completed'
+          ? lead ?? 'Finished without writing a report.'
+          : run.status === 'cancelled'
+            ? 'Cancelled before it finished.'
+            : lead ?? `${RUN_STATUS_WORD[run.status] ?? run.status} — ${tasks.filter(t => t.status === 'completed').length} of ${tasks.length} steps done.`;
+    const took = run.completedAt ? formatDuration(run.completedAt.getTime() - run.createdAt.getTime()) : '';
     const attach = await missionRunAttach(run);
-    const text = [
-      failed ? `**Stopped** — ${firstError ? firstError.split('\n')[0]!.slice(0, 300) : 'the run ended without saying why'}` : null,
-      run.brief ? `**Brief**\n\n${run.brief.slice(0, 1200)}${run.brief.length > 1200 ? '…' : ''}` : null,
-      ...tasks.map((t, i) => [
-        `**${i + 1}. ${t.title ?? 'Task'}** — ${t.status ?? 'unknown'}${t.ownerAgentSlug ? ` · ${t.ownerAgentSlug}` : ''}`,
-        t.error ? `Error: ${String(t.error).slice(0, 600)}` : null,
-        typeof t.output === 'string' && t.output.trim() ? t.output.slice(0, 4000) : null,
-      ].filter(Boolean).join('\n\n')),
-      calls.length > 0 ? `**Tools called**\n\n${calls.map(c => `- \`${c.tool}\`${c.error ? ' — failed' : ''}${c.ms ? ` · ${(c.ms / 1000).toFixed(1)}s` : ''}`).join('\n')}` : null,
-      attach ? `**Fix it from Claude Code** — paste this into a session:\n\n\`\`\`\n${attach}\n\`\`\`` : null,
-    ].filter(Boolean).join('\n\n');
+    const changed = changes.length === 0
+      ? 'It filed and changed nothing.'
+      : changes.map(c => `- ${c.href ? `[${c.text}](${c.href})` : c.text}`).join('\n');
     return {
       ref,
       title: run.title,
       sourceLabel: 'Agent run',
-      href: `/dashboard/missions/runs/${run.id}`,
+      href: `/dashboard/p/runs/agent-${run.id}`,
+      subtitle: outcome,
       facts: facts(
-        { label: 'Run', value: `#${run.id}` },
-        { label: 'Status', value: run.status },
-        (run.team as { lead?: string } | null)?.lead && { label: 'Agent', value: (run.team as { lead: string }).lead },
+        { label: 'Status', value: fireFailed !== null ? 'Failed' : RUN_STATUS_WORD[run.status] ?? run.status },
+        took && { label: 'Took', value: took },
+        // Nothing records what an agent run spent; say so rather than print $0.
+        { label: 'Cost', value: 'no cost recorded' },
+        { label: 'Agent', value: run.team?.lead ?? '' },
         { label: 'Started', value: when(run.createdAt) ?? '' },
-        { label: 'Tasks', value: String(tasks.length) },
-        calls.length > 0 && { label: 'Tool calls', value: String(calls.length) },
+        { label: 'Run', value: nounCode('run', run.id) },
       ),
-      ...tailBody(text || 'This run has reported nothing yet.'),
+      body: `**What it filed or changed**\n\n${changed}`,
+      steps: deriveSteps(data),
+      more: [
+        ...(attach ? [{ key: 'attach', title: 'Fix it from Claude Code', body: `Paste this into a session:\n\n\`\`\`\n${attach}\n\`\`\`` }] : []),
+        ...(run.brief?.trim() ? [{ key: 'brief', title: 'The brief it was given', body: body(run.brief).body! + (run.brief.trim().length > BODY_LIMIT ? '\n\n_Cut short — the run page has the rest._' : '') }] : []),
+      ],
     };
   },
 });
@@ -576,7 +688,9 @@ registerPreview('lead', {
  */
 registerPreview('record_history', {
   sourceLabel: 'History',
-  href: ref => `/dashboard/objects/${encodeURIComponent(ref.id)}`,
+  // `214` is the history; `214@5` is the history with version 5 marked —
+  // where the chat's "Changed …" line points (`libs/versions/versionRef.ts`).
+  href: ref => `/dashboard/objects/${Number.parseInt(ref.id, 10)}`,
   resolve: async (ref, ctx) => {
     const id = Number.parseInt(ref.id, 10);
     if (!Number.isSafeInteger(id) || id <= 0) {
@@ -608,6 +722,56 @@ registerPreview('record_history', {
 });
 
 /**
+ * An agent — `agent:<slug>`. What a seat on a Configure page, a roster or an
+ * org chart points at: who it is, where it sits, what it runs on and what it
+ * mounts, with its own page one click away. A peek, so it carries no prompt
+ * and no controls: the agent's page is where it is changed.
+ */
+registerPreview('agent', {
+  sourceLabel: 'Agent',
+  href: ref => `/dashboard/agents/${encodeURIComponent(ref.id)}`,
+  resolve: async (ref, ctx) => {
+    const [agent] = await db
+      .select({
+        slug: agentSchema.slug,
+        name: agentSchema.name,
+        description: agentSchema.description,
+        eyebrow: agentSchema.eyebrow,
+        role: agentSchema.role,
+        team: agentSchema.team,
+        model: agentSchema.model,
+        harnessConfig: agentSchema.harnessConfig,
+        skillSlugs: agentSchema.skillSlugs,
+        playbookSlugs: agentSchema.playbookSlugs,
+        active: agentSchema.active,
+      })
+      .from(agentSchema)
+      .where(and(eq(agentSchema.orgId, ctx.orgId), eq(agentSchema.slug, ref.id)))
+      .limit(1);
+    if (!agent) {
+      return null;
+    }
+    const skills = agent.skillSlugs ?? [];
+    const playbooks = agent.playbookSlugs ?? [];
+    return {
+      ref,
+      title: agent.name,
+      sourceLabel: 'Agent',
+      ...(agent.eyebrow ? { subtitle: agent.eyebrow } : {}),
+      facts: facts(
+        { label: 'Role', value: agent.role === 'lead' ? 'Lead' : 'Specialist' },
+        agent.team ? { label: 'Team', value: agent.team } : null,
+        { label: 'Model', value: agent.harnessConfig?.model ?? agent.model ?? '' },
+        skills.length > 0 ? { label: 'Skills', value: skills.join(', ') } : null,
+        playbooks.length > 0 ? { label: 'Playbooks', value: playbooks.join(', ') } : null,
+        String(agent.active) !== 'true' ? { label: 'State', value: 'Inactive' } : null,
+      ),
+      ...body(agent.description),
+    };
+  },
+});
+
+/**
  * A plain external link. Nothing to resolve — the panel shows where it goes
  * and hands over the link, labelled as leaving Vocion.
  */
@@ -633,8 +797,10 @@ registerPreview('page', {
  * shows each stage as a few lines; the full record of that stage (the plan's
  * steps and approval history, every attempt, each criterion's evidence, the
  * whole activity log) opens here, in the same pane every other peek uses,
- * rather than in a second drawer system (Chris, 2026-09-28). No link out: the
- * full page IS the feature page the reader is standing on.
+ * rather than in a second drawer system (Chris, 2026-09-28). The link out is
+ * the record the drawer summarises — the plan record, the latest run — when
+ * it has one; otherwise there is none, since the feature page is where the
+ * reader is standing.
  */
 registerPreview('feature_section', {
   sourceLabel: 'Feature',
@@ -650,6 +816,6 @@ registerPreview('feature_section', {
     if (!drawer) {
       return null;
     }
-    return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...body(drawer.body, LOG_LIMIT) };
+    return { ref, sourceLabel: 'Feature', title: drawer.title, subtitle: drawer.subtitle, facts: drawer.facts, ...(drawer.href ? { href: drawer.href } : {}), ...(drawer.timeline ? { timeline: drawer.timeline } : {}), ...body(drawer.body, LOG_LIMIT) };
   },
 });

@@ -86,7 +86,7 @@ against the kind's **risk tier**. The defaults:
 | **high** | — | — | — | 0.99 | never above Execute with approval without an explicit `trust.yaml` rule |
 
 Tier defaults come from the registry (`services/autonomy/rungs.ts`,
-`DEFAULT_RISK_TIER`): `hubspot.update` low; `gmail.send`,
+`DEFAULT_RISK_TIER`): `hubspot.update` low; `gmail.send`, `slack.post_message`,
 `personalization.enroll`, `objects.propose_candidate`, `qc.release` medium;
 anything external and unlisted high. A workspace overrides any of them in
 `trust.yaml` (`risk:` on a rule, or the top-level `risk:` map).

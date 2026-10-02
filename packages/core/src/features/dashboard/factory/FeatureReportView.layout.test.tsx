@@ -10,10 +10,10 @@ import '@/styles/global.css';
 /**
  * The feature page, drawn — at a desk and on a phone.
  *
- * The reader is a product owner (Chris, 2026-09-28): the introduction, where
- * it is and the one move, the gallery, the connected work, then Plan,
- * Implementation, Acceptance, Release and Activity as a few lines each, with
- * the full record one tap away in the preview pane. This measures geometry
+ * The reader is a product owner (Chris, 2026-09-28; 2026-10-02): the
+ * introduction, where it is and the one move, the gallery, "Did it work?",
+ * the Timeline and Related — each section answering one question, the full
+ * record one tap away in the preview pane. This measures geometry
  * and order rather than class names — the next person to restyle it should
  * find out here whether they reintroduced a horizontal scroll, a red warning
  * over a record disagreement, or a Build button over a live build.
@@ -29,7 +29,14 @@ vi.mock('@/libs/I18nNavigation', () => ({
 // A live build re-reads the page every few seconds through Next's router.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {}, push: () => {}, replace: () => {} }) }));
 vi.mock('@/libs/Orpc', () => ({
-  client: { preview: { get: vi.fn(async (input: { type: string; id: string }) => ({ ref: input, title: 'A drawer', sourceLabel: 'Feature', body: 'The full record.' })) } },
+  client: {
+    preview: { get: vi.fn(async (input: { type: string; id: string }) => ({ ref: input, title: 'A drawer', sourceLabel: 'Feature', body: 'The full record.' })) },
+    review: {
+      propose: vi.fn(async () => ({ runId: 9, status: 'pending' })),
+      decideAction: vi.fn(async () => ({ result: { workerRunId: 3 } })),
+      undoAction: vi.fn(async () => ({})),
+    },
+  },
 }));
 
 const T = (iso: string) => new Date(iso);
@@ -123,11 +130,14 @@ async function draw(report: ReturnType<typeof fixture>) {
 }
 
 describe('the feature page, in the order a product owner reads it', () => {
-  it('goes introduction, status, gallery, then plan, implementation, acceptance, release, activity', async () => {
+  it('goes introduction and status, gallery, did it work, timeline — one question each (2026-10-02)', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const order = ['report-story', 'report-state', 'report-visuals', 'report-plan', 'report-implementation', 'report-acceptance', 'report-release', 'report-activity']
+    // One "Timeline", never two sections called "Activity" (FE-370).
+    expect(document.querySelectorAll('#report-activity, #report-activity-list, #report-implementation')).toHaveLength(0);
+
+    const order = ['report-story', 'report-state', 'report-visuals', 'report-outcome', 'report-timeline']
       .map(id => document.getElementById(id));
 
     expect(order.every(el => el !== null)).toBe(true);
@@ -150,7 +160,8 @@ describe('the feature page, in the order a product owner reads it', () => {
 
   it('draws a record disagreement quietly, never red, with what it blocks and one move', async () => {
     await page.viewport(1440, 900);
-    await draw(fixture());
+    // Merged means the merge ran (a done git.merge), never a commit on the task.
+    await draw(fixture({ actionRuns: [{ id: 4950, actionId: 'git.merge', status: 'done', input: { taskId: 77, externalRef: { url: LONG_PR } }, decidedBy: 'usr-owner', decidedAt: T('2026-09-05T10:00:00Z'), approvedByAgent: null, note: null, createdAt: T('2026-09-05T09:00:00Z'), executedAt: T('2026-09-05T10:00:00Z') }] }));
 
     const notice = document.querySelector('#report-notices [data-severity="inconsistency"]')!;
 
@@ -160,23 +171,28 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(document.querySelector('#report-notices .bg-brand-fail')).toBeNull();
   });
 
-  it('keeps run completed, checks, merged, acceptance and released apart', async () => {
+  it('says the pull request that shipped and its own checks under "Did it work?", and the cost at the timeline\'s foot', async () => {
     await page.viewport(1440, 900);
-    await draw(fixture());
+    // Merged means the merge ran (a done git.merge), never a commit on the task.
+    await draw(fixture({ actionRuns: [{ id: 4950, actionId: 'git.merge', status: 'done', input: { taskId: 77, externalRef: { url: LONG_PR } }, decidedBy: 'usr-owner', decidedAt: T('2026-09-05T10:00:00Z'), approvedByAgent: null, note: null, createdAt: T('2026-09-05T09:00:00Z'), executedAt: T('2026-09-05T10:00:00Z') }] }));
 
-    const steps = [...document.querySelectorAll('[data-testid="report-ladder"] [data-step]')].map(el => [el.getAttribute('data-step'), el.getAttribute('data-state')]);
+    const pr = document.querySelector('[data-testid="report-shipped-pr"]')!.textContent;
 
-    expect(steps).toEqual([['run', 'no'], ['checks', 'yes'], ['merged', 'yes'], ['acceptance', 'unknown'], ['released', 'unknown']]);
-    expect(document.querySelector('[data-testid="report-cost"]')!.textContent).toContain('$14.50 spent');
+    expect(pr).toContain('PR #1284');
+    expect(pr).toContain('1/1 checks');
+    expect(pr).toContain('merged');
+    expect(document.querySelector('[data-testid="report-outcome-line"]')!.textContent).toContain('Release not verified');
+    expect(document.querySelector('[data-testid="timeline-cost-foot"]')!.textContent).toBe('$8.30 in all · builds $8.30 · agents not recorded · chat not recorded');
+    expect(document.querySelector('[data-testid="feature-timeline"] [data-testid="timeline-cost"]')!.textContent).toBe('$8.30');
   });
 
   it('shows acceptance as N of M verified with no pass that has no evidence', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    const acceptance = document.querySelector('#report-acceptance')!;
+    const acceptance = document.querySelector('#report-outcome')!;
 
-    expect(acceptance.textContent).toContain('0 of 1 verified');
+    expect(acceptance.textContent).toContain('0 of 1 criteria verified');
     expect(acceptance.textContent).toContain('Unverified');
     expect(acceptance.textContent).not.toContain('Passed');
     expect(acceptance.querySelector('[data-preview-key="feature_section:41.criterion-0"]')).not.toBeNull();
@@ -186,9 +202,9 @@ describe('the feature page, in the order a product owner reads it', () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    document.querySelector<HTMLButtonElement>('[data-preview-key="feature_section:41.activity"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-testid="timeline-see-all"]')!.click();
 
-    expect(new URLSearchParams(window.location.search).get('preview')).toBe('feature_section:41.activity');
+    expect(new URLSearchParams(window.location.search).get('preview')).toBe('feature_section:41.timeline');
 
     closePreview();
 
@@ -199,7 +215,7 @@ describe('the feature page, in the order a product owner reads it', () => {
     await page.viewport(390, 844);
     await draw(fixture());
 
-    expect(document.body.textContent).toContain('Pull request #1284');
+    expect(document.body.textContent).toContain('PR #1284');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 
@@ -227,7 +243,7 @@ describe('the action follows the state', () => {
     await expect.element(page.getByTestId('feature-dismiss')).toBeInTheDocument();
   });
 
-  it('never draws Build over a live run, and says View progress', async () => {
+  it('never draws Build over a live run: the Now line names the run and opens it (Chris, 2026-09-29/30)', async () => {
     await page.viewport(1440, 900);
     await draw(proposal({
       tasks: [{ id: 77, title: 'Room PDF export', status: 'running', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41 } }],
@@ -235,7 +251,24 @@ describe('the action follows the state', () => {
     }));
 
     expect(document.querySelector('[data-testid="feature-build"]')).toBeNull();
-    expect(document.querySelector('[data-testid="report-primary-action"]')!.textContent).toBe('View progress');
+    // The row is the move: no second "View progress" button beside it.
+    expect(document.querySelector('[data-testid="report-primary-action"]')).toBeNull();
+
+    // The Now line says what runs, its step, and opens the run (2026-09-30).
+    const now = page.getByTestId('work-status-now');
+
+    await expect.element(now).toHaveTextContent('Engineer building');
+    await expect.element(now).toHaveTextContent('Running the checks');
+    await expect.element(page.getByTestId('work-status-you')).toHaveTextContent('Nothing needs you');
+    await expect.element(page.getByTestId('work-status-next')).toHaveTextContent('QA checks it');
+
+    const run = page.getByTestId('work-status-run');
+
+    await expect.element(run).toHaveTextContent('RUN-503');
+    expect(run.element().getAttribute('data-preview-key')).toBe('worker_run:503');
+    await expect.element(page.getByTestId('report-status')).toHaveTextContent('Current state');
+    // The Timeline lists the live attempt as its newest row too.
+    expect(document.querySelector('[data-testid="feature-timeline"] [data-testid="timeline-row"][data-live="true"]')?.textContent).toContain('Attempt 1 of 1 · building');
   });
 
   it('offers Build again, never Dismiss, once an attempt has run', async () => {
@@ -247,6 +280,46 @@ describe('the action follows the state', () => {
 
     await expect.element(page.getByTestId('feature-build')).toHaveTextContent('Build again');
     expect(document.querySelector('[data-testid="feature-dismiss"]')).toBeNull();
+  });
+
+  it('reads the build it just started in the headline, and Undo takes it back (backlog 032)', async () => {
+    await page.viewport(390, 844);
+    await draw(proposal({
+      tasks: [{ id: 77, title: 'Room PDF export', status: 'rejected', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41, status: 'dispatched' } }],
+      workerRuns: [{ id: 503, agentSlug: 'task-engineer', kind: 'worker', status: 'failed', attempt: 1, cents: 120, model: null, summary: null, error: 'Claude produced no changes', createdAt: T('2026-09-20T11:00:00Z'), claimedAt: T('2026-09-20T11:01:00Z'), completedAt: T('2026-09-20T11:30:00Z'), input: {}, result: null, progress: {} }],
+    }));
+    const before = document.querySelector('[data-testid="report-headline"]')!.textContent;
+
+    expect(before).not.toContain('Building');
+
+    await page.getByTestId('feature-build').click();
+
+    await expect.element(page.getByTestId('report-headline')).toHaveTextContent('Waiting for a worker');
+    await expect.element(page.getByTestId('report-status-sentence')).toHaveTextContent('Queued for the engineer just now.');
+
+    await page.getByRole('button', { name: 'Undo' }).click();
+
+    await expect.element(page.getByTestId('report-headline')).toHaveTextContent(before!);
+  });
+
+  it('with a Build card already waiting, Build it approves THAT card on the page — no second card (journey 4, #4945)', async () => {
+    const { client } = await import('@/libs/Orpc');
+    const propose = vi.mocked(client.review.propose);
+    const decide = vi.mocked(client.review.decideAction);
+    propose.mockClear();
+    decide.mockClear();
+    await page.viewport(1440, 900);
+    await draw(proposal({
+      actionRuns: [{ id: 4945, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: 41 }, decidedBy: null, decidedAt: null, approvedByAgent: null, note: null, createdAt: T('2026-09-21T10:00:00Z'), executedAt: null }],
+    }));
+
+    await expect.element(page.getByTestId('report-status-sentence')).toHaveTextContent('A build card is waiting for your approval (ACT-4945).');
+
+    await page.getByTestId('feature-build').click();
+
+    await expect.element(page.getByTestId('feature-building')).toBeInTheDocument();
+    expect(propose).not.toHaveBeenCalled();
+    expect(decide).toHaveBeenCalledWith({ id: 4945, decision: 'approve' });
   });
 });
 
@@ -304,8 +377,131 @@ describe('the pieces that carried over', () => {
     await expect.element(page.getByTestId('report-preview-pending')).toBeInTheDocument();
   });
 
+  it('shows the drawn mockups, not "Preview pending", once draw_mockup has written them (request #224)', async () => {
+    await page.viewport(390, 844);
+    const png = (id: number) => `/api/artifacts/o-${id}/o-${id}.png`;
+    await draw(fixture({
+      request: { id: 41, title: 'Copy a file\'s link from the list', status: 'new', createdAt: T('2026-09-20T09:00:00Z'), meta: { surface: 'ui', state: 'in_scope', product: 'northwind-portal', visuals: { beforeArtifactIds: [81], mockupArtifactIds: [92, 93] } } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [
+        { id: 81, kind: 'link', title: 'Files · desktop · before', recordType: 'object', recordId: '77', recordRole: 'qa-screenshot', spec: {}, url: png(81), createdAt: T('2026-09-19T09:00:00Z') },
+        { id: 92, kind: 'file', title: 'Copy a file\'s link · Default', recordType: 'object', recordId: '41', recordRole: 'mockup:default', spec: { contentType: 'image/png' }, url: png(92), createdAt: T('2026-09-20T09:00:00Z') },
+        { id: 93, kind: 'file', title: 'Copy a file\'s link · Link copied', recordType: 'object', recordId: '41', recordRole: 'mockup:link-copied', spec: { contentType: 'image/png' }, url: png(93), createdAt: T('2026-09-20T09:00:01Z') },
+      ],
+    }));
+
+    expect(document.querySelector('[data-testid="report-preview-pending"]')).toBeNull();
+
+    const srcs = [...document.querySelectorAll<HTMLImageElement>('[data-testid="report-slide"] img')].map(i => i.getAttribute('src'));
+
+    // Every drawn state, in order, beside the real screen it was drawn on.
+    expect([...srcs].sort()).toEqual([png(81), png(92), png(93)]);
+    expect(srcs.indexOf(png(92))).toBeLessThan(srcs.indexOf(png(93)));
+  });
+
+  it('shows what the person reported in chat as the screen before, not "Preview pending" (Chris, 2026-09-30, #268)', async () => {
+    await page.viewport(1440, 900);
+    const shot = '/api/artifacts/o-88/header-overflow.png';
+    await draw(fixture({
+      request: { id: 41, title: 'Fix header width overflow on mobile', status: 'new', createdAt: T('2026-09-30T08:05:00Z'), meta: { surface: 'ui', state: 'in_scope', product: 'northwind-portal' } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [
+        { id: 88, kind: 'file', title: 'header-overflow.png', recordType: 'object', recordId: '41', recordRole: 'reported', spec: { contentType: 'image/png' }, url: shot, createdAt: T('2026-09-30T08:00:00Z') },
+      ],
+    }));
+
+    expect(document.querySelector('[data-testid="report-preview-pending"]')).toBeNull();
+
+    const slide = document.querySelector('[data-testid="report-slide"]');
+
+    expect(slide?.querySelector('img')?.getAttribute('src')).toBe(shot);
+
+    const said = document.querySelector('[data-testid="report-carousel"]')?.textContent ?? '';
+
+    // Its section, what it is, and who sent it when (2026-09-30).
+    expect(document.querySelector('[data-testid="report-slide-section"]')?.textContent).toBe('Reported in chat');
+    expect(said).toContain('header-overflow.png');
+    expect(document.querySelector('[data-testid="report-slide-source"]')?.textContent).toBe('Reported in chat by a person · Sep 30');
+  });
+
+  it('gives every picture its section, caption and source, and the source opens where it came from', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture({
+      request: { id: 41, title: 'Remind a reader who has not opened the room', status: 'new', createdAt: T('2026-09-25T08:05:00Z'), meta: { surface: 'ui', state: 'in_scope', product: 'northwind-portal', visuals: { mockupArtifactIds: [95] } } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [
+        { id: 95, kind: 'file', title: 'Mockup: Remind a reader · Default', recordType: 'object', recordId: '41', recordRole: 'mockup', author: 'Designer', spec: { contentType: 'image/png', url: '/api/artifacts/o-95/o-95.png', caption: 'Remind a person who has not opened it', source: { state: 'Default', html: '<div></div>' }, provenance: { drawnFrom: 'request', missionRunId: 5120 } }, url: null, createdAt: T('2026-09-25T10:00:00Z') },
+      ],
+    }));
+
+    expect(document.querySelector('[data-testid="report-slide-section"]')?.textContent).toBe('Mockup');
+    expect(document.querySelector('[data-testid="report-slide-caption"]')?.textContent).toContain('Remind a person who has not opened it');
+
+    const source = document.querySelector<HTMLButtonElement>('[data-testid="report-slide-source"]');
+
+    expect(source?.textContent).toBe('Designer · drawn from the request · Sep 25');
+    expect(source?.tagName).toBe('BUTTON');
+    // Never a native tooltip: the Tooltip component carries the hint.
+    expect(source?.getAttribute('title')).toBeNull();
+  });
+
+  it('says the mockup is being drawn where it would be, instead of "Preview pending"', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture({
+      request: { id: 41, title: 'Remind a reader who has not opened the room', status: 'new', createdAt: T('2026-09-30T08:05:00Z'), meta: { surface: 'ui', state: 'new', product: 'northwind-portal', visuals: { mockupDraw: { state: 'failed', attempt: 2, at: '2026-09-30T08:10:00Z', reason: 'the renderer is not available' } } } },
+      tasks: [],
+      workerRuns: [],
+      artifacts: [],
+    }));
+
+    expect(document.querySelector('[data-testid="report-preview-pending"]')).toBeNull();
+    expect(document.querySelector('[data-testid="report-mockup-status"]')?.textContent).toContain('The mockup was not drawn after 2 attempts');
+  });
+
   it('says a missing plan in plain words', () => {
     expect(plainWarning('The plan rule required a plan for this work and none is on the record. 1 worker run ran anyway.')).toBe('This feature was built without the required plan.');
     expect(plainWarning('Two releases claim this request. The second has no commit.')).toBe('Two releases claim this request.');
+  });
+});
+
+describe('where it started and what it is connected to (Chris, 2026-09-30, #269; 2026-10-02)', () => {
+  it('closes its Timeline with the chat it was requested in, newest first, and draws Related with that chat first, after it', async () => {
+    await page.viewport(1440, 900);
+    const report = fixture({
+      activity: [
+        { kind: 'mission_run' as const, id: 901, title: 'tell-the-requester-check: Every asker hears back', at: T('2026-09-03T12:00:00Z'), status: 'completed', runStatus: 'completed', detail: null, label: 'Reply pass', doing: 'Reply pass', touched: [41] },
+        { kind: 'conversation' as const, id: 812, title: 'Requested in chat by Dana Okafor', at: T('2026-09-01T09:00:00Z'), status: null, detail: 'Board pack as a PDF', origin: true },
+      ],
+    });
+    await render(
+      <div className="px-6 py-4">
+        <FeatureReportView
+          report={report}
+          related={[
+            { key: 'o', relation: 'origin', label: 'Started in chat', title: 'Board pack as a PDF', href: '/dashboard/chat?c=812', external: false, preview: { type: 'conversation', id: '812' }, kind: 'conversation', note: 'Dana Okafor', at: null },
+            { key: 'p', relation: 'plans', label: 'Plan', title: '#52 Render the room to PDF', href: '/dashboard/objects/52', external: false, preview: { type: 'object', id: '52' }, kind: 'record', note: null, at: null },
+          ]}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByTestId('report-timeline')).toHaveTextContent(/^Timeline/);
+
+    const titles = [...document.querySelectorAll('[data-testid="feature-timeline"] [data-testid="timeline-title"]')].map(t => t.textContent);
+
+    expect(titles).toEqual(['Attempt 1 of 1 · failed', 'Reply pass', 'Requested in chat by Dana Okafor']);
+    // The run's code is metadata beside the time, never its title.
+    expect(document.querySelector('[data-testid="feature-timeline"]')!.textContent).toContain('RUN-901');
+    expect(document.getElementById('report-timeline')!.compareDocumentPosition(document.getElementById('report-related')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const labels = [...document.querySelectorAll('[data-testid="feature-related"] dt')].map(d => d.textContent);
+
+    expect(labels).toEqual(['Started in chat', 'Plan']);
+    await expect.element(page.getByRole('link', { name: 'Board pack as a PDF' })).toHaveAttribute('href', '/dashboard/chat?c=812');
+
+    closePreview();
   });
 });

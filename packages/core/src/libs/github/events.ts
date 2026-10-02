@@ -37,6 +37,8 @@ export const PR_MERGED = 'pr.merged';
 export const PR_CLOSED = 'pr.closed';
 /** A GitHub Actions run on the deploy branch finished without succeeding. */
 export const RUN_FAILED = 'run.failed';
+/** A GitHub Actions run on the deploy branch succeeded — what an environment's last deploy is read from. */
+export const RUN_SUCCEEDED = 'run.succeeded';
 
 export const GITHUB_EVENT_TYPES = [
   PR_OPENED,
@@ -46,6 +48,7 @@ export const GITHUB_EVENT_TYPES = [
   PR_MERGED,
   PR_CLOSED,
   RUN_FAILED,
+  RUN_SUCCEEDED,
 ] as const;
 
 export type GithubEventType = (typeof GITHUB_EVENT_TYPES)[number];
@@ -125,8 +128,13 @@ export type RunFailedPayload = {
   conclusion: string;
   url: string;
   completedAt: string;
+  /** The workflow's file, e.g. `.github/workflows/deploy.yml` — what an environment's `deploy.workflow` names. */
+  path: string;
   dedupeKey: string;
 };
+
+/** Payload of `run.succeeded`: the same fields, for a run that concluded `success`. */
+export type RunSucceededPayload = RunFailedPayload;
 
 /** One event, ready for `emitEvent`. */
 export type GithubEvent = {
@@ -154,6 +162,8 @@ export type GithubPullRequest = {
   closed_at?: string | null;
   merged_at?: string | null;
   merge_commit_sha?: string | null;
+  /** Who pressed merge — GitHub's login; absent on a list read that omits it. */
+  merged_by?: { login?: string } | null;
 };
 
 /** A check run as `GET /repos/{o}/{r}/commits/{sha}/check-runs` lists it. */
@@ -187,6 +197,9 @@ export type GithubWorkflowRun = {
   conclusion?: string | null;
   html_url: string;
   updated_at: string;
+  /** The workflow file, e.g. `.github/workflows/deploy.yml`. */
+  path?: string | null;
+  created_at?: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -241,6 +254,16 @@ function prEvent(type: GithubEventType, repo: string, pr: GithubPullRequest, ext
 }
 
 /**
+ * `pr.merged` for a pull request, in the one shape the sync and Vocion's own
+ * merge both emit, so whichever lands second is absorbed by its dedupe key.
+ * @param repo - `owner/name`.
+ * @param pr - The pull request as the API returns it, after the merge.
+ */
+export function mergedPullEvent(repo: string, pr: GithubPullRequest): GithubEvent {
+  return prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at, mergedBy: pr.merged_by?.login ?? '' });
+}
+
+/**
  * The lifecycle events a pull request earned since the watermark, judged
  * from its timestamps alone: opened when it was created inside the window,
  * synchronized when it moved inside the window without being created there
@@ -263,7 +286,7 @@ export function pullRequestLifecycleEvents(repo: string, pr: GithubPullRequest, 
     events.push(prEvent(PR_SYNCHRONIZED, repo, pr));
   }
   if (pr.merged_at && at(pr.merged_at)) {
-    events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at }));
+    events.push(mergedPullEvent(repo, pr));
   } else if (pr.state === 'closed' && !pr.merged_at && at(pr.closed_at)) {
     events.push(prEvent(PR_CLOSED, repo, pr, { closedAt: pr.closed_at ?? '' }));
   }
@@ -277,6 +300,14 @@ const PASSING_CONCLUSIONS = new Set(['success', 'neutral', 'skipped']);
  * `pr.checks_completed` for a head sha whose every check run has finished,
  * or null while any is still running (or none exist yet — a commit with no
  * checks is not a commit whose checks passed).
+ *
+ * A FAILED SET IS KEYED ON ITS RUNS, NOT ONLY ITS SHA (backlog 049). A re-run
+ * of the failed jobs finishes on the same head with new check runs; keyed on
+ * the sha alone, its completion deduped into the first failure and nothing
+ * heard that the re-run passed or failed again. A failure carries the newest
+ * check run's id, so each failing attempt is its own event and a re-poll of
+ * the same attempt is still absorbed. A pass keeps the sha-only key: a head
+ * passes once, and its reviews start from that event.
  * @param repo - `owner/name`.
  * @param pr - The pull request.
  * @param checkRuns - The check runs on `pr.head.sha`.
@@ -292,7 +323,8 @@ export function checksCompletedEvent(repo: string, pr: GithubPullRequest, checkR
     failedCheckCount: failed.length,
     checkCount: checkRuns.length,
   };
-  return prEvent(PR_CHECKS_COMPLETED, repo, pr, extra);
+  const newest = Math.max(...checkRuns.map(run => Number(run.id) || 0));
+  return prEvent(PR_CHECKS_COMPLETED, repo, pr, extra, failed.length > 0 ? `failed-${newest}` : undefined);
 }
 
 /**
@@ -336,8 +368,12 @@ export function runFailedEvent(repo: string, run: GithubWorkflowRun): GithubEven
   if ((run.status ?? 'completed') !== 'completed' || !FAILING_RUN_CONCLUSIONS.has(run.conclusion ?? '')) {
     return null;
   }
+  return runEvent(RUN_FAILED, repo, run);
+}
+
+function runEvent(type: typeof RUN_FAILED | typeof RUN_SUCCEEDED, repo: string, run: GithubWorkflowRun): GithubEvent {
   const attempt = run.run_attempt ?? 1;
-  const dedupeKey = `github:${repo}:${RUN_FAILED}:${run.id}:${attempt}`;
+  const dedupeKey = `github:${repo}:${type}:${run.id}:${attempt}`;
   const payload: RunFailedPayload = {
     repo,
     runId: run.id,
@@ -350,9 +386,23 @@ export function runFailedEvent(repo: string, run: GithubWorkflowRun): GithubEven
     conclusion: run.conclusion ?? '',
     url: run.html_url,
     completedAt: run.updated_at,
+    path: run.path ?? '',
     dedupeKey,
   };
-  return { type: RUN_FAILED, payload, dedupeKey };
+  return { type, payload, dedupeKey };
+}
+
+/**
+ * `run.succeeded` for a completed workflow run that succeeded, or null for
+ * anything else. Keyed on the run id and attempt, like `run.failed`.
+ * @param repo - `owner/name`.
+ * @param run - The workflow run.
+ */
+export function runSucceededEvent(repo: string, run: GithubWorkflowRun): GithubEvent | null {
+  if ((run.status ?? 'completed') !== 'completed' || run.conclusion !== 'success') {
+    return null;
+  }
+  return runEvent(RUN_SUCCEEDED, repo, run);
 }
 
 /* ------------------------------------------------------------------ */
@@ -429,7 +479,7 @@ export function eventsFromWebhook(eventName: string, body: unknown, deployBranch
     } else if (action === 'synchronize') {
       out.events.push(prEvent(PR_SYNCHRONIZED, repo, pr));
     } else if (action === 'closed' && pr.merged_at) {
-      out.events.push(prEvent(PR_MERGED, repo, pr, { mergeSha: pr.merge_commit_sha ?? '', mergedAt: pr.merged_at }));
+      out.events.push(mergedPullEvent(repo, pr));
     } else if (action === 'closed') {
       out.events.push(prEvent(PR_CLOSED, repo, pr, { closedAt: pr.closed_at ?? '' }));
     }
@@ -457,7 +507,7 @@ export function eventsFromWebhook(eventName: string, body: unknown, deployBranch
   if (eventName === 'workflow_run') {
     const { action, workflow_run: run } = body as WorkflowRunDelivery;
     if (action === 'completed' && run && run.head_branch === deployBranch) {
-      const event = runFailedEvent(repo, run);
+      const event = runFailedEvent(repo, run) ?? runSucceededEvent(repo, run);
       if (event) {
         out.events.push(event);
       }

@@ -132,12 +132,17 @@ test.describe('the data room, by chat', () => {
     await page.goto('/dashboard/rooms');
     await page.getByRole('link', { name: /Northwind — Hiring agents/ }).first().click();
     await page.waitForURL(/\/dashboard\/rooms\/\d+$/);
-    // "Draft a document" opens the rail with the prompt prefilled, scoped to the room.
+    // "Draft a document" opens the chat about the room. Nothing is typed into
+    // the composer for the person (#677); the room rides as the chat's context.
     await page.getByRole('button', { name: 'Draft a document' }).click();
+
+    await expect(page.getByTestId('dock-context-chips').last()).toContainText('Northwind — Hiring agents', { timeout: 15_000 });
+
     const box = page.locator('textarea[data-agent-composer]').last();
 
-    await expect(box).toHaveValue(/Draft the proposal/, { timeout: 15_000 });
+    await expect(box).toHaveValue('');
 
+    await box.fill('Draft the proposal for this engagement from its data room.');
     await page.getByRole('button', { name: 'Send message' }).last().click();
 
     await expect(page.getByText('The proposal is open beside you').last()).toBeVisible({ timeout: 120_000 });

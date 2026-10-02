@@ -48,7 +48,6 @@
         "src/libs/plugins/**",
         "src/libs/retrieval/**",
         "src/libs/llm/**",
-        "src/libs/temporal/**",
         "src/libs/crypto/**",
         "src/libs/docs/**",
         "src/libs/I18n.ts",
@@ -81,6 +80,20 @@
     "packages/plugins/*": {
       "project": [
         "src/**/*.ts"
+      ]
+    },
+    "packages/runner": {
+      "entry": [
+        "src/*.test.mjs"
+      ],
+      "project": [
+        "src/**/*.mjs"
+      ],
+      // Playwright is installed into the image beside the runner (its Dockerfile pins the
+      // version), not in the workspace: the runner has no npm dependencies of its own, and the
+      // capture pass skips itself where the browser is absent.
+      "ignoreDependencies": [
+        "playwright"
       ]
     }
   },

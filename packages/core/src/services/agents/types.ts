@@ -80,6 +80,18 @@ export type RecommendedActionPayload = {
    */
   suggestedDecision?: SuggestedDecision;
   suggestedDecisionReason?: string;
+  /** The page of the record the card is about (a feature, a deal) — the card's title links there. */
+  href?: string;
+  /** The words on that link, from the page's name: "Open feature". */
+  hrefLabel?: string;
+  /**
+   * DRAFT NEEDED: a filing that still misses its type's bar after the typed
+   * pass (`cardBackstop.ts`). Nothing is filed; the card's one button sends
+   * `prompt` to the agent, which drafts the full record in the conversation
+   * (Chris, 2026-09-28: "not a card: this request fails the proposal-ready
+   * bar" was a dead line). `missing` is what the bar said.
+   */
+  draft?: { prompt: string; missing: string };
 };
 
 /**
@@ -97,6 +109,11 @@ export type ArtifactPayload = {
   title: string;
   spec: Record<string, unknown>;
   url?: string | null;
+  /**
+   * The external link an image arrived with, when Vocion copied its bytes
+   * and `url` now serves the copy (0151). Absent on payloads built before.
+   */
+  sourceUrl?: string | null;
   /**
    * The RECORD this artifact belongs to (0112), when it belongs to one rather
    * than only to a conversation — `{ type, id }` of a `RecordRef`, plus what
@@ -237,7 +254,7 @@ export type AgentEvent
      * re-rendering the turn.
      */
     | { type: 'card'; card: import('@/libs/cards/card').Card }
-    | { type: 'card_update'; cardId: string; state?: import('@/libs/cards/card').CardState; runId?: number; ref?: { type: string; id: number }; decision?: { action: string; at: string; by?: string } }
+    | { type: 'card_update'; cardId: string; state?: import('@/libs/cards/card').CardState; runId?: number; reason?: string; ref?: { type: string; id: number }; decision?: { action: string; at: string; by?: string } }
     /**
      * An artifact was created or changed (0095/0101). The pane beside the
      * conversation opens or switches to it and the message gets a chip.
@@ -304,6 +321,36 @@ export type AgentEvent
     /** The model is writing a tool call — its name is known before the call completes; a long argument (a whole document) otherwise reads as 'Working'. */
     | { type: 'composing'; tool: string }
     | { type: 'record_created'; record: import('@/services/chat/pageContext').RecordRef }
+    /**
+     * A write in this turn made a new version of something a page may be
+     * showing — a record (its body artifact) or an artifact (backlog 035).
+     * The page or pane showing `ref` refetches in place and marks what
+     * changed between `from` and `to`; the answer links version `to` in the
+     * history. `fields` names what the write touched, for a record.
+     */
+    /**
+     * A version of a record or artifact was written. `related` (the tool's
+     * name) marks a write BENEATH the page's record rather than a version of
+     * it — a plan filed for the request, a card on it decided — so the page
+     * showing it refetches (conversation 378); `from`/`to` are then 0 and
+     * name no version.
+     */
+    | { type: 'version_written'; ref: import('@/services/chat/pageContext').RecordRef; artifactId: number; from: number | null; to: number; fields?: string[]; related?: string }
+    /**
+     * Record mentions in the finished answer ("#201", "request 201") and the
+     * page each opens — applied to the answer's text, live and stored
+     * (`libs/chat/recordMentions.ts`), so a record the answer names is one
+     * click away.
+     */
+    | { type: 'record_links'; links: Array<{ text: string; href: string }> }
+    /**
+     * The records this turn filed or changed, once the answer is done — one
+     * microcard each under the turn, with the record's live status where its
+     * type has a report page (`libs/factory/liveStatus.ts`). Typed from the
+     * turn's own `record_created` and `version_written` events, never read
+     * from the answer's words.
+     */
+    | { type: 'turn_records'; records: import('@/libs/factory/liveStatus').TurnRecord[] }
     | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' }
     /**
      * The workspace chose the agent for this turn because nobody named one
@@ -356,6 +403,13 @@ export type RuntimeContext = {
   /** Configured source slugs (knowledge_source.slug) this agent may reach. */
   connectorSources: string[];
   /**
+   * The connector kind of each slug in `connectorSources`, resolved once at
+   * graph build (`libs/connectors/families.ts`), so the synchronous tool
+   * builder can tell which sources are a code host, an issue tracker or a
+   * chat. Absent on an older context: the slug is then read as the kind.
+   */
+  sourceKinds?: Record<string, string>;
+  /**
    * Per-user ACL for THIS request (SourceAccessService). When set, every
    * retrieval intersects with it. Unset for non-user runs (schedules).
    */
@@ -373,6 +427,12 @@ export type RuntimeContext = {
   evidenceOpened?: boolean;
   /** A verdict in this run has been shown the task's stored run of its named tests (record_verdict). */
   testRunShown?: boolean;
+  /**
+   * The sources this turn has opened (`wiki:<slug>`, `artifact:<id>`), noted
+   * as each read returns — the evidence a gate's `readThisTurn` checks
+   * (`services/gates/turnReads.ts`).
+   */
+  turnReads?: string[];
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
   /**
@@ -381,6 +441,20 @@ export type RuntimeContext = {
    * `compileAgentForRequest`; undefined for schedules, MCP and API callers.
    */
   pageContext?: import('@/services/chat/pageContext').PageContext;
+  /**
+   * The person's message THIS turn, as typed — what a gate on the turn's own
+   * ask reads (`anchoredFiling.ts`: "Change this: …" is a change, never a new
+   * filing). Set per request in `compileAgentForRequest`; undefined for
+   * schedules and out-of-process tool calls, which read the conversation's
+   * latest person message instead.
+   */
+  turnMessage?: string;
+  /**
+   * What the person wants from this turn, read by a model at its start
+   * (`turnJudge.readIntent`). Tools that act on the person's meaning read
+   * this, never their words by pattern. Absent off the in-process loop.
+   */
+  turnIntent?: Promise<import('./turnJudge').TurnIntent>;
   /**
    * The zone THIS turn's dates are judged in: the person's browser zone when
    * a turn carries one, else the workspace's (`defaultTimeZone`). Set per
@@ -401,6 +475,22 @@ export type RuntimeContext = {
   delegations?: Map<string, string>;
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
+  /**
+   * Object types that are filed through their own typed tool (`file_<slug>`,
+   * `tools/fileRecord.ts`): the tool's schema derived from the type's, with
+   * reference fields resolved to the workspace's record slugs. Resolved once
+   * per graph build; absent means no typed filing tools.
+   */
+  filingTypes?: import('./tools/fileRecord').FilingType[];
+  /**
+   * The `rest` sources this agent's `connectorSources` name, with their
+   * declared endpoints (`tools/restDirect.ts`): one live read tool per
+   * `tools[]` entry and an action catalog per source. Resolved once per
+   * graph build like `filingTypes`, because the declarations live on the
+   * source row and the tool builder is synchronous; absent means no REST
+   * tools.
+   */
+  restSources?: import('@/libs/rest/spec').RestSourceSpec[];
   /**
    * Plugins the workspace has on (`project.enabled_plugins`), resolved once at
    * graph build. Plugin-owned tool sets (wiki, data rooms) are present only

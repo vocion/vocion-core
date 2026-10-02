@@ -15,7 +15,7 @@ pull request cannot pass [the test](#the-test), it is not finished.
 
 ## How to read this
 
-Four **values** and twelve **principles**, in the shape the Agile Manifesto uses.
+Four **values** and thirteen **principles**, in the shape the Agile Manifesto uses.
 
 The values settle arguments. Read them the way that manifesto is read: there is value in the thing
 on the right, and we value the thing on the left more. The principles say what the values mean when
@@ -76,7 +76,7 @@ approval and rejection is training data.
 
 ---
 
-# The twelve principles
+# The thirteen principles
 
 ### 1. Every outcome has an owner, and every agent knows why it exists
 
@@ -195,6 +195,28 @@ core. Every vertical added to the core is paid for by every workspace that will 
 > **In the work** — the changes shipped this month came from hitting walls at 8am trying to run
 > real prospecting, not from a backlog.
 
+### 13. Accelerate, never block
+
+**Faster, then better, then safer when possible. In that order.** Vocion is here to make a person
+faster and their work better, and safer where it can without trading away the speed. It is never a
+guardrail they have to get past, and never a governor on its own agents: an agent gets the outcome
+and the freedom to reach it, not a fence of files or steps. A plan is where work starts; going
+beyond it is shown and judged on the result. Limits sit only around what a person owns (secrets,
+CI, what they did not ask to change). The system finishes its own work: verified work merges,
+deploys and is checked in production, a replaced attempt cleans up after itself, and a person is
+left only what is truly theirs to decide. What a person asks for runs as theirs, with undo. A check that finds something says so in
+one line, and only when it changes the ask. A step that fails says why where the person is looking,
+tries again with that reason, and asks once, only when it cannot recover. No hard stops on a
+person's own request, and nothing silent.
+
+> **In the work** — on 2026-09-29 a PM's own request was refused three times by quality checks,
+> planning then ended with no plan and no reason on the page, and "restart this" took ten steps
+> and ended on a card to approve what he had just asked for. His words: *"We are not trying to build
+> hard guardrails. Let me work. Don't stop me."* The next day two engineer runs died on a list of
+> allowed files the engineer knew was wrong, and thirty green pull requests sat open because nothing
+> closed a replaced attempt: *"Vocion's job is to help us move faster (safely when possible). Not to
+> slow us down. Not to limit creativity. Not to put a muzzle or a governor on the agents."*
+
 ---
 
 # The test
@@ -205,8 +227,11 @@ Four questions, before shipping anything.
 2. **Is this one obvious path, or another option?** A default beats a setting; one shape beats a pattern per screen.
 3. **Can a person check it?** In one move, from where the claim is read.
 4. **Did real work demand this, and did we earn it?** Can the change name the thing it unblocked?
+5. **Does it make us faster first, then better, then safer?** Does it ever stop a person who asked,
+   fence an agent in, leave finished work for a person to push through, or fail without saying why?
+   If yes, it is not done.
 
-**If a proposal survives all four, build it. If it cannot, it is not finished.**
+**If a proposal survives all five, build it. If it cannot, it is not finished.**
 
 ---
 

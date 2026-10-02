@@ -7,8 +7,9 @@ on events (`when: { event }`, see [Automation](../entities/automation.md)); this
 connector is what emits them, so the planner learns that a factory branch went
 red without a person polling GitHub by hand.
 
-It is read-only, it mirrors almost nothing (one small document per pull request
-so the PR is searchable), and it needs one token per workspace.
+The connector only reads, it mirrors almost nothing (one small document per pull
+request so the PR is searchable), and it needs one credential per workspace: a
+token, or the GitHub App's installation (see *Connect with GitHub* below).
 
 ## What it emits
 
@@ -52,9 +53,18 @@ A cancelled Actions run is somebody's choice, not a failure, so it raises no
 The dedupe key holds the head sha, so a re-poll of unchanged state is absorbed
 by `emitEvent` (recorded as `deduped`, nothing fires), while a push that moves
 the head is a new event. Reviews add their id (`…:<headSha>:<reviewId>`), since
-two reviews can land on one sha; failed runs are keyed on run id and attempt
+two reviews can land on one sha; a failed `pr.checks_completed` adds the newest
+check run's id (`…:<headSha>:failed-<checkRunId>`), since a re-run of the failed
+jobs finishes on the same head with new check runs, and a pass keeps the
+sha-only key; failed runs are keyed on run id and attempt
 (`github:<repo>:run.failed:<runId>:<attempt>`), so a re-run that fails again is
 a new event.
+
+A delivery GitHub failed to make is never redelivered. The software factory's
+`factory-reconcile` automation reads every open factory pull request back every
+five minutes and emits the event it earned with these same keys, so a missed
+webhook runs its automation late instead of never, and a delivered one is a
+no-op.
 
 One consequence to know about: the poller cannot see individual pushes, only
 that a pull request moved. It emits `pr.synchronized` for the head sha it sees,
@@ -162,6 +172,107 @@ when: {event: run.failed} # any failed deploy run on the deploy branch
    Each poll costs, per repository: one request per 100 pull requests updated
    since the last run, plus two per updated pull request (check runs, reviews),
    plus one for the deploy branch's runs. A quiet repository is three requests.
+
+## Connect with GitHub — the app instead of a token
+
+When the deployment is a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
+`GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`,
+`GITHUB_APP_CLIENT_SECRET` set), the source's credential form shows
+**Connect with GitHub** instead of a token field. The person is sent to the
+app's install page on GitHub, chooses the organization and the repositories
+the app may see, and comes back. Nothing is pasted.
+
+The app's repository permissions are the deployment's to choose, and the
+person installing it sees and grants exactly that list. Reading the events
+above takes **Metadata**, **Pull requests**, **Checks**, **Contents** and
+**Actions**, all read. A deployment whose workers also act on the repositories
+— push a factory branch, open a pull request, start a workflow — grants
+**Contents**, **Pull requests**, **Actions** and **Workflows** as read and
+write instead. The connector never writes with any of it: the only request it
+makes beyond reading is minting the installation token itself, and a write is
+an action that goes through the review queue and the trust ladder, not
+something a permission turns on.
+
+The app asks for user authorization during installation, so the callback
+also carries a short-lived code; Vocion turns it into a user token, checks
+the installation is one that person can see, and drops the token. That is
+what stops an admin of one workspace storing another organization's
+installation — installation ids are small integers and the app itself can
+read every one of them.
+
+What is stored is the **installation**: its id, the account it is on, and the
+repositories it was granted. No token is stored. Every call on the source's
+behalf mints an installation token from the app's private key
+(`libs/github/app.ts`), good for an hour and cached in memory until five
+minutes before it expires, so a poll over ten repositories mints once.
+
+The source's `config.repos` still bounds what is read, and must be a subset
+of what the installation was granted — the list is the factory's scope, the
+installation is GitHub's. **Test connection** reports any repository listed
+in the source that the installation does not include, by name, so the fix
+is one click on GitHub's installation page or one line in the YAML.
+
+The app's webhook uses the same `GITHUB_WEBHOOK_SECRET` as a repository
+hook would: the secret authenticates GitHub, and the workspace is found from
+the delivery. A delivery from the app carries `installation.id`; a source
+whose credential is a different installation is skipped, and a
+pasted-token source listing the same repository still receives it.
+
+Installing on an organization you do not own files a **request** to its
+owners; the callback says so and stores nothing until an owner approves and
+GitHub sends them to the Setup URL.
+
+## Asking an agent what it reaches
+
+"Which repositories do you have access to?" is answered by the `describe_sources`
+tool, on for every agent: the repositories the source lists, each checked
+against what GitHub says the installation grants — asked of GitHub at the time
+of the question, not read from a snapshot or the operating intent — plus the
+branch filter, the deploy branch, whose account the installation is on, the
+last run and how many documents the index holds. A repository the source lists
+that the app was not granted is named as such; so is one the app was granted
+that the source does not list. The same tool describes a `jira` or `slack`
+source from its config and grant. Nothing secret is read into the answer.
+
+## The repo family: what an agent reads and writes
+
+GitHub is the first provider of the **repo family** — the code host, named for
+its constructs (`src/services/repo/provider.ts`). An agent's tools and actions
+say "pull request", "check", "pipeline run" and "review", never "GitHub"; the
+URL's host, or the github source that lists an `owner/name`, picks the
+provider. Bitbucket, Azure DevOps and GitLab plug in as further
+`providers/<host>.ts` behind the same interface, and nothing an agent is told,
+no trust rule and no skill changes when they do.
+
+Reads, through the workspace's own credential for the repository (so a
+private repository answers):
+
+| Tool | What it returns | Present for |
+|---|---|---|
+| `repo_read_pull` | one pull request, live: title, description, author, branches, head commit, files changed, reviews, check conclusions, labels | any agent with a repo source in `connectorSources` |
+| `repo_read_diff` | the unified diff of a pull request or of two refs, the files it touches, and with `task_id` the files outside the task's `allowedPaths` | same |
+| `repo_read_file` | a file at a ref, whole (cut at 60k) | same |
+| `repo_read_check_logs` | each failing check, its annotations, the failing step's log tail; whether the base branch is red too (formerly `github_read_check_logs`) | granted (`harness.grantTools`), by either name |
+| `repo_read_pipeline_runs` | a repository's pipeline runs, newest first, each with its jobs and the step that failed (formerly `github_read_workflow_runs`) | granted, by either name |
+
+Writes, each an action proposed through `propose_action`, so the trust ladder,
+the ledger and Undo apply ([agent tools that write](./agent-tools.md)). A
+former id in brackets is still accepted by `propose_action`, by a trust rule
+and by a grant; a new run is recorded under the current id.
+
+| Action | What it does | Undo |
+|---|---|---|
+| `repo.comment_pull` | a comment on the pull request: the run report, why a check is red | deletes the comment |
+| `repo.submit_review` | a review — approve, request changes, comment — with findings inline on their lines; `record_verdict` proposes one for every verdict it records | dismisses an approval or a request for changes |
+| `repo.rerun_failed_checks` (`github.rerun_failed_jobs`) | re-runs the failed jobs of a red head once | cancels the re-run while it runs |
+| `repo.cancel_pipeline_run` | stops a run that should not be running: a duplicate deploy, a loop | starts the run again |
+| `repo.dispatch_pipeline` (`github.dispatch_workflow`) | starts a pipeline by hand: a deploy that should have run, a redeploy | cancels the run while it runs |
+| `repo.open_pull` (`github.open_pull`) | files written as one commit on a `vocion/pipeline-…` branch and its pull request, for the pipeline's own fix | closes it and deletes the branch, or reverts it once merged |
+| `repo.revert_pull` (`github.revert_pull`) | the host's revert of a merged pull request, for a release that took an environment down | closes the revert, or reverts the revert |
+
+`repo.open_pull`, `repo.dispatch_pipeline` and `repo.revert_pull` are the
+pipeline's own moves: only a person, or an agent whose harness grants the
+action by either id, may propose one (`mayActOnPipeline`).
 
 ## The webhook — the same events, sooner
 

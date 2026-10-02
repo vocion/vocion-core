@@ -100,6 +100,62 @@
 #   takes the answer); `factory-recover-stuck` carries on requests already
 #   stuck. Plans are filed done for you (`x-moderation: none`), in review.
 #
+# 2.20.0 — the first sweep's gaps (backlog 038). `factory-plan-request`
+#   requires the plan itself (`requireTool: propose_action:objects.propose_candidate.architecture_plan`):
+#   a run that skips it gets the forced recording pass, and proposing the
+#   approval is refused — the factory proposes it once the plan exists.
+#
+# 2.21.0 — a request is filed through `file_request` (`x-agent-file` on the
+#   request type): the tool's arguments are the request's fields, the
+#   proposal-ready bar is its required list, `product` is an enum of the
+#   workspace's product slugs, and dedupOn is the type's, never the model's.
+#   Acceptance items require their `statement`.
+#
+# 2.25.0 — the pipeline has an owner (backlog 049). A fifth seat, Release
+#   (`release-engineer`), for what needs judgment; the rest is mechanism. A red
+#   CI is diagnosed by a typed read (`change_broke_it | flaky | main_broken |
+#   infra`) and routed in code; `factory-reconcile` reads open pull requests
+#   back from GitHub every five minutes and raises the events whose webhook
+#   never arrived; `deploy-run-failed` makes a red deploy branch the seat's
+#   incident; `github.rerun_failed_jobs` is done for you on the ladder.
+#
+# 2.26.0 — notifications (backlog 048). Exactly two moments tell a person,
+#   and nothing else in a day of factory work does (Chris, 2026-09-30: "we
+#   want to be selective … so that it doesn't get too noisy"): a feature
+#   NEEDS A PERSON (`factory.stopped`, raised when the factory stops and puts
+#   its one ask in front of someone — the You line's "Needs you") and a
+#   feature was RELEASED (`release.linked` for a release where something
+#   people use changed). Each opens the record's own page — the feature page,
+#   the release page — and reaches the workspace's accountable person in-app,
+#   on their iPhone and in Chrome by default, by email or Slack when they
+#   turn those on.
+#
+# 2.27.0 — the same ask twice (backlog 044). A request filed is read against
+#   the product's open requests (and ones closed in the last two weeks) by a
+#   model; sure at the bar, it is linked with `duplicateOf`, done for you with
+#   Undo, and the intake starts nothing for it (`x-duplicate-check` on the
+#   request type). Below the bar nothing is written or said.
+# 2.28.0 — the announcement goes out with its picture (backlog 043). The
+#   release page publishes in one press: `release.announce` (now carrying the
+#   release's id) posts the words with the live screenshot uploaded to the
+#   workspace's Slack channel, records the post on the release and Undo
+#   deletes it; with no Slack connection the page copies it as rich text with
+#   the picture, and offers the picture as a download. A failed post is
+#   written on the release (`announceFailure`) and read on its page.
+# 2.29.0 — every new feature with a UI gets its mockup (Chris, 2026-09-30, of
+#   the 09-25 mockups on #124 and #130: "that should be the standard for all
+#   new features and mocks … build that capability and default into new
+#   features"). A request with a ui or flow surface and no mockup, filed or
+#   given its surface, is drawn hands-off: `design-mockup-default` marks it
+#   drawing and raises `mockup.requested`, the designer's `show-it-first`
+#   mission draws it with draw_mockup (`design-mockup`), and
+#   `design-mockup-ended` tries once more with the reason or writes it on the
+#   request (`visuals.mockupDraw`), where the feature page shows it. It never
+#   holds filing, planning or the build. The default look is the 09-25 one: a
+#   quiet #ecebe8 desk, the product's window and phone, the change in a
+#   dashed NEW outline. Every carousel image says what it shows, its section
+#   and who made it, when, linked to the run or conversation it came from.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -110,8 +166,173 @@
 # accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 2.19.0
-description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and four seats — PM, Design, Eng, QA.
+# 2.30.0 — a UI request always owes its mockup, whatever reason was written
+#   at filing (#277 was skipped on "Mockup owed from the designer"), and an
+#   hourly sweep (`design-mockup-sweep`) asks again for open requests that
+#   never got one.
+# 2.31.0 — machine bookkeeping never fans out (Chris, 2026-09-30, #269: "I
+#   keep getting refreshed every few seconds … Close the gap keeps running").
+#   The request declares the paths the factory keeps for itself
+#   (`x-bookkeeping`): a write of only those moves no page and raises no
+#   `object.updated`. `factory-contract-changed` and `design-mockup-default`
+#   name the fields they read (`when.filter.fieldsAny`), so a write of anything
+#   else starts neither; the contract's fields are this plugin's, not core's.
+# 2.32.0 — a mockup the installation could not draw (no renderer) is not
+#   retried into the same wall: its reason goes once to the operator
+#   (`design-mockup-ended` input.operator), a person reads only that it could
+#   not be drawn, and the hourly sweep draws it once the installation can.
+# 2.33.0 — the pipeline's owner fixes the pipeline itself (backlog 049; Chris,
+#   2026-09-30: "When it is main_broken or infra, the Release engineer fixes it
+#   itself. That includes changing workflow files"). The diagnosis says where
+#   a red CI's fix lives (`fixIn: code | pipeline`); a pipeline fix raises
+#   `pipeline.needs_fix` and `pipeline-fix` has the Release engineer write it:
+#   the file read whole (`fetch_url` on its blob URL), then `github.open_pull` (the files as one commit on a
+#   `vocion/pipeline-…` branch and its pull request, done for you; only a seat
+#   whose harness grants it may open one). The reconciler merges it on green
+#   under `git.merge.pipeline` (Undo opens the revert) or sends it back red;
+#   `pipeline-fix-ended` reads the run back and asks a person once when no
+#   move was made. A CI that could not run is re-run once before any of this.
+# 2.34.0 — deploys are read, started and written down (backlog 049). The
+#   Release engineer reads a repository's runs with their jobs and failed
+#   steps (`github_read_workflow_runs`) and starts a workflow with
+#   `github.dispatch_workflow` (done for you; Undo cancels the run). Every
+#   finished deploy-branch run (`run.succeeded` is new beside `run.failed`)
+#   is written on the environments whose `deploy` names its workflow and step:
+#   `lastDeployedSha`, `lastDeployedAt`, `lastDeployRunUrl` and the health read
+#   after it (`environment-deployed`). The reconciler starts a deploy a merge
+#   never got, once per commit, for a workflow every push starts. The product
+#   page shows each environment's run and the pipeline's last line.
+# 2.35.0 — a down environment is brought back before a person hears (backlog
+#   049). `environment-health` reads each environment's health check every
+#   ten minutes and writes it on the record; down or degraded twice in a row,
+#   its recovery takes one step a pass — re-run the failed deploy, redeploy,
+#   then roll back the release it went down on (`github.revert_pull`, merged
+#   on green under `git.merge.rollback`) — each an action with its Undo and a
+#   line on the environment. Out of steps: one incident, one ask, the
+#   needs-person notification. The product page's Activity carries Undo.
+# 2.36.0 — the loop's types are named here, once (backlog 045). `factory.types`
+#   says which object type is the request, the task, the plan, the
+#   environment, the release, the product and the repo; core reads them and
+#   names none in code. Work-row stages carry their own tones, so a page
+#   names only the tones it changes.
+# 2.37.0 — the runner is core's (backlog 052). The engine that builds a task is
+#   `packages/runner`, one image for every team, and what it needs to build a
+#   repository is on the repo record: `surfaces` (how each builds and serves,
+#   its preview mode), `services` and `setup`, `humanOwned`, `engineerRules`,
+#   and each check's `command`. The dispatch carries them into the contract with
+#   the product's production environments as the live URLs.
+# 2.38.0 — the installation's runners (backlog 052). The Runs page names the
+#   runner target that claimed each run (`meta.target`: the on-box backup, the
+#   Fargate fleet), from `worker_run.worker_target`.
+# 2.39.0 — Vocion checks each release on the live product (backlog 043).
+#   `release-live-check`: when a release people use is linked, QA writes the
+#   live flow from the acceptance criteria and the live app (setup that makes
+#   the state the change needs as the QA account, a check per criterion,
+#   cleanup that removes what setup made) and runs it with `check_live`. What
+#   it saw lands on the release (`liveState`, `liveEvidence`, live shots, the
+#   announcement image) and on each feature (`liveCheck`, its Live pictures).
+#   `release-live-check-ended` checks once more carrying the reason, then
+#   writes "Live check could not reach the change: <reason>". A release is
+#   verified when the change was seen live, not on an HTTP 200; an
+#   environment's `liveSetup` says how its QA account's state is prepared.
+#
+# 2.40.0 — the product is read from the person's words (2026-10-01, #294:
+#   asked about Stamp's document page, filed under another product, refused
+#   for want of a repo). `request` declares `x-reference-read` on `product`:
+#   at intake a model reads the person's messages against every product's
+#   name, names it goes by, tagline and new `aliases` field, and a confident
+#   read that disagrees with the filing wins, done for you with Undo, in one
+#   line on the request.
+#
+# 2.41.0 — a release is called by a short name (2026-10-01, release #280 was
+#   titled with its request's whole sentence). `release.name` is written once
+#   by the platform when the release is linked, read from what shipped, and
+#   never over a name already there; the request titles stay the asker's words.
+#
+# 2.42.0 — the product page is for the person who runs it (2026-10-01, Chris:
+#   "make it better for a PM ... explorability into release engineer needs and
+#   configs there, but that shouldn't be primary. If that product has Wiki
+#   pages I should have a preview and link too"). The products page declares
+#   its overview (`recordPage: {kind: product, sections, folded}`): how it is
+#   doing with every figure's direction, what needs you one line each, In
+#   progress with You/Now/Next, Shipped with whether it was seen live,
+#   Proposed with Build or Dismiss, its pictures, its wiki pages, then How it
+#   ships folded. `product` declares a `wiki` relation (its capabilitiesPage,
+#   and pages tagged with or named after its slug), and the page is `live`.
+# 2.43.0 — the factory writes where the work is read, on any code host, issue
+#   tracker or chat (2026-10-01). Three connector families replace the vendor
+#   names: `repo` (pull request, diff, file, check logs, pipeline runs; comment,
+#   review, re-run, cancel, dispatch, revert, pipeline fix), `tracker` (issue,
+#   search, attachment; create, transition, update, comment, attach) and
+#   `chat` (thread, file; reply in thread, reaction, post). GitHub, Jira and
+#   Slack are the first provider of each; the source a workspace connected
+#   decides which answers, and no tool, skill or rule names a vendor. The four
+#   GitHub actions and `slack.post_message` keep their former ids as aliases,
+#   so a run, a rule or a grant written against one still resolves. Twelve
+#   skills say how each seat uses them — intake from chat and from the
+#   tracker, mirroring the board, telling the requester where they asked,
+#   drawing from the asker's own screenshots, the engineer's report on the
+#   pull request, QA's verdict mirrored as a review, the four causes of a red
+#   check written on the pull request, the incident update a person sends.
+# 2.44.0 — a live check opens what its setup made (2026-10-01, run 3: the
+#   upload failed on production, setup remembered /new as the record, and all
+#   three checks ran on the upload page). check-the-live-release says to
+#   remember the record's page only once the product has moved to it, to read
+#   setup's pageText for an error, and that checks and cleanup name what setup
+#   made: a remembered value, or {{setupPage}}.
+# 2.45.0 — every record reads by a short typed code (2026-10-01, Chris: "All
+#   these conflicting numbers are confusing"). Each type declares its `code:`
+#   — request FE, plan PL, task TK, release REL, environment ENV, product PROD,
+#   repo REPO — so feature 294 reads FE-294 beside RUN-439 and ACT-5590, in the
+#   app and in chat. The number is the record's id; `#294` still resolves.
+# 2.46.0 — a deploy that broke production goes to the Release engineer
+#   (2026-10-01). One automation, `incident-deploy-caused`, on
+#   `incident.opened` with `cause: deploy` — raised by the production-watch
+#   plugin when it is on, never otherwise — and the product's Related lists
+#   the incidents that name it.
+# 2.47.0 — a product reads PROD-<id>, not PRD (Chris, 2026-10-01: "PRD is an
+#   industry term for Product Reqs Doc. Don't use it as a product short code").
+# 2.49.0 — a build is sent only to a repository a person stands behind
+#   (2026-10-01, FE-314/FE-318: a pending repo record for a GitHub 404 was
+#   built from three times, its clone URL made from its title). The repo
+#   type's `url` is `x-verify: repository`, so a proposal for a repository
+#   GitHub does not have is refused with that reason.
+# 2.50.0 — a question gets an answer (2026-10-01, CHAT-423). The PM answers
+#   how and why from the pull request's diff, QA's verdict and an outside
+#   platform's current docs, never from memory; a question's turn writes
+#   nothing (core reads it once, before the turn runs).
+# 2.51.0 — a live check confirms what the feature promised (2026-10-02,
+#   FE-314 / REL-347: QA checked "a visitor can download the shared file", a
+#   line FE-314 never had, and the release read "Not seen live"). A check flow
+#   cites an acceptance line by its number; lines production cannot show are
+#   proven before merge; `expect_response` proves an API's answer; a person
+#   asks for the check again from the feature page (factory.check_live_again).
+# 2.52.0 — a closed pull request is not reviewed (2026-10-02, request 224: a
+#   late check event for a superseded attempt's closed PR started a review,
+#   which sent the attempt back and queued a build of a shipped feature). The
+#   review fires on open pull requests only; core reads a verdict about a
+#   replaced attempt, or a settled request, as history.
+# 2.53.0 — the request flow is this plugin's `workflows/request.yaml`, a
+#   declarative flow the generic engine runs (backlog 054); core keeps no
+#   factory workflow, only the actions the flow calls.
+# 2.54.0 — one status on the request (2026-10-02, Chris: "one enum list … a
+#   hierarchy of status labels that run the logic for those 3 tabs"). The
+#   request type declares `status`: every value in one group, the group is
+#   the Work tab, a null status reads In progress. The factory writes it at
+#   each transition (the request flow's `status` steps write it too); Work,
+#   the feature page and the product page read it.
+# 2.55.0 — a run reads as what it did (2026-10-02, FE-370: the feature page
+#   listed `release-live-check: Every criterion is proven, or it is named as
+#   unproven` and `Task send-t374 (logic): changed 1 file(s)…`). Each
+#   automation that starts an agent run says what a run of it did (`label`,
+#   "Checked it live") and is doing (`doing`); every list of runs titles
+#   them so. A request's Related is its records: the tasks are read for the
+#   pull requests and not listed, and their runs are the Timeline.
+# 3.0.0 (vocion-core v0.6.0) — BREAKING: the factory-daily-plan,
+# factory-result-check, standard-from-shipped and product-debrief automations
+# are deleted (paused or never answering anything a person used).
+version: 3.0.0
+description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
 recommend:
@@ -125,3 +346,38 @@ recommend:
 # The plugin's rows sit under their own heading (its pages already say so); a core
 # route it offers — Evals, the reference sets — sits under that heading's "More ›".
 nav: {section: Software factory, order: 0}
+# Which of this plugin's object types plays each role in the loop (backlog 045).
+# Core's factory services read these and name no type in code: a workspace
+# whose plugin calls its work item something else runs the same factory.
+factory:
+  types:
+    request: request
+    task: engineering_task
+    plan: architecture_plan
+    environment: environment
+    release: release
+    product: product
+    repo: repo
+# The two moments a person hears about (2.26.0). Few on purpose: an event not
+# named here notifies nobody. `{field}` is filled from the event's payload.
+notifications:
+  - kind: needs-person
+    label: Needs a person
+    description: The factory stopped on a feature and one decision is with you.
+    event: factory.stopped
+    who: accountable
+    title: '{title} needs you'
+    body: '{why}. What would unblock it: {unblock}.'
+    record: {type: request, id: '{requestId}'}
+    # One notification per stop: a later stop on the same feature, after a
+    # person acted, is a new ask and a new notification.
+    dedupe: 'request:{requestId}:ask:{askId}'
+  - kind: released
+    label: Released
+    description: A feature shipped and is live.
+    event: release.linked
+    filter: {userFacing: true}
+    who: accountable
+    title: 'Released: {headline} {liveVerb}'
+    body: 'Live in {product}.'
+    record: {type: release, id: '{releaseId}'}

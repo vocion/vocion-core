@@ -40,6 +40,7 @@ import {
   missionRunSchema,
   projectSchema,
   teamSchema,
+  tenantAccountSchema,
   userSchema,
   workerRunSchema,
   workflowRunSchema,
@@ -235,8 +236,9 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
   const w: ReportWindow = { since, until };
 
   const [project] = await db
-    .select({ id: projectSchema.id, name: projectSchema.name, slug: projectSchema.slug, accountableUserId: projectSchema.accountableUserId })
+    .select({ id: projectSchema.id, name: projectSchema.name, slug: projectSchema.slug, accountSlug: tenantAccountSchema.slug, accountableUserId: projectSchema.accountableUserId })
     .from(projectSchema)
+    .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
     .where(eq(projectSchema.id, orgId))
     .limit(1);
   if (!project) {
@@ -271,7 +273,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
   // Workspace-aware links (libs/links.ts): the mail is about THIS project, so
   // its links must open this project — not whichever one the reader's browser
   // last had active.
-  const link = (path: string) => workspaceUrl(project.slug, path, { absolute: true });
+  const link = (path: string) => workspaceUrl(project.slug, path, { absolute: true, accountSlug: project.accountSlug });
   return {
     workspace: { id: project.id, name: project.name, slug: project.slug, accountableEmail },
     window: w,

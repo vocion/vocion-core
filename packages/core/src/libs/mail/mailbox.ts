@@ -2,7 +2,7 @@ import process from 'node:process';
 
 /**
  * Pure helpers for a workspace's mailbox address. No database, no services:
- * `libs/workspace/applier.ts` runs inside the Temporal worker, whose bundle
+ * `libs/workspace/applier.ts` runs inside the durable executor, whose bundle
  * must stay LangChain-free, so anything the applier needs from the email
  * surface lives here rather than in `services/EmailSurfaceService.ts`
  * (which imports the agent runtime).

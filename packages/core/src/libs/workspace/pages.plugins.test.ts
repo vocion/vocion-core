@@ -102,14 +102,15 @@ describe('plugin pages', () => {
     // draw nothing when there is nothing to say — and the picture, which is
     // drawn rather than said.
     // No fact row of internals under the card: every field is on the row's one line, or it is not on the page (Chris, 2026-09-25).
-    expect(keys).toEqual(['title', 'visual', 'status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product']);
+    // `now` is what is running for it this minute, in progress only (2026-09-30).
+    expect(keys).toEqual(['title', 'visual', 'status', 'blocked', 'unmet', 'now', 'summary', 'detail', 'why', 'cost', 'product']);
     // Every field sits in the subtitle so the uppercase fact list never
     // draws: five labels a person reads past to reach five values. The
     // picture is the one exception, and it is not in the fact list either —
     // it leads the block, because "PREVIEW" over a thumbnail is a caption
     // saying what a person can already see.
     // What it is, the user problem, and what it needs — nothing else on the row (Chris, 2026-09-25).
-    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'blocked', 'unmet', 'summary', 'detail', 'why', 'cost', 'product'] });
+    expect(work?.primary).toEqual({ field: 'title', thumb: 'visual', subtitle: ['status', 'blocked', 'now', 'unmet', 'summary', 'detail', 'why', 'cost', 'product'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
     // `status` is the derived badge — "Blocked", "Decide" — never the
@@ -157,13 +158,30 @@ describe('plugin pages', () => {
     // Only the per-record work item stays off the nav: it is reached from the
     // row that names it.
     expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
-    // Work is the one live page: states move as workers claim and finish.
-    expect(mine.filter(p => p.live).map(p => p.slug).sort()).toEqual(['runs', 'work']);
+    // The live pages: Work's states move as workers claim and finish, and a
+    // product's overview follows its requests, releases and environments.
+    expect(mine.filter(p => p.live).map(p => p.slug).sort()).toEqual(['products', 'runs', 'work']);
 
     // The pages that were merged or cut away are gone, not hidden.
     for (const slug of ['activity', 'factory', 'guide', 'performance', 'backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {
       expect(pages.find(p => p.slug === slug)).toBeUndefined();
     }
+  });
+
+  it('Configure is declared as blocks: six tabs and three sidebar blocks, drawn by core', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages, issues } = readWorkspacePages();
+    const configure = pages.find(p => p.slug === 'configure');
+
+    expect(issues).toEqual([]);
+    // Chris, 2026-09-30: "make this page better: main block with sidebar
+    // blocks. or tabs." The page names the plugin's relations; core reads
+    // them for whichever plugin ships it (features/dashboard/configure).
+    expect(configure?.archetype).toBe('configure');
+    expect(configure?.configure?.tabs.map(t => t.kind)).toEqual(['seats', 'skills', 'automations', 'trust', 'learned', 'measures']);
+    expect(configure?.configure?.aside.map(a => a.kind)).toEqual(['health', 'attention', 'changes']);
+    // The collapsed "How … is doing" disclosure is what this page replaced.
+    expect(configure?.pluginPanel).toBe(false);
   });
 
   it('Products reads as a product card, not as a document', () => {
@@ -249,6 +267,12 @@ describe('plugin pages', () => {
     expect(releases.stats!.map(s => s.label)).toEqual(['Releases, last 30 days', 'Issues detected, last 30 days', 'Verification missing, last 30 days']);
     expect(releases.queryFilters).toEqual([{ param: 'product', field: 'meta.product', label: 'Product', picker: { labelFrom: 'meta.productName' } }]);
     expect(releases.recordPage?.kind).toBe('release');
+
+    // The product overview's layout is the page's own declaration.
+    const products = readWorkspacePages().pages.find(p => p.slug === 'products')!;
+
+    expect(products.recordPage).toMatchObject({ kind: 'product', folded: ['engineering'] });
+    expect(products.recordPage?.kind === 'product' && products.recordPage.sections?.slice(0, 3)).toEqual(['doing', 'needs', 'moving']);
     expect(Object.keys(releases.recordPage!.actions).sort()).toEqual(['draft', 'publish', 'review']);
   });
 

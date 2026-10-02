@@ -68,7 +68,12 @@ describe('read_artifact / update_artifact', () => {
     expect(row?.currentVersion).toBe(2);
     expect((row?.spec as { columns: Array<{ type?: string }> }).columns[1]?.type).toBe('currency');
     expect(await listArtifactVersions({ orgId: ORG, artifactId: id })).toHaveLength(2);
-    expect(events.at(-1) && events.at(-1)!.type === 'artifact' ? (events.at(-1) as { artifact: { version: number } }).artifact.version : 0).toBe(2);
+
+    const head = events.find(e => e.type === 'artifact');
+
+    expect(head && head.type === 'artifact' ? head.artifact.version : 0).toBe(2);
+    // The page or pane showing it hears which version replaced which.
+    expect(events.find(e => e.type === 'version_written')).toMatchObject({ ref: { type: 'artifact', id: String(id) }, artifactId: id, from: 1, to: 2 });
   });
 
   it('falls back to the conversation’s last artifact when nothing names one, and refuses when there is nothing at all', async () => {

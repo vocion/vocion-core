@@ -34,6 +34,13 @@ const baseConfig: NextConfig = {
       '@wsx/registry': wsxRegistry,
     },
   },
+  // `build:next` and `next dev` both run on Turbopack, which reads the alias
+  // above. This one only applies to `next build --webpack`. It stays so that
+  // going back is one edit, putting `--webpack` back on `build:next` in
+  // package.json, if a Turbopack build ever breaks (#670). Nothing in CI
+  // builds with webpack any more, so that path is untested until someone
+  // takes it. Next turns off its webpack build worker whenever this function
+  // exists; that no longer costs anything.
   webpack: (config) => {
     config.resolve.alias['@wsx/registry'] = join(__dirname, wsxRegistry);
     return config;
@@ -52,16 +59,34 @@ const baseConfig: NextConfig = {
   reactStrictMode: true,
   // CI type-checks core once, in the `static` job's `check:types`, and fails
   // the pull request there. Without this, `next build` ran the same check
-  // again inside every build job (#629). Only CI skips it: a deploy or a
-  // local build still refuses to produce an app with a type error in it.
-  typescript: { ignoreBuildErrors: !!process.env.CI },
-  // Temporal's client can't be webpack-bundled: its gRPC/proto data files
-  // don't ride into the bundle, so Connection.connect() throws at runtime
-  // (the dashboard then shows "not scheduled yet" for every schedule).
-  // Externalizing keeps it a real node_modules dependency, which `output:
-  // standalone` traces into the runtime image.
-  serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
+  // again inside every build job (#629). The deploy image skips it too
+  // (`VOCION_TYPES_CHECKED`, set in the Dockerfile): main only moves on a
+  // green `check:types`, and on the instance's 2-CPU runner the repeat check
+  // swapped for 25 minutes until the job timed out (2026-09-30, two deploys
+  // lost). A local build still refuses to produce an app with a type error.
+  typescript: { ignoreBuildErrors: !!process.env.CI || process.env.VOCION_TYPES_CHECKED === '1' },
+  // DBOS and PGlite ship data files and native-ish loaders that break when
+  // bundled; externalizing keeps them real node_modules dependencies, which
+  // `output: standalone` traces into the runtime image.
+  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
+  experimental: {
+    // `next build` starts one worker per CPU, less one, to collect page data
+    // and prerender: 17 on an 18-CPU laptop, each holding ~450 MB of server
+    // code, for an app where 7 of 215 routes are static. Two workers keep the
+    // step small without slowing it (prerendering took 313 ms on 2 against
+    // 392 ms on 17, #670). It matters most on a warm build cache, where the
+    // compile is small and this step would otherwise be the build's peak.
+    // The image build sets NEXT_BUILD_CPUS=1: the deploy runner has 7 GB and
+    // every worker inherits the build's 6 GB heap.
+    cpus: Number(process.env.NEXT_BUILD_CPUS) || 2,
+    // Turbopack's build cache (on by default since Next 16.3) lets a repeat
+    // build recompile only what changed: the compile peaked at ~3.3 GB warm
+    // against 6.6 GB cold (#670). A CI runner starts empty and never reuses
+    // it, and writing it costs a cold build ~1.6 GB and ~3s, so CI skips it.
+    // The Docker image keeps it between builds with a cache mount.
+    turbopackFileSystemCacheForBuild: !process.env.CI,
+  },
   outputFileTracingIncludes: {
     // demo/**: the hosted demo sandbox's baked PGlite seed, recorded LLM
     // fixtures, and workspace — inert unless VOCION_LLM_MODE/pglite:// are set.
@@ -73,9 +98,20 @@ const baseConfig: NextConfig = {
     // README.md), which the tracer cannot follow — on 2026-09-18 the image
     // shipped each plugin's agents/ and skills/ only, so the Plugins page and
     // the chat saw an empty catalogue in production.
-    '/': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
-    '/**': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
+    // ../runner/src/qa.mjs: the live check drives the live product with the
+    // runner's own capture code (`services/factory/liveCheck.ts`), loaded by a
+    // path only known at runtime.
+    '/': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*', '../runner/src/qa.mjs'],
+    '/**': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*', '../runner/src/qa.mjs'],
   },
+  // Code that reads a file at a path only known at runtime (the workspace
+  // mount, the docs, the artifacts folder) marks the call with
+  // `/* turbopackIgnore: true */`. Without it Turbopack warns "Dynamic
+  // filesystem access causes tracing of the whole project" and copies the
+  // project into the proxy's trace: about 21 MB of source, specs and docs in
+  // the standalone output and the image (#832). `outputFileTracingExcludes`
+  // can't stand in for the comments: Turbopack doesn't apply it to the proxy.
+  // What the server does read from disk ships through the includes above.
 };
 
 // Initialize the Next-Intl plugin
@@ -109,6 +145,13 @@ if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
     // side errors will fail.
     tunnelRoute: '/monitoring',
 
+    // Webpack-only: Turbopack builds (#670) ignore this whole block, so a
+    // Sentry-on build loses component names on breadcrumbs and replays, and
+    // ships the SDK's debug logging. Turbopack also turns off Sentry's
+    // build-time auto-instrumentation (server functions, middleware, app
+    // routes), so server errors reach Sentry only through Next's own
+    // instrumentation hooks. The source-map upload still runs, through
+    // Sentry's after-compile hook.
     webpack: {
       reactComponentAnnotation: {
         enabled: true,

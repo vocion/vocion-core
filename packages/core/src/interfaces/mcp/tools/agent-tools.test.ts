@@ -201,7 +201,7 @@ describe('agent-tools bridge — the object write', () => {
 
       // A refusal is a plain sentence, JSON-encoded by the server like any
       // other string result; no events, because nothing was proposed.
-      expect(JSON.parse(resultText(result))).toMatch(/does not work with "product" records\. It may write: request/);
+      expect(JSON.parse(resultText(result))).toMatch(/does not work with "product" records \(it may write: request\)/);
       expect(await db.select().from(actionRunSchema)).toHaveLength(0);
     } finally {
       await server.close();

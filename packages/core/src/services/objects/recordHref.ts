@@ -6,6 +6,7 @@ import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
 import { NO_RECORD_PAGES, recordHrefFrom, recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
 import { projectSchema } from '@/models/Schema';
+import { typeCodesForOrg } from '@/services/codes';
 import { enabledPluginsForOrg } from '@/services/PluginService';
 import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
 
@@ -36,7 +37,8 @@ export const recordLinksForOrg = cache(async (orgId: string): Promise<RecordLink
     ]);
     const dir = mounted ? null : await projectPagesFolder(orgId).catch(() => null);
     const { pages } = readWorkspacePages({ enabledPlugins, mounted, dir });
-    return recordLinksOf(pages, project?.slug ?? null);
+    const codes = await typeCodesForOrg(orgId).catch(() => undefined);
+    return { ...recordLinksOf(pages, project?.slug ?? null), codes };
   } catch (error) {
     console.warn('[recordHref] could not read the workspace pages; records open the generic view', { orgId, error: (error as Error).message });
     return NO_RECORD_PAGES;

@@ -187,6 +187,65 @@ is recorded, so a reply to it resolves without a history scope. The channel
 must already be bound to an agent in the caller's org; this authorises nothing
 in Slack.
 
+## Posting from a proposal: `chat.post_message`
+
+An agent that wants to tell a channel something proposes it, the way it
+proposes an email: `propose_action` with `action_id: chat.post_message` (its
+former id, `slack.post_message`, is still accepted, and a trust rule written
+against it still governs it) and
+`action_input: { text, title?, channelId?, about? }`. The card on Needs you
+shows the words as a message a reviewer can edit before approving; approving
+posts them to the channel under the app's name or the channel's persona;
+**Undo** deletes the post.
+
+- **Where it goes.** `channelId` names a channel **this workspace bound**
+  (step 4). Left out, the post goes to the workspace's first bound channel —
+  the same one announcements and notifications use. A channel the workspace
+  did not bind is not a target however it is named: the proposal is refused
+  at filing, with the binding step, rather than queued to fail on approval.
+- **One card per thing.** `about` is a stable reference to the record the
+  post is about (`project:…`). Two pending posts about the same thing in the
+  same channel collapse into one card; a post with no `about` stands alone.
+- **On the ladder.** `medium` by default (`DEFAULT_RISK_TIER`), so it waits
+  for a person until a workspace's `trust.yaml` says otherwise:
+
+  ```yaml
+  - action: chat.post_message
+    rung: execute-with-approval
+    risk: high
+  ```
+
+## The chat family: what an agent reads and writes
+
+Slack is the first provider of the **chat family** (`services/chat/provider.ts`):
+an agent's tools and actions are named for the constructs — channel, thread,
+message, reaction, file — and the source a workspace connected decides which
+provider answers. A skill that says "read the thread the ask came from" reads
+unchanged on a later provider (Microsoft Teams, Discord).
+
+**Two tokens, one rule.** A workspace's `slack` *source* holds the bot token
+of the app installed in the workspace being read — for a client, their own
+Slack, where the thread the ask came from lives. The deployment's
+`SLACK_BOT_TOKEN` is the app the channel *bindings* use (step 4). The family
+reads threads and replies in them with the source's token when the org has a
+slack source holding one, and falls back to the deployment token when it does
+not. `chat.post_message` keeps posting through the bindings.
+
+Reads, present for any agent whose `connectorSources` include a chat:
+
+| Tool | What it answers |
+|---|---|
+| `chat_read_thread` | A thread by permalink (or channel id + message id), oldest first: each message's author, text, id and attached files. A missing scope is named (`groups:history`), not swallowed. |
+| `chat_read_file` | A file attached to a message, by its id or by the permalink of a message carrying one file: an image is stored in the workspace and its URL returned (a `draw_mockup` reference); text, Markdown, CSV and JSON come back as text. Needs `files:read`. |
+
+Writes, through `propose_action`, each with Undo:
+
+| Action | What it changes | Default on the ladder |
+|---|---|---|
+| `chat.post_message` | A post to a channel the workspace bound (above). | `medium` — a person approves until `trust.yaml` promotes it |
+| `chat.reply_in_thread` | A reply in the thread an ask came from, with the token that is in that chat; the words editable on the card; `kind` (`completion`, `sensitive`, `update`) keys the rule as `chat.reply_in_thread.<kind>`, a kind with no rule of its own reading the parent's. Undo deletes the reply. | `medium` |
+| `chat.add_reaction` | A reaction on a message (`eyes` on an ask that became a request, `white_check_mark` when it shipped). Undo removes it; one already there counts as added. Needs `reactions:write`. | `low` — done for you above the bar |
+
 ## What happens when the bot is invited to a channel
 
 `member_joined_channel` for the bot's own user id is the discovery signal, and Vocion answers it
@@ -242,6 +301,27 @@ authorises nothing.
   one is a separate capability.
 - One Slack app per deployment. Per-org bot tokens through the credential vault are phase 2.
 - No streaming: Slack gets the finished reply.
+
+## Connecting the `slack` source with a click
+
+Everything above is the bot surface: one app installed once, answering
+mentions. The `slack` **source** — the connector that reads channel history
+into the knowledge index — is separate, and until now its bot token was pasted.
+
+With `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` set on the server, the
+source's connect dialog shows **Connect with Slack** instead. The person picks
+the workspace and approves; Vocion receives the bot token over
+`oauth.v2.access` and stores it on the source. The scopes requested are the
+four the source reads with — `channels:read`, `channels:history`,
+`groups:read`, `groups:history` — and nothing else.
+
+On the Slack side: an app (the bot surface's app works, or a separate one),
+with `https://<your-vocion-host>/api/connect/slack/callback` under **OAuth &
+Permissions → Redirect URLs**, and the four bot scopes above. To install it
+into a workspace other than the one that owns the app, turn on **Manage
+Distribution → Activate Public Distribution**; without it the authorize page
+offers only the owning workspace. The mechanism itself is in
+[Connecting a source at the vendor](./connect.md).
 
 ## Other platforms
 

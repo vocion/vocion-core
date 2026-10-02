@@ -3,6 +3,7 @@ import type { WORKER_RUN_COMPLETED, WORKER_RUN_FAILED, WorkerRunEndedPayload } f
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { boundProgress } from '@/libs/worker/progress';
+import { reportedRunCents } from '@/libs/worker/runCost';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
@@ -140,6 +141,11 @@ export async function createWorkerRun(opts: {
     createdBy: opts.createdBy ?? null,
     workspaceSha: opts.workspaceSha ?? null,
   }).returning();
+  // PUSH AT DISPATCH (backlog 052): an installation with a started target (Fargate) starts a
+  // runner for the run now, and writes on the run what it did. Polling targets need nothing; a
+  // start that fails is said on the run and never fails the queueing.
+  const { startRunnerFor } = await import('@/services/runners/targets');
+  await startRunnerFor(row!).catch((e: Error) => console.warn('[runners] start failed', { runId: row!.id, message: e.message }));
   return row!;
 }
 
@@ -203,8 +209,10 @@ function capRemainingCents(run: WorkerRun): number | null {
  * @param opts.orgId
  * @param opts.id
  * @param opts.workerId
+ * @param opts.workerVersion - What the worker is (image, build or commit), when it says. Kept on the run so a recovery can tell whether the worker changed since a failure.
+ * @param opts.target
  */
-export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string }): Promise<{ run: WorkerRun; toolClaim: string }> {
+export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string; workerVersion?: string | null; target?: string | null }): Promise<{ run: WorkerRun; toolClaim: string }> {
   // Claiming too, and this is the half that matters operationally: the
   // Fargate worker polls, so refusing the claim is what actually stops work
   // starting on runs that were queued before the switch was pulled. A worker
@@ -231,13 +239,22 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
   const [updated] = await db.update(workerRunSchema).set({
     status: 'running',
     workerId: opts.workerId,
+    workerVersion: opts.workerVersion?.trim().slice(0, 200) || null,
+    // Which installation target ran it, as the runner said (libs/runners/config.ts).
+    workerTarget: opts.target?.trim().slice(0, 64) || null,
     attempt: run.attempt + 1,
     claimedAt: now,
     heartbeatAt: now,
     leaseExpiresAt: new Date(now.getTime() + run.leaseSeconds * 1000),
     updatedAt: now,
-  }).where(eq(workerRunSchema.id, run.id)).returning();
-  return { run: updated!, toolClaim: toolClaimFor(updated!) };
+    // ONE HOLDER (backlog 052): the installation's runners claim across workspaces, so two can
+    // reach the same queued run at once. The claim holds only if nobody claimed since this read
+    // (a claim bumps `attempt`); the one that lost is told, like any held run.
+  }).where(and(eq(workerRunSchema.id, run.id), eq(workerRunSchema.attempt, run.attempt))).returning();
+  if (!updated) {
+    throw new WorkerRunError('CONFLICT', `Run ${run.id} was claimed by another worker a moment ago`, 409);
+  }
+  return { run: updated, toolClaim: toolClaimFor(updated) };
 }
 
 export type HeartbeatInput = {
@@ -253,6 +270,8 @@ export type HeartbeatInput = {
   failures?: { scope: string; message: string }[];
   /** The step lines since the last beat (`services/runs/RunLogService.ts`). */
   events?: readonly unknown[];
+  /** What the worker is, when it says (see `claimWorkerRun`). */
+  workerVersion?: string | null;
 };
 
 export type HeartbeatReply = {
@@ -334,14 +353,26 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     progress: input.progress ? boundProgress(input.progress) : run.progress,
     cursor: input.cursor ?? run.cursor,
     counts: input.counts ? { ...run.counts, ...input.counts } : run.counts,
-    tokens: run.tokens + tokens,
-    cents: run.cents + (input.usage?.cents ?? 0),
+    // Added in the statement, not from the row read above: a heartbeat that
+    // read the run before another one landed must not overwrite it.
+    tokens: sql`${workerRunSchema.tokens} + ${tokens}`,
+    cents: sql`${workerRunSchema.cents} + ${input.usage?.cents ?? 0}`,
     // The model that actually did the work wins over whatever create guessed.
     model: input.usage?.model ?? run.model,
     langfuseTraceId: input.langfuseTraceId ?? run.langfuseTraceId,
+    workerVersion: input.workerVersion?.trim().slice(0, 200) || run.workerVersion,
     failures,
     updatedAt: now,
-  }).where(eq(workerRunSchema.id, run.id)).returning();
+    // ONLY WHILE IT RUNS (2026-10-02, run 451 on FE-314). A heartbeat already
+    // in flight when the run failed passed the status check above, landed
+    // after the failure had written the task's cost, and added the same usage
+    // again: the run read $3.36, its task $1.68, and the feature page said
+    // "Two cost records disagree". The status is checked in the write itself,
+    // so a heartbeat that loses that race changes nothing and is told so.
+  }).where(and(eq(workerRunSchema.id, run.id), inArray(workerRunSchema.status, ['running', 'paused']))).returning();
+  if (!updated) {
+    throw new WorkerRunError('CONFLICT', `Run ${run.id} ended while this heartbeat was in flight; heartbeats are only accepted while running or paused`, 409);
+  }
   if (input.usage && tokens > 0) {
     const usage: TokenUsage = {
       inputTokens: input.usage.inputTokens,
@@ -383,8 +414,12 @@ export async function completeWorkerRun(opts: { orgId: string; id: number; worke
   const run = await mustGet(opts.orgId, opts.id);
   mustHoldLease(run, opts.workerId);
   const now = new Date();
+  // The worker's final account is the run's cost: the heartbeats' sum can
+  // count one report twice (`libs/worker/runCost.ts`).
+  const final = reportedRunCents(opts.result);
   const [updated] = await db.update(workerRunSchema).set({
     status: run.stopRequested ? 'cancelled' : 'completed',
+    ...(final === null ? {} : { cents: final }),
     result: opts.result ?? null,
     summary: opts.summary ?? run.summary,
     counts: opts.counts ? { ...run.counts, ...opts.counts } : run.counts,
@@ -414,13 +449,20 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   const failures = opts.failures?.length
     ? [...run.failures, ...opts.failures.map(f => ({ ...f, at: now.toISOString() }))].slice(-MAX_FAILURES)
     : run.failures;
+  // A PERSON'S CANCEL IS FINAL (2026-10-01, RUN-449: cancelled from the
+  // kill switch, the worker reported it as a failure, and recovery built
+  // FE-308 twice more after the next deploy). A run that was asked to stop
+  // settles cancelled, as `completeWorkerRun` does, and is announced the
+  // same way, so nothing that heals failures picks it up.
+  const cancelled = run.stopRequested;
   const [updated] = await db.update(workerRunSchema).set({
-    status: 'failed',
+    status: cancelled ? 'cancelled' : 'failed',
     error: opts.error,
     failures,
     // What a failed run kept — its draft PR, and the links to its transcript
     // and full logs the run page reads — merged over anything already there.
     result: opts.result ? { ...(run.result ?? {}), ...opts.result } : run.result,
+    ...(reportedRunCents(opts.result) === null ? {} : { cents: reportedRunCents(opts.result)! }),
     completedAt: now,
     heartbeatAt: now,
     updatedAt: now,
@@ -428,7 +470,7 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   // A failed attempt still cost money, and the record's actual is the honest
   // sum over every attempt it took.
   await writeBackRunCost(updated!, now);
-  await announceEnded(updated!, 'worker_run.failed', opts.error);
+  await announceEnded(updated!, cancelled ? 'worker_run.completed' : 'worker_run.failed', opts.error);
   return updated!;
 }
 
@@ -557,6 +599,8 @@ async function writeBackRunCost(run: WorkerRun, now: Date): Promise<void> {
       },
     }).where(eq(businessObjectSchema.id, object.id));
     await recomputeRollups({ orgId: run.orgId, childType: record.type, childId: record.id, now });
+    // The feature's whole spend moves with it (`factory/featureSpend.ts`).
+    void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(run.orgId)).catch(() => {});
   } catch (err) {
     warn('worker run cost write-back failed', { runId: run.id, record, error: err instanceof Error ? err.message : String(err) });
   }
@@ -564,10 +608,10 @@ async function writeBackRunCost(run: WorkerRun, now: Date): Promise<void> {
 
 /**
  * Warn through a dynamic import. `libs/Logger` has a top-level await, and
- * this service sits in the Temporal worker's import chain (the reaper
+ * this service sits in the durable executor's import chain (the reaper
  * schedule), which tsx compiles as CommonJS — a static import would stop the
  * worker from starting. Same approach as `libs/Langfuse.ts`;
- * `scripts/temporal-worker.imports.test.ts` guards it.
+ * the import-chain tests guards it.
  * @param message - What happened, in plain words.
  * @param properties - Identifiers and context worth keeping.
  */
@@ -601,7 +645,7 @@ export async function cancelWorkerRun(orgId: string, id: number): Promise<Worker
 
 /**
  * Mark every running or paused run whose lease lapsed as `lost`. Called by the
- * Temporal schedule every few minutes; safe to call any time.
+ * durable schedule every few minutes; safe to call any time.
  * @param now - The clock, injectable for tests.
  * @returns How many runs were reaped.
  */

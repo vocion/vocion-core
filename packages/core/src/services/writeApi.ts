@@ -663,7 +663,7 @@ export type UpsertSourceInput = {
  * one that must not clobber what it did not author. It is emphatically not
  * `addSource`, whose find-or-create would answer 200 and store nothing.
  *
- * Both Temporal schedules are made to match in the same call, so a source
+ * Both durable schedules are made to match in the same call, so a source
  * arrives syncing rather than waiting for somebody to notice.
  * @param caller
  * @param input
@@ -726,7 +726,7 @@ export async function apiUpsertSource(
  * Start a full sync of one source, off the request path.
  *
  * Asynchronous on purpose: a crawl runs for minutes, so this hands the work to
- * Temporal and answers 202 with the checkpoint as it stands. The caller polls
+ * a durable job and answers 202 with the checkpoint as it stands. The caller polls
  * `GET /api/v1/sources` for the outcome. A run already holding the source is a
  * 409, `latestSyncStateForOrg` already reports a dead run as `abandoned`, so
  * a stuck source is never permanently unsyncable and this does no window

@@ -216,6 +216,43 @@ store logs a warning if it detects that layout in production. Legacy
 `artifactHref()`. `VOCION_ARTIFACTS_URL_BASE` remains an override only for
 deployments that serve the directory behind their own auth.
 
+## Images that arrive as a link are kept in Vocion
+
+An image artifact written with an external http(s) `url` — a QA screenshot
+the factory worker posts to `POST /api/v1/artifacts` as an S3 presigned GET,
+say — has its bytes copied into the same store as it is written
+(`libs/tools/artifacts/ingest.ts`). `url`, and every top-level spec field that
+carried the same link (`href` on a link artifact), then name the stored copy
+under `/api/artifacts/…`, so the card, the artifact page, the feature and
+release thumbnails, `fetch_image` and the recording pass all read Vocion's
+copy. The link it arrived with is kept on `source_url` (`sourceUrl` on the
+payload). Why: SigV4 caps a presigned URL at seven days, and evidence has to
+last as long as the release it proves (2026-09-28).
+
+The fetch is `fetch_image`'s: public addresses only on every redirect hop
+(never loopback, private ranges or the metadata address), the body capped
+while read (`VOCION_ARTIFACT_INGEST_MAX_BYTES`, default 20 MB), and the bytes
+must be PNG, JPEG, GIF or WebP by magic number — an SVG is refused because it
+would be served from the app's own origin. A link that names a video is left
+alone.
+
+A copy that fails keeps the external link and records why on `ingest`
+(`{ status, reason, attempts, at, sourceExpiresAt }`). `failed` (a timeout, a
+5xx) is retried hourly by the `artifact-image-sweep` durable schedule while
+the link is still valid, at most five times; `refused` and `expired` are not.
+
+Rows written before this existed are brought along by a backfill — dry run by
+default, it fetches nothing and reports counts; `--apply` copies, each as a new
+version by `system` ("Kept a copy in Vocion"), and a re-run selects nothing it
+already did:
+
+```bash
+npm run artifacts:keep-images                       # dry run, every workspace
+npm run artifacts:keep-images -- --project <orgId>  # one workspace
+npm run artifacts:keep-images -- --ids 12,14        # these rows
+npm run artifacts:keep-images -- --apply            # copy
+```
+
 ## Surfaces
 
 `CardSurface` (`packages/sdk/src/cards.ts`) carries `'artifact'` where it

@@ -34,7 +34,19 @@ export const MAX_DATA_URI_BYTES = 256 * 1024;
 /** Longest edge a fetched image is scaled down to unless asked otherwise. */
 export const DEFAULT_MAX_EDGE = 480;
 
-export class ImageFetchError extends Error {}
+/**
+ * Why a fetch was refused, for a caller that has to decide whether to try
+ * again: `blocked` (not a public address), `not_image` and `too_large` will
+ * refuse the same way next time; `http` and `network` might not.
+ */
+export type ImageFetchErrorCode = 'blocked' | 'not_image' | 'too_large' | 'http' | 'network';
+
+export class ImageFetchError extends Error {
+  constructor(message: string, public readonly code: ImageFetchErrorCode = 'http', public readonly status: number | null = null) {
+    super(message);
+    this.name = 'ImageFetchError';
+  }
+}
 
 export type FetchedImage = {
   kind: ImageKind;
@@ -60,7 +72,7 @@ export type FetchedImage = {
 async function readCapped(res: Response, maxBytes: number): Promise<Buffer> {
   const declared = Number(res.headers.get('content-length') ?? Number.NaN);
   if (Number.isFinite(declared) && declared > maxBytes) {
-    throw new ImageFetchError(`it is ${Math.round(declared / 1024)} KB, over the ${Math.round(maxBytes / 1024)} KB cap.`);
+    throw new ImageFetchError(`it is ${Math.round(declared / 1024)} KB, over the ${Math.round(maxBytes / 1024)} KB cap.`, 'too_large');
   }
   const body = res.body;
   if (!body) {
@@ -77,7 +89,7 @@ async function readCapped(res: Response, maxBytes: number): Promise<Buffer> {
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel().catch(() => {});
-      throw new ImageFetchError(`it is over the ${Math.round(maxBytes / 1024)} KB cap.`);
+      throw new ImageFetchError(`it is over the ${Math.round(maxBytes / 1024)} KB cap.`, 'too_large');
     }
     chunks.push(value);
   }
@@ -96,13 +108,18 @@ async function fetchGuarded(raw: string, hops = 4): Promise<Response> {
   for (let i = 0; i <= hops; i++) {
     const verdict = await resolvesPublicly(target);
     if (!verdict.ok) {
-      throw new ImageFetchError(verdict.reason);
+      throw new ImageFetchError(verdict.reason, 'blocked');
     }
-    const res = await fetch(verdict.url, {
-      redirect: 'manual',
-      headers: { 'User-Agent': 'VocionBot/1.0 (+https://vocion.com)', 'Accept': 'image/*' },
-      signal: AbortSignal.timeout(15_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(verdict.url, {
+        redirect: 'manual',
+        headers: { 'User-Agent': 'VocionBot/1.0 (+https://vocion.com)', 'Accept': 'image/*' },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      throw new ImageFetchError(`${verdict.url.host} did not answer (${(err as Error).message || 'network error'}).`, 'network');
+    }
     if (res.status >= 300 && res.status < 400) {
       const next = res.headers.get('location');
       if (!next) {
@@ -113,11 +130,40 @@ async function fetchGuarded(raw: string, hops = 4): Promise<Response> {
       continue;
     }
     if (!res.ok) {
-      throw new ImageFetchError(`HTTP ${res.status} from ${verdict.url.host}.`);
+      throw new ImageFetchError(`HTTP ${res.status} from ${verdict.url.host}.`, 'http', res.status);
     }
     return res;
   }
   throw new ImageFetchError('too many redirects.');
+}
+
+/** The bytes of one image, verified and untouched. */
+export type FetchedImageBytes = {
+  kind: ImageKind;
+  bytes: Buffer;
+  contentType: string;
+  /** The URL finally fetched, after redirects. */
+  url: string;
+};
+
+/**
+ * Fetch one image and verify it is one, without changing a byte: the address
+ * is public on every hop, the body is capped while it is read, and the bytes
+ * are an image by magic number. `fetchImage` shrinks these for a document;
+ * an artifact keeps them as they are (`libs/tools/artifacts/ingest.ts`).
+ * @param url - Where the image is.
+ * @param opts - Limits.
+ * @param opts.maxFetchBytes - The wire cap.
+ */
+export async function fetchImageBytes(url: string, opts: { maxFetchBytes?: number } = {}): Promise<FetchedImageBytes> {
+  const maxFetch = opts.maxFetchBytes ?? MAX_FETCH_BYTES;
+  const res = await fetchGuarded(url);
+  const raw = await readCapped(res, maxFetch);
+  const verdict = validateImageBytes({ bytes: raw, contentType: res.headers.get('content-type'), maxBytes: maxFetch });
+  if (!verdict.ok) {
+    throw new ImageFetchError(verdict.reason, 'not_image');
+  }
+  return { kind: verdict.kind, bytes: raw, contentType: CONTENT_TYPES[verdict.kind], url: res.url || url };
 }
 
 /**
@@ -132,19 +178,25 @@ async function fetchGuarded(raw: string, hops = 4): Promise<Response> {
  * @param opts.maxDataUriBytes - The cap on the result.
  */
 export async function fetchImage(url: string, opts: { maxEdge?: number; maxFetchBytes?: number; maxDataUriBytes?: number } = {}): Promise<FetchedImage> {
-  const maxFetch = opts.maxFetchBytes ?? MAX_FETCH_BYTES;
+  return shrinkImage(await fetchImageBytes(url, { maxFetchBytes: opts.maxFetchBytes }), opts);
+}
+
+/**
+ * Shrink verified image bytes to something a document can inline — the half
+ * of `fetchImage` that never touches the network, so bytes Vocion already
+ * holds (an artifact's stored copy) take the same path as bytes just fetched.
+ * @param got - Verified bytes, from `fetchImageBytes` or the artifact store.
+ * @param opts - Limits.
+ * @param opts.maxEdge - Longest edge after the downscale (rasters only).
+ * @param opts.maxDataUriBytes - The cap on the result.
+ */
+export async function shrinkImage(got: FetchedImageBytes, opts: { maxEdge?: number; maxDataUriBytes?: number } = {}): Promise<FetchedImage> {
   const maxEdge = Math.max(16, Math.min(2048, opts.maxEdge ?? DEFAULT_MAX_EDGE));
   const maxDataUri = opts.maxDataUriBytes ?? MAX_DATA_URI_BYTES;
+  const raw = got.bytes;
+  const finalUrl = got.url;
 
-  const res = await fetchGuarded(url);
-  const raw = await readCapped(res, maxFetch);
-  const verdict = validateImageBytes({ bytes: raw, contentType: res.headers.get('content-type'), maxBytes: maxFetch });
-  if (!verdict.ok) {
-    throw new ImageFetchError(verdict.reason);
-  }
-  const finalUrl = res.url || url;
-
-  if (verdict.kind === 'svg') {
+  if (got.kind === 'svg') {
     const svg = raw.toString('utf8');
     if (!svgIsInert(svg)) {
       throw new ImageFetchError('that SVG carries script or an event handler, so it is not a logo — it is code that would run wherever the document is opened. Ask for a PNG.');
@@ -157,10 +209,10 @@ export async function fetchImage(url: string, opts: { maxEdge?: number; maxFetch
     return { kind: 'svg', dataUri, bytes: raw, contentType: CONTENT_TYPES.svg, width: dims?.width ?? null, height: dims?.height ?? null, sourceBytes: raw.length, url: finalUrl };
   }
 
-  if (!RASTER_KINDS.has(verdict.kind)) {
+  if (!RASTER_KINDS.has(got.kind)) {
     // ICO: multi-image container, decoded by nothing here. Honest refusal
     // beats a favicon stretched across a cover.
-    throw new ImageFetchError(`${verdict.kind.toUpperCase()} is not inlined — it is a favicon container, not a logo. Ask for the PNG or SVG mark.`);
+    throw new ImageFetchError(`${got.kind.toUpperCase()} is not inlined — it is a favicon container, not a logo. Ask for the PNG or SVG mark.`);
   }
 
   let edge = maxEdge;

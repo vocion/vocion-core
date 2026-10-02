@@ -60,6 +60,20 @@ describe('WorkerRunService — a finished run is announced', () => {
     expect(event!.payload).toMatchObject({ workerRunId: run.id, status: 'failed', summary: 'checks red', attempt: 1, recordType: null, recordId: null });
   });
 
+  it('settles a run a person cancelled as cancelled when the worker reports it failed, and raises no failure', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.cancelWorkerRun(ORG, run.id);
+    const ended = await svc.failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', error: 'stopped by Vocion before the task finished (stop)' });
+
+    expect(ended.status).toBe('cancelled');
+
+    const events = await db.select().from(eventLogSchema);
+
+    expect(events.map(e => e.type)).toEqual(['worker_run.completed']);
+    expect(events[0]!.payload).toMatchObject({ workerRunId: run.id, status: 'cancelled' });
+  });
+
   it('says cancelled, not completed, on the completed event for a run that was asked to stop', async () => {
     const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
     await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
@@ -268,6 +282,38 @@ describe('WorkerRunService — what a run cost lands on the record it ran for', 
     // The request is the sum over both tasks; the release too, through taskIds.
     expect(await metaOf(request)).toMatchObject({ kind: 'bug', tags: ['search'], estimateCents: 800, actualCents: 520, varianceCents: -280, taskCount: 2 });
     expect(await metaOf(release)).toMatchObject({ taskIds: [task, sibling], estimateCents: 800, actualCents: 520, varianceCents: -280 });
+  });
+
+  it('the worker\'s final account is the run\'s cost, when the same usage rode on two heartbeats (run 2, 2026-10-01)', async () => {
+    const request = await seedObject('request', 'View count', {});
+    const task = await seedObject('engineering_task', 'Count views', { requestId: request });
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: { message: 'do it', record: { type: 'engineering_task', id: task } } });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    // Two heartbeats in flight carried the same final usage: the sum reads double.
+    for (let i = 0; i < 2; i++) {
+      await svc.heartbeatWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', usage: { model: 'm', inputTokens: 10, outputTokens: 5, cents: 352 } });
+    }
+
+    const done = await svc.completeWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', result: { pr_url: 'https://example.test/pr/2', token_usage: { model: 'm', cost_usd: 3.52 } } });
+
+    expect(done.cents).toBe(352);
+    expect(await metaOf(task)).toMatchObject({ actualCents: 352 });
+  });
+
+  it('a failed run\'s kept cost_usd is its cost; with no final account the heartbeats\' sum stands', async () => {
+    const task = await seedObject('engineering_task', 't', {});
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: { message: 'do it', record: { type: 'engineering_task', id: task } } });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.heartbeatWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', usage: { model: 'm', inputTokens: 10, outputTokens: 5, cents: 90 } });
+    await svc.heartbeatWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', usage: { model: 'm', inputTokens: 10, outputTokens: 5, cents: 90 } });
+
+    expect((await svc.failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', error: 'checks failed', result: { cost_usd: 0.9 } })).cents).toBe(90);
+
+    const plain = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: { message: 'do it', record: { type: 'engineering_task', id: task } } });
+    await svc.claimWorkerRun({ orgId: ORG, id: plain.id, workerId: 'w' });
+    await svc.heartbeatWorkerRun({ orgId: ORG, id: plain.id, workerId: 'w', usage: { model: 'm', inputTokens: 10, outputTokens: 5, cents: 40 } });
+
+    expect((await svc.completeWorkerRun({ orgId: ORG, id: plain.id, workerId: 'w', result: { pr_url: 'x' } })).cents).toBe(40);
   });
 
   it('charges every attempt once — a failed run counts, a second run adds, and the figure is a sum over rows', async () => {

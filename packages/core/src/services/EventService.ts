@@ -9,7 +9,7 @@
  * dispatched to them. This does: `emitEvent` records the event (deduped),
  * finds the workflows subscribed to that type whose filter matches, and starts
  * each one with the payload as input. Durability of the started run is the
- * workflow engine's job (Temporal); this is the fan-out.
+ * workflow engine's job (the durable engine); this is the fan-out.
  */
 
 import type { CausalChain, SkipReason } from '@/services/automations/fireGuards';
@@ -17,8 +17,13 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { eventLogSchema, workflowSchema } from '@/models/Schema';
 import { eventFireCeiling, selfTriggerReason } from '@/services/automations/fireGuards';
+import { matchesFilter, subscribesTo } from '@/services/eventFilter';
 import { startWorkflow } from '@/services/WorkflowService';
 import { readWorkspacePauseWithName, refusalMessage } from '@/services/workspacePause';
+
+// The pure half of subscription matching lives in a leaf, so the decision
+// page can preview a match without loading the bus (`services/eventFilter`).
+export { matchesFilter, subscribesTo };
 
 export type EmitEventInput = {
   orgId: string;
@@ -37,7 +42,7 @@ export type EmitEventInput = {
    * held open for minutes. Only a caller in a request scope may pass it.
    *
    * `auto` is for an emitter that cannot know where it runs — a record
-   * written from a chat turn, a job on the Temporal worker, an action a trust
+   * written from a chat turn, a job on the durable executor, an action a trust
    * rule executed inside another event's pass. Inside a request scope a
    * `job` automation (plain code, milliseconds) runs where the event was
    * raised and anything that runs an agent goes to the background; outside
@@ -126,9 +131,24 @@ export const ARTIFACT_SAVED = 'artifact.saved';
  */
 export const OBJECT_CREATED = 'object.created';
 
+/**
+ * A business object's fields were written (`objects.update_meta`): which type,
+ * which fields, by whom. Domain-free — a plugin decides what a change means.
+ * The software factory subscribes (`factory-contract-changed`): a request
+ * whose contract changed while its merge was waiting goes back through the
+ * loop (Chris, 2026-09-29). Payload: `objectId`, `objectType`, `fields`
+ * (comma-joined, sorted: the fields whose value changed, less any path the
+ * type keeps for itself — `x-bookkeeping`), `actor`, `byPerson`, `orgId`. A
+ * write that changed none of them raises nothing. An automation names the
+ * fields it reads with `when.filter.fieldsAny`.
+ */
+export const OBJECT_UPDATED = 'object.updated';
+
 /** Payload of `object.created`. Scalars only — `when.filter` compares with `===`. */
 export type ObjectCreatedPayload = {
   objectId: number;
+  /** The fields it was born with, comma-joined and sorted — what `fieldsAny` filters read, as on `object.updated`. */
+  fields: string;
   /** The object type's slug, e.g. `request`. What a filter should match on. */
   objectType: string;
   title: string;
@@ -160,6 +180,71 @@ export const PLAN_APPROVED = 'plan.approved';
  * (the rule's trigger sentences, joined), `attempt`.
  */
 export const FACTORY_PLAN_REQUESTED = 'factory.plan_requested';
+
+/**
+ * The factory stopped on a request and put ONE question in front of a person
+ * — the moment the feature page's You line reads "Needs you" (`carry.ts`
+ * `escalate`: `recovery.stage` becomes `stopped` with its ask). Raised once
+ * per stop, after the ask exists, deduped on the request and the ask, so the
+ * sweep re-filing the same stop raises nothing twice. The software-factory
+ * plugin declares its "needs a person" notification on it.
+ */
+export const FACTORY_STOPPED = 'factory.stopped';
+
+/** Payload of `factory.stopped`. Scalars, which `when.filter` compares with `===`. */
+export type FactoryStoppedPayload = {
+  requestId: number;
+  /** The request's title, as the feature page names it. */
+  title: string;
+  /** The ask that is with a person. */
+  askId: number;
+  /** What stopped it, one sentence. */
+  why: string;
+  /** What would unblock it, one clause. */
+  unblock: string;
+  /** Both, as the request's Activity line reads. */
+  line: string;
+  /** Automatic attempts since a person last acted. */
+  attempts: number;
+  /** The failure class, when a run's failure stopped it; null otherwise. */
+  failure: string | null;
+};
+
+/**
+ * The pipeline itself needs fixing, and the seat that owns it is asked to fix
+ * it (backlog 049): a default branch red in its pipeline, a CI that could not
+ * run after one re-run, a pipeline change of its own that went red, or an
+ * environment its recovery could not bring back. Raised in code
+ * (`services/factory/pipelineChange.ts`), deduped on the record and the
+ * attempt; the software-factory plugin's `pipeline-fix` answers it with the
+ * Release engineer, and what that run did is read back when it ends.
+ */
+export const PIPELINE_NEEDS_FIX = 'pipeline.needs_fix';
+
+/** Payload of `pipeline.needs_fix`. Scalars, which `when.filter` compares with `===`. */
+export type PipelineNeedsFixPayload = {
+  /** The record the fix answers — a fix request, or an environment. */
+  recordId: number;
+  title: string;
+  /** `owner/name`. */
+  repo: string;
+  /** The branch the fix lands on. */
+  branch: string;
+  /** `main_broken`, `infra`, `change_failed` (its own change went red) or `unhealthy`. */
+  cause: string;
+  /** One line: what failed and why, as the diagnosis read it. */
+  why: string;
+  /** The failing checks or steps, as GitHub names them. */
+  failing: string;
+  /** The evidence to read first: a pull request, an Actions run, or a health URL. */
+  url: string;
+  /** This attempt, counting from 1, and the most the seat is given before a person is asked. */
+  attempt: number;
+  attempts: number;
+  /** The pipeline change already open for this record, when there is one: add to its branch. */
+  changeUrl: string;
+  changeBranch: string;
+};
 
 /** Payload of `artifact.saved`. Scalars only — `when.filter` compares with `===`. */
 export type ArtifactSavedPayload = {
@@ -246,6 +331,36 @@ export type ReleaseLinkedPayload = {
   /** The requests it closes and the tasks it shipped. Not filterable; read them off the payload. */
   requestIds: number[];
   taskIds: number[];
+  /**
+   * The shipped features by name, as a notification or a line can say them:
+   * `Light theme toggle`, `Light theme toggle and Dark mode`, `Light theme
+   * toggle and 2 more`. Null when no feature was linked.
+   */
+  headline: string | null;
+  /** `is live` for one feature, `are live` for several — so a sentence agrees with `headline`. */
+  liveVerb: 'is live' | 'are live';
+};
+
+/**
+ * A release's live check is wanted again (`services/factory/liveCheck.ts`
+ * `liveCheckEnded`): the first QA fire on `release.linked` did not see the
+ * change, so the plugin's QA checks once more, carrying why. Same scalars as
+ * `release.linked` so one subscriber filter serves both.
+ */
+export const RELEASE_LIVE_CHECK_REQUESTED = 'release.live_check.requested';
+
+/** Payload of `release.live_check.requested`. */
+export type ReleaseLiveCheckRequestedPayload = {
+  releaseId: number;
+  product: string | null;
+  /** Always true: only a release people use is checked live. */
+  userFacing: true;
+  /** 2 on the one retry. */
+  attempt: number;
+  /** Why the last attempt did not see the change. */
+  lastFailure: string;
+  requestIds: number[];
+  taskIds: number[];
 };
 
 export const LEAD_REPLIED = 'lead.replied';
@@ -311,43 +426,6 @@ export type EmitEventResult = {
 };
 
 /**
- * A trigger fires only if every key in `filter` matches the payload: equal,
- * or — for a key ending in `Prefix` — the field it names starts with the
- * value (`branchPrefix: factory/` matches `branch: factory/send-t146-…`).
- *
- * The plugin's QA automations have filtered on `branchPrefix` since they were
- * written, and with `===` only they compared against a `branchPrefix` field no
- * event carries, so the QA-on-PR and learn-from-merged automations never fired
- * once (red team, 2026-09-26).
- * @param payload
- * @param filter
- */
-export function matchesFilter(payload: Record<string, unknown>, filter: unknown): boolean {
-  if (!filter || typeof filter !== 'object') {
-    return true;
-  }
-  return Object.entries(filter as Record<string, unknown>).every(([k, v]) => {
-    if (payload[k] === v) {
-      return true;
-    }
-    if (k.endsWith('Prefix') && typeof v === 'string') {
-      const field = payload[k.slice(0, -'Prefix'.length)];
-      return typeof field === 'string' && field.startsWith(v);
-    }
-    return false;
-  });
-}
-
-/**
- * Whether an automation's `when.event` — one type or several — names this one.
- * @param subscribed - `whenConfig.event` as stored.
- * @param type - The event being emitted.
- */
-export function subscribesTo(subscribed: string | string[] | undefined, type: string): boolean {
-  return Array.isArray(subscribed) ? subscribed.includes(type) : subscribed === type;
-}
-
-/**
  * The slugs of this org's agents authored `initiative: low` — the ones that
  * sit debriefs out.
  * @param orgId - Tenant.
@@ -377,6 +455,36 @@ export const WORKER_RUN_FAILED = 'worker_run.failed';
 export const MISSION_RUN_COMPLETED = 'mission_run.completed';
 export const CONVERSATION_ENDED = 'conversation.ended';
 export const AUTOMATION_RUN_COMPLETED = 'automation_run.completed';
+/**
+ * A mission-check fire ended in an error — the model failed, the required
+ * tool never landed, the mission was missing. `automation_run.completed` is
+ * raised only for a check that produced a result, so without this a fire that
+ * threw left nothing for its owner to answer: the work simply did not happen
+ * and nobody was told why. Payload: `automationRunId`, `slug`, `kind`,
+ * `error` (the first 500 characters), `completedAt`.
+ */
+export const AUTOMATION_RUN_FAILED = 'automation_run.failed';
+
+/**
+ * A record owes a mockup and one is wanted now (`services/factory/mockupDefault.ts`):
+ * a plugin's designer subscribes and draws it. Raised by the default-mockup
+ * job when a record whose rule says it has a UI is filed or gets its surface,
+ * and again once when the first attempt ended without one. Payload:
+ * `recordId`, `recordType`, `title`, `attempt`, and `lastFailure` on a retry.
+ */
+export const MOCKUP_REQUESTED = 'mockup.requested';
+
+/** Payload of `mockup.requested`. Scalars, which `when.filter` compares with `===`. */
+export type MockupRequestedPayload = {
+  recordId: number;
+  /** The record's type slug — what a subscriber's filter matches on. */
+  recordType: string;
+  title: string;
+  /** 1, then 2 on the one retry. */
+  attempt: number;
+  /** Why the last attempt drew nothing, on a retry — so the next one does not repeat it. */
+  lastFailure?: string;
+};
 
 /**
  * The event types that mean "work finished" — `pr.merged` from the GitHub
@@ -392,6 +500,7 @@ export const DEBRIEF_EVENTS: ReadonlySet<string> = new Set([
   MISSION_RUN_COMPLETED,
   CONVERSATION_ENDED,
   AUTOMATION_RUN_COMPLETED,
+  AUTOMATION_RUN_FAILED,
   'pr.merged',
 ]);
 
@@ -461,10 +570,19 @@ export type AutomationRunCompletedPayload = {
   completedAt: string;
 };
 
+/** Payload of `automation_run.failed`. */
+export type AutomationRunFailedPayload = {
+  automationRunId: number;
+  slug: string;
+  kind: 'mission_check';
+  error: string;
+  completedAt: string;
+};
+
 /**
  * Whether this code is running inside a request, where `after` can hold work
  * until the response is sent. Asked by scheduling nothing: `after` throws
- * outside a request scope (a script, the Temporal worker).
+ * outside a request scope (a script, the durable executor).
  */
 async function inRequestScope(): Promise<boolean> {
   try {
@@ -518,6 +636,15 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     await closeMergeCardsOnMerge(input.orgId, payload).catch((err) => {
       console.warn('[events] could not close merge cards', { error: (err as Error).message });
     });
+    // The merge, written on the request it carried, with the runs it started
+    // — so its page says what is carrying it to the release (#269). Off the
+    // event's path: it reads GitHub, and the subscribers below need nothing
+    // from it. A merge it misses is written by the reconcile from this event.
+    void import('@/services/factory/delivery')
+      .then(({ recordMerge }) => recordMerge(input.orgId, payload))
+      .catch((err) => {
+        console.warn('[events] could not record the merge on its request', { error: (err as Error).message });
+      });
   }
 
   // Find active workflows subscribed to this event type whose filter matches.
@@ -578,10 +705,23 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   // once per event and only when an automation is actually a debrief.
   let lowInitiative: Set<string> | null = null;
   for (const a of automations) {
-    // A paused automation is skipped the way a disabled one is — silently,
-    // not as a refused-fire row per event, which would bury the log while a
-    // busy event type is held. The pause itself is already on the record.
-    if (a.status !== 'active' || a.pausedAt || !subscribesTo(a.whenConfig.event, input.type) || !matchesFilter(payload, a.whenConfig.filter)) {
+    if (a.status !== 'active' || !subscribesTo(a.whenConfig.event, input.type) || !matchesFilter(payload, a.whenConfig.filter)) {
+      continue;
+    }
+    // A PAUSED AUTOMATION IS NOT SKIPPED SILENTLY (2026-10-01, #294: the
+    // automation that answers a failed deploy had been paused for ten days,
+    // the deploy failed, and nothing anywhere said that nothing would answer
+    // it). The pause is a person's choice and is honoured; the match is
+    // written as a `skipped` row and said on the records the event is about —
+    // "would have …, but <automation> is paused" — with the move that resumes it.
+    if (a.pausedAt) {
+      if (!workspacePause) {
+        const { recordPausedMatch } = await import('@/services/factory/pausedMatch');
+        const paused = await recordPausedMatch(input.orgId, { slug: a.slug, name: a.name, pausedAt: a.pausedAt, pausedBy: a.pausedBy, pausedNote: a.pausedNote }, { event: input.type, payload, causedBy });
+        if (paused.automationRunId !== null) {
+          skipped.push({ slug: a.slug, automationRunId: paused.automationRunId, reason: 'automation_paused' });
+        }
+      }
       continue;
     }
     if (workspacePause) {
@@ -634,7 +774,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
           result: {
             kind: 'skipped',
             reason: 'rate_limited',
-            detail: `over ${ceiling} event fire${ceiling === 1 ? '' : 's'} in ten minutes (when.maxFiresPer10m); ${coalesce === 'unreachable' ? 'Temporal was unreachable, so this fire will not be replayed' : 'held for one coalesced fire after the window'}`,
+            detail: `over ${ceiling} event fire${ceiling === 1 ? '' : 's'} in ten minutes (when.maxFiresPer10m); ${coalesce === 'unreachable' ? 'the durable engine was unreachable, so this fire will not be replayed' : 'held for one coalesced fire after the window'}`,
             event: input.type,
             causedBy,
             ceiling,
@@ -669,15 +809,46 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
         });
         triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
       }
-    } catch {
-      // Same tolerance as workflows above - one bad automation never drops the event.
+    } catch (err) {
+      // One bad automation never drops the event, and never vanishes either
+      // (2026-09-30, PR #140: the automation meant to send a red CI back to
+      // the engineer matched, threw before its run row existed, and the
+      // event's `triggered` list was empty with no trace of why; the task
+      // then sat "awaiting review" for seven hours). The failure is a run row
+      // with its error, where the fire would have been, and a log line.
+      const message = (err as Error)?.message ?? String(err);
+      console.warn('[events] an automation matched and could not start', { orgId: input.orgId, slug: a.slug, event: input.type, message });
+      const skipId = await recordSkippedFire(input.orgId, a.slug, {
+        event: input.type,
+        payload,
+        result: { kind: 'skipped', reason: 'fire_failed', detail: `matched ${input.type} and could not start: ${message}`.slice(0, 500), event: input.type, causedBy },
+        error: message,
+      }).catch(() => null);
+      if (skipId !== null) {
+        skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'fire_failed' });
+      }
     }
   }
 
   const [row] = await db
     .insert(eventLogSchema)
     .values({ orgId: input.orgId, type: input.type, payload, dedupeKey: input.dedupeKey ?? null, triggered, invokedBy: input.invokedBy ?? null, causedBy })
-    .returning({ id: eventLogSchema.id });
+    .returning({ id: eventLogSchema.id, createdAt: eventLogSchema.createdAt });
+
+  // A RUN WAITING FOR THIS EVENT HEARS IT (backlog 054): the durable runs
+  // that opened a wait matching it are sent it now. Never throws; a run that
+  // misses the send finds the event here when its wait opens.
+  const { forwardEvent } = await import('@/libs/durable');
+  await forwardEvent(input.orgId, input.type, payload, row!.createdAt);
+
+  // NOTIFICATIONS (backlog 048): a kind a plugin or the workspace declared
+  // for this event tells the people it names. Only declared kinds notify —
+  // an event no rule names reaches nobody. Raised past a workspace pause on
+  // purpose: a pause refuses work, and a person hearing that something
+  // stopped or shipped is not work. `notifyFromEvent` never throws; a failure
+  // is written on the rule and logged, never taken out on the event.
+  const { notifyFromEvent } = await import('@/services/notifications/rules');
+  await notifyFromEvent({ orgId: input.orgId, type: input.type, payload, eventId: row!.id, dedupeKey: input.dedupeKey ?? null });
 
   return { eventId: row!.id, deduped: false, triggered, skipped };
 }

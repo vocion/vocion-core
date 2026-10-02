@@ -36,8 +36,12 @@ export { Column, COLUMN, type ColumnKind, ListRow, type ListRowProps, ListRows, 
 export { applyListState, flipDirection, type ListState, type ListStateConfig, parseListState, type SortDirection, toggleChip } from './listState';
 export { ListToolbar, type ToolbarChip, type ToolbarFacet, type ToolbarSort, type ToolbarTab } from './ListToolbar';
 export { useListUrlState } from './listUrlState';
+export { OpenInPreview } from './OpenInPreview';
 // Loading + pending
 export { PendingIcon } from './PendingIcon';
+
+export { RecordCode } from './RecordCode';
+export { Related, relatedFacts } from './Related';
 
 export { formatScore, scorePercent, type ScoreVerdict, scoreVerdict } from './scoreChip';
 export { ConversationSkeleton, ListSkeleton, ReportSkeleton } from './Skeletons';

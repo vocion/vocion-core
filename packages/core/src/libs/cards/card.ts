@@ -17,7 +17,7 @@ import type { RecommendedActionPayload } from '@/services/agents/types';
  */
 import { z } from 'zod';
 
-export const CARD_STATES = ['proposed', 'filed', 'decided', 'deferred', 'expired'] as const;
+export const CARD_STATES = ['proposed', 'filed', 'decided', 'deferred', 'expired', 'unfiled'] as const;
 export type CardState = (typeof CARD_STATES)[number];
 
 export const CardActionSchema = z.object({
@@ -40,6 +40,10 @@ export const CardSchema = z.object({
   source: z.object({ agentSlug: z.string().optional(), tool: z.string().optional() }).default({}),
   /** The proposal this card was filed as, once it was. */
   runId: z.number().int().optional(),
+  /** The page of the record the card is about — its title links there. */
+  href: z.string().min(1).optional(),
+  /** The words on that link: "Open feature". */
+  hrefLabel: z.string().min(1).optional(),
   /** The record the card's action created when it ran — the id the next turn needs. */
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),
@@ -50,6 +54,12 @@ export const CardSchema = z.object({
   suggestedDecisionReason: z.string().optional(),
   rationale: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
+  /**
+   * DRAFT NEEDED: a filing that misses its type's bar (`cardBackstop.ts`).
+   * Never filed as it stands; its button sends `prompt` to the agent, which
+   * drafts the whole record in the conversation.
+   */
+  draft: z.object({ prompt: z.string().min(1), missing: z.string() }).optional(),
 });
 export type Card = z.infer<typeof CardSchema>;
 
@@ -138,6 +148,8 @@ export function cardFromRecommendation(rec: RecommendedActionPayload, id?: strin
     ...(rec.suggestedDecision ? { suggestedDecision: rec.suggestedDecision, suggestedDecisionReason: rec.suggestedDecisionReason } : {}),
     ...(rec.rationale ? { rationale: rec.rationale } : {}),
     ...(typeof rec.confidence === 'number' ? { confidence: rec.confidence } : {}),
+    ...(rec.href ? { href: rec.href, ...(rec.hrefLabel ? { hrefLabel: rec.hrefLabel } : {}) } : {}),
+    ...(rec.draft ? { draft: rec.draft } : {}),
   });
 }
 
@@ -160,5 +172,7 @@ export function recommendationFromCard(card: Card): RecommendedActionPayload & {
     ...(card.source.agentSlug ? { agentSlug: card.source.agentSlug } : {}),
     ...(card.runId !== undefined ? { runId: card.runId } : {}),
     ...(card.suggestedDecision ? { suggestedDecision: card.suggestedDecision, suggestedDecisionReason: card.suggestedDecisionReason } : {}),
+    ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}),
+    ...(card.draft ? { draft: card.draft } : {}),
   };
 }

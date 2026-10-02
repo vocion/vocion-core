@@ -10,6 +10,8 @@ description: >-
   the merge ask, the reply) hangs off this record by id, which is what makes
   "nobody asked for this" a checkable claim rather than a feeling.
 icon: inbox
+# Its records read FE-<id> in the app and in chat (core: libs/codes.ts).
+code: FE
 schema:
   type: object
   # Internal work, not an extracted record: nothing about it is published
@@ -18,6 +20,63 @@ schema:
   # request filed from chat lands on Work at once (Chris, 2026-09-28: "it
   # should probably auto file, and the card should be to start the build").
   x-moderation: none
+  # WHAT THE FACTORY KEEPS FOR ITSELF (core: libs/workspace/bookkeeping.ts).
+  # A write that changes only these paths is bookkeeping: it moves no open page
+  # (no live notice), makes no body version and raises no `object.updated`, so
+  # nothing downstream wakes for it. #269, 2026-09-30: four "drawing, attempt
+  # 2" marks in four minutes re-read the open feature page each time and fired
+  # `factory-contract-changed` and `design-mockup-default` five times each, all
+  # to say they had nothing to do. The value is still written; the next change
+  # a person would see carries it to the page.
+  x-bookkeeping: [visuals.mockupDraw, recovery.handledRunIds, recovery.log, recovery.planRequestedAt, rollupsUpdatedAt]
+  # When a question about a request stops being a question (backlog 039): a
+  # Review item asking about one closes itself once the request ends here.
+  x-settled: {field: state, in: [shipped, answered, out_of_scope, deferred]}
+  # THE SAME ASK TWICE (core: services/objects/duplicateCheck.ts, backlog 044).
+  # #268 was filed from chat a minute after #265 asked for the same thing and
+  # got its own Build card. Now, when a request is filed, a model reads the
+  # product's open requests (and ones closed in the last two weeks) and, sure
+  # at the bar, links it with `duplicateOf`, done for you with Undo; the
+  # intake starts nothing for it. Below the bar nothing is written or said.
+  x-duplicate-check: {field: duplicateOf, within: [product], compare: [outcome, story, body], bar: 0.8, settledDays: 14}
+  # THE PRODUCT IS READ, NOT GUESSED (core: services/objects/referenceRead.ts).
+  # 2026-10-01, #294: asked "On Stamp's document page, show how many pages…",
+  # the PM filed it under another product without looking products up, and
+  # the build was refused because that product has no repo. Now, when a
+  # request is filed, a model reads the person's own words against every
+  # product (its name, names it goes by, tagline, aliases) and returns which
+  # one they meant, with a confidence and their words. Sure at the bar and
+  # different from the filing, the product is corrected, done for you with
+  # Undo, and the request says so in one line. Title and story are not edited.
+  x-reference-read: {field: product, type: product, key: slug, describe: [name, launchName, workingName, aliases, tagline], bar: 0.8}
+  # WHO ANSWERS ON ITS PAGE (core: services/agents/router.ts pageOwnerDecision).
+  # A chat opened on a request's page is the product manager's, whatever the
+  # message's keywords score, unless the person names another agent
+  # (conversation 362: "Three changes to this request…" went to
+  # change-reviewer on "changes", and nothing was written).
+  x-owner: product-manager
+  # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts).
+  # An agent that works with requests gets `file_request`, whose arguments ARE
+  # these fields: the proposal-ready bar below marked required, `product` as
+  # one of the workspace's product slugs, `why` from its closed list — and
+  # the identity set here, never by the model. Conversation 353 (2026-09-28):
+  # propose_action with free-form fields guessed the shape (`product:
+  # "Stamp"`, no story, no dedupOn), was refused twice, and nothing was filed.
+  x-agent-file:
+    dedupOn: [product, title]
+    fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, gapCheck, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
+    omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.beforeArtifactIds, visuals.mockupArtifactIds, visuals.afterArtifactIds, visuals.drawnArtifactId, visuals.mockupDraw]
+  # RELATED (core: libs/workspace/related.ts): what a request is connected
+  # to, read from what the records already say. The chat that started it
+  # (first) and its artifacts are core's own; these are the factory's.
+  x-related:
+    - {key: product, label: Product, from: links, field: product, type: product, match: slug}
+    - {key: plans, label: Plan, from: backlinks, type: architecture_plan, field: requestId}
+    # Read for the pull requests; the tasks and their runs are the feature's
+    # Timeline, not Related (2026-10-02: Related is records only).
+    - {key: tasks, label: Engineering tasks, from: backlinks, type: engineering_task, field: requestId, hidden: true}
+    - {key: pulls, label: Pull requests, from: url, field: prUrl, of: tasks}
+    - {key: releases, label: Releases, from: backlinks, type: release, field: requestIds}
   properties:
     kind:
       x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
@@ -30,10 +89,10 @@ schema:
         incidents go to severity and a repo; ideas go to the scope decision.
       enum: [bug, gap, idea, incident, question]
     channel:
-      x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
+      x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, tracker: info, dogfood: ok, internal: muted}}
       type: string
       description: The door it came through. Kept because the same request arrives differently by channel — a store review is public and terse, a dogfood note is trusted and specific — and the honest answer goes back the way it came.
-      enum: [site, store_review, email, chat, github, dogfood, internal]
+      enum: [site, store_review, email, chat, github, tracker, dogfood, internal]
     product:
       x-display: {label: Product, format: link, to: product, group: Where it came from}
       type: string
@@ -103,10 +162,12 @@ schema:
         product, read at the moment work was about to start rather than when
         the ask arrived. A request records what was true the day somebody
         asked; a product that ships most days makes that a perishable claim.
-        Required before a request may enter `in_scope` or `building`, refused
-        in code rather than asked for in a prompt
-        (`libs/actions/gapGate.ts`), and good for fourteen days — so a replan
-        re-reads it rather than trusting a month-old look.
+        Required to FILE a gap or an idea (the proposal-ready gate: the
+        product's capabilities page, read in the filing turn, among its
+        sources) and again before a request may enter `in_scope` or
+        `building` (still-missing), refused in code rather than asked for in
+        a prompt, and good for fourteen days — so a replan re-reads it rather
+        than trusting a month-old look.
       properties:
         finding:
           type: string
@@ -118,8 +179,16 @@ schema:
           enum: [add, modify, none]
         how:
           type: string
-          description: What was actually looked at — the route, the screen, the endpoint, the file — so the next reader can repeat the check in one move rather than trusting it.
+          description: What was actually looked at — the route, the screen, the endpoint, the file — so the next reader can repeat the check in one move rather than trusting it. With `none`, what already ships, in a sentence the person can be told.
         checkedAt: {type: string, format: date-time}
+        sources:
+          type: array
+          items: {type: string}
+          description: >-
+            What the check read, one entry each: `wiki:<slug>` for a wiki page,
+            `artifact:<id>`, a URL or a file path. A gap or an idea names its
+            product's capabilities page (the product's `capabilitiesPage`),
+            opened with read_wiki_page in the same turn that files it.
     surface:
       x-display: {label: Surface, format: badge, group: Triage, tones: {ui: info, flow: info, data: muted, infra: muted, none: muted}}
       type: string
@@ -145,10 +214,26 @@ schema:
         to be closed. `noVisualReason` is the recorded way out — a way out
         that is written down, never a silent skip.
       properties:
-        beforeArtifactIds: {type: array, items: {type: integer}, description: 'Mockups, flow and architecture diagrams — what we propose to build, so a decision is made against something a person can see.'}
+        beforeArtifactIds: {type: array, items: {type: integer}, description: 'The screen as it is today — the real screenshot a mockup is drawn on. Written by draw_mockup, never by hand. (On a record from before mockupArtifactIds existed it holds the mockups, and is read that way.)'}
+        mockupArtifactIds: {type: array, items: {type: integer}, description: 'What we propose to build: the same real screen with only the change drawn in, one image per state worth seeing (at rest, hover, confirmation). Written by draw_mockup — which also writes beforeArtifactIds — never by hand, so a decision is made against the real app rather than an invented one (request #224, 2026-09-29). A flow diagram for a flow change goes here too.'}
         afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
-        surfaceUrl: {type: string, description: 'Where on the live product this can be seen — and, once it has shipped, where the after-shot was captured. One link, because they are the same place, and a shot nobody can check against the real thing is decoration.'}
+        surfaceUrl: {type: string, description: 'The path on the live product where this can be seen (e.g. /account). The host comes from the product''s production environment, never from here: a full URL whose host is not one of the product''s environments is read as its path on the product.'}
         noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
+        mockupDraw:
+          type: object
+          description: >-
+            Where the default mockup stands, written by the platform
+            (`design-mockup-default`, `design-mockup-ended`), never by hand:
+            `drawing` since `at` (attempt 1, or 2 on the one retry), or
+            `failed` with the `reason` the drawing drew nothing — the line the
+            feature page shows where the mockup would be. Cleared when
+            draw_mockup files the mockups.
+          properties:
+            state: {type: string, enum: [drawing, failed]}
+            attempt: {type: integer}
+            at: {type: string, format: date-time}
+            reason: {type: string}
+            automationRunId: {type: integer}
         drawnArtifactId: {type: integer, description: 'The picture the PLATFORM drew from the record (services/factory/proposalVisual.ts) — a diagram of the shape of the change, kept current on every write. It is what a card shows when nobody has filed a real mockup, and it never satisfies the mockup gate: a drawing derived from the record is not evidence of a proposed experience, so `no mock` stays on the row until Design files one or `noVisualReason` says why not (review, 2026-09-24).'}
     acceptance:
       x-display: {label: Acceptance criteria, role: prose, format: steps, order: 5}
@@ -170,6 +255,7 @@ schema:
         than silently reinterpreting the job.
       items:
         type: object
+        required: [statement]
         properties:
           statement: {type: string, description: 'One thing that must be true, stated so a person can check it. Present tense, user-visible where possible.'}
           met: {type: boolean, description: 'Whether it holds. Absent means nobody has checked yet, which is NOT the same as false.'}
@@ -218,6 +304,86 @@ schema:
         `shipped` — the change merged. `answered` — the reply went back. Every
         request ends in `shipped`, `answered`, or as a duplicate of one that did.
       enum: [new, triaged, in_scope, out_of_scope, deferred, building, shipped, answered]
+    # THE ONE STATUS (Chris, 2026-10-02: "one enum list … a hierarchy of
+    # status labels that run the logic for those 3 tabs"). Every value belongs
+    # to exactly one group, and the group is the Work tab; the feature page's
+    # Current state and the product page's counts read the same field. Core
+    # holds no value of it (libs/objects/statusModel.ts): the labels, groups,
+    # tones, who it waits on and which transition writes which value are all
+    # here. One writer per transition — the request's durable workflow at each
+    # step, the factory's handlers (dispatch, QA's verdict, the merge card, the
+    # merge, the release, the live check, a stop) and a person's own actions —
+    # and `x-transitions` says what each one writes. A write of another field
+    # carries the status with it through `F:V` entries (an agent's `state:
+    # triaged`, a person's Dismiss), first declared match first. A null or
+    # unknown status reads as In progress.
+    status:
+      x-display: {label: Status, format: badge, group: Triage, tones: {new: muted, triaged: muted, deciding: warn, queued: muted, deferred: muted, planning: info, building: info, in_qa: info, changes_asked: warn, awaiting_merge: warn, deploying: info, stopped: bad, shipped: ok, seen_live: ok, answered: muted, out_of_scope: muted, duplicate: muted}}
+      x-labels: {new: Not triaged, triaged: Triaged, deciding: Decide, queued: Queued, deferred: Deferred, planning: Planning, building: Building, in_qa: In QA, changes_asked: Changes asked, awaiting_merge: Waiting on your merge, deploying: Deploying, stopped: Stopped · needs you, shipped: Shipped, seen_live: Shipped · seen live, answered: Answered, out_of_scope: Out of scope, duplicate: Duplicate}
+      x-groups:
+        - {key: progress, label: In progress, role: progress, default: true, in: [planning, building, in_qa, changes_asked, awaiting_merge, deploying, stopped]}
+        - {key: proposed, label: Proposed, role: proposed, in: [new, triaged, deciding, queued, deferred], last: [deferred]}
+        - {key: done, label: Done, role: done, in: [shipped, seen_live, answered]}
+        - {key: archived, label: Archived, role: archived, in: [out_of_scope, duplicate]}
+      # Whose move it is: these lead their tab, and the product page counts them.
+      x-needs-you: [deciding, changes_asked, awaiting_merge, stopped]
+      x-transitions:
+        # Filed, recommended, a Build card up.
+        created: new
+        recommended: deciding
+        build_card: deciding
+        # The request's durable workflow, by its stage (services/factory/requestWorkflow.ts).
+        starting: building
+        planning: planning
+        building: building
+        review: in_qa
+        deploying: deploying
+        merged: deploying
+        live: seen_live
+        live_unconfirmed: shipped
+        live_unchecked: shipped
+        stopped: stopped
+        # The factory's handlers.
+        qa_changes: changes_asked
+        qa_reject: changes_asked
+        merge_waits: awaiting_merge
+        merge_running: deploying
+        shipped: shipped
+        live_seen: seen_live
+        resolved: answered
+        # A write of another field, first match first.
+        'duplicateOf:*': duplicate
+        'recommendationState:rejected': out_of_scope
+        'state:out_of_scope': out_of_scope
+        'state:shipped': shipped
+        'state:answered': answered
+        'state:deferred': deferred
+        'recommendationState:deferred': deferred
+        'state:building': building
+        'recommendationState:proposed': deciding
+        'recommendationState:approved': queued
+        'state:in_scope': queued
+        'state:triaged': triaged
+        'state:new': new
+      type: string
+      description: >-
+        Where the request stands, in one field: Proposed (not triaged,
+        triaged, decide, queued, deferred), In progress (planning, building,
+        in QA, changes asked, waiting on your merge, deploying, stopped · needs
+        you), Done (shipped, shipped · seen live, answered) or Archived (out of
+        scope, duplicate). Written by the factory at each transition and by a
+        person's own actions; agents do not set it by hand. `statusLine` says
+        what is happening in a sentence, `statusAt` when it was written.
+      enum: [new, triaged, deciding, queued, deferred, planning, building, in_qa, changes_asked, awaiting_merge, deploying, stopped, shipped, seen_live, answered, out_of_scope, duplicate]
+    statusLine:
+      x-display: {hidden: true}
+      type: string
+      description: The sentence written with the status — "RUN-478 is building attempt 2", "QA approved 8 of 8; the merge waits on a person". Empty when the transition said none.
+    statusAt:
+      x-display: {hidden: true}
+      type: string
+      format: date-time
+      description: When the status was last written.
     answer:
       x-display: {label: The answer given, role: prose, order: 2}
       type: string
@@ -302,7 +468,7 @@ schema:
     duplicateOf:
       x-display: {label: Duplicate of, format: link, to: request}
       type: integer
-      description: The id of the open request this duplicates. Set by triage; the asker is told, and this record ends here.
+      description: The id of the open request this duplicates. Setting it closes this request by itself — leave state as it is (no state means "duplicate"); the Work page archives it and the factory stops. Set by triage or a person; the asker is told.
     dedupeKey:
       x-display: {label: Dedupe key, format: mono, group: Where it came from}
       type: string
@@ -323,6 +489,14 @@ schema:
       x-display: {label: Source, format: link}
       type: string
       description: Who filed it, when it was not the asker on a channel. `product-manager` marks an idea from the weekly ideas pass, so the Recommendations page can count "ideas of ours" and the ranking can weigh an agent's idea as one source and zero askers.
+    liveCheck:
+      type: object
+      description: >-
+        What QA saw of this feature on the live product after its release
+        (`check_live`): `state` (seen, partial, not_seen), the `line` the page
+        reads, `releaseId`, `checkedAt`, `attempt`, and `flows` — the live QA
+        flow that checked it (setup, check, cleanup), reused and amended the
+        next time. Shipped and not yet seen live reads as such.
     releaseId:
       x-display: {label: Shipped in, format: link, to: release}
       type: integer
@@ -470,6 +644,19 @@ schema:
         owner: {type: string, description: 'Who can clear it — a person by email, or an agent slug.'}
         next: {type: string, description: The one move that clears it.}
         since: {type: string, format: date-time}
+        waitsOn:
+          type: array
+          description: >-
+            The records whose decision clears it — a plan to approve, an ask to
+            answer, a review item (action run) to decide. When any of them is
+            decided the blocker is cleared on its own and the request's
+            Activity says so (`services/factory/blocker.ts`); without this, the
+            records `next` names ("approve plan 136") are read the same way.
+          items:
+            type: object
+            properties:
+              kind: {type: string, enum: [plan, ask, action]}
+              id: {type: integer}
 
 rollups:
   - {field: estimateCents, from: {type: engineering_task, by: requestId}, sum: estimateCents}
@@ -527,6 +714,35 @@ gates:
       - {field: mainRisk, present: true, message: name the one thing most likely to go wrong, in a sentence}
       - {field: visuals.surfaceUrl, present: true, message: name the live page this changes, and attach a before-shot of it as it is today}
       - {field: whyNote, present: true, message: 'say why this does not exist yet: the file, screen or marketing line you checked against what the product already does'}
+      # DOES IT ALREADY SHIP? Request #226 (2026-09-29) asked for link expiry
+      # "because today I have no way to revoke access" — the product shipped
+      # expiry and Kill, and its capabilities page said so. A gap or an idea is
+      # filed only against what the product does today, read in this turn.
+      - field: gapCheck.finding
+        if: {field: kind, oneOf: [gap, idea]}
+        oneOf: [add, modify]
+        missingMessage: >-
+          check what the product already does before filing: read its
+          capabilities page (read_wiki_page), then record gapCheck.finding as
+          add (none of it ships), modify (part of it ships — ask for the part
+          that does not) or none (it all ships), with gapCheck.how,
+          gapCheck.checkedAt and gapCheck.sources
+        valueMessages:
+          none: >-
+            already ships: {gapCheck.how}. Nothing was filed. Tell the person
+            where it is and how to use it, citing the page you read, instead of
+            filing a request for it
+        message: 'gapCheck.finding is "{value}", which is not one of add, modify or none'
+      - {field: gapCheck.how, if: {field: kind, oneOf: [gap, idea]}, present: true, message: 'say what the check looked at, so the next reader can repeat it in one move'}
+      - {field: gapCheck.checkedAt, if: {field: kind, oneOf: [gap, idea]}, present: true, message: say when the check was made}
+      - field: gapCheck.sources
+        if: {field: kind, oneOf: [gap, idea]}
+        readThisTurn: {includes: product.capabilitiesPage}
+        missingMessage: 'list what the check read in gapCheck.sources — the product''s capabilities page first, as wiki:<slug>'
+        message: >-
+          gapCheck.sources must name {page}, opened with read_wiki_page in this
+          turn — it lists what the product already ships. Read it, compare the
+          ask against it, and file only what it does not already do
   - name: decision-ready
     when: {field: state, becomes: [in_scope]}
     producedBy: product-manager

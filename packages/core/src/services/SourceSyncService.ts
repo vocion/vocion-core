@@ -27,7 +27,7 @@
  *
  * A sync still blocks its caller until it finishes, so a long crawl holds
  * a request open the whole time. Those belong on the Temporal path
- * (`services/temporal/activities/sourceSync.ts`) rather than the RPC route.
+ * (`services/background/sourceSync.ts`) rather than the RPC route.
  */
 
 import type { IngestDoc, IngestResult, ProcessorRunMark } from './IngestionService';
@@ -282,6 +282,21 @@ export type RecordedFailure = {
 };
 
 /**
+ * One thing a run read and deliberately did not keep, with the rule that said
+ * so — a pull request outside the source's branch prefix, a document the
+ * connector yielded twice. Not a failure: nothing went wrong. Stored on the
+ * checkpoint so a run that completes with zero documents can say why, instead
+ * of a lower count and silence (Noco, 2026-09-30).
+ */
+export type RecordedSkip = {
+  /** What was not kept, when the reporter knew: a pull request URL, an externalId. */
+  uri?: string;
+  message: string;
+  /** ISO timestamp, in step with RecordedFailure. */
+  at: string;
+};
+
+/**
  * How many failures of each scope one run records.
  *
  * Two separate caps rather than one shared budget, so a source failing to embed
@@ -296,6 +311,13 @@ const RECORDED_DOCUMENT_FAILURE_LIMIT = 25;
  * that never loaded, and must not be pushed out by it either.
  */
 const RECORDED_PROCESSOR_FAILURE_LIMIT = 25;
+/**
+ * Skips are kept the same way: a sample with the reasons, while
+ * `counts.skipped` carries the true total. Twenty-five is enough to see the
+ * rule at work (every line says "outside the factory/ prefix") without a
+ * ten-thousand-row checkpoint for a source whose filter drops nearly everything.
+ */
+const RECORDED_SKIP_LIMIT = 25;
 
 export type SyncResult = {
   sourceId: number;
@@ -495,6 +517,7 @@ export async function beginSync(
  * @param args.cursor
  * @param args.error
  * @param args.failures
+ * @param args.skipped
  */
 export async function finishSync(
   sourceId: number,
@@ -506,6 +529,7 @@ export async function finishSync(
     cursor?: string | null;
     error?: string;
     failures?: RecordedFailure[];
+    skipped?: RecordedSkip[];
   },
 ): Promise<void> {
   await db
@@ -517,6 +541,7 @@ export async function finishSync(
       cursor: args.cursor ?? null,
       error: args.error ?? null,
       failures: args.failures ?? [],
+      skipped: args.skipped ?? [],
       // An omitted watermark leaves the stored one untouched. That matters for
       // a run that completed without reading the whole source: it must neither
       // advance the watermark (skipping what it missed) nor clear it (throwing
@@ -590,7 +615,7 @@ async function announceSyncCompleted(orgId: string, payload: SourceSyncCompleted
  * The abandoned work is signalled to stop and its document is counted as a
  * processor failure; the sync carries on.
  *
- * The per-SYNC wall clock (`SYNC_BUDGET_DEFAULTS.maxWallClockMs`, 600s) is
+ * The per-SYNC wall clock (`SYNC_BUDGET_DEFAULTS.maxWallClockMs`) is
  * unchanged and still bounds the whole processor side of a run.
  */
 const PROCESSOR_TIMEOUT_MS = 25_000;
@@ -599,7 +624,7 @@ const PROCESSOR_TIMEOUT_MS = 25_000;
  * The timeout in force for one document.
  *
  * The env override wins over everything, including a processor's own
- * declaration, so a test need not wait out a two-and-a-half-minute budget.
+ * declaration, so a test need not wait out a processor's whole budget.
  * @param declared - The processor's own `documentTimeoutMs`, when it has one.
  */
 function processorTimeoutMs(declared?: number): number {
@@ -743,6 +768,20 @@ export async function runSync(opts: {
   const bumpProcessorCount = (key: string, by = 1): void => {
     processorCounts[key] = (processorCounts[key] ?? 0) + by;
   };
+  // What the run read and did not keep, with the rule that said so. Only a
+  // skip that names what it dropped (`uri`) is one: the connector's and the
+  // ingest's run-level remarks ("nothing was deleted", "the watermark was left
+  // where it was") also arrive as `skipped` events, and counting those as items
+  // would make a run that kept everything say it skipped two things.
+  const skippedEntries: RecordedSkip[] = [];
+  let skippedCount = 0;
+  const recordSkip = (message: string, uri: string): void => {
+    skippedCount += 1;
+    if (skippedEntries.length < RECORDED_SKIP_LIMIT) {
+      skippedEntries.push({ uri, message, at: new Date().toISOString() });
+    }
+  };
+
   /** What this run managed to do, as stored on the checkpoint row. */
   const countsForCheckpoint = () => ({
     created: result.created,
@@ -751,6 +790,9 @@ export async function runSync(opts: {
     metadataRefreshed: result.metadataRefreshed,
     tombstoned: result.tombstoned,
     errors: result.errors,
+    // Everything the run read and did not keep, by rule. The checkpoint's
+    // `skipped` list is a capped sample of these; this is the whole number.
+    skipped: skippedCount,
     ...processorCounts,
   });
 
@@ -810,6 +852,8 @@ export async function runSync(opts: {
     // list in step with `counts.errors` no matter which side reported it.
     if (event.kind === 'error') {
       recordFailure(scope, event.message ?? 'no message reported', event.uri);
+    } else if (event.kind === 'skipped' && event.uri) {
+      recordSkip(event.message ?? 'no reason reported', event.uri);
     }
     try {
       opts.onProgress?.(event);
@@ -870,6 +914,7 @@ export async function runSync(opts: {
     const retrying = outcome.status === 'unchanged'
       && outcome.processorDue
       && outcome.processorAttempts < MAX_PROCESSOR_ATTEMPTS;
+    const revisiting = outcome.status === 'unchanged' && outcome.revisitDue === true;
     const mark = async (step: ProcessorRunMark): Promise<void> => {
       let attempts: number;
       try {
@@ -888,7 +933,7 @@ export async function runSync(opts: {
       }
     };
     try {
-      if (!processor.runsOn.has(outcome.status) && !retrying) {
+      if (!processor.runsOn.has(outcome.status) && !retrying && !revisiting) {
         return;
       }
       if (!outcome.documentId) {
@@ -901,8 +946,8 @@ export async function runSync(opts: {
         await mark({ kind: 'deferred', error: 'the sync ran out of time before this document', claimed: false });
         return;
       }
-      if (retrying && !processor.runsOn.has(outcome.status)) {
-        bumpProcessorCount('processorRetries');
+      if (!processor.runsOn.has(outcome.status)) {
+        bumpProcessorCount(retrying ? 'processorRetries' : 'processorRevisits');
       }
       await mark({ kind: 'started' });
       const { run } = await processor.load();
@@ -942,7 +987,8 @@ export async function runSync(opts: {
         }
       }
       if (!processed.retry) {
-        await mark({ kind: 'finished', contentHash: outcome.contentHash });
+        const revisitAt = processed.revisitAt instanceof Date && Number.isFinite(processed.revisitAt.getTime()) ? processed.revisitAt : undefined;
+        await mark({ kind: 'finished', contentHash: outcome.contentHash, ...(revisitAt ? { revisitAt } : {}) });
       } else if (processed.retry.countsAsTry) {
         await mark({ kind: 'failed', error: processed.retry.reason });
       } else {
@@ -1208,6 +1254,7 @@ export async function runSync(opts: {
       counts: countsForCheckpoint(),
       watermark: wholeSourceWasRead ? cutoff : undefined,
       failures: failuresForCheckpoint(),
+      skipped: skippedEntries,
     });
     await announceSyncCompleted(opts.orgId, {
       sourceId: opts.sourceId,
@@ -1292,6 +1339,7 @@ export async function runSync(opts: {
       counts: countsForCheckpoint(),
       error: err instanceof Error ? err.message : String(err),
       failures: failuresForCheckpoint(),
+      skipped: skippedEntries,
     });
     throw err;
   }
@@ -1521,6 +1569,12 @@ export type SourceSyncState = {
    * that never touched the ingest counters.
    */
   failures: RecordedFailure[];
+  /**
+   * What the run read and did not keep, by rule, with the reason — a sample;
+   * `counts.skipped` is the total. The card reads the first reason so a run
+   * that kept nothing can say why on the row.
+   */
+  skipped: RecordedSkip[];
 };
 
 /**
@@ -1545,6 +1599,7 @@ export async function latestSyncStateForOrg(orgId: string): Promise<Record<numbe
       counts: sourceSyncCheckpointSchema.counts,
       since: sourceSyncCheckpointSchema.since,
       failures: sourceSyncCheckpointSchema.failures,
+      skipped: sourceSyncCheckpointSchema.skipped,
     })
     .from(sourceSyncCheckpointSchema)
     .where(eq(sourceSyncCheckpointSchema.orgId, orgId));
@@ -1566,6 +1621,7 @@ export async function latestSyncStateForOrg(orgId: string): Promise<Record<numbe
       counts: row.counts,
       since: row.since,
       failures: row.failures ?? [],
+      skipped: row.skipped ?? [],
     };
   }
   return latestPerSource;

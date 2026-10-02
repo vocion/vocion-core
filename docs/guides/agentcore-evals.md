@@ -333,7 +333,7 @@ exactly this reason, but the fix is to check the name.
 3. Vocion starts a batch job naming those session ids, carrying the same
    expected answers, and writes the job's identifiers to `eval_batch_job`
    before AWS is called — so a crash cannot lose a job that is running.
-4. The Temporal workflow sleeps and polls, up to half an hour. Nothing is held
+4. The durable job sleeps and polls, up to half an hour. Nothing is held
    open while it waits.
 5. When the job stops, the per-evaluator averages are stored under the
    `agentcore-batch` provider, and the job row records where AWS wrote the
@@ -682,7 +682,7 @@ would be a different measurement wearing the same name.
 ## Running, and running on a schedule
 
 The refresh button and the scheduled refresh are the same thing — both start
-the `evalRefreshWorkflow` Temporal workflow, so a hand-pressed run and a cron
+the `eval.refresh` durable job, so a hand-pressed run and a cron
 run produce identical rows and the trend line cannot tell them apart.
 
 `POST /api/v1/evals/<slug>/refresh` returns a run id as soon as the workflow is
@@ -756,7 +756,7 @@ when: {schedule: '0 4 * * *'}
 do: {job: refresh-evals}
 ```
 
-Then set this on each box, for both the app and the Temporal worker:
+Then set this on each box, for the app:
 
 ```bash
 WORKSPACE_TEMPLATE_VARS=NIGHTLY_EVALS_STATUS   # append to the list if one exists

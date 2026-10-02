@@ -49,6 +49,19 @@ registerAction({
   execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
 });
 
+// An action that serves ANY source: which vault entry a run spends is read
+// off the input (`sourceSlugFor`), the way `rest.request` names its source.
+registerAction({
+  id: 'test.per-source-write',
+  name: 'Test write to a named source',
+  description: 'test',
+  inputSchema: z.object({ sourceSlug: z.string(), value: z.string() }),
+  grant: 'test_write',
+  external: true,
+  sourceSlugFor: input => (input as { sourceSlug: string }).sourceSlug,
+  execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
+});
+
 const ORG = 'org_act';
 function agent(autonomy: 1 | 2 | 3 | 4 | 5): Principal {
   return { kind: 'agent', id: 'agent:follow-up', grants: ['test_write'], autonomy, scope: { orgId: ORG } };
@@ -73,6 +86,19 @@ describe('ActionService gating', () => {
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
 
     expect(row!.status).toBe('pending');
+  });
+
+  it('records the source the INPUT names on the run when the action resolves its source per input', async () => {
+    const out = await proposeAction({ orgId: ORG, actionId: 'test.per-source-write', input: { sourceSlug: 'billing-api', value: 'x' }, principal: agent(2) });
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
+
+    expect(row!.sourceSlug).toBe('billing-api');
+
+    // Approval resolves that source's credentials (none stored here) and runs.
+    const done = await executeAction(out.runId, ORG);
+
+    expect(done.status).toBe('done');
+    expect(done.result).toMatchObject({ echoed: 'x' });
   });
 
   it('executes immediately for a high-autonomy agent', async () => {
@@ -261,6 +287,21 @@ registerAction({
   execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
 });
 
+// A decision about a record that has since been superseded: its replacement
+// is a new record to judge (#201, 2026-09-29).
+let recordSuperseded = false;
+registerAction({
+  id: 'test.candidate-replaceable',
+  name: 'Test candidate whose record can be superseded',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.candidate-replaceable:${(input as { value: string }).value}`,
+  dedupAgainstDecided: { decisionStillStands: async () => !recordSuperseded },
+  execute: async (_ctx, input) => ({ objectId: 1, echoed: (input as { value: string }).value }),
+});
+
 describe('proposing against an already-decided run', () => {
   beforeEach(() => {
     candidatesExecuted = 0;
@@ -281,6 +322,21 @@ describe('proposing against an already-decided run', () => {
     // `{ runId, status: 'pending' }` and no consumer could distinguish them.
     expect(second.runId).toBe(first.runId);
     expect(second.outcome).toBe('refreshed');
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('a person proposing what is already waiting runs that card, once (FE-130)', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'build-it' }, principal: agent(2) });
+
+    expect(first.status).toBe('pending');
+
+    const person: Principal = { kind: 'user', id: 'usr_person', role: 'member', scope: { orgId: ORG } } as Principal;
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'build-it' }, principal: person });
+
+    expect(second.runId).toBe(first.runId);
+    expect(second.outcome).toBe('refreshed');
+    expect(second.status).toBe('done');
+    expect(candidatesExecuted).toBe(1);
     expect(await db.select().from(actionRunSchema)).toHaveLength(1);
   });
 
@@ -333,6 +389,37 @@ describe('proposing against an already-decided run', () => {
     expect(again.decidedAt).toBeInstanceOf(Date);
     // The whole point: the reviewer's queue does not grow back.
     expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('a card a seat withdrew does not bar the record: the next filing is a new card (#130)', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'withdrawn by its seat', { reviewedBy: 'agent:product-manager' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('created');
+    expect(again.runId).not.toBe(first.runId);
+  });
+
+  it('a sweep that expired a card does not bar the record either', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'expired', { reviewedBy: 'system:review-sweep' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('created');
+  });
+
+  it('a person\'s rejection still stands when a seat withdrew a later card for the same record', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+    await db.insert(actionRunSchema).values({ ...row!, id: undefined, decidedBy: 'agent:product-manager' } as never);
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('already_decided');
+    expect(again.runId).toBe(first.runId);
   });
 
   it('creates no second card for a candidate already approved and run', async () => {
@@ -455,6 +542,29 @@ describe('proposing against an already-decided run', () => {
     expect(second.runId).not.toBe(first.runId);
   });
 
+  it('never refreshes an open card on a key built on a blank: the second filing is its own card (#124)', async () => {
+    // Two different requests, both filed with the identity field blank. The
+    // second used to refresh the first one's open card and rewrite the record
+    // it had made.
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-alerts', venue: '' }, principal: agent(2) });
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-alerts', venue: '' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('created');
+    expect(second.runId).not.toBe(first.runId);
+
+    const [firstRow] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+
+    expect(firstRow?.status).toBe('pending');
+  });
+
+  it('still refreshes the open card when its key is complete', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('refreshed');
+    expect(second.runId).toBe(first.runId);
+  });
+
   it('still blocks the same record when its key is complete', async () => {
     const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
     await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
@@ -555,5 +665,23 @@ describe('an action that decides what a refresh stores', () => {
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
 
     expect(row!.input).toEqual({ value: 'open-mic', note: 'second' });
+  });
+});
+
+describe('a decision about a superseded record no longer blocks its replacement (#201)', () => {
+  it('blocks while the decided record stands, and lets the replacement through once it is superseded', async () => {
+    recordSuperseded = false;
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-replaceable', input: { value: 'plan-for-201' }, principal: agent(2) });
+    await db.update(actionRunSchema).set({ status: 'done', decidedAt: new Date() }).where(eq(actionRunSchema.id, first.runId));
+
+    const blocked = await proposeAction({ orgId: ORG, actionId: 'test.candidate-replaceable', input: { value: 'plan-for-201' }, principal: agent(2) });
+
+    expect(blocked.outcome).toBe('already_decided');
+
+    recordSuperseded = true;
+    const replacement = await proposeAction({ orgId: ORG, actionId: 'test.candidate-replaceable', input: { value: 'plan-for-201' }, principal: agent(2) });
+
+    expect(replacement.outcome).toBe('created');
+    expect(replacement.runId).not.toBe(first.runId);
   });
 });

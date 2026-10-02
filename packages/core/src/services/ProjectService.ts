@@ -1,20 +1,25 @@
 /**
  * Projects (workspaces) as a signed-in user may see them.
  *
- * One tenant_account owns the projects; a user reaches them through their
- * account membership. The sidebar switcher (`routers/Projects.ts`) and the
- * proxy that resolves `/w/<slug>/…` (`src/proxy.ts`) both ask "may this user
- * make that project active?" here, so the two cannot drift apart on the
- * membership rule.
+ * A tenant_account owns the projects; a user reaches them through a membership
+ * in that account. A person can belong to several accounts (a consultant in two
+ * clients'), and the workspace they pick decides which account a request runs
+ * in (`libs/tenancy.ts`, vocion-core#128). The sidebar switcher
+ * (`routers/Projects.ts`) and the proxy that resolves `/w/<slug>/…`
+ * (`src/proxy.ts`) both ask "may this user make that project active?" here, so
+ * the two cannot drift apart on the membership rule.
  */
 
+import type { SQL } from 'drizzle-orm';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
-import { accessibleProjectIds, effectiveRole, enforcementEnabled } from '@/services/WorkspaceAccessService';
+import { accessibleProjectIds, effectiveRole, enforcementEnabled, resolveActiveWorkspace } from '@/services/WorkspaceAccessService';
 
 export type ProjectSummary = {
   id: string;
+  /** The account that owns it — what the switcher groups by. */
+  accountId: string;
   slug: string;
   name: string;
   description: string | null;
@@ -22,11 +27,35 @@ export type ProjectSummary = {
   agentCount: number;
 };
 
-/** The account a user's workspaces belong to — the switcher's eyebrow. */
+/** An account a user belongs to — the switcher's eyebrow and its group headings. */
 export type AccountSummary = { id: string; name: string; slug: string };
+
+/**
+ * Which account a slug should resolve in when more than one of the person's
+ * accounts has a workspace with it. Slugs are only unique inside an account,
+ * so `/w/sales` can mean two workspaces for a person in two accounts.
+ */
+export type AccountPreference = {
+  /**
+   * `tenant_account.slug` the link names (`?account=`, set by a switch that
+   * crosses accounts). A hard filter, not a hint: a link that names an account
+   * resolves there or nowhere, rather than quietly opening a same-named
+   * workspace in a different client's account.
+   */
+  accountSlug?: string | null;
+  /**
+   * `tenant_account.id` to resolve on, also a hard filter: for callers that
+   * know the account already (the mobile share, which only ever offers the
+   * session's account) rather than reading it from a link.
+   */
+  accountId?: string | null;
+  /** The last-active workspace (the `vocion_active_project` cookie). With no account named, its account wins, so a person stays where they are. */
+  lastActiveProjectId?: string | null;
+};
 
 const summaryColumns = {
   id: projectSchema.id,
+  accountId: projectSchema.accountId,
   slug: projectSchema.slug,
   name: projectSchema.name,
   description: projectSchema.description,
@@ -36,46 +65,50 @@ const summaryColumns = {
 };
 
 /**
- * The account the user belongs to, or null.
+ * The join condition every lookup below goes through: this person's membership
+ * in the project's OWN account. A project on an account they are not in finds
+ * no membership row and so is never returned.
  * @param userId - Auth.js user id.
  */
-async function accountIdForUser(userId: string): Promise<string | null> {
-  const [membership] = await db
-    .select({ accountId: accountMembershipSchema.accountId })
-    .from(accountMembershipSchema)
-    .where(eq(accountMembershipSchema.userId, userId))
-    .limit(1);
-  return membership?.accountId ?? null;
+function membershipInProjectAccount(userId: string): SQL | undefined {
+  return and(eq(accountMembershipSchema.accountId, projectSchema.accountId), eq(accountMembershipSchema.userId, userId));
 }
 
 /**
- * The account the user belongs to, named — the eyebrow above the workspace
- * switcher ("Metacto"). Null when the user has no membership.
+ * Sort key: 0 for a project on the same account as the last-active workspace,
+ * 1 otherwise. A subquery rather than a second round trip, because the proxy
+ * runs this on every page navigation.
+ * @param lastActiveProjectId - `project.id` from the cookie, or null.
+ */
+function lastActiveAccountFirst(lastActiveProjectId: string | null): SQL {
+  return sql`case when ${projectSchema.accountId} = (select last_active."account_id" from "project" last_active where last_active."id" = ${lastActiveProjectId}) then 0 else 1 end`;
+}
+
+/**
+ * Every account the user belongs to, oldest membership first — the switcher's
+ * groups. Empty when the user has no membership.
  * @param userId - Auth.js user id.
  */
-export async function accountForUser(userId: string): Promise<AccountSummary | null> {
-  const accountId = await accountIdForUser(userId);
-  if (!accountId) {
-    return null;
-  }
-  const [row] = await db
+export async function accountsForUser(userId: string): Promise<AccountSummary[]> {
+  return db
     .select({ id: tenantAccountSchema.id, name: tenantAccountSchema.name, slug: tenantAccountSchema.slug })
     .from(tenantAccountSchema)
-    .where(eq(tenantAccountSchema.id, accountId))
-    .limit(1);
-  return row ?? null;
+    .innerJoin(accountMembershipSchema, eq(accountMembershipSchema.accountId, tenantAccountSchema.id))
+    .where(eq(accountMembershipSchema.userId, userId))
+    .orderBy(asc(accountMembershipSchema.createdAt), asc(tenantAccountSchema.id));
 }
 
 /**
- * Every project on the user's account — what the switcher lists.
+ * Every project the user can open, across every account they belong to — what
+ * the switcher lists. Each carries its `accountId` so the switcher can group
+ * them and knows when a switch crosses accounts.
  * @param userId - Auth.js user id.
  */
 export async function listProjectsForUser(userId: string): Promise<ProjectSummary[]> {
-  const accountId = await accountIdForUser(userId);
-  if (!accountId) {
-    return [];
-  }
-  const all = await db.select(summaryColumns).from(projectSchema).where(eq(projectSchema.accountId, accountId));
+  const all = await db
+    .select(summaryColumns)
+    .from(projectSchema)
+    .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId));
   if (!enforcementEnabled()) {
     return all;
   }
@@ -89,24 +122,46 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
  *
  * Slug matching is case-insensitive (`Vocion-Workforce` finds
  * `vocion-workforce`) because slugs travel in mails and chat where people
- * retype them. Returns null when the project does not exist or belongs to an
- * account the user is not a member of — the caller cannot tell the two apart,
- * on purpose.
+ * retype them. A slug can exist on more than one of the person's accounts, and
+ * it resolves on ONE of them: the account a link names
+ * (`preference.accountSlug`), else the account of the last-active workspace,
+ * else the account they joined first. If they cannot open the workspace on
+ * that account, the answer is null — never a quiet move to a same-named
+ * workspace in a different client's account. Returns null when the project
+ * does not exist or belongs to an account the user is not a member of — the
+ * caller cannot tell the two apart, on purpose.
  * @param userId - Auth.js user id.
  * @param selector - `{ id }` or `{ slug }`.
+ * @param preference - Which account wins when a slug is on several of them.
  */
-export async function resolveProjectForUser(userId: string, selector: { id: string } | { slug: string }): Promise<ProjectSummary | null> {
-  const accountId = await accountIdForUser(userId);
-  if (!accountId) {
-    return null;
-  }
+export async function resolveProjectForUser(
+  userId: string,
+  selector: { id: string } | { slug: string },
+  preference: AccountPreference = {},
+): Promise<ProjectSummary | null> {
   const match = 'id' in selector
     ? eq(projectSchema.id, selector.id)
     : eq(sql`lower(${projectSchema.slug})`, selector.slug.trim().toLowerCase());
+  // Account slugs travel in links people retype, like workspace slugs.
+  const namedAccount = preference.accountSlug?.trim().toLowerCase();
+  const conditions: SQL[] = [match];
+  if (namedAccount) {
+    conditions.push(eq(sql`lower(${tenantAccountSchema.slug})`, namedAccount));
+  }
+  if (preference.accountId) {
+    conditions.push(eq(projectSchema.accountId, preference.accountId));
+  }
   const [project] = await db
     .select(summaryColumns)
     .from(projectSchema)
-    .where(and(eq(projectSchema.accountId, accountId), match))
+    .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId))
+    .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
+    .where(and(...conditions))
+    .orderBy(
+      lastActiveAccountFirst(preference.lastActiveProjectId?.trim() || null),
+      asc(accountMembershipSchema.createdAt),
+      asc(projectSchema.accountId),
+    )
     .limit(1);
   if (!project) {
     return null;
@@ -125,54 +180,23 @@ export async function resolveProjectForUser(userId: string, selector: { id: stri
  * The workspace a bare `/dashboard/…` request belongs to, for the redirect
  * that makes every URL canonical (`src/proxy.ts`).
  *
- * "Last active" is the `vocion_active_project` cookie when it names a project
- * on the user's account; otherwise the account's first project — the same
- * order `resolveTenancyForUser` uses, so the redirect can never send a reader
- * to a workspace the page would then resolve differently. Null when the user
- * has no workspace at all (onboarding), which the caller reads as "leave the
- * URL alone".
+ * The same decision tenancy makes (`resolveActiveWorkspace`), so the redirect
+ * can never send a reader to a workspace the page would then resolve
+ * differently: the `vocion_active_project` cookie's workspace when it is on one
+ * of the user's accounts and they may open it, otherwise the first workspace
+ * they can open. Null when the user has no workspace at all (onboarding), which
+ * the caller reads as "leave the URL alone".
  * @param userId - Auth.js user id.
  * @param preferredProjectId - `project.id` from the cookie, if any.
+ * @param preferredAccountId - With no usable cookie, look in this account first.
  */
-export async function activeWorkspaceForUser(userId: string, preferredProjectId?: string | null): Promise<{ id: string; accountId: string; slug: string } | null> {
-  const accountId = await accountIdForUser(userId);
-  if (!accountId) {
+export async function activeWorkspaceForUser(userId: string, preferredProjectId?: string | null, preferredAccountId?: string | null): Promise<{ id: string; accountId: string; slug: string } | null> {
+  const active = await resolveActiveWorkspace(userId, preferredProjectId, preferredAccountId);
+  if (!active?.projectId) {
     return null;
   }
-  const columns = { id: projectSchema.id, slug: projectSchema.slug };
-  const enforced = enforcementEnabled();
-  const preferred = preferredProjectId?.trim();
-  if (preferred) {
-    const [chosen] = await db
-      .select(columns)
-      .from(projectSchema)
-      .where(and(eq(projectSchema.id, preferred), eq(projectSchema.accountId, accountId)))
-      .limit(1);
-    if (chosen && (!enforced || await effectiveRole(userId, chosen.id))) {
-      return { ...chosen, accountId };
-    }
-  }
-  if (enforced) {
-    // The first workspace they actually hold, ordered so a person's landing
-    // workspace does not change between requests.
-    const reachable = (await accessibleProjectIds(userId)).sort();
-    const firstId = reachable[0];
-    if (!firstId) {
-      return null;
-    }
-    const [row] = await db.select(columns).from(projectSchema).where(eq(projectSchema.id, firstId)).limit(1);
-    return row ? { ...row, accountId } : null;
-  }
-  // Ordered for the same reason as `resolveTenancyForUser`: an unordered
-  // "first project" is whatever the planner returns, which stops being a
-  // harmless detail as soon as an account holds more than a handful.
-  const [first] = await db
-    .select(columns)
-    .from(projectSchema)
-    .where(eq(projectSchema.accountId, accountId))
-    .orderBy(asc(projectSchema.createdAt), asc(projectSchema.id))
-    .limit(1);
-  return first ? { ...first, accountId } : null;
+  const slug = await projectSlugById(active.projectId);
+  return slug ? { id: active.projectId, accountId: active.accountId, slug } : null;
 }
 
 /**
@@ -187,4 +211,25 @@ export async function projectSlugById(projectId: string): Promise<string | null>
     .where(eq(projectSchema.id, projectId))
     .limit(1);
   return row?.slug ?? null;
+}
+
+/** Where a workspace lives in a URL: its slug, and its account's for `?account=`. */
+export type WorkspaceAddress = { slug: string; accountSlug: string };
+
+/**
+ * A workspace's slug with its account's, for links that leave the app (mail,
+ * Slack, API responses): the slug alone is ambiguous for a reader in two
+ * accounts, so these links name the account too (`workspaceUrl`'s
+ * `accountSlug`).
+ * @param projectId - `project.id`.
+ * @returns The address, or null for an unknown workspace.
+ */
+export async function workspaceAddressById(projectId: string): Promise<WorkspaceAddress | null> {
+  const [row] = await db
+    .select({ slug: projectSchema.slug, accountSlug: tenantAccountSchema.slug })
+    .from(projectSchema)
+    .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
+    .where(eq(projectSchema.id, projectId))
+    .limit(1);
+  return row ?? null;
 }

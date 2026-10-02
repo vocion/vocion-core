@@ -95,6 +95,34 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   ...SELF_UPDATE_RISK,
   'hubspot.update': 'low',
   'gmail.send': 'medium',
+  // A post to a channel the workspace bound: read by people who did not ask,
+  // but taken back by Undo. Medium, beside the email.
+  'chat.post_message': 'medium',
+  // The tracker family: an issue filed or commented on a client's board is
+  // read by people who did not ask (medium); a transition, a field or an
+  // attachment is a reversible edit to a record they already own (low).
+  'tracker.create_issue': 'medium',
+  'tracker.comment': 'medium',
+  'tracker.transition_issue': 'low',
+  'tracker.update_issue': 'low',
+  'tracker.attach_file': 'low',
+  // The code host's own writes (the repo family). A comment, a re-run and a
+  // cancelled run change no code and come back with Undo; a review, a pull
+  // request, a started pipeline and a revert reach the repository's engineers
+  // or its deploys, so they sit one tier up.
+  'repo.comment_pull': 'low',
+  'repo.rerun_failed_checks': 'low',
+  'repo.cancel_pipeline_run': 'low',
+  'repo.submit_review': 'medium',
+  'repo.open_pull': 'medium',
+  'repo.dispatch_pipeline': 'medium',
+  'repo.revert_pull': 'medium',
+  // A reply in the asker's own thread: read by the asker, taken back by Undo.
+  // Medium, like the post; a kind (`chat.reply_in_thread.sensitive`) reads
+  // the parent's rule unless the workspace writes its own.
+  'chat.reply_in_thread': 'medium',
+  // A reaction changes no words and Undo removes it.
+  'chat.add_reaction': 'low',
   'personalization.enroll': 'medium',
   'discovery.review_proposal': 'low',
   'objects.propose_candidate': 'medium',

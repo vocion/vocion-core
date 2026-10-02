@@ -28,9 +28,15 @@ REAL_DOCKER="$(command -v docker)"
 WORK_DIR="$(mktemp -d)"
 SHIM_DIR="${WORK_DIR}/shim"
 FAKE_DOCKER_DIR="${WORK_DIR}/fake-docker-shim"
+FAKE_CURL_DIR="${WORK_DIR}/fake-curl-shim"
+FAKE_DOCKER_NO_BUILDX_DIR="${WORK_DIR}/fake-docker-without-buildx"
 MIGRATIONS_FIXTURE="${WORK_DIR}/migrations"
 FIXTURE_REPO="${WORK_DIR}/repo"
 CALL_LOG="${WORK_DIR}/calls.log"
+# What the fake `curl` serves as the buildx release.
+FAKE_BUILDX_BODY='#!/bin/sh
+exit 0
+'
 
 tests_passed=0
 tests_failed=0
@@ -168,11 +174,117 @@ echo "docker \$*" >> "${CALL_LOG}"
 if [ "\$1" = "exec" ]; then
   exec "${REAL_DOCKER}" "\$@"
 fi
+# FAKE_DOCKER_BUILDX_MISSING plays a box whose Docker has no buildx plugin,
+# until install-buildx.sh puts an executable one where the CLI looks.
+if [ "\$1" = "buildx" ] && [ -n "\${FAKE_DOCKER_BUILDX_MISSING:-}" ] \\
+  && [ ! -x "\${DOCKER_CONFIG:-}/cli-plugins/docker-buildx" ]; then
+  exit 1
+fi
+# FAKE_BUILDER_MISSING plays a CI runner that has never made the
+# vocion-app-builder, and FAKE_BUILDX_BUILD_FAIL a build that fails.
+# FAKE_BUILDX_CREATE_RACE plays a second push that loses the race to create
+# the builder: its create fails, but the other push's builder then exists.
+if [ "\$1" = "buildx" ] && [ "\$2" = "create" ] && [ -n "\${FAKE_BUILDX_CREATE_RACE:-}" ]; then
+  touch "${WORK_DIR}/builder-made-by-another-push"
+  echo "ERROR: existing instance for \"vocion-app-builder\" but no append mode" >&2
+  exit 1
+fi
+if [ "\$1" = "buildx" ] && [ "\$2" = "inspect" ] && [ -n "\${FAKE_BUILDER_MISSING:-}" ] \\
+  && [ ! -e "${WORK_DIR}/builder-made-by-another-push" ]; then
+  exit 1
+fi
+if [ "\$1" = "buildx" ] && [ "\$2" = "build" ] && [ -n "\${FAKE_BUILDX_BUILD_FAIL:-}" ]; then
+  exit 1
+fi
+# The registry password arrives on stdin; record only that it came.
+if [ "\$1" = "login" ]; then
+  if [ -n "\$(cat)" ]; then
+    echo "docker login read a password from stdin" >> "${CALL_LOG}"
+  fi
+  exit 0
+fi
+# FAKE_PULL_FAILURES fails that many pulls before one succeeds, and
+# FAKE_PULL_FAILURES=always fails them all. The log already holds this call.
+if [ "\$1" = "pull" ]; then
+  pulls_so_far=\$(grep -c '^docker pull ' "${CALL_LOG}")
+  if [ "\${FAKE_PULL_FAILURES:-0}" = "always" ] \\
+    || [ "\${pulls_so_far}" -le "\${FAKE_PULL_FAILURES:-0}" ]; then
+    exit 1
+  fi
+  exit 0
+fi
+# The one label pull-app-image.sh reads: the app URL the image was built for.
+if [ "\$1" = "image" ] && [ "\$2" = "inspect" ]; then
+  echo "\${FAKE_IMAGE_APP_URL:-}"
+  exit 0
+fi
 exit 0
 FAKE
+  # An `aws` that hands out a fixed ECR password, or fails the way a box
+  # without ECR permissions does when FAKE_AWS_FAIL is set.
+  cat > "${FAKE_DOCKER_DIR}/aws" <<FAKE
+#!/usr/bin/env bash
+echo "aws \$*" >> "${CALL_LOG}"
+if [ -n "\${FAKE_AWS_FAIL:-}" ]; then
+  echo "An error occurred (AccessDeniedException) when calling the GetAuthorizationToken operation" >&2
+  exit 255
+fi
+echo "fake-ecr-password"
+FAKE
+  chmod +x "${FAKE_DOCKER_DIR}/aws"
+  # A `curl` that records its arguments and writes FAKE_BUILDX_BODY to its -o
+  # path, so the buildx install runs without touching the network.
+  # FAKE_CURL_TAMPERED writes something else, so the checksum can't match, and
+  # FAKE_CURL_FAIL fails the way `curl -f` does on a 404. A `uname` answers
+  # FAKE_UNAME_MACHINE (x86_64 by default), so the release picked doesn't
+  # depend on the machine running these tests. Both live in their own
+  # directory, put on PATH only by the tests that expect a download.
+  mkdir -p "${FAKE_CURL_DIR}"
+  cat > "${FAKE_CURL_DIR}/curl" <<FAKE
+#!/usr/bin/env bash
+echo "curl \$*" >> "${CALL_LOG}"
+if [ -n "\${FAKE_CURL_FAIL:-}" ]; then
+  echo "curl: (22) The requested URL returned error: 404" >&2
+  exit 22
+fi
+output_path=""
+while [ "\$#" -gt 0 ]; do
+  if [ "\$1" = "-o" ]; then
+    output_path="\$2"
+    shift
+  fi
+  shift
+done
+if [ -n "\${output_path}" ]; then
+  if [ -n "\${FAKE_CURL_TAMPERED:-}" ]; then
+    printf 'not the release\n' > "\${output_path}"
+  else
+    printf '%s' '${FAKE_BUILDX_BODY}' > "\${output_path}"
+  fi
+fi
+exit 0
+FAKE
+  # A `docker` whose buildx never loads, even once the plugin file is there.
+  mkdir -p "${FAKE_DOCKER_NO_BUILDX_DIR}"
+  cat > "${FAKE_DOCKER_NO_BUILDX_DIR}/docker" <<FAKE
+#!/usr/bin/env bash
+echo "docker \$*" >> "${CALL_LOG}"
+[ "\$1" = "buildx" ] && exit 1
+exit 0
+FAKE
+  chmod +x "${FAKE_DOCKER_NO_BUILDX_DIR}/docker"
+  cat > "${FAKE_CURL_DIR}/uname" <<FAKE
+#!/bin/sh
+echo "\${FAKE_UNAME_MACHINE:-x86_64}"
+FAKE
+  chmod +x "${FAKE_CURL_DIR}/curl" "${FAKE_CURL_DIR}/uname"
+  # FAKE_GIT_DETACHED plays a checkout of a tag or commit: no branch.
   cat > "${FAKE_DOCKER_DIR}/git" <<FAKE
 #!/usr/bin/env bash
 echo "git \$*" >> "${CALL_LOG}"
+if [ "\$1" = "symbolic-ref" ] && [ -n "\${FAKE_GIT_DETACHED:-}" ]; then
+  exit 1
+fi
 exit 0
 FAKE
   # bootstrap.sh probes whether the data directory is a mount point.
@@ -208,6 +320,16 @@ build_fixture_repo() {
   cp "${SCRIPT_DIR}/apply-migrations.sh" "${FIXTURE_REPO}/infra/aws/"
   cp "${SCRIPT_DIR}/update.sh" "${FIXTURE_REPO}/infra/aws/"
   cp "${SCRIPT_DIR}/bootstrap.sh" "${FIXTURE_REPO}/infra/aws/"
+  cp "${SCRIPT_DIR}/pull-app-image.sh" "${FIXTURE_REPO}/infra/aws/"
+  cp "${SCRIPT_DIR}/push-app-image.sh" "${FIXTURE_REPO}/infra/aws/"
+  cp "${SCRIPT_DIR}/../../packages/core/Dockerfile" "${FIXTURE_REPO}/packages/core/"
+  # The fixture's copy pins the fake release's checksum in place of the real
+  # ones, so the install can pass its checksum check without the network.
+  # Everything else in the script is what ships.
+  local fake_sha256
+  fake_sha256="$(printf '%s' "${FAKE_BUILDX_BODY}" | sha256sum | cut -d ' ' -f 1)"
+  sed -E "s/^(BUILDX_SHA256_(AMD64|ARM64))=.*/\\1=\"${fake_sha256}\"/" \
+    "${SCRIPT_DIR}/install-buildx.sh" > "${FIXTURE_REPO}/infra/aws/install-buildx.sh"
   # A .git directory so bootstrap.sh takes the "already cloned" path.
   mkdir -p "${FIXTURE_REPO}/.git"
   write_fixture_env_file
@@ -281,6 +403,8 @@ run_applier_using_repo_dir() {
 UPDATE_OUTPUT=""
 UPDATE_EXIT=0
 
+# Extra NAME=value arguments are passed to update.sh's environment and win
+# over the defaults here, including PATH.
 run_update_script() {
   : > "${CALL_LOG}"
   UPDATE_OUTPUT=$(
@@ -291,6 +415,7 @@ run_update_script() {
       POSTGRES_USER="${DB_USER}" \
       MIGRATIONS_DIR="${MIGRATIONS_FIXTURE}" \
       DEPLOY_CALL_LOG="${CALL_LOG}" \
+      "$@" \
       bash "${FIXTURE_REPO}/infra/aws/update.sh" 2>&1
   )
   UPDATE_EXIT=$?
@@ -299,6 +424,7 @@ run_update_script() {
 BOOTSTRAP_OUTPUT=""
 BOOTSTRAP_EXIT=0
 
+# Extra NAME=value arguments work as they do for run_update_script.
 run_bootstrap_script() {
   : > "${CALL_LOG}"
   BOOTSTRAP_OUTPUT=$(
@@ -310,9 +436,87 @@ run_bootstrap_script() {
       POSTGRES_USER="${DB_USER}" \
       MIGRATIONS_DIR="${MIGRATIONS_FIXTURE}" \
       DEPLOY_CALL_LOG="${CALL_LOG}" \
+      "$@" \
       bash "${FIXTURE_REPO}/infra/aws/bootstrap.sh" 2>&1
   )
   BOOTSTRAP_EXIT=$?
+}
+
+INSTALL_BUILDX_OUTPUT=""
+INSTALL_BUILDX_EXIT=0
+BUILDX_PLUGIN_ROOT="${WORK_DIR}/docker-cli-config"
+
+# Runs install-buildx.sh on a box with no buildx plugin, installing into a
+# fresh BUILDX_PLUGIN_ROOT. Extra NAME=value arguments go to its environment.
+run_install_buildx() {
+  : > "${CALL_LOG}"
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
+  INSTALL_BUILDX_OUTPUT=$(
+    env PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+      FAKE_DOCKER_BUILDX_MISSING=1 \
+      DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}" \
+      "$@" \
+      bash "${FIXTURE_REPO}/infra/aws/install-buildx.sh" 2>&1
+  )
+  INSTALL_BUILDX_EXIT=$?
+}
+
+PUSH_OUTPUT=""
+PUSH_EXIT=0
+PUSH_STEP_OUTPUTS="${WORK_DIR}/github-step-outputs"
+
+# push-app-image.sh as a CI job runs it, with GITHUB_OUTPUT pointed at a
+# fresh file. Leading NAME=value arguments go to its environment; the rest,
+# after a `--`, are its own arguments.
+run_push_script() {
+  : > "${CALL_LOG}"
+  : > "${PUSH_STEP_OUTPUTS}"
+  rm -f "${WORK_DIR}/builder-made-by-another-push"
+  local environment=()
+  while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+    environment+=("$1")
+    shift
+  done
+  [ "${1:-}" = "--" ] && shift
+  # The ${name[@]+...} form: bash 3.2 (macOS) calls an empty array unbound.
+  PUSH_OUTPUT=$(
+    env PATH="${FAKE_DOCKER_DIR}:${PATH}" \
+      GITHUB_OUTPUT="${PUSH_STEP_OUTPUTS}" \
+      GITHUB_SHA= \
+      ${environment[@]+"${environment[@]}"} \
+      bash "${FIXTURE_REPO}/infra/aws/push-app-image.sh" "$@" 2>&1
+  )
+  PUSH_EXIT=$?
+}
+
+PULL_OUTPUT=""
+PULL_EXIT=0
+
+# pull-app-image.sh on its own, the way a parent project's deploy script
+# calls it. Extra NAME=value arguments go to its environment; the last
+# argument is the image.
+run_pull_script() {
+  : > "${CALL_LOG}"
+  local image="${*: -1}"
+  local environment=("${@:1:$#-1}")
+  PULL_OUTPUT=$(
+    env PATH="${FAKE_DOCKER_DIR}:${PATH}" \
+      ${environment[@]+"${environment[@]}"} \
+      bash "${FIXTURE_REPO}/infra/aws/pull-app-image.sh" "${image}" 2>&1
+  )
+  PULL_EXIT=$?
+}
+
+# Passes when the plugin directory holds nothing: no plugin, and no
+# half-downloaded file left beside it.
+check_no_buildx_plugin_left() {
+  local leftovers
+  leftovers="$(ls -A "${BUILDX_PLUGIN_ROOT}/cli-plugins" 2>/dev/null)"
+  if [ -z "${leftovers}" ]; then
+    pass "$1"
+  else
+    fail "$1" "found in cli-plugins: ${leftovers}"
+  fi
 }
 
 # ----------------------------------------------------------------------
@@ -1093,6 +1297,309 @@ test_update_migrates_before_rolling_containers() {
     "rebuilding vocion-app image" "applying any new migrations"
   check_contains "reaches the end" "${UPDATE_OUTPUT}" "done."
   check_contains "rolls app and worker" "$(cat "${CALL_LOG}")" "up -d --no-deps app worker"
+  check_absent "leaves an installed buildx plugin alone" "${UPDATE_OUTPUT}" \
+    "installing docker-buildx plugin"
+}
+
+# The image's build step uses a BuildKit cache mount (#670), which fails on
+# Docker's legacy builder. A box bootstrapped before #670 may have no buildx
+# plugin, so update.sh has to install it before it builds.
+test_update_installs_buildx_before_building() {
+  echo "update.sh: box without the buildx plugin"
+  reset_database
+  seed_two_pending_migrations
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
+  run_update_script \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+    FAKE_DOCKER_BUILDX_MISSING=1 \
+    DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}"
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_contains "says it is installing buildx" "${UPDATE_OUTPUT}" \
+    "installing docker-buildx plugin"
+  check_order "downloads the pinned buildx release before building the image" \
+    "$(cat "${CALL_LOG}")" \
+    "releases/download/v0.37.1/buildx-v0.37.1.linux-amd64" "docker build --build-arg"
+  if [ -x "${BUILDX_PLUGIN_ROOT}/cli-plugins/docker-buildx" ]; then
+    pass "installs the plugin where the Docker CLI looks for it"
+  else
+    fail "installs the plugin where the Docker CLI looks for it" \
+      "no executable at ${BUILDX_PLUGIN_ROOT}/cli-plugins/docker-buildx"
+  fi
+}
+
+# A failed download must stop the deploy before it builds or migrates, with
+# the old containers still serving.
+test_update_stops_when_buildx_cannot_be_installed() {
+  echo "update.sh: buildx download fails"
+  reset_database
+  seed_two_pending_migrations
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
+  run_update_script \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+    FAKE_DOCKER_BUILDX_MISSING=1 \
+    FAKE_CURL_FAIL=1 \
+    DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}"
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "says the download failed" "${UPDATE_OUTPUT}" \
+    "ERROR: could not download"
+  # Not just "docker build", which `docker buildx version` also contains.
+  check_absent "never builds the image" "$(cat "${CALL_LOG}")" "docker build --build-arg"
+  check_absent "never applies migrations" "${UPDATE_OUTPUT}" "applying any new migrations"
+  check_absent "never rolls the containers" "$(cat "${CALL_LOG}")" "up -d --no-deps"
+}
+
+# Rolling back to a ref from before #670 checks out a tree with no
+# install-buildx.sh and no cache mount. The deploy must still build.
+test_update_rolls_back_to_a_ref_without_the_installer() {
+  echo "update.sh: ref from before install-buildx.sh"
+  reset_database
+  seed_two_pending_migrations
+  local saved="${WORK_DIR}/saved-install-buildx.sh"
+  mv "${FIXTURE_REPO}/infra/aws/install-buildx.sh" "${saved}"
+  run_update_script FAKE_DOCKER_BUILDX_MISSING=1
+  mv "${saved}" "${FIXTURE_REPO}/infra/aws/install-buildx.sh"
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_contains "still builds the image" "$(cat "${CALL_LOG}")" "docker build --build-arg"
+}
+
+# ----------------------------------------------------------------------
+# update.sh with a CI-built image (VOCION_APP_IMAGE, #670)
+# ----------------------------------------------------------------------
+
+ECR_IMAGE="123456789012.dkr.ecr.us-west-2.amazonaws.com/vocion-app:abc1234"
+
+# The point of a prebuilt image: the box pulls it and never compiles, so it
+# never needs buildx either, even on a box that has none.
+test_update_pulls_a_prebuilt_image_instead_of_building() {
+  echo "update.sh: prebuilt image from ECR"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_IMAGE_APP_URL=https://fixture.example \
+    FAKE_DOCKER_BUILDX_MISSING=1
+  local calls
+  calls="$(cat "${CALL_LOG}")"
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_contains "still pulls the branch it is on" "${calls}" "git pull --ff-only"
+  check_contains "asks ECR for a password in the registry's own region" "${calls}" \
+    "aws ecr get-login-password --region us-west-2"
+  check_contains "logs in to the registry with the password on stdin" "${calls}" \
+    "docker login read a password from stdin"
+  check_absent "never puts the password on a command line" "${calls}" "fake-ecr-password"
+  check_order "pulls the image before migrations run" "${UPDATE_OUTPUT}" \
+    "pulled ${ECR_IMAGE}" "applying any new migrations"
+  check_order "tags it as the image compose runs, before the roll" "${calls}" \
+    "docker tag ${ECR_IMAGE} vocion-app:latest" "up -d --no-deps app worker"
+  check_absent "never builds on the box" "${calls}" "docker build"
+  check_absent "never installs buildx" "${UPDATE_OUTPUT}" "installing docker-buildx plugin"
+}
+
+# A pull that keeps failing must stop the deploy with the old containers
+# still serving, and must not run migrations the old image can't handle.
+test_update_stops_when_the_image_cannot_be_pulled() {
+  echo "update.sh: image pull keeps failing"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_PULL_FAILURES=always \
+    PULL_RETRY_SECONDS=0
+  local calls pulls
+  calls="$(cat "${CALL_LOG}")"
+  pulls="$(printf '%s\n' "${calls}" | grep -c '^docker pull ')"
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "says how many times it tried" "${UPDATE_OUTPUT}" "after 3 tries"
+  if [ "${pulls}" = "3" ]; then
+    pass "tries the pull three times"
+  else
+    fail "tries the pull three times" "saw ${pulls} pulls"
+  fi
+  check_absent "never falls back to building" "${calls}" "docker build"
+  check_absent "never applies migrations" "${UPDATE_OUTPUT}" "applying any new migrations"
+  check_absent "never rolls the containers" "${calls}" "up -d --no-deps"
+}
+
+test_update_retries_a_pull_that_fails_once() {
+  echo "update.sh: image pull fails once"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_IMAGE_APP_URL=https://fixture.example \
+    FAKE_PULL_FAILURES=1 \
+    PULL_RETRY_SECONDS=0
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_contains "says it is retrying" "${UPDATE_OUTPUT}" "pull failed (try 1 of 3)"
+  check_contains "rolls the containers" "$(cat "${CALL_LOG}")" "up -d --no-deps app worker"
+}
+
+# Next bakes NEXT_PUBLIC_APP_URL into the client bundle. Dev's image on the
+# production box would send every sign-in to dev.
+test_update_refuses_an_image_built_for_another_url() {
+  echo "update.sh: image built for another environment"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_IMAGE_APP_URL=https://dev.fixture.example
+  local calls
+  calls="$(cat "${CALL_LOG}")"
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "names both URLs" "${UPDATE_OUTPUT}" \
+    "built for 'https://dev.fixture.example', but this box serves https://fixture.example"
+  check_absent "never retags it as the running image" "${calls}" "vocion-app:latest"
+  check_absent "never applies migrations" "${UPDATE_OUTPUT}" "applying any new migrations"
+  check_absent "never rolls the containers" "${calls}" "up -d --no-deps"
+}
+
+# An image built before the label existed says nothing about its URL, which
+# is no proof it fits this box.
+test_update_refuses_an_image_without_the_url_label() {
+  echo "update.sh: image with no app-url label"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script VOCION_APP_IMAGE="${ECR_IMAGE}" FAKE_IMAGE_APP_URL=
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "says the URL is unknown" "${UPDATE_OUTPUT}" "built for 'an unknown URL'"
+  check_absent "never rolls the containers" "$(cat "${CALL_LOG}")" "up -d --no-deps"
+}
+
+# Without a tag Docker pulls :latest, whatever was pushed last, so neither
+# the deploy nor a rollback would know what it ran.
+test_update_refuses_an_image_without_a_tag() {
+  echo "update.sh: image with no tag"
+  run_update_script \
+    VOCION_APP_IMAGE="localhost:5000/vocion-app" \
+    FAKE_IMAGE_APP_URL=https://fixture.example
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "says the tag is missing" "${UPDATE_OUTPUT}" "has no tag"
+  check_absent "never pulls" "$(cat "${CALL_LOG}")" "docker pull"
+}
+
+# A registry other than ECR brings its own login; asking AWS for an ECR
+# password would fail on a box with no AWS role.
+test_update_skips_the_ecr_login_for_another_registry() {
+  echo "update.sh: prebuilt image from a registry other than ECR"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script \
+    VOCION_APP_IMAGE="localhost:5000/vocion-app:abc1234" \
+    FAKE_IMAGE_APP_URL=https://fixture.example
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_absent "never calls aws" "$(cat "${CALL_LOG}")" "aws ecr"
+  check_contains "pulls the image" "$(cat "${CALL_LOG}")" \
+    "docker pull --quiet localhost:5000/vocion-app:abc1234"
+}
+
+test_update_stops_when_the_ecr_login_fails() {
+  echo "update.sh: box role can't log in to ECR"
+  run_update_script VOCION_APP_IMAGE="${ECR_IMAGE}" FAKE_AWS_FAIL=1
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "names the permission the role needs" "${UPDATE_OUTPUT}" \
+    "ecr:GetAuthorizationToken"
+  check_absent "never pulls" "$(cat "${CALL_LOG}")" "docker pull"
+}
+
+# With no app URL in the env file there is nothing to check the image
+# against, and skipping the check would let any environment's image through.
+test_update_refuses_an_image_when_the_box_has_no_app_url() {
+  echo "update.sh: prebuilt image, no NEXT_PUBLIC_APP_URL on the box"
+  local env_file="${FIXTURE_REPO}/infra/aws/.env.production"
+  sed -i.with-url '/^NEXT_PUBLIC_APP_URL=/d' "${env_file}"
+  run_update_script VOCION_APP_IMAGE="${ECR_IMAGE}" FAKE_IMAGE_APP_URL=https://fixture.example
+  mv "${env_file}.with-url" "${env_file}"
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "names the missing value" "${UPDATE_OUTPUT}" "NEXT_PUBLIC_APP_URL is missing"
+  check_absent "never pulls" "$(cat "${CALL_LOG}")" "docker pull"
+}
+
+# A rollback deploys an older tag or commit, which leaves no branch to pull.
+# `git pull` there fails, and under set -e that stopped every such deploy.
+test_update_deploys_a_tag_or_commit_without_pulling_a_branch() {
+  echo "update.sh: checkout of a tag or commit"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script \
+    FAKE_GIT_DETACHED=1 \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_IMAGE_APP_URL=https://fixture.example
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_absent "doesn't pull a branch" "$(cat "${CALL_LOG}")" "git pull"
+  check_contains "rolls the containers" "$(cat "${CALL_LOG}")" "up -d --no-deps app worker"
+}
+
+# Rolling back to a ref from before prebuilt images leaves no pull script.
+# Building instead would quietly do the risky thing the caller opted out of.
+test_update_with_an_image_on_a_ref_without_the_pull_script() {
+  echo "update.sh: prebuilt image on a ref from before pull-app-image.sh"
+  local saved="${WORK_DIR}/saved-pull-app-image.sh"
+  mv "${FIXTURE_REPO}/infra/aws/pull-app-image.sh" "${saved}"
+  run_update_script VOCION_APP_IMAGE="${ECR_IMAGE}"
+  mv "${saved}" "${FIXTURE_REPO}/infra/aws/pull-app-image.sh"
+  check_exit_code "exits non-zero" nonzero "${UPDATE_EXIT}"
+  check_contains "says to deploy that ref without an image" "${UPDATE_OUTPUT}" \
+    "Deploy it without VOCION_APP_IMAGE"
+  check_absent "never builds on the box" "$(cat "${CALL_LOG}")" "docker build"
+}
+
+# ----------------------------------------------------------------------
+# install-buildx.sh tests
+# ----------------------------------------------------------------------
+
+test_install_buildx_does_nothing_when_present() {
+  echo "install-buildx.sh: plugin already there"
+  run_install_buildx FAKE_DOCKER_BUILDX_MISSING=
+  check_exit_code "exits 0" 0 "${INSTALL_BUILDX_EXIT}"
+  check_absent "downloads nothing" "$(cat "${CALL_LOG}")" "curl"
+  check_no_buildx_plugin_left "installs nothing"
+}
+
+test_install_buildx_picks_the_release_for_the_machine() {
+  echo "install-buildx.sh: arm64 box"
+  run_install_buildx FAKE_UNAME_MACHINE=aarch64
+  check_exit_code "exits 0" 0 "${INSTALL_BUILDX_EXIT}"
+  check_contains "downloads the arm64 release" "$(cat "${CALL_LOG}")" \
+    "releases/download/v0.37.1/buildx-v0.37.1.linux-arm64"
+  check_contains "reports the install" "${INSTALL_BUILDX_OUTPUT}" \
+    "docker-buildx v0.37.1 installed"
+}
+
+# A download that doesn't match the pinned checksum is never installed: a
+# swapped release or a proxy's error page must not end up run as root.
+test_install_buildx_rejects_a_checksum_mismatch() {
+  echo "install-buildx.sh: checksum mismatch"
+  run_install_buildx FAKE_CURL_TAMPERED=1
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_contains "names the mismatch" "${INSTALL_BUILDX_OUTPUT}" "ERROR: checksum mismatch"
+  check_no_buildx_plugin_left "leaves no plugin and no partial download"
+}
+
+test_install_buildx_leaves_nothing_after_a_failed_download() {
+  echo "install-buildx.sh: download fails"
+  run_install_buildx FAKE_CURL_FAIL=1
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_no_buildx_plugin_left "leaves no plugin and no partial download"
+}
+
+test_install_buildx_refuses_an_unknown_machine() {
+  echo "install-buildx.sh: unsupported machine"
+  run_install_buildx FAKE_UNAME_MACHINE=riscv64
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_contains "names the machine" "${INSTALL_BUILDX_OUTPUT}" "uname -m: riscv64"
+  check_absent "downloads nothing" "$(cat "${CALL_LOG}")" "curl"
+}
+
+# The Docker CLI can still fail to load a plugin that downloaded and matched,
+# say one built for another libc. The install says so rather than letting the
+# build fall through to the legacy builder's "--mount option requires BuildKit".
+test_install_buildx_checks_the_plugin_loads() {
+  echo "install-buildx.sh: plugin installed but not loadable"
+  run_install_buildx \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_NO_BUILDX_DIR}:${FAKE_DOCKER_DIR}:${PATH}"
+  check_exit_code "exits non-zero" nonzero "${INSTALL_BUILDX_EXIT}"
+  check_contains "says the plugin still doesn't load" "${INSTALL_BUILDX_OUTPUT}" \
+    "still fails"
 }
 
 test_update_reads_env_from_infra_aws() {
@@ -1214,6 +1721,76 @@ test_bootstrap_applies_migrations_and_completes() {
   fi
 }
 
+# bootstrap.sh builds the image too, so a fresh box needs buildx before that.
+test_bootstrap_installs_buildx_before_building() {
+  echo "bootstrap.sh: box without the buildx plugin"
+  reset_database
+  seed_two_pending_migrations
+  rm -rf "${BUILDX_PLUGIN_ROOT}"
+  run_bootstrap_script \
+    PATH="${FAKE_CURL_DIR}:${FAKE_DOCKER_DIR}:${PATH}" \
+    FAKE_DOCKER_BUILDX_MISSING=1 \
+    DOCKER_CONFIG="${BUILDX_PLUGIN_ROOT}"
+  check_exit_code "exits 0" 0 "${BOOTSTRAP_EXIT}"
+  check_order "downloads the pinned buildx release before building the image" \
+    "$(cat "${CALL_LOG}")" \
+    "releases/download/v0.37.1/buildx-v0.37.1.linux-amd64" "docker build -t vocion-app:latest"
+}
+
+# A fresh box pulls its first image too, so it never compiles at all.
+test_bootstrap_pulls_a_prebuilt_image_instead_of_building() {
+  echo "bootstrap.sh: prebuilt image from ECR"
+  reset_database
+  seed_two_pending_migrations
+  run_bootstrap_script \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_IMAGE_APP_URL=https://fixture.example
+  local calls
+  calls="$(cat "${CALL_LOG}")"
+  check_exit_code "exits 0" 0 "${BOOTSTRAP_EXIT}"
+  check_order "pulls the image before the stack comes up" "${BOOTSTRAP_OUTPUT}" \
+    "pulled ${ECR_IMAGE}" "starting Vocion stack"
+  check_absent "never builds on the box" "${calls}" "docker build"
+  check_contains "reports completion" "${BOOTSTRAP_OUTPUT}" "bootstrap complete"
+}
+
+# The env file may quote its values; bootstrap.sh must compare the URL
+# itself, not the quotes, or a correct image is refused.
+test_bootstrap_reads_a_quoted_app_url() {
+  echo "bootstrap.sh: quoted NEXT_PUBLIC_APP_URL"
+  reset_database
+  seed_two_pending_migrations
+  local env_file="${FIXTURE_REPO}/infra/aws/.env.production"
+  sed -i.unquoted 's|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL="https://fixture.example"|' "${env_file}"
+  run_bootstrap_script \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_IMAGE_APP_URL=https://fixture.example
+  mv "${env_file}.unquoted" "${env_file}"
+  check_exit_code "exits 0" 0 "${BOOTSTRAP_EXIT}"
+}
+
+test_bootstrap_refuses_an_image_when_the_box_has_no_app_url() {
+  echo "bootstrap.sh: prebuilt image, no NEXT_PUBLIC_APP_URL on the box"
+  local env_file="${FIXTURE_REPO}/infra/aws/.env.production"
+  sed -i.with-url '/^NEXT_PUBLIC_APP_URL=/d' "${env_file}"
+  run_bootstrap_script VOCION_APP_IMAGE="${ECR_IMAGE}" FAKE_IMAGE_APP_URL=https://fixture.example
+  mv "${env_file}.with-url" "${env_file}"
+  check_exit_code "exits non-zero" nonzero "${BOOTSTRAP_EXIT}"
+  check_contains "names the missing value" "${BOOTSTRAP_OUTPUT}" "NEXT_PUBLIC_APP_URL is empty"
+  check_absent "never pulls" "$(cat "${CALL_LOG}")" "docker pull"
+}
+
+test_bootstrap_refuses_an_image_built_for_another_url() {
+  echo "bootstrap.sh: image built for another environment"
+  run_bootstrap_script \
+    VOCION_APP_IMAGE="${ECR_IMAGE}" \
+    FAKE_IMAGE_APP_URL=https://dev.fixture.example
+  check_exit_code "exits non-zero" nonzero "${BOOTSTRAP_EXIT}"
+  check_contains "names both URLs" "${BOOTSTRAP_OUTPUT}" \
+    "built for 'https://dev.fixture.example', but this box serves https://fixture.example"
+  check_absent "never starts the stack" "${BOOTSTRAP_OUTPUT}" "starting Vocion stack"
+}
+
 test_bootstrap_aborts_on_migration_failure() {
   echo "bootstrap.sh: failing migration"
   reset_database
@@ -1235,6 +1812,203 @@ test_bootstrap_aborts_without_an_env_file() {
   check_contains "says which file is missing" "${BOOTSTRAP_OUTPUT}" ".env.production missing"
   check_absent "never reports completion" "${BOOTSTRAP_OUTPUT}" "bootstrap complete"
   mv "${saved}" "${FIXTURE_REPO}/infra/aws/.env.production"
+}
+
+# ----------------------------------------------------------------------
+# pull-app-image.sh on its own
+# ----------------------------------------------------------------------
+
+# A digest names one build exactly, so it is as good as a commit tag.
+test_pull_accepts_a_digest() {
+  echo "pull-app-image.sh: image by digest"
+  local digest_image="localhost:5000/vocion-app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  run_pull_script EXPECTED_APP_URL=https://fixture.example FAKE_IMAGE_APP_URL=https://fixture.example \
+    "${digest_image}"
+  check_exit_code "exits 0" 0 "${PULL_EXIT}"
+  check_contains "tags it as the image compose runs" "$(cat "${CALL_LOG}")" \
+    "docker tag ${digest_image} vocion-app:latest"
+}
+
+# :latest is whatever was pushed last, and :buildcache is a build cache, not
+# an image; neither can be redeployed or rolled back to on purpose.
+test_pull_refuses_tags_that_do_not_name_one_build() {
+  echo "pull-app-image.sh: :latest and :buildcache"
+  local tag
+  for tag in latest buildcache; do
+    run_pull_script FAKE_IMAGE_APP_URL=https://fixture.example "localhost:5000/vocion-app:${tag}"
+    if [ "${PULL_EXIT}" -ne 0 ] && ! grep -qF "docker pull" "${CALL_LOG}" \
+      && printf '%s' "${PULL_OUTPUT}" | grep -qF "doesn't name one build"; then
+      pass "refuses :${tag} before pulling"
+    else
+      fail "refuses :${tag} before pulling" "exit ${PULL_EXIT}: ${PULL_OUTPUT}"
+    fi
+  done
+}
+
+# Run by hand with no EXPECTED_APP_URL, the script trusts the caller about
+# the URL but still pulls and tags.
+test_pull_without_an_expected_url_skips_the_check() {
+  echo "pull-app-image.sh: no EXPECTED_APP_URL"
+  run_pull_script FAKE_IMAGE_APP_URL=https://anything.example "localhost:5000/vocion-app:abc1234"
+  check_exit_code "exits 0" 0 "${PULL_EXIT}"
+  check_absent "doesn't read the label" "$(cat "${CALL_LOG}")" "image inspect"
+  check_contains "tags the image" "$(cat "${CALL_LOG}")" \
+    "docker tag localhost:5000/vocion-app:abc1234 vocion-app:latest"
+}
+
+# ----------------------------------------------------------------------
+# push-app-image.sh tests — `docker buildx build` itself is faked; the
+# real build, push and pull are exercised in CI (see infra/aws/README.md).
+# ----------------------------------------------------------------------
+
+ECR_REPOSITORY="123456789012.dkr.ecr.us-east-1.amazonaws.com/vocion-app"
+
+test_push_builds_and_pushes_one_tagged_image() {
+  echo "push-app-image.sh: CI build to ECR"
+  run_push_script \
+    APP_IMAGE_REPOSITORY="${ECR_REPOSITORY}" \
+    IMAGE_TAG=abc1234 \
+    -- \
+    --build-arg NEXT_PUBLIC_APP_URL=https://app.example \
+    --build-arg NEXT_PUBLIC_BRAND_NAME=Fixture
+  local build_call
+  build_call="$(grep '^docker buildx build ' "${CALL_LOG}")"
+  check_exit_code "exits 0" 0 "${PUSH_EXIT}"
+  check_contains "logs in to ECR in the repository's own region" "$(cat "${CALL_LOG}")" \
+    "aws ecr get-login-password --region us-east-1"
+  check_contains "tags the image with the commit" "${build_call}" \
+    "--tag ${ECR_REPOSITORY}:abc1234"
+  check_contains "stamps the app URL on the image for the pull to check" "${build_call}" \
+    "--label org.vocion.app-url=https://app.example"
+  check_contains "reads the cache from the repository" "${build_call}" \
+    "--cache-from type=registry,ref=${ECR_REPOSITORY}:buildcache"
+  # ECR rejects a registry cache in any other form.
+  check_contains "writes every layer to the cache in the form ECR stores" "${build_call}" \
+    "--cache-to type=registry,ref=${ECR_REPOSITORY}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true"
+  check_contains "pushes the image" "${build_call}" "--push"
+  check_contains "passes the other build arguments through" "${build_call}" \
+    "--build-arg NEXT_PUBLIC_BRAND_NAME=Fixture"
+  check_contains "builds the core Dockerfile" "${build_call}" \
+    "--file ${FIXTURE_REPO}/packages/core/Dockerfile"
+  check_contains "builds for the x86 boxes by default" "${build_call}" "--platform linux/amd64"
+  check_contains "names a public value left at the Dockerfile's default" "${PUSH_OUTPUT}" \
+    "note: NEXT_PUBLIC_LANGFUSE_PROJECT_ID is not passed"
+  check_absent "doesn't name one that was passed" "${PUSH_OUTPUT}" \
+    "note: NEXT_PUBLIC_BRAND_NAME is not passed"
+  check_absent "doesn't name the app URL" "${PUSH_OUTPUT}" \
+    "note: NEXT_PUBLIC_APP_URL is not passed"
+  check_contains "hands the image to the deploy job" "$(cat "${PUSH_STEP_OUTPUTS}")" \
+    "image=${ECR_REPOSITORY}:abc1234"
+}
+
+test_push_tags_with_the_github_commit_by_default() {
+  echo "push-app-image.sh: tag from GITHUB_SHA"
+  run_push_script \
+    APP_IMAGE_REPOSITORY=localhost:5000/vocion-app \
+    GITHUB_SHA=0123456789abcdef \
+    -- \
+    --build-arg=NEXT_PUBLIC_APP_URL=https://app.example
+  local build_call
+  build_call="$(grep '^docker buildx build ' "${CALL_LOG}")"
+  check_exit_code "exits 0" 0 "${PUSH_EXIT}"
+  check_contains "tags the image with GITHUB_SHA" "${build_call}" \
+    "--tag localhost:5000/vocion-app:0123456789abcdef"
+  check_contains "reads the --build-arg=NAME=value form" "${build_call}" \
+    "--label org.vocion.app-url=https://app.example"
+  check_absent "never calls aws for another registry" "$(cat "${CALL_LOG}")" "aws ecr"
+}
+
+# A Graviton box can't run an x86 image, so the platform must reach the build.
+test_push_builds_for_the_platform_asked_for() {
+  echo "push-app-image.sh: IMAGE_PLATFORM"
+  run_push_script \
+    APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=abc1234 IMAGE_PLATFORM=linux/arm64 \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_exit_code "exits 0" 0 "${PUSH_EXIT}"
+  check_contains "builds for arm64" "$(grep '^docker buildx build ' "${CALL_LOG}")" \
+    "--platform linux/arm64"
+}
+
+# The default `docker` builder can't write a registry cache, so a runner
+# without the named builder gets one; a runner that has it reuses it.
+test_push_creates_its_builder_only_when_missing() {
+  echo "push-app-image.sh: buildx builder"
+  run_push_script \
+    APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=abc1234 FAKE_BUILDER_MISSING=1 \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_exit_code "exits 0 on a fresh runner" 0 "${PUSH_EXIT}"
+  check_order "creates a docker-container builder before building" "$(cat "${CALL_LOG}")" \
+    "docker buildx create --name vocion-app-builder --driver docker-container" \
+    "docker buildx build --builder vocion-app-builder"
+  run_push_script \
+    APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=abc1234 \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_absent "reuses a builder that is already there" "$(cat "${CALL_LOG}")" "buildx create"
+  run_push_script \
+    APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=abc1234 \
+    FAKE_BUILDER_MISSING=1 FAKE_BUILDX_CREATE_RACE=1 \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_exit_code "uses the builder another push just created" 0 "${PUSH_EXIT}"
+}
+
+# A failed build must not hand the deploy job an image name, or the deploy
+# would pull whatever that tag held before.
+test_push_reports_no_image_when_the_build_fails() {
+  echo "push-app-image.sh: build fails"
+  run_push_script \
+    APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=abc1234 FAKE_BUILDX_BUILD_FAIL=1 \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_exit_code "exits non-zero" nonzero "${PUSH_EXIT}"
+  check_absent "writes no image output" "$(cat "${PUSH_STEP_OUTPUTS}")" "image="
+  check_absent "never says it pushed" "${PUSH_OUTPUT}" "[push-app-image] pushed "
+  check_contains "says nothing was pushed" "${PUSH_OUTPUT}" "Nothing was pushed under that tag"
+}
+
+test_push_stops_when_the_ecr_login_fails() {
+  echo "push-app-image.sh: CI role can't log in to ECR"
+  run_push_script \
+    APP_IMAGE_REPOSITORY="${ECR_REPOSITORY}" IMAGE_TAG=abc1234 FAKE_AWS_FAIL=1 \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_exit_code "exits non-zero" nonzero "${PUSH_EXIT}"
+  check_contains "names the permission the role needs" "${PUSH_OUTPUT}" \
+    "ecr:GetAuthorizationToken"
+  check_absent "never builds" "$(cat "${CALL_LOG}")" "buildx build"
+}
+
+# Passes when the last push run refused, for the reason given, before
+# building anything.
+check_push_refused() {
+  local label="$1" reason="$2"
+  if [ "${PUSH_EXIT}" -ne 0 ] && ! grep -qF "buildx build" "${CALL_LOG}" \
+    && printf '%s' "${PUSH_OUTPUT}" | grep -qF -- "${reason}"; then
+    pass "${label}"
+  else
+    fail "${label}" "exit ${PUSH_EXIT}; output: ${PUSH_OUTPUT}"
+  fi
+}
+
+# Each refusal is a push that would leave a deploy nothing safe to pull.
+test_push_refuses_what_a_deploy_could_not_use() {
+  echo "push-app-image.sh: refusals"
+  run_push_script IMAGE_TAG=abc1234 -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_push_refused "refuses without a repository" \
+    "APP_IMAGE_REPOSITORY is not set"
+  run_push_script APP_IMAGE_REPOSITORY=localhost:5000/vocion-app \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_push_refused "refuses without a tag outside GitHub Actions" \
+    "IMAGE_TAG is not set"
+  run_push_script APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=latest \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_push_refused "refuses the tag latest, which the next push would overwrite" \
+    "'latest' can't be a deploy tag"
+  run_push_script APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=buildcache \
+    -- --build-arg NEXT_PUBLIC_APP_URL=https://app.example
+  check_push_refused "refuses the cache's own tag" \
+    "'buildcache' can't be a deploy tag"
+  run_push_script APP_IMAGE_REPOSITORY=localhost:5000/vocion-app IMAGE_TAG=abc1234 \
+    -- --build-arg NEXT_PUBLIC_BRAND_NAME=Fixture
+  check_push_refused "refuses a build with no app URL" \
+    "pass --build-arg NEXT_PUBLIC_APP_URL=https://<host>"
 }
 
 # ----------------------------------------------------------------------
@@ -1276,7 +2050,8 @@ test_scripts_do_not_call_the_missing_context_script() {
 test_all_scripts_parse() {
   echo "static: every deploy script parses"
   local script
-  for script in apply-migrations.sh update.sh bootstrap.sh; do
+  for script in apply-migrations.sh update.sh bootstrap.sh install-buildx.sh \
+    pull-app-image.sh push-app-image.sh; do
     if bash -n "${SCRIPT_DIR}/${script}" 2>/dev/null; then
       pass "${script} parses"
     else
@@ -1355,6 +2130,20 @@ main() {
   test_default_container_and_database_match_compose
 
   test_update_migrates_before_rolling_containers
+  test_update_installs_buildx_before_building
+  test_update_stops_when_buildx_cannot_be_installed
+  test_update_rolls_back_to_a_ref_without_the_installer
+  test_update_pulls_a_prebuilt_image_instead_of_building
+  test_update_stops_when_the_image_cannot_be_pulled
+  test_update_retries_a_pull_that_fails_once
+  test_update_refuses_an_image_built_for_another_url
+  test_update_refuses_an_image_without_the_url_label
+  test_update_refuses_an_image_without_a_tag
+  test_update_skips_the_ecr_login_for_another_registry
+  test_update_stops_when_the_ecr_login_fails
+  test_update_refuses_an_image_when_the_box_has_no_app_url
+  test_update_deploys_a_tag_or_commit_without_pulling_a_branch
+  test_update_with_an_image_on_a_ref_without_the_pull_script
   test_update_reads_env_from_infra_aws
   test_update_aborts_on_migration_failure
   test_update_with_no_pending_migrations_still_rolls
@@ -1365,8 +2154,32 @@ main() {
   test_update_accepts_the_legacy_env_location
 
   test_bootstrap_applies_migrations_and_completes
+  test_bootstrap_installs_buildx_before_building
+  test_bootstrap_pulls_a_prebuilt_image_instead_of_building
+  test_bootstrap_reads_a_quoted_app_url
+  test_bootstrap_refuses_an_image_built_for_another_url
+  test_bootstrap_refuses_an_image_when_the_box_has_no_app_url
   test_bootstrap_aborts_on_migration_failure
   test_bootstrap_aborts_without_an_env_file
+
+  test_install_buildx_does_nothing_when_present
+  test_install_buildx_picks_the_release_for_the_machine
+  test_install_buildx_rejects_a_checksum_mismatch
+  test_install_buildx_leaves_nothing_after_a_failed_download
+  test_install_buildx_refuses_an_unknown_machine
+  test_install_buildx_checks_the_plugin_loads
+
+  test_pull_accepts_a_digest
+  test_pull_refuses_tags_that_do_not_name_one_build
+  test_pull_without_an_expected_url_skips_the_check
+
+  test_push_builds_and_pushes_one_tagged_image
+  test_push_builds_for_the_platform_asked_for
+  test_push_tags_with_the_github_commit_by_default
+  test_push_creates_its_builder_only_when_missing
+  test_push_reports_no_image_when_the_build_fails
+  test_push_stops_when_the_ecr_login_fails
+  test_push_refuses_what_a_deploy_could_not_use
 
   test_scripts_do_not_swallow_migration_failures
   test_bootstrap_no_longer_uses_drizzle_kit

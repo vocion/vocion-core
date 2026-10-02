@@ -126,6 +126,21 @@ export const fileSpecSchema = z.object({
   contentType: z.string(),
   bytes: z.number().int().nonnegative(),
   url: z.string(),
+  /** An image's pixel size, when the platform drew it. */
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  /** What a drawn image was drawn FROM (a mockup's HTML, CSS and look), so a redraw starts there. */
+  source: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * The one line a person reads under the picture — what it shows. Written
+   * when the image is filed (a mockup's state, a capture's flow), so the
+   * feature page's carousel reads it rather than making one up.
+   */
+  caption: z.string().max(300).optional(),
+  /** Who or what made it, and where: `{by, drawnFrom, missionRunId, conversationId, workerRunId}`. */
+  provenance: z.record(z.string(), z.unknown()).optional(),
+  /** For a capture of the running product: the page it was taken from. */
+  capturedFrom: z.string().max(2000).optional(),
 });
 export type FileSpec = z.infer<typeof fileSpecSchema>;
 

@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { ASK_KINDS, ASK_RISKS, getAsk } from '@/services/AskService';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
+import { askHeldByThePersonHere } from '../decisionHolder';
 
 /**
  * The agent principal every tool-made proposal rides — working autonomy, judged by the ladder.
@@ -68,6 +69,14 @@ export function fileAskTool(ctx: RuntimeContext) {
         due_at?: string;
         confidence: number;
       };
+      // THE PERSON ASKING IS THE OWNER (backlog 044): a decision the person in
+      // this turn holds is asked here, not filed for "the owner"; a merge that
+      // runs itself on its trust rule is asked of nobody.
+      const held = await askHeldByThePersonHere(ctx, { kind: args.kind, title: args.title, objectRefs: args.object_refs });
+      if (held) {
+        ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { filed: false, reason: 'decision_held_here' } } as never);
+        return held;
+      }
       const input: Record<string, unknown> = {
         title: args.title,
         body: args.body,
@@ -89,6 +98,11 @@ export function fileAskTool(ctx: RuntimeContext) {
           ? { missionRunId: ctx.missionRunId, conversationId: ctx.conversationId }
           : undefined,
       };
+      // The wiki pages that bear on a ruling travel with it as advice; the
+      // check never refuses (`wikiDecision.ts`, Chris 2026-09-29).
+      const { wikiPassagesUnread } = await import('../wikiDecision');
+      const unread = await wikiPassagesUnread(ctx, 'ask.file', input as Record<string, unknown>);
+      const wikiNote = unread ? `\n\nFor the record, these wiki pages may bear on it: ${unread.map(p => `${p.title} (wiki:${p.slug})`).join('; ')}. If one changes the question, say so in one line.` : '';
       try {
         const res = await proposeAction({
           orgId: ctx.orgId,
@@ -123,7 +137,7 @@ export function fileAskTool(ctx: RuntimeContext) {
         if (r.created === false) {
           return `Ask #${r.askId} already existed for source_ref "${args.source_ref}" and was updated in place (run #${res.runId}).${where}${group} Its status was left as it was.`;
         }
-        return `Ask #${r.askId} filed (${r.kind ?? args.kind ?? 'approval'}, run #${res.runId}).${where}${group} A person decides it there; you do not have the answer yet, so say the question was asked, not answered. Read the answer back from the ask.decided event or GET /api/v1/asks/${r.askId}.`;
+        return `Ask #${r.askId} filed (${r.kind ?? args.kind ?? 'approval'}, run #${res.runId}).${where}${group} A person decides it there; you do not have the answer yet, so say the question was asked, not answered. Read the answer back from the ask.decided event or GET /api/v1/asks/${r.askId}.${wikiNote}`;
       } catch (err) {
         if (err instanceof ActionError) {
           return `Ask refused (${err.code}): ${err.message}`;

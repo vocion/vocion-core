@@ -52,7 +52,7 @@ function redactConfig(value: unknown): unknown {
  * @param props.params
  */
 /**
- * Label the skipped list, saying so when the stored failures are only part of
+ * Label the failed list, saying so when the stored failures are only part of
  * what went wrong. Failures are capped per run, so a sync with hundreds of
  * errors stores a sample — a reader who sees "12" with no context would badly
  * misjudge how much of the source is missing.
@@ -60,11 +60,24 @@ function redactConfig(value: unknown): unknown {
  * @param totalErrors - The run's true failure count: ingest errors and
  * processor errors together, since both are stored in the same capped list.
  */
-function describeSkipped(recordedCount: number, totalErrors: number | undefined): string {
+function describeFailed(recordedCount: number, totalErrors: number | undefined): string {
   if (typeof totalErrors === 'number' && totalErrors > recordedCount) {
-    return `Skipped (showing ${recordedCount} of ${totalErrors}): `;
+    return `Failed (showing ${recordedCount} of ${totalErrors}): `;
   }
-  return `Skipped (${recordedCount}): `;
+  return `Failed (${recordedCount}): `;
+}
+
+/**
+ * Label the not-kept list the same way: the checkpoint stores a sample of the
+ * skips and `counts.skipped` the total.
+ * @param recordedCount - How many skips the checkpoint stored.
+ * @param total - The run's `counts.skipped`.
+ */
+function describeSkipped(recordedCount: number, total: number | undefined): string {
+  if (typeof total === 'number' && total > recordedCount) {
+    return `Read, not kept (showing ${recordedCount} of ${total}): `;
+  }
+  return `Read, not kept (${recordedCount}): `;
 }
 
 export default async function SourceDetailPage(props: {
@@ -225,7 +238,7 @@ export default async function SourceDetailPage(props: {
                     {(checkpoint.failures?.length ?? 0) > 0 && (
                       <div>
                         <dt className="text-muted-foreground">
-                          {describeSkipped(
+                          {describeFailed(
                             checkpoint.failures.length,
                             (checkpoint.counts?.errors ?? 0) + (checkpoint.counts?.processorErrors ?? 0),
                           )}
@@ -242,6 +255,26 @@ export default async function SourceDetailPage(props: {
                                 </span>
                                 {failure.uri ? `${failure.uri} — ` : ''}
                                 {failure.message}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {(checkpoint.skipped?.length ?? 0) > 0 && (
+                      <div>
+                        <dt className="text-muted-foreground">
+                          {describeSkipped(checkpoint.skipped.length, checkpoint.counts?.skipped)}
+                        </dt>
+                        <dd className="mt-1">
+                          {/* What the run saw and a rule set aside — a pull request outside the
+                              branch prefix, a document yielded twice. Not failures: nothing went
+                              wrong. Without this a run that kept nothing looks like an empty source. */}
+                          <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-muted-foreground">
+                            {checkpoint.skipped.map(skip => (
+                              <li key={`${skip.at}-${skip.uri ?? skip.message}`}>
+                                {skip.uri ? `${skip.uri} — ` : ''}
+                                {skip.message}
                               </li>
                             ))}
                           </ul>

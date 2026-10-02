@@ -9,7 +9,7 @@ import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { changeRef } from '@/features/dashboard/chat/composerTags';
 import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
-import { useSelectionWatcher } from './useSelectionWatcher';
+import { useOwnSelectionRoot, useSelectionWatcher } from './useSelectionWatcher';
 
 /** A selection handed to a page's own Change: the words, where they sat, and the region's field. */
 export type SelectionForChange = { text: string; rect: DOMRect | null; field: string | null };
@@ -55,10 +55,12 @@ function readSelectionForChange(text: string): SelectionForChange {
  * @param props.changeable - Offer "Change" beside "Ask" on a selection: the record can be edited in place by the agent.
  * @param props.onChange - When given, *Change* hands the selection to the caller — the page carries the intent out
  * itself (a record's Change writes the field through `objects.update_meta`) instead of opening the surface.
+ * @param props.pageWide - The shell's page-wide watcher: yields to regions with their own toolbar and, with no record, asks about the page.
  * @param props.className
  */
 export function AskAboutThis(props: {
-  record: RecordRef;
+  record: RecordRef | null;
+  pageWide?: boolean;
   prompt?: string;
   send?: boolean;
   label?: string;
@@ -73,7 +75,8 @@ export function AskAboutThis(props: {
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [hit, clearHit] = useSelectionWatcher(props.selectionRoot);
+  const [hit, clearHit] = useSelectionWatcher(props.selectionRoot, 4, props.pageWide);
+  useOwnSelectionRoot(props.pageWide ? undefined : props.selectionRoot);
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true));
@@ -84,7 +87,7 @@ export function AskAboutThis(props: {
     const context: PageContext = {
       path: pathname,
       title: typeof document !== 'undefined' ? document.title : '',
-      record: props.record,
+      ...(props.record ? { record: props.record } : {}),
       openedFrom: true,
       ...(extra?.selection ? { selection: { text: extra.selection, quote: true } } : {}),
     };
@@ -115,7 +118,7 @@ export function AskAboutThis(props: {
         <button
           type="button"
           onClick={() => open()}
-          data-ask-about-this={props.record.type}
+          data-ask-about-this={props.record?.type ?? 'page'}
           className={`inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-brand-amber/50 hover:text-foreground ${props.className ?? ''}`}
         >
           <Sparkles className="size-3.5 text-brand-amber" aria-hidden />
@@ -126,7 +129,7 @@ export function AskAboutThis(props: {
         <button
           type="button"
           onClick={() => open()}
-          data-ask-about-this={props.record.type}
+          data-ask-about-this={props.record?.type ?? 'page'}
           aria-label={label}
           title={label}
           className={`inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground ${props.className ?? ''}`}
@@ -143,7 +146,7 @@ export function AskAboutThis(props: {
             x={hit.x}
             y={hit.y}
             width={window.innerWidth}
-            testId={props.record.type}
+            testId={props.record?.type ?? 'page'}
             actions={[
               {
                 label: 'Ask',

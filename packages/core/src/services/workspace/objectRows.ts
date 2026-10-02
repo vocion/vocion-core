@@ -1,7 +1,9 @@
 import type { PageRow } from '@/libs/workspace/pageFields';
 import { and, eq } from 'drizzle-orm';
+import { recordCode } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { typeCodesForOrg } from '@/services/codes';
 
 /**
  * Every record of one object type in a workspace, as page rows — the shape
@@ -24,8 +26,11 @@ export async function loadObjectRows(orgId: string, typeSlug: string): Promise<P
   const rows = await db.query.businessObjectSchema.findMany({
     where: eq(businessObjectSchema.typeId, objType.id),
   });
+  // Every row carries the code a person reads it by (FE-294, `libs/codes.ts`).
+  const codes = await typeCodesForOrg(orgId).catch(() => null);
   return rows.map(r => ({
     id: r.id,
+    code: recordCode(codes, typeSlug, r.id),
     title: r.title,
     status: r.status ?? null,
     createdAt: r.createdAt ?? null,

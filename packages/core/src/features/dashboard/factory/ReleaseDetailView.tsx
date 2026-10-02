@@ -1,12 +1,15 @@
 import type { DotTone } from '@/components/patterns';
 import type { PagePrompt } from '@/features/dashboard/pages/PagePrompts';
 import type { PageRecordPage } from '@/libs/workspace/pageFields';
+import type { RelatedItem } from '@/libs/workspace/related';
 import type { Tone } from '@/libs/workspace/releaseFeed';
-import type { ReleaseCheck, ReleaseLink, ReleaseReport } from '@/services/factory/releaseReport';
-import { DetailMeta, DetailPage, FactList, Section, StatusDot } from '@/components/patterns';
+import type { ReleaseCheck, ReleaseLink, ReleaseLiveShot, ReleaseProofGroup, ReleaseProofRow, ReleaseReport } from '@/services/factory/releaseReport';
+import { DetailMeta, DetailPage, FactList, Related, Section, StatusDot } from '@/components/patterns';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PagePrompts } from '@/features/dashboard/pages/PagePrompts';
 import { Link } from '@/libs/I18nNavigation';
+import { ReleaseAnnouncePublish } from './ReleaseAnnouncePublish';
 
 /**
  * One release's page, drawn — `/dashboard/p/releases/<id>`.
@@ -48,6 +51,109 @@ function Checks({ heading, checks }: { heading: string; checks: ReleaseCheck[] }
   );
 }
 
+const STATE_WORD = { passed: 'Passed', failed: 'Failed', unverified: 'Unverified' } as const;
+
+/**
+ * One criterion and its proof: the after shot as a thumbnail that opens the
+ * artifact, the before shot one click away; a named test by name, linking the
+ * stored run at its section.
+ * @param props
+ * @param props.row - The criterion.
+ */
+function ProofRow({ row }: { row: ReleaseProofRow }) {
+  return (
+    <li className="flex items-start gap-3 py-2" data-testid="release-proof-row" data-state={row.state} data-kind={row.kind ?? 'none'}>
+      <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
+        <StatusDot tone={DOT[row.tone]} label={<span className={row.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{STATE_WORD[row.state]}</span>} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] leading-relaxed break-words text-foreground">{row.statement}</p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-muted-foreground">
+          <span className="break-words"><Line href={row.href}>{row.line}</Line></span>
+          {row.before && <Line href={row.before.href}>{row.before.label}</Line>}
+        </p>
+      </div>
+      {row.imageUrl && row.href && (
+        <Line href={row.href}>
+          <img src={row.imageUrl} alt={`After: ${row.statement}`} loading="lazy" className="block h-14 w-24 shrink-0 rounded-md border border-border object-cover object-top" />
+        </Line>
+      )}
+    </li>
+  );
+}
+
+/**
+ * The live product after the deploy: each state the post-deploy check
+ * replayed on production, with its picture, and why it was not reached when
+ * it was not.
+ * @param props
+ * @param props.check - The live check.
+ */
+/**
+ * What a check itself reported, one click under the sentence that says it: for whoever fixes it.
+ * @param props
+ * @param props.detail - The check's own words.
+ * @param props.testId - The test id.
+ */
+function CheckDetail({ detail, testId }: { detail: string; testId: string }) {
+  return (
+    <details className="mt-1 ml-3 text-[12px] text-muted-foreground" data-testid={testId}>
+      <summary className="cursor-pointer select-none hover:text-foreground">Details</summary>
+      <p className="mt-1 font-mono break-words whitespace-pre-wrap">{detail}</p>
+    </details>
+  );
+}
+
+function LiveCheck({ check }: { check: ReleaseCheck & { shots: ReleaseLiveShot[] } }) {
+  return (
+    <div className="py-2" data-testid="release-check-live">
+      <h4 className="text-[13px] font-medium text-foreground">Live check</h4>
+      <div className="mt-1.5 text-sm"><StatusDot tone={DOT[check.tone]} label={<Line href={check.href}>{check.line}</Line>} /></div>
+      {check.at && <div className="ml-3 text-[12px] text-muted-foreground">{check.at}</div>}
+      {check.detail && <CheckDetail detail={check.detail} testId="release-check-live-detail" />}
+      {check.shots.length > 0 && (
+        <ul className="mt-1 divide-y divide-rule">
+          {check.shots.map(shot => (
+            <li key={shot.key} className="flex items-start gap-3 py-2" data-testid="release-live-shot" data-reached={shot.reached}>
+              <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
+                <StatusDot tone={shot.reached ? 'pass' : 'amber'} label={shot.reached ? 'Live' : 'Not reached'} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] leading-relaxed break-words text-foreground">{shot.criterion}</p>
+                {shot.reason && <p className="mt-0.5 text-[12px] break-words text-muted-foreground">{shot.reason}</p>}
+                {shot.detail && <CheckDetail detail={shot.detail} testId="release-live-shot-detail" />}
+              </div>
+              {shot.imageUrl && shot.href && (
+                <Line href={shot.href}>
+                  <img src={shot.imageUrl} alt={`Live: ${shot.criterion}`} loading="lazy" className="block h-14 w-24 shrink-0 rounded-md border border-border object-cover object-top" />
+                </Line>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Proof({ group }: { group: ReleaseProofGroup }) {
+  return (
+    <div className="mt-1" data-testid="release-proof">
+      <ul className="divide-y divide-rule">
+        {group.acceptance.map(r => <ProofRow key={r.key} row={r} />)}
+      </ul>
+      {group.risks.length > 0 && (
+        <>
+          <h5 className="mt-3 text-[12px] text-muted-foreground">Plan risks</h5>
+          <ul className="divide-y divide-rule" data-testid="release-proof-risks">
+            {group.risks.map(r => <ProofRow key={r.key} row={r} />)}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Links({ items }: { items: ReleaseLink[] }) {
   return (
     <ul className="space-y-1 text-[13px]">
@@ -65,10 +171,13 @@ function Links({ items }: { items: ReleaseLink[] }) {
  * @param props.report - The assembled release.
  * @param props.recordPage - The page's `recordPage` block: the announcement's asks, in the workspace's words.
  * @param props.backHref - The Releases list.
+ * @param props.related
  */
-export function ReleaseDetailView({ report, recordPage, backHref }: { report: ReleaseReport; recordPage?: PageRecordPage; backHref: string }) {
+export function ReleaseDetailView({ report, recordPage, backHref, related = [] }: { report: ReleaseReport; recordPage?: PageRecordPage; backHref: string; related?: readonly RelatedItem[] }) {
   const a = report.announcement;
-  const ask: PagePrompt | undefined = a.action && !a.blocked ? recordPage?.actions[a.action] : undefined;
+  // Publishing is one press on the page (`ReleaseAnnouncePublish`), not a chat
+  // that files a card; drafting and reviewing the words stay the PM's prompts.
+  const ask: PagePrompt | undefined = a.action && a.action !== 'publish' ? recordPage?.actions[a.action] : undefined;
   return (
     <DetailPage
       data-testid="release-detail"
@@ -78,6 +187,8 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
       actions={(
         <>
           <Link href={backHref} className="whitespace-nowrap hover:text-foreground">Back to Releases</Link>
+          {/* Declares the release, so select-to-ask (the shell's) quotes it and offers Change. */}
+          <RecordContext record={{ type: 'object', id: String(report.id), label: report.title, href: `${backHref}/${report.id}` }} />
           <AskAboutThis
             record={{ type: 'object', id: String(report.id), label: report.title, href: `${backHref}/${report.id}` }}
             label="Ask about this release"
@@ -107,41 +218,70 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
       </Section>
 
       <Section eyebrow="What changed">
-        {report.changes.length === 0
-          ? <p className="text-muted-foreground">The deploy recorded no changes.</p>
-          : (
-              <ul className="divide-y divide-rule">
-                {report.changes.map(c => (
-                  <li key={c.key} className="py-2.5">
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{c.label}</span>
-                      <span className={c.label === 'Internal' || c.label === 'Reverted' ? 'text-muted-foreground' : 'font-medium'}>
-                        <Line href={c.href}>{c.title}</Line>
-                      </span>
-                    </div>
-                    {c.detail && <p className="mt-0.5 text-[13px] text-muted-foreground">{c.detail}</p>}
-                  </li>
-                ))}
-              </ul>
-            )}
+        {report.notes.source !== 'features'
+          ? (
+              <div data-testid="release-notes" data-source={report.notes.source}>
+                <ul className="list-disc space-y-1 pl-5 text-[15px]">
+                  {report.notes.lines.map(line => <li key={line} className={line.startsWith('Internal:') ? 'text-muted-foreground' : undefined}>{line}</li>)}
+                </ul>
+                <p className="mt-2 text-[12px] text-muted-foreground">{report.notes.source === 'human' ? 'Release notes, written by a person.' : 'Release notes, drafted by the product manager.'}</p>
+              </div>
+            )
+          : report.changes.length === 0
+            ? <p className="text-muted-foreground">The deploy recorded no changes.</p>
+            : (
+                <ul className="divide-y divide-rule">
+                  {report.changes.map(c => (
+                    <li key={c.key} className="py-2.5">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{c.label}</span>
+                        <span className={c.label === 'Internal' || c.label === 'Reverted' ? 'text-muted-foreground' : 'font-medium'}>
+                          <Line href={c.href}>{c.title}</Line>
+                        </span>
+                      </div>
+                      {c.detail && <p className="mt-0.5 text-[13px] text-muted-foreground">{c.detail}</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
       </Section>
 
       <Section eyebrow="Verification">
-        {report.verification.acceptance.length > 0 && <Checks heading="Feature acceptance" checks={report.verification.acceptance} />}
+        {report.verification.acceptance.length > 0 && (
+          <div className="py-2" data-testid="release-check-feature-acceptance">
+            <h4 className="text-[13px] font-medium text-foreground">Feature acceptance</h4>
+            {report.verification.acceptance.map(c => (
+              <div key={c.key} className="mt-1.5">
+                <div className="text-sm"><StatusDot tone={DOT[c.tone]} label={<Line href={c.href}>{c.line}</Line>} /></div>
+                <div className="ml-3 text-[12px] text-muted-foreground">{[c.title, c.at].filter(Boolean).join(' · ')}</div>
+                {c.proof && <Proof group={c.proof} />}
+              </div>
+            ))}
+          </div>
+        )}
         <Checks heading="Post-deploy check" checks={[report.verification.deployCheck]} />
+        {report.verification.live && <LiveCheck check={report.verification.live} />}
         <Checks heading="Product impact" checks={report.verification.impact} />
       </Section>
 
       <Section eyebrow="Announcement">
         <div data-testid="release-announcement" data-state={a.state}>
           <StatusDot tone={a.state === 'published' ? 'pass' : a.state === 'not-prepared' ? 'amber' : 'neutral'} label={a.label} />
+          {a.image && (
+            <Line href={a.image.href}>
+              <img src={a.image.url} alt="The live product, as the announcement shows it" loading="lazy" data-testid="release-announcement-image" className="mt-2 block w-full max-w-xl rounded-md border border-border" />
+            </Line>
+          )}
           {a.text && <blockquote className="mt-2 max-w-3xl border-l-2 border-rule pl-3 text-[15px] leading-relaxed">{a.text}</blockquote>}
           {a.publishedLine && <p className="mt-2 text-[13px] text-muted-foreground">{a.publishedLine}</p>}
           {a.reason && <p className="mt-2 text-[13px] text-muted-foreground">{a.reason}</p>}
           {a.state === 'not-prepared' && <p className="mt-2 text-[13px] text-muted-foreground">Nothing has been written for the people who use it yet.</p>}
           {a.requesters && <p className="mt-2 text-[13px] text-muted-foreground">{a.requesters}</p>}
-          {a.blocked && <p className="mt-2 text-[13px] text-[var(--brand-fail)]">{a.blocked}</p>}
+          {a.blocked && <div className="mt-2 text-[13px]" data-testid="release-announcement-advice"><StatusDot tone="amber" label={a.blocked} /></div>}
+          {a.failure && <p className="mt-2 text-[13px] text-[var(--brand-fail)]" data-testid="release-announcement-failure">{a.failure}</p>}
           {ask && <div className="mt-3"><PagePrompts prompts={[ask]} page={report.title} record={{ type: 'object', id: String(report.id), label: report.title, href: `${backHref}/${report.id}` }} /></div>}
+          {a.publish && <ReleaseAnnouncePublish releaseId={report.id} title={report.title} text={a.text} imageUrl={a.image?.url ?? null} mode={a.publish.mode} />}
+          {!a.publish && a.state === 'published' && a.post?.runId && <ReleaseAnnouncePublish releaseId={report.id} title={report.title} text={a.text} imageUrl={a.image?.url ?? null} mode="published" runId={a.post.runId} />}
         </div>
       </Section>
 
@@ -174,6 +314,13 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
               </ol>
             )}
       </Section>
+
+      {/* What the release is connected to, in the one Related block (`relatedOf`). */}
+      {related.length > 0 && (
+        <Section eyebrow="Related" commentField={null} data-testid="release-related">
+          <Related items={related} />
+        </Section>
+      )}
 
       <Section eyebrow="Technical details">
         <details data-testid="release-technical">
@@ -213,10 +360,12 @@ export function ReleaseDetailView({ report, recordPage, backHref }: { report: Re
                 <Links items={report.technical.evidence} />
               </div>
             )}
-            <div>
-              <h4 className="mb-1 text-[12px] text-muted-foreground">Records</h4>
-              <Links items={report.technical.records} />
-            </div>
+            {related.length === 0 && (
+              <div>
+                <h4 className="mb-1 text-[12px] text-muted-foreground">Records</h4>
+                <Links items={report.technical.records} />
+              </div>
+            )}
           </div>
         </details>
       </Section>

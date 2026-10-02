@@ -1,12 +1,16 @@
 import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
+import type { WorkspaceAddress } from '@/services/ProjectService';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { verbosityHints } from '@/features/dashboard/inbox/askText';
+import { slugifyOption } from '@/libs/asks/optionId';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
 import { ASK_KINDS, ASK_RISKS, askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { recordAskAlignment } from '@/services/alignment/AlignmentService';
+
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
+import { askDecidedPayload } from '@/services/inbox/askDecided';
 
 export type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
 // The vocabulary lives beside the row (see `models/Schema.ts`); this is its home for readers.
@@ -79,14 +83,7 @@ export function isAskStatus(value: unknown): value is AskStatus {
   return typeof value === 'string' && (ASK_STATUSES as readonly string[]).includes(value);
 }
 
-/**
- * A URL-safe id from a label — how a bare string option gets its id.
- * @param label
- */
-export function slugifyOption(label: string): string {
-  const slug = label.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036F]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return slug || 'option';
-}
+export { slugifyOption };
 
 /**
  * Normalise what a caller sent as `options` — bare strings, objects, or a mix —
@@ -124,6 +121,10 @@ export function normaliseOptions(raw: unknown): AskOption[] {
       }
       if (o.recommended === true) {
         option.recommended = true;
+      }
+      const act = o.action as { id?: unknown; input?: unknown } | undefined;
+      if (act && typeof act === 'object' && typeof act.id === 'string' && act.id.trim()) {
+        option.action = { id: act.id.trim(), input: act.input && typeof act.input === 'object' && !Array.isArray(act.input) ? act.input as Record<string, unknown> : {} };
       }
       if (o.confidence !== undefined && o.confidence !== null) {
         if (typeof o.confidence !== 'number' || Number.isNaN(o.confidence) || o.confidence < 0 || o.confidence > 1) {
@@ -192,11 +193,11 @@ export function normaliseObjectRefs(raw: unknown): AskObjectRef[] {
  * absolute when `NEXT_PUBLIC_APP_URL` is set. The one definition of that
  * link: the API's `url` field and an agent's `file_ask` receipt both read it,
  * so a link pasted into Slack from either opens the same screen.
- * @param projectSlug - The workspace slug (`projectSlugById`).
- * @param askId
+ * @param workspace - The workspace's slug and account (`workspaceAddressById`).
+ * @param askId - The ask.
  */
-export function askUrlFor(projectSlug: string, askId: number): string {
-  return workspaceUrl(projectSlug, `/dashboard/inbox/${askId}`, { absolute: true });
+export function askUrlFor(workspace: WorkspaceAddress, askId: number): string {
+  return workspaceUrl(workspace.slug, `/dashboard/inbox/${askId}`, { absolute: true, accountSlug: workspace.accountSlug });
 }
 
 /**
@@ -323,6 +324,35 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
 export async function getAsk(orgId: string, id: number): Promise<Ask | null> {
   const [row] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id))).limit(1);
   return row ?? null;
+}
+
+/**
+ * The ask already filed under a sourceRef, whatever its status. A caller that
+ * dedupes on a sourceRef — an escalation is the one that must — reads this
+ * FIRST and only lets `upsertAsk` merge into what comes back when it is
+ * `open`; a decided, superseded or otherwise closed row is history, not a
+ * slot the next filing may silently rewrite (prod, 2026-09-29: ask #220).
+ * @param orgId
+ * @param sourceRef
+ */
+export async function getAskBySourceRef(orgId: string, sourceRef: string): Promise<Ask | null> {
+  const [row] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.sourceRef, sourceRef))).limit(1);
+  return row ?? null;
+}
+
+/**
+ * Put two asks in the same decision sheet after the fact — used when a new
+ * ask is filed as the follow-up to one already decided, so a person opening
+ * either one sees the other. A no-op past `groupKey` already set is never
+ * overwritten, so an ask a person grouped on purpose keeps its group.
+ * @param orgId
+ * @param id
+ * @param groupKey
+ */
+export async function linkAskGroup(orgId: string, id: number, groupKey: string): Promise<void> {
+  await db.update(askSchema)
+    .set({ groupKey, updatedAt: new Date() })
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id), isNull(askSchema.groupKey)));
 }
 
 /**
@@ -494,6 +524,11 @@ function resolveDecision(ask: Ask, decision: string, note: string | null): Resol
  * @param opts.decidedBy - The actor id from the API caller.
  */
 export async function decideAsk(opts: { orgId: string; id: number; decision: string; note?: string | null; decidedBy: string }): Promise<Ask> {
+  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  if (writesRefused()) {
+    throw new AskError('CONFLICT', READ_ONLY_RECEIPT, 409);
+  }
+  noteWrite();
   const ask = await getAsk(opts.orgId, opts.id);
   if (!ask) {
     throw new AskError('NOT_FOUND', `No ask ${opts.id}`, 404);
@@ -523,14 +558,53 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
       'ask.decided',
       { agentSlug: ask.agentSlug, resource: ['ask', ask.id], meta: { kind: ask.kind as AskKind, status, objectRefs: ask.objectRefs ?? [] } },
     ),
-    // A correction with a reason is a rule waiting to be written.
-    proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
-    // And every answer is alignment evidence: did the person choose the
-    // option the team recommended? Read back on the sheet and by the ladder.
-    recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
+    // A correction with a reason is a rule waiting to be written — and every
+    // answer is alignment evidence: did the person choose the option the team
+    // recommended? Read back on the sheet and by the ladder. Neither when the
+    // trust bar chose: the recommendation agreeing with itself is no evidence.
+    ...(opts.decidedBy === 'trust-ladder'
+      ? []
+      : [
+          proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
+          recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
+        ]),
   ]);
   announceDecided(row);
+  await carryOutChosenOption(row, opts.decidedBy);
   return row;
+}
+
+/**
+ * THE CHOSEN OPTION'S ACTION RUNS, AS THE PERSON WHO CHOSE IT. Proposed under
+ * their name and executed with them as reviewer — exactly what pressing
+ * Approve on that action's card does — so the trust ladder, the action's own
+ * precheck and its Undo all apply. A failure is written on the ask's
+ * decision note, where the person reads it, and never unwinds the answer.
+ * @param row - The decided ask.
+ * @param decidedBy - The person.
+ */
+export async function carryOutChosenOption(row: Ask, decidedBy: string): Promise<{ runId: number; status: string } | null> {
+  const chosen = (row.options ?? []).find(o => o.id === row.decision);
+  if (!chosen?.action || !decidedBy.startsWith('usr-')) {
+    return null;
+  }
+  try {
+    const { executeAction, proposeAction } = await import('@/services/ActionService');
+    const res = await proposeAction({
+      orgId: row.orgId,
+      actionId: chosen.action.id,
+      input: chosen.action.input,
+      principal: { kind: 'user', id: decidedBy, role: 'member', scope: { orgId: row.orgId } },
+      invokedBy: decidedBy,
+      proposal: { rationale: `Chosen on ask #${row.id}: ${chosen.label}`, suggestedDecision: 'approve' },
+    } as never) as { runId: number; status: string };
+    const done = res.status === 'pending' ? await executeAction(res.runId, row.orgId, { reviewedBy: decidedBy }) as { runId?: number; status: string } : res;
+    await db.update(askSchema).set({ decisionNote: [row.decisionNote, `${chosen.label}: started (run #${res.runId}).`].filter(Boolean).join('\n'), updatedAt: new Date() }).where(and(eq(askSchema.orgId, row.orgId), eq(askSchema.id, row.id)));
+    return { runId: res.runId, status: done.status };
+  } catch (err) {
+    await db.update(askSchema).set({ decisionNote: [row.decisionNote, `${chosen.label}: could not start — ${(err as Error).message}`].filter(Boolean).join('\n'), updatedAt: new Date() }).where(and(eq(askSchema.orgId, row.orgId), eq(askSchema.id, row.id)));
+    return null;
+  }
 }
 
 /**
@@ -549,20 +623,8 @@ function announceDecided(row: Ask): void {
       await emitEvent({
         orgId: row.orgId,
         type: ASK_DECIDED,
-        payload: {
-          askId: row.id,
-          kind: row.kind,
-          status: row.status,
-          decision: row.decision ?? '',
-          followUp: row.followUp,
-          agentSlug: row.agentSlug ?? null,
-          teamSlug: row.teamSlug ?? null,
-          groupKey: row.groupKey ?? null,
-          sourceRef: row.sourceRef ?? null,
-          objectRefs: row.objectRefs ?? [],
-          decidedBy: row.decidedBy ?? '',
-          decidedAt: (row.decidedAt ?? new Date()).toISOString(),
-        },
+        // The same payload the decision page previews its answers against.
+        payload: askDecidedPayload(row),
         dedupeKey: `ask.decided:${row.id}`,
         invokedBy: row.decidedBy ?? `ask:${row.id}`,
       });
@@ -596,6 +658,30 @@ export async function supersedeAsk(orgId: string, id: number, note?: string | nu
     .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id)))
     .returning();
   return row!;
+}
+
+/**
+ * Take back an answer the trust bar gave (`ask.file` done for you, undone):
+ * the ask is open again, undecided, in front of people. Only an ask the trust
+ * bar decided — a person's answer is never unwritten here — and idempotent on
+ * one already open.
+ * @param orgId - The workspace.
+ * @param id - The ask.
+ */
+export async function reopenLadderDecision(orgId: string, id: number): Promise<Ask> {
+  const ask = await getAsk(orgId, id);
+  if (!ask) {
+    throw new AskError('NOT_FOUND', `No ask ${id}`, 404);
+  }
+  if (ask.status === 'open' || ask.decidedBy !== 'trust-ladder') {
+    return ask;
+  }
+  const [row] = await db
+    .update(askSchema)
+    .set({ status: 'open', decision: null, decisionNote: null, followUp: false, decidedBy: null, decidedAt: null, updatedAt: new Date() })
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id), eq(askSchema.decidedBy, 'trust-ladder')))
+    .returning();
+  return row ?? ask;
 }
 
 /**

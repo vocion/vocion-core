@@ -9,7 +9,7 @@ description: >-
   wins rule (`notesSource`) and why announcing is a gated action. Read when a
   release has no notes, and before proposing any announcement.
 playbooks: [house-voice, naming-the-work]
-version: 1
+version: 2
 ---
 
 # Writing release notes
@@ -68,10 +68,26 @@ notes a person owns.
 One or two sentences from the owned notes — what people can now do, in the
 product's voice — that a store listing, a status page or a chat channel can
 carry whole. Written to `announcement`. Releasing it is the **`release.announce`**
-action: proposed, decided by a person, and when it runs, `announcedAt` and
-`announcedTo.channels` are written. Telling each asker that their request
+action (it carries the release's `releaseId`): a person's press on the release
+page, or a card a person approves, posts the words to the workspace's Slack
+channel with the live screenshot (`announcementImageArtifactId`) uploaded beside
+them, and writes `announcedAt` and `announcedTo.channels`; Undo deletes the post.
+Without a Slack connection the page copies it as rich text with the picture.
+Never propose it for a release a person can publish from its page. Telling each asker that their request
 shipped is one **`notify.requester`** per request, on the channel they used,
 and each id lands in `announcedTo.requestIds` when the reply goes.
+
+**The announcement is for the people who use the product, never about the
+factory.** No QA counts ("QA proved 6 of 6 criteria"), no criteria, no pull
+request numbers, no plan risks, no "proven": the release page shows each
+criterion with its evidence beside the announcement, and that is where a
+person checks it. The release type's `announcement-in-plain-words` gate refuses
+a draft that carries them and says which words; rewrite the sentence, do not
+argue with the gate.
+
+**Internal changes are notes, not news.** A worker, factory, deploy, CI, test
+or refactor change is one line in the notes starting `Internal: `, after the
+lines people will notice, and never a sentence of the announcement.
 
 A release whose `healthAfter` is `down` is not announced; say so and wait.
 

@@ -20,8 +20,10 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from './types';
 import { db } from '@/libs/DB';
+import { stopReasonOfMessage } from '@/libs/llm/stopReason';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { toolCallSchema } from '@/models/Schema';
+import { noteTurnRead } from '@/services/gates/turnReads';
 import { taskIdOf } from './traceEmitter';
 
 /** Output rows stay readable, not exhaustive — full payloads live in the trace. */
@@ -89,6 +91,74 @@ export function isSchemaMiss(err: unknown): boolean {
   return e?.name === 'ToolInputParsingException' || /did not match expected schema/i.test(e?.message ?? '');
 }
 
+/**
+ * What a tool may say about its own arguments, beside its schema. Set on the
+ * tool object (see {@link withArgumentRepair}); the wrapper reads both.
+ */
+export type ArgumentRepair = {
+  /**
+   * The call the model meant, from the call it sent — applied BEFORE the
+   * schema reads the arguments, so LangChain's own validation sees the
+   * repaired call. A zod transform would do the same job, but a transform
+   * cannot be sent to the model as JSON Schema (#731).
+   */
+  normalizeArgs?: (args: unknown) => unknown;
+  /** The refusal to send when a call still misses the schema, naming what is wrong; null for the generic one. */
+  explainSchemaMiss?: (args: unknown) => string | null;
+};
+
+/**
+ * Attach argument repair to a tool.
+ * @param toolObj - The tool.
+ * @param repair - Its normaliser and its refusal.
+ */
+export function withArgumentRepair<T extends object>(toolObj: T, repair: ArgumentRepair): T {
+  return Object.assign(toolObj, repair);
+}
+
+/**
+ * The same invocation input with the model's arguments repaired, whether it
+ * is a full ToolCall or plain arguments.
+ * @param input - What invoke was given.
+ * @param normalize - The tool's normaliser.
+ */
+function repairedInput(input: unknown, normalize: (args: unknown) => unknown): unknown {
+  const call = input as { type?: string; args?: unknown } | null | undefined;
+  try {
+    return call?.type === 'tool_call' ? { ...call, args: normalize(call.args) } : normalize(input);
+  } catch {
+    return input;
+  }
+}
+
+/**
+ * Why the model stopped writing the message that made this call —
+ * `tool_use`, `end_turn`, `max_tokens` — read off the AI message in the
+ * graph state the tool node hands down. Undefined when it cannot be read.
+ *
+ * Recorded because a propose_action call whose `action_input` stopped
+ * mid-value (conversation 349, 2026-09-28) could not be explained after the
+ * fact: the trace kept the tokens (800 of a 4,096 cap) and not the reason.
+ * @param config - The invocation config.
+ * @param callId - The tool call's id.
+ */
+export function stopReasonFor(config: unknown, callId: string | undefined): string | undefined {
+  if (!callId) {
+    return undefined;
+  }
+  const messages = (config as { state?: { messages?: unknown[] } } | undefined)?.state?.messages;
+  if (!Array.isArray(messages)) {
+    return undefined;
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { tool_calls?: Array<{ id?: string }> } | null;
+    if (m?.tool_calls?.some(c => c.id === callId)) {
+      return stopReasonOfMessage(m);
+    }
+  }
+  return undefined;
+}
+
 export type ToolCallRecord = {
   ctx: RuntimeContext;
   tool: string;
@@ -146,26 +216,38 @@ export function withToolCallRecord(
   ctx: RuntimeContext,
 ): StructuredToolInterface {
   const originalInvoke = toolObj.invoke.bind(toolObj);
+  const repair = toolObj as ArgumentRepair;
   const wrapped = async (input: unknown, config?: unknown): Promise<unknown> => {
     const started = Date.now();
     const ns = nsFromConfig(config);
+    // The model's arguments, repaired where the tool knows how, so the schema
+    // reads what the model meant (a JSON string where an object belongs).
+    const callInput = repair.normalizeArgs ? repairedInput(input, repair.normalizeArgs) : input;
     try {
-      const result = await originalInvoke(input as never, config as never);
+      const result = await originalInvoke(callInput as never, config as never);
+      // A read is evidence the moment it returns: a filing later in this
+      // turn may be refused without it (`services/gates/turnReads.ts`).
+      noteTurnRead(ctx, toolObj.name, normalizeInput(callInput), normalizeOutput(result));
       void persistToolCall({
         ctx,
         tool: toolObj.name,
-        input: normalizeInput(input),
+        input: normalizeInput(callInput),
         output: normalizeOutput(result),
         durationMs: Date.now() - started,
         ns,
       });
       return result;
     } catch (err) {
+      const call = input as { id?: string; type?: string; args?: unknown } | null;
+      const schemaMiss = isSchemaMiss(err);
+      // Why the model stopped writing the call, when a call arrives broken.
+      const stopReason = schemaMiss ? stopReasonFor(config, call?.id ?? (config as { toolCallId?: string } | undefined)?.toolCallId) : undefined;
       void persistToolCall({
         ctx,
         tool: toolObj.name,
+        // As the model sent it: the row is the evidence of what arrived.
         input: normalizeInput(input),
-        error: (err as Error).message ?? 'unknown error',
+        error: `${(err as Error).message ?? 'unknown error'}${stopReason ? ` [stop_reason: ${stopReason}]` : ''}`,
         durationMs: Date.now() - started,
         ns,
       });
@@ -174,9 +256,21 @@ export function withToolCallRecord(
       // and the throw ended the whole mission task 19 seconds in, so the
       // review recorded nothing (run 5631). Nothing ran, so the model is told
       // what was wrong and calls again — the tool's own work still throws.
-      if (isSchemaMiss(err)) {
-        const call = input as { id?: string; type?: string } | null;
-        const content = `Not recorded: invalid arguments for ${toolObj.name}: ${(err as Error).message.replace(/^Error invoking tool '[^']+' with kwargs [\s\S]*? with error: /, '').slice(0, 600)}. Nothing ran. Fix the arguments and call ${toolObj.name} again.`;
+      if (schemaMiss) {
+        const args = call?.type === 'tool_call' ? call.args : input;
+        let precise: string | null = null;
+        try {
+          precise = repair.explainSchemaMiss?.(args) ?? null;
+        } catch {}
+        const generic = `Not recorded: invalid arguments for ${toolObj.name}: ${(err as Error).message.replace(/^Error invoking tool '[^']+' with kwargs [\s\S]*? with error: /, '').slice(0, 600)}. Nothing ran. Fix the arguments and call ${toolObj.name} again.`;
+        const limit = stopReason === 'max_tokens' ? ' Your message reached its output limit while writing this call, which is why it stops early: send a shorter one.' : '';
+        const content = `${precise ?? generic}${limit}`;
+        // The refusal never reached the rail: LangChain refuses the input
+        // before a tool run starts, so no tool event is emitted and the
+        // person saw nothing (conversation 349). Say it where they look.
+        try {
+          ctx.emit({ type: 'tool_error', tool: toolObj.name, message: content.slice(0, 300) });
+        } catch {}
         if (call?.type === 'tool_call' && call.id) {
           const { ToolMessage } = await import('@langchain/core/messages');
           return new ToolMessage({ content, tool_call_id: call.id, name: toolObj.name });

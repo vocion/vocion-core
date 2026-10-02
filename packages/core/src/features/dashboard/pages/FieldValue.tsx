@@ -1,8 +1,10 @@
 import type React from 'react';
 import type { PageField, PageRow } from '@/libs/workspace/pageFields';
 import { createElement } from 'react';
+import { StatusDot } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { relativeLabel } from '@/libs/timeAgo';
 import { fieldHasSource, fieldIsFresh, formatDuration, formatMoney, formatProgress, isEmptyValue, resolveField, shortUrlLabel, toDate } from '@/libs/workspace/pageFields';
@@ -19,6 +21,9 @@ import { fieldHasSource, fieldIsFresh, formatDuration, formatMoney, formatProgre
  */
 
 type PillStatus = React.ComponentProps<typeof StatusPill>['status'];
+
+/** The tones a page may name (`pageFields` `tones`). */
+const TONE_NAMES: Readonly<Record<string, true>> = { ok: true, warn: true, bad: true, info: true, muted: true };
 
 export function toneToStatus(tone: string): PillStatus {
   switch (tone) {
@@ -181,15 +186,20 @@ function Caption({ row, field, now, promoted }: { row: PageRow; field: PageField
     : field.caption!.format === 'date' && d
       ? d.toLocaleDateString()
       : String(raw);
-  return (
-    <span
-      className={promoted ? 'block text-sm' : 'block text-xs text-muted-foreground'}
-      title={d ? d.toLocaleString() : undefined}
-      data-testid="field-caption"
-    >
+  const line = (
+    <span className={promoted ? 'block text-sm' : 'block text-xs text-muted-foreground'} data-testid="field-caption">
       {text}
     </span>
   );
+  // A date's exact moment is one hover away; a sentence is only itself.
+  return d && field.caption!.format !== 'text'
+    ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{line}</TooltipTrigger>
+          <TooltipContent>{d.toLocaleString()}</TooltipContent>
+        </Tooltip>
+      )
+    : line;
 }
 
 /**
@@ -260,10 +270,21 @@ function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField;
       ? <span className="text-xs text-muted-foreground" title={`${field.label ?? field.key}: not recorded`}>not recorded</span>
       : <EmptyValue field={field} />;
   }
+  // What is running for the row right now: the line, a dot that breathes
+  // while something runs (`deriveWorkQueue` → `meta.now`).
+  if (field.format === 'live' && typeof raw === 'object' && raw !== null && 'line' in raw) {
+    const now = raw as { line: unknown; live?: unknown };
+    const live = now.live === true;
+    return <StatusDot tone={live ? 'amber' : 'neutral'} pulse={live} label={<span className={live ? 'text-foreground' : undefined} data-testid="row-now">{String(now.line)}</span>} />;
+  }
   const s = String(raw);
   switch (field.format) {
     case 'badge': {
-      const tone = field.tones?.[s];
+      // The page's own tone for this value first; else the tone the row
+      // carries for it (`toneFrom`), so a state defined with its tone is
+      // never drawn uncoloured because a manifest did not list it.
+      const carried = field.toneFrom ? resolveField(row, field.toneFrom) : undefined;
+      const tone = field.tones?.[s] ?? (typeof carried === 'string' && carried in TONE_NAMES ? carried : undefined);
       // A flag that is off is nothing to badge unless the page maps it.
       if (raw === false && !tone) {
         return <EmptyValue field={field} />;
@@ -300,14 +321,32 @@ function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField;
           ? <a href={hit.href} className="text-sm underline underline-offset-2">{hit.label}</a>
           : <span className="font-mono text-xs text-muted-foreground" title={`${field.label ?? field.key}: ${field.to} ${s} is not a record here`}>{s}</span>;
       }
-      return <a href={s} target="_blank" rel="noreferrer" title={s} className="font-mono text-xs whitespace-nowrap underline underline-offset-2">{shortUrlLabel(s)}</a>;
+      // `labelFrom` names it as a person knows it (an issue's short id); the
+      // URL itself is one hover away.
+      const named = field.labelFrom ? resolveField(row, field.labelFrom) : undefined;
+      const label = typeof named === 'string' && named.trim() !== '' ? named : shortUrlLabel(s);
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a href={s} target="_blank" rel="noreferrer" className="font-mono text-xs whitespace-nowrap underline underline-offset-2">{label}</a>
+          </TooltipTrigger>
+          <TooltipContent>{s}</TooltipContent>
+        </Tooltip>
+      );
     }
     case 'relative': {
       // Rendered on the server at request time, so on a live page it is
       // re-read with the rows; the exact moment is one hover away.
       const d = toDate(raw);
       return d
-        ? <time dateTime={d.toISOString()} title={d.toLocaleString()} className="font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">{relativeLabel(d, now)}</time>
+        ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <time dateTime={d.toISOString()} className="font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">{relativeLabel(d, now)}</time>
+              </TooltipTrigger>
+              <TooltipContent>{d.toLocaleString()}</TooltipContent>
+            </Tooltip>
+          )
         : <span className="text-sm">{s}</span>;
     }
     case 'progress': {

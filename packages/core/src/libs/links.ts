@@ -46,6 +46,19 @@ export const WORKSPACE_HEADER = {
 } as const;
 
 /**
+ * Query parameter naming the account a `/w/<slug>/…` link means, by
+ * `tenant_account.slug`.
+ *
+ * Workspace slugs are only unique inside an account, so for a person in two
+ * accounts `/w/sales` can be two workspaces. The switcher adds
+ * `?account=<slug>` when a switch crosses accounts, and the proxy resolves the
+ * slug on that account only (vocion-core#128). Without it the slug resolves
+ * on the account the person is already in, which is right for every link
+ * rendered inside a workspace.
+ */
+export const WORKSPACE_ACCOUNT_PARAM = 'account';
+
+/**
  * First path segments a workspace slug may never take, so a slug can never
  * shadow a real route (`/w/api/…` must not be resolvable as a workspace, and
  * a project called `dashboard` must never exist).
@@ -123,7 +136,7 @@ export function projectSlugProblem(slug: string): string | null {
  * Base URL for absolute links: `NEXT_PUBLIC_APP_URL`, trailing slash trimmed;
  * empty when unset (a relative link is better than `undefined/dashboard`).
  *
- * Read from `process.env`, not `Env`, so the Temporal worker and scripts
+ * Read from `process.env`, not `Env`, so the durable executor and scripts
  * (which do not always load the validated env) still produce a link.
  */
 export function appBaseUrl(): string {
@@ -154,15 +167,36 @@ function normalisePath(path: string): string {
  * Idempotent — handing it a path that is already canonical returns it
  * unchanged for the same slug and re-points it for a different one, so the
  * `Link` wrapper can prefix blindly.
+ * A link that leaves the app (an email, Slack, an API response) should pass
+ * `accountSlug`: slugs are only unique inside an account, and a reader in two
+ * accounts that both have a `sales` would otherwise open whichever `sales`
+ * their browser was last in (vocion-core#128).
  * @param projectSlug - `project.slug` of the workspace the link is about.
  * @param path - App-relative path, e.g. `/dashboard/inbox` or `/dashboard/inbox/42`.
- * @param opts - `absolute`: prefix `NEXT_PUBLIC_APP_URL`.
+ * @param opts - How to write it.
  * @param opts.absolute - Prefix the public origin.
+ * @param opts.accountSlug - Name the workspace's account with `?account=`.
  */
-export function workspaceUrl(projectSlug: string, path: string, opts: { absolute?: boolean } = {}): string {
+export function workspaceUrl(projectSlug: string, path: string, opts: { absolute?: boolean; accountSlug?: string } = {}): string {
   const slug = encodeURIComponent(projectSlug.trim().toLowerCase());
-  const rel = `/${WORKSPACE_ENTRY_SEGMENT}/${slug}/${normalisePath(stripWorkspacePrefix(path))}`;
+  let rel = `/${WORKSPACE_ENTRY_SEGMENT}/${slug}/${normalisePath(stripWorkspacePrefix(path))}`;
+  if (opts.accountSlug) {
+    rel = withAccountParam(rel, opts.accountSlug);
+  }
   return opts.absolute ? `${appBaseUrl()}${rel}` : rel;
+}
+
+/**
+ * Add `?account=<slug>` to an app path, keeping its query and fragment.
+ * @param rel - An app-relative path, possibly with `?…` and `#…`.
+ * @param accountSlug - The account to name.
+ */
+function withAccountParam(rel: string, accountSlug: string): string {
+  const hashAt = rel.indexOf('#');
+  const beforeHash = hashAt === -1 ? rel : rel.slice(0, hashAt);
+  const hash = hashAt === -1 ? '' : rel.slice(hashAt);
+  const param = `${WORKSPACE_ACCOUNT_PARAM}=${encodeURIComponent(accountSlug.trim().toLowerCase())}`;
+  return `${beforeHash}${beforeHash.includes('?') ? '&' : '?'}${param}${hash}`;
 }
 
 /** What {@link parseWorkspacePath} returns for a canonical URL. */

@@ -1051,6 +1051,111 @@
       "when": 1790600966441,
       "tag": "0149_worker_run_event",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1790600966442,
+      "tag": "0150_worker_run_worker_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1790600966443,
+      "tag": "0151_artifact_source_url",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1790714160986,
+      "tag": "0152_agent_voice",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1790800560986,
+      "tag": "0153_rest_many_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1790744948477,
+      "tag": "0154_app_login_many_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0155_live_notice",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1790900060000,
+      "tag": "0156_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1790900120000,
+      "tag": "0157_processor_revisit_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "7",
+      "when": 1790900180000,
+      "tag": "0158_live_notice_quiet_bookkeeping",
+      "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1790900240000,
+      "tag": "0159_worker_target",
+      "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1790900300000,
+      "tag": "0160_sync_checkpoint_skipped",
+      "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1790900360000,
+      "tag": "0161_durable_wait",
+      "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1790900420000,
+      "tag": "0162_project_enabled_durable",
+      "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1790900480000,
+      "tag": "0163_request_status_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1790900540000,
+      "tag": "0164_agent_run_cost",
+      "breakpoints": true
     }
   ]
 }

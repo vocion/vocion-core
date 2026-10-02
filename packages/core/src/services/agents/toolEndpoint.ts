@@ -10,16 +10,19 @@
  * emitted (documents, skill_result, hitl_gate…), which the artifact
  * re-emits into its SSE stream.
  *
- * Tenancy invariant: `orgId`, `userId`, `allowedSourceSlugs`, and
- * `missionSlug` come exclusively from the verified claim. A caller can
+ * Tenancy invariant: `orgId`, `userId`, `allowedSourceSlugs`, `missionSlug`,
+ * `missionRunId`, `timeZone` and `pageContext` come exclusively from the
+ * verified claim; the plugin list and the workspace zone are read from the
+ * database for the claimed org. A caller can
  * only ever act inside the tenant scope core itself signed.
  */
 
-import type { AgentEvent, RuntimeContext } from './types';
+import type { AgentEvent } from './types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
 import { verifyClaim } from './claims';
+import { runtimeContextForAgent } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
 
 export type ToolCallOutcome
@@ -54,21 +57,20 @@ export async function executeToolCall(opts: {
   }
 
   const events: AgentEvent[] = [];
-  const ctx: RuntimeContext = {
-    orgId: claim.orgId,
+  // The same context the in-process harness builds — plugins, zone, typed
+  // filing tools and REST sources included — read per call because this
+  // endpoint has no graph. Per-call facts come from the claim alone.
+  const ctx = await runtimeContextForAgent(claim.orgId, row, {
     userId: claim.userId,
-    citationSeq: { current: 0 },
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: claim.allowedSourceSlugs,
     missionSlug: claim.missionSlug,
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig: row.harnessConfig ?? {},
+    missionRunId: claim.missionRunId,
     conversationId: claim.conversationId,
+    pageContext: claim.pageContext,
+    timeZone: claim.timeZone,
     provider: 'runtime',
     emit: e => events.push(e),
-  };
+  });
 
   const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
   const toolObj = buildDomainTools(ctx).find(t => t.name === opts.tool && !excludeTools.has(t.name));

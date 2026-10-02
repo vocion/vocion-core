@@ -15,6 +15,8 @@ description: >-
   on the task. It is deliberately short. A plan nobody reads is worse than none,
   because it manufactures the appearance of review.
 icon: compass
+# Its records read PL-<id> in the app and in chat (core: libs/codes.ts).
+code: PL
 schema:
   type: object
   # Filing a plan is not approving it (backlog 038). The record lands done for
@@ -22,6 +24,22 @@ schema:
   # in_review; its approval is factory.approve_plan, on the trust bar, and the
   # approved plan dispatches its own build.
   x-moderation: none
+  # Filed through `file_architecture_plan`, whose input is this schema: the
+  # planner's free-form propose_candidate was refused "expected array, received
+  # object" (automation run 8181, #201, 2026-09-28) and no plan was filed.
+  x-agent-file:
+    dedupOn: [requestId]
+    fields: [requestId, productSlug, repoSlugs, approach, components, interfaces, dataImpact, risks, alternatives, verification, writtenBy, status, ruleLevel, ruleTriggers]
+  # A plan decided on its own record settles its review (backlog 039).
+  x-settled: {field: status, in: [approved, rejected, superseded]}
+  # RELATED (core: libs/workspace/related.ts): what a plan is connected to.
+  x-related:
+    - {key: request, label: Request, from: links, field: requestId}
+    - {key: product, label: Product, from: links, field: productSlug, type: product, match: slug}
+    - {key: repos, label: Repositories, from: links, field: repoSlugs, type: repo, match: slug}
+    - {key: tasks, label: Tasks built from it, from: links, field: taskIds}
+    - {key: runs, label: Engineering runs, from: runs, of: tasks}
+    - {key: supersededBy, label: Superseded by, from: links, field: supersededBy}
   properties:
     requestId:
       x-display: {label: Request, format: link, to: request, group: What this plans}

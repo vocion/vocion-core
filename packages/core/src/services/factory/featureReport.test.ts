@@ -1,7 +1,7 @@
 import type { FeatureReportInput, ReportActionRun, ReportArtifact, ReportAsk, ReportObject, ReportSectionKey, ReportWorkerRun } from './featureReport';
 import { describe, expect, it } from 'vitest';
 import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
-import { assembleFeatureReport, executedRun, formatDuration, moneyLine, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
+import { assembleFeatureReport, executedRun, formatDuration, mockupStatusOf, moneyLine, oneOfEachPicture, personName, planStatusOf, qaEvidenceRole, REPORT_SECTION_KEYS, runChange, taskStatus } from './featureReport';
 
 /**
  * The feature report, assembled from fixtures.
@@ -422,8 +422,8 @@ describe('a stage that did not happen says so', () => {
   it('a request with no task has no contract, no run, no change and no release', () => {
     const report = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
 
-    expect(section(report, 'contract').absence).toBe('No task contract was written for this request; nothing was dispatched.');
-    expect(section(report, 'runs').absence).toBe('Nothing has been built yet — no worker run is recorded against this work.');
+    expect(section(report, 'contract').absence).toBe('No task was written for this feature; nothing was dispatched.');
+    expect(section(report, 'runs').absence).toBe('Nothing has been built yet — no run is recorded against this work.');
     expect(section(report, 'change').absence).toBe('No pull request is recorded for this work.');
     expect(section(report, 'release').absence).toBe('Not released. Nothing has carried this work to people yet.');
   });
@@ -448,7 +448,7 @@ describe('a stage that did not happen says so', () => {
   it('an untriaged request says nobody triaged it', () => {
     const report = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'new' } } }));
 
-    expect(section(report, 'triage').absence).toBe('No one triaged this request; it is still in `new`.');
+    expect(section(report, 'triage').absence).toBe('No one triaged this feature; it is still in `new`.');
   });
 });
 
@@ -470,7 +470,18 @@ describe('QA evidence', () => {
       caption: 'The share menu with the new PDF entry.',
       url: 'https://files.example/qa/share-menu.png',
       at: T('2026-09-05T08:00:00Z'),
+      // Its section and who made it: filed two days after the run ended, it
+      // names no run, so none is claimed for it.
+      section: 'QA after',
+      source: { text: 'QA · after · Sep 5', ref: { type: 'artifact', id: '700' } },
     }]);
+  });
+
+  it('names the run a capture came from, and its side', () => {
+    const during: ReportArtifact = { ...screenshot, id: 702, title: 'Share menu · desktop · before', createdAt: T('2026-09-03T11:00:00Z') };
+    const qa = section(assembleFeatureReport(input({ artifacts: [during] })), 'qa');
+
+    expect(qa.evidence[0]).toMatchObject({ section: 'QA before', source: { text: 'QA · run 501 · before · Sep 3', ref: { type: 'worker_run', id: '501' } } });
   });
 
   it('says plainly that none was captured rather than hiding the section', () => {
@@ -538,7 +549,8 @@ describe('the contradiction: a failed run whose pull request merged', () => {
 describe('the timeline', () => {
   it('links the release to its release page where the workspace declares one, the generic record where not', () => {
     const link = recordLinker(recordLinksOf([{ slug: 'releases', archetype: 'list', source: { kind: 'objects', objectType: 'release' }, recordPage: { kind: 'release', actions: {} } }] as never, 'northwind'));
-    const linked = assembleFeatureReport(input({ link }));
+    // The release carries its own type, read off the record (backlog 045).
+    const linked = assembleFeatureReport(input({ link, releases: input().releases.map(r => ({ ...r, type: 'release' })) }));
 
     expect(linked.timeline.find(e => e.key === 'release-9')!.href).toBe('/w/northwind/dashboard/p/releases/9');
     expect(linked.timeline.find(e => e.key === 'contract-77')!.href).toBe('/w/northwind/dashboard/objects/77');
@@ -593,8 +605,8 @@ describe('the timeline', () => {
 });
 
 describe('the money line', () => {
-  it('sums the task estimates and actuals and reports the variance both ways', () => {
-    const report = assembleFeatureReport(input());
+  it('counts what the runs charged against the estimate and reports the variance both ways', () => {
+    const report = assembleFeatureReport(input({ workerRuns: [run(), run({ id: 502, attempt: 2, cents: 830 })] }));
 
     expect(report.money.estimateCents).toBe(900);
     expect(report.money.actualCents).toBe(1450);
@@ -610,12 +622,23 @@ describe('the money line', () => {
     expect(cost.detailLists[0]!.items.join(' ')).toContain('Variance: +$5.50 (+61%)');
   });
 
+  it('adds the agent runs and chat turns that served it, and shows the split', () => {
+    const report = assembleFeatureReport(input({ workerRuns: [run(), run({ id: 502, attempt: 2, cents: 830 })], spend: { agentCents: 133, chatCents: 12 } }));
+
+    expect(report.money.engineeringCents).toBe(1450);
+    expect(report.money.actualCents).toBe(1595);
+    expect(report.money.actualSource).toBe('summed over 2 runs: $14.50 engineering, $1.33 agents, $0.12 chat');
+    expect(section(report, 'money').facts[0]!.value).toBe('$15.95 (engineering $14.50 · agents $1.33 · chat $0.12) · estimated $9.00');
+    expect(report.implementation.costLine).toContain('$15.95 (engineering $14.50 · agents $1.33 · chat $0.12) spent');
+    expect(report.summary.totalCents).toBe(1595);
+  });
+
   it('falls back to what the runs charged when no task carries an actual', () => {
     const noActual = { ...task, meta: { ...task.meta, actualCents: undefined } };
     const line = moneyLine(request, [noActual], [run(), run({ id: 502, cents: 300 })]);
 
     expect(line.actualCents).toBe(920);
-    expect(line.actualSource).toBe('summed over 2 worker runs');
+    expect(line.actualSource).toBe('summed over 2 runs');
   });
 
   it('says Not estimated rather than showing zero, and computes no variance against nothing', () => {
@@ -630,16 +653,21 @@ describe('the money line', () => {
     const noEstimate = { ...task, meta: { ...task.meta, estimateCents: undefined } };
     const bare = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, estimateCents: undefined } }, tasks: [noEstimate] }));
 
-    expect(bare.implementation.costLine).toBe('$14.50 spent · Not estimated');
+    expect(bare.implementation.costLine).toBe('$6.20 spent · Not estimated');
     expect(section(bare, 'money').detailLists[0]!.items.join(' ')).not.toContain('Variance');
 
-    expect(assembleFeatureReport(input()).implementation.costLine).toBe('$14.50 spent · estimated $9.00, +$5.50 (+61%)');
+    expect(assembleFeatureReport(input()).implementation.costLine).toBe('$6.20 spent · estimated $9.00, −$2.80 (-31%)');
   });
 
-  it('flags a task rollup that disagrees with what the runs charged', () => {
+  it('reads the runs as the one figure, so a stale task copy is not a second opinion', () => {
+    // FE-314 (2026-10-02): "Two cost records disagree: the tasks say $10.00,
+    // the runs charged $11.68". The tasks' figure is a copy written when a run
+    // ends; the runs are what was charged.
     const report = assembleFeatureReport(input());
 
-    expect(report.contradictions.find(c => c.includes('roll up'))).toBe('The tasks roll up $14.50 spent and the worker runs charged $6.20. One of the two is stale.');
+    expect(report.money.actualCents).toBe(620);
+    expect(report.contradictions.find(c => c.includes('roll up'))).toBeUndefined();
+    expect(report.notices.find(n => n.key === 'cost-disagree')).toBeUndefined();
   });
 });
 
@@ -683,7 +711,7 @@ describe('the small parts', () => {
 describe('a zero is a claim', () => {
   it('will not count attempts or decisions out of an empty join, and says the history is incomplete', () => {
     // The shape Chris met: tasks written, a plan on the record, and not one
-    // worker run linked — which rendered as a confident "0 attempts" beside a
+    // run linked — which rendered as a confident "0 attempts" beside a
     // real cost, on a page listing five of them.
     const report = assembleFeatureReport(input({ workerRuns: [], asks: [], actionRuns: [] }));
 
@@ -919,7 +947,7 @@ describe('build reads as a story', () => {
 
     expect(build.title).toBe('Build');
     expect(build.entries[0]!.title).toContain('Latest attempt');
-    expect(build.entries[0]!.title).toContain('run 3');
+    expect(build.entries[0]!.title).toContain('RUN-3');
     expect(build.entries[1]!.title).toContain('superseded');
     expect(build.entries).toHaveLength(3);
   });
@@ -928,7 +956,7 @@ describe('build reads as a story', () => {
     const report = assembleFeatureReport(input({ workerRuns: [run(7, '2026-09-20T10:00:00Z')] }));
     const build = report.sections.find(x => x.key === 'runs')!;
 
-    expect(build.entries[0]!.title).toBe('Latest attempt · run 7');
+    expect(build.entries[0]!.title).toBe('Latest attempt · RUN-7');
   });
 });
 
@@ -962,6 +990,58 @@ describe('what it looks like', () => {
 
   it('takes a written reason instead of a picture, because a recorded way out is not a silent skip', () => {
     expect(visuals(req({ surface: 'ui', state: 'shipped', visuals: { noVisualReason: 'Text-only change.' } })).absence).toMatch(/on purpose: Text-only change/);
+  });
+
+  it('reads the proposal off mockupArtifactIds, and the screenshot it was drawn on as the screen today', () => {
+    const shot = { id: 81, kind: 'link', title: 'Files · desktop · before', recordType: 'object', recordId: '12', recordRole: 'qa-screenshot', spec: {}, url: '/api/artifacts/o-a/o-a.png', createdAt: new Date('2026-09-21T10:00:00Z') } as never;
+    const mock = (id: number, title: string) => ({ id, kind: 'file', title, recordType: 'object', recordId: '7', recordRole: `mockup:${id}`, spec: { contentType: 'image/png' }, url: `/api/artifacts/o-${id}/o-${id}.png`, createdAt: new Date('2026-09-22T10:00:00Z') }) as never;
+    const r = { ...req({ surface: 'ui', visuals: { beforeArtifactIds: [81], mockupArtifactIds: [92, 93] } }), artifacts: [shot, mock(92, 'Files · Default'), mock(93, 'Files · Link copied')] } as never;
+    const report = assembleFeatureReport(r);
+    const preview = report.sections.find(x => x.key === 'visuals')!;
+    const today = report.sections.find(x => x.key === 'today')!;
+
+    expect(preview.evidence.map(e => [e.id, e.role, e.imageUrl])).toEqual([[92, 'proposed', '/api/artifacts/o-92/o-92.png'], [93, 'proposed', '/api/artifacts/o-93/o-93.png']]);
+    expect(today.evidence.map(e => [e.id, e.role])).toEqual([[81, 'today']]);
+    // Every picture carries its section and who made it (2026-09-30).
+    expect(preview.evidence.map(e => e.section)).toEqual(['Mockup', 'Mockup']);
+    expect(today.evidence[0]).toMatchObject({ section: 'Today', source: { text: 'QA · Sep 21' } });
+  });
+
+  it('captions a mockup with the line written when it was drawn, and says who drew it from what', () => {
+    const drawnMock = { id: 95, kind: 'file', title: 'Mockup: Remind a reader · Default', recordType: 'object', recordId: '7', recordRole: 'mockup', author: 'Designer', spec: { contentType: 'image/png', url: '/api/artifacts/o-95/o-95.png', caption: 'Remind a person who has not opened it', source: { state: 'Default', html: '<div></div>' }, provenance: { drawnFrom: 'request', missionRunId: 5120 } }, url: null, createdAt: new Date('2026-09-25T10:00:00Z') } as never;
+    const s = visuals({ ...req({ surface: 'ui', visuals: { mockupArtifactIds: [95] } }), artifacts: [drawnMock] } as never);
+
+    expect(s.evidence[0]).toMatchObject({ caption: 'Remind a person who has not opened it', section: 'Mockup', source: { text: 'Designer · drawn from the request · Sep 25', ref: { type: 'mission_run', id: '5120' } } });
+  });
+
+  it('says where the default mockup stands while it is not there', () => {
+    const at = '2026-09-30T11:50:00Z';
+    const now = new Date('2026-09-30T12:00:00Z');
+
+    expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw: { state: 'drawing', attempt: 1, at } } } }, now)).toEqual({ line: 'The mockup is being drawn — started 10 min ago.', tone: 'info' });
+    expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw: { state: 'failed', attempt: 2, at, reason: 'the renderer is not available' } } } }, now)?.line).toBe('The mockup was not drawn after 2 attempts (30 Sep 2026, 11:50 UTC): the renderer is not available. Asking for a mockup in chat draws it again.');
+    expect(mockupStatusOf({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupArtifactIds: [3], mockupDraw: { state: 'drawing', attempt: 1, at } } } }, now)).toBeNull();
+  });
+
+  it('never says "not drawn" over pictures of the change, nor an infrastructure reason (#269)', () => {
+    const at = '2026-09-30T11:50:00Z';
+    const now = new Date('2026-09-30T12:00:00Z');
+    const rec = (mockupDraw: Record<string, unknown>) => ({ id: 7, title: 't', status: null, createdAt: null, meta: { visuals: { mockupDraw } } });
+
+    // QA's shots are in the carousel: a failed drawing is not news.
+    expect(mockupStatusOf(rec({ state: 'failed', attempt: 2, at, reason: 'a note, not UI', cause: 'content' }), now, true)).toBeNull();
+
+    // The installation could not draw: in hand, with no technical words.
+    const infra = mockupStatusOf(rec({ state: 'failed', attempt: 1, at, reason: 'renderer missing (browserType.launch: no chrome)', cause: 'infrastructure' }), now);
+
+    expect(infra).toEqual({ line: 'The mockup could not be drawn right now. The operator has been told, and it is drawn on its own once that is fixed.', tone: 'info' });
+    expect(mockupStatusOf(rec({ state: 'drawing', attempt: 2, at, reason: 'renderer missing', cause: 'infrastructure' }), now)?.line).toBe('The mockup is being drawn again — started 10 min ago.');
+  });
+
+  it('keeps one of each picture: the same artifact twice, or the same image filed twice', () => {
+    const e = (id: number, imageUrl: string | null) => ({ id, imageUrl });
+
+    expect(oneOfEachPicture([e(1, '/api/artifacts/a.png'), e(2, '/api/artifacts/a.png?v=2'), e(1, '/api/artifacts/b.png'), e(3, null), e(4, null), e(5, '/api/artifacts/c.png')]).map(x => x.id)).toEqual([1, 3, 4, 5]);
   });
 
   it('flags work that was proposed with a visual and closed without one', () => {
@@ -1055,18 +1135,20 @@ describe('which work this is', () => {
 describe('a task QA sent back', () => {
   const sentBack = { ...task, status: 'changes_requested', meta: { ...task.meta, status: 'changes_requested', verdict: { value: 'changes', proven: 0, total: 8, note: 'One screenshot cannot show five states.' } } };
 
+  // The count is the request's own two lines judged on this attempt (`featureProof`),
+  // the figure the acceptance section shows, not the verdict's stored 0 of 8.
   it('reads as Changes asked, with the count and the sentence, and offers Build again', () => {
     const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [sentBack], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
 
-    expect(r.state).toMatchObject({ key: 'changes', label: 'Changes asked', needsYou: true, detail: 'QA proved 0 of 8: One screenshot cannot show five states.', action: { label: 'Build again' } });
+    expect(r.state).toMatchObject({ key: 'changes', label: 'Changes asked', needsYou: true, detail: 'QA proved 0 of 2: One screenshot cannot show five states.', action: { label: 'Build again' } });
     expect(r.canBuild).toBe(true);
   });
 
-  it('reads as QA could not finish when the review ended without a verdict, and offers Build again', () => {
+  it('reads as QA could not finish when QA ended without a verdict, and offers Build again', () => {
     const failed = { ...task, status: 'review_failed', meta: { ...task.meta, status: 'review_failed', reviewFailure: { at: '2026-09-27T16:50:00Z' } } };
     const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building' } }, tasks: [failed], releases: [], asks: [], actionRuns: [], workerRuns: [run({ status: 'completed' })] }));
 
-    expect(r.state).toMatchObject({ key: 'stuck', label: 'QA could not finish', needsYou: true, detail: 'the review ended without a verdict; Build again starts a fresh attempt', action: { label: 'Build again' } });
+    expect(r.state).toMatchObject({ key: 'stuck', label: 'QA could not finish', needsYou: true, detail: 'QA ended without a verdict; Build again starts a fresh attempt', action: { label: 'Build again' } });
     expect(r.canBuild).toBe(true);
   });
 
@@ -1098,7 +1180,7 @@ describe('a task QA sent back', () => {
     expect(planned.status.sentence).toBe('A plan comes first because the allowed paths span 2 packages (apps/web, packages/core). The build starts on its own once the plan is approved.');
     expect(planned.timeline.some(e => e.title === 'Recovered: planning first because the allowed paths span 2 packages' && e.href === '/dashboard/p/runs/12')).toBe(true);
 
-    const recovering = { ...planning, stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test)', attempts: [...planning.attempts, { ...planning.attempts[0], n: 2, kind: 'build' }] };
+    const recovering = { ...planning, stage: 'recovering', line: 'Recovering (attempt 2 of 3): the required checks failed (test)', attempts: [...planning.attempts, { ...planning.attempts[0], n: 2, kind: 'build' }, { ...planning.attempts[0], n: 3, kind: 'build' }] };
     const live = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building', recovery: recovering } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [failed, run({ id: 999, status: 'running' })] }));
 
     expect(live.state).toMatchObject({ key: 'recovering', label: 'Recovering (attempt 2 of 3)', detail: 'the required checks failed (test)' });
@@ -1108,8 +1190,8 @@ describe('a task QA sent back', () => {
     const halted = { ...recovering, stage: 'stopped', line: 'Stopped after 3 attempts: the required checks failed (test). What would unblock it: read the failing check.' };
     const done = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, state: 'building', recovery: halted } }, tasks: [stopped], releases: [], asks: [], actionRuns: [], workerRuns: [failed] }));
 
-    expect(done.state).toMatchObject({ key: 'stuck', label: 'Stopped after 2 attempts', needsYou: true });
-    expect(done.status.headline).toBe('Stopped after 2 attempts');
+    expect(done.state).toMatchObject({ key: 'stuck', label: 'Stopped after 3 attempts', needsYou: true });
+    expect(done.status.headline).toBe('Stopped after 3 attempts');
     expect(done.status.sentence).toBe('The required checks failed (test). What would unblock it: read the failing check. A person decides what happens next; nothing from these attempts has merged.');
   });
 
@@ -1156,12 +1238,14 @@ describe('the status sentence and its one action', () => {
     expect(r.status.sentence).toContain('Building it approves the plan.');
   });
 
-  it('never offers Build while a run is live, and says View progress instead', () => {
+  it('never offers Build while a run is live: the state names that run as its row, and the row is the move', () => {
     const dispatched = { ...task, status: 'running', meta: { ...task.meta, status: 'running' } };
     const r = proposal({ tasks: [dispatched], workerRuns: [run({ status: 'running', completedAt: null, result: null })] });
 
     expect(r.canBuild).toBe(false);
-    expect(r.status.action).toEqual({ kind: 'drawer', label: 'View progress', drawer: 'implementation' });
+    // Chris, 2026-09-29: "is that 'current state'?" — one line, and the run as a row.
+    expect(r.status.action).toBeNull();
+    expect(r.status.activeRun).toMatchObject({ of: 1, attempt: { live: true, n: 1, outcome: 'Running' } });
     expect(r.status.sentence).toMatch(/not established until it finishes/);
   });
 
@@ -1171,6 +1255,13 @@ describe('the status sentence and its one action', () => {
 
     expect(r.canBuild).toBe(false);
     expect(r.status.action?.kind).not.toBe('build');
+  });
+
+  it('numbers each attempt oldest first, and a settled state names no active run', () => {
+    const r = proposal({ tasks: [task], workerRuns: [run({ id: 401, status: 'failed', error: 'refused' }), run({ id: 419, status: 'failed', error: 'Claude produced no changes' })] });
+
+    expect(r.implementation.attempts.map(a => [a.runId, a.n, a.live])).toEqual([[419, 2, false], [401, 1, false]]);
+    expect(r.status.activeRun).toBeNull();
   });
 
   it('offers Build again, never Dismiss, once work has started', () => {
@@ -1199,6 +1290,27 @@ describe('the status sentence and its one action', () => {
     expect(r.status.sentence).toContain('It is not live until it merges.');
   });
 
+  it('a Build card waiting on a person is the page\'s status and its Build approves THAT card (journey 4, #214 / card #4945)', () => {
+    // Undecided: approvedByAgent is null, not false, until someone decides.
+    const card: ReportActionRun = { ...handoff, id: 4945, actionId: 'factory.dispatch_task', status: 'pending', input: { requestId: request.id, reason: 'Ready to build.' }, decidedBy: null, decidedAt: null, approvedByAgent: null, executedAt: null };
+    const r = proposal({ actionRuns: [card] });
+
+    expect(r.status.headline).toBe('Build proposed');
+    expect(r.status.sentence).toBe('A build card is waiting for your approval (ACT-4945). Building it approves that card; nothing has run yet.');
+    expect(r.status.action).toEqual({ kind: 'build', label: 'Build it', runId: 4945 });
+    expect(r.status.secondary).toEqual({ kind: 'link', label: 'Open the card', href: '/dashboard/inbox/proposal-4945' });
+    expect(r.state.needsYou).toBe(true);
+    // Never "Not being built · It is not open for a build" over a waiting card.
+    expect(r.status.headline).not.toBe('Not being built');
+  });
+
+  it('a merge waiting on a person reads as waiting whether approvedByAgent is false or not yet set', () => {
+    const merge: ReportActionRun = { ...handoff, id: 91, actionId: 'git.merge', status: 'pending', decidedAt: null, approvedByAgent: null, executedAt: null };
+    const r = proposal({ tasks: [task], workerRuns: [run()], actionRuns: [merge] });
+
+    expect(r.status.action).toEqual({ kind: 'link', label: 'Review the merge', href: '/dashboard/inbox/proposal-91' });
+  });
+
   it('says Open feature once it is live, pointing at the running product', () => {
     const req = { ...request, meta: { ...request.meta, visuals: { surfaceUrl: 'https://portal.northwind.example/rooms' } } };
     const r = assembleFeatureReport(input({ request: req }));
@@ -1219,6 +1331,25 @@ describe('the status sentence and its one action', () => {
     expect(blocked.status.tone).toBe('bad');
     expect(proposal().status.tone).not.toBe('bad');
     expect(assembleFeatureReport(input()).notices.every(n => n.severity === 'inconsistency')).toBe(true);
+  });
+
+  // #130, 2026-09-29: "Chris to approve plan 136" stayed Blocked after plan 136 was approved.
+  it('is not Blocked once the plan the blocker waits on is approved', () => {
+    const waiting = { what: 'The replanned plan cannot be filed', owner: 'dana@northwind.example', next: 'Decide the pending review item #4068 / approve plan 32' };
+    const plan32 = (meta: Record<string, unknown>): ReportObject => ({ ...plan, id: 32, meta: { ...plan.meta, ...meta } });
+    const still = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, blocker: waiting } }, plans: [plan32({ status: 'in_review', approvedAt: null })] }));
+    const moved = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, blocker: waiting } }, plans: [plan32({ status: 'approved', approvedAt: '2026-09-29T14:20:00Z' })] }));
+
+    expect(still.state.key).toBe('blocked');
+    expect(moved.state.key).not.toBe('blocked');
+    expect(moved.status.headline).not.toBe('Blocked');
+  });
+
+  it('is not Blocked once the typed ask it waits on is answered', () => {
+    const blocker = { what: 'Which region hosts the export', owner: 'dana@northwind.example', next: 'answer it', waitsOn: [{ kind: 'ask', id: ask.id }] };
+    const r = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, blocker } } }));
+
+    expect(r.state.key).not.toBe('blocked');
   });
 });
 
@@ -1322,6 +1453,31 @@ describe('the release, read honestly', () => {
     expect(assembleFeatureReport(input()).release).toMatchObject({ state: 'live', label: 'Live' });
   });
 
+  it('says shipped is not seen: "Not yet seen live" until QA saw it on the live product, then what QA saw', () => {
+    const unseen = assembleFeatureReport(input()).release;
+
+    expect(unseen.seen).toEqual({ state: 'pending', line: 'Not yet seen live' });
+    expect(unseen.sentence).toMatch(/ Not yet seen live\.$/);
+
+    const missed = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'not_seen', line: 'Live check could not reach the change: step 1 (wait_for "Last opened") failed', releaseId: 88 } } } })).release;
+
+    expect(missed.seen?.state).toBe('not_seen');
+    expect(missed.sentence).toContain('Live check could not reach the change: step 1 (wait_for "Last opened") failed.');
+
+    const seen = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).release;
+
+    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', detail: null });
+  });
+
+  it('offers Check live again while QA has not seen it live, and not once it has (FE-314, 2026-10-02)', () => {
+    const missed = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'not_seen', line: 'Not seen live: QA could not set up the test data it needed', releaseId: 88 } } } }));
+
+    expect(missed.status.secondary).toEqual({ kind: 'check_live', label: 'Check live again', releaseId: missed.release.releaseId });
+    expect(missed.release.releaseId).toEqual(expect.any(Number));
+    expect(assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).status.secondary).toBeNull();
+    expect(assembleFeatureReport(input()).status.secondary).toBeNull();
+  });
+
   it('is Release not verified — never Not released — when the change merged and nothing records a release', () => {
     expect(assembleFeatureReport(input({ releases: [] })).release).toMatchObject({ state: 'unverified', label: 'Release not verified' });
   });
@@ -1341,5 +1497,29 @@ describe('the activity preview', () => {
     const times = r.activityPreview.map(e => e.at!.getTime());
 
     expect([...times].sort((a, b) => b - a)).toEqual(times);
+  });
+});
+
+describe('merged means merged (#201: "Merged: Yes" beside "Ready to merge")', () => {
+  it('reads a done merge or a release, never a head commit on the task', async () => {
+    const { mergedPullRequests } = await import('./featureReport');
+    const pr = 'https://github.com/acme/northwind/pull/127';
+    const merge = (status: string) => ({ id: 1, actionId: 'git.merge', status, input: { externalRef: { url: pr } }, decidedBy: null, decidedAt: null, approvedByAgent: null, note: null, createdAt: new Date() }) as never;
+
+    expect(mergedPullRequests([], []).has(pr)).toBe(false);
+    expect(mergedPullRequests([], [merge('pending')]).has(pr)).toBe(false);
+    expect(mergedPullRequests([], [merge('done')]).has(pr)).toBe(true);
+    expect(mergedPullRequests([{ id: 9, title: 'send@abc', status: null, meta: { prUrls: [pr] } } as never], []).has(pr)).toBe(true);
+  });
+});
+
+describe('a failed check says why, not only that it failed', () => {
+  it('shows the check\'s last output line beside its exit code', () => {
+    const run = { id: 7, agentSlug: 'engineer', kind: 'worker', status: 'failed', attempt: 1, cents: null, model: null, summary: null, error: null, createdAt: NOW, claimedAt: null, completedAt: null, input: {}, progress: {}, result: { checks: [{ name: 'test', status: 'failed', exit_code: 2, tail: 'npm test\nsh: 1: Syntax error: "(" unexpected' }, { name: 'lint', status: 'passed', exit_code: 0, tail: 'ok' }] } } as ReportWorkerRun;
+
+    expect(runChange(run).checks).toEqual([
+      { name: 'test', passed: false, detail: 'exit 2: sh: 1: Syntax error: "(" unexpected' },
+      { name: 'lint', passed: true, detail: 'exit 0' },
+    ]);
   });
 });

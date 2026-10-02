@@ -2,15 +2,19 @@
 
 import type { DashboardLinkKind } from './links';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
+import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
+import type { TurnRecord } from '@/libs/factory/liveStatus';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
-import { normalizeAnswerHtml } from '@/libs/chat/answerText';
+import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
 import { splitScratch } from '@/libs/chat/scratch';
+import { turnFollowups } from '@/libs/chat/turnFollowups';
 import { Link } from '@/libs/I18nNavigation';
 import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
@@ -21,6 +25,7 @@ import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
+import { turnFailure } from './turnFailure';
 import { useElapsed } from './useElapsed';
 import { LiveStatus, WorkTimeline } from './WorkTimeline';
 
@@ -72,9 +77,9 @@ export type AgentMessageProps = {
   /** Display name for the speaker label above the message body. Passed through from ChatShell's active agent. */
   agentName: string;
   onDocumentClick?: (doc: IndexedDocument, num: string) => void;
-  onCitationClick?: (n: number) => void;
+  onCitationClick?: (n: number, messageId?: number) => void;
   /** Optional handler when the "Sources · N" pill is clicked. Opens the SourcesPanel. */
-  onShowSources?: () => void;
+  onShowSources?: (messageId?: number) => void;
   /** True while this message is still streaming — the work timeline stays expanded + live. */
   streaming?: boolean;
   /** Live status line while streaming (rendered inside the work timeline). */
@@ -91,7 +96,35 @@ export type AgentMessageProps = {
   onOpenArtifact?: (id: number) => void;
   /** The thread this turn belongs to — stamped into a failed step's Copy details. */
   conversationId?: number | null;
+  /** The page's own record: never a follow chip (it refreshes itself). */
+  pageRecord?: FollowExclude | null;
+  /** The newest turn in the thread — the only one that carries record microcards. */
+  latest?: boolean;
+  /** The records the thread is about (`useThreadRecords`), drawn under the newest turn beside what it did itself. */
+  threadRecords?: TurnRecord[];
 };
+
+/** How many microcards the newest turn carries at most. */
+const MICROCARDS_SHOWN = 3;
+
+/**
+ * The newest turn's microcards: what it filed or changed itself, then what
+ * the thread is about — one per record, less the page's own record, at most
+ * {@link MICROCARDS_SHOWN}.
+ * @param own - The turn's `turn_records`.
+ * @param thread - The thread's records.
+ * @param pageRecord - The page's own record, which shows itself.
+ */
+export function microcardsOf(own: readonly TurnRecord[], thread: readonly TurnRecord[], pageRecord?: FollowExclude | null): TurnRecord[] {
+  const out: TurnRecord[] = [];
+  for (const r of [...own, ...thread]) {
+    const onPage = pageRecord?.type === 'object' && pageRecord.id === String(r.id);
+    if (!onPage && !out.some(o => o.id === r.id)) {
+      out.push(r);
+    }
+  }
+  return out.slice(0, MICROCARDS_SHOWN);
+}
 
 function formatTime(ts: number | undefined): string {
   if (!ts) {
@@ -172,15 +205,30 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
+  // THE MICROCARDS: one line per record the turn filed or changed, on the
+  // newest turn only, less the page's own record (it shows itself). Each
+  // replaces that record's plain follow chip — one shape per record.
+  // The turn's own records come first (they carry what a change wrote), then
+  // the thread's — one per record, at most three.
+  const microcards = useMemo(() => (latest && !streaming ? microcardsOf(message.records ?? [], threadRecords ?? [], pageRecord) : []), [latest, streaming, message.records, threadRecords, pageRecord]);
+  // What the turn set moving, less the page's own record, the artifacts the
+  // row already shows and the records a microcard already draws.
+  const follow = useMemo(() => turnFollowups(message.runs as TurnToolStep[] | undefined, {
+    exclude: [...(pageRecord ? [pageRecord] : []), ...(message.artifacts ?? []).map(a => ({ type: 'artifact', id: String(a.id) })), ...microcards.map(r => ({ type: 'object', id: String(r.id) }))],
+  }), [message.runs, message.artifacts, pageRecord, microcards]);
   // A failure is a failure whether it arrived as a legacy run or as a typed
   // trace node — #368 persists the latter, and the badge has to find both.
-  const erroredRun = runs.find(r => r.type === 'tool' && r.state === 'error');
-  const erroredNode = (message.trace ?? []).find(n => n.status === 'error');
+  // A step a later step of the same kind recovered from is not a failure of
+  // the turn (`turnFailure.ts`): journey 4 showed "file_request failed" over
+  // the request the retry filed.
+  const failure = turnFailure(runs, message.trace ?? []);
+  const erroredRun = failure.run;
+  const erroredNode = failure.node;
   const hasToolError = Boolean(erroredRun || erroredNode);
   // How this turn ended, read once: an explanation when it owes one, a quiet
   // line when it does not, nothing at all when it simply finished (#114).
@@ -261,7 +309,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {sourceCount > 0 && (
             <button
               type="button"
-              onClick={onShowSources}
+              onClick={() => onShowSources?.(message.id)}
+              data-testid="sources-chip"
               className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] tracking-normal text-foreground/80 normal-case transition hover:border-primary/30 hover:text-foreground"
             >
               <FileText className="size-2.5" aria-hidden />
@@ -307,6 +356,11 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               <AlertCircle className="size-2.5 shrink-0" aria-hidden />
               <span className="truncate">{failureLabel}</span>
             </button>
+          )}
+          {!hasToolError && failure.retried && (
+            <span data-testid="tool-retried-badge" className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] tracking-normal text-muted-foreground normal-case">
+              {failure.retried.filed ? 'retried · filed' : 'retried · done'}
+            </span>
           )}
         </div>
         {hasToolError && showError && (
@@ -379,7 +433,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                               return (
                                 <button
                                   type="button"
-                                  onClick={() => onCitationClick?.(n)}
+                                  onClick={() => onCitationClick?.(n, message.id)}
                                   className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
                                   aria-label={`Open source ${n}`}
                                 >
@@ -417,7 +471,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                           },
                         }}
                       >
-                        {citeLinkify(normalizeAnswerHtml(piece.text))}
+                        {citeLinkify(normalizeAnswerHtml(stripCardNotes(piece.text)))}
                       </Markdown>
                     </div>
                   )))))}
@@ -455,8 +509,17 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {(message.recommendations?.length ?? 0) > 0 && (
             <RecommendedActionStack recs={message.recommendations!} />
           )}
-          {(message.artifacts?.length ?? 0) > 0 && (
-            <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
+          {/* What the turn made and what it set moving, in one row: the
+              artifacts, then each run, record or ask its steps started,
+              followed live (Chris, 2026-09-29). Not while it streams: a
+              chip for a step still running would be a claim. */}
+          {microcards.length > 0 && (
+            <div className="-mx-2 mt-3 space-y-0.5" data-testid="turn-record-microcards">
+              {microcards.map(r => <RecordMicrocard key={r.id} record={r} />)}
+            </div>
+          )}
+          {((message.artifacts?.length ?? 0) > 0 || (!streaming && follow.length > 0)) && (
+            <ArtifactChips artifacts={message.artifacts ?? []} follow={streaming ? [] : follow} onOpen={onOpenArtifact} />
           )}
           {(message.selfUpdates?.length ?? 0) > 0 && (
             <SelfUpdateChips updates={message.selfUpdates!} />

@@ -44,7 +44,9 @@ export function useListUrlState(config: ListStateConfig): [ListState, (patch: Pa
     const current = parseListState(window.location.search, config);
     const next = applyListState(window.location.search, { ...current, ...patch }, config);
     if (next !== window.location.search) {
-      // Null state, so Next's router adopts the URL (see features/preview/previewState.ts).
+      // `null`, so the router adopts the URL: handed its own state, Next's
+      // patched `replaceState` skips the write, and the next refresh puts the
+      // old query back (`features/preview/previewState.ts` has the detail).
       window.history.replaceState(null, '', `${window.location.pathname}${next}${window.location.hash}`);
       listeners.forEach(l => l());
     }

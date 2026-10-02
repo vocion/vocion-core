@@ -252,7 +252,7 @@ describe('candidate extractor model call', () => {
   it('gives the call the model deadline from the budget, which a source may lower', async () => {
     // The old 20s literal was below what a healthy Bedrock call costs (18.2s
     // average on the first dev shadow), so the deadline is a cap now: the
-    // default is 60s and this source asked for 20ms, which it gets.
+    // default is 120s and this source asked for 20ms, which it gets.
     invoke.mockImplementation(async (_messages: unknown, options: { signal: AbortSignal }) =>
       new Promise((_resolve, reject) => {
         options.signal.addEventListener('abort', () => {
@@ -392,5 +392,28 @@ describe('candidate extractor model call', () => {
     expect(result.records[0]?.matchedRules).toBeUndefined();
     expect(result.records[1]?.matchedRules).toEqual([{ id: 'event-extraction#ws-no-cure-claims' }]);
     expect(result.records[2]?.matchedRules).toBeUndefined();
+  });
+
+  it('reads a stated rule beside a record, and drops a malformed one without a retry', async () => {
+    invoke.mockResolvedValueOnce({
+      content: '{"records":['
+        + '{"fields":{"title":"Open Mic"},"confidence":0.9,"suggestedDecision":"approve","suggestedDecisionReason":"Fits.","repeats":{"rule":"FREQ=WEEKLY;BYDAY=TU","except":["2026-11-24",3],"evidence":"every Tuesday"}},'
+        + '{"fields":{"title":"Jazz Brunch"},"confidence":0.8,"suggestedDecision":"approve","suggestedDecisionReason":"Fits.","repeats":"weekly"},'
+        + '{"fields":{"title":"Story Hour"},"confidence":0.8,"suggestedDecision":"approve","suggestedDecisionReason":"Fits.","repeats":{"rule":"FREQ=WEEKLY","evidence":7}}'
+        + ']}',
+    });
+
+    const result = await call();
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('ok');
+
+    if (result.status !== 'ok') {
+      return;
+    }
+
+    expect(result.records[0]?.repeats).toEqual({ rule: 'FREQ=WEEKLY;BYDAY=TU', except: ['2026-11-24'], evidence: 'every Tuesday' });
+    expect(result.records[1]?.repeats).toBeUndefined();
+    expect(result.records[2]?.repeats).toEqual({ rule: 'FREQ=WEEKLY' });
   });
 });

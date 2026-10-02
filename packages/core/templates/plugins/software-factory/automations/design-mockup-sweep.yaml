@@ -1,0 +1,23 @@
+# A FEATURE THAT NEVER GOT ITS MOCKUP GETS ONE. The filing event is the first
+# chance (design-mockup-default); this is the second, every hour, for open
+# requests filed before the rule or skipped by an earlier reading of it
+# (#277, 2026-09-30). Same rule, same decision: a drawing running or given up
+# is left alone, and at most three are asked for per pass.
+slug: design-mockup-sweep
+name: Open requests with a UI and no mockup
+description: >-
+  Every hour, ask the designer for the mockup of open requests with a ui or
+  flow surface that have none. Deterministic: a built-in job on a schedule.
+status: active
+agent: designer
+when:
+  schedule: '35 * * * *'
+do:
+  job: mockup-sweep
+  input:
+    objectType: request
+    owedWhen: {field: surface, oneOf: [ui, flow]}
+    skipWhen:
+      - {field: kind, oneOf: [bug, incident, question]}
+      - {field: state, oneOf: [deferred, answered, out_of_scope, shipped]}
+    attempts: 2

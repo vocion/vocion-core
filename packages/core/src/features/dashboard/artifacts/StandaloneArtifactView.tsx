@@ -14,6 +14,8 @@
 import type { ArtifactEntry } from './artifactReducer';
 import type { ArtifactPayload } from '@/services/agents/types';
 import { useState } from 'react';
+import { useVersionRefresh } from '@/features/dashboard/versions/VersionWatch';
+import { client } from '@/libs/Orpc';
 import { ArtifactPane } from './ArtifactPane';
 
 export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conversationId }: {
@@ -24,6 +26,19 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conver
   conversationId?: number | null;
 }) {
   const [current, setCurrent] = useState<ArtifactEntry>(artifact as ArtifactEntry);
+  // A version written from chat (or, for a record's body, from the record's
+  // page) reloads it in place and marks what changed (backlog 035).
+  useVersionRefresh({
+    refs: [{ type: 'artifact', id: String(current.id) }],
+    root: () => (typeof document === 'undefined' ? null : document.querySelector('[data-artifact-body]')),
+    refetch: () => {
+      client.artifacts.get({ id: current.id })
+        .then(next => setCurrent(prev => ({ ...prev, ...(next as ArtifactEntry) })))
+        .catch((error: unknown) => console.warn('StandaloneArtifactView: could not reload the new version', error));
+    },
+    settled: current.version,
+    ready: true,
+  });
   return (
     <ArtifactPane
       key={current.id}

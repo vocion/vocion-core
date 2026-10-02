@@ -19,6 +19,17 @@ export type ActionContext = {
   credentials?: Record<string, unknown>;
   /** `agent:<slug>` / `token:<id>` / user id — for provider audit fields. */
   invokedBy?: string;
+  /**
+   * WHOSE DECISION THIS IS, by the principal proposing it: `agent:<slug>` for
+   * an agent's own proposal — even one filed in a person's turn, where
+   * `invokedBy` names the person whose thread it was — and the person's id
+   * when they asked for it themselves (their tap, or their words read by
+   * `saidToDecide`). Present on `precheck` and `underway`. A check that lets a
+   * person through and holds an agent to its seat reads this, never
+   * `invokedBy` (action 5949, 2026-10-01: a product manager's revert card,
+   * filed in a person's turn, passed the pipeline-owner check as the person).
+   */
+  proposedBy?: string;
   /** The human who decided the run, when it came through the review queue. */
   reviewedBy?: string;
   /**
@@ -37,6 +48,12 @@ export type ActionContext = {
    * the person whose turn it was. Present on `execute` only.
    */
   origin?: { conversationId?: number | null; userId?: string | null; byPerson?: boolean };
+  /**
+   * What the agent turn proposing this has read (`GateTurn`), when a turn is
+   * proposing. Present on `precheck` only: a gate that asks for a source read
+   * in this turn (`readThisTurn`) checks it here, at the door.
+   */
+  turn?: import('@/libs/gates/handoffGate').GateTurn;
 };
 
 /**
@@ -180,6 +197,20 @@ export type ReviewContent
   }
   | {
     /**
+     * A message a person will read where it is posted — a Slack post, a
+     * channel notice. Editable (edit-then-approve), like `email`, because
+     * the words are copy a reviewer vouches for; unlike `email` it has no
+     * subject line and renders as the plain text the channel will show.
+     */
+    kind: 'message';
+    id: string;
+    label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
+    body: string;
+  }
+  | {
+    /**
      * A block of text the reviewer reads as written — a recipe of commands,
      * a release note, a config excerpt. Read-only: nothing here is copy a
      * person vouches for line by line, so it never joins the walk.
@@ -225,6 +256,14 @@ export type ReviewContentEdit = { id: string; subject?: string; body?: string };
 export type Action<S extends z.ZodType = z.ZodType> = {
   /** Stable id, e.g. `gmail.send`. */
   id: string;
+  /**
+   * Ids this action used to be registered under, still accepted by
+   * `getAction` and by a trust rule or a grant that names one of them. An
+   * action renamed from its vendor's name to its family's (`github.open_pull`
+   * → `repo.open_pull`) keeps the runs, rules and ledgers written under the
+   * old id; a new run is always recorded under `id`.
+   */
+  aliases?: readonly string[];
   name: string;
   description: string;
   /** Validates the action input at propose-time. */
@@ -250,6 +289,15 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   selfImproving?: boolean;
   /** Which source's vault credentials this action needs (e.g. `gmail`). */
   sourceSlug?: string;
+  /**
+   * Which source's vault credentials THIS input needs, for an action that
+   * serves any source rather than one — `rest.request` names its source in
+   * the input, and there may be several REST sources in a workspace. Read
+   * wherever `sourceSlug` is (the run row, execute, undo) and wins over it
+   * when it returns a slug; `undefined` falls back to `sourceSlug`.
+   * `ActionService.sourceSlugOf` is the one reader.
+   */
+  sourceSlugFor?: (input: z.infer<S>) => string | undefined;
   /**
    * A HAND-OFF: the execution is performed by a person or an external system
    * after approval, never in this process. Approving one does not call
@@ -299,6 +347,26 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * into one, and the reviewer would only ever see the last one to arrive.
    */
   dedupKeyFor?: (input: z.infer<S>) => string | undefined;
+  /**
+   * `dedupKeyFor` names the ONE thing this action is about, so it wins over a
+   * key the caller passed — a chat card's own `card:` key included. Without
+   * it a card proposes under its label's hash, and two cards for the same
+   * record are two runs: request #224 got three `factory.dispatch_task` runs
+   * in 35 seconds (5015 from the intake, 5016 and 5018 from the PM's cards),
+   * two of which executed. With it, a second proposal for the same record
+   * refreshes the open run instead, and that refreshed run is judged by the
+   * trust ladder as the new proposal would have been.
+   */
+  ownsDedupKey?: boolean;
+  /**
+   * Input fields only core's own steps may set (`proposeAction({ internal:
+   * true })`) — a trigger that picks a different trust key, a counter that
+   * says a run was automatic. Stripped from every other proposal, so a model
+   * writing a card cannot claim to be the factory's automatic start (the
+   * PM's card for #224 carried `trigger: "request"`, which moved it onto the
+   * intake's trust key and out of the dedup key the intake's card used).
+   */
+  internalInput?: readonly string[];
   /**
    * Collapse a repeat proposal into an already-DECIDED run as well as a
    * pending one. Off unless the action sets it, because for most actions the
@@ -354,6 +422,14 @@ export type Action<S extends z.ZodType = z.ZodType> = {
      * every key is trusted.
      */
     keyIsTrustworthy?: (input: z.infer<S>) => boolean;
+    /**
+     * Whether the decided run's decision still answers for this key. A
+     * decision is about the record it produced; once that record is
+     * superseded, a new filing under the same key is a new record (#201,
+     * 2026-09-29: the replacement for stale plan #215 was refused because
+     * plan #215 had been approved the day before).
+     */
+    decisionStillStands?: (orgId: string, decidedResult: Record<string, unknown> | null) => Promise<boolean>;
   };
   /**
    * Last check before anything is written, once the caller is known to be
@@ -368,6 +444,15 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * nothing.
    */
   precheck?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | void>;
+  /**
+   * IS WHAT WAS ASKED FOR ALREADY HAPPENING? (2026-09-30, conversation 394:
+   * "Finish the plan and build" came back "Proposal refused: already
+   * building", and the agent told the person the build "did not go out"
+   * while it was queued.) When it returns a line, the proposal is not a
+   * refusal: it answers `already_underway` with that line and the run's
+   * link, and nothing new starts. Checked before `precheck`.
+   */
+  underway?: (ctx: ActionContext, input: z.infer<S>) => Promise<{ line: string; href?: string | null } | null>;
   /**
    * Fields a refinement requires that the shape marks optional — so the
    * input hints a model reads (`actionInputHints`) can mark them required.

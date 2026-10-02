@@ -26,18 +26,24 @@ import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
+import { chatTools } from './chatTools';
+import { checkLiveTools } from './checkLive';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
 import { dataRoomTools } from './dataRooms';
+import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
+import { describeSourcesTool } from './describeSources';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
+import { drawMockupTools } from './drawMockup';
 import { editArtifactTools } from './editArtifacts';
 import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
 import { fileAskTool, withdrawAskTool } from './fileAsk';
 import { fileFeedbackTool } from './fileFeedback';
+import { fileRecordTools } from './fileRecord';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
@@ -60,18 +66,25 @@ import {
   updateLearningTool,
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
+import { lookupPersonTools } from './lookupPerson';
 import { updateMissionNotesTool } from './missionNotes';
 import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
 import { posthogCountTools } from './posthogCounts';
+import { productAccessTools } from './productAccess';
 import { proposeActionTool } from './proposeAction';
 import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
 import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
+import { repoTools } from './repoTools';
+import { restTools } from './restDirect';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
+import { sentryTools } from './sentry';
+import { setVoiceTool } from './setVoice';
+import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
@@ -121,6 +134,21 @@ function apolloTools(ctx: RuntimeContext): StructuredToolInterface[] {
 }
 
 export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
+  const tools = baseDomainTools(ctx);
+  // A record filed through a tool whose arguments ARE its type: one
+  // `file_<slug>` per opted-in type (`x-agent-file`) the agent works with,
+  // required fields from the type's proposal-ready bar, references as enums
+  // of this workspace's slugs (conversation 353: free-form fields, two
+  // refusals, nothing filed). A name another tool already holds is skipped,
+  // so a type called `ask` can never shadow `file_ask`.
+  const taken = new Set(tools.map(t => t.name));
+  const filing = fileRecordTools(ctx).filter(t => !taken.has(t.name));
+  // Every invocation writes one tool_call row — the activity record,
+  // covering all three harness providers at this single seam.
+  return [...tools, ...filing].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
+}
+
+function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
     searchKnowledgeTool(ctx),
     webSearchTool(ctx),
@@ -141,11 +169,21 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Where in Vocion a person does something, as a link — so an answer never
     // describes a screen it could have linked to. Read-only; on for every agent.
     whereToTool(ctx),
+    setVoiceTool(ctx),
     // What the workspace could turn on — plugins and connectors, on or off —
     // so a gap becomes a recommendation instead of a workaround. Read-only.
     listCapabilitiesTool(ctx),
+    // What the agent's connected sources actually reach — the repositories,
+    // project keys and channels in scope, checked live against the grant
+    // where the vendor can be asked (a GitHub App installation). "Which
+    // repositories do you have access to?" is this call, not a search of the
+    // index or a guess from the operating intent (Noco, 2026-09-30).
+    describeSourcesTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
+    // A mockup is the real screen with only the change drawn in, filed on the
+    // request it is for (request #224, 2026-09-29). For agents with requests.
+    ...drawMockupTools(ctx),
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
@@ -157,6 +195,29 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Granted-only: QA's verdict on a pull request, bound to its head, and the
     // merge card on approve — one call, so the review cannot end unrecorded.
     ...recordVerdictTools(ctx),
+    // Granted-only: a product's production URLs and QA sign-in (never the
+    // password, which only the worker reads, over the API).
+    ...productAccessTools(ctx),
+    // Granted-only: a shipped release checked on the live product as the QA
+    // account, and what QA saw written on the release and its features.
+    ...checkLiveTools(ctx),
+    // Granted-only: production errors from the workspace's Sentry — issues by
+    // project, environment, release and time, and one issue's latest event
+    // (sentry_issues, sentry_issue).
+    ...sentryTools(ctx),
+    // The code host (`libs/connectors/families.ts`): a pull request, its diff
+    // and a file at a ref for any agent with a repo source in scope; the
+    // checks' logs and the pipeline runs granted-only (backlog 049).
+    ...repoTools(ctx),
+    // Source-gated: the connected issue tracker, live — an issue whole, a
+    // search inside its projects, an attachment (`services/tracker/provider.ts`).
+    ...trackerTools(ctx),
+    // Source-gated — the chat family's reads (a thread, a file on it) for an
+    // agent whose sources include a chat; its writes are actions.
+    ...chatTools(ctx),
+    // One person across the three families — chat user, tracker account,
+    // code-host login — by email. Present with any of the three in scope.
+    ...lookupPersonTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),
@@ -176,6 +237,8 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     withdrawProposalTool(ctx),
     // A person deciding a card by saying so — the card's buttons, from the composer.
     decideProposalTool(ctx),
+    // …and an ask the same way: the Needs you sheet's buttons, from the composer.
+    decideAskTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
     // Every interaction should teach the system something (design principle 11):
@@ -211,6 +274,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...hubspotDirectTools(ctx),
     // Source-gated — empty unless an Apollo source is in the agent's scope.
     ...apolloTools(ctx),
+    // Source-gated — the live reads every `rest` source in scope declares,
+    // plus its action catalog. Empty without one (`ctx.restSources`).
+    ...restTools(ctx),
     // Source-gated — the PostHog daily mirror, summed. Empty without a posthog source.
     ...posthogCountTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).
@@ -222,9 +288,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...personalizationTools(ctx),
     // Granted-only: reference-based kit verification + the Rekognition second opinion.
     ...kitVisionTools(ctx),
-    // Every invocation writes one tool_call row — the activity record,
-    // covering all three harness providers at this single seam.
-  ].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
+  ] as StructuredToolInterface[];
 }
 
 export type ToolCatalogEntry = {

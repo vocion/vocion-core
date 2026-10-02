@@ -51,7 +51,7 @@ org. Worker-side calls must also present the `workerId` that holds the lease.
 
 | Step | Call | What Vocion does |
 |---|---|---|
-| Claim | `POST /worker-runs/:id/claim { workerId }` | `queued` → `running`, `attempt` +1, lease starts. Checks the agent's period budget first (402 if over). Returns a short-lived **toolClaim** for `/api/internal/agent-tools`. |
+| Claim | `POST /worker-runs/:id/claim { workerId, workerVersion? }` | `queued` → `running`, `attempt` +1, lease starts. `workerVersion` (the worker image, build or commit; also accepted on a heartbeat) is kept on the run as `worker_version`: a failure in the worker's own environment is retried only once a newer version has reported, and otherwise stops with one ask. Checks the agent's period budget first (402 if over). Returns a short-lived **toolClaim** for `/api/internal/agent-tools`. |
 | Heartbeat | `POST /worker-runs/:id/heartbeat { workerId, progress?, cursor?, counts?, usage?, failures?, events? }` | Extends the lease, records progress and cost, charges `usage` to the agent's budget, stores the step log `events`. Replies with the **control signals**. |
 | Checkpoint | `POST /worker-runs/:id/checkpoint { workerId, cursor, … }` | Same contract as heartbeat; `cursor` required. |
 | Complete | `POST /worker-runs/:id/complete { workerId, result?, counts?, summary?, events? }` | Terminal. A run that had been asked to stop is recorded as `cancelled`. `summary` is the worker's own one-paragraph account, shown on the team report. |
@@ -177,7 +177,7 @@ to the in-process loop. Vocion stores checkpoints and progress, not the worker's
 
 ## Operations
 
-- **Reaper:** a Temporal schedule (`worker-run-reaper`, every 5 minutes) marks lapsed leases `lost`.
+- **Reaper:** a durable schedule (`worker-run-reaper`, every 5 minutes) marks lapsed leases `lost`.
   Applied on every worker boot; removed when the flag is off.
 - **Table:** `worker_run`, migration `0081`; `kind`, `model`, `summary` added in `0092`. Indexed by
   `(org_id, status)`, `(org_id, agent_slug)`, and `(status, lease_expires_at)` for the reaper.

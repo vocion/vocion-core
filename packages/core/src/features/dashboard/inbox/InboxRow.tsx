@@ -90,6 +90,10 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
 
   const age = tab === 'decided' ? agoLabel(item.at) : waitingFor(item.at);
 
+  if (item.members) {
+    return <GroupedClosureRow item={item} age={age} />;
+  }
+
   return (
     <div className="relative" data-kind={item.kind}>
       <ListRow
@@ -205,6 +209,51 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
 }
 
 /**
+ * One decided-tab line that stands for many items — the runs one review sweep
+ * closed because they had already expired (backlog 039). Collapsed it is one
+ * line; expanded it lists each item with its link and the reason it closed.
+ * @param props
+ * @param props.item - The grouped row (`members` set).
+ * @param props.age - The age label the list shows for every row.
+ */
+function GroupedClosureRow({ item, age }: { item: InboxItem; age: string }) {
+  const [open, setOpen] = useState(false);
+  const members = item.members ?? [];
+  return (
+    <div data-kind={item.kind} data-testid="inbox-closure-group">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm">{item.title}</span>
+          {item.subline && <span className="block truncate text-[13px] text-muted-foreground">{item.subline}</span>}
+        </span>
+        <span className="shrink-0 text-[13px] text-muted-foreground tabular-nums">{age}</span>
+      </button>
+      {open && (
+        <ul className="border-t border-border/60 py-1 pl-10">
+          {members.map(m => (
+            <li key={m.id} className="py-1 text-[13px]">
+              <Link href={m.href} className="hover:underline">
+                #
+                {m.id}
+                {' '}
+                {m.title}
+              </Link>
+              {m.note && <span className="block truncate text-muted-foreground">{m.note}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
  * What happens next, for the toast — the header no longer carries "what changed".
  * @param item - The row.
  * @param verb - The verb taken.
@@ -216,7 +265,8 @@ function nextFor(item: InboxItem, verb: DecisionVerb): string {
   if (item.kind === 'learning') {
     return verb.id === 'approve' ? 'The agent reads the rule on its next run.' : 'Dropped; the reason is kept for the classifier.';
   }
-  return 'The team reads your answer on its next cycle.';
+  // Deciding an ask runs nothing by itself; the ask page names what an answer starts.
+  return 'Your answer is recorded.';
 }
 
 /**

@@ -15,7 +15,7 @@ plugin ships the **meaning**: which agent, on what cadence, graded on what,
 with which pages and which rules. A workspace ships the **concretion**: its
 brand, its overrides, its own facts.
 
-Five ship in core, at `packages/core/templates/plugins/`:
+Six ship in core, at `packages/core/templates/plugins/`:
 
 | Plugin | What turning it on gives you | Depends on |
 |---|---|---|
@@ -23,6 +23,7 @@ Five ship in core, at `packages/core/templates/plugins/`:
 | **`data-rooms`** | One room per engagement: the `data_room` type, the filing skill, the Room keeper and its daily mission, the Data rooms sidebar row, and the after-sync collector that files clear matches and asks about plausible ones. | — |
 | **`proposals`** | The Proposal Writer, the house sheet framework, the Proposals app under GTM, a weekly verify mission, and a team graded on documents rendered and verified clean. | `data-rooms` |
 | **`growth-loop`** | The loop a go-to-market team actually runs: the `growth_brief` — one claim, one audience, the list of what the piece may NOT say, the acceptance contract, and the number it will be judged on with its baseline, source and attribution model fixed before anything is made; five seats on one team (Demand writes the brief, Production makes one deliverable as an artifact, Quality decides fit-to-publish against that brief and nothing else, Measurement takes the reading on its due date and writes the verdict, Growth promotes inside three limits), Design declared empty; four standing missions, every way an agent acts an automation a person can read on /dashboard/automation; Briefs, Measure and Cost-and-return on top with the team report beside them; and `team.hire_agent` — the team adding a teammate from the catalog, with the daily allowance it is hired under, refused while the workspace is over its own spend, and one Undo from being put back. | — |
+| **`production-watch`** | Production errors from Sentry become `incident` records: the `error-watch` job opens one when an issue is new and busy or spiking, with its cause (`deploy`, `code`, `unknown`) read by a model from the release and the stack, resolves it after a quiet hour, and raises `incident.opened` / `incident.updated`. An on-call engineer reads each one and writes the move on it; a person hears once per incident. With `software-factory` on, a deploy-caused incident wakes its Release engineer, and a major code bug becomes a factory request. The watch list is the `error-watch` automation's input. | — |
 | **`software-factory`** | Every request — bug, review, email, incident — as one `request` record; the `engineering_task` contract as the record a person reads; the `repo` registry and the `product` with its written promises; five disciplines on one team — a product manager that tags, ranks, recommends in batches of ten and then pauses, ideates as requests and authorizes nothing; a planner (architecture) that triages and writes contracts under three WIP limits; an `external-worker` engineer that executes in its own checkout and attaches the proof; a reviewer (QA) that approves nothing without evidence; the Design seat declared empty — nine standing missions, every way the product manager acts an automation a person can read on /dashboard/automation; the AppCurious portfolio and Releases on top with agent-maintained counters, and the Backlog, Recommendations, Factory floor, Product board, Factory log and Team report as the evidence underneath; one merge bar per risk class and one authorization bar per class, earned or never. | — |
 
 Each plugin directory has a `README.md` that says what it adds and how to
@@ -115,7 +116,7 @@ templates/plugins/<slug>/
 ├── missions/<slug>.yaml
 ├── automations/<slug>.yaml
 ├── teams/<slug>.yaml      # the plugin's team, with the measures it is graded on
-├── pages/<slug>.yaml      # (+ <slug>.md) — list / queue / markdown archetypes
+├── pages/<slug>.yaml      # (+ <slug>.md) — list / queue / markdown / configure archetypes
 └── trust.yaml             # confidence bars for the plugin's own actions
 ```
 
@@ -164,6 +165,112 @@ and the after-sync collector runs only where the plugin is on; its tool set is
 present only with the plugin. The **proposals** plugin's `rows: artifacts where
 {kind: document, playbook: proposal, verified: true}` measure is what "verified
 clean" means on its team report.
+
+## Notifications — the few moments a person hears about
+
+Nothing notifies unless a plugin or the workspace says so. A `notifications:`
+block in `plugin.yaml` (or `workspace.yaml`) names each moment: the typed event,
+an optional payload filter (the automation `===` rule), who hears it, the title
+and body as `{field}` templates over the payload, the record it is about (its
+page is where the notification opens) and what makes two events one
+notification (`dedupe`, default the record).
+
+```yaml
+notifications:
+  - kind: needs-person
+    label: Needs a person
+    event: factory.stopped
+    who: accountable # accountable | admins | members | {user: email} | {field: payloadKey}
+    title: '{title} needs you'
+    body: '{why}. What would unblock it: {unblock}.'
+    record: {type: request, id: '{requestId}'}
+    dedupe: 'request:{requestId}:ask:{askId}'
+```
+
+The applier stores each kind (`notification_rule`); `emitEvent` matches it and
+calls one `notify()`, which writes one notification per person and one delivery
+per channel — in-app always, iPhone and Chrome for the devices the person
+registered, email and Slack when they turn those on — drained by one queue with
+retries (`services/notifications/`). A workspace entry with a plugin's `kind`
+replaces it; `status: disabled` turns it off. The software-factory plugin
+declares exactly two: a feature needs a person, and a feature was released.
+Each person chooses channels per kind, quiet hours and devices at
+`/dashboard/notifications/settings`, `/api/v1/notifications/preferences` or MCP.
+
+## A Configure page — what drives the plugin, by descriptor
+
+A plugin gets one page that answers *what drives this, and is any of it
+asking for me?* by declaring it, with no code:
+
+```yaml
+# pages/configure.yaml
+slug: configure
+title: Configure
+description: What drives it — its measures, seats, skills, rules and automations, and what it learned from use.
+nav: {section: My plugin, order: 9, secondary: true}
+archetype: configure
+pluginPanel: false
+configure: # optional — omitted, every block in this order
+  tabs: [{kind: seats}, {kind: skills}, {kind: automations}, {kind: trust}, {kind: learned}, {kind: measures}]
+  aside: [{kind: health}, {kind: attention}, {kind: changes}]
+```
+
+Each **tab** is one relation of the plugin, read from the rows core already
+keeps and scoped to what the plugin's directory ships: **seats** (its agents —
+seat, role, model, missions owned, last run; a row opens the agent in the
+preview pane), **skills** (its skills and playbooks, the workspace's
+overrides marked), **automations** (trigger, what it does, the newest fire and
+its result — a match that could not start included — and a person's pause),
+**trust** (each rule in its `trust.yaml` and any class the workspace derived
+from it, `git.merge.docs`: runs on its own, or asks), **learned** (rules its
+agents follow and where each came from) and **measures** (its team's, each
+with its direction and the change against the prior window). The tab is in
+`?tab=`.
+
+The **sidebar** stacks under the tabs on a phone: **health** (the measures,
+value and change), **attention** (links only, and absent when empty: an
+automation that errored, a seat over budget, an override the plugin moved on
+from, a rung that demoted itself, a measure nothing reads) and **changes**
+(pauses, rung changes, adopted rules and applies — what, who, when, link).
+
+An override is *behind the plugin* when the plugin's copy of the SKILL.md body
+changed after the override was last edited: the apply stores the body the
+override replaced (`frontmatter.baseSha`) when the override is new or edited,
+and keeps it while the override is unchanged. An override applied before this
+takes its base on its next apply.
+
+The renderer is `features/dashboard/configure/` over
+`services/plugins/configureData.ts`; the tab and block kinds are a closed set
+in `libs/workspace/pageFields.ts`.
+
+## Factory types — the roles a factory plugin's records play
+
+Core's factory services (`services/factory/`, `libs/actions/factory*`) name no
+object type. A factory plugin says once which of its types plays each role:
+
+```yaml
+factory:
+  types:
+    request: request # the ask
+    task: engineering_task # the unit a worker builds
+    plan: architecture_plan # the approach approved before a build
+    environment: environment # where a product runs
+    release: release # what shipped
+    product: product # what is built
+    repo: repo # the code it is built in
+```
+
+Every factory service reads its slugs through `factoryTypes(orgId)`
+(`libs/factory/types.ts`): the first plugin the workspace has on that declares
+the block, else the core's own factory plugin. A plugin that calls its work item
+something else runs the same loop with no core edit
+(`services/factory/renamedTypes.test.ts`), and `libs/factory/noConcretions.test.ts`
+fails the build on a type slug written where a type goes in that code.
+
+Work-row states carry their own tone (`workStateOf` in
+`libs/workspace/workQueue.ts`, written as `meta.stateTone`). A `format: badge`
+field with `toneFrom` draws that tone wherever its own `tones:` names none, so a
+page lists only the tones it changes and a new state is never drawn uncoloured.
 
 ## Measures and missions — a plugin that improves itself
 

@@ -1,5 +1,6 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
+import { RecordCode } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { LinkRow } from '@/features/dashboard/LinkRow';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
@@ -199,7 +200,8 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
                 layout.primary
                   ? (
                       <td key="__primary" className="sticky left-0 z-10 w-[55%] min-w-64 bg-background px-4 py-2.5 group-hover:bg-muted/40">
-                        <div className="text-sm font-medium text-foreground">
+                        <div className="flex items-baseline gap-2 text-sm font-medium text-foreground">
+                          <RecordCode code={row.code} className="text-xs" />
                           <FieldValue row={row} field={layout.primary} now={now} links={links} />
                         </div>
                         {layout.subtitle.length > 0 && (

@@ -2,24 +2,29 @@
 
 import type { TurnOutcome } from './queueReducer';
 import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
+import type { TurnRecord } from '@/libs/factory/liveStatus';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { announceVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
+import { linkRecordMentions } from '@/libs/chat/recordMentions';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
+import { nounCode } from '@/libs/codes';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
-import { readRecommendedAction } from './recommendedAction';
+import { cardLink, draftOf, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
@@ -72,7 +77,13 @@ function clearActiveConversation(agentSlug: string): void {
  */
 const STREAM_STASH_KEY = 'vocion:chat:activestream';
 
-type StreamStash = { streamId: string; agentSlug: string; count: number };
+/**
+ * `conversationId` is what a remount matches on. The agent slug alone missed
+ * (#201's dock, 2026-09-29): the dock sends as the workspace lead, the server
+ * routes the turn to the product manager, and the returning dock boots as the
+ * product manager — the slugs differ and the running answer was dropped.
+ */
+type StreamStash = { streamId: string; agentSlug: string; count: number; conversationId?: number | null };
 
 function readStreamStash(): StreamStash | null {
   try {
@@ -171,7 +182,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     // is not a client-side ornament that a reload forgets.
     const recommendations: RecommendedAction[] = runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
-      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed') }));
+      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), ...draftOf(r.draft), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
@@ -432,6 +443,8 @@ export function useChatSession({
    * changes, so both readers agree.
    */
   const streamingRef = useRef(false);
+  // True while waiting for a reply with no stream to attach to (`waitForReply`); Stop ends it.
+  const waitingRef = useRef(false);
   /**
    * How the last turn ENDED — what the send queue flushes on. Only
    * `completed` releases queued messages; `stopped` and `error` hold them and
@@ -707,12 +720,41 @@ export function useChatSession({
         });
         return;
       }
+      case 'record_links': {
+        // The records the answer names, linked to their pages — the same
+        // pure pass the stored transcript gets (libs/chat/recordMentions.ts).
+        flushDeltas();
+        const links = (evt as unknown as { links: Array<{ text: string; href: string }> }).links ?? [];
+        appendToLatestAgent(m => ({
+          ...m,
+          ...(m.content ? { content: linkRecordMentions(m.content, links) } : {}),
+          ...(m.runs ? { runs: m.runs.map(r => (r.type === 'text' ? { ...r, text: linkRecordMentions(r.text, links) } : r)) } : {}),
+        }));
+        return;
+      }
+      case 'turn_records': {
+        // The records the turn filed or changed, typed (`services/chat/turnRecords.ts`):
+        // one microcard each under the turn, kept current while it runs.
+        flushDeltas();
+        const records = (evt as unknown as { records: TurnRecord[] }).records ?? [];
+        appendToLatestAgent(m => ({ ...m, records }));
+        return;
+      }
       case 'record_created': {
         // A room or proposal the turn just made opens beside the conversation
         // (Chris, 2026-09-18: "maybe preview should open automatically").
         flushDeltas();
         const made = (evt as unknown as { record: { type: RecordRef['type']; id: string } }).record;
         openPreview({ type: made.type, id: made.id }, null);
+        return;
+      }
+      case 'version_written': {
+        // A record or artifact this turn changed: whatever page or pane is
+        // showing it refetches in place and marks what changed (backlog 035).
+        const v = evt as unknown as VersionWritten;
+        if (v.ref && typeof v.to === 'number') {
+          announceVersionWritten({ ref: v.ref, to: v.to, from: v.from ?? null, ...(v.artifactId ? { artifactId: v.artifactId } : {}), ...(v.fields ? { fields: v.fields } : {}), ...(v.related ? { related: v.related } : {}) });
+        }
         return;
       }
       case 'documents': {
@@ -731,16 +773,17 @@ export function useChatSession({
         // The typed form (backlog 025): on the ledger already, on the wire
         // now, filed later if at all — `card_update` carries the proposal id.
         flushDeltas();
-        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string };
+        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string; draft?: unknown };
+        const link = cardLink(c.href, c.hrefLabel);
         const primary = c.actions?.[0];
         let rec: RecommendedAction;
         if (primary) {
-          const checked = readRecommendedAction({ actionId: primary.actionId, input: primary.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason });
+          const checked = readRecommendedAction({ actionId: primary.actionId, input: primary.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason, draft: c.draft });
           if (!checked.ok) {
             console.warn(`useChatSession: dropped an invalid card — ${checked.reason}`);
             return;
           }
-          rec = { ...checked.rec, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
+          rec = { ...checked.rec, ...link, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
         } else if (typeof c.title === 'string' && c.title.trim()) {
           // A recommendation with nothing to press (its action was refused,
           // finding 20): still the agent's recommendation, read not pressed.
@@ -752,10 +795,10 @@ export function useChatSession({
         return;
       }
       case 'card_update': {
-        const u = evt as unknown as { cardId: string; runId?: number; state?: RecommendedAction['state'] };
+        const u = evt as unknown as { cardId: string; runId?: number; state?: RecommendedAction['state']; reason?: string };
         appendToLatestAgent(m => ({
           ...m,
-          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? { ...r, ...(u.runId !== undefined ? { runId: u.runId } : {}), ...(u.state ? { state: u.state } : {}) } : r)),
+          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? { ...r, ...(u.runId !== undefined ? { runId: u.runId } : {}), ...(u.state ? { state: u.state } : {}), ...(u.reason ? { unfiledReason: u.reason } : {}) } : r)),
         }));
         return;
       }
@@ -1059,7 +1102,8 @@ export function useChatSession({
             .map(run => run.text)
             .join('\n\n'),
           status: (m.content || (m.runs ?? []).length > 0 ? 'incomplete' : 'failed') as TurnStatus,
-          statusReason: (error as Error).message,
+          // A stream the server no longer knows was lost in a restart.
+          statusReason: (error as Error).message.startsWith('HTTP 404') ? 'This reply was cut off — the app restarted while it was answering. Send your message again.' : (error as Error).message,
         }));
       } else {
         // Expired/unreachable — drop the placeholder; rehydrate covers the rest.
@@ -1152,6 +1196,43 @@ export function useChatSession({
     }
   }, [agents, agent.slug, settleBoot, lastViewedLoading, scopeRef, scopedBoot, resumeConversationId]);
 
+  /**
+   * A thread whose last message is the person's, with no stream to re-attach
+   * to: poll until the agent's reply is stored (up to 10 minutes), then show
+   * it. The composer reads "working" meanwhile, so it never looks unanswered.
+   * @param id - The conversation.
+   * @param seen - How many messages are already shown.
+   */
+  const waitForReply = useCallback(async (id: number, seen: number) => {
+    waitingRef.current = true;
+    setPhase('thinking');
+    setActivity('Still answering…');
+    const deadline = Date.now() + 10 * 60_000;
+    while (Date.now() < deadline && conversationIdRef.current === id && waitingRef.current) {
+      await new Promise(r => setTimeout(r, 3000));
+      const conv = await client.conversations.get({ id }).catch(() => null);
+      if (!conv || conversationIdRef.current !== id) {
+        continue;
+      }
+      const { messages: next } = hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent);
+      if (next.length > seen && next[next.length - 1]?.role === 'assistant') {
+        setMessages(next);
+        break;
+      }
+      // NOTHING IS ANSWERING: the turn was lost (an app restart mid-turn), or
+      // the message never started one. Waiting would lock the composer for
+      // ten minutes; say what happened and hand it back.
+      if ((conv as { answering?: boolean }).answering === false) {
+        setMessages([...next, { role: 'assistant', content: '', runs: [], status: 'incomplete' as TurnStatus, statusReason: 'This reply was cut off — the app restarted while it was answering. Send your message again.' }]);
+        setTurnOutcome('error');
+        break;
+      }
+    }
+    waitingRef.current = false;
+    setPhase('idle');
+    setActivity(null);
+  }, [nameOfAgent]);
+
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. __search__ is ephemeral and never
   // resumes; an explicit page handoff also starts fresh (it stashes its own
@@ -1206,12 +1287,17 @@ export function useChatSession({
           // Mid-turn drop? If a stream stash exists for this agent and the
           // assistant's reply hasn't persisted yet, replay + re-attach live.
           const stash = readStreamStash();
-          if (stash && stash.agentSlug === slug) {
+          if (stash && (stash.conversationId === storedId || (stash.conversationId == null && stash.agentSlug === slug))) {
             if (hydrated[hydrated.length - 1]?.role === 'user') {
               void resumeStream(stash);
             } else {
               writeStreamStash(null); // turn already landed
             }
+          } else if (hydrated[hydrated.length - 1]?.role === 'user') {
+            // NO HANDLE TO RE-ATTACH TO (another tab, an older stash): the
+            // server is still answering, so wait for its reply to land
+            // rather than showing a question with nothing under it.
+            void waitForReply(storedId, hydrated.length);
           }
         } else if (scopeRef) {
           // Scoped id points at an empty/deleted thread — forget it.
@@ -1235,12 +1321,18 @@ export function useChatSession({
     return () => {
       cancelled = true;
     };
-  }, [agent.slug, isSearchOnly, settleBoot, resumeStream, bootTarget]);
+  }, [agent.slug, isSearchOnly, settleBoot, resumeStream, waitForReply, bootTarget]);
 
   const sendMessage = useCallback(async (raw: string) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
-    if ((!raw.trim() && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
+    // THE HIGHLIGHTED PASSAGE IS PART OF WHAT WAS SAID (Chris, 2026-09-29: "I
+    // don't think the highlighted text got pulled in as the anchor … I should
+    // be able to submit with just that context"). It rode only as page
+    // context: the transcript showed "tell me?" with no quote, history lost
+    // it, and an empty box could not send. It is now the turn's opening quote.
+    const quoted = pageContextRef.current?.selection?.text?.trim() ?? '';
+    if ((!raw.trim() && !quoted && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
       return;
     }
     // `/search <query>` is the retrieval-only path (§9.10) — the virtual
@@ -1267,7 +1359,8 @@ export function useChatSession({
     // receives the full text.
     // A message that is only files still has to say something the server can
     // store and the transcript can show.
-    const typed = command.text.trim() || (attachments.length > 0 ? `(Attached: ${attachments.map(a => a.title).join(', ')})` : command.text);
+    const asked = command.text.trim() || (attachments.length > 0 ? `(Attached: ${attachments.map(a => a.title).join(', ')})` : command.text);
+    const typed = quoted ? quoteThenAsk(quoted, asked) : asked;
     const text = pastedText
       ? `${typed}\n\n--- pasted ---\n${pastedText}`.trim()
       : typed;
@@ -1392,11 +1485,13 @@ export function useChatSession({
             if (evt.type === 'stream_meta') {
               // Resume handle — stash it; replayed events are counted below
               // so a reconnect asks only for what it missed.
-              streamStashRef.current = { streamId: String(evt.streamId), agentSlug: agent.slug, count: 0 };
+              streamStashRef.current = { streamId: String(evt.streamId), agentSlug: agent.slug, count: 0, conversationId: conversationIdRef.current };
               writeStreamStash(streamStashRef.current);
             } else {
               if (streamStashRef.current) {
                 streamStashRef.current.count += 1;
+                // A new thread learns its id mid-stream; the stash learns it too.
+                streamStashRef.current.conversationId ??= conversationIdRef.current;
                 writeStreamStash(streamStashRef.current);
               }
               handleEvent(evt);
@@ -1525,6 +1620,15 @@ export function useChatSession({
   // which the catch above treats as a clean finalize (no error breadcrumb).
   const handleStop = useCallback(async () => {
     if (!streamingRef.current) {
+      // Waiting for a reply with no stream to it (after a reload): Stop ends
+      // the wait and hands the composer back (Chris, 2026-09-29: "Tapping
+      // stop does not unstuck the chat").
+      if (waitingRef.current) {
+        waitingRef.current = false;
+        setPhase('idle');
+        setActivity(null);
+        setTurnOutcome('stopped');
+      }
       return;
     }
     streamingRef.current = false;
@@ -1698,7 +1802,7 @@ export function useChatSession({
         if (!cancelled) {
           setRecentChats((rows as Array<{ id: number; title: string | null; titleSource?: ConversationTitleSource }>).map(row => ({
             id: row.id,
-            title: row.title || `Chat #${row.id}`,
+            title: row.title || nounCode('conversation', row.id),
             ...(row.titleSource ? { titleSource: row.titleSource } : {}),
           })));
         }
@@ -1996,4 +2100,15 @@ function readThreadMeta(conv: unknown): { id: number; title: string; titleSource
 function readAutonomy(conv: unknown): ConversationAutonomy {
   const a = (conv as { autonomy?: unknown } | null)?.autonomy;
   return a === 'ask' || a === 'act-within-bounds' ? a : DEFAULT_AUTONOMY;
+}
+
+/**
+ * The turn a highlighted passage opens: the passage as a quote, then what the
+ * person typed (or nothing — the quote is the question).
+ * @param passage - The highlighted text.
+ * @param asked - What they typed.
+ */
+export function quoteThenAsk(passage: string, asked: string): string {
+  const quote = passage.split('\n').map(line => `> ${line}`).join('\n');
+  return asked.trim() ? `${quote}\n\n${asked.trim()}` : quote;
 }

@@ -42,59 +42,28 @@ export function isWriteTool(tool: string): boolean {
  * Did the call fail or get refused, by the shapes tools return?
  * @param output - The tool output.
  */
+/**
+ * A write tool's answer that says it did not write. Conversation 382
+ * (2026-09-29): "Proposal #5232 is not yours to withdraw.", a card "not put
+ * up: … declares no field "scope"", and "Received tool input did not match
+ * expected schema" all counted as writes, so the claim check stayed quiet
+ * over "Expanded #201" when nothing had been written. An empty answer is not
+ * a receipt either.
+ */
+const DID_NOT_WRITE = /^(?:error|failed|refused|not (?:put up|proposed|recorded|written|filed|saved)|update (?:refused|failed)|proposal (?:failed|refused)|received tool input did not match|could not|couldn'?t|cannot|can'?t)\b|\bis not yours to\b|\bdid not land\b/i;
+
 function failed(output: string | undefined): boolean {
-  if (!output) {
-    return false;
+  const head = (output ?? '').trimStart().slice(0, 200);
+  if (!head) {
+    return true;
   }
-  const head = output.trimStart().slice(0, 200);
-  return /"ok"\s*:\s*false/.test(head) || /^(?:error|failed|refused)\b/i.test(head);
+  return /"ok"\s*:\s*false/.test(head) || DID_NOT_WRITE.test(head);
 }
 
 /**
- * Did any write succeed in this turn?
- * @param toolCalls - The turn's tool calls.
+ * Did this one call write something — a write tool, not refused or failed?
+ * @param call - One tool call.
  */
-export function wroteInTurn(toolCalls: ReadonlyArray<WriteClaimToolCall>): boolean {
-  return toolCalls.some(c => isWriteTool(c.tool) && !failed(c.output));
-}
-
-const DONE_WORDS = 'filed|recorded|created|logged|submitted|saved|queued|opened';
-
-/** A bold "Filed:" or "Filed", or "Filed:" / "Recorded." at the start of a line. */
-const STATUS_LABEL = new RegExp(`(?:\\*\\*|^\\s*(?:[-*]\\s+)?)(?:${DONE_WORDS})(?:\\*\\*\\s*[:.—-]|\\s*[:.—-]\\s*\\*\\*|\\s*:)`, 'im');
-
-/** "I filed", "I've filed", "I have created", "I just logged". */
-const FIRST_PERSON = new RegExp(`\\bI(?:'ve|\\s+have)?(?:\\s+(?:just|now|already))?\\s+(?:${DONE_WORDS})\\b`, 'i');
-
-/** "The call returned", "Fields written on request #30" — mission run 5074 (2026-09-25). */
-const REPORTED_WRITE = /\b(?:the (?:call|update|write) (?:returned|succeeded|went through)|fields? (?:written|updated|saved))\b/i;
-
-/**
- * The sentence in the answer that claims a write, or null.
- * @param text - The answer as it stands.
- */
-export function writeClaim(text: string): string | null {
-  for (const pattern of [STATUS_LABEL, FIRST_PERSON, REPORTED_WRITE]) {
-    const match = pattern.exec(text ?? '');
-    if (match) {
-      return match[0].trim();
-    }
-  }
-  return null;
-}
-
-/** What the person reads under an unbacked claim. */
-export const UNBACKED_WRITE_NOTICE = 'Nothing was saved in this turn, so what is described above as filed has not happened yet.';
-
-/**
- * The correction to append, or null when the answer claims no write or a
- * write ran.
- * @param text - The answer as it stands.
- * @param toolCalls - The turn's tool calls.
- */
-export function unbackedWriteNotice(text: string, toolCalls: ReadonlyArray<WriteClaimToolCall>): string | null {
-  if (!writeClaim(text) || wroteInTurn(toolCalls)) {
-    return null;
-  }
-  return UNBACKED_WRITE_NOTICE;
+export function writeLanded(call: WriteClaimToolCall): boolean {
+  return isWriteTool(call.tool) && !failed(call.output);
 }

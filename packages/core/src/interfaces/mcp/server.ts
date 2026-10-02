@@ -7,9 +7,12 @@ import { capabilityTools } from './tools/capability-tools';
 import { chatTools } from './tools/chat-tools';
 import { dataTools } from './tools/data-tools';
 import { missionTools } from './tools/mission-tools';
+import { notificationTools } from './tools/notification-tools';
 import { playbookTools } from './tools/playbook-tools';
 import { pluginTools } from './tools/plugin-tools';
+import { reviewTools } from './tools/review-tools';
 import { teamsTools } from './tools/teams-tools';
+import { voiceTools } from './tools/voice-tools';
 import { workflowTools } from './tools/workflow-tools';
 import { workspaceTools } from './tools/workspace-tools';
 
@@ -33,10 +36,11 @@ import { workspaceTools } from './tools/workspace-tools';
  * @param config
  * @param identity
  * @param identity.userId
+ * @param identity.principal
  */
 export async function buildServer(
   config: McpConfig,
-  identity?: { userId: string },
+  identity?: { userId: string; principal?: import('@/services/authz').Principal },
 ): Promise<McpServer> {
   const server = new McpServer(
     { name: config.serverName, version: config.serverVersion },
@@ -54,6 +58,9 @@ export async function buildServer(
     ...workflowTools(config),
     ...playbookTools(config),
     ...chatTools(config, identity),
+    ...reviewTools(config, identity),
+    ...voiceTools(config, identity),
+    ...notificationTools(config, identity),
     ...(await agentTools(config, identity)),
   ];
 

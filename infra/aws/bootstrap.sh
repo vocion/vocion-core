@@ -6,7 +6,7 @@
 # updates code + restarts services without trashing data.
 #
 #   ssh ec2-user@<host>
-#   sudo bash /opt/vocion/infra/aws/bootstrap.sh [git-ref]
+#   sudo [VOCION_APP_IMAGE=<registry>/<repository>:<tag>] bash /opt/vocion/infra/aws/bootstrap.sh [git-ref]
 #
 # Default git-ref is `main`. Override to deploy a feature branch:
 #
@@ -14,6 +14,8 @@
 #
 # Prerequisites BEFORE running:
 #   1. EC2 instance type ≥ t3.large (8 GB RAM); 32 GB recommended for embedding throughput.
+#      The first image build needs about 7.9 GB, more than a t3.large has
+#      (infra/aws/README.md, Sizing).
 #   2. EBS volume mounted at /opt/vocion-data (100 GB gp3 recommended).
 #   3. .env.production placed at /opt/vocion/infra/aws/.env.production
 #      (operator copies secrets manually; never committed).
@@ -183,9 +185,36 @@ mkdir -p "${DATA_DIR}"
 docker network inspect corecontext >/dev/null 2>&1 \
   || docker network create corecontext
 
-# ----- 6. Build the Vocion app image -----
-log "building vocion-app image"
-docker build -t vocion-app:latest -f "${REPO_DIR}/packages/core/Dockerfile" "${REPO_DIR}"
+# ----- 6. Get the Vocion app image -----
+# VOCION_APP_IMAGE names an image CI built with push-app-image.sh, so this
+# box compiles nothing (#670): a first build needs about 7.9 GB and competes
+# with the running stack for memory. Left unset, the image builds here.
+if [ -n "${VOCION_APP_IMAGE:-}" ]; then
+  log "pulling prebuilt image ${VOCION_APP_IMAGE}"
+  if [ ! -f "${REPO_DIR}/infra/aws/pull-app-image.sh" ]; then
+    log "ERROR: ${GIT_REF} has no infra/aws/pull-app-image.sh."
+    log "  Run it without VOCION_APP_IMAGE to build the image on the box."
+    exit 1
+  fi
+  # The image carries the app URL it was built for. Without this box's own
+  # URL there is nothing to check it against, so stop rather than skip it.
+  app_url="$(grep -E '^NEXT_PUBLIC_APP_URL=' "${ENV_FILE}" | head -1 | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || true)"
+  if [ -z "${app_url}" ]; then
+    log "ERROR: NEXT_PUBLIC_APP_URL is empty in ${ENV_FILE}; it's needed to check the image."
+    exit 1
+  fi
+  EXPECTED_APP_URL="${app_url}" bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
+else
+  # The build step keeps Turbopack's build cache in a BuildKit cache mount
+  # (#670), and `docker build` runs BuildKit only through the buildx plugin.
+  # A git-ref from before #670 has neither the script nor the cache mount.
+  if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
+    bash "${REPO_DIR}/infra/aws/install-buildx.sh"
+  fi
+  log "building vocion-app image on this box (no VOCION_APP_IMAGE given)"
+  log "  This build competes with the running stack for memory (#670)."
+  docker build -t vocion-app:latest -f "${REPO_DIR}/packages/core/Dockerfile" "${REPO_DIR}"
+fi
 
 # ----- 7. Bring up the Vocion stack -----
 log "starting Vocion stack (app + worker + caddy + langfuse + postgres + otel)"

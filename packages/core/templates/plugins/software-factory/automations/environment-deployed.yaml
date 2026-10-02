@@ -1,0 +1,21 @@
+# AN ENVIRONMENT KNOWS WHAT IT IS RUNNING (backlog 049; Chris, 2026-09-30:
+# "After a deploy, the environment record gets lastDeployedSha, lastDeployedAt,
+# lastDeployRunUrl and lastHealth from the run and a health check, so drift is
+# visible on the product page"). Every run on the deploy branch that finished
+# is read against the environments whose `deploy` names its workflow (and,
+# when it names one, the step that deploys that surface): the ones it deployed
+# take its commit, time and URL, and their health is read; a failed step says
+# so on the record. Deterministic: a built-in job, beside the product's own
+# deploy script writing the same fields, so a repository without that script
+# is kept true too.
+slug: environment-deployed
+name: A deploy is written on its environments
+description: >-
+  When a run on the deploy branch finishes, every environment it deployed
+  records the commit, when, the run and its health after it.
+status: active
+agent: release-engineer
+when:
+  event: [run.succeeded, run.failed]
+do:
+  job: factory-environment-deployed

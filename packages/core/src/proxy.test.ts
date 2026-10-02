@@ -21,7 +21,7 @@ const mockAuth = vi.mocked(auth);
 const mockResolve = vi.mocked(resolveProjectForUser);
 const mockActive = vi.mocked(activeWorkspaceForUser);
 
-const WORKFORCE = { id: 'proj-workforce', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 };
+const WORKFORCE = { id: 'proj-workforce', accountId: 'acct-metacto', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 };
 
 /** The origin the Next server itself answers on, behind the public one. */
 const SERVER_ORIGIN = 'http://0.0.0.0:3000';
@@ -86,6 +86,38 @@ describe('a canonical /w/<slug>/… URL', () => {
     await expect(proxy(request('/fr/w/vocion-workforce/inbox')).then(r => r.headers.get('x-middleware-rewrite')))
       .resolves
       .toBe(`${SERVER_ORIGIN}/fr/dashboard/inbox`);
+  });
+
+  // vocion-core#128: a person in two accounts can hold the same slug in both.
+  describe('when the slug is on two of the person\'s accounts', () => {
+    const CONTOSO_WORKFORCE = { ...WORKFORCE, id: 'proj-contoso-workforce', accountId: 'acct-contoso' };
+
+    beforeEach(() => {
+      // Stands in for the resolver's rule: only the account the link names,
+      // else the account of the last-active workspace, else the default (Metacto).
+      mockResolve.mockImplementation(async (_userId, selector, preference) => {
+        if (!('slug' in selector) || selector.slug !== 'vocion-workforce') {
+          return null;
+        }
+        if (preference?.accountSlug) {
+          return { contoso: CONTOSO_WORKFORCE, metacto: WORKFORCE }[preference.accountSlug] ?? null;
+        }
+        return preference?.lastActiveProjectId === 'proj-contoso-revenue' ? CONTOSO_WORKFORCE : WORKFORCE;
+      });
+    });
+
+    it('opens the one on the account a cross-account switch named, and makes it last active', async () => {
+      const res = await proxy(request('/w/vocion-workforce/dashboard?account=contoso', { cookie: 'proj-revenue' }));
+
+      expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
+      expect(res.cookies.get('vocion_active_project')?.value).toBe('proj-contoso-workforce');
+    });
+
+    it('stays on the account the person is already in when the link names none', async () => {
+      const res = await proxy(request('/w/vocion-workforce/dashboard', { cookie: 'proj-contoso-revenue' }));
+
+      expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
+    });
   });
 
   it('404s an unknown slug and one on another account alike — the reader learns nothing either way', async () => {
@@ -239,6 +271,50 @@ describe('the chain a signed-in reader actually walks', () => {
       '/en/w/vocion-workforce/dashboard/p/factory',
       '/en/sign-in?callbackUrl=https%3A%2F%2Fagents.example.com%2Fen%2Fw%2Fvocion-workforce%2Fdashboard%2Fp%2Ffactory',
     ]);
+  });
+});
+
+describe('sign-in and sign-up pages for a signed-in person', () => {
+  it('sends them to the dashboard, since they have nothing to sign in to', async () => {
+    const res = await proxy(request('/sign-up'));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://agents.example.com/dashboard');
+  });
+
+  it('lets an invite link through, so they can join another account on the login they have (#128)', async () => {
+    const res = await proxy(request('/sign-up?invite=tok-contoso'));
+
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.headers.get('x-i18n')).toBe('handled');
+  });
+
+  it('lets a locale-prefixed invite link through too', async () => {
+    const res = await proxy(request('/fr/sign-up?invite=tok-contoso'));
+
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('lets an invite link through in the demo sandbox, where the user is known only by cookie', async () => {
+    process.env.VOCION_DEMO_SEED_DIR = '/tmp/seed';
+    const req = new NextRequest(`${SERVER_ORIGIN}/sign-up?invite=tok-contoso`, { headers: { cookie: 'authjs.session-token=x' } });
+
+    const res = await proxy(req);
+
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('lets only the sign-up page itself through, not a path under it', async () => {
+    const res = await proxy(request('/sign-up/extra?invite=tok-contoso'));
+
+    expect(res.headers.get('location')).toBe('https://agents.example.com/dashboard');
+  });
+
+  it('still bounces sign-in with a stray invite param — only the sign-up page accepts invites', async () => {
+    const res = await proxy(request('/sign-in?invite=tok-contoso'));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://agents.example.com/dashboard');
   });
 });
 

@@ -3,6 +3,15 @@ import { DASHBOARD_GROUPS, DASHBOARD_ROUTES } from '@/features/navigation/dashbo
 import { buildPaletteGroups, paletteFilter, ROUTE_GROUP_ORDER } from './paletteGroups';
 
 describe('buildPaletteGroups', () => {
+  it('a typed code leads with the thing it names, for that query only (FE-294)', () => {
+    const hit = { query: 'fe-294', code: 'FE-294', title: 'Export an invoice as a PDF', href: '/w/northwind/dashboard/p/feature/294' };
+    const groups = buildPaletteGroups({ query: 'fe-294', routes: DASHBOARD_ROUTES, isAdmin: false, codeHit: hit });
+
+    expect(groups[0]).toMatchObject({ heading: 'Go to', rows: [{ label: 'FE-294 Export an invoice as a PDF', kind: 'code', url: hit.href }] });
+    expect(paletteFilter(groups[0]!.rows[0]!.value, 'fe-294')).toBe(1);
+    expect(buildPaletteGroups({ query: 'fe-29', routes: DASHBOARD_ROUTES, isAdmin: false, codeHit: hit })[0]?.heading).toBe('Ask');
+  });
+
   it('leads with Ask when the query is free text, and hides it when empty', () => {
     const withQuery = buildPaletteGroups({ query: 'why is northwind stale', routes: DASHBOARD_ROUTES, isAdmin: false });
 
@@ -29,7 +38,7 @@ describe('buildPaletteGroups', () => {
     const groups = buildPaletteGroups({ query: '', routes: DASHBOARD_ROUTES, isAdmin: false });
     const by = (h: string) => groups.find(g => g.heading === h);
 
-    expect(by('You')?.rows.map(r => r.url)).toEqual(['/dashboard/profile']);
+    expect(by('You')?.rows.map(r => r.url)).toEqual(['/dashboard/profile', '/dashboard/notifications', '/dashboard/notifications/settings']);
     expect(by('Organization')?.rows.map(r => r.url)).not.toContain('/dashboard/profile');
 
     const agents = by('Team')?.rows.find(r => r.url === '/dashboard/agents');

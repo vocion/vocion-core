@@ -14,9 +14,18 @@ vi.mock('@/libs/DB');
 
 const mintBedrockSessionForRuntime = vi.fn();
 vi.mock('@/libs/llm/bedrockCredentials', () => ({ mintBedrockSessionForRuntime }));
-vi.mock('@/services/agents/harness', () => ({ buildInitialFiles: vi.fn(async () => ({})) }));
-vi.mock('@/services/agents/tools/registry', () => ({ buildToolCatalog: vi.fn(() => []) }));
-vi.mock('@/services/agents/claims', () => ({ signClaim: vi.fn(() => 'signed-claim') }));
+const buildAgentDefinition = vi.fn(async () => ({
+  agentRow: {},
+  systemPrompt: 'Be helpful.',
+  subagentSpecs: [] as Array<{ name: string; description: string; systemPrompt: string }>,
+  defaultTimeZone: 'UTC',
+  enabledPlugins: [] as string[],
+}));
+const buildToolCatalog = vi.fn((_ctx: Record<string, unknown>) => []);
+const signClaim = vi.fn((_claim: Record<string, unknown>) => 'signed-claim');
+vi.mock('@/services/agents/harness', () => ({ buildInitialFiles: vi.fn(async () => ({})), buildAgentDefinition }));
+vi.mock('@/services/agents/tools/registry', () => ({ buildToolCatalog }));
+vi.mock('@/services/agents/claims', () => ({ signClaim }));
 vi.mock('@/services/BudgetService', () => ({ chargeUsage: vi.fn(async () => {}), preflightCheck: vi.fn(async () => ({ ok: true })) }));
 
 const { db } = await import('@/libs/DB');
@@ -174,5 +183,86 @@ describe('runAgentOnRuntime and the step limit', () => {
     await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
 
     expect('maxSteps' in (captured.payload().agent as Record<string, unknown>)).toBe(false);
+  });
+});
+
+/**
+ * The container runs the agent the in-process loop would have run.
+ *
+ * It used to be handed the bare `system_prompt` column and the deprecated
+ * inline `subagents`, so an agent moved to `agentcore-container` lost the
+ * shared rules (clock, output discipline, capabilities) and every registered
+ * specialist it could delegate to, and its tool calls came back to core
+ * without the mission run, the person's zone or the page they were on.
+ */
+describe('runAgentOnRuntime sends the same agent the in-process loop runs', () => {
+  beforeEach(() => {
+    mintBedrockSessionForRuntime.mockResolvedValue(null);
+    buildAgentDefinition.mockClear();
+    buildToolCatalog.mockClear();
+    signClaim.mockClear();
+  });
+
+  it('sends the compiled prompt and the derived roster, not the raw row', async () => {
+    buildAgentDefinition.mockResolvedValueOnce({
+      agentRow: {},
+      systemPrompt: 'Be helpful.\n\nCLOCK RULES\n\nOUTPUT FORMAT (strict)',
+      subagentSpecs: [{ name: 'pipeline-analyst', description: 'Reads the pipeline.', systemPrompt: 'You read the pipeline.' }],
+      defaultTimeZone: 'America/Los_Angeles',
+      enabledPlugins: ['wiki'],
+    });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    const agent = captured.payload().agent as { systemPrompt: string; subagents: Array<{ name: string }> };
+
+    expect(agent.systemPrompt).toContain('OUTPUT FORMAT (strict)');
+    expect(agent.subagents.map(s => s.name)).toEqual(['pipeline-analyst']);
+  });
+
+  it('states NOW on the turn, in the workspace zone when the person named none', async () => {
+    buildAgentDefinition.mockResolvedValueOnce({ agentRow: {}, systemPrompt: 'Be helpful.', subagentSpecs: [], defaultTimeZone: 'America/Los_Angeles', enabledPlugins: [] });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'what is on today?' });
+
+    const message = captured.payload().message as string;
+
+    expect(message.endsWith('\n\nwhat is on today?')).toBe(true);
+    expect(message.split('\n')[0]).toMatch(/UTC/);
+    expect(signClaim.mock.calls[0]![0]).toMatchObject({ timeZone: 'America/Los_Angeles' });
+  });
+
+  it('signs the mission run, the zone and the page into the claim', async () => {
+    captureInvocation();
+    const pageContext = { path: '/dashboard/p/feature/40', title: 'Feature 40' };
+
+    await runAgentOnRuntime({
+      orgId: ORG,
+      agentSlug: 'sales-assistant',
+      message: 'review it',
+      missionSlug: 'factory-qa',
+      missionRunId: 5081,
+      timeZone: 'Europe/London',
+      pageContext,
+    });
+
+    expect(signClaim.mock.calls[0]![0]).toMatchObject({
+      orgId: ORG,
+      missionSlug: 'factory-qa',
+      missionRunId: 5081,
+      timeZone: 'Europe/London',
+      pageContext,
+    });
+  });
+
+  it('builds the catalog with the workspace plugins, so plugin tools are offered', async () => {
+    buildAgentDefinition.mockResolvedValueOnce({ agentRow: {}, systemPrompt: 'Be helpful.', subagentSpecs: [], defaultTimeZone: 'UTC', enabledPlugins: ['wiki', 'data-rooms'] });
+    captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello', missionRunId: 7 });
+
+    expect(buildToolCatalog.mock.calls[0]![0]).toMatchObject({ enabledPlugins: ['wiki', 'data-rooms'], missionRunId: 7 });
   });
 });

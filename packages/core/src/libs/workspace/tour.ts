@@ -135,17 +135,19 @@ export function readWorkspaceTours(): TourManifest[] {
     return [];
   }
   const tours: TourManifest[] = [];
-  const single = ['tour.yaml', 'tour.yml'].map(n => join(dir, n)).find(existsSync);
+  // turbopackIgnore: these paths are only known at runtime, so the build must not
+  // trace them, or Next copies the whole project into the image (next.config.ts, #832).
+  const single = ['tour.yaml', 'tour.yml'].map(n => join(/* turbopackIgnore: true */ dir, n)).find(existsSync);
   if (single) {
     const tour = readTourFile(single, 'tour');
     if (tour) {
       tours.push(tour);
     }
   }
-  const many = join(dir, 'tours');
+  const many = join(/* turbopackIgnore: true */ dir, 'tours');
   if (existsSync(many)) {
     for (const f of readdirSync(many).filter(f => /\.ya?ml$/.test(f)).sort()) {
-      const tour = readTourFile(join(many, f), f.replace(/\.ya?ml$/, ''));
+      const tour = readTourFile(join(/* turbopackIgnore: true */ many, f), f.replace(/\.ya?ml$/, ''));
       if (tour && !tours.some(t => t.slug === tour.slug)) {
         tours.push(tour);
       }

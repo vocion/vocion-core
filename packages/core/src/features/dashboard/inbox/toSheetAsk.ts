@@ -6,9 +6,11 @@ import type { Ask } from '@/services/AskService';
  * source bookkeeping, so the page never ships more than the question.
  * @param ask
  * @param alignment - The asker's 30-day alignment on this kind, when the page looked it up.
+ * @param listeners - What each answer starts (`services/inbox/answerListeners`), when the page looked it up.
  */
-export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment']): SheetAsk {
+export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment'], listeners?: SheetAsk['listeners']): SheetAsk {
   return {
+    ...(listeners ? { listeners } : {}),
     alignment: alignment ?? null,
     id: ask.id,
     kind: ask.kind,

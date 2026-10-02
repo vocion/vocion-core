@@ -51,7 +51,9 @@ function readTypeDir(objectsDir: string, into: RollupDeclaration[], seenTypes: S
     return;
   }
   for (const name of readdirSync(objectsDir).sort()) {
-    const file = ['type.yaml', 'type.yml'].map(f => join(objectsDir, name, f)).find(f => existsSync(f));
+    // turbopackIgnore: this path is only known at runtime, so the build must not
+    // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+    const file = ['type.yaml', 'type.yml'].map(f => join(/* turbopackIgnore: true */ objectsDir, name, f)).find(f => existsSync(f));
     if (!file) {
       continue;
     }
@@ -82,7 +84,7 @@ export async function readRollupDeclarations(orgId: string): Promise<RollupDecla
   const seenTypes = new Set<string>();
   const seenPlugins = new Set<string>();
   const ws = process.env.WORKSPACE_PATH ?? process.env.CONTEXT_PATH ?? null;
-  if (ws && existsSync(ws)) {
+  if (ws && existsSync(/* turbopackIgnore: true */ ws)) {
     readTypeDir(join(ws, 'objects'), out, seenTypes);
     for (const plugin of enabledPluginsFromWorkspaceDir(ws)) {
       seenPlugins.add(plugin.manifest.slug);

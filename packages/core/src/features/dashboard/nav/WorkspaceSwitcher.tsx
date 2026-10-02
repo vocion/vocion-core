@@ -1,10 +1,10 @@
 'use client';
 
-import type { SwitcherProject } from './workspaceSwitch';
+import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
 import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
@@ -12,7 +12,7 @@ import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
 import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
-import { countHiddenEmpty, filterProjects, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
+import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
  * Workspace context, bottom-left (ElevenLabs pattern, Chris 2026-09-15): the
@@ -21,7 +21,10 @@ import { countHiddenEmpty, filterProjects, projectAccent, workspaceSwitchHref } 
  * directly — search, the person's workspaces (name, slug, check on the current
  * one), a toggle revealing empty seed projects, and "Manage workspace" as the
  * last row. No nested submenu. Switching navigates through
- * `/w/<slug>/<same page>` — the one switch mechanism (#336). The header's
+ * `/w/<slug>/<same page>` — the one switch mechanism (#336). A person in more
+ * than one account sees the list grouped under each account's name, and a
+ * switch into another account is also how they switch account: tenancy
+ * follows the picked workspace (vocion-core#128). The header's
  * avatar menu opens this same popover via {@link OPEN_WORKSPACE_SWITCHER}.
  * Collapsed to the icon rail, the avatar alone is the button.
  */
@@ -36,7 +39,10 @@ export function openWorkspaceSwitcher(): void {
 }
 
 export type WorkspaceSwitcherProps = {
-  account?: { name: string } | null;
+  /** The account this session is in — the eyebrow under the workspace name. */
+  account?: { id?: string; name: string } | null;
+  /** Every account the person belongs to. Two or more groups the list by account. */
+  accounts?: SwitcherAccount[];
   projects: SwitcherProject[] | null;
   activeId: string | null;
   onManage?: () => void;
@@ -46,6 +52,35 @@ export type WorkspaceSwitcherProps = {
   defaultOpen?: boolean;
   collapsed?: boolean;
 };
+
+/**
+ * One row in the switcher list.
+ * @param props - The row's inputs.
+ * @param props.project - The workspace this row switches to.
+ * @param props.selected - Whether it is the active workspace.
+ * @param props.onPick - Called with the workspace when the row is clicked.
+ */
+function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void }) {
+  const p = props.project;
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={props.selected}
+      onClick={() => props.onPick(p)}
+      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover"
+    >
+      <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(p.slug) }} aria-hidden>
+        {p.name.charAt(0).toUpperCase()}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-foreground">{p.name}</span>
+        <span className="block truncate font-mono text-[11px] text-muted-foreground">{p.slug}</span>
+      </span>
+      {props.selected && <Check className="size-4 shrink-0 text-foreground" aria-hidden />}
+    </button>
+  );
+}
 
 /**
  * Radix's open-autofocus handler: let it focus on a pointer device, refuse on touch.
@@ -76,6 +111,9 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const active = projects.find(p => p.id === props.activeId) ?? projects[0] ?? null;
   const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null }), [projects, query, showEmpty, active]);
   const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null);
+  const accounts = props.accounts ?? [];
+  const groups = accounts.length > 1 ? groupByAccount(visible, accounts) : null;
+  const headingIdPrefix = useId();
 
   const go = (p: SwitcherProject) => {
     if (active && p.id === active.id) {
@@ -88,11 +126,15 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
       search: typeof window === 'undefined' ? '' : window.location.search,
       locale,
       defaultLocale: routing.defaultLocale,
+      accountSlug: crossAccountSlug(p, props.account?.id, accounts),
     });
     (props.navigate ?? (h => window.location.assign(h)))(href);
   };
 
   const name = active?.name ?? (loading ? '' : t('workspace_fallback'));
+  // The collapsed rail shows no account line, so with two accounts the label
+  // names it: two "Support" workspaces on two accounts must not read the same.
+  const railLabel = name && accounts.length > 1 && props.account?.name ? `${name} · ${props.account.name}` : name;
   const initial = (name || 'W').charAt(0).toUpperCase();
   const accent = active ? projectAccent(active.slug) : 'oklch(0.7 0 0)';
 
@@ -111,13 +153,13 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger
-              aria-label={name || t('switch_workspace')}
+              aria-label={railLabel || t('switch_workspace')}
               className="mx-auto flex size-8 items-center justify-center rounded-lg outline-hidden transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             >
               {avatar}
             </PopoverTrigger>
           </TooltipTrigger>
-          <TooltipContent side="right">{name || t('switch_workspace')}</TooltipContent>
+          <TooltipContent side="right">{railLabel || t('switch_workspace')}</TooltipContent>
         </Tooltip>
       )
     : (
@@ -160,25 +202,14 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
           {visible.length === 0 && (
             <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('no_workspaces_match')}</div>
           )}
-          {visible.map(p => (
-            <button
-              key={p.id}
-              type="button"
-              role="option"
-              aria-selected={p.id === active?.id}
-              onClick={() => go(p)}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover"
-            >
-              <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(p.slug) }} aria-hidden>
-                {p.name.charAt(0).toUpperCase()}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-foreground">{p.name}</span>
-                <span className="block truncate font-mono text-[11px] text-muted-foreground">{p.slug}</span>
-              </span>
-              {p.id === active?.id && <Check className="size-4 shrink-0 text-foreground" aria-hidden />}
-            </button>
-          ))}
+          {groups
+            ? groups.map(g => (
+                <div key={g.account.id} role="group" aria-labelledby={`${headingIdPrefix}-${g.account.id}`}>
+                  <div id={`${headingIdPrefix}-${g.account.id}`} className="px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">{g.account.name}</div>
+                  {g.projects.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
+                </div>
+              ))
+            : visible.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
         </div>
         {(hiddenEmpty > 0 || showEmpty) && (
           <label className="flex cursor-pointer items-center gap-2 border-t border-border/70 px-3 py-2 text-[12px] text-muted-foreground">
@@ -214,19 +245,19 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
 export function WorkspaceSwitcherLive({ onManage }: { onManage?: () => void }) {
   const { data: session } = useSession();
   const { state } = useSidebar();
-  const [data, setData] = useState<{ projects: SwitcherProject[]; account: { name: string } | null } | null>(null);
+  const [data, setData] = useState<{ projects: SwitcherProject[]; accounts: SwitcherAccount[]; account: { id: string; name: string } | null } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     client.projects.list()
       .then((r) => {
         if (!cancelled) {
-          setData({ projects: r.projects, account: r.account ? { name: r.account.name } : null });
+          setData({ projects: r.projects, accounts: r.accounts, account: r.account ? { id: r.account.id, name: r.account.name } : null });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setData({ projects: [], account: null });
+          setData({ projects: [], accounts: [], account: null });
         }
       });
     return () => {
@@ -237,6 +268,7 @@ export function WorkspaceSwitcherLive({ onManage }: { onManage?: () => void }) {
   return (
     <WorkspaceSwitcher
       account={data?.account ?? null}
+      accounts={data?.accounts ?? []}
       projects={data?.projects ?? null}
       activeId={session?.user?.projectId ?? null}
       onManage={onManage}

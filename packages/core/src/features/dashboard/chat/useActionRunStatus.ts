@@ -1,14 +1,19 @@
 'use client';
 
+import type { ResultLink } from '@/libs/actions/resultLinks';
 import { useEffect, useRef, useState } from 'react';
+import { useLive } from '@/hooks/useLive';
+import { liveTopic } from '@/libs/live/topics';
 import { client } from '@/libs/Orpc';
 
 /**
  * Where a proposed action stands, kept fresh (R4). The chat card that filed
  * a recommendation into the review queue used to freeze at "in your queue";
- * this polls `review.actionStatus` with backoff (2s → 30s) until the run is
- * terminal, so the conversation learns whether the person approved it, the
- * action executed, or it failed — without leaving the page.
+ * this reads `review.actionStatus` whenever the run changes, pushed on the
+ * live stream (`card:<id>`), so the conversation learns whether the person
+ * approved it, the action executed, or it failed — without leaving the page.
+ * While the stream is down it polls with backoff (2s → 30s) until the run is
+ * terminal, as it did before the stream existed.
  *
  * `action_run.status` values seen in the services: pending, executing, done,
  * failed, rejected, snoozed. Anything else renders as-is.
@@ -24,10 +29,20 @@ export type ActionRunStatus = {
   undoable?: boolean;
   /** Why it ran on its own, when it did. */
   reason?: string | null;
+  /** What a done run did, from its result: "changed request #124: outcome, mainRisk" (`libs/actions/doneSummary.ts`). */
+  summary?: string | null;
+  /** The page of the record the run made (a filed request), once it has run. */
+  recordHref?: string | null;
+  /** The words on that link: "Open feature". */
+  recordHrefLabel?: string | null;
+  /** Everything a done run made, as links (`libs/actions/resultLinks.ts`). */
+  links?: ResultLink[];
+  /** A ruling's answer (`chosenOption`): the option, and whether the trust bar chose it. */
+  choice?: { label: string; byTrustBar: boolean } | null;
   fetchedAt: number;
 };
 
-export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'rejected', 'undone']);
+export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'rejected', 'undone', 'closed']);
 
 const MIN_MS = 2_000;
 const MAX_MS = 30_000;
@@ -51,9 +66,23 @@ export function isRequestRejected(err: unknown): boolean {
   return typeof status === 'number' && status >= 400 && status < 500;
 }
 
-export function useActionRunStatus(runId: number | undefined): ActionRunStatus | null {
+/**
+ * @param runId - The run to follow.
+ * @param nonce - Change it to read the status now rather than on the backoff —
+ * after a decision, so the card does not sit on a stale "pending".
+ */
+export function useActionRunStatus(runId: number | undefined, nonce = 0): ActionRunStatus | null {
   const [state, setState] = useState<ActionRunStatus | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by a live notice: read now, wherever the card was decided.
+  const [pushed, setPushed] = useState(0);
+
+  // PUSHED (backlog 050): the card follows its run on the workspace live
+  // stream for as long as it is on screen — decided on Review, by a trust
+  // rule, from another tab, or undone after it ran — and reads its status the
+  // moment it changes. Polling below is only the fallback while the stream
+  // is down.
+  const { live } = useLive(isPollableRunId(runId) ? [liveTopic.card(runId)] : [], () => setPushed(n => n + 1));
 
   useEffect(() => {
     // A run id that is not a positive integer is not a run: polling it just
@@ -69,7 +98,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
 
     const tick = async () => {
       try {
-        const res = await client.review.actionStatus({ id }) as { status: string; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null };
+        const res = await client.review.actionStatus({ id }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null; links?: ResultLink[]; choice?: { label: string; byTrustBar: boolean } | null };
         if (cancelled) {
           return;
         }
@@ -80,9 +109,10 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
             unchanged = 0;
             delay = MIN_MS;
           }
-          return { status: res.status, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, fetchedAt: Date.now() };
+          return { status: res.status, summary: res.summary ?? null, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, recordHref: res.recordHref ?? null, recordHrefLabel: res.recordHrefLabel ?? null, links: res.links ?? [], choice: res.choice ?? null, fetchedAt: Date.now() };
         });
-        if (TERMINAL_STATUSES.has(res.status)) {
+        // Pushed, or settled: one read, and the stream (or nothing) says when the next is due.
+        if (live || TERMINAL_STATUSES.has(res.status)) {
           return;
         }
       } catch (err) {
@@ -108,7 +138,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
         clearTimeout(timer.current);
       }
     };
-  }, [runId]);
+  }, [runId, nonce, pushed, live]);
 
   return state;
 }

@@ -18,7 +18,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
-import { getWikiPage, listWikiPages, wikiSlug } from '@/services/wiki/WikiService';
+import { getWikiPage, listWikiPages, renderWikiPageBody, wikiSlug } from '@/services/wiki/WikiService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
 
 export const WIKI_PLUGIN = 'wiki';
@@ -52,7 +52,7 @@ export function readWikiPageTool(ctx: RuntimeContext) {
         const pages = await listWikiPages(ctx.orgId);
         return `No wiki page "${wikiSlug(slug)}". Pages: ${pages.map(p => p.slug).join(', ') || '(none)'}.`;
       }
-      return `# ${page.title}\n(slug ${page.slug} · v${page.version} · updated ${page.updatedAt.toISOString().slice(0, 10)} by ${page.lastAuthorKind} · ${page.href})\n\n${page.md}`;
+      return renderWikiPageBody(page);
     },
     {
       name: 'read_wiki_page',

@@ -10,10 +10,20 @@ description: >-
   not an archaeology dig through CI files. Written by a person or the PM when
   it is set up, and kept current by the deploy itself: the pipeline upserts
   `lastDeployedSha`, `lastDeployedAt` and `lastHealth` over
-  `POST /api/v1/objects` after every run.
+  `POST /api/v1/objects` after every run, and Vocion reads the same back from
+  every deploy-branch run whose workflow (and step) `deploy` names, with a
+  health check after it.
 icon: server
+# Its records read ENV-<id> in the app and in chat (core: libs/codes.ts).
+code: ENV
 schema:
   type: object
+  # KEPT TRUE BY THE RELEASE ENGINEER (Chris, 2026-09-30): a place a product
+  # runs, or a repository that makes it, that has no record yet is filed
+  # through its own tool (core: services/agents/tools/fileRecord.ts), done for
+  # you with Undo — it is the factory's own bookkeeping, published nowhere.
+  x-agent-file:
+    dedupOn: [product, surface, stage]
   # Internal registry, not a record extracted from outside: filing one from
   # chat or MCP lands at once under its own trust key
   # (objects.propose_candidate.environment), and the deploy keeps it current.
@@ -101,6 +111,23 @@ schema:
       x-display: {label: Secrets, format: mono, group: Configuration}
       type: string
       description: Where its secrets are kept — a path, never a value. A worker never touches it; a person rotating a key starts here.
+    qaLoginCredentialId:
+      x-display: {label: QA sign-in, format: mono, group: Configuration}
+      type: string
+      description: >-
+        The stored sign-in QA uses on this environment: the id of an `App
+        sign-in` credential (Settings, Credentials), never the password
+        itself. The worker reads it when it captures the live product after a
+        release; QA and the PM see the sign-in page and account email through
+        product_access.
+    liveSetup:
+      x-display: {label: Live check setup, role: prose, group: Configuration}
+      type: string
+      description: >-
+        How QA prepares state on this environment for a live check, in plain
+        words: what its QA account may create and how to remove it, or the one
+        standing fixture it keeps (a record, a link) a check reuses. QA reads
+        it through product_access and writes its live flows by it.
     observability:
       x-display: {label: Observability, role: prose, format: steps, order: 5}
       type: object
@@ -133,6 +160,25 @@ schema:
       type: string
       format: date-time
       description: When `lastHealth` was read, so a stale reading reads as stale.
+    lastHealthDetail:
+      x-display: {label: Health said, group: Last deploy}
+      type: string
+      description: What the health check read — the address, the status and what settled it ("answered HTTP 503"). WRITTEN BY THE PIPELINE with `lastHealth`.
+    lastPipelineLine:
+      x-display: {label: Pipeline, group: Last deploy}
+      type: string
+      description: The last thing the pipeline did here, in one line — a deploy recorded, a deploy that did not run started again, a recovery step. WRITTEN BY THE PIPELINE; the whole history is `pipelineLog`.
+    pipelineLog:
+      x-display: {label: What the pipeline did, role: prose, format: steps, order: 7}
+      type: array
+      description: The pipeline's own account of this environment, newest last — each deploy it read, each move it made with the action behind it (its Undo) and the run that proves it. WRITTEN BY THE PIPELINE, never by hand.
+      items:
+        type: object
+        properties:
+          at: {type: string, format: date-time}
+          line: {type: string}
+          url: {type: string}
+          actionRunId: {type: number}
     owners:
       x-display: {label: Owners, group: Identity}
       type: array

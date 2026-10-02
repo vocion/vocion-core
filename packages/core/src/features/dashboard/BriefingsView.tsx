@@ -197,12 +197,12 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
       {regen === 'failed' && <p className="mt-1 text-xs text-destructive">The refresh didn't land — check the lead agent's activity or try again.</p>}
 
       {/* The brief is a commentable document: highlight any passage and the
-          platform's one selection control offers *Ask about this*
+          platform's one selection control offers *Ask*
           (docs/design/patterns.md § Select → talk). The regions are the
           Detail archetype's own `Section`s — the typed document's rendered
           sections — so nothing here traverses headings and nothing here
           invents a control. No `changeIntent`: a briefing has no draft to
-          rewrite, so *Add change* is not offered. */}
+          rewrite, so *Change* is not offered. */}
       {viewing && (
         <CommentLayerProvider
           key={viewing.id}

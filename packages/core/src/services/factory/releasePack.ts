@@ -10,9 +10,13 @@
  * same notes undid is not shipped (#66 on 2026-09-27 went out and came back).
  */
 
+import type { CriterionEvidence, ProofArtifact } from '@/libs/workspace/criterionEvidence';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { criterionEvidence } from '@/libs/workspace/criterionEvidence';
+import { featureProof, risksLine } from '@/libs/workspace/featureProof';
 import { artifactSchema, businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { readRecovery, settleRecovery } from './recovery';
 
 /**
  * `https://github.com/o/r/pull/12/files` → `https://github.com/o/r/pull/12`.
@@ -62,7 +66,164 @@ async function mergeMeta(orgId: string, id: number, set: Record<string, unknown>
     .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id)));
 }
 
-export type ReleaseEvidence = { taskId: number; requestId: number | null; prUrl: string; verdict: string; title: string };
+export type ReleaseEvidence = {
+  taskId: number;
+  requestId: number | null;
+  prUrl: string;
+  verdict: string;
+  title: string;
+  /**
+   * Each criterion of the attempt that counts, with the stored artifact that
+   * proves it (`libs/workspace/criterionEvidence.ts`) — the release shows the
+   * proof, not a count and a pile of links.
+   */
+  criteria: CriterionEvidence[];
+};
+
+/** What a release pack is, before it is written. */
+export type ReleasePack = {
+  requestIds: number[];
+  taskIds: number[];
+  evidence: ReleaseEvidence[];
+  reverted: string[];
+  /** The fields `linkRelease` merges onto the release. */
+  releaseMeta: Record<string, unknown>;
+  /** The fields it merges onto each request it closes. */
+  requestMeta: Array<{ id: number; set: Record<string, unknown> }>;
+};
+
+/** The QA roles a release cites: the shots, and the named-test runs that prove what no shot can. */
+const PROOF_ROLES = ['qa-screenshot', 'qa-test-run'] as const;
+
+async function proofArtifacts(orgId: string, taskIds: number[]): Promise<Array<ProofArtifact & { taskId: number }>> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  const rows = await db
+    .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, role: artifactSchema.recordRole, url: artifactSchema.url, recordId: artifactSchema.recordId, spec: artifactSchema.spec })
+    .from(artifactSchema)
+    .where(and(
+      eq(artifactSchema.orgId, orgId),
+      sql`${artifactSchema.recordRole} in (${sql.join(PROOF_ROLES.map(r => sql`${r}`), sql`, `)})`,
+      sql`${artifactSchema.recordId} in (${sql.join(taskIds.map(id => sql`${String(id)}`), sql`, `)})`,
+    ));
+  return rows
+    .map((r) => {
+      const spec = (r.spec ?? {}) as Record<string, unknown>;
+      const url = r.url ?? (typeof spec.url === 'string' ? spec.url : typeof spec.href === 'string' ? spec.href : null);
+      return { id: r.id, title: r.title, kind: r.kind, role: r.role ?? null, url, md: typeof spec.md === 'string' ? spec.md : null, taskId: Number(r.recordId) };
+    })
+    .sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The pack a release would carry, read from the records and written nowhere:
+ * what `linkRelease` writes, and what the backfill prints on a dry run.
+ * @param orgId - The workspace.
+ * @param releaseId - The release record.
+ * @returns The pack, or null when the release names no pull request.
+ */
+export async function buildReleasePack(orgId: string, releaseId: number): Promise<ReleasePack | null> {
+  const [release] = await db
+    .select({ meta: businessObjectSchema.metadata })
+    .from(businessObjectSchema)
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, releaseId)))
+    .limit(1);
+  const meta = (release?.meta ?? {}) as Record<string, unknown>;
+  const { shipped, reverted } = shippedPrs(meta);
+  if (shipped.length === 0 && reverted.length === 0) {
+    return null;
+  }
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const types = await factoryTypes(orgId);
+  const tasks = (await objectsOfType(orgId, types.task))
+    .filter(t => typeof t.meta.prUrl === 'string' && shipped.includes(normalPr(t.meta.prUrl)));
+  const requestIdOf = (t: Row) => {
+    const n = Number(t.meta.requestId);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const wanted = new Set(tasks.map(requestIdOf).filter((id): id is number => id !== null));
+  const requests = wanted.size === 0 ? [] : (await objectsOfType(orgId, types.request)).filter(r => wanted.has(r.id));
+  const shippedIds = tasks.map(t => t.id);
+  // ONE COUNT (`libs/workspace/featureProof.ts`): the work's own acceptance
+  // lines, and the plan-risk lines as their own group, judged on the attempt
+  // this release shipped — the count the feature's page shows.
+  const proofOf = (requestId: number | null) => featureProof({
+    request: requests.find(r => r.id === requestId) ?? null,
+    tasks: tasks.filter(t => requestIdOf(t) === requestId),
+    shippedTaskIds: shippedIds,
+  });
+  const artifacts = await proofArtifacts(orgId, tasks.map(t => t.id));
+  const evidence: ReleaseEvidence[] = tasks.map((t) => {
+    const v = (t.meta.verdict ?? {}) as { value?: string; proven?: number; total?: number };
+    const requestId = requestIdOf(t);
+    const proof = proofOf(requestId);
+    const risks = risksLine(proof);
+    const counted = proof.attempt !== null && proof.total > 0
+      ? `${proof.proven} of ${proof.total} proven${risks ? ` · ${risks}` : ''}`
+      : `${v.proven ?? 0} of ${v.total ?? 0} proven`;
+    // The proof of the attempt that counts, paired to what it stored. Every
+    // task of one request carries the same list: it is the feature's proof.
+    const attemptId = proof.attempt?.taskId ?? t.id;
+    return {
+      taskId: t.id,
+      requestId,
+      prUrl: normalPr(String(t.meta.prUrl)),
+      // Shipped without a verdict is said plainly, never dressed up.
+      verdict: v.value ? `${v.value}, ${counted}` : 'merged without a QA verdict',
+      // The feature's own words travel with the pack, so a release reads as
+      // what it shipped even where the task is not loaded beside it.
+      title: t.title,
+      criteria: proof.attempt === null ? [] : criterionEvidence(proof, artifacts.filter(a => a.taskId === attemptId)),
+    };
+  });
+  const taskIds = evidence.map(e => e.taskId);
+  const requestIds = [...new Set(evidence.map(e => e.requestId).filter((id): id is number => id !== null))];
+  // The one line the Releases row leads with: which features, and the proof.
+  const titleOf = new Map(tasks.map(t => [t.id, t.title]));
+  // "No linked feature" rather than "no factory feature": the deploy may have
+  // shipped real changes no request stands behind, and the release's page
+  // says what they were (`libs/workspace/releaseFeed.ts`).
+  const shippedLine = evidence.length > 0
+    ? evidence.map(e => `${titleOf.get(e.taskId) ?? `task #${e.taskId}`} — QA ${e.verdict}`).join('; ')
+    : 'No linked feature';
+  const releaseMeta = {
+    shippedLine,
+    prUrls: [...shipped, ...reverted],
+    taskIds,
+    requestIds,
+    evidence,
+    revertedPrUrls: reverted,
+    // Every shot AND every named-test run: #223 stored its eight shots and
+    // not the run that proved four of its six lines.
+    verificationArtifactIds: artifacts.map(a => a.id),
+  };
+  const releasedAt = typeof meta.releasedAt === 'string' ? meta.releasedAt : new Date().toISOString();
+  // THE CONTRACT HOLDS, SAID FROM QA'S PROOF. The Done row counts the
+  // request's own acceptance lines as met or unmet, and nothing ever marked
+  // them: #131 shipped at "QA approve, 8 of 8 proven" and read "6 of 6 unmet"
+  // at the top of Done. Each line is paired by words with the shipped task's
+  // verdict (`featureProof`); a proven line is met, with its evidence and the
+  // link it names. A line QA did not prove stays as it was — that is the gate.
+  // The feature page does not depend on this write: it reads the same proof
+  // from the verdict (#126 read "0 of 6 verified" because this wrote
+  // `evidence` and never `evidenceUrl`).
+  const requestMeta: ReleasePack['requestMeta'] = [];
+  for (const request of requests) {
+    const acceptance = Array.isArray(request.meta.acceptance) ? request.meta.acceptance as Array<Record<string, unknown>> : [];
+    const proof = proofOf(request.id);
+    const judged = proof.attempt !== null && proof.acceptance.some(c => c.from === 'verdict');
+    const marked = acceptance.map((a, i) => {
+      const c = proof.acceptance[i];
+      return c?.from === 'verdict' && c.state === 'passed'
+        ? { ...a, met: true, evidence: c.evidence ?? `QA, release #${releaseId}`, ...(c.evidenceUrl ? { evidenceUrl: c.evidenceUrl } : {}), provenBy: { taskId: proof.attempt!.taskId, releaseId } }
+        : a;
+    });
+    const recovery = request.meta.recovery && typeof request.meta.recovery === 'object' ? settleRecovery(readRecovery(request.meta), `Shipped in release #${releaseId}.`, releasedAt) : undefined;
+    requestMeta.push({ id: request.id, set: { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId, ...(recovery ? { recovery } : {}), ...(judged && acceptance.length > 0 ? { acceptance: marked } : {}) } });
+  }
+  return { requestIds, taskIds, evidence, reverted, releaseMeta, requestMeta };
+}
 
 /**
  * Link a release to what it shipped. Idempotent: running it again on the
@@ -74,75 +235,20 @@ export type ReleaseEvidence = { taskId: number; requestId: number | null; prUrl:
  * @returns The pack written, or null when the release names no pull request.
  */
 export async function linkRelease(orgId: string, releaseId: number, opts: { dispatchMode?: 'inline' | 'background' } = {}): Promise<{ requestIds: number[]; taskIds: number[]; evidence: ReleaseEvidence[]; reverted: string[] } | null> {
-  const [release] = await db
-    .select({ meta: businessObjectSchema.metadata })
-    .from(businessObjectSchema)
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, releaseId)))
-    .limit(1);
-  const meta = (release?.meta ?? {}) as Record<string, unknown>;
-  const { shipped, reverted } = shippedPrs(meta);
-  if (shipped.length === 0 && reverted.length === 0) {
+  const pack = await buildReleasePack(orgId, releaseId);
+  if (!pack) {
     return null;
   }
-  const tasks = (await objectsOfType(orgId, 'engineering_task'))
-    .filter(t => typeof t.meta.prUrl === 'string' && shipped.includes(normalPr(t.meta.prUrl)));
-  const evidence: ReleaseEvidence[] = tasks.map((t) => {
-    const v = (t.meta.verdict ?? {}) as { value?: string; proven?: number; total?: number };
-    const requestId = Number(t.meta.requestId);
-    return {
-      taskId: t.id,
-      requestId: Number.isFinite(requestId) && requestId > 0 ? requestId : null,
-      prUrl: normalPr(String(t.meta.prUrl)),
-      // Shipped without a verdict is said plainly, never dressed up.
-      verdict: v.value ? `${v.value}, ${v.proven ?? 0} of ${v.total ?? 0} proven` : 'merged without a QA verdict',
-      // The feature's own words travel with the pack, so a release reads as
-      // what it shipped even where the task is not loaded beside it.
-      title: t.title,
-    };
+  const { requestIds, taskIds, evidence, reverted } = pack;
+  await mergeMeta(orgId, releaseId, pack.releaseMeta);
+  await nameOnce(orgId, releaseId, evidence).catch((err: Error) => {
+    console.warn('[release] could not name the release', { releaseId, error: err.message });
   });
-  const taskIds = evidence.map(e => e.taskId);
-  const requestIds = [...new Set(evidence.map(e => e.requestId).filter((id): id is number => id !== null))];
-  const shots = taskIds.length === 0
-    ? []
-    : await db
-        .select({ id: artifactSchema.id })
-        .from(artifactSchema)
-        .where(and(eq(artifactSchema.orgId, orgId), sql`${artifactSchema.recordRole} = 'qa-screenshot'`, sql`${artifactSchema.recordId} in (${sql.join(taskIds.map(id => sql`${String(id)}`), sql`, `)})`));
-  // The one line the Releases row leads with: which features, and the proof.
-  const titleOf = new Map(tasks.map(t => [t.id, t.title]));
-  // "No linked feature" rather than "no factory feature": the deploy may have
-  // shipped real changes no request stands behind, and the release's page
-  // says what they were (`libs/workspace/releaseFeed.ts`).
-  const shippedLine = evidence.length > 0
-    ? evidence.map(e => `${titleOf.get(e.taskId) ?? `task #${e.taskId}`} — QA ${e.verdict}`).join('; ')
-    : 'No linked feature';
-  await mergeMeta(orgId, releaseId, {
-    shippedLine,
-    prUrls: [...shipped, ...reverted],
-    taskIds,
-    requestIds,
-    evidence,
-    revertedPrUrls: reverted,
-    verificationArtifactIds: shots.map(s => s.id),
-  });
-  const releasedAt = typeof meta.releasedAt === 'string' ? meta.releasedAt : new Date().toISOString();
-  // THE CONTRACT HOLDS, SAID FROM QA'S PROOF. The Done row counts the
-  // request's own acceptance lines as met or unmet, and nothing ever marked
-  // them: #131 shipped at "QA approve, 8 of 8 proven" and read "6 of 6 unmet"
-  // at the top of Done. Each line is paired by words with the shipped task's
-  // verdict (the same pairing the verdict uses); a proven line is met, with
-  // its evidence. A line QA did not prove stays unmet — that is the gate.
-  const { alignToContract } = await import('@/services/agents/tools/recordVerdict');
-  const requests = (await objectsOfType(orgId, 'request')).filter(r => requestIds.includes(r.id));
-  for (const request of requests) {
-    const acceptance = Array.isArray(request.meta.acceptance) ? request.meta.acceptance as Array<Record<string, unknown>> : [];
-    const task = tasks.find(t => Number(t.meta.requestId) === request.id);
-    const judged = (((task?.meta.verdict ?? {}) as { criteria?: unknown }).criteria ?? []) as Parameters<typeof alignToContract>[1];
-    const aligned = acceptance.length > 0 && Array.isArray(judged) && judged.length > 0
-      ? alignToContract(acceptance.map(a => String(a.statement ?? a.criterion ?? '')), judged)
-      : [];
-    const marked = acceptance.map((a, i) => (aligned[i]?.status === 'proven' ? { ...a, met: true, evidence: aligned[i]!.evidence ?? `QA, release #${releaseId}` } : a));
-    await mergeMeta(orgId, request.id, { state: 'shipped', shippedAt: releasedAt, shippedIn: releaseId, ...(aligned.length > 0 ? { acceptance: marked } : {}) });
+  const { markStatus } = await import('@/services/objects/statusField');
+  for (const r of pack.requestMeta) {
+    await mergeMeta(orgId, r.id, r.set);
+    // Shipped, unless it already reads finished (a re-link never undoes "seen live").
+    await markStatus(orgId, r.id, 'shipped', { line: `Shipped in release #${releaseId}.`, keepFinished: true });
   }
   const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
   await recomputeRollupsForObject(orgId, releaseId).catch(() => undefined);
@@ -150,6 +256,35 @@ export async function linkRelease(orgId: string, releaseId: number, opts: { disp
     console.warn('[release] could not raise release.linked', { releaseId, error: (err as Error).message });
   });
   return { requestIds, taskIds, evidence, reverted };
+}
+
+/**
+ * The release's short name, written once (`releaseName.ts`): from what it
+ * shipped, never over a name it already has.
+ * @param orgId - The workspace.
+ * @param releaseId - The release.
+ * @param evidence - What it shipped, each with its feature's words.
+ */
+async function nameOnce(orgId: string, releaseId: number, evidence: ReleaseEvidence[]): Promise<void> {
+  const { loadReleaseRow } = await import('./releaseData');
+  const row = await loadReleaseRow(orgId, releaseId);
+  if (!row || (typeof row.meta.name === 'string' && row.meta.name.trim())) {
+    return;
+  }
+  const seen = new Set<number>();
+  const features = evidence.flatMap((e) => {
+    const key = e.requestId ?? e.taskId;
+    if (seen.has(key)) {
+      return [];
+    }
+    seen.add(key);
+    return e.title ? [{ title: e.title, outcome: null }] : [];
+  });
+  const { nameRelease } = await import('./releaseName');
+  const name = await nameRelease({ orgId, features });
+  if (name) {
+    await mergeMeta(orgId, releaseId, { name });
+  }
 }
 
 /**
@@ -195,6 +330,92 @@ async function announceWhatItCanSay(orgId: string, releaseId: number, ids: { req
     announcementState: state,
     requestIds: ids.requestIds,
     taskIds: ids.taskIds,
+    // A release with no linked feature that still changed something people
+    // use is named by those changes, then by its own title.
+    ...(() => {
+      const named = featureHeadline(reading.features.length > 0 ? reading.features.map(f => f.title) : reading.otherChanges.map(c => c.plain));
+      return { ...named, headline: named.headline ?? (row.title.trim() || null) };
+    })(),
   };
   await emitEvent({ orgId, type: RELEASE_LINKED, payload, dedupeKey: `release.linked:${releaseId}`, invokedBy: 'factory:release-pack', ...(dispatchMode ? { dispatchMode } : {}) });
+}
+
+/**
+ * The shipped features by name, for a sentence about the release: one title,
+ * two joined with "and", more as the first and a count — the way a release's
+ * row names a deploy of several. Pure; record titles placed, never read.
+ * @param titles - The linked features' titles, in the release's order.
+ */
+export function featureHeadline(titles: readonly string[]): { headline: string | null; liveVerb: 'is live' | 'are live' } {
+  const named = titles.map(t => t.trim()).filter(Boolean);
+  if (named.length === 0) {
+    return { headline: null, liveVerb: 'is live' };
+  }
+  if (named.length === 1) {
+    return { headline: named[0]!, liveVerb: 'is live' };
+  }
+  if (named.length === 2) {
+    return { headline: `${named[0]} and ${named[1]}`, liveVerb: 'are live' };
+  }
+  return { headline: `${named[0]} and ${named.length - 1} more`, liveVerb: 'are live' };
+}
+
+export type RelinkReport = {
+  mode: 'dry-run' | 'apply';
+  releaseId: number;
+  /** False when the release names no pull request, so there is nothing to link. */
+  linked: boolean;
+  /** Per feature: each criterion and the artifact that proves it. */
+  features: Array<{ title: string; taskId: number; criteria: CriterionEvidence[] }>;
+  verificationArtifactIds: number[];
+  /** The drafted announcement with its internal sentences taken out (never a person's words). */
+  announcement: { before: string; after: string; dropped: string[] } | null;
+};
+
+/**
+ * RE-LINK ONE RELEASE through the same path a deploy takes (`linkRelease`),
+ * for a release linked before its pack carried the proof. A dry run unless
+ * `apply`: it reports the pack it would write and writes nothing. Idempotent:
+ * applied twice, the second run writes what the first did, and the
+ * `release.linked` it raises is deduped per release, so nobody is woken again.
+ *
+ * It also takes the internal sentences out of an agent's drafted
+ * announcement ("QA proved 6 of 6 criteria") — the gate that refuses them
+ * came after the draft. Words a person owns (`notesSource: human`) and an
+ * announcement already published are left exactly as they are.
+ * @param orgId - The workspace.
+ * @param releaseId - The release.
+ * @param opts - What to do.
+ * @param opts.apply - Write the pack; otherwise only report it.
+ */
+export async function relinkRelease(orgId: string, releaseId: number, opts: { apply?: boolean } = {}): Promise<RelinkReport> {
+  const { plainAnnouncement } = await import('@/libs/workspace/releaseFeed');
+  const [row] = await db
+    .select({ meta: businessObjectSchema.metadata })
+    .from(businessObjectSchema)
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, releaseId)))
+    .limit(1);
+  const meta = (row?.meta ?? {}) as Record<string, unknown>;
+  const pack = await buildReleasePack(orgId, releaseId);
+  const text = typeof meta.announcement === 'string' ? meta.announcement : null;
+  const plain = text !== null && meta.notesSource !== 'human' && typeof meta.announcedAt !== 'string' ? plainAnnouncement(text) : null;
+  const announcement = text !== null && plain && plain.dropped.length > 0 && plain.text !== '' ? { before: text, after: plain.text, dropped: plain.dropped } : null;
+  const report: RelinkReport = {
+    mode: opts.apply ? 'apply' : 'dry-run',
+    releaseId,
+    linked: pack !== null,
+    features: (pack?.evidence ?? []).map(e => ({ title: e.title, taskId: e.taskId, criteria: e.criteria })),
+    verificationArtifactIds: Array.isArray(pack?.releaseMeta.verificationArtifactIds) ? pack.releaseMeta.verificationArtifactIds as number[] : [],
+    announcement,
+  };
+  if (!opts.apply) {
+    return report;
+  }
+  if (pack) {
+    await linkRelease(orgId, releaseId, { dispatchMode: 'inline' });
+  }
+  if (announcement) {
+    await mergeMeta(orgId, releaseId, { announcement: announcement.after });
+  }
+  return report;
 }

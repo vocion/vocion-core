@@ -18,6 +18,19 @@ describe('mission autonomy', () => {
     expect(taskNeedsApproval({ type: 'analysis', approvalRequired: true }, 5)).toBe(true);
   });
 
+  it('lets an external action through at low autonomy once a person approved it', () => {
+    const approvedAt = '2026-09-29T12:00:00.000Z';
+
+    expect(taskNeedsApproval({ type: 'action', approvedAt }, 1)).toBe(false);
+    expect(taskNeedsApproval({ type: 'action', approvedAt }, 2)).toBe(false);
+  });
+
+  it('counts a person\'s approval as meeting an explicit approvalRequired flag', () => {
+    // resumeMission clears the flag when a person approves, so a task stamped
+    // approved has already had the approval the flag asked for.
+    expect(taskNeedsApproval({ type: 'analysis', approvalRequired: true, approvedAt: '2026-09-29T12:00:00.000Z' }, 5)).toBe(false);
+  });
+
   it('clamps autonomy levels to 1..5', () => {
     expect(clampAutonomyLevel(undefined)).toBe(1);
     expect(clampAutonomyLevel(0)).toBe(1);

@@ -1,4 +1,6 @@
 import type { PageManifest } from './pageFields';
+import type { TypeCodes } from '@/libs/codes';
+import { recordCode } from '@/libs/codes';
 import { workspaceUrl } from '@/libs/links';
 
 /**
@@ -34,6 +36,16 @@ export type RecordLinks = {
   pages: ReadonlyMap<string, string>;
   /** The workspace the links are for; null leaves them bare (the `Link` wrapper and the proxy canonicalise a bare path). */
   workspaceSlug: string | null;
+  /**
+   * Object types whose page is a `report` — one record's whole story, and the
+   * status it is in (`services/objects/recordStatus.ts`). Absent, none.
+   */
+  reports?: ReadonlySet<string>;
+  /**
+   * Object type → the code its records read by (FE → FE-294, `libs/codes.ts`).
+   * Absent, a type's code is derived from its slug.
+   */
+  codes?: TypeCodes;
 };
 
 /** The manifest fields the rule reads — enough that a test can hand in a literal. */
@@ -89,12 +101,47 @@ export function recordPagesOf(manifests: readonly ManifestShape[]): Map<string, 
 }
 
 /**
+ * The object type a page slug opens one record of — the other direction of
+ * {@link recordPagesOf}: `feature` → `request`, `releases` → `release`. Null
+ * when no page by that slug claims a type; the slug itself is never the type.
+ * @param links - From {@link recordLinksOf}.
+ * @param pageSlug - The `<slug>` in `/dashboard/p/<slug>/<id>`.
+ */
+export function recordTypeOfPage(links: RecordLinks, pageSlug: string): string | null {
+  const template = `/dashboard/p/${pageSlug}/{id}`;
+  for (const [type, t] of links.pages) {
+    if (t === template) {
+      return type;
+    }
+  }
+  return null;
+}
+
+/**
  * Build the resolver's input.
  * @param manifests - The pages the workspace has on.
  * @param workspaceSlug - `project.slug`, to prefix each link; null for bare paths.
  */
 export function recordLinksOf(manifests: readonly ManifestShape[], workspaceSlug: string | null = null): RecordLinks {
-  return { pages: recordPagesOf(manifests), workspaceSlug };
+  return { pages: recordPagesOf(manifests), workspaceSlug, reports: reportTypesOf(manifests) };
+}
+
+/**
+ * Object types a `report` page tells the story of — the types that have a
+ * status to read (`GET /api/v1/objects/:id/status`).
+ * @param manifests - The pages the workspace has on.
+ */
+export function reportTypesOf(manifests: readonly ManifestShape[]): Set<string> {
+  return new Set(manifests.flatMap(m => (m.archetype === 'report' && m.report ? [m.report.subject] : [])));
+}
+
+/**
+ * Whether a record of this type has a report page, and so a status.
+ * @param links - From {@link recordLinksOf}.
+ * @param objectType - The record's type slug.
+ */
+export function hasReportPage(links: RecordLinks, objectType: string | null | undefined): boolean {
+  return objectType ? links.reports?.has(objectType) === true : false;
 }
 
 /**
@@ -107,6 +154,16 @@ export function recordHrefFrom(links: RecordLinks, ref: RecordLinkRef): string {
   const template = ref.objectType ? links.pages.get(ref.objectType) : undefined;
   const path = template ? template.replace('{id}', encodeURIComponent(String(ref.id))) : rawRecordPath(ref.id);
   return links.workspaceSlug ? workspaceUrl(links.workspaceSlug, path) : path;
+}
+
+/**
+ * The code a person reads one record by — FE-294 — from the same links the
+ * record's href comes from, so a surface that can link a record can name it.
+ * @param links - From {@link recordLinksOf}, with the workspace's type codes.
+ * @param ref - The record.
+ */
+export function recordCodeFrom(links: RecordLinks, ref: RecordLinkRef): string {
+  return recordCode(links.codes, ref.objectType, ref.id);
 }
 
 /**
@@ -135,3 +192,13 @@ export function recordLinker(links: RecordLinks): RecordLinker {
 
 /** The resolver with no pages declared — what a pure assembler uses when its caller passed none. */
 export const genericRecordLinker: RecordLinker = recordLinker(NO_RECORD_PAGES);
+
+/**
+ * "Open feature" from `/w/acme/dashboard/p/feature/12` — the name of the page
+ * the workspace opens the record on, so the words follow the workspace.
+ * @param href - The record's link.
+ */
+export function openLabelFor(href: string): string {
+  const page = /\/p\/([^/]+)\/[^/]+$/.exec(href)?.[1];
+  return page ? `Open ${decodeURIComponent(page).replace(/[-_]+/g, ' ')}` : 'Open record';
+}

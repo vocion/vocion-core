@@ -11,7 +11,7 @@ import type { GithubEvent } from '@/libs/github/events';
 import { createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { githubConfigSchema } from '@/libs/sources/github';
-import { handleGithubWebhook } from './GithubWebhookService';
+import { handleGithubWebhook, preferInstalled } from './GithubWebhookService';
 
 const SECRET = 'hook-secret';
 const REPO = 'northwind/orders-api';
@@ -145,7 +145,7 @@ describe('handleGithubWebhook', () => {
 
     expect(calls).toEqual([`/repos/${REPO}/pulls/3`, `/repos/${REPO}/commits/abc123/check-runs`]);
     expect(emitted.map(e => e.event.type)).toEqual(['pr.checks_completed']);
-    expect(emitted[0]!.event).toMatchObject({ dedupeKey: `github:${REPO}#3:pr.checks_completed:abc123`, payload: { conclusion: 'failure', failedChecks: 'unit' } });
+    expect(emitted[0]!.event).toMatchObject({ dedupeKey: `github:${REPO}#3:pr.checks_completed:abc123:failed-1`, payload: { conclusion: 'failure', failedChecks: 'unit' } });
   });
 
   it('leaves a check suite for the next poll when the source holds no token', async () => {
@@ -158,5 +158,41 @@ describe('handleGithubWebhook', () => {
     expect(out.body).toEqual({ ok: true, emitted: 0 });
     expect(emitted).toEqual([]);
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('a delivery from the GitHub App', () => {
+  it('hands the installation id to the source lookup, and none when the delivery has none', async () => {
+    const { deps } = fakeDeps([source('org_a')]);
+    const body = { action: 'opened', pull_request: pr(), repository: { full_name: REPO }, installation: { id: 777 } };
+
+    await handleGithubWebhook(deliver('pull_request', body), deps);
+
+    expect(deps.sourcesForRepo).toHaveBeenCalledWith(REPO, '777');
+
+    await handleGithubWebhook(deliver('pull_request', { ...body, installation: undefined }), deps);
+
+    expect(deps.sourcesForRepo).toHaveBeenLastCalledWith(REPO, undefined);
+  });
+});
+
+describe('preferInstalled', () => {
+  const a = source('org_a');
+  const b = source('org_b');
+  const holds = (byOrg: Record<string, string | undefined>) => async (ref: GithubSourceRef) => byOrg[ref.orgId];
+
+  it('drops a source whose credential is a different installation and keeps one holding none', async () => {
+    expect(await preferInstalled([a, b], '777', holds({ org_a: '777', org_b: '1' }))).toEqual([a]);
+    expect(await preferInstalled([a, b], '777', holds({ org_a: '1', org_b: undefined }))).toEqual([b]);
+    expect(await preferInstalled([a, b], '777', holds({ org_a: '1', org_b: '2' }))).toEqual([]);
+  });
+
+  it('decides even for a single source, and reads no credential when the delivery names no installation', async () => {
+    expect(await preferInstalled([a], '777', holds({ org_a: '1' }))).toEqual([]);
+
+    const decrypts = vi.fn(holds({ org_a: '1', org_b: '2' }));
+
+    expect(await preferInstalled([a, b], undefined, decrypts)).toEqual([a, b]);
+    expect(decrypts).not.toHaveBeenCalled();
   });
 });

@@ -11,12 +11,6 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/temporal/client', () => ({
-  getTemporalClient: vi.fn(async () => {
-    throw new Error('temporal unavailable in tests');
-  }),
-}));
-
 const { db } = await import('@/libs/DB');
 const { agentSchema, automationSchema, missionSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { applyWorkspace } = await import('./applier');

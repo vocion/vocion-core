@@ -14,6 +14,8 @@
 # runaway was measured against, not a number chosen for this automation.
 slug: contract-red-team-proposal
 name: A contract nobody can check is caught before it is agreed
+label: QA checked the contract
+doing: QA checking the contract
 description: >-
   When a request is triaged, the change reviewer reads its acceptance criteria
   as a sceptic: is each one something a person could actually check, does the

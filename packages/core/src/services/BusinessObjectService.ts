@@ -1,9 +1,11 @@
 import type { ObjectOrigin } from '@/services/objects/objectCreated';
 import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeInput, UpdateBusinessObjectInput } from '@/validations/BusinessObjectValidation';
 import { and, eq } from 'drizzle-orm';
+import { assignTypeCodes, TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
+import { createdStatus } from '@/libs/objects/statusModel';
 import { businessObjectSchema, businessObjectTypeSchema, objectDocumentLinkSchema } from '@/models/Schema';
-import { announceObjectCreated } from '@/services/objects/objectCreated';
+import { announceObjectCreated, originMeta } from '@/services/objects/objectCreated';
 import { recomputeRollupsForObject } from '@/services/objects/rollups';
 
 /* ------------------------------------------------------------------ */
@@ -25,10 +27,26 @@ export const getObjectTypeBySlug = (orgId: string, slug: string) => {
   });
 };
 
+/** A type's code clashes with another type's or a core noun's; the message names both. */
+export class ObjectTypeCodeError extends Error {}
+
 export const createObjectType = async (input: CreateObjectTypeInput, orgId: string) => {
+  // The type's code (`libs/codes.ts`) is settled against the org's other
+  // types, as the applier settles a workspace's: a declared one that another
+  // type already has is refused, saying which; a derived one is widened apart.
+  const { code, ...rest } = input;
+  const existing = await listObjectTypes(orgId);
+  const { codes, problems } = assignTypeCodes([
+    ...existing.map(t => ({ slug: t.slug, code: typeCodeOf(t) })),
+    { slug: input.slug, code: code ?? null },
+  ]);
+  const settled = codes.get(input.slug);
+  if (!settled) {
+    throw new ObjectTypeCodeError(problems.find(p => p.includes(`"${input.slug}"`)) ?? `object type "${input.slug}" has no code`);
+  }
   const created = await db
     .insert(businessObjectTypeSchema)
-    .values({ ...input, orgId })
+    .values({ ...rest, schema: { ...(rest.schema ?? {}), [TYPE_CODE_SCHEMA_KEY]: settled }, orgId })
     .returning();
   // Review cards remember types for a few seconds; a type written now should
   // be the one the next card renders from.
@@ -100,7 +118,10 @@ export const createBusinessObject = async (
       typeId: objType.id,
       title: input.title,
       status: input.status ?? 'active',
-      metadata: input.metadata ?? {},
+      // A record asked for in a conversation says so, in the same write; a
+      // type with one status gives it its first (`created`, or what its
+      // fields carry — libs/objects/statusModel.ts).
+      metadata: withOrigin(createdStatus(objType.schema, input.metadata ?? {}), originMeta(origin ? { conversationId: origin.conversationId, userId: origin.actor ?? userId } : null)),
       createdBy: userId,
     })
     .returning();
@@ -120,6 +141,12 @@ export const createBusinessObject = async (
   }
 
   if (obj) {
+    // What the person sent in that conversation is the record's evidence (`reported.ts`).
+    const asked = originMeta(origin ? { conversationId: origin.conversationId } : null);
+    if (asked) {
+      const { linkReportedAttachments } = await import('@/services/objects/reported');
+      await linkReportedAttachments(orgId, obj.id, asked.conversationId).catch(() => undefined);
+    }
     await announceObjectCreated(orgId, obj, input.typeSlug, origin ?? { source: 'service', actor: userId });
   }
   return obj;
@@ -172,7 +199,7 @@ export const upsertBusinessObjectByExternalKey = async (
   }
   const [inserted] = await db
     .insert(businessObjectSchema)
-    .values({ orgId, typeId: objType.id, title: input.title, status: input.status ?? 'active', metadata: input.metadata ?? {}, externalSystem: input.externalKey.system, externalId: input.externalKey.id, createdBy: actorId })
+    .values({ orgId, typeId: objType.id, title: input.title, status: input.status ?? 'active', metadata: createdStatus(objType.schema, input.metadata ?? {}), externalSystem: input.externalKey.system, externalId: input.externalKey.id, createdBy: actorId })
     .returning();
   if (inserted) {
     await recomputeRollupsForObject(orgId, inserted.id);
@@ -457,3 +484,12 @@ export const linkExternalRecord = async (
 
   return updated ?? null;
 };
+
+/**
+ * A record's metadata with where it came from, unless it already says.
+ * @param meta - The metadata as given.
+ * @param origin - Where it came from (`originMeta`), or null.
+ */
+function withOrigin(meta: Record<string, unknown>, origin: ReturnType<typeof originMeta>): Record<string, unknown> {
+  return origin && !(meta.origin && typeof meta.origin === 'object') ? { ...meta, origin } : meta;
+}

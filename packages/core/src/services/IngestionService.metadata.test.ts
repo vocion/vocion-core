@@ -187,3 +187,60 @@ describe('processor state on a document', () => {
     expect(await stateOf(created.documentId)).toMatchObject({ processorAttempts: 0, processorError: null });
   });
 });
+
+describe('a finished run that said when it goes stale', () => {
+  async function revisitOf(id: number) {
+    const [row] = await db
+      .select({ at: knowledgeDocumentSchema.processorRevisitAt })
+      .from(knowledgeDocumentSchema)
+      .where(eq(knowledgeDocumentSchema.id, id));
+    return row?.at ?? null;
+  }
+
+  async function finishedWith(externalId: string, revisitAt?: Date) {
+    const ref = await src();
+    const doc = { externalId, title: 'Series', content: `series: ${externalId}` };
+    const created = await ingestDocument(ref, doc);
+    await markProcessorRun(created.documentId, { kind: 'started' });
+    await markProcessorRun(created.documentId, { kind: 'finished', contentHash: created.contentHash, revisitAt });
+    return { ref, doc, created };
+  }
+
+  it('stores the time on the finished mark, and a later finish without one clears it', async () => {
+    const at = new Date('2031-03-01T05:00:00.000Z');
+    const { created } = await finishedWith('series:1', at);
+
+    expect(await revisitOf(created.documentId)).toEqual(at);
+
+    await markProcessorRun(created.documentId, { kind: 'finished', contentHash: created.contentHash });
+
+    expect(await revisitOf(created.documentId)).toBeNull();
+  });
+
+  it('reads as a revisit on unchanged content once the time has passed, and not before', async () => {
+    const past = await finishedWith('series:2', new Date(Date.now() - 60_000));
+    const future = await finishedWith('series:3', new Date(Date.now() + 86_400_000));
+    const never = await finishedWith('series:4');
+
+    expect(await ingestDocument(past.ref, past.doc)).toMatchObject({ status: 'unchanged', revisitDue: true, processorDue: false });
+    expect(await ingestDocument(future.ref, future.doc)).toMatchObject({ status: 'unchanged', revisitDue: false });
+    expect(await ingestDocument(never.ref, never.doc)).toMatchObject({ status: 'unchanged', revisitDue: false });
+  });
+
+  it('reads a revisit that failed as a retry under the cap, not as another revisit', async () => {
+    const { ref, doc, created } = await finishedWith('series:5', new Date(Date.now() - 60_000));
+    await markProcessorRun(created.documentId, { kind: 'started' });
+    await markProcessorRun(created.documentId, { kind: 'failed', error: 'extraction skipped: model_timeout' });
+
+    expect(await ingestDocument(ref, doc)).toMatchObject({ status: 'unchanged', revisitDue: false, processorDue: true, processorAttempts: 1 });
+  });
+
+  it('clears the time when the content changes', async () => {
+    const { ref, doc, created } = await finishedWith('series:6', new Date(Date.now() - 60_000));
+
+    const changed = await ingestDocument(ref, { ...doc, content: `${doc.content}\nmore` });
+
+    expect(changed.status).toBe('updated');
+    expect(await revisitOf(created.documentId)).toBeNull();
+  });
+});

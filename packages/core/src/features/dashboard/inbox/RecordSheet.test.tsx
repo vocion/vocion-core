@@ -305,7 +305,7 @@ describe('the header is a line; the rest is one click behind "Why this?"', () =>
     await toggle.click();
 
     await expect.element(page.getByText(/115th consecutive check/)).toBeVisible();
-    await expect.element(page.getByText('#565')).toBeVisible();
+    await expect.element(page.getByText('ACT-565')).toBeVisible();
     await expect.element(page.getByText('65%')).toBeVisible();
     // Nothing is deleted: the record's earlier decisions are in the same fold.
     await expect.element(page.getByTestId('record-history')).toBeVisible();

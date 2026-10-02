@@ -10,9 +10,27 @@ description: >-
   once the check has run. A task that merged but never shipped is not a
   release, and a release nobody was told about is not finished.
 icon: rocket
+# Its records read REL-<id> in the app and in chat (core: libs/codes.ts).
+code: REL
 schema:
   type: object
+  # RELATED (core: libs/workspace/related.ts): what a release is connected to.
+  x-related:
+    - {key: product, label: Product, from: links, field: product, type: product, match: slug}
+    - {key: requests, label: Features, from: links, field: requestIds}
+    - {key: tasks, label: Engineering tasks, from: links, field: taskIds}
+    - {key: pulls, label: Pull requests, from: url, field: prUrls}
   properties:
+    name:
+      x-display: {label: Name, group: What shipped}
+      type: string
+      maxLength: 60
+      description: >-
+        What shipped, as a short name a person would call it ("Last-opened line
+        on the document page"). Written once by the platform when the release
+        is linked (core: services/factory/releaseName.ts), never over a name
+        already here; the features keep their own titles, which are the
+        asker's words. The release's heading reads it.
     product:
       x-display: {label: Product, format: link, to: product, group: What shipped}
       type: string
@@ -86,6 +104,45 @@ schema:
       type: string
       format: date-time
       description: When `healthAfter` was read, so a stale result reads as stale.
+    liveState:
+      x-display: {label: Seen live, format: badge, group: After the deploy, tones: {seen: ok, partial: warn, not_seen: bad}}
+      type: string
+      description: >-
+        What QA saw when it checked the change on the live product as the QA account (`check_live`). `not_seen` is a failure said with its reason (`liveSummary`); a release is verified when its change was seen, not on an HTTP 200. Absent while no live check has run.
+      enum: [seen, partial, not_seen]
+    liveSummary:
+      x-display: {label: Live check, group: After the deploy}
+      type: string
+      description: >-
+        The live check in one line — "Seen live: 1 of 1 state reached", or "Live check could not reach the change: <reason>".
+    liveReason:
+      type: string
+      description: >-
+        Why a state was not seen, when one was not — carried into the one retry.
+    liveCheckedAt:
+      x-display: {label: Live checked}
+      type: string
+      format: date-time
+      description: >-
+        When the live check last ran.
+    liveAttempts:
+      type: integer
+      description: >-
+        How many live checks wrote this release; QA gets two.
+    liveEvidence:
+      type: array
+      description: >-
+        One row per state a check flow reached for or missed — its feature, flow, criterion, viewport, the live-screenshot artifact, reached or not with the reason, and the page.
+      items: {type: object}
+    liveProblems:
+      type: array
+      description: >-
+        What stopped a flow from running at all — a setup that did not finish, a sign-in that failed, a cleanup that left something behind.
+      items: {type: string}
+    announcementImageArtifactId:
+      type: integer
+      description: >-
+        The live shot the announcement leads with — the first reached shot of an acceptance line.
     verificationArtifactIds:
       x-display: {label: Evidence, group: After the deploy}
       type: array
@@ -174,6 +231,18 @@ schema:
       properties:
         channels: {type: array, items: {type: string}}
         requestIds: {type: array, items: {type: integer}}
+        # Where a press on the release page posted it (core:
+        # services/factory/releaseAnnounce.ts), so Undo can take it back.
+        # `{surface, channelId, ts, fileIds, media, runId}`.
+        post: {type: object}
+    announceFailure:
+      x-display: {label: Last publish failed, group: Telling people}
+      type: object
+      description: Why the last press to publish the announcement did not post it — written by the post that failed, shown on the release page where the person pressed, and cleared by the next post that lands.
+      properties:
+        at: {type: string, format: date-time}
+        error: {type: string}
+        surface: {type: string}
 # What rolls up onto a release: the tasks it lists in `taskIds`. Same
 # mechanism as the request's, linked the other way round — the parent names
 # its children.
@@ -181,3 +250,23 @@ rollups:
   - {field: estimateCents, from: {type: engineering_task, ids: taskIds}, sum: estimateCents}
   - {field: actualCents, from: {type: engineering_task, ids: taskIds}, sum: actualCents}
   - {field: varianceCents, from: {type: engineering_task, ids: taskIds}, sum: varianceCents}
+# THE ANNOUNCEMENT IS FOR THE PEOPLE WHO USE THE PRODUCT. A drafted
+# announcement closed "QA proved 6 of 6 criteria" (2026-09-29): true, and a
+# sentence about the factory, not the product. The draft automation's prompt
+# says so; this refuses it where the record changes, with the reason, so the
+# product manager rewrites it rather than a person catching it. Words a person
+# owns (`notesSource: human`) are theirs and are not checked. The pattern is
+# `ANNOUNCEMENT_INTERNAL` in libs/workspace/releaseFeed.ts, and a test holds
+# the two equal.
+gates:
+  - name: announcement-in-plain-words
+    when: {field: announcement, written: true}
+    producedBy: product-manager
+    require:
+      - field: announcement
+        notMatches: {pattern: 'QA|criteria|proven|PR #|\bplan risk', flags: i}
+        unless: {field: notesSource, oneOf: [human]}
+        message: >-
+          it says "{value}". The announcement is what a person can now do, in
+          the product's words: no QA counts, criteria, pull request numbers or
+          plan risks, which are on the release page beside it

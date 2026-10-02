@@ -985,6 +985,13 @@ export async function decide(
     externalRef?: { system: string; id: string };
   },
 ): Promise<DecideResult> {
+  // A decision taken from an agent's turn counts on the turn, and a turn the
+  // person spent asking a question decides nothing (`agents/turnScope.ts`).
+  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  if (writesRefused()) {
+    throw new ReviewDecisionError(READ_ONLY_RECEIPT);
+  }
+  noteWrite();
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
   if (action === 'done' && item.kind !== 'action') {
     throw new ReviewDecisionError(`a ${item.kind} run is resumed or cancelled, never marked done by hand`);

@@ -422,6 +422,21 @@ describe('connector platforms', () => {
     })).toEqual({ baseUrl: 'https://cms.example.com', token: 'strapi-token' });
   });
 
+  it('keeps the base URL with the REST bearer token, shows it in full, and serves the rest connector', () => {
+    // Same shape and same cap as Strapi, for the same reason: a token is
+    // issued for one API, so a workspace with two APIs holds two credentials
+    // and each source names the one it uses.
+    const rest = getPlatform('rest');
+
+    expect(rest.label).toBe('REST API (bearer token)');
+    expect(rest.credentialsPerOrg).toBe('many');
+    expect(rest.fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
+    expect(visibleFields(rest).map(field => field.name)).toEqual(['baseUrl']);
+    expect(platformForConnectorSlug('rest')?.id).toBe('rest');
+    expect(() => validatePlatformCredential('rest', { baseUrl: 'api.example', token: 'tok' })).toThrow(/API base URL/);
+    expect(validatePlatformCredential('rest', { baseUrl: ' https://api.example ', token: ' tok ' })).toEqual({ baseUrl: 'https://api.example', token: 'tok' });
+  });
+
   it('pairs the Jira token with the email it was issued to', () => {
     const jira = getPlatform('jira');
 
@@ -480,6 +495,25 @@ describe('connector platforms', () => {
       .toThrow(/numeric project id/);
   });
 
+  it('keeps the Sentry host and organization with the token, shown in full, and refuses a DSN', () => {
+    // A token is spent against one region and one organization; both are
+    // identifiers, and the token is the only secret.
+    const secrecy = Object.fromEntries(getPlatform('sentry').fields.map(f => [f.name, f.secret]));
+
+    expect(secrecy).toEqual({ host: false, org: false, token: true });
+    expect(getPlatform('sentry').connectorSlugs).toEqual(['sentry']);
+    expect(credentialsAreShareable('sentry')).toBe(true);
+    expect(holdsManyCredentials('sentry')).toBe(false);
+    expect(getPlatform('sentry').helpText).toMatch(/read-only/);
+    expect(validatePlatformCredential('sentry', { host: 'https://us.sentry.io', org: 'northwind', token: 'sntrys_fixture_token_0001' }))
+      .toEqual({ host: 'https://us.sentry.io', org: 'northwind', token: 'sntrys_fixture_token_0001' });
+    // A DSN can only send events: refused at paste time, with the reason.
+    expect(() => validatePlatformCredential('sentry', { host: 'https://us.sentry.io', org: 'northwind', token: 'https://0000@o0.ingest.us.sentry.io/1' }))
+      .toThrow(/not a DSN/);
+    expect(() => validatePlatformCredential('sentry', { host: 'us.sentry.io', org: 'northwind', token: 'sntrys_fixture_token_0001' }))
+      .toThrow(/https:\/\/us\.sentry\.io/);
+  });
+
   it('shares one GitHub token across github sources and names the read-only permissions it needs', () => {
     // One token reads every repository it was granted; a source narrows by its
     // repository list, so a second source over the same account types nothing.
@@ -506,13 +540,51 @@ describe('connector platforms', () => {
   });
 });
 
+/** The migration that last rebuilt `api_token_org_platform_live_idx`. */
+const LATEST_INDEX_MIGRATION = '0154_app_login_many_credentials.sql';
+
+/**
+ * Read a repo file by path segments, relative to the package root.
+ * @param segments - Path segments under `packages/core`.
+ */
+function fileText(...segments: string[]): string {
+  return readFileSync(path.join(process.cwd(), ...segments), 'utf8');
+}
+
+/**
+ * The platform ids the index's `platform NOT IN (...)` predicate carves out,
+ * sorted.
+ *
+ * Anchored on the index name and read from the first predicate after it, so
+ * that an unrelated `NOT IN` elsewhere in a long file cannot be mistaken for
+ * this one. Reads both spellings: the migration's SQL, and the Drizzle
+ * declaration in `Schema.ts`, which says `not in` in lower case against a
+ * column reference.
+ * @param text - File contents naming the index and then its predicate.
+ */
+function carveOutIn(text: string): string[] {
+  const declaredAt = text.indexOf('api_token_org_platform_live_idx');
+
+  expect(declaredAt).toBeGreaterThan(-1);
+
+  const carveOut = /not\s+in\s+\(([^)]*)\)/i.exec(text.slice(declaredAt));
+
+  expect(carveOut).not.toBeNull();
+
+  return (carveOut?.[1] ?? '')
+    .split(',')
+    .map(entry => entry.trim().replace(/^'|'$/g, ''))
+    .filter(entry => entry.length > 0)
+    .sort();
+}
+
 describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
   it('names every platform an org may hold several live credentials for', () => {
-    // Apollo is deliberately absent: it is a connector, but widening the cap
-    // needs the partial unique index rebuilt, and nothing exercises it yet.
-    // See the `apollo` descriptor in registry.ts.
+    // Apollo is deliberately absent: it is a connector, but nothing holds an
+    // Apollo key at all, so the cap has never been in anyone's way. See the
+    // `apollo` descriptor in registry.ts.
     expect([...MANY_CREDENTIAL_PLATFORM_IDS].sort()).toEqual(
-      ['google', 'granola', 'hubspot', 'jira', 'slack', 'strapi', 'vocion', 'zoom'],
+      ['app-login', 'google', 'granola', 'hubspot', 'jira', 'rest', 'slack', 'strapi', 'vocion', 'zoom'],
     );
   });
 
@@ -522,16 +594,19 @@ describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
     // ever drift, an org either loses the one-live cap on an LLM key or cannot
     // hold a second connector credential — and neither shows up until someone
     // tries it.
-    const migration = readFileSync(
-      path.join(process.cwd(), 'migrations', '0077_shared_connector_credentials.sql'),
-      'utf8',
-    );
-    const carveOut = /platform"?\s+NOT IN \(([^)]*)\)/i.exec(migration);
-    const idsInSql = (carveOut?.[1] ?? '')
-      .split(',')
-      .map(entry => entry.trim().replace(/^'|'$/g, ''))
-      .filter(entry => entry.length > 0);
+    expect(carveOutIn(fileText('migrations', LATEST_INDEX_MIGRATION)))
+      .toEqual([...MANY_CREDENTIAL_PLATFORM_IDS].sort());
+  });
 
-    expect(idsInSql.sort()).toEqual([...MANY_CREDENTIAL_PLATFORM_IDS].sort());
+  it('matches the copy of the predicate declared in Schema.ts', () => {
+    // A third copy, and the one with no feedback of its own: nothing applies
+    // DDL from Schema.ts, so a list that drifts here is wrong in silence and
+    // stays wrong until someone reads it and believes it. That is not
+    // hypothetical. The Apollo connector added `apollo` to this declaration on
+    // 2026-09-04 and to no migration, so Schema.ts said an org could hold
+    // several Apollo keys while the database allowed one, and nothing noticed
+    // for three weeks. Migration 0153 squared the two up.
+    expect(carveOutIn(fileText('src', 'models', 'Schema.ts')))
+      .toEqual([...MANY_CREDENTIAL_PLATFORM_IDS].sort());
   });
 });

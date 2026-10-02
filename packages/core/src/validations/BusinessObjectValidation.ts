@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { TYPE_CODE_PATTERN } from '@/libs/codes';
 
 /* ---- Object Types ---- */
 
@@ -7,6 +8,8 @@ export const CreateObjectTypeValidation = z.object({
   label: z.string().min(1).max(100),
   description: z.string().optional(),
   icon: z.string().optional(),
+  /** The prefix its records read by (FE-294); 2–5 uppercase letters. Absent, one is derived from the slug. */
+  code: z.string().regex(TYPE_CODE_PATTERN, 'a code is 2–5 uppercase letters, e.g. FE').optional(),
   schema: z.record(z.string(), z.unknown()).optional(),
 });
 

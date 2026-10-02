@@ -22,6 +22,10 @@ vi.mock('@/services/AgentService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/AgentService')>();
   return { ...actual, runAgentDeep: (...args: unknown[]) => runAgentDeep(...args) };
 });
+// The router's model read, scripted per test; unscripted it fails, and the
+// keyword fallback decides — no test here calls a model.
+const readRoute = vi.fn();
+vi.mock('@/services/agents/routeRead', () => ({ readRoute: (...args: unknown[]) => readRoute(...args) }));
 vi.mock('@/services/BudgetService', () => ({
   preflightCheck: vi.fn(async () => ({ ok: true })),
   chargeUsage: vi.fn(async () => {}),
@@ -94,6 +98,8 @@ function scriptedTurn(reply: string) {
 
 beforeEach(async () => {
   runAgentDeep.mockReset();
+  readRoute.mockReset();
+  readRoute.mockRejectedValue(new Error('no model in this test'));
   await db.delete(conversationMessageSchema);
   await db.delete(conversationSchema);
   await db.delete(agentSchema);
@@ -141,14 +147,16 @@ describe('ask_workspace', () => {
     scriptedTurn('The house voice is on /wiki/voice.md.');
     const { client, server } = await setup();
     try {
+      readRoute.mockResolvedValueOnce({ chosen: 'wiki-researcher', confidence: 0.9, reason: 'A question about what the wiki says; the researcher answers from the wiki.' });
       const out = parse<Reply>(await client.callTool({ name: 'ask_workspace', arguments: { message: 'What does the wiki say about our house voice?' } }) as ToolResult);
 
       expect(out).toMatchObject({ reply: 'The house voice is on /wiki/voice.md.', truncated: false, agentSlug: 'wiki-researcher', agentName: 'Wiki researcher' });
-      expect(out.routing).toMatchObject({ chosen: 'wiki-researcher', defaulted: false });
-      expect(out.routing!.reason).toMatch(/wiki-researcher matched handles: wiki/);
-      // The inactive agent handled "wiki" too and was never a candidate.
-      expect(out.routing!.candidates.map(c => c.slug)).not.toContain('retired-agent');
-      expect(out.url).toBe(`/w/northwind/dashboard/chat/${out.conversationId}`);
+      expect(out.routing).toMatchObject({ chosen: 'wiki-researcher', defaulted: false, decidedBy: 'model', confidence: 0.9 });
+      expect(out.routing!.reason).toMatch(/researcher answers from the wiki/);
+      // The inactive agent handled "wiki" too and was never on the roster the model read.
+      expect((readRoute.mock.calls[0]![0] as { agents: Array<{ slug: string }> }).agents.map(a => a.slug)).toEqual(['revenue-lead', 'wiki-researcher']);
+      // Named with its account, for a reader in two accounts (vocion-core#128).
+      expect(out.url).toBe(`/w/northwind/dashboard/chat/${out.conversationId}?account=northwind`);
 
       // The turn ran as the researcher, as the token, with the surface note under the message.
       expect(runAgentDeep).toHaveBeenCalledTimes(1);
@@ -175,8 +183,9 @@ describe('ask_workspace', () => {
     }
   });
 
-  it('defaults to the workspace lead when nothing matches, and says so', async () => {
+  it('defaults to the workspace lead when the model is unsure, and says so', async () => {
     scriptedTurn('Good morning.');
+    readRoute.mockResolvedValueOnce({ chosen: 'wiki-researcher', confidence: 0.2, reason: 'A greeting; nothing to research.' });
     const { client, server } = await setup();
     try {
       const out = parse<Reply>(await client.callTool({ name: 'ask_workspace', arguments: { message: 'Good morning, how are things?' } }) as ToolResult);

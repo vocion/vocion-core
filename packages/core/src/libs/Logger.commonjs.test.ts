@@ -1,14 +1,14 @@
 /**
  * `libs/Logger` must load under tsx in CommonJS mode.
  *
- * The Temporal worker and every CLI script run through tsx, which compiles
+ * The durable executor and every CLI script run through tsx, which compiles
  * this package as CommonJS because it has no `"type": "module"`. A
  * top-level await in a module tsx transforms that way is a hard error:
  *
  *   Logger.ts:18:0: ERROR: Top-level await is currently not supported
  *   with the "cjs" output format
  *
- * `scripts/temporal-worker.imports.test.ts` keeps Logger out of the
+ * the import-chain tests keeps Logger out of the
  * worker's static import graph, but the mission-check path reaches it
  * anyway: AgentService imports `agents/harness` dynamically and harness
  * imports Logger statically. On 2026-09-10 that failed every scheduled

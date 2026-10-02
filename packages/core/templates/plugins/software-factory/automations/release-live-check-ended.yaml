@@ -1,0 +1,20 @@
+# QA's live check of a release ended: seen, checked once more carrying why
+# the first did not see the change, or "Live check could not reach the
+# change: <reason>" written on the release and each feature, where a person
+# looks (backlog 043). A QA run that never called check_live is a failure
+# too, with that as its reason. Deterministic: a built-in job.
+slug: release-live-check-ended
+name: A live check ended
+description: >-
+  When QA's live check of a release ends, check what it saw: seen, once more
+  with the reason, or the reason written on the release and its features.
+status: active
+agent: change-reviewer
+when:
+  event: [automation_run.completed, automation_run.failed]
+  filter:
+    slug: release-live-check
+do:
+  job: live-check-ended
+  input:
+    attempts: 2

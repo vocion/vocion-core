@@ -18,6 +18,7 @@ import { track } from '@/services/adoption/track';
 import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, setArtifactShare, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 import { reviseDocument } from '@/services/documents/DocumentEngine';
+import { isRecordBodyArtifact, restoreRecordBodyAsPerson, saveRecordBodyAsPerson } from '@/services/objects/recordBody';
 import { restoreWorkspaceSource, WorkspaceSourceError, writeWorkspaceSource } from '@/services/workspace/WorkspaceSourceService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -104,6 +105,17 @@ export const update = os
   .handler(async ({ input }) => {
     const auth = await guardAuth();
     try {
+      // A record's body (backlog 035): the ROW is the source of truth, so the
+      // save is a record write and the version comes out of it.
+      if (input.spec || input.contentMarkdown !== undefined || input.title) {
+        const body = await getArtifact({ orgId: auth.orgId, id: input.id });
+        if (body && isRecordBodyArtifact(body)) {
+          const res = await saveRecordBodyAsPerson({ orgId: auth.orgId, userId: auth.userId ?? 'unknown', artifact: body, spec: input.spec, contentMarkdown: input.contentMarkdown, title: input.title, changeSummary: input.changeSummary })
+            .catch((err: Error) => rethrow(err instanceof ArtifactError ? err : new ArtifactError('INVALID_SPEC', err.message)));
+          void track(auth, 'artifact.edited', { resource: ['artifact', res.artifact.id], meta: { kind: res.artifact.kind, action: 'edited', version: res.version.version } });
+          return { artifact: toPayload(res.artifact), version: toVersionPayload(res.version), collapsed: false };
+        }
+      }
       // A mission or a SKILL.md mirrored from the workspace
       // (`libs/workspace/source.ts`): the FILE is the source of truth, so the
       // save writes it first, and the mirror's new version comes out of that
@@ -254,6 +266,14 @@ export const restore = os
       // A workspace source restores by writing the old text to the FILE, then
       // forward as a new head — disk and history agree, and neither rewinds.
       const existing = await getArtifact({ orgId: auth.orgId, id: input.id });
+      // A record's body restores as the record: its fields go back through
+      // objects.update_meta, and the restore is a version of its own.
+      if (existing && isRecordBodyArtifact(existing)) {
+        const res = await restoreRecordBodyAsPerson({ orgId: auth.orgId, userId: auth.userId ?? 'unknown', artifact: existing, version: input.version })
+          .catch((err: Error) => rethrow(err instanceof ArtifactError ? err : new ArtifactError('INVALID_SPEC', err.message)));
+        void track(auth, 'artifact.edited', { resource: ['artifact', res.artifact.id], meta: { kind: res.artifact.kind, action: 'restored', version: res.version.version } });
+        return { artifact: toPayload(res.artifact), version: toVersionPayload(res.version) };
+      }
       if (existing && SOURCE_ARTIFACT_KINDS.has(existing.kind)) {
         const res = await restoreWorkspaceSource({ orgId: auth.orgId, id: input.id, version: input.version, author: { kind: 'human', id: auth.userId } });
         void track(auth, 'artifact.edited', { resource: ['artifact', res.artifact.id], meta: { kind: res.artifact.kind, action: 'restored', version: res.version.version } });

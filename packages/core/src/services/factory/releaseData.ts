@@ -1,3 +1,4 @@
+import type { ProofArtifact } from '@/libs/workspace/criterionEvidence';
 import type { PageRow } from '@/libs/workspace/pageFields';
 import type { LinkedRecord, ReleaseLinked } from '@/libs/workspace/releaseFeed';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -22,6 +23,9 @@ const LINKED_KEYS = [
   'requestId',
   'prUrl',
   'verdict',
+  // `featureProof`: the work's acceptance lines and the attempt's contract.
+  'acceptance',
+  'acceptanceContract',
   'askedBy',
   'told',
   'result',
@@ -30,6 +34,9 @@ const LINKED_KEYS = [
   'checkAfter',
   'howWeCheck',
   'shippedAt',
+  // The run that built a task, which is where a task with no page opens.
+  'runId',
+  'workerRunId',
 ] as const;
 
 function ids(values: unknown[]): number[] {
@@ -79,11 +86,13 @@ export async function loadReleaseLinked(orgId: string, rows: PageRow[]): Promise
   const slugs = [...new Set(rows.map(r => r.meta?.product).filter((s): s is string => typeof s === 'string' && s !== ''))];
   const products = new Map<string, string>();
   if (slugs.length > 0) {
+    const { factoryTypes } = await import('@/libs/factory/types');
+    const productType = (await factoryTypes(orgId)).product;
     const found = await db
       .select({ title: businessObjectSchema.title, slug: sql<string>`${businessObjectSchema.metadata} ->> 'slug'` })
       .from(businessObjectSchema)
       .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, 'product'), inArray(sql`${businessObjectSchema.metadata} ->> 'slug'`, slugs)));
+      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, productType), inArray(sql`${businessObjectSchema.metadata} ->> 'slug'`, slugs)));
     for (const p of found) {
       if (p.slug) {
         products.set(p.slug, p.title);
@@ -93,7 +102,8 @@ export async function loadReleaseLinked(orgId: string, rows: PageRow[]): Promise
   return { records, products, link: await recordLinkerForOrg(orgId) };
 }
 
-export type ReleaseArtifact = { id: number; title: string; kind: string; role: string | null };
+/** An artifact a release cites: enough to label it, draw a shot and find a named test's section. */
+export type ReleaseArtifact = ProofArtifact;
 
 /**
  * One release record, when the id names a release in this workspace.
@@ -101,11 +111,13 @@ export type ReleaseArtifact = { id: number; title: string; kind: string; role: s
  * @param id - The record id.
  */
 export async function loadReleaseRow(orgId: string, id: number): Promise<PageRow | null> {
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const releaseType = (await factoryTypes(orgId)).release;
   const [r] = await db
     .select({ id: businessObjectSchema.id, title: businessObjectSchema.title, status: businessObjectSchema.status, createdAt: businessObjectSchema.createdAt, meta: businessObjectSchema.metadata })
     .from(businessObjectSchema)
     .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
-    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id), eq(businessObjectTypeSchema.slug, 'release')))
+    .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id), eq(businessObjectTypeSchema.slug, releaseType)))
     .limit(1);
   return r ? { id: r.id, title: r.title, status: r.status ?? null, createdAt: r.createdAt ?? null, meta: (r.meta ?? {}) as Record<string, unknown> } : null;
 }
@@ -115,7 +127,7 @@ export async function loadReleaseRow(orgId: string, id: number): Promise<PageRow
  * the page draws "QA screenshot: Uploads … · desktop · after" rather than a
  * list of numbers.
  * @param orgId - The workspace.
- * @param artifactIds - `verificationArtifactIds`.
+ * @param artifactIds - `verificationArtifactIds` and the ones the stored proof names (`evidenceArtifactIdsOf`).
  */
 export async function loadReleaseArtifacts(orgId: string, artifactIds: number[]): Promise<ReleaseArtifact[]> {
   const want = ids(artifactIds);
@@ -123,8 +135,12 @@ export async function loadReleaseArtifacts(orgId: string, artifactIds: number[])
     return [];
   }
   const rows = await db
-    .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, role: artifactSchema.recordRole })
+    .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, role: artifactSchema.recordRole, url: artifactSchema.url, spec: artifactSchema.spec })
     .from(artifactSchema)
     .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.id, want)));
-  return rows.map(r => ({ id: r.id, title: r.title, kind: r.kind, role: r.role ?? null }));
+  return rows.map((r) => {
+    const spec = (r.spec ?? {}) as Record<string, unknown>;
+    const url = r.url ?? (typeof spec.url === 'string' ? spec.url : typeof spec.href === 'string' ? spec.href : null);
+    return { id: r.id, title: r.title, kind: r.kind, role: r.role ?? null, url, md: typeof spec.md === 'string' ? spec.md : null };
+  });
 }

@@ -19,7 +19,7 @@ sweep. Field-by-field reference for each authored type:
 | [Object type](./entities/object-type.md) | `objects/<slug>/type.yaml` | `ObjectTypeManifestSchema` | `business_object_type` | classification + `lookup_objects` tool | `/api/v1/objects/types`, `/dashboard/objects` |
 | [Mission](./entities/mission.md) | `missions/<slug>.yaml` | `MissionManifestSchema` | `mission` | `MissionService.startMission` (planner + single-turn checks) | `/dashboard/missions` |
 | [Workflow](./entities/workflow.md) | `workflows/<slug>/workflow.yaml` | `WorkflowManifestSchema` | `workflow` | `WorkflowService.runLoop` (steps: approve, ask, action, sync) | `/api/v1/workflows`, `/dashboard/workflows` |
-| [Automation](./entities/automation.md) | `automations/<slug>.yaml` | `AutomationManifestSchema` | `automation` | Temporal schedule or event match → `dispatchDo` (workflow, checkMission, job) | `/dashboard/automation` |
+| [Automation](./entities/automation.md) | `automations/<slug>.yaml` | `AutomationManifestSchema` | `automation` | durable schedule or event match → `dispatchDo` (workflow, checkMission, job) | `/dashboard/automation` |
 | [Source](./entities/source.md) | `sources/<slug>.yaml` | `SourceManifestSchema` | `knowledge_source` | `SourceSyncService.runSync` via connector registry | `/dashboard/connectors` |
 | [Learning step](./entities/learning-step.md) | `learnings/<step>.yaml` | `LearningStepManifestSchema` | `learning_step` (+ `learning` rows) | rendered to `/learnings/<step>.md` in the agent FS | `/dashboard/learnings` |
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | `EvalDatasetManifestSchema` | `eval_dataset` | `npm run eval:run --workspace @vocion/core` | `/api/v1/evals` |

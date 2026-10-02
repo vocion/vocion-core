@@ -11,11 +11,13 @@ import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
 import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
+import { PageSelectionAsk } from '@/features/dashboard/context/PageSelectionAsk';
 import { PageWidth } from '@/features/dashboard/PageWidth';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspacePausedBanner } from '@/features/dashboard/WorkspaceOffSwitch';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
+import { NavigationTrail } from '@/features/navigation/cameFrom';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
 import { pluginNav } from '@/features/navigation/pluginNav';
 import { isSurfaceId } from '@/features/navigation/surfaces';
@@ -214,7 +216,12 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
                   lays itself out to the height it was given. The gutter pads
                   by `--rail-inset`, so a full-bleed page never sits under an
                   open rail either. */}
-              <PageWidth>{props.children}</PageWidth>
+              {/* `data-page-content` is what select-to-ask watches: the page,
+                  never the conversation beside it. */}
+              <div data-page-content className="contents">
+                <PageWidth>{props.children}</PageWidth>
+              </div>
+              <PageSelectionAsk />
               <PageDock agents={agents} />
             </div>
           </PageContextProvider>
@@ -226,6 +233,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
+        <NavigationTrail />
         <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
       </SidebarInset>
     </SidebarProvider>

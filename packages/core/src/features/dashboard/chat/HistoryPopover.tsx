@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { nounCode } from '@/libs/codes';
 import { Link } from '@/libs/I18nNavigation';
 import { chatHotkeyLabel } from './chatHotkeys';
 
@@ -131,7 +132,7 @@ export function HistoryPopover({ recent, currentId, onPick, search }: {
                     aria-current={r.id === currentId ? 'true' : undefined}
                     className={`flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left transition hover:bg-muted ${r.id === currentId ? 'bg-muted/60' : ''}`}
                   >
-                    <span className="w-full truncate text-sm">{r.title || `Chat #${r.id}`}</span>
+                    <span className="w-full truncate text-sm">{r.title || nounCode('conversation', r.id)}</span>
                     {r.snippet && <span className="w-full truncate text-[11px] text-muted-foreground">{r.snippet}</span>}
                   </button>
                 ))}

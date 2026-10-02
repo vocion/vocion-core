@@ -111,6 +111,24 @@ fields:
     format: compare
     beside: {from: meta.incumbent.listPrice, labelFrom: meta.incumbent.name, checkedFrom: meta.incumbent.checkedOn}
     detail: true
+# THE OVERVIEW a card's name opens, for the person who runs the product
+# (Chris, 2026-10-01: "make it better for a PM ... I should have
+# explorability into release engineer needs and configs there (env and git
+# etc) but that shouldn't be primary"). One question per section, in the
+# order a product manager asks them: how is it doing (its measures, each with
+# its direction, and live health in one line), what needs me (one line each,
+# with the move), what is moving (You, Now, Next), what shipped (and whether
+# it was seen live), what is proposed (Build or Dismiss), what it looks like,
+# what the wiki says about it, what it is, then how it ships (environments,
+# repositories, the pipeline: folded, for the Release engineer), what
+# happened, and what it is connected to.
+recordPage:
+  kind: product
+  sections: [doing, needs, moving, shipped, proposed, look, wiki, about, engineering, activity, related]
+  folded: [engineering]
+# Live in place: a request, a release or an environment written anywhere
+# re-reads the board and the overview on the shared stream.
+live: {follow: ['list:request', 'list:release', 'list:environment', runs], every: 30}
 # The name opens the product's overview. The card's other lines open their
 # own places, so the card itself is not one big link.
 rowLink: '/dashboard/p/products/{id}'

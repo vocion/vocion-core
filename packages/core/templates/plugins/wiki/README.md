@@ -84,23 +84,11 @@ its own ledger — or set `VOCION_MCP_AGENT_SLUG=wiki-researcher` to make it the
 default agent for the server. `mission_start` and `workflow_run_start` remain
 the ways to run longer work from a client.
 
-**The debrief.** Finished work is read once for what it settled. The
-`wiki-debrief` automation fires on core's completion events —
-`worker_run.completed`, `mission_run.completed`, `conversation.ended`,
-`pr.merged` — and checks the `wiki-debrief` mission: the researcher reads the
-run, the conversation or the pull request itself, decides whether a standing
-fact, a decision or a plan changed, and proposes the page revision through
-`wiki.write_page` (its own ledger, so review until promoted). Work that
-settled nothing writes nothing. `conversation.ended` is raised by the
-`sweep-idle-conversations` job, which this plugin schedules every fifteen
-minutes (`automations/conversation-sweep.yaml`, thirty quiet minutes ends a
-thread); the other three events core raises on its own. The curator is
-`initiative: low` and sits debriefs out — it consolidates on Friday.
-Core never fires the debrief on its own check's completion — a fire carries
-its chain on the run it starts and the matcher skips it — and holds it to
-`when.maxFiresPer10m` (default 6) event fires in ten minutes, coalescing the
-rest into one run; override the ceiling on the automation's slug if a
-workspace finishes more work than that ([automation](../../../../../docs/entities/automation.md#when)).
+**No automations (2.0.0, vocion-core v0.6.0).** The debrief, the conversation
+sweep, the artifact index pass and the weekly curation pass were paused on
+every workspace that ran them and are gone. The wiki is written when a person
+or an agent asks for a page change in a turn (`wiki.write_page`, its own
+ledger), and read in every turn.
 
 **Earned trust.** The researcher's writes key on their own ledger —
 `wiki.write_page.wiki-researcher`, because its `harness.ownLedger` names the

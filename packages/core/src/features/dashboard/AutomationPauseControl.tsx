@@ -34,8 +34,9 @@ export type PauseState = {
  * @param props
  * @param props.slug - Which automation.
  * @param props.paused - The standing pause, or null when it is running.
+ * @param props.compact - The surface already says who paused it and when (a list row's facts, a notice): only the control is drawn.
  */
-export function AutomationPauseControl({ slug, paused }: { slug: string; paused: PauseState | null }) {
+export function AutomationPauseControl({ slug, paused, compact = false }: { slug: string; paused: PauseState | null; compact?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
@@ -70,7 +71,7 @@ export function AutomationPauseControl({ slug, paused }: { slug: string; paused:
 
   return (
     <div className="flex flex-col items-start gap-2 text-xs">
-      {paused && (
+      {paused && !compact && (
         <p className="text-amber-600" data-testid="automation-paused-by">
           Paused by
           {' '}

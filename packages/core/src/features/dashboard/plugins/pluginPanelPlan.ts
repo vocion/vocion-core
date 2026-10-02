@@ -22,7 +22,17 @@ import type { Status } from '@/types/Status';
 export type PluginPanelAgent = { slug: string; name: string; description: string | null };
 
 /** A learning candidate or adopted rule whose step belongs to a plugin agent. */
-export type PluginPanelLearning = { id: string; text: string; status: string; at: Date | null; step: string };
+export type PluginPanelLearning = {
+  id: string;
+  text: string;
+  status: string;
+  at: Date | null;
+  step: string;
+  /** Where it came from, in words — review feedback, a workspace file, a run, a conversation. */
+  origin?: string;
+  /** Who adopted or decided it — a `user.id`, when one is on the record. */
+  by?: string | null;
+};
 
 /** A decided action a plugin agent proposed. */
 export type PluginPanelAction = { id: number; title: string; status: string; at: Date | null };

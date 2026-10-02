@@ -8,8 +8,55 @@ description: >-
   belongs to one; every task serves one; the permanent gates — pricing, plan
   limits, the promises — are read from here.
 icon: package
+# Its records read PROD-<id> in the app and in chat (core: libs/codes.ts).
+code: PROD
 schema:
   type: object
+  # RELATED (core: libs/workspace/related.ts): what a product is connected to.
+  # Its environments and repositories are THEIR records, written by the deploy
+  # and the Release engineer; the product names none of them itself (Chris,
+  # 2026-09-30: the product's own `urls`/`repos` drifted from them — #246's
+  # live link was a guessed host).
+  x-related:
+    # Production incidents that name this product (production-watch, when on).
+    - {key: incidents, label: Incidents, from: backlinks, type: incident, field: product, match: slug}
+    - key: environments
+      label: Environments
+      from: backlinks
+      type: environment
+      field: product
+      match: slug
+      details:
+        - {field: url}
+        - {field: stage}
+        - {field: surface}
+        - {field: lastDeployedSha, format: sha, label: deployed}
+        - {field: lastDeployedAt, format: relative}
+        - {field: lastHealth, label: health}
+        - {field: qaLoginCredentialId, format: present, present: QA sign-in stored, absent: no QA sign-in}
+    - key: repos
+      label: Repositories
+      from: backlinks
+      type: repo
+      field: product
+      match: slug
+      details:
+        - {field: url}
+        - {field: defaultBranch, label: branch}
+        - {field: checks, format: count, label: checks}
+        - {field: productPaths, pick: slug, label: paths}
+        - {field: url, format: present, present: connected, absent: no repository URL}
+    - {key: plans, label: Plans, from: backlinks, type: architecture_plan, field: productSlug, match: slug, limit: 5}
+    # The wiki pages about it: the one its capabilitiesPage names, then every
+    # page tagged with its slug or named <slug>-… (send-standards for send).
+    # The product page previews each; the Related block links them.
+    - {key: wiki, label: Wiki, from: wiki, field: capabilitiesPage, match: slug, limit: 6}
+  # DERIVED (core: libs/workspace/related.ts): `urls` and `repos` are read
+  # from those records at read time — the page and read_object show these —
+  # and a stored value that disagrees is shown as drift, never preferred.
+  x-derived:
+    urls: {relation: environments, value: url, keyBy: surface, where: {stage: production}, keys: {site: marketing, app: web, api: api}}
+    repos: {relation: repos, value: slug}
   properties:
     slug:
       x-display: {label: Slug, format: mono, group: Identity}
@@ -23,6 +70,16 @@ schema:
       x-display: {label: Working name, group: Product}
       type: string
       description: The name used while building, before launch. Kept beside `launchName` so a repository or a file named after the working name still resolves to this product.
+    aliases:
+      x-display: {label: Also called, group: Product}
+      type: array
+      items: {type: string}
+      description: >-
+        Other names people use for it in their own words: a short form, an old
+        name, its domain ("Stamp", "Send", "stampsend.com"). The request
+        intake reads a person's words against these, with the name and the
+        tagline, to know which product they meant (`x-reference-read` on
+        request).
     launchName:
       x-display: {label: Launch name, group: Product}
       type: string
@@ -35,6 +92,21 @@ schema:
       x-display: {label: Icon, format: mono, group: Identity}
       type: string
       description: 'The product''s mark on the board: a lucide icon name (`send`, `package`, `layers`, `cpu`). Until it has a logo, this is how a person tells the cards apart at a glance.'
+    look:
+      x-display: {hidden: true}
+      type: object
+      description: >-
+        How the product's UI looks, for the designer's mockups (draw_mockup):
+        its canvas background, text and accent colours, font, and the CSS its
+        own components are drawn with (card, row, chip, button classes). A
+        mockup is the product's own UI blocks, so it is drawn in this look;
+        with none, the last mockup drawn for the product sets it.
+      properties:
+        background: {type: string}
+        ink: {type: string}
+        accent: {type: string}
+        font: {type: string}
+        css: {type: string}
     dependsOn:
       x-display: {label: Built on, format: link, to: product}
       type: array
@@ -75,15 +147,28 @@ schema:
     urls:
       x-display: {label: Where it lives, role: prose, format: steps, order: 3}
       type: object
-      description: Where it is. What a verification curl hits and what a request's asker was looking at.
+      description: >-
+        Where it is. What a verification curl hits and what a request's asker
+        was looking at. DERIVED from the product's production environment
+        records (`x-derived`): write the environment, not this.
       properties:
         site: {type: string}
         app: {type: string}
         api: {type: string}
+    capabilitiesPage:
+      x-display: {label: What it already does, format: mono, group: Product}
+      type: string
+      description: >-
+        Slug of the wiki page that lists what this product ships today, one
+        capability a line. Read before a gap or an idea is filed against the
+        product — the request type's proposal-ready gate refuses a filing
+        whose `gapCheck.sources` do not name this page, opened in the same
+        turn. A request that asks for what already ships is the one outcome
+        nobody wants.
     repos:
       x-display: {label: Repositories, format: link, to: repo}
       type: array
-      description: Slugs of the `repo` records that make this product.
+      description: Slugs of the `repo` records that make this product. DERIVED from the repository records that name this product (`x-derived`); write the repository, not this.
       items: {type: string}
     accountableUser:
       x-display: {label: Accountable, group: Product}

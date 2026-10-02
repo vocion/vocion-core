@@ -1,16 +1,19 @@
 'use client';
 
-import type { ReactNode } from 'react';
-import type { RunLink, RunLogData, RunLogLine, RunStep, RunStepStatus } from '@/libs/worker/runLog';
-import { Check, CircleCheck, CircleDashed, CircleMinus, CircleX, Copy, LoaderCircle } from 'lucide-react';
+import type { RunContext, RunHeader, RunLink, RunLogData, RunLogLine, RunStep } from '@/libs/worker/runLog';
+import { Check, Copy } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Accordion, DetailMeta, MetaChip, Section, StatusDot } from '@/components/patterns';
+import { Accordion, FactList, MetaChip, relatedFacts, Section } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useLive } from '@/hooks/useLive';
+import { nounCode } from '@/libs/codes';
 import { Link } from '@/libs/I18nNavigation';
+import { liveTopic } from '@/libs/live/topics';
 import { client } from '@/libs/Orpc';
-import { deriveSteps, focusStep, formatDuration, isLiveStatus, mergeRunLog, refusedBeforeStart, stopReason } from '@/libs/worker/runLog';
+import { deriveSteps, focusStep, isLiveStatus, mergeRunLog, refusedBeforeStart, runNow, runRelatedItems, stopReason } from '@/libs/worker/runLog';
 import { cn } from '@/utils/Helpers';
+import { RunNowLine, RunTitleBlock, RunWhyLine, stepDuration, StepIcon, useRunClock } from './RunHeader';
 
 /** How often a live run page asks for new lines. */
 export const RUN_POLL_MS = 3000;
@@ -21,9 +24,10 @@ export const RUN_POLL_MS = 3000;
  * page"). The run's header — status, attempt, duration, cost, pull request —
  * then its steps, each a row with a status mark, a name and a duration that
  * opens onto its log. The running step is open and follows its tail; a
- * failed step opens by itself. While the run is live and the tab visible, the
- * page asks every few seconds for the lines after the last one it has; a run
- * that has finished is not polled at all.
+ * failed step opens by itself. While the run is live, each heartbeat and
+ * status change arrives on the live stream and the page asks for the lines
+ * after the last one it has; while the stream is down it asks every few
+ * seconds instead (tab visible). A run that has finished is not read again.
  *
  * One component for both kinds of run: an engineering run's steps come from
  * the worker's step lines, an agent run's from its plan and tool calls
@@ -43,44 +47,49 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
     cursor.current = data.cursor;
   }, [data.cursor]);
 
+  // One read of the lines after the last one held; a read already out is not doubled.
+  const inFlight = useRef(false);
+  const alive = useRef(true);
   useEffect(() => {
-    if (!live || !visible) {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const readMore = useCallback(async () => {
+    if (inFlight.current) {
       return;
     }
-    let cancelled = false;
-    let inFlight = false;
-    const poll = async () => {
-      if (inFlight) {
-        return;
+    inFlight.current = true;
+    try {
+      const next = await client.runs.log({ ref: header.ref, after: cursor.current });
+      if (alive.current) {
+        setData(prev => mergeRunLog(prev, next));
       }
-      inFlight = true;
-      try {
-        const next = await client.runs.log({ ref: header.ref, after: cursor.current });
-        if (!cancelled) {
-          setData(prev => mergeRunLog(prev, next));
-        }
-      } catch {
-        // A missed poll is caught up by the next one: `after` has not moved.
-      } finally {
-        inFlight = false;
-      }
-    };
-    const timer = setInterval(poll, pollMs);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [live, visible, header.ref, pollMs]);
+    } catch {
+      // A missed read is caught up by the next one: `after` has not moved.
+    } finally {
+      inFlight.current = false;
+    }
+  }, [header.ref]);
+
+  // Pushed (backlog 050): every heartbeat that lands an engineering run's new
+  // lines, and every change of its status, is a notice on the run's topic. An
+  // agent run's steps are its tool calls, which publish nothing of their own,
+  // so an agent run keeps asking on the interval.
+  const { live: pushed } = useLive(live && header.kind === 'worker' ? [liveTopic.run(header.id)] : [], () => void readMore());
+
+  // The fallback while the stream is down: ask every few seconds.
+  useEffect(() => {
+    if (!live || !visible || pushed) {
+      return;
+    }
+    const timer = setInterval(() => void readMore(), pollMs);
+    return () => clearInterval(timer);
+  }, [live, visible, pushed, readMore, pollMs]);
 
   // A running step's duration counts up between polls.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!live) {
-      return;
-    }
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, [live]);
+  const now = useRunClock(live);
 
   const steps = useMemo(() => deriveSteps(data), [data]);
   const focus = focusStep(steps);
@@ -89,10 +98,6 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
   const open = steps.filter(s => chosen[s.key] ?? s.key === focus).map(s => s.key);
   const onToggle = useCallback((id: string, next: boolean) => setChosen(c => ({ ...c, [id]: next })), []);
 
-  const started = header.startedAt ? Date.parse(header.startedAt) : null;
-  const ended = header.endedAt ? Date.parse(header.endedAt) : null;
-  const end = ended ?? (live ? now : null);
-  const runMs = started !== null && end !== null ? end - started : null;
   const stopped = ['failed', 'lost', 'cancelled'].includes(header.status);
   const refused = refusedBeforeStart(data);
 
@@ -101,28 +106,15 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
       {/* The page leads with the run: the shell's breadcrumb (Runs › #id)
           says where it is, so there is no second title above this one. */}
       <header className="border-b border-rule pb-4">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <span className="mt-1 shrink-0"><StepIcon status={runStepStatus(header.status)} large /></span>
-          <h1 className="min-w-0 text-xl font-semibold tracking-tight break-words text-foreground">{header.title}</h1>
-        </div>
-        {header.objective && <p className="mt-1.5 line-clamp-3 text-sm break-words text-muted-foreground">{header.objective}</p>}
-        <DetailMeta
-          items={[
-            <StatusDot key="status" tone={statusTone(header.status)} label={statusLabel(header.status)} />,
-            <span key="run">{`${header.kind === 'agent' ? 'Agent run' : 'Engineering run'} #${header.id}`}</span>,
-            header.attempt ? <span key="attempt">{`Attempt ${header.attempt}`}</span> : null,
-            refused
-              ? <span key="took">Refused before it started</span>
-              : runMs !== null ? <span key="took" className="tabular-nums">{formatDuration(runMs)}</span> : null,
-            typeof header.cents === 'number' && header.cents > 0
-              ? <span key="cost" className="tabular-nums">{`$${(header.cents / 100).toFixed(2)}`}</span>
-              : null,
-            header.model ? <span key="model">{header.model}</span> : null,
-            header.prUrl ? <MetaChip key="pr" href={header.prUrl}>Pull request</MetaChip> : null,
-            ...header.links.map(l => <RunLinkChip key={`${l.label}:${l.href}`} link={l} />),
-            live ? <span key="live" className="text-[12px]">{visible ? 'live' : 'paused while hidden'}</span> : null,
-          ]}
+        <RunTitleBlock
+          header={header}
+          now={now}
+          refused={refused}
+          extra={live ? <span key="live" className="text-[12px]">{visible ? 'live' : 'paused while hidden'}</span> : null}
         />
+        <RunWhyLine why={header.context?.why} />
+        {header.objective && <Contract text={header.objective} />}
+        <RunFacts header={header} />
         {stopped && (
           <p className="mt-3 text-sm break-words text-foreground" data-testid="run-stopped">
             <span className="font-medium">Stopped</span>
@@ -133,24 +125,14 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
         {stopped && header.recovery && (
           <p className="mt-1.5 text-sm break-words text-muted-foreground" data-testid="run-recovery">{header.recovery}</p>
         )}
+        {/* Pinned above the steps: where the run is, in the engineer's words. */}
+        <RunNowLine now={runNow(data, steps)} />
       </header>
 
       <Section eyebrow="Steps" commentField={null} action={steps.length > 0 ? <span className="text-muted-foreground tabular-nums">{steps.length}</span> : undefined}>
         {steps.length === 0
           ? <p className="text-muted-foreground">{live ? 'Waiting for the run to report its first step.' : 'This run reported no steps.'}</p>
-          : (
-              <Accordion
-                items={steps.map(step => ({
-                  id: step.key,
-                  icon: <StepIcon status={step.status} />,
-                  title: step.name,
-                  meta: <span className="tabular-nums">{stepDuration(step, now)}</span>,
-                  children: <StepBody step={step} follow={step.status === 'running'} />,
-                }))}
-                open={open}
-                onToggle={onToggle}
-              />
-            )}
+          : <RunStepList steps={steps} open={open} onToggle={onToggle} now={now} />}
       </Section>
 
       {header.summary && (
@@ -164,57 +146,29 @@ export function RunDetail({ initial, pollMs = RUN_POLL_MS }: { initial: RunLogDa
   );
 }
 
-function runStepStatus(status: string): RunStepStatus {
-  if (isLiveStatus(status)) {
-    return status === 'queued' || status === 'planning' ? 'pending' : 'running';
-  }
-  if (status === 'completed') {
-    return 'passed';
-  }
-  return ['failed', 'lost', 'cancelled'].includes(status) ? 'failed' : 'pending';
-}
-
-function statusTone(status: string): 'pass' | 'amber' | 'fail' | 'neutral' | 'ink' {
-  if (status === 'completed') {
-    return 'pass';
-  }
-  if (status === 'failed' || status === 'lost') {
-    return 'fail';
-  }
-  if (status === 'running') {
-    return 'ink';
-  }
-  return status === 'paused' || status === 'awaiting_review' ? 'amber' : 'neutral';
-}
-
-function statusLabel(status: string): string {
-  return status === 'awaiting_review' ? 'Awaiting review' : status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function stepDuration(step: RunStep, now: number): string {
-  if (!step.startedAt) {
-    return '';
-  }
-  const end = step.endedAt ? Date.parse(step.endedAt) : step.status === 'running' ? now : null;
-  return end === null ? '' : formatDuration(end - Date.parse(step.startedAt));
-}
-
-const STATUS_WORD: Record<RunStepStatus, string> = { pending: 'Not started', running: 'Running', passed: 'Passed', failed: 'Failed', skipped: 'Skipped' };
-
-function StepIcon({ status, large }: { status: RunStepStatus; large?: boolean }) {
-  const size = large ? 'size-5' : 'size-4';
-  const icon: Record<RunStepStatus, ReactNode> = {
-    pending: <CircleDashed className={cn(size, 'text-muted-foreground/60')} aria-hidden />,
-    running: <LoaderCircle className={cn(size, 'animate-spin text-foreground motion-reduce:animate-none')} aria-hidden />,
-    passed: <CircleCheck className={cn(size, 'text-brand-pass')} aria-hidden />,
-    failed: <CircleX className={cn(size, 'text-brand-fail')} aria-hidden />,
-    skipped: <CircleMinus className={cn(size, 'text-muted-foreground/60')} aria-hidden />,
-  };
+/**
+ * A run's steps as rows — status mark, name, duration — each opening onto its
+ * numbered log. The run page draws them, and so does the preview pane for an
+ * agent run (`features/preview/PreviewPane.tsx`): one shape for a run's steps.
+ * @param props
+ * @param props.steps - The steps.
+ * @param props.open - The keys open now.
+ * @param props.onToggle - A row opened or closed.
+ * @param props.now - The clock, for a running step's duration.
+ */
+export function RunStepList({ steps, open, onToggle, now }: { steps: readonly RunStep[]; open: readonly string[]; onToggle: (id: string, next: boolean) => void; now: number }) {
   return (
-    <span className="inline-flex" data-step-status={status}>
-      {icon[status]}
-      <span className="sr-only">{STATUS_WORD[status]}</span>
-    </span>
+    <Accordion
+      items={steps.map(step => ({
+        id: step.key,
+        icon: <StepIcon status={step.status} />,
+        title: step.name,
+        meta: <span className="tabular-nums">{stepDuration(step, now)}</span>,
+        children: <StepBody step={step} follow={step.status === 'running'} />,
+      }))}
+      open={open}
+      onToggle={onToggle}
+    />
   );
 }
 
@@ -277,9 +231,12 @@ function StepLog({ lines, follow }: { lines: RunLogLine[]; follow: boolean }) {
         <tbody>
           {lines.map((l, i) => (
             // eslint-disable-next-line react/no-array-index-key
-            <tr key={i} className={cn(l.level === 'error' && 'text-brand-fail', l.level === 'warn' && 'text-brand-borderline')}>
+            <tr key={i} data-line-kind={l.kind} className={cn(l.level === 'error' && 'text-brand-fail', l.level === 'warn' && 'text-brand-borderline', l.kind === 'add' && 'bg-brand-pass/10 text-brand-pass', l.kind === 'del' && 'bg-brand-fail/10 text-brand-fail', l.kind === 'out' && 'text-muted-foreground')}>
               <td className="w-10 pr-3 pl-2 text-right align-top text-muted-foreground/60 tabular-nums select-none">{i + 1}</td>
-              <td className="pr-3 whitespace-pre">{l.text || ' '}</td>
+              {l.kind === 'say'
+                // The engineer's words read as prose, wrapped, like the terminal's commentary.
+                ? <td className="max-w-[70ch] py-1 pr-3 font-sans text-[13px] leading-5 whitespace-pre-wrap text-foreground">{l.text}</td>
+                : <td className="pr-3 whitespace-pre">{l.text || ' '}</td>}
             </tr>
           ))}
         </tbody>
@@ -329,4 +286,103 @@ function subscribeVisibility(onChange: () => void): () => void {
 
 function readVisible(): boolean {
   return document.visibilityState !== 'hidden';
+}
+
+/**
+ * WHERE THIS RUN BELONGS, as the patterns' fact rows under its header (Chris,
+ * 2026-09-29: "When I'm on the active run I should have context of the
+ * implementation/plan/history"; 2026-09-30: branch and PR, and the machine id
+ * out of the title). Each row names one thing one move away: its link text
+ * goes to the full page, and a record the pane can show carries "Open in
+ * preview" (`OpenInPreview`). A pull request or a branch lives on GitHub: it
+ * opens in a new tab and has no preview.
+ * @param props
+ * @param props.header - The run.
+ */
+function RunFacts({ header: h }: { header: RunHeader }) {
+  const c: RunContext | null = h.context ?? null;
+  const link = 'underline decoration-border underline-offset-2 hover:decoration-foreground';
+  const [openCriteria, setOpenCriteria] = useState(false);
+  const criteria = c?.acceptance?.criteria ?? [];
+  const judged = criteria.some(x => x.state !== null);
+  const proven = criteria.filter(x => x.state === 'proven').length;
+  // What the run is connected to is the one Related block's rows
+  // (`runRelatedItems`); the run's own facts follow.
+  const related = relatedFacts(runRelatedItems(h));
+  return (
+    <FactList
+      className="mt-3"
+      facts={[
+        ...related,
+        {
+          key: 'run',
+          label: 'Run',
+          preview: c?.task ? { type: 'object', id: String(c.task.id) } : null,
+          value: (
+            <span className="font-mono text-[12px]" data-testid="run-context-task">
+              {nounCode('run', h.id)}
+              {h.taskId && (
+                <>
+                  {' · '}
+                  {c?.task ? <Link href={c.task.href} className={link}>{h.taskId}</Link> : h.taskId}
+                </>
+              )}
+            </span>
+          ),
+        },
+        c?.acceptance && {
+          key: 'acceptance',
+          label: 'Acceptance',
+          preview: c.feature ? { type: 'feature_section', id: `${c.feature.id}.acceptance` } : null,
+          value: criteria.length > 0
+            ? (
+                <div data-testid="run-context-acceptance">
+                  <button type="button" onClick={() => setOpenCriteria(o => !o)} aria-expanded={openCriteria} className={cn(link, 'text-left')} data-testid="run-criteria-toggle">
+                    {`${c.acceptance.count} criteri${c.acceptance.count === 1 ? 'on' : 'a'}${judged ? ` · ${proven} proven` : ''}`}
+                  </button>
+                  {openCriteria && (
+                    <ul className="mt-2 space-y-1.5" data-testid="run-criteria">
+                      {criteria.map((x, i) => (
+                        // eslint-disable-next-line react/no-array-index-key
+                        <li key={i} className="flex items-start gap-2 text-[13px]" data-state={x.state ?? 'unjudged'}>
+                          <StepIcon status={x.state === 'proven' ? 'passed' : x.state === 'open' ? 'failed' : 'pending'} />
+                          <span className="min-w-0 flex-1 break-words">{x.text}</span>
+                          {x.state && <span className="shrink-0 text-[12px] text-muted-foreground">{x.state === 'proven' ? 'proven' : 'open'}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )
+            : <Link href={c.acceptance.href} className={link} data-testid="run-context-acceptance">{`${c.acceptance.count} criteri${c.acceptance.count === 1 ? 'on' : 'a'}`}</Link>,
+        },
+        typeof h.cents === 'number' && h.cents > 0 && { key: 'cost', label: 'Cost', value: <span className="tabular-nums">{`$${(h.cents / 100).toFixed(2)}`}</span> },
+        h.model && { key: 'model', label: 'Model', value: h.model },
+        h.target && { key: 'target', label: 'Ran on', value: <span data-testid="run-target">{h.target}</span> },
+        h.links.length > 0 && {
+          key: 'links',
+          label: 'Documents',
+          value: <span className="flex flex-wrap gap-x-3 gap-y-1">{h.links.map(l => <RunLinkChip key={`${l.label}:${l.href}`} link={l} />)}</span>,
+        },
+      ]}
+    />
+  );
+}
+
+/**
+ * The contract the run was given, two lines until asked for the rest: it is
+ * what the run was told, not what it did (Chris, 2026-09-30).
+ * @param props
+ * @param props.text - The objective.
+ */
+function Contract({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2" id="contract" data-testid="run-contract">
+      <p className={cn('text-sm break-words whitespace-pre-wrap text-muted-foreground', !open && 'line-clamp-2')}>{text}</p>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} className="mt-1 text-[13px] text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground" data-testid="run-contract-toggle">
+        {open ? 'Hide contract' : 'Show contract'}
+      </button>
+    </div>
+  );
 }

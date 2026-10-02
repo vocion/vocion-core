@@ -4,7 +4,7 @@ import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { dismissSelectionControl } from '@/features/comments/AnchoredComments';
 import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
-import { RECORD_TYPES } from '@/services/chat/pageContext';
+import { RECORD_TYPES, recordFromPath } from '@/services/chat/pageContext';
 
 /**
  * Which preview is open, and who is showing it.
@@ -63,11 +63,16 @@ function writeParam(value: string | null): void {
   const search = params.toString();
   const next = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
   // push, not replace: Back must close the preview rather than leave the page.
-  // State is null on purpose: Next's router syncs a native pushState into its
-  // own URL only when the state is not one of its internal entries, and the
-  // current entry's state IS one. Passed along, the router never learns about
-  // `?preview=`, and the next `router.refresh()` (a live page refreshes every
-  // few seconds) puts its stale URL back — closing the preview.
+  //
+  // `null`, never `window.history.state`, so the router ADOPTS the URL. Next
+  // patches `pushState` and folds a write into its own URL only when the
+  // state it is handed is not already its own (`__NA`); the router's state
+  // was passed here, so it skipped the write and kept the URL without
+  // `?preview=`. Its next commit — any `router.refresh()`, the feature
+  // page's live refresh every 5 s — then wrote that URL back with
+  // `replaceState`, and the pane closed (Chris, 2026-09-30, #269). Handed
+  // `null`, the patch copies the router's own history state onto the entry
+  // itself, so Back still traverses, and every later commit keeps the param.
   window.history.pushState(null, '', next);
   emit();
 }
@@ -84,9 +89,35 @@ export function useOpenPreviewRef(): Pick<RecordRef, 'type' | 'id'> | null {
  * @param from - The element the person activated.
  */
 export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLElement | null): void {
+  // THE PAGE'S OWN RECORD IS NEVER PEEKED BESIDE ITSELF (Chris, 2026-09-30,
+  // product #25: a rename from the docked chat opened a "StampSend" pane next
+  // to the StampSend page). The page is already showing it and re-reads
+  // itself in place when it changes (`VersionWatch`); a pane would be the
+  // same record twice. So a chat link, a turn's new-record event or a row
+  // that names the record on the page opens nothing.
+  if (typeof window !== 'undefined' && isPageRecord(ref, window.location.pathname)) {
+    return;
+  }
   opener = from;
   dismissSelectionControl();
   writeParam(previewKey(ref));
+}
+
+/** Ref types that name one `business_object` by id — one record, two spellings. */
+const RECORD_REF_TYPES: ReadonlySet<string> = new Set(['object', 'request']);
+
+/**
+ * Whether a ref is the record the page at this path is about
+ * (`recordFromPath`) — a record by either spelling, or the run on a run's page.
+ * @param ref - What would open.
+ * @param path - The page's path.
+ */
+export function isPageRecord(ref: Pick<RecordRef, 'type' | 'id'>, path: string): boolean {
+  const here = recordFromPath(path);
+  if (!here || String(here.id) !== String(ref.id)) {
+    return false;
+  }
+  return here.type === ref.type || (RECORD_REF_TYPES.has(here.type) && RECORD_REF_TYPES.has(ref.type));
 }
 
 /** Close the open preview and hand focus back to whatever opened it. */

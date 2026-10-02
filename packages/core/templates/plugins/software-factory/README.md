@@ -1,7 +1,7 @@
 # Software factory
 
 A request becomes work, work becomes a release, and a person runs the loop
-from a phone. Three pages, four seats, one loop.
+from a phone. Three pages, five seats, one loop.
 
 ## The three pages
 
@@ -44,14 +44,39 @@ right now" is answered from the records with links. Two people, two decisions:
 the product owner commits, the engineering owner merges; a routine completion
 reply can go out under a policy the product owner turns on.
 
-## The four seats
+## The five seats
 
 | Seat | Agent | Owns | Never |
 |---|---|---|---|
 | PM | `product-manager` (lead) | triage, in scope or not, the plan, the contract, the backlog, telling the asker | merges, writes code |
 | Design | `designer` | the mockup before a decision, the after-shot before a close | builds, decides |
-| Eng | `task-engineer` (`runsOn: external-worker`) | the change inside `allowedPaths`, the checks with artifacts, the pull request | merges, deploys, touches a credential |
+| Eng | `task-engineer` (`runsOn: external-worker`) | the change the outcome needs (starting in `allowedPaths`), the checks with artifacts, the pull request | merges, deploys, touches a credential |
 | QA | `change-reviewer` | the verdict against the contract and the evidence | merges, sees the engineer's conversation |
+| Release | `release-engineer` | why a CI or a deploy is red and the move that answers it, the pipeline's own fixes, a down environment brought back (re-run, redeploy, roll back), environments | writes product code |
+
+## Where the seats read and write (2.43.0)
+
+The factory talks to three kinds of system, named for what they are: the
+**code host** (`repo`), the **issue tracker** (`tracker`) and the **chat**
+(`chat`). GitHub, Jira and Slack are the first provider of each; the source a
+workspace connected decides which one answers, and no tool, skill or trust
+rule names a vendor. Every read is a direct tool present when the agent has a
+source of that family; every write is an action through `propose_action`,
+with an Undo, at the rung `trust.yaml` gives it.
+
+| Seat | Reads | Writes (actions) | Skills |
+|---|---|---|---|
+| every seat | `repo_read_pull`, `repo_read_diff`, `repo_read_file`, `tracker_read_issue`, `tracker_search_issues`, `chat_read_thread`, `lookup_person` | — | — |
+| PM | the above | `tracker.create_issue`, `tracker.transition_issue`, `tracker.update_issue`, `tracker.comment` (a person sends), `chat.reply_in_thread` (a person sends), `chat.add_reaction`, `chat.post_message` (a person sends) | `intake-from-chat`, `intake-from-the-tracker`, `mirror-the-tracker`, `tell-the-requester` |
+| Design | `chat_read_file`, `tracker_read_attachment` | `tracker.attach_file`, `tracker.comment`, `chat.post_message` | `draw-from-the-ask`, `close-with-the-after-shot` |
+| Eng | `repo_read_check_logs` (granted) | `repo.comment_pull` | `read-the-ask-whole`, `report-on-the-pull` |
+| QA | `repo_read_check_logs` (granted); no chat, on purpose | `repo.submit_review` (filed by `record_verdict` as the verdict's mirror) | `review-on-the-pull`, `judge-the-checks` |
+| Release | `repo_read_check_logs`, `repo_read_pipeline_runs` (granted) | `repo.rerun_failed_checks`, `repo.open_pull`, `repo.dispatch_pipeline`, `repo.revert_pull`, `repo.cancel_pipeline_run`, `repo.comment_pull`, `chat.post_message` (a person sends) | `explain-a-red-check`, `incident-update` |
+
+The four GitHub actions and `slack.post_message` kept their former ids as
+aliases (`Action.aliases`): a run recorded, a rule a workspace wrote or a
+grant it gave under `github.open_pull` or `slack.post_message` still resolves
+to `repo.open_pull` and `chat.post_message`.
 
 ## The nouns
 
@@ -63,12 +88,18 @@ the URL, the account and resource ids, the pipeline step, the health check, the
 rollback — kept current by the deploy itself). Core ships the storage, the worker control plane, the review queue and
 the trust ladder; this plugin ships what the fields mean.
 
+## The request flow (backlog 054)
+
+In a workspace with `durable: [factory]`, one durable run owns each request from its first Build to live. What that run does is this plugin's `workflows/request.yaml`, a declarative flow: plan or use the approved plan, attempt, retry on the kept branch up to three automatic attempts, stop and ask a person, merge on its trust rule or wait, deploy, release, and a live check that is done only when a result is recorded. Core runs it with the generic flow engine (`libs/durable/flow.ts`) and knows no factory names. What the factory knows about its world is in the actions the flow calls: `factory.dispatch_task`, `factory.read_attempt`, `factory.stop_request`, `factory.read_release_live` and `factory.check_live_again`. A run snapshots the file when it starts, so an edit changes new runs only.
+
 ## Missions and automations
 
-Three missions: **close-the-gap** (no request waits more than a week, and
+Four missions: **close-the-gap** (no request waits more than a week, and
 every shipped one carries a result — PM), **tell-the-requester** (every asker
 hears back — PM), **prove-the-contract** (every criterion proven or named
-unproven, every verdict bound to a commit — QA). Nine automations wake them: a
+unproven, every verdict bound to a commit — QA), **keep-the-pipeline-answered**
+(no verified change waits on CI, a deploy or a worker without a next step —
+Release). Nine automations wake them: a
 request arrives, a build decision lands, the weekday planning pass, a failed
 check on a factory branch, work finished, the two-hourly reply pass, the
 weekday result pass, and QA's two reads (the proposal at triage, and one review per
@@ -107,3 +138,27 @@ incumbent price check, dependency currency, the nightly e2e mission, tag audits,
 batches of ten. Each was built; each was removed on 2026-09-24 because it
 explained the machine rather than helping a person decide. What use demands
 comes back as use demands it.
+
+## The pipeline has an owner (2.25.0, backlog 049)
+
+Webhooks first, a reconciler behind them. A red CI on a factory pull request
+(`factory-ci-failure` on `pr.checks_completed`) is read by a typed model read
+over GitHub's own evidence — the failing checks, their annotations, the failing
+step's log tail, the files changed, and whether the base branch is red — and
+routed in code (`services/factory/ciFailed.ts`):
+
+| Cause | The move |
+|---|---|
+| `change_broke_it` | back to the engineer, the failing test named |
+| `flaky` | the failed jobs re-run once (`repo.rerun_failed_checks`, done for you); a second failure is the change's |
+| `main_broken` | one fix request on the default branch listing every pull request it blocks; each is brought up to date and checked again once the branch is green |
+| `infra` | one ask to the Release engineer with the evidence, a re-run as its answer |
+
+Every five minutes `factory-reconcile` reads open factory pull requests back
+from GitHub and raises any `pr.*` event whose webhook never arrived (same
+dedupe keys, so the same handler runs once), restarts a review that never
+started, and asks about a run no worker picked up. A failed run on the deploy
+branch (`deploy-run-failed`) is the Release engineer's incident. Every ten
+minutes `environment-health` reads each environment's health check; one down
+twice is recovered one step a pass (re-run, redeploy, roll back), and a person
+is asked once only when the steps run out.

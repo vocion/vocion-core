@@ -99,6 +99,13 @@ describe('buildChatModel on bedrock', () => {
     expect(buildChatModel('main', {})).not.toBeInstanceOf(CachingChatBedrockConverse);
   });
 
+  it('builds the plain class for a model from a vendor Bedrock cannot cache', () => {
+    const model = buildChatModel('main', { model: 'deepseek.v3.2' });
+
+    expect(model).toBeInstanceOf(ChatBedrockConverse);
+    expect(model).not.toBeInstanceOf(CachingChatBedrockConverse);
+  });
+
   it('caches the classifier role too, whose Haiku default may still be under the minimum', () => {
     // Asking is free and correct; whether it caches is a property of the
     // prompt's length (see `minimumCacheableTokens`), not of this choice.

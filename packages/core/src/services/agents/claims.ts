@@ -26,8 +26,24 @@ export type TenantClaim = {
   allowedSourceSlugs?: string[];
   /** Mission scope for mission-run tools. */
   missionSlug?: string;
+  /**
+   * The mission_run driving this invocation. Without it a mission run on the
+   * container wrote `tool_call` rows with no run, so everything that reads a
+   * run back by its calls — the automation's check summary, the required-tool
+   * pass, record_verdict's "opened none of the screenshots" rule, the
+   * `assessed_by` audit stamp, artifact visibility — saw a run that did nothing.
+   */
+  missionRunId?: number;
   /** Persisted conversation this invocation belongs to — stamped on tool_call rows. */
   conversationId?: number;
+  /** The zone this turn's dates are judged in (the person's, else the workspace's). */
+  timeZone?: string;
+  /**
+   * Where the person was in the app for this turn — read by `page_context` and
+   * the tools that act on "this record". Signed like everything else here, so
+   * the artifact can relay it but never change it.
+   */
+  pageContext?: import('@/services/chat/pageContext').PageContext;
   /** Unix ms expiry. Claims are per-invocation and short-lived. */
   exp: number;
 };

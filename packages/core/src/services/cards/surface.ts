@@ -36,33 +36,36 @@ export type SurfaceDeps = {
  * @param deps - Where it goes.
  */
 export async function surfaceCard(card: Card, deps: SurfaceDeps): Promise<void> {
-  deps.collector?.onCard({ id: card.id, kind: card.kind, label: card.title, actionId: card.actions[0]?.actionId ?? '', input: card.actions[0]?.input, runId: card.runId, state: card.state });
+  deps.collector?.onCard({ id: card.id, kind: card.kind, label: card.title, actionId: card.actions[0]?.actionId ?? '', input: card.actions[0]?.input, runId: card.runId, state: card.state, href: card.href, hrefLabel: card.hrefLabel, ...(card.draft ? { draft: card.draft } : {}) });
   deps.write({ type: 'card', card });
   // One line per card lifecycle (backlog 025 § testable): a card that never
   // shows up in the log never showed up at all — that is how finding 18 was
   // established a day late.
   console.warn('card: surfaced', { ...deps.where, cardId: card.id, kind: card.kind, title: card.title, ledger: Boolean(deps.collector), filing: Boolean(deps.file) && card.runId === undefined });
-  if (!deps.file || card.runId !== undefined) {
+  // A draft is not filed: it misses the bar as it stands, and its button
+  // asks for the draft that would pass it.
+  if (!deps.file || card.runId !== undefined || card.draft) {
     return;
   }
-  let filed: FiledCard | null = null;
+  // A CARD THAT SAID IT WOULD BE FILED SAYS WHETHER IT WAS. Conversation
+  // 349 (2026-09-28): card_378208d4 surfaced with `filing: true`, the filing
+  // came back empty (its error swallowed), no card_update followed, and the
+  // card sat under "Waiting on you" — a promise with no action run behind
+  // it. Every filing now ends in an update: filed, or `unfiled` with why.
+  const TIMED_OUT = Symbol('timed out');
   let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    filed = await Promise.race([
-      deps.file(card),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => {
-          console.warn('card: filing is taking too long; it stays unfiled on screen', { ...deps.where, cardId: card.id, title: card.title });
-          resolve(null);
-        }, AUTO_FILE_MS);
-      }),
-    ]);
-  } catch (err) {
-    console.warn('card: filing failed; it stays unfiled on screen', { ...deps.where, cardId: card.id, title: card.title }, err);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (filed !== null) {
+  const filing = deps.file(card).then(
+    filed => ({ filed, why: filed ? '' : 'the proposal was not accepted' }),
+    (err: unknown) => ({ filed: null as FiledCard | null, why: (err as Error)?.message ?? 'filing failed' }),
+  );
+  const settle = (result: { filed: FiledCard | null; why: string }): void => {
+    const { filed } = result;
+    if (filed === null) {
+      deps.collector?.onCardUnfiled(card.title, card.actions[0]?.actionId ?? '', result.why);
+      deps.write({ type: 'card_update', cardId: card.id, state: 'unfiled', reason: result.why });
+      console.warn('card: not filed', { ...deps.where, cardId: card.id, title: card.title, why: result.why });
+      return;
+    }
     // A card that ran on the spot (done-for-you) is decided, and the record
     // it created rides with it — so the next turn's replay says "created
     // request #126", not "filed as proposal #3722" (finding 24).
@@ -70,7 +73,22 @@ export async function surfaceCard(card: Card, deps: SurfaceDeps): Promise<void> 
     deps.collector?.onCardFiled(card.title, card.actions[0]?.actionId ?? '', filed.runId, { state, ref: filed.ref });
     deps.write({ type: 'card_update', cardId: card.id, runId: filed.runId, state, ...(filed.ref ? { ref: filed.ref } : {}) });
     console.warn('card: filed', { ...deps.where, cardId: card.id, runId: filed.runId, state, ref: filed.ref ?? null });
+  };
+  const first = await Promise.race([
+    filing,
+    new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), AUTO_FILE_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (first === TIMED_OUT) {
+    // Slow is not failed: the card shows now, and the filing still reports
+    // when it lands.
+    console.warn('card: filing is taking too long; it stays unfiled on screen until it lands', { ...deps.where, cardId: card.id, title: card.title });
+    void filing.then(settle);
+    return;
   }
+  settle(first);
 }
 
 /**

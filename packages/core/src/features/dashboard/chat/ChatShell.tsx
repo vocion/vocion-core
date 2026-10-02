@@ -10,8 +10,11 @@ import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { InlineTitle } from '@/components/ui/inline-title';
 import { ShellBarActionsPortal, ShellBarTitlePortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { setLiveSources } from '@/libs/preview/liveSources';
+import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef';
 import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
@@ -25,7 +28,6 @@ import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { QuotedPassage } from './QuotedPassage';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
-import { SourcesPanel } from './SourcesPanel';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
@@ -52,7 +54,8 @@ import { useChatSession } from './useChatSession';
  * Component tree:
  *   <HistoryPopover /> + <ChatMenu /> (portaled into the shell top bar)
  *   <MessageList /> or <EmptyState />
- *   <SourcesPanel /> (right-side, optional)
+ *   <PreviewPanel /> (right-side, optional — an artifact, a record, or a
+ *     turn's sources; ONE pane for all three, `sourcesRef.ts`)
  *   <HitlGate /> (above composer when pending)
  *   <ChatComposer />
  */
@@ -194,6 +197,36 @@ function ChatShellInner({
     sessionRef.current.handleNewChat();
     focusAgentComposer(null);
   }, []);
+  // "Sources · N" and an inline `[n]` both open the ONE preview pane — the
+  // same pane a record's own page renders from (`ChatDock` established this;
+  // this surface's bespoke SourcesPanel drew the same three lines twice,
+  // Chris, 2026-09-29). The specific citation is not singled out; the pane
+  // lists every source the answer(s) drew on, numbered as cited.
+  const openSources = useCallback((messageId?: number) => {
+    if (session.conversationId !== null) {
+      openPreview(sourcesPreviewRef(session.conversationId, messageId), document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    }
+  }, [session.conversationId]);
+  // A STREAMING ANSWER'S SOURCES REACH THE PANE (`liveSources.ts`): published
+  // while the turn runs; once the answer is stored, a sources pane opened
+  // mid-turn is pointed at that answer, which the server now has.
+  const openRef = useOpenPreviewRef();
+  const latest = session.messages[session.messages.length - 1];
+  const latestDocs = latest?.role === 'assistant' ? latest.documents : undefined;
+  useEffect(() => {
+    if (session.conversationId === null) {
+      return;
+    }
+    if (session.isStreaming) {
+      setLiveSources(session.conversationId, latestDocs ?? null);
+      return;
+    }
+    setLiveSources(session.conversationId, null);
+    const open = openRef?.type === 'conversation' ? parseSourcesRefId(openRef.id) : null;
+    if (open && open.conversationId === session.conversationId && open.messageId === null && latest?.id) {
+      openPreview(sourcesPreviewRef(session.conversationId, latest.id), null);
+    }
+  }, [session.conversationId, session.isStreaming, latestDocs, latest?.id, openRef]);
   const onCommand = useChatCommands(startNewChat);
 
   // The approval gate, as a transcript block pinned to the end. `afterIndex`
@@ -370,8 +403,8 @@ function ChatShellInner({
                       ownAgentSlug={defaultAgentSlug(agents)}
                       streaming={session.isStreaming}
                       activity={session.activity}
-                      onShowSources={session.handleShowSources}
-                      onCitationClick={session.handleCitationClick}
+                      onShowSources={openSources}
+                      onCitationClick={(_n, messageId) => openSources(messageId)}
                       onFeedback={session.handleFeedback}
                       autonomy={session.autonomy}
                       conversationId={session.conversationId}
@@ -428,20 +461,13 @@ function ChatShellInner({
           />
         </div>
 
-        {/* An artifact chip opens its preview in the one right column. On
-            this route nothing else hosts that column — the dock is not
-            mounted here — so the click wrote the URL param and nothing drew
-            it (Chris, 2026-09-17: *"clicking on 'Right now…' doesn't open
-            anything"*). PreviewPanel paints only when no dock owns the
-            column and only while a preview is open. */}
+        {/* An artifact chip, or "Sources · N", opens its preview in the one
+            right column. On this route nothing else hosts that column — the
+            dock is not mounted here — so the click wrote the URL param and
+            nothing drew it (Chris, 2026-09-17: *"clicking on 'Right now…'
+            doesn't open anything"*). PreviewPanel paints only when no dock
+            owns the column and only while a preview is open. */}
         <PreviewPanel />
-        <SourcesPanel
-          documents={session.allDocuments}
-          open={session.sourcesOpen && session.allDocuments.length > 0}
-          onClose={() => session.setSourcesOpen(false)}
-          focusCitation={session.focusCitation}
-          citedIndices={session.citedIndices}
-        />
       </div>
     </div>
   );

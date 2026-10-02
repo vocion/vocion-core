@@ -53,9 +53,10 @@ source: {kind: objects, objectType: request}
 # Seven states, three lanes, and every sentence on the row: see
 # libs/workspace/workQueue.ts, which is also where the mapping is argued with.
 derive: workQueue
-# States move as workers claim, finish and get reviewed; the queue re-reads
-# itself every 15s while open so what is stuck stays true.
-live: {every: 15}
+# States move as workers claim, finish and get reviewed. The queue follows
+# its requests, their tasks and the runs on the live stream and re-reads the
+# moment one changes; it polls every 15s only while the stream is down.
+live: {follow: ['list:request', 'list:engineering_task', runs], every: 15}
 # The derivation ordered the lanes and the rows inside them; the page just
 # keeps that order.
 sort: {field: meta.order, dir: asc}
@@ -89,7 +90,10 @@ primary:
   # or where it stands, with how long it has waited (`detail`). Internal
   # status that helps nobody decide (`no criteria`, `no mock`, a rank) is on
   # the feature page, not repeated on every row (Chris, 2026-09-25).
-  subtitle: [status, blocked, unmet, summary, detail, why, cost, product]
+  # `now` is what is running for it this minute — "Waiting for a worker ·
+  # queued 3 min", "Writing the plan · 1 min" — behind a dot that breathes
+  # while something runs, re-read with the page (Chris, 2026-09-30).
+  subtitle: [status, blocked, now, unmet, summary, detail, why, cost, product]
   # THE PICTURE LEADS. What this outcome changes, drawn by the platform from
   # what the record says, at the moment the record says it
   # (`services/factory/proposalVisual.ts`). It is a shape, not a screenshot:
@@ -117,7 +121,10 @@ fields:
   # happening and whether it needs the reader; `blocked` is only ever an
   # obstacle somebody wrote down. Normal waiting — dispatch, QA, merge — has
   # its own name and is never painted as failure.
-  - {key: status, label: Status, from: meta.state, format: badge, tones: {Blocked: bad, Building: info, Awaiting dispatch: muted, Awaiting QA: info, Ready to merge: warn, Changes asked: warn, QA could not finish: bad, Planning: info, Recovering (attempt 1 of 3): info, Recovering (attempt 2 of 3): info, Recovering (attempt 3 of 3): warn, Stopped after 1 attempt: bad, Stopped after 2 attempts: bad, Stopped after 3 attempts: bad, Decide: warn, Staged: muted, Deferred: muted, Returned to PM: warn, Returned to Design: warn, Returned to Eng: warn, Returned to QA: warn, Shipped: ok, Shipped · helped: ok, Shipped · did not help: bad, Answered: muted, Queued: muted, Triaged: muted, In scope: muted, Not triaged: muted}}
+  # Each state carries its own tone (`libs/workspace/workQueue.ts` workStateOf
+  # → meta.stateTone): a new state is never drawn uncoloured. Name a state
+  # under `tones:` only to draw it differently here.
+  - {key: status, label: Status, from: meta.state, format: badge, toneFrom: meta.stateTone}
   - {key: blocked, label: Blocked on, from: meta.blockerLine, format: badge, tones: {}}
   # What this row cannot show. A `ui` or `flow` outcome owes a mockup before
   # it is decided and an after-shot before it closes; the row says which is
@@ -143,6 +150,9 @@ fields:
   # What is happening, minus whatever the badge already said. A queued row's
   # line is empty on purpose: "Queued" under a badge reading "Queued" is the
   # repetition this page was redrawn to lose.
+  # What is running for this row right now, and since when — in progress
+  # only (`deriveWorkQueue` → `meta.now`, libs/factory/liveStatus.ts).
+  - {key: now, label: Now, from: meta.now, format: live}
   - {key: summary, label: Problem, from: meta.problem}
   - {key: detail, label: What is happening, from: meta.workLine}
   # One human sentence, built from the closed reason list. Never `manual_toil`.

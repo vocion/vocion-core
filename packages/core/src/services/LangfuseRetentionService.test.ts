@@ -263,7 +263,7 @@ describe('when Langfuse is unhappy', () => {
     await expect(pruneExpiredTraces(NOW)).rejects.toThrow(/trace list failed: 404/);
   });
 
-  it('surfaces a failed delete, so Temporal retries it', async () => {
+  it('surfaces a failed delete, so the job retries it', async () => {
     configureRetention();
     vi.stubGlobal('fetch', vi.fn(async (input: URL | string, init?: RequestInit) => {
       void input;

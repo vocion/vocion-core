@@ -17,6 +17,8 @@
 
 import type { Action, ReviewCard } from './types';
 import { z } from 'zod';
+import { factoryTypes } from '@/libs/factory/types';
+import { codeForRecord } from '@/services/codes';
 import { planIsApproved, readRecord, writeMeta } from './factory-dispatch';
 
 export const APPROVE_PLAN_ACTION_ID = 'factory.approve_plan';
@@ -73,8 +75,15 @@ export const factoryApprovePlanAction: Action<typeof approvePlanInput> = {
   external: false,
   dedupKeyFor: input => `${APPROVE_PLAN_ACTION_ID}:${input.planId}`,
   async precheck(ctx, input) {
+    // ONE STEP EACH (backlog 038, mission 6017): a planning run proposed an
+    // approval for a plan it had never filed. The planner files the plan; its
+    // approval is proposed by the factory, in code, once the plan exists.
+    if (String(ctx.invokedBy ?? '').startsWith('agent:')) {
+      return 'A plan\'s approval is not yours to propose: file the plan with objects.propose_candidate and stop — the factory proposes its approval on the trust bar once the plan exists.';
+    }
+    const planType = (await factoryTypes(ctx.orgId)).plan;
     const plan = await readRecord(ctx.orgId, input.planId);
-    if (!plan || plan.typeSlug !== 'architecture_plan') {
+    if (!plan || plan.typeSlug !== planType) {
       return `No architecture plan #${input.planId} in this workspace.`;
     }
     if (plan.meta.status === 'rejected' || plan.meta.status === 'superseded') {
@@ -91,7 +100,7 @@ export const factoryApprovePlanAction: Action<typeof approvePlanInput> = {
       system: 'Factory',
       summary: input.reason,
       fields: [
-        ...(m.requestId ? [{ label: 'Request', value: `#${String(m.requestId)}`, href: `/dashboard/p/feature/${String(m.requestId)}` }] : []),
+        ...(m.requestId ? [{ label: 'Request', value: await codeForRecord(ctx.orgId, Number(m.requestId)).catch(() => null) ?? `#${String(m.requestId)}`, href: `/dashboard/p/feature/${String(m.requestId)}` }] : []),
         { label: 'Approach', value: str(m, 'approach') ?? 'not stated' },
         { label: 'Changes', value: list(m, 'components').join('\n') || 'not stated' },
         { label: 'Why a plan', value: list(m, 'ruleTriggers').join('; ') || 'not recorded' },
@@ -105,7 +114,7 @@ export const factoryApprovePlanAction: Action<typeof approvePlanInput> = {
   },
   async execute(ctx, input) {
     const plan = await readRecord(ctx.orgId, input.planId);
-    if (!plan || plan.typeSlug !== 'architecture_plan') {
+    if (!plan || plan.typeSlug !== (await factoryTypes(ctx.orgId)).plan) {
       throw new Error(`No architecture plan #${input.planId}.`);
     }
     const previous = { status: plan.meta.status ?? null, approvedBy: plan.meta.approvedBy ?? null, approvedAt: plan.meta.approvedAt ?? null };

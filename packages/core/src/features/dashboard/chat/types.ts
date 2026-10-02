@@ -46,7 +46,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number }; href?: string; hrefLabel?: string; draft?: { prompt: string; missing: string } }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
@@ -105,7 +105,9 @@ export type RecommendedAction = {
   /** The card's id (backlog 025) — how a `card_update` and a decision find it. Absent on a pre-card row. */
   id?: string;
   /** The card's state as the server last said it. */
-  state?: 'proposed' | 'filed' | 'decided' | 'deferred' | 'expired';
+  state?: 'proposed' | 'filed' | 'decided' | 'deferred' | 'expired' | 'unfiled';
+  /** Why a card the turn tried to file was not filed (`state: 'unfiled'`). */
+  unfiledReason?: string;
   actionId: string;
   input: Record<string, unknown>;
   label: string;
@@ -117,6 +119,12 @@ export type RecommendedAction = {
   /** The agent's own recommendation for the queue card, and why. Both or neither. */
   suggestedDecision?: 'approve' | 'reject' | 'snooze';
   suggestedDecisionReason?: string;
+  /** The page of the record the card is about; the title links there. */
+  href?: string;
+  /** Draft needed: the filing misses its bar; the button asks the agent to draft it (`cardBackstop.ts`). */
+  draft?: { prompt: string; missing: string };
+  /** The words on that link: "Open feature". */
+  hrefLabel?: string;
 };
 
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */
@@ -206,6 +214,12 @@ export type ChatMessage = {
   recommendations?: RecommendedAction[];
   /** Artifacts this turn created or changed (0101) — chips under the message. */
   artifacts?: ChatMessageArtifact[];
+  /**
+   * Records this turn filed or changed (`turn_records`) — one microcard each
+   * under the latest turn, with the record's live status. Live only, like
+   * `selfUpdates`: the record's own page carries it after a reload.
+   */
+  records?: import('@/libs/factory/liveStatus').TurnRecord[];
   /**
    * What the system taught itself during this turn — one chip under the
    * message, each entry undoable. Several in a turn group into that chip

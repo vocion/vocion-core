@@ -48,7 +48,7 @@ export type ConversationRun
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
@@ -189,6 +189,32 @@ export async function getConversation(opts: { orgId: string; id: number }) {
   return row ?? null;
 }
 
+/**
+ * The agent a thread is with: whoever wrote its last reply (so a turn another
+ * agent answered — a hand-off — moves the thread), else the agent the thread
+ * was opened with. Null while the thread has no reply yet: its first turn is
+ * the router's to route (`followUpDecision`).
+ * @param opts - The org and the conversation.
+ * @param opts.orgId - The workspace.
+ * @param opts.id - The conversation.
+ */
+export async function threadAgentOf(opts: { orgId: string; id: number }): Promise<string | null> {
+  const conv = await getConversation(opts);
+  if (!conv) {
+    return null;
+  }
+  const [last] = await db
+    .select({ agentSlug: conversationMessageSchema.agentSlug })
+    .from(conversationMessageSchema)
+    .where(and(eq(conversationMessageSchema.conversationId, conv.id), eq(conversationMessageSchema.role, 'assistant')))
+    .orderBy(desc(conversationMessageSchema.id))
+    .limit(1);
+  if (!last) {
+    return null;
+  }
+  return last.agentSlug ?? conv.agentSlug ?? null;
+}
+
 export async function deleteConversation(opts: { orgId: string; id: number }) {
   await db
     .delete(conversationSchema)
@@ -298,6 +324,12 @@ export async function appendMessage(opts: {
   statusReason?: string | null;
   /** Which agent spoke an assistant turn — the slug the runtime ran, so a reloaded transcript attributes the turn truthfully (backlog 009). */
   agentSlug?: string | null;
+  /**
+   * What an assistant turn's model calls cost (`services/budget/runCost.ts`).
+   * Written on the message and added to the conversation's sum in the same
+   * pass. Absent means not recorded, which is not zero.
+   */
+  cost?: { tokens: number; microCents: number } | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -309,6 +341,7 @@ export async function appendMessage(opts: {
     && conv.titleSource === 'auto'
     && (conv.title === DEFAULT_TITLE || conv.title === '');
   const derivedTitle = isFirstUser ? firstMessageTitle(opts.content) : conv.title;
+  const cost = opts.role === 'assistant' && opts.cost ? opts.cost : null;
 
   const [msg] = await db
     .insert(conversationMessageSchema)
@@ -323,6 +356,7 @@ export async function appendMessage(opts: {
       status: storableStatus(opts.status, opts.role),
       statusReason: opts.statusReason ?? null,
       agentSlug: opts.role === 'assistant' ? opts.agentSlug ?? null : null,
+      ...(cost ? { tokens: cost.tokens, microCents: cost.microCents } : {}),
     })
     .returning();
 
@@ -331,6 +365,13 @@ export async function appendMessage(opts: {
     .set({
       title: derivedTitle,
       messageCount: sql`${conversationSchema.messageCount} + 1`,
+      // The thread's spend is the sum of its turns', counted with the turn.
+      ...(cost
+        ? {
+            tokens: sql`coalesce(${conversationSchema.tokens}, 0) + ${cost.tokens}`,
+            microCents: sql`coalesce(${conversationSchema.microCents}, 0) + ${cost.microCents}`,
+          }
+        : {}),
       // A thread picked up again is open again; the idle sweep ends it anew.
       endedAt: null,
     })
@@ -544,6 +585,8 @@ export type ConversationSearchHit = {
   surface: string;
   /** Turns so far — how a list says "a question" apart from "a working session". */
   messageCount: number;
+  /** What its turns cost, in millionths of a cent; null when none recorded a cost. */
+  microCents: number | null;
   /** The record this thread is about, when it was opened from one. */
   scopeRef: string | null;
   /** The matched message's content around the hit, when the match was in a message. */
@@ -595,6 +638,7 @@ export async function searchConversations(opts: {
         updatedAt: conversationSchema.updatedAt,
         surface: conversationSchema.surface,
         messageCount: conversationSchema.messageCount,
+        microCents: conversationSchema.microCents,
         scopeRef: conversationSchema.scopeRef,
       })
       .from(conversationSchema)
@@ -632,6 +676,7 @@ export async function searchConversations(opts: {
       updatedAt: conversationSchema.updatedAt,
       surface: conversationSchema.surface,
       messageCount: conversationSchema.messageCount,
+      microCents: conversationSchema.microCents,
       scopeRef: conversationSchema.scopeRef,
     })
     .from(conversationSchema)

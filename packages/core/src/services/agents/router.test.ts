@@ -5,7 +5,7 @@
  */
 import type { RoutableAgent } from './router';
 import { describe, expect, it } from 'vitest';
-import { chooseAgent, MIN_ROUTE_SCORE, readInitiative, scoreAgent, topicWords } from './router';
+import { chooseAgent, followUpDecision, MIN_ROUTE_SCORE, namedAgent, readInitiative, scoreAgent, topicWords } from './router';
 
 const lead: RoutableAgent = {
   slug: 'revenue-lead',
@@ -134,5 +134,43 @@ describe('readInitiative', () => {
     expect(readInitiative('eager')).toBe('normal');
     expect(readInitiative('high')).toBe('high');
     expect(readInitiative('low')).toBe('low');
+  });
+});
+
+describe('a follow-up stays with the thread\'s agent (conversation 349)', () => {
+  const pm: RoutableAgent = { slug: 'product-manager', name: 'Product manager', description: 'Owns the requests and the roadmap.', initiative: 'high' };
+  const reviewer: RoutableAgent = { slug: 'change-reviewer', name: 'Change reviewer', description: 'Reviews a change before it ships: files a verdict, nothing ships without one.' };
+  const team = [pm, reviewer, lead];
+
+  it('keeps "Please file it now." in the product manager\'s thread, where the router alone would move it', () => {
+    const message = 'You said nothing was saved. Please file it now.';
+
+    expect(chooseAgent({ agents: team, message, leadSlug: 'product-manager', surface: 'chat' })?.chosen).toBe('change-reviewer');
+
+    const decision = followUpDecision({ agents: team, message, threadAgent: 'product-manager', surface: 'chat' });
+
+    expect(decision?.chosen).toBe('product-manager');
+    expect(decision?.reason).toMatch(/follow-up in a thread with product-manager stays/);
+  });
+
+  it('leaves a first turn to the router', () => {
+    expect(followUpDecision({ agents: team, message: 'Walk the pipeline and name what moved.', threadAgent: null, surface: 'chat' })).toBeNull();
+  });
+
+  it('switches when the person names another agent, on a follow-up or a first turn', () => {
+    expect(followUpDecision({ agents: team, message: '@change-reviewer look at this one', threadAgent: 'product-manager', surface: 'chat' })?.chosen).toBe('change-reviewer');
+    expect(followUpDecision({ agents: team, message: 'Ask the change reviewer whether it is ready.', threadAgent: 'product-manager', surface: 'chat' })?.chosen).toBe('change-reviewer');
+    expect(followUpDecision({ agents: team, message: 'ask the revenue lead for the forecast', threadAgent: null, surface: 'chat' })?.chosen).toBe('revenue-lead');
+  });
+
+  it('hands the choice back to the router when the thread\'s agent is gone', () => {
+    const inactive = [{ ...pm, active: false }, reviewer, lead];
+
+    expect(followUpDecision({ agents: inactive, message: 'Please file it now.', threadAgent: 'product-manager', surface: 'chat' })).toBeNull();
+  });
+
+  it('reads a name only when it is addressed', () => {
+    expect(namedAgent(team, 'the review of the change went fine')).toBeNull();
+    expect(namedAgent(team, 'email me@change-reviewer.example')).toBeNull();
   });
 });

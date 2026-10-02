@@ -125,6 +125,9 @@ describe('what a release is called', () => {
 
     expect(r.headline).toBe('Uploads that survive a bad connection');
     expect(r.versionShort).toBe('930a23f');
+
+    // Its own short name, once one is written, leads instead (release #280, 2026-10-01).
+    expect(readRelease({ ...FEATURE_RELEASE, meta: { ...FEATURE_RELEASE.meta, name: 'Resumable uploads' } }, { linked: linked([REQUEST, TASK]), now: NOW }).headline).toBe('Resumable uploads');
     expect(r.summary).toBe('Upload a large file on a phone, lose signal, and have it pick up where it stopped. Also 2 internal changes (worker).');
     expect(r.counts).toEqual({ improvements: 1, fixes: 0, internal: 2, reverted: 0 });
   });
@@ -196,14 +199,38 @@ describe('what a release is called', () => {
 
 describe('verification, said precisely', () => {
   it('separates feature acceptance, the post-deploy check and product impact', () => {
-    const r = readRelease(FEATURE_RELEASE, { linked: linked([REQUEST, TASK]), now: NOW });
+    const seen = { ...FEATURE_RELEASE.meta, liveState: 'seen', liveSummary: 'Seen live: 2 of 2 states reached', liveCheckedAt: '2026-09-28T13:00:00Z' };
+    const r = readRelease(row(1, seen), { linked: linked([REQUEST, TASK]), now: NOW });
 
     expect(r.verification.acceptance).toEqual({ state: 'passed', line: 'QA approved, 8 of 8 criteria proven' });
     expect(r.verification.health).toMatchObject({ value: 'ok', line: 'Health check passed', freshness: 'checked 4h ago' });
+    expect(r.verification.live).toEqual({ state: 'seen', line: 'Seen live: 2 of 2 states reached', tone: 'ok', detail: null });
     // "watching" became a statement a person can act on.
     expect(r.verification.impact.line).toBe('Too early to judge: live for 4 hours; an outcome is read after 24 hours');
     expect(r.verification).toMatchObject({ state: 'verified', label: 'Verified' });
-    expect(r.verification.line).toBe('QA approved, 8 of 8 criteria proven · Health check passed · checked 4h ago');
+    expect(r.verification.line).toBe('QA approved, 8 of 8 criteria proven · Seen live: 2 of 2 states reached · Health check passed · checked 4h ago');
+  });
+
+  it('never calls a release verified on its health check alone: the change must be seen live (release #280, 2026-09-30)', () => {
+    const unseen = readRelease(FEATURE_RELEASE, { linked: linked([REQUEST, TASK]), now: NOW });
+
+    expect(unseen.verification.live).toEqual({ state: 'pending', line: 'Not yet seen live', tone: 'warn' });
+    expect(unseen.verification).toMatchObject({ state: 'missing', label: 'Verification missing' });
+
+    // What the product's own deploy check wrote: six states, none reached.
+    const rows = Array.from({ length: 6 }, (_, i) => ({ flow: `flow ${i}`, criterion: 'Last opened line', viewport: 'desktop', status: 'not_reached', reason: 'step 1 (wait_for "text=Last opened 2 hours ago by maya@acme.example") failed: Timeout 15000ms exceeded.' }));
+    const missed = readRelease(row(7, { ...FEATURE_RELEASE.meta, liveEvidence: rows, liveSummary: '0 of 6 live states reached' }), { linked: linked([REQUEST, TASK]), now: NOW });
+
+    expect(missed.verification.live.state).toBe('not_seen');
+    expect(missed.verification.live.line).toMatch(/^Not seen live: QA could not reach the change on the live product\. Why: step 1 \(wait_for/);
+    // What happens next is said, from how many checks it has had: none recorded, so nothing checks it again.
+    expect(missed.verification.live.line).toMatch(/Next: nothing checks it again by itself\. Check it by hand on the live product, or fix what stopped QA and the next release is checked\.$/);
+    expect(missed.verification).toMatchObject({ state: 'issue', label: 'Issue detected' });
+    expect(missed.attention).toContain(missed.verification.live.line);
+
+    const internalOnly = readRelease(row(8, { product: 'relay', commits: ['4a904ea feat(deploy): one release per deploy (#74)'] }), { now: NOW });
+
+    expect(internalOnly.verification.live.state).toBe('none');
   });
 
   it('says "outcome not checked" as what it is, once there has been time to check', () => {
@@ -305,7 +332,8 @@ describe('where a shipped feature links', () => {
 
 describe('the feed row', () => {
   it('carries the words the page is declared in, grouped by day in the workspace\'s zone', () => {
-    const [out] = deriveReleaseFeed([FEATURE_RELEASE], { linked: linked([REQUEST, TASK]), now: NOW, timeZone: 'America/Los_Angeles' });
+    const seen = row(197, { ...FEATURE_RELEASE.meta, liveState: 'seen', liveSummary: 'Seen live: 2 of 2 states reached' });
+    const [out] = deriveReleaseFeed([seen], { linked: linked([REQUEST, TASK]), now: NOW, timeZone: 'America/Los_Angeles' });
 
     expect(out!.meta).toMatchObject({
       headline: 'Uploads that survive a bad connection',

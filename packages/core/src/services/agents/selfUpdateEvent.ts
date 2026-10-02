@@ -32,7 +32,7 @@ export function emitSelfUpdate(
   ctx: Pick<RuntimeContext, 'emit'>,
   opts: { actionId: string; input: Record<string, unknown>; res: Pick<ProposeResult, 'runId' | 'status' | 'result' | 'outcome'> },
 ): void {
-  if (!isSelfUpdate(opts.actionId) || opts.res.outcome === 'already_decided') {
+  if (!isSelfUpdate(opts.actionId) || opts.res.outcome === 'already_decided' || opts.res.outcome === 'already_underway') {
     return;
   }
   const receipt = selfUpdateReceipt({

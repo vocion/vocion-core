@@ -1,8 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DIRECTIVE_CONFIDENCE, HEDGED_CONFIDENCE } from './workCorrections';
 
 vi.mock('@/services/ActionService', () => ({
   proposeAction: vi.fn(async () => ({ runId: 41, status: 'done', outcome: 'created', result: { outcome: 'adopted' } })),
+}));
+
+// learningStepFor looks the agent up to find its learning step. The real
+// AgentService loads the whole agent stack and queries the database, which on
+// a busy machine outran the 30s test timeout (#831). The Proposal Writer
+// declares `proposal-feedback`, as the proposals plugin ships it.
+vi.mock('@/services/AgentService', () => ({
+  getAgent: vi.fn(async () => ({ learningSteps: ['proposal-feedback'] })),
 }));
 
 const { proposeAction } = await import('@/services/ActionService');
@@ -139,6 +147,12 @@ describe('ruleConfidence', () => {
 });
 
 describe('learnFromWorkCorrection', () => {
+  // Each test queues its own proposal outcomes. A test that stops early must
+  // not leave its queued outcomes for the next one to pick up (#831).
+  beforeEach(() => {
+    vi.mocked(proposeAction).mockReset();
+  });
+
   it('proposes one rule per drafted rule and hands back one receipt for the turn', async () => {
     vi.mocked(proposeAction)
       .mockResolvedValueOnce({ runId: 41, status: 'done', outcome: 'created', result: { outcome: 'adopted' } } as never)
@@ -164,6 +178,7 @@ describe('learnFromWorkCorrection', () => {
     expect(out.learned.map(l => l.state)).toEqual(['executed', 'pending']);
     expect(vi.mocked(proposeAction).mock.calls[0]![0]).toMatchObject({
       actionId: 'learning.adopt_rule',
+      input: { stepName: 'proposal-feedback' },
       proposal: { confidence: 0.9 },
     });
     expect(vi.mocked(proposeAction).mock.calls[1]![0].proposal?.confidence).toBe(0.5);

@@ -1,0 +1,14 @@
+-- 0157: when a document processor's finished output goes stale.
+--
+-- A processor ran again only when a document's content changed or its last
+-- run did not finish, so one that read an unchanged document up to a horizon
+-- (a repeating calendar entry expanded a few weeks ahead) never read it
+-- again. A finished run may now say when its output goes stale, and the sync
+-- runs the processor again once that has passed (see Schema.ts).
+--
+-- NULL on every legacy row, which reads as never, so nothing re-runs on
+-- deploy; `npm run sources:backfill-revisits` opts existing entries in. A
+-- nullable column: metadata-only, per CONVENTIONS.md rule 2. No index: the
+-- sync reads it off a row it has already found.
+-- Hand-written; idempotent.
+ALTER TABLE "knowledge_document" ADD COLUMN IF NOT EXISTS "processor_revisit_at" timestamp;

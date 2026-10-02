@@ -4,7 +4,11 @@ import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody } from '
 import { str, workerRunErrorResponse } from '../../_lib';
 
 /**
- * POST /api/v1/worker-runs/:id/claim  { workerId }
+ * POST /api/v1/worker-runs/:id/claim  { workerId, workerVersion?, target? }
+ * `workerVersion` is what the worker is — its image tag, build or commit —
+ * kept on the run, so a failure in the worker's own environment is retried
+ * only once the worker has changed. `target` is which runner target it is
+ * (`on-box`, `aws-fargate`), shown on the Runs page.
  * Take the lease. 409 if someone else holds it, 402 if the agent is over budget.
  * Returns the run and a short-lived `toolClaim` for /api/internal/agent-tools.
  * @param req - Request.
@@ -30,7 +34,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   try {
     assertExternalWorkersEnabled();
-    const { run, toolClaim } = await claimWorkerRun({ orgId: caller.orgId, id, workerId });
+    const { run, toolClaim } = await claimWorkerRun({ orgId: caller.orgId, id, workerId, workerVersion: str(body, 'workerVersion') ?? str(body, 'worker_version'), target: str(body, 'target') });
     return NextResponse.json({ run, toolClaim, leaseExpiresAt: run.leaseExpiresAt });
   } catch (error) {
     return workerRunErrorResponse(error);

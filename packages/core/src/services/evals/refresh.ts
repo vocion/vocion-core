@@ -12,16 +12,13 @@
  * finds the rows it already made instead of filing a second run.
  */
 
-import {
-  EVAL_REFRESH_WORKFLOW,
-  evalRefreshWorkflowIdFor,
-  getTemporalClient,
-  VOCION_WORKFLOWS_TASK_QUEUE,
-} from '@/libs/temporal/client';
+import { startJob } from '@/libs/durable/jobs';
+import { evalRefreshWorkflowIdFor } from '@/libs/durable/scheduleIds';
+import { JOB } from '@/services/background/catalog';
 import { createRefreshRun, failEvalRun } from '@/services/EvalService';
 
 /**
- * Temporal would not take the work.
+ * The durable engine would not take the work.
  *
  * Its own type because the caller answers differently: a dataset that could
  * not even be prepared is a configuration problem the person has to fix, while
@@ -50,7 +47,7 @@ export type StartedEvalRefresh = {
 };
 
 /**
- * Open a run and hand it to Temporal.
+ * Open a run and hand it to the durable engine.
  *
  * Throws `EvalRefreshNotStartedError` when the workflow could not be started,
  * having first closed the run out as failed: a row that says `running` with
@@ -68,15 +65,9 @@ export async function startEvalRefresh(options: StartEvalRefreshOptions): Promis
   });
 
   try {
-    const client = await getTemporalClient();
-    await client.workflow.start(EVAL_REFRESH_WORKFLOW, {
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      workflowId,
-      args: [{
-        orgId: options.orgId,
-        datasetSlug: options.datasetSlug,
-        concurrency: options.concurrency,
-      }],
+    await startJob(workflowId, {
+      job: JOB.evalRefresh,
+      input: { orgId: options.orgId, datasetSlug: options.datasetSlug, concurrency: options.concurrency },
     });
   } catch (error) {
     console.error(`[evals] could not start the refresh workflow for ${options.datasetSlug}`, error);

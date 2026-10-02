@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable } from './recordVerdict';
+import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeSummary, noteWithoutCount, parseJsonArray, reachable, reviewMirrorInput, sendBackRoute } from './recordVerdict';
 
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
@@ -10,16 +10,20 @@ describe('judgeVerdict', () => {
     expect(r).toEqual({ proven: 1, total: 3, refusal: null });
   });
 
-  it('refuses an approve that carries an unproven criterion', () => {
+  it('records an approve that carries an unproven criterion as changes, never a refusal (#130 review 9025)', () => {
     const r = judgeVerdict('approve', [proven('a'), { criterion: 'b', status: 'unproven' }], []);
 
-    expect(r.refusal).toMatch(/^Not recorded: an approve cannot carry 1 criteria that are not proven \(1 of 2 proven; first: "b"\)/);
+    expect(r.refusal).toBeNull();
+    expect(r.value).toBe('changes');
+    expect(r.recordedAs).toMatch(/^Recorded as changes, not approve: 1 of 2 criteria are not proven \(first: "b"\)/);
   });
 
-  it('refuses an approve with a blocking finding', () => {
-    const r = judgeVerdict('approve', [proven('a')], [{ against: 'path', ref: 'apps/**', severity: 'block', what: 'outside allowed paths' }]);
+  it('records an approve with a blocking finding as changes', () => {
+    const r = judgeVerdict('approve', [proven('a')], [{ against: 'check', ref: 'test', severity: 'block', what: 'the suite fails' }]);
 
-    expect(r.refusal).toMatch(/blocking finding/);
+    expect(r.refusal).toBeNull();
+    expect(r.value).toBe('changes');
+    expect(r.recordedAs).toMatch(/blocking finding/);
   });
 
   it('refuses proven without evidence, and an empty criteria list', () => {
@@ -67,7 +71,11 @@ describe('alignToContract', () => {
     const invented = [proven('Type-to-filter works'), proven('Non-matches are hidden'), proven('Clearing restores the list')];
 
     expect(alignToContract(contract, invented).map(c => c.status)).toEqual(['unchecked', 'unchecked', 'unchecked']);
-    expect(judgeVerdict('approve', alignToContract(contract, invented), []).refusal).toMatch(/0 of 3 proven/);
+
+    const graded = judgeVerdict('approve', alignToContract(contract, invented), []);
+
+    expect(graded.value).toBe('changes');
+    expect(graded.recordedAs).toMatch(/3 of 3 criteria are not proven/);
   });
 
   it('pairs by text in any order, and a line nobody judged is unchecked', () => {
@@ -90,9 +98,15 @@ describe('alignToContract', () => {
 });
 
 describe('buildAgain', () => {
-  it('never retries an attempt that was itself the automatic retry, and needs a request', async () => {
-    expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } })).toMatch(/already the automatic retry/);
+  it('retries a retry too, bounded by the per-stage limit, and needs a request (2026-09-30)', async () => {
+    expect(await buildAgain('org_x', { id: 165, meta: { requestId: 131, autoRetryOf: 164 } }) ?? '').not.toMatch(/already the automatic retry/);
     expect(await buildAgain('org_x', { id: 165, meta: {} })).toBeNull();
+  });
+
+  it('a retry may still send its work back to planning: that is a different step, bounded by the request\'s limit', async () => {
+    const res = await buildAgain('org_x', { id: 238, meta: { requestId: 224, autoRetryOf: 237, planId: 236 } }, { to: 'plan', why: 'a criterion stayed unproven on two attempts' });
+
+    expect(res ?? '').not.toMatch(/already the automatic retry/);
   });
 });
 
@@ -127,5 +141,45 @@ describe('reachable evidence', () => {
     expect(reachable('1008: query \'msa\' narrows 3 results to 1')).toBe(false);
     expect(reachable('3 results narrow to 1', new Set([1006, 1008]))).toBe(false);
     expect(judgeVerdict('changes', [{ criterion: 'Empty state offers Clear', status: 'proven', evidence: 'the caption says Clear is visible' }], []).refusal).toMatch(/a description, not evidence/);
+  });
+});
+
+describe('sendBackRoute — a send-back goes to the engineer or back to planning', () => {
+  const c = (criterion: string, status: 'proven' | 'unproven') => ({ criterion, status });
+
+  it('goes to the engineer by default', () => {
+    expect(sendBackRoute({ criteria: [c('Every row has the control', 'unproven')], planId: 236, previous: null }).to).toBe('engineer');
+  });
+
+  it('goes to planning when QA says the plan stands in the way', () => {
+    expect(sendBackRoute({ asked: 'plan', why: 'The plan never names the library page.', criteria: [], planId: 236 })).toEqual({ to: 'plan', why: 'The plan never names the library page.' });
+  });
+
+  it('goes to planning when the same criterion stays open two attempts running under one plan, whatever QA said', () => {
+    const route = sendBackRoute({ asked: 'engineer', criteria: [c('A visible confirmation appears', 'unproven'), c('Every row has the control', 'unproven')], planId: 236, previous: { planId: 236, criteria: [c('A visible confirmation appears', 'unproven'), c('Every row has the control', 'proven')] } });
+
+    expect(route.to).toBe('plan');
+    expect(route.why).toContain('"A visible confirmation appears"');
+  });
+
+  it('a repeat under a different plan is a new plan\'s first try, not a repeat', () => {
+    expect(sendBackRoute({ criteria: [c('A', 'unproven')], planId: 236, previous: { planId: 136, criteria: [c('A', 'unproven')] } }).to).toBe('engineer');
+  });
+});
+
+describe('reviewMirrorInput — the verdict as a review on the pull request', () => {
+  const base = { url: 'https://github.com/acme/app/pull/12', note: 'Accept it; the one risk is the cache.', proven: 4, total: 6, taskId: 41 };
+
+  it('approve approves; changes and reject both request changes; the body carries the count, the note and every finding keyed to what it is against', () => {
+    const findings = [{ against: 'criterion' as const, ref: 'C2', severity: 'block' as const, what: 'The filter is not applied.', closeBy: 'Apply it in query.ts.' }];
+    const changes = reviewMirrorInput({ ...base, value: 'changes', findings });
+
+    expect(changes).toMatchObject({ url: base.url, event: 'request_changes', taskId: 41, recordId: 41 });
+    expect(changes.body).toContain('**QA verdict: changes** — 4 of 6 criteria proven.');
+    expect(changes.body).toContain(base.note);
+    expect(changes.body).toContain('- [block] against criterion `C2`: The filter is not applied. Close by: Apply it in query.ts.');
+    expect(changes.body).toContain('task #41');
+    expect(reviewMirrorInput({ ...base, value: 'reject', findings: [] }).event).toBe('request_changes');
+    expect(reviewMirrorInput({ ...base, value: 'approve', findings: [] }).event).toBe('approve');
   });
 });

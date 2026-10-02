@@ -129,10 +129,11 @@ One repository, one objective, no questions. Split when:
 cannot state it without naming the files to edit, you do not understand the
 task well enough to dispatch it, and neither will the worker.
 
-**`allowedPaths`** — the blast radius, agreed before the work starts. Narrow
-enough that a diff outside them is obviously wrong, wide enough that the task
-is possible. This is the cheapest check in the whole system: it is decided
-without reading the diff.
+**`allowedPaths`** — where the plan expects the change: the packages, apps and
+tests it touches. It tells the engineer where to start and tells QA what to
+expect; it is not a fence. The engineer goes beyond it when the outcome needs
+to, and the PR names each file that did. Name every package you know the
+change reaches, so the plan says what it will touch.
 
 **`acceptanceContract`** — what has to be true, one line each, each line
 standing on its own and checkable by a person or a command. "Works correctly"
@@ -216,8 +217,8 @@ Before dispatching, read the contract as the thing that will execute it:
 1. What does it not say that the worker would have to assume?
 2. Which acceptance criterion cannot be checked by a command or by a reviewer
    reading the diff?
-3. What would a reasonable worker do outside `allowedPaths`, and should that be
-   in them or in a second task?
+3. What will the change most likely touch beyond `allowedPaths`? Name it now,
+   so the plan says what it touches.
 
 Every assumption you can see now is one you write into the contract instead of
 reading in the result. Where you cannot make a criterion checkable, **do not

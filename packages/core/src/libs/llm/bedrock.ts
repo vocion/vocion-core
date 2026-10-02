@@ -29,8 +29,8 @@ export function bedrockClient(client: BedrockRuntimeClient): LLMClient {
       // different document — pay the cache-read rate for its prefix instead of
       // the full input rate. Converse evaluates the minimum against tools +
       // system + messages together, and below it the call succeeds and simply
-      // does not cache, so this is safe to send on every request.
-      const cachePrompt = opts.promptCache ?? true;
+      // does not cache, so this is safe on every model that takes one.
+      const cachePrompt = (opts.promptCache ?? true) && bedrockTakesCachePoint(opts.model);
       const system = systemPrompt
         ? [{ text: systemPrompt }, ...(cachePrompt ? [{ cachePoint: { type: 'default' as const } }] : [])]
         : undefined;
@@ -145,4 +145,16 @@ export function buildBedrockRuntimeClient(options: {
     region: options.region,
     ...(options.credentials ? { credentials: options.credentials } : {}),
   });
+}
+
+/**
+ * Whether Bedrock accepts a `cachePoint` for this model. A model from a vendor
+ * other than Anthropic or Amazon refuses a request that carries one, so it is
+ * called without. An id that names no vendor, such as an application inference
+ * profile's ARN, keeps it.
+ * @param model - The model id, inference profile id or ARN, as Bedrock spells it.
+ */
+export function bedrockTakesCachePoint(model: string): boolean {
+  const id = model.slice(model.lastIndexOf('/') + 1);
+  return !id.includes('.') || /^(?:[a-z0-9-]+\.)?(?:anthropic|amazon)\./i.test(id);
 }

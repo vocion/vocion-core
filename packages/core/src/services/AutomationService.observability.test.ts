@@ -30,7 +30,7 @@ vi.mock('@/services/MissionService', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { automationRunSchema, automationSchema, knowledgeSourceSchema, leadBriefSchema, toolCallSchema } = await import('@/models/Schema');
+const { automationRunSchema, automationSchema, knowledgeSourceSchema, leadBriefSchema, missionRunSchema, toolCallSchema } = await import('@/models/Schema');
 const { startMission } = await import('@/services/MissionService');
 const {
   automationRunFacets,
@@ -406,6 +406,20 @@ describe('abandoned fires', () => {
     });
 
     expect((await reconcileAbandonedRuns({ orgId: ORG })).reconciled).toBe(0);
+  });
+
+  it('closes a check that never started its run after 15 minutes, and leaves one whose run is working (run 8561)', async () => {
+    const twentyAgo = new Date(Date.now() - 20 * 60_000);
+    const [dead] = await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'factory-plan-request', kind: 'mission_check', status: 'running', startedAt: twentyAgo }).returning({ id: automationRunSchema.id });
+    const [working] = await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'factory-plan-request', kind: 'mission_check', status: 'running', startedAt: twentyAgo }).returning({ id: automationRunSchema.id });
+    await db.insert(missionRunSchema).values({ orgId: ORG, title: 'factory-plan-request: Close the gap', brief: 'Plan it.', goal: 'Plan it.', team: [], createdBy: 'factory:product-manager', status: 'running', causedBy: [{ automationSlug: 'factory-plan-request', automationRunId: working!.id }] } as never);
+
+    const { ids } = await reconcileAbandonedRuns({ orgId: ORG });
+    const read = async (id: number) => (await db.select().from(automationRunSchema).where(eq(automationRunSchema.id, id)))[0];
+
+    expect(ids).toContain(dead!.id);
+    expect((await read(dead!.id))?.error).toContain('never started its run');
+    expect((await read(working!.id))?.status).toBe('running');
   });
 });
 

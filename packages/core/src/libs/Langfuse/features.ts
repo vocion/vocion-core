@@ -19,16 +19,29 @@ export const FEATURES = {
   OPERATION_RUN: 'operation.run',
   /** Eval-judge calls in `EvalService.runDataset`. */
   EVAL_JUDGE: 'eval.judge',
-  /** Workflow step execution from Temporal Activities. */
+  /** Workflow step execution from background jobs. */
   WORKFLOW_STEP: 'workflow.step',
   /** Haiku-based feedback bucket classifier. */
   FEEDBACK_CLASSIFY: 'feedback.classify',
   /** Haiku-based duplicate check between a proposed rule and existing ones. */
   FEEDBACK_DEDUPE: 'feedback.dedupe',
+  /** Whether a record just filed repeats one on file (`services/objects/duplicateCheck.ts`). */
+  RECORD_DUPLICATE: 'record.duplicate',
+  /** Which record a person's words name, read when a record is filed (`services/objects/referenceRead.ts`). */
+  RECORD_REFERENCE: 'record.reference',
+  /** A release's short name, written once when it is linked (`services/factory/releaseName.ts`). */
+  RELEASE_NAME: 'release.name',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
+  /**
+   * The card pass after a chat answer: one fast call lists the decisions the
+   * answer names, then one call per card writes it (`services/agents/cardBackstop.ts`).
+   */
+  CHAT_CARDS: 'chat.cards',
   /** A thread's name, written by the classifier model after its first reply. */
   CHAT_TITLE: 'chat.title',
+  /** Which agent answers a conversation's first turn, read by the classifier (`services/agents/routeRead.ts`). */
+  CHAT_ROUTE: 'chat.route',
   /** OAuth token-refresh round-trips for Source plugins. */
   SOURCE_OAUTH: 'source.oauth',
   /** Native pgvector + Postgres FTS hybrid retrieval. */
@@ -49,6 +62,14 @@ export const FEATURES = {
   DISCOVERY_CLASSIFY: 'discovery.classify',
   /** The `generate_image` agent tool — the priciest single call an agent makes. */
   TOOL_IMAGE: 'tool.image',
+  /** The `draw_mockup` survey — a vision read of the real screen a mockup is drawn on. */
+  TOOL_MOCKUP: 'tool.mockup',
+  /** `ci.diagnose` — why a factory pull request's CI is red, read by the classifier (backlog 049). */
+  CI_DIAGNOSE: 'factory.ci_diagnose',
+  /** Whether an environment's health response says what its `healthCheck.expect` asks, read by the classifier when the text is not there verbatim (backlog 049). */
+  HEALTH_READ: 'factory.health_read',
+  /** What caused a production error — a deploy, the code, or unknown — read by the classifier from the error tracker's facts (`error-watch`). */
+  ERROR_CAUSE: 'errors.cause_read',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

@@ -39,9 +39,10 @@
 
 import type { ValidateFunction } from 'ajv';
 import type { Action, ActionContext, ReviewCard } from './types';
-import type { GateFailure } from '@/libs/gates/handoffGate';
+import type { GateFailure, GateTurn, HandoffGate } from '@/libs/gates/handoffGate';
 import { z } from 'zod';
 import { evaluateGates, gatesOf } from '@/libs/gates/handoffGate';
+import { createdStatus } from '@/libs/objects/statusModel';
 import { isEmptyValue } from '@/libs/workspace/pageFields';
 
 /** The registered id, and the prefix every dedup key carries. */
@@ -60,11 +61,129 @@ export function proposalRefusal(f: GateFailure, label: string): string {
   return `Not proposed: this ${label.toLowerCase()} fails the "${f.gate.name}" bar: ${f.failed.map(x => `${x.field}: ${x.why}`).join('; ')}. Fix the card and propose it again.`;
 }
 
+/**
+ * What the door's bar finds wrong with a record becoming a candidate, or
+ * null when it passes. With a turn, a `readThisTurn` requirement also checks
+ * the page it `includes` was read in that turn: `product.capabilitiesPage`
+ * is read off the product the record names (request #226, 2026-09-29, was
+ * filed claiming Stamp had no way to revoke a link; its capabilities page
+ * lists expiry and Kill).
+ * @param orgId - The workspace.
+ * @param objectType - The type.
+ * @param fields - The candidate's fields.
+ * @param turn - What the proposing turn read, when a turn is proposing.
+ */
+async function candidateGateFailure(orgId: string, objectType: ObjectTypeRow, fields: Record<string, unknown>, turn?: GateTurn): Promise<GateFailure | null> {
+  const gates = gatesOf(objectType.schema);
+  const set = { ...fields, status: 'candidate' };
+  const resolvedTurn = turn ? { ...turn, resolved: { ...(turn.resolved ?? {}), ...await resolveIncludes(orgId, objectType.schema, gates, set) } } : undefined;
+  return evaluateGates(gates, {}, set, new Date(), resolvedTurn) ?? null;
+}
+
+/**
+ * The door's refusal, or undefined. On the person's word the bar informs and
+ * does not refuse (`GateTurn.onPersonsWord`); `candidateGateAdvice` says what it found.
+ * @param orgId - The workspace.
+ * @param objectType - The type.
+ * @param fields - The candidate's fields.
+ * @param turn - What the proposing turn read, when a turn is proposing.
+ */
+export async function candidateGateRefusal(orgId: string, objectType: ObjectTypeRow, fields: Record<string, unknown>, turn?: GateTurn): Promise<string | undefined> {
+  if (turn?.onPersonsWord) {
+    return undefined;
+  }
+  const failure = await candidateGateFailure(orgId, objectType, fields, turn);
+  return failure ? proposalRefusal(failure, objectType.label) : undefined;
+}
+
+/**
+ * What the bar found on a filing made on the person's word, for the agent to
+ * act on after filing — or undefined when it passes.
+ * @param orgId - The workspace.
+ * @param objectTypeSlug - The type being filed.
+ * @param fields - The record's fields.
+ * @param turn - What the turn read.
+ */
+export async function candidateGateAdvice(orgId: string, objectTypeSlug: string, fields: Record<string, unknown>, turn: GateTurn): Promise<string | undefined> {
+  const objectType = await loadObjectType(orgId, objectTypeSlug);
+  const failure = objectType ? await candidateGateFailure(orgId, objectType, fields, turn) : null;
+  return failure ? `the "${failure.gate.name}" bar is not met yet — ${failure.failed.map(x => `${x.field}: ${x.why}`).join('; ')}` : undefined;
+}
+
+/**
+ * A `readThisTurn.includes` path (`product.capabilitiesPage`) resolved
+ * through the linked record it names: the record `record[linkField]` points
+ * at by slug (`x-display.to` says which type), and the wiki page named by
+ * that record's `pageField`. Null when the record names no linked slug, the
+ * type has no such link, the linked record has no such field, or no wiki
+ * page exists at that slug — the one lookup `resolveIncludes` (the gate's
+ * own check) and `fileRecord.ts` (the filing tool's own pre-read) both use,
+ * so a page is resolved the same way whichever caller asks.
+ * @param orgId - The workspace.
+ * @param schema - The type's schema (its `x-display.to` says what a field links to).
+ * @param path - `<linkField>.<pageField>`, e.g. `product.capabilitiesPage`.
+ * @param record - The record as it would be.
+ */
+export async function resolveIncludeTarget(orgId: string, schema: Record<string, unknown> | null, path: string, record: Record<string, unknown>): Promise<{ recordTitle: string; wiki: import('@/services/wiki/WikiService').WikiPage } | null> {
+  const [linkField, pageField] = path.split('.', 2) as [string, string];
+  const slug = record[linkField];
+  const props = (schema?.properties ?? {}) as Record<string, { 'x-display'?: { to?: string } }>;
+  const linkedType = props[linkField]?.['x-display']?.to;
+  if (typeof slug !== 'string' || !slug.trim() || !linkedType) {
+    return null;
+  }
+  try {
+    const { and, eq, sql } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+    const [linked] = await db
+      .select({ title: businessObjectSchema.title, page: sql<string | null>`${businessObjectSchema.metadata}->>${pageField}` })
+      .from(businessObjectSchema)
+      .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, linkedType), sql`${businessObjectSchema.metadata}->>'slug' = ${slug.trim()}`))
+      .limit(1);
+    const page = linked?.page?.trim();
+    if (!page) {
+      return null;
+    }
+    const { getWikiPage } = await import('@/services/wiki/WikiService');
+    const wiki = await getWikiPage(orgId, page).catch(() => null);
+    return wiki ? { recordTitle: linked?.title ?? slug.trim(), wiki } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every `readThisTurn.includes` path a type's gates name, resolved to the
+ * page it names, for `evaluateGates`'s `GateTurn.resolved`.
+ * @param orgId - The workspace.
+ * @param schema - The type's schema (its `x-display.to` says what a field links to).
+ * @param gates - The type's gates.
+ * @param record - The record as it would be.
+ */
+async function resolveIncludes(orgId: string, schema: Record<string, unknown> | null, gates: HandoffGate[], record: Record<string, unknown>): Promise<Record<string, { name: string; keys: string[] } | null>> {
+  const paths = [...new Set(gates.flatMap(g => g.require.map(r => r.readThisTurn?.includes).filter((p): p is string => typeof p === 'string' && p.includes('.'))))];
+  const out: Record<string, { name: string; keys: string[] } | null> = {};
+  for (const path of paths) {
+    const target = await resolveIncludeTarget(orgId, schema, path, record);
+    out[path] = target ? { name: `the wiki page "${target.wiki.slug}"`, keys: [`wiki:${target.wiki.slug}`, `artifact:${target.wiki.id}`] } : null;
+  }
+  return out;
+}
+
 export const CANDIDATE_STATUS = {
   proposed: 'candidate',
   approved: 'approved',
   rejected: 'rejected',
 } as const;
+
+/**
+ * The statuses of a record a person stands behind: made directly (`active`, the
+ * default) or a candidate a person approved. A pending candidate or a rejected
+ * one is a proposal, and nothing acts on it as if it were the record.
+ */
+export const USABLE_RECORD_STATUSES = ['active', CANDIDATE_STATUS.approved] as const;
 
 export const candidateInputShape = z.object({
   /** Slug of an object type in this org's registry, e.g. `event-candidate`. */
@@ -216,7 +335,7 @@ function dedupKeyFrom(objectType: string, values: string[]): string {
  * is exported under.
  * @param input - Anything carrying the three values a key is built from.
  */
-export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fields' | 'dedupOn'>): string | undefined {
+export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fields' | 'dedupOn'> & { title?: string }): string | undefined {
   const values = identityValues(input);
   if (values.length === 0) {
     return undefined;
@@ -235,12 +354,30 @@ export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fi
  * test, for instance).
  * @param input - The parsed action input.
  */
-function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'>): string[] {
+function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'> & { title?: string }): string[] {
   const values: string[] = [];
   for (const fieldName of input.dedupOn ?? []) {
-    values.push(normaliseForKey(input.fields[fieldName]));
+    values.push(normaliseForKey(identityValue(input, fieldName)));
   }
   return values;
+}
+
+/**
+ * One identity field's value. A record's title is the input's own `title`,
+ * not a key inside `fields`: a filing that names `dedupOn: ['title']` and
+ * carries its title where the schema puts it used to key on a blank, so every
+ * request filed that way shared `request|none` and refreshed the first one's
+ * card, rewriting that record (#124 "Open alerts" became another feature,
+ * 2026-09-30).
+ * @param input - The parsed action input.
+ * @param fieldName - A `dedupOn` entry.
+ */
+function identityValue(input: Pick<CandidateInput, 'fields'> & { title?: string }, fieldName: string): unknown {
+  const value = input.fields[fieldName];
+  if ((value === undefined || value === null || value === '') && fieldName === 'title') {
+    return input.title;
+  }
+  return value;
 }
 
 /**
@@ -254,7 +391,7 @@ function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'>): stri
 function emptyIdentityFields(input: CandidateInput): string[] {
   const empty: string[] = [];
   for (const fieldName of input.dedupOn ?? []) {
-    const value = input.fields[fieldName];
+    const value = identityValue(input, fieldName);
     if (value === undefined || value === null || value === '') {
       empty.push(fieldName);
     }
@@ -270,7 +407,7 @@ const PIPELINE_REF_PREFIX = 'knowledge_document:';
  * trailing slash. Null for anything that is not a URL.
  * @param url - A stored or proposed URL.
  */
-function pageKey(url: unknown): string | null {
+export function pageKey(url: unknown): string | null {
   if (typeof url !== 'string' || url.trim() === '') {
     return null;
   }
@@ -656,7 +793,8 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
     typeId: objectType.id,
     title: input.title,
     status: CANDIDATE_STATUS.proposed,
-    metadata,
+    // Its first status, when its type declares one (libs/objects/statusModel.ts).
+    metadata: createdStatus(objectType.schema, metadata),
     provenance,
     summary: input.summary,
     reviewActionRunId: runId,
@@ -674,14 +812,16 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
  * @param externalRef - The downstream record to link, when approval supplied one.
  * @param externalRef.system
  * @param externalRef.id
+ * @param origin - Where it was asked for (`originMeta`); written as `metadata.origin` unless the record already says.
  */
 async function decideCandidateObject(
   ctx: ActionContext,
   runId: number,
   status: string,
   externalRef?: { system: string; id: string },
+  origin?: { conversationId: number; userId: string | null; at: string } | null,
 ): Promise<number | null> {
-  const { and, eq } = await import('drizzle-orm');
+  const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema } = await import('@/models/Schema');
 
@@ -689,6 +829,10 @@ async function decideCandidateObject(
   if (externalRef) {
     updates.externalSystem = externalRef.system;
     updates.externalId = externalRef.id;
+  }
+  if (origin) {
+    // Kept when the record already says where it came from.
+    updates.metadata = sql`jsonb_build_object('origin', ${JSON.stringify(origin)}::jsonb) || coalesce(${businessObjectSchema.metadata}, '{}'::jsonb)`;
   }
 
   const [updated] = await db
@@ -857,6 +1001,19 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     // Those still reach a reviewer, who has the card's "Dedup field left
     // blank" and "Possible duplicate" rows to tell them apart.
     keyIsTrustworthy: input => emptyIdentityFields(input).length === 0,
+    // The record that decision produced, superseded since, no longer answers
+    // for the key: its replacement is a new record to judge.
+    decisionStillStands: async (orgId, result) => {
+      const id = Number(result?.objectId);
+      if (!Number.isInteger(id) || id <= 0) {
+        return true;
+      }
+      const { and, eq } = await import('drizzle-orm');
+      const { db } = await import('@/libs/DB');
+      const { businessObjectSchema } = await import('@/models/Schema');
+      const [row] = await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, id))).limit(1);
+      return !row || String((row.meta as { status?: unknown } | null)?.status ?? '') !== 'superseded';
+    },
   },
 
   // The candidate becomes a real row the moment it is proposed, holding the
@@ -870,16 +1027,20 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     if (!objectType) {
       return `No object type "${input.objectType}" in this workspace. Propose against a type the workspace defines, or have the type added first.`;
     }
+    // A REPOSITORY THAT IS NOT THERE IS NEVER PROPOSED (2026-10-01: a repo
+    // record for a GitHub 404 sat pending and three builds were sent to it). A
+    // field the type marks `x-verify: repository` is read on GitHub first.
+    const { missingRepositoryRefusal } = await import('@/services/repo/repositoryExists');
+    const missingRepo = await missingRepositoryRefusal(ctx.orgId, objectType.schema, input.fields, input.title);
+    if (missingRepo) {
+      return missingRepo;
+    }
     // A GATE ON BECOMING A CANDIDATE runs here, at the door (Chris,
     // 2026-09-27: "the 6 ideas in proposed are great; codify this quality").
     // A type that declares `when: {field: status, becomes: [candidate]}` gets
     // proposals refused with each missing thing named, before they reach a
     // person's queue; the proposer fixes the card and proposes again.
-    const failure = evaluateGates(gatesOf(objectType.schema), {}, { ...input.fields, status: 'candidate' });
-    if (failure) {
-      return proposalRefusal(failure, objectType.label);
-    }
-    return undefined;
+    return candidateGateRefusal(ctx.orgId, objectType, input.fields, ctx.turn);
   },
 
   async onProposed(ctx, input, runId) {
@@ -1014,6 +1175,8 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
    * @param input - The decided candidate.
    */
   async execute(ctx, input) {
+    const { originMeta } = await import('@/services/objects/objectCreated');
+    const origin = originMeta(ctx.origin ?? null);
     const objectId = await decideCandidateObject(
       ctx,
       // `runId` rides the context on execute; without it there is no row to
@@ -1021,7 +1184,14 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
       ctx.runId ?? -1,
       CANDIDATE_STATUS.approved,
       ctx.externalRef,
+      // The conversation that asked for it, on the record, in the same write.
+      origin,
     );
+    if (objectId !== null && origin) {
+      // And what the person sent in it, as the record's own evidence.
+      const { linkReportedAttachments } = await import('@/services/objects/reported');
+      await linkReportedAttachments(ctx.orgId, objectId, origin.conversationId).catch(() => undefined);
+    }
 
     if (objectId === null) {
       throw new Error(
@@ -1041,6 +1211,9 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
 
     return {
       mode: 'recorded',
+      // The record exists because of this run — what a caller reads to say
+      // "filed" and open it, never a write that merely names one.
+      created: true,
       objectId,
       objectType: input.objectType,
       title: input.title,

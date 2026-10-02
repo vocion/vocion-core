@@ -26,10 +26,15 @@
  */
 
 import type { Action, ActionContext, ReviewCard } from './types';
+import type { AskOption } from '@/models/Schema';
+import type { Ask } from '@/services/AskService';
 import { z } from 'zod';
 // From the schema leaf, not the service: the registry loads this module, and
 // the service's import graph reaches back into the registry (`policyKey`).
 import { ASK_KINDS, ASK_RISKS } from '@/models/Schema';
+
+/** Who decided an ask the trust bar answered — never a person, so nothing runs as one. */
+export const TRUST_LADDER_DECIDER = 'trust-ladder';
 
 /** One record the ask is about. `id` is kept as a string; a number is accepted and stringified. */
 const objectRef = z.object({
@@ -48,6 +53,13 @@ const option = z.union([
     recommended: z.boolean().optional(),
     /** How sure the asker is of THIS option, 0–1. Meant for the recommended one. */
     confidence: z.number().min(0).max(1).optional(),
+    /**
+     * What choosing it does: an action and its input, run as the person who
+     * chose it (e.g. `factory.dispatch_task` with the amended contract). A
+     * ruling whose options carry actions is answered AND carried out in one
+     * press; one without is only an answer.
+     */
+    action: z.object({ id: z.string().min(1).max(120), input: z.record(z.string(), z.unknown()).default({}) }).optional(),
   }),
 ]);
 
@@ -82,6 +94,12 @@ const askFileInput = z.object({
   ).optional(),
   /** Optional collapsed Details, markdown. */
   contextMd: z.string().max(20_000).optional(),
+  /**
+   * The person's answer, an option id — set when a person decides the card by
+   * choosing an option on it. Honoured only when a person approves the filing
+   * (`ctx.reviewedBy`); a model setting it answers nothing.
+   */
+  answer: z.string().min(1).max(80).optional(),
   /** The caller's idempotency key. Re-filing it updates the open ask instead of doubling it. Absent, the action run's id is used. */
   sourceRef: z.string().min(1).max(200).optional(),
   dueAt: z.string().datetime().optional(),
@@ -136,6 +154,16 @@ function describeOptions(options: AskFileInput['options']): string | undefined {
     .join(' · ');
 }
 
+/**
+ * The record a ruling is about, as its key: `ruling:request:124`. Null for any
+ * other kind, or a ruling that names no record.
+ * @param input - The filing.
+ */
+export function rulingKey(input: Pick<AskFileInput, 'kind' | 'objectRefs'>): string | null {
+  const ref = input.kind === 'ruling' ? input.objectRefs?.[0] : undefined;
+  return ref ? `ask.file:ruling:${ref.type}:${ref.id}`.toLowerCase() : null;
+}
+
 function describeRefs(refs: AskFileInput['objectRefs']): string | undefined {
   if (!refs || refs.length === 0) {
     return undefined;
@@ -154,7 +182,15 @@ export const askFileAction: Action<typeof askFileInput> = {
   // A caller with an idempotency key of its own collapses onto it; a plain
   // question stands as its own card. Never a constant: two unrelated
   // questions must never become one queue item.
-  dedupKeyFor: input => (input.sourceRef ? `ask.file:${input.sourceRef.trim().toLowerCase()}` : undefined),
+  // ONE DECISION, ONE CARD (#124, 2026-09-29: "Restore prisma paths &
+  // re-dispatch" and "Rule: restore prisma paths or split the task?" — one
+  // ruling, two cards two seconds apart, because the card's key hashed its
+  // title). A ruling about a record is keyed on the record, so a second
+  // wording refreshes the first.
+  dedupKeyFor: input => (input.sourceRef ? `ask.file:${input.sourceRef.trim().toLowerCase()}` : rulingKey(input) ?? undefined),
+  ownsDedupKey: true,
+  // Only a person's choice on the card sets the answer (as an edit at approval).
+  internalInput: ['answer'],
   // The option shape the input schema cannot check — duplicate ids, two
   // recommended — is what the service refuses, and the refusal should leave
   // no queue item behind.
@@ -202,11 +238,14 @@ export const askFileAction: Action<typeof askFileInput> = {
   },
   async execute(ctx: ActionContext, input) {
     const { askUrlFor, normaliseOptions, upsertAsk } = await import('@/services/AskService');
-    const { projectSlugById } = await import('@/services/ProjectService');
+    const { workspaceAddressById } = await import('@/services/ProjectService');
     const agentSlug = agentSlugFromInvoker(ctx.invokedBy) ?? input.agentSlug ?? null;
     // The run that asked is the idempotency key, so a retried execution
     // updates the ask it already filed instead of asking twice.
-    const sourceRef = input.sourceRef?.trim() || (ctx.runId ? `action_run:${ctx.runId}` : null);
+    // A ruling on a record that already has one OPEN refreshes that ask: one
+    // decision in front of the person, whatever the wording.
+    const openRuling = input.sourceRef ? null : await openRulingSourceRef(ctx.orgId, input);
+    const sourceRef = input.sourceRef?.trim() || openRuling || (ctx.runId ? `action_run:${ctx.runId}` : null);
     const { ask, created } = await upsertAsk({
       orgId: ctx.orgId,
       createdBy: ctx.invokedBy ?? null,
@@ -228,10 +267,35 @@ export const askFileAction: Action<typeof askFileInput> = {
         dueAt: input.dueAt ? new Date(input.dueAt) : undefined,
       },
     });
-    const slug = await projectSlugById(ctx.orgId);
+    // A PERSON CHOSE AN OPTION ON THE CARD: the filing and the answer are one
+    // press. The option's action (if it carries one) runs as that person
+    // (`AskService.carryOutChosenOption`, from `decideAsk`).
+    let answered: string | null = null;
+    let answeredBy: string | null = null;
+    const person = ctx.reviewedBy && ctx.reviewedBy.startsWith('usr-') ? ctx.reviewedBy : null;
+    if (input.answer && person && ask.status === 'open') {
+      const { decideAsk } = await import('@/services/AskService');
+      const decided = await decideAsk({ orgId: ctx.orgId, id: ask.id, decision: input.answer, decidedBy: person });
+      answered = decided.decision ?? null;
+      answeredBy = person;
+    } else if (!input.answer && ask.status === 'open') {
+      // DONE FOR YOU: a ruling sure enough of its recommendation is answered
+      // with it on the workspace's own bar for asking (Chris, 2026-09-29, on
+      // proposal 5210). Undo reopens it.
+      const chose = await answerOnTheTrustBar(ctx, input, ask);
+      if (chose) {
+        answered = chose;
+        answeredBy = TRUST_LADDER_DECIDER;
+      }
+    }
+    const answeredLabel = answered ? ask.options.find(o => o.id === answered)?.label ?? answered : null;
+    const workspace = await workspaceAddressById(ctx.orgId);
     return {
+      answered,
+      answeredLabel,
+      answeredBy,
       askId: ask.id,
-      url: slug ? askUrlFor(slug, ask.id) : null,
+      url: workspace ? askUrlFor(workspace, ask.id) : null,
       created,
       kind: ask.kind,
       status: ask.status,
@@ -252,6 +316,13 @@ export const askFileAction: Action<typeof askFileInput> = {
     if (askId === null) {
       throw new Error('This run recorded no ask id, so there is nothing to withdraw.');
     }
+    // The trust bar answered it: Undo takes the answer back and the question
+    // is open again, in front of a person. A person's own answer never is.
+    if (result.answeredBy === TRUST_LADDER_DECIDER) {
+      const { reopenLadderDecision } = await import('@/services/AskService');
+      const ask = await reopenLadderDecision(ctx.orgId, askId);
+      return { askId, reopened: ask.status === 'open', status: ask.status };
+    }
     if (result.created === false) {
       return { askId, withdrawn: false, reason: 'this run refreshed an ask another filing created; withdraw that one instead' };
     }
@@ -260,3 +331,85 @@ export const askFileAction: Action<typeof askFileInput> = {
     return { askId, withdrawn: ask.status === 'superseded', status: ask.status };
   },
 };
+
+/**
+ * Answer a ruling with its recommended option when the recommendation clears
+ * the workspace's trust bar for `ask.file` — the same ladder verdict that let
+ * the filing run (`clearsTrustBar`), at the option's own confidence, else the
+ * proposal's. Returns the option id it chose, or null when a person decides.
+ *
+ * Only a ruling, only a recommended option, and never one that carries an
+ * action: an option's action runs as the PERSON who chose it
+ * (`carryOutChosenOption`), so a choice nobody made starts nothing, and a
+ * ruling that would start something waits for someone to make it.
+ * @param ctx - The execution.
+ * @param input - The filing.
+ * @param ask - The ask it filed, still open.
+ */
+export async function answerOnTheTrustBar(ctx: ActionContext, input: AskFileInput, ask: Ask): Promise<string | null> {
+  if (input.kind !== 'ruling') {
+    return null;
+  }
+  const rec = pickRecommended(ask.options);
+  if (!rec || rec.action) {
+    return null;
+  }
+  const confidence = rec.confidence ?? await proposalConfidence(ctx);
+  if (typeof confidence !== 'number') {
+    return null;
+  }
+  const { clearsTrustBar } = await import('@/services/ActionService');
+  if (!(await clearsTrustBar({ orgId: ctx.orgId, actionId: 'ask.file', input: input as unknown as Record<string, unknown>, confidence }))) {
+    return null;
+  }
+  const { decideAsk } = await import('@/services/AskService');
+  const decided = await decideAsk({ orgId: ctx.orgId, id: ask.id, decision: rec.id, decidedBy: TRUST_LADDER_DECIDER, note: `Chosen for you at ${Math.round(confidence * 100)}% confidence, within the trust bar for asking. Undo reopens it.` });
+  return decided.decision ?? null;
+}
+
+/**
+ * The one recommended option, or null when none (or, malformed, several) is.
+ * @param options - The ask's options.
+ */
+export function pickRecommended(options: readonly AskOption[]): AskOption | null {
+  const recs = options.filter(o => o.recommended === true);
+  return recs.length === 1 ? recs[0]! : null;
+}
+
+/**
+ * The confidence the filing was proposed with, from its run.
+ * @param ctx - The execution; `runId` names the run.
+ */
+async function proposalConfidence(ctx: ActionContext): Promise<number | null> {
+  if (!ctx.runId) {
+    return null;
+  }
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ proposal: actionRunSchema.proposal }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ctx.orgId), eq(actionRunSchema.id, ctx.runId))).limit(1);
+  const c = (row?.proposal as { confidence?: unknown } | null)?.confidence;
+  return typeof c === 'number' ? c : null;
+}
+
+/**
+ * The sourceRef of the open ruling already asked about this record, if any.
+ * @param orgId - The workspace.
+ * @param input - The filing.
+ */
+async function openRulingSourceRef(orgId: string, input: AskFileInput): Promise<string | null> {
+  const ref = input.kind === 'ruling' ? input.objectRefs?.[0] : undefined;
+  if (!ref) {
+    return null;
+  }
+  const { and, desc, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { askSchema } = await import('@/models/Schema');
+  const [row] = await db
+    .select({ sourceRef: askSchema.sourceRef })
+    .from(askSchema)
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), eq(askSchema.kind, 'ruling'), sql`${askSchema.objectRefs} @> ${JSON.stringify([{ type: ref.type, id: ref.id }])}::jsonb`))
+    .orderBy(desc(askSchema.id))
+    .limit(1);
+  return row?.sourceRef ?? null;
+}

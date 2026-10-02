@@ -18,7 +18,7 @@ vi.mock('@/services/SourceAccessService', () => ({ allowedSourceSlugsForUser: vi
 // it silently did on the live walk of 2026-09-25 (finding 18).
 vi.mock('@/services/chat/autoPropose', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@/services/chat/autoPropose')>();
-  return { ...mod, autoProposeRecommendationDetailed: vi.fn(async () => {
+  return { ...mod, fileRecommendation: vi.fn(async () => {
     throw new Error('proposal store unavailable');
   }) };
 });
@@ -26,6 +26,11 @@ vi.mock('@/services/chat/autoPropose', async (importOriginal) => {
 // The thread's name is written in the background after a complete reply; the
 // route's only job is to ask for it, at the right moment.
 vi.mock('@/services/chat/conversationTitle', () => ({ scheduleConversationTitle: vi.fn() }));
+// The router's model read: unscripted it fails and the keyword fallback
+// decides, so no test here calls a model.
+vi.mock('@/services/agents/routeRead', () => ({ readRoute: vi.fn(async () => {
+  throw new Error('no model in this test');
+}) }));
 
 const { markStopped } = await import('@/libs/streams/buffer');
 const { TurnRefusedError } = await import('@/services/agents/turnRefusal');
@@ -339,20 +344,22 @@ describe('agent stream route — a card is never lost', () => {
 
     expect(card?.card).toMatchObject({ title: 'File this as a request', kind: 'action', state: 'proposed' });
     expect(card?.card.runId).toBeUndefined();
-    expect(events.some(e => e.type === 'card_update')).toBe(false);
+    // …and then says it was not filed, and why, rather than promising
+    // (conversation 349, card_378208d4).
+    expect(events.filter(e => e.type === 'card_update')).toEqual([expect.objectContaining({ state: 'unfiled', reason: 'proposal store unavailable' })]);
 
     const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
 
     expect(assistant?.runsJson).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'card', label: 'File this as a request', actionId: 'objects.propose_candidate' }),
+      expect.objectContaining({ type: 'card', label: 'File this as a request', actionId: 'objects.propose_candidate', state: 'unfiled', reason: 'proposal store unavailable' }),
     ]));
     // Written down once, not once per path.
     expect((assistant?.runsJson ?? []).filter(r => r.type === 'card')).toHaveLength(1);
   });
 
   it('a card that files gets its proposal id as an update, after it is already on screen and on the row', async () => {
-    const { autoProposeRecommendationDetailed } = await import('@/services/chat/autoPropose');
-    vi.mocked(autoProposeRecommendationDetailed).mockResolvedValueOnce({ runId: 3691, status: 'done', ref: { type: 'request', id: 126 } });
+    const { fileRecommendation } = await import('@/services/chat/autoPropose');
+    vi.mocked(fileRecommendation).mockResolvedValueOnce({ runId: 3691, status: 'done', ref: { type: 'request', id: 126 } });
     vi.mocked(runAgentDeep).mockImplementation(putsUpACard);
     const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
 
@@ -411,5 +418,50 @@ describe('agent stream route — naming the thread', () => {
     await postTurn(conv.id, 'and last quarter?');
 
     expect(scheduleConversationTitle).not.toHaveBeenCalled();
+  });
+});
+
+describe('agent stream route — a follow-up stays in its thread (conversation 349)', () => {
+  const pm = { slug: 'product-manager', name: 'Product manager', description: 'Owns the requests and the roadmap.', handles: [], suggestions: [], initiative: 'high', active: 'true' };
+  const reviewer = { slug: 'change-reviewer', name: 'Change reviewer', description: 'Reviews a change before it ships: files a verdict, nothing ships without one.', handles: [], suggestions: [], initiative: 'normal', active: 'true' };
+
+  async function routedTurn(conversationId: number, message: string): Promise<string | undefined> {
+    const { listAgents } = await import('@/services/AgentService');
+    vi.mocked(listAgents).mockResolvedValue([pm, reviewer] as never);
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    const res = await POST(new Request('http://localhost/rpc/agent/stream', {
+      method: 'POST',
+      body: JSON.stringify({ message, route: true, conversation_id: conversationId }),
+    }));
+    await drain(res);
+    return (vi.mocked(runAgentDeep).mock.calls.at(-1)?.[0] as { agentSlug?: string } | undefined)?.agentSlug;
+  }
+
+  it('keeps "Please file it now." with the product manager the thread is with', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
+    const { appendMessage } = await import('@/services/ConversationService');
+    await appendMessage({ orgId: ORG, conversationId: conv.id, role: 'user', content: 'File a feature request for Send.' });
+    await appendMessage({ orgId: ORG, conversationId: conv.id, role: 'assistant', content: 'Nothing was saved in this turn.', agentSlug: 'product-manager' });
+
+    expect(await routedTurn(conv.id, 'You said nothing was saved. Please file it now.')).toBe('product-manager');
+  });
+
+  it('routes a first turn on the model\'s read, and switches when the person names an agent', async () => {
+    const { readRoute } = await import('@/services/agents/routeRead');
+    vi.mocked(readRoute).mockResolvedValueOnce({ chosen: 'product-manager', confidence: 0.9, reason: 'They want a request filed; the product manager owns requests.' });
+    const fresh = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
+
+    expect(await routedTurn(fresh.id, 'You said nothing was saved. Please file it now.')).toBe('product-manager');
+
+    // The read failing leaves the keyword fallback to decide, as before.
+    const unread = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
+
+    expect(await routedTurn(unread.id, 'You said nothing was saved. Please file it now.')).toBe('change-reviewer');
+
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
+    const { appendMessage } = await import('@/services/ConversationService');
+    await appendMessage({ orgId: ORG, conversationId: conv.id, role: 'assistant', content: 'Filed.', agentSlug: 'product-manager' });
+
+    expect(await routedTurn(conv.id, 'Ask the change reviewer whether it is ready.')).toBe('change-reviewer');
   });
 });

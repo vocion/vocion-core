@@ -13,8 +13,10 @@ import { client } from '@/libs/Orpc';
  * gates are debt. The Work page drops a dismissed proposal from the queue.
  * @param props
  * @param props.requestId - The request.
+ * @param props.objectType - Its type, as the plugin names it (`libs/factory/types.ts`).
+ * @param props.compact - A row's quieter control: the reason is not asked for.
  */
-export function FeatureDismiss({ requestId }: { requestId: number }) {
+export function FeatureDismiss({ requestId, objectType = 'request', compact = false }: { requestId: number; objectType?: string; compact?: boolean }) {
   const [phase, setPhase] = useState<{ s: 'idle' } | { s: 'working' } | { s: 'done'; runId: number } | { s: 'error'; message: string }>({ s: 'idle' });
   const [reason, setReason] = useState('');
   const [asking, setAsking] = useState(false);
@@ -25,7 +27,7 @@ export function FeatureDismiss({ requestId }: { requestId: number }) {
       const why = reason.trim() || 'Dismissed from the feature page.';
       const res = await client.review.propose({
         actionId: 'objects.update_meta',
-        input: { objectType: 'request', id: requestId, set: { state: 'out_of_scope', recommendationState: 'rejected', decisionReason: why, decidedAt: new Date().toISOString() }, reason: why },
+        input: { objectType, id: requestId, set: { state: 'out_of_scope', recommendationState: 'rejected', decisionReason: why, decidedAt: new Date().toISOString() }, reason: why },
         rationale: why,
         confidence: 0.95,
         suggestedDecision: null,
@@ -85,7 +87,7 @@ export function FeatureDismiss({ requestId }: { requestId: number }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" onClick={() => setAsking(true)} data-testid="feature-dismiss" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground">
+        <button type="button" onClick={() => (compact ? void dismiss() : setAsking(true))} disabled={phase.s === 'working'} data-testid="feature-dismiss" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground">
           <X className="size-3.5" aria-hidden />
           Dismiss
         </button>

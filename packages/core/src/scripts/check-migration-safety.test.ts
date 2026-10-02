@@ -320,6 +320,80 @@ describe('findMigrationSafetyProblems — numbered migrations', () => {
   });
 });
 
+describe('a reviewed lock exemption', () => {
+  const EXEMPTION = '-- migration-safety: allow blocking-index on "conversation" because the table is tiny';
+
+  it('accepts a build the file exempts by name, with a rationale', () => {
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_rebuild.sql`,
+      sql: `${EXEMPTION}\nCREATE UNIQUE INDEX IF NOT EXISTS "c_idx" ON "conversation" ("org_id");`,
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems).toEqual([]);
+  });
+
+  it('refuses an exemption with no rationale, so the annotation cannot be pasted blind', () => {
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_rebuild.sql`,
+      sql: '-- migration-safety: allow blocking-index on "conversation" because\nCREATE INDEX "c_idx" ON "conversation" ("org_id");',
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['blocking-index']);
+  });
+
+  it('covers only the table it names', () => {
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_rebuild.sql`,
+      sql: `${EXEMPTION}\nCREATE INDEX "m_idx" ON "message" ("org_id");`,
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['blocking-index']);
+  });
+
+  it('covers only the builds below it', () => {
+    // Read as a comment on what follows, the way the rest of the file reads.
+    // An annotation trailing the statement it excuses would be easy to miss in
+    // review, which is the one place this exemption is actually checked.
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_rebuild.sql`,
+      sql: `CREATE INDEX "c_idx" ON "conversation" ("org_id");\n${EXEMPTION}`,
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['blocking-index']);
+  });
+
+  it('does not reach into the concurrent directory, whose rules are not judgement calls', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_scope.sql`,
+        sql: 'ALTER TABLE "conversation" ADD COLUMN "scope_ref" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/${ENFORCED}_scope_index.sql`,
+        sql: `${EXEMPTION}\nCREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "c_idx" ON "conversation" ("org_id");`,
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['unique-index-in-concurrent-dir']);
+  });
+
+  it('does not excuse a UNIQUE constraint, which locks reads as well as writes', () => {
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_rebuild.sql`,
+      sql: `${EXEMPTION}\nALTER TABLE "conversation" ADD CONSTRAINT "c_uq" UNIQUE ("org_id");`,
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['blocking-constraint']);
+  });
+});
+
 describe('findMigrationSafetyProblems — the concurrent directory', () => {
   /**
    * A concurrent build is only ever applied after the numbered migration

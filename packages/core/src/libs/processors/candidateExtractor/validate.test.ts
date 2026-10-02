@@ -6,7 +6,9 @@
  * domain-neutral configuration value, because a tenant cannot run code inside
  * core's processor. These tests are what says the translation is faithful.
  */
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { calendarDayOf } from '@/libs/time/relativeDay';
 import { candidateExtractorConfigSchema } from './config';
 import { calendarToday, validateRecords } from './validate';
 
@@ -54,6 +56,8 @@ function run(records: ReturnType<typeof record>[], config = configWith(), over: 
 }
 
 describe('candidate extractor validation', () => {
+  const none = { title: undefined, startDate: undefined, venueName: undefined };
+
   it('blesses a link the document published as a path', () => {
     // A JSON feed states an entry's own page relatively. The connector resolves
     // it before declaring it, because the gate compares exactly, but the model
@@ -105,6 +109,26 @@ describe('candidate extractor validation', () => {
 
     expect(out.records).toHaveLength(0);
     expect(out.counts['skipped.incomplete']).toBe(1);
+  });
+
+  it('counts a record with no fields apart from one missing an identity value', () => {
+    const out = run([
+      record({ fields: none, suggestedDecision: 'snooze', suggestedDecisionReason: 'no time specified' }),
+      record({ fields: { ...none, title: '  ' }, suggestedDecision: 'reject', suggestedDecisionReason: 'past' }),
+      record({ fields: { startDate: undefined } }),
+    ]);
+
+    expect(out.records).toHaveLength(0);
+    expect(out.counts['skipped.no_identity']).toBe(2);
+    expect(out.counts['skipped.incomplete']).toBe(1);
+  });
+
+  it('counts a record with no fields even when a default would fill one of them', () => {
+    const out = run([record({ fields: none })], configWith({ defaults: { venueName: 'Bellwater Hall' } }));
+
+    expect(out.records).toHaveLength(0);
+    expect(out.counts['skipped.no_identity']).toBe(1);
+    expect(out.counts['skipped.incomplete']).toBeUndefined();
   });
 
   it('drops a past record by calendar day, and keeps a multi-day one still running', () => {
@@ -209,19 +233,6 @@ describe('candidate extractor validation', () => {
 
     expect(out.records).toHaveLength(0);
     expect(out.counts['skipped.bad_category']).toBe(1);
-  });
-
-  it('drops a price whose digits the document never printed', () => {
-    const config = configWith({ mustAppearInDocument: ['price'] });
-
-    const out = run([
-      record({ fields: { price: '$12' } }),
-      record({ fields: { title: 'Late Show', price: '$45' } }),
-    ], config);
-
-    expect(out.records[0]?.fields.price).toBe('$12');
-    expect(out.records[1]?.fields.price).toBeUndefined();
-    expect(out.records[1]?.issues.join(' ')).toContain('digits');
   });
 
   it('drops a URL the page never published, and keeps the record', () => {
@@ -340,6 +351,35 @@ describe('candidate extractor validation', () => {
     expect(out.counts.image_from_document).toBe(1);
   });
 
+  it('leaves an SVG og:image off the record, and counts it', () => {
+    const out = run([record()], configWith(), { ogImage: 'https://bellwaterhall.example/assets/facebook-icon.svg?v=2' });
+
+    expect(out.records[0]?.imageUrl).toBeUndefined();
+    expect(out.records[0]?.issues).toEqual([]);
+    expect(out.counts).toMatchObject({ 'image_from_document.svg': 1 });
+    expect(out.counts.image_from_document).toBeUndefined();
+  });
+
+  it('still keeps an SVG the model read off the page', () => {
+    const poster = 'https://bellwaterhall.example/uploads/poster.svg';
+    const out = run([record({ imageUrl: poster })], configWith(), { images: [poster], ogImage: 'https://bellwaterhall.example/assets/facebook-icon.svg' });
+
+    expect(out.records[0]?.imageUrl).toBe(poster);
+    expect(out.counts['image_from_document.svg']).toBeUndefined();
+  });
+
+  it('leaves an SVG og:image off every occurrence written from a stated rule, and counts each one', () => {
+    const template = record({ fields: { start: '2026-11-12T19:00' }, repeats: { rule: 'FREQ=WEEKLY;UNTIL=20261126', evidence: 'every Thursday' } });
+    const out = run([template], configWith({ occurrenceFields: { day: 'startDate', start: 'start' } }), {
+      pageText: 'Open Mic Night, every Thursday from 2026-11-12, doors at 19:00.',
+      ogImage: 'https://bellwaterhall.example/assets/facebook-icon.svg',
+    });
+
+    expect(out.records.map(r => r.fields.startDate)).toEqual(['2026-11-12', '2026-11-19', '2026-11-26']);
+    expect(out.records.some(r => r.imageUrl)).toBe(false);
+    expect(out.counts['image_from_document.svg']).toBe(out.records.length);
+  });
+
   it('leaves a document that published no image of its own exactly as it was', () => {
     const out = run([record()]);
 
@@ -444,6 +484,127 @@ describe('candidate extractor validation', () => {
   });
 });
 
+describe('values the document has to print', () => {
+  const priced = configWith({ mustAppearInDocument: ['price'] });
+
+  it('drops a price whose digits the document never printed, naming it', () => {
+    const out = run([
+      record({ fields: { price: '$12' } }),
+      record({ fields: { title: 'Late Show', price: '$45' } }),
+    ], priced);
+
+    expect(out.records[0]?.fields.price).toBe('$12');
+    expect(out.records[1]?.fields.price).toBeUndefined();
+    expect(out.records[1]?.issues).toEqual(['price: dropped "$45", its digits do not appear anywhere in the document']);
+    expect(out.counts['dropped.not_in_document']).toBe(1);
+  });
+
+  it('drops a price in words the document never printed as a word, naming it', () => {
+    const out = run([record({ fields: { price: 'Free' } })], priced, {
+      pageText: 'Open Mic Night, 12 November. Poster art from freeform.',
+    });
+
+    expect(out.records[0]?.fields.price).toBeUndefined();
+    expect(out.records[0]?.issues).toEqual(['price: dropped "Free", its words do not appear anywhere in the document']);
+    expect(out.counts['dropped.not_in_document']).toBe(1);
+  });
+
+  it('reads a word the document printed with a plural "s" or "es", and no looser form', () => {
+    const out = run([
+      record({ fields: { price: 'Donation' } }),
+      record({ fields: { title: 'Late Show', price: 'Day pass' } }),
+      record({ fields: { title: 'Matinee', price: 'Donate' } }),
+    ], priced, { pageText: 'Suggested donations at the door. Day passes sold here.' });
+
+    expect(out.records.map(kept => kept.fields.price)).toEqual(['Donation', 'Day pass', undefined]);
+    expect(out.records[2]?.issues).toEqual(['price: dropped "Donate", its words do not appear anywhere in the document']);
+  });
+
+  it('matches an accent whether the document stored it composed or decomposed', () => {
+    const composed = 'Free for Caf\u00E9 members';
+    const decomposed = 'Free for Cafe\u0301 members';
+
+    const onDecomposed = run([record({ fields: { price: composed } })], priced, { pageText: decomposed });
+    const onComposed = run([record({ fields: { price: decomposed } })], priced, { pageText: composed });
+
+    expect(onDecomposed.records[0]?.fields.price).toBe(composed);
+    expect(onComposed.records[0]?.fields.price).toBe(decomposed);
+  });
+
+  it('keeps a price in words the document printed, however it joined or quoted them', () => {
+    const out = run([
+      record({ fields: { price: 'Pay-What-You-Can' } }),
+      record({ fields: { title: 'Late Show', price: 'Free with a Hub\u2019s card' } }),
+    ], priced, { pageText: 'Pay-What-You-Can at the door. Late Show: free with a Hub\u2019s card.' });
+
+    expect(out.records.map(kept => kept.fields.price)).toEqual(['Pay-What-You-Can', 'Free with a Hub\u2019s card']);
+    expect(out.counts['dropped.not_in_document']).toBeUndefined();
+  });
+
+  it('does not hold a value the operator supplied to the document', () => {
+    const out = run([record()], configWith({ mustAppearInDocument: ['price'], defaults: { price: 'Free' } }));
+
+    expect(out.records[0]?.fields.price).toBe('Free');
+    expect(out.records[0]?.issues).toEqual([]);
+  });
+
+  it('finds a price the page printed only in its structured data', () => {
+    const out = run([record({ fields: { price: '$31' } })], priced, {
+      jsonLd: [{ '@type': 'Event', 'offers': { price: '31.00' } }],
+    });
+
+    expect(out.records[0]?.fields.price).toBe('$31');
+  });
+
+  it('holds a list to its digits, as before', () => {
+    const out = run([
+      record({ fields: { price: ['Free', 'Members'] } }),
+      record({ fields: { title: 'Late Show', price: ['$12', '$45'] } }),
+    ], priced);
+
+    expect(out.records[0]?.fields.price).toEqual(['Free', 'Members']);
+    expect(out.records[1]?.fields.price).toBeUndefined();
+    expect(out.records[1]?.issues.join(' ')).toContain('its digits do not appear');
+  });
+});
+
+describe('images the page shows', () => {
+  const PAGE_IMAGE = 'https://bellwaterhall.example/uploads/open-mic.jpg';
+
+  it('accepts an image the page shows for the image fields, and for nothing else', () => {
+    const config = configWith({ imageFrom: 'poster', linkFields: ['ticketUrl'] });
+
+    const out = run([record({
+      imageUrl: PAGE_IMAGE,
+      sourceUrl: PAGE_IMAGE,
+      fields: { poster: PAGE_IMAGE, ticketUrl: PAGE_IMAGE },
+    })], config, { images: [PAGE_IMAGE] });
+
+    expect(out.records[0]?.imageUrl).toBe(PAGE_IMAGE);
+    expect(out.records[0]?.fields.poster).toBe(PAGE_IMAGE);
+    expect(out.records[0]?.sourceUrl).toBeUndefined();
+    expect(out.records[0]?.fields.ticketUrl).toBeUndefined();
+  });
+
+  it('ignores a list that is not a list of strings', () => {
+    for (const wrong of [PAGE_IMAGE, [42, null], { url: PAGE_IMAGE }]) {
+      const out = run([record({ imageUrl: PAGE_IMAGE })], configWith(), { images: wrong });
+
+      expect(out.records[0]?.imageUrl).toBeUndefined();
+    }
+  });
+
+  it('still fills a missing image from the document\'s own when the page shows others', () => {
+    const out = run([record()], configWith(), {
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+      images: [PAGE_IMAGE],
+    });
+
+    expect(out.records[0]?.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    expect(out.counts.image_from_document).toBe(1);
+  });
+});
+
 describe('scores and cited rules', () => {
   const RULES = [
     { id: 'event-extraction#ws-no-cure-claims', text: 'Listings may not promise medical outcomes.' },
@@ -524,5 +685,274 @@ describe('scores and cited rules', () => {
     const out = run([record({ matchedRules: [{ id: 'event-extraction#ws-no-cure-claims' }] })]);
 
     expect(out.records[0]?.matchedRules).toBeUndefined();
+  });
+});
+
+describe('link fields', () => {
+  const config = configWith({ linkFields: ['ticketUrl'] });
+
+  it('drops a link the document did not publish', () => {
+    const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: 'https://evil.example/buy' } })], config);
+
+    expect(out.records[0]?.fields.ticketUrl).toBeUndefined();
+    expect(out.records[0]?.issues.join(' ')).toContain('ticketUrl: dropped, the document did not publish that URL');
+  });
+
+  it('keeps a published link and stores a path resolved', () => {
+    const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: '/tickets/42' } })], config, {
+      publishedUrls: ['https://bellwaterhall.example/tickets/42'],
+      baseUrl: 'https://bellwaterhall.example/feed.json',
+    });
+
+    expect(out.records[0]?.fields.ticketUrl).toBe('https://bellwaterhall.example/tickets/42');
+    expect(out.records[0]?.issues).toEqual([]);
+  });
+
+  it('drops a link that is the document\'s own page, in any spelling', () => {
+    for (const same of ['https://bellwaterhall.example/events/open-mic', 'https://bellwaterhall.example/events/open-mic/', 'https://bellwaterhall.example/events/open-mic#tickets']) {
+      const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: same } })], config, {
+        links: [{ url: same, text: 'Tickets' }],
+        ownUrl: 'https://bellwaterhall.example/events/open-mic',
+      });
+
+      expect(out.records[0]?.fields.ticketUrl).toBeUndefined();
+      expect(out.records[0]?.issues.join(' ')).toContain('ticketUrl: dropped, it is the page itself');
+    }
+  });
+
+  it('drops a link that is the record\'s own page', () => {
+    const out = run([record({ sourceUrl: 'https://bellwaterhall.example/e/open-mic', fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: 'https://bellwaterhall.example/e/open-mic/' } })], config, {
+      links: [{ url: 'https://bellwaterhall.example/e/open-mic', text: 'Open Mic Night' }, { url: 'https://bellwaterhall.example/e/open-mic/', text: 'Tickets' }],
+    });
+
+    expect(out.records[0]?.fields.ticketUrl).toBeUndefined();
+    expect(out.records[0]?.issues.join(' ')).toContain('ticketUrl: dropped, it is the page itself');
+  });
+
+  it('drops a link written as a path that resolves to the document\'s own page', () => {
+    const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: '/events/open-mic' } })], config, {
+      jsonLd: [{ '@type': 'Event', 'url': '/events/open-mic' }],
+      ownUrl: 'https://bellwaterhall.example/events/open-mic',
+    });
+
+    expect(out.records[0]?.fields.ticketUrl).toBeUndefined();
+    expect(out.records[0]?.issues.join(' ')).toContain('ticketUrl: dropped, it is the page itself');
+  });
+
+  describe('on a feed entry', () => {
+    const entryUrl = 'https://bellwaterhall.example/events/open-mic/';
+    const ownUrl = 'https://bellwaterhall.example/feed.ics#open-mic@bellwaterhall.example';
+
+    it('drops a link that is the entry\'s own page', () => {
+      const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: entryUrl } })], config, {
+        publishedUrls: [entryUrl],
+        ownUrl,
+        entryUrl,
+      });
+
+      expect(out.records[0]?.fields.ticketUrl).toBeUndefined();
+      expect(out.records[0]?.issues).toEqual(['ticketUrl: dropped, it is the entry\'s own page']);
+    });
+
+    it('keeps a different published link', () => {
+      const tickets = 'https://tickets.example/open-mic';
+      const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: tickets } })], config, {
+        publishedUrls: [entryUrl, tickets],
+        ownUrl,
+        entryUrl,
+      });
+
+      expect(out.records[0]?.fields.ticketUrl).toBe(tickets);
+      expect(out.records[0]?.issues).toEqual([]);
+    });
+
+    it('changes nothing when no entry page is named', () => {
+      const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: entryUrl } })], config, {
+        publishedUrls: [entryUrl],
+        ownUrl,
+      });
+
+      expect(out.records[0]?.fields.ticketUrl).toBe(entryUrl);
+      expect(out.records[0]?.issues).toEqual([]);
+    });
+  });
+
+  it('leaves a field alone when the config names no link fields', () => {
+    const out = run([record({ fields: { title: 'Open Mic Night', venueName: 'Bellwater Hall', ticketUrl: 'https://evil.example/buy' } })]);
+
+    expect(out.records[0]?.fields.ticketUrl).toBe('https://evil.example/buy');
+  });
+});
+
+describe('occurrences written from a stated rule', () => {
+  const knob = (over: Record<string, unknown> = {}) => configWith({ occurrenceFields: { day: 'startDate', start: 'start' }, ...over });
+  const weekly = (over: Record<string, unknown> = {}) => record({ fields: { start: '2026-11-12T19:00' }, repeats: { rule: 'FREQ=WEEKLY', evidence: 'every Thursday' }, ...over });
+  const page = { pageText: 'Open Mic Night, every Thursday from 2026-11-12, doors at 19:00. Tickets $12.' };
+  const endsOn = (end: string, over: Record<string, unknown> = {}) => weekly({ repeats: { rule: `FREQ=WEEKLY;UNTIL=${end}`, evidence: 'every Thursday' }, ...over });
+
+  it('holds the template to the document, and never the dates it computed', () => {
+    const out = run([weekly()], knob({ mustAppearInDocument: ['startDate', 'start'], quotedFields: ['start'] }), page);
+
+    expect(out.records.map(r => r.fields.startDate)).toEqual(['2026-11-12', '2026-11-19', '2026-11-26', '2026-12-03', '2026-12-10', '2026-12-17', '2026-12-24', '2026-12-31', '2027-01-07']);
+    expect(out.records[1]?.fields.start).toBe('2026-11-19T19:00');
+    expect(out.records[1]?.issues).toEqual(['date computed from the stated rule: every Thursday']);
+    expect(out.records[0]?.issues.join(' ')).toContain('start: "2026-11-12T19:00" is not written this way in the document');
+    expect(out.counts).not.toHaveProperty('dropped.not_in_document');
+  });
+
+  it('writes a time with an offset as local time, skips the days the document excepts, and reads a monthly rule', () => {
+    const offset = run([weekly({ fields: { start: '2026-11-12T19:00:00-05:00' }, repeats: { rule: 'FREQ=WEEKLY', except: ['2026-11-26'], evidence: 'every Thursday' } })], knob(), page);
+    const monthly = run([weekly({ repeats: { rule: 'FREQ=MONTHLY;BYDAY=2TH', evidence: 'every Thursday' } })], knob(), page);
+
+    expect(offset.records.slice(0, 3).map(r => [r.fields.startDate, r.fields.start])).toEqual([['2026-11-12', '2026-11-12T19:00:00-05:00'], ['2026-11-19', '2026-11-19T19:00:00'], ['2026-12-03', '2026-12-03T19:00:00']]);
+    expect(monthly.records.map(r => r.fields.start)).toEqual(['2026-11-12T19:00', '2026-12-10T19:00']);
+    expect(monthly.nextUnwritten).toBe('2027-01-14');
+
+    const spaced = run([weekly({ fields: { startDate: '2026-11-12 19:00', start: undefined } })], knob(), page);
+
+    expect(spaced.records[1]?.fields.startDate).toBe('2026-11-19 19:00');
+    expect(spaced.counts).toMatchObject({ expanded: 8 });
+  });
+
+  it('leaves a record single when its own date is one the document says the rule skips, or it duplicates a queued card', () => {
+    const excepted = run([weekly({ repeats: { rule: 'FREQ=WEEKLY', except: ['2026-11-12'], evidence: 'every Thursday' } })], knob(), page);
+    const duplicate = run([weekly({ duplicateOf: 41 })], knob(), { ...page, knownIds: new Set([41]) });
+
+    expect(excepted.records).toHaveLength(1);
+    expect(excepted.counts).toMatchObject({ 'expansion.anchor_not_in_rule': 1 });
+    expect(excepted.records[0]?.issues).toContain('repeats: its date is one the document says the rule skips, so only this date was proposed');
+    expect(duplicate.records).toHaveLength(1);
+    expect(duplicate.counts).toMatchObject({ 'expansion.template_duplicate': 1 });
+  });
+
+  it('reads an UNTIL written with dashes, or as a local time, on the record\'s clock', () => {
+    for (const end of ['2026-11-26', '20261126T190000', '2026-11-26T19:00']) {
+      expect(run([endsOn(end)], knob(), page).records.map(r => r.fields.start)).toEqual(['2026-11-12T19:00', '2026-11-19T19:00', '2026-11-26T19:00']);
+    }
+
+    expect(run([endsOn('20261126T185959')], knob(), page).records.map(r => r.fields.startDate)).toEqual(['2026-11-12', '2026-11-19']);
+
+    // Local noon today in Auckland is 23:00 UTC yesterday, so the series has not ended.
+    const auckland = run([endsOn('20261110T120000', { fields: { startDate: TODAY, start: `${TODAY}T09:00` } })], knob({ timezone: 'Pacific/Auckland' }), page);
+
+    expect(auckland.records.map(r => r.fields.startDate)).toEqual([TODAY]);
+    expect(auckland.records[0]?.issues).toEqual([]);
+    expect(auckland.counts).toEqual({});
+  });
+
+  it('still refuses an UNTIL it cannot read', () => {
+    for (const end of ['Nov 26', '2025-13-45']) {
+      const out = run([endsOn(end)], knob(), page);
+
+      expect(out.records).toHaveLength(1);
+      expect(out.counts).toMatchObject({ 'expansion.rule_unread': 1 });
+    }
+  });
+
+  it('drops a record whose own rule ended before today, and holds none of its days', () => {
+    for (const end of ['20261031', '2026-10-31']) {
+      const out = run([endsOn(end)], knob(), page);
+
+      expect(out.records).toEqual([]);
+      expect(out.counts).toMatchObject({ 'skipped.series_ended': 1 });
+    }
+
+    const ended = endsOn('20261031', { fields: { startDate: '2026-11-19', start: '2026-11-19T19:00' } });
+    const out = run([ended, weekly()], knob(), page);
+
+    expect(out.records.slice(0, 2).map(r => r.fields.startDate)).toEqual(['2026-11-12', '2026-11-19']);
+    expect(out.records[1]?.issues).toEqual(['date computed from the stated rule: every Thursday']);
+    expect(out.counts).toMatchObject({ 'skipped.series_ended': 1 });
+    expect(out.counts['expansion.held']).toBeUndefined();
+  });
+
+  it('leaves a record single when its date falls after its own rule\'s end', () => {
+    const out = run([endsOn('20261119', { fields: { startDate: '2026-11-26', start: '2026-11-26T19:00' } })], knob(), page);
+
+    expect(out.records).toHaveLength(1);
+    expect(out.counts).toMatchObject({ 'expansion.anchor_not_in_rule': 1 });
+  });
+
+  it('refuses a weekday counted back from the month\'s end, other than the last', () => {
+    const listed = run([weekly({ fields: { startDate: '2026-12-02', start: '2026-12-02T10:00' }, repeats: { rule: 'FREQ=MONTHLY;BYDAY=1WE,-3WE', evidence: 'every Thursday' } })], knob(), page);
+    const last = run([weekly({ fields: { startDate: '2026-11-24', start: '2026-11-24T19:00' }, repeats: { rule: 'FREQ=MONTHLY;BYDAY=-1TU', evidence: 'every Thursday' } })], knob(), page);
+
+    expect(listed.records).toHaveLength(1);
+    expect(listed.counts).toMatchObject({ 'expansion.rule_from_end': 1 });
+    expect(listed.records[0]?.issues).toContain('repeats: "FREQ=MONTHLY;BYDAY=1WE,-3WE" counts a weekday back from the month\'s end other than the last, so only this date was proposed');
+    expect(last.records.map(r => r.fields.startDate)).toEqual(['2026-11-24', '2026-12-29']);
+  });
+
+  it('holds a date the model returned with an offset, so one occurrence is one record', () => {
+    const out = run([
+      weekly({ fields: { startDate: '2026-11-13T00:00:00Z', start: '2026-11-13T00:00:00Z' } }),
+      record({ fields: { startDate: '2026-11-20T00:00:00Z', start: '2026-11-20T00:00:00Z' } }),
+    ], knob(), page);
+
+    expect(out.records.filter(r => calendarDayOf(r.fields.startDate, 'America/New_York') === '2026-11-19')).toHaveLength(1);
+    expect(out.counts).toMatchObject({ 'expansion.held': 1 });
+  });
+
+  it('never reads a rule off a calendar entry, whatever the model wrote', () => {
+    const out = run([weekly()], knob(), { ...page, calendarEntry: true });
+
+    expect(out.records).toHaveLength(1);
+    expect(out.counts).not.toHaveProperty('expanded');
+  });
+
+  it('puts the document\'s own image on every occurrence of the one record it described', () => {
+    const out = run([weekly()], knob(), { ...page, ogImage: 'https://bellwaterhall.example/og.png' });
+
+    expect(out.records.length).toBeGreaterThan(1);
+    expect(out.records.every(r => r.imageUrl === 'https://bellwaterhall.example/og.png')).toBe(true);
+  });
+
+  it('still leaves the document\'s image off a document that described several records', () => {
+    const out = run([weekly(), record({ fields: { title: 'Jazz Brunch' } })], knob(), { ...page, ogImage: 'https://bellwaterhall.example/og.png' });
+
+    expect(out.records.some(r => r.imageUrl)).toBe(false);
+  });
+
+  it('writes nothing from a stated rule for a source that does not opt in', () => {
+    const out = run([weekly()], configWith(), page);
+
+    expect(out.records).toHaveLength(1);
+    expect(out.records[0]).not.toHaveProperty('repeats');
+  });
+});
+
+describe('a source that does not opt into occurrence fields', () => {
+  it('validates exactly as it did before the knob existed', () => {
+    const config = configWith({
+      defaults: { venueName: 'Bellwater Hall' },
+      dropIfPast: { field: 'startDate' },
+      allowedValues: { categories: ['Music'] },
+      mustAppearInDocument: ['price'],
+      quotedFields: ['title'],
+      linkFields: ['ticketUrl'],
+      imageFrom: 'poster',
+      collapseWithinDocument: true,
+      seriesLabel: { sameOn: ['title', 'venueName'], differsOn: 'startDate', evidenceField: 'recurrence', flagField: 'seriesMatch' },
+      scores: [{ name: 'fit', describe: 'Fit.' }],
+    });
+    const records = [
+      record({ fields: { recurrence: 'every Thursday', price: '$12', categories: ['Music', 'Dance'] }, sourceUrl: 'https://bellwaterhall.example/e/open-mic', scores: { fit: 0.7, other: 2 } }),
+      record({ fields: { startDate: '2026-11-19', recurrence: 'every Thursday', price: '$15' }, seriesOf: 41, seriesNote: 'a week later' }),
+      record({ fields: { startDate: '2026-11-12' } }),
+      record({ fields: { title: 'Last Week', startDate: '2026-11-01' } }),
+      record({ fields: { title: 'Far Off', startDate: '2027-03-01', recurrence: 'monthly' } }),
+      record({ fields: { title: 'Poster Show', ticketUrl: 'https://bellwaterhall.example/tickets', poster: 'https://bellwaterhall.example/p.jpg', venueName: '' }, imageUrl: 'https://invented.example/x.png' }),
+      record({ fields: { title: 'Unsure' }, confidence: 0.2 }),
+    ];
+    const out = run(records, config, {
+      links: [{ url: 'https://bellwaterhall.example/e/open-mic', text: 'Open Mic Night' }, { url: 'https://bellwaterhall.example/tickets', text: 'Tickets' }],
+      images: ['https://bellwaterhall.example/p.jpg'],
+      ogImage: 'https://bellwaterhall.example/og.png',
+      ownUrl: 'https://bellwaterhall.example/events',
+      knownIds: new Set([41]),
+    });
+    const single = run([record()], config, { ogImage: 'https://bellwaterhall.example/og.png' });
+
+    expect(createHash('sha256').update(JSON.stringify([out, single])).digest('hex')).toBe('3f754016d187891c5ce213a5805e8a7dd93d96d670f27fed6f8ae4bd1d381fa2');
   });
 });

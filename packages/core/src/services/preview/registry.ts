@@ -1,5 +1,6 @@
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
+import { describeRef } from '@/libs/preview/describeRef';
 import { evidenceRef } from '@/libs/preview/evidenceRef';
 
 /**
@@ -67,16 +68,17 @@ export function previewTypes(): RecordType[] {
  */
 export async function resolvePreview(ref: RecordRef, ctx: PreviewContext): Promise<PreviewDoc> {
   const descriptor = REGISTRY.get(ref.type);
-  // Even unresolved, the reference names a system and a kind of thing — the
-  // same reading the list already put on the row. Say that rather than
-  // "Document", and never fall back to the id as the title.
+  // Even unresolved, the reference names a kind of thing and which one —
+  // "Agent run #5974", "Plan for #126" — and where its page is. Say that,
+  // never the id on its own (`libs/preview/describeRef.ts`).
   const read = evidenceRef(ref.id);
-  const fallback = (reason: string): PreviewDoc => ({
+  const named = describeRef(ref);
+  const fallback = (reason: string, retryable = false): PreviewDoc => ({
     ref,
-    title: ref.label ?? read.label,
+    title: named.label,
     sourceLabel: read.sourceLabel === 'Note' ? descriptor?.sourceLabel ?? 'Reference' : read.sourceLabel,
-    href: ref.href ?? descriptor?.href?.(ref) ?? undefined,
-    unresolved: { reason, reference: ref.id },
+    href: ref.href ?? descriptor?.href?.(ref) ?? named.href ?? undefined,
+    unresolved: { reason, reference: ref.id, ...(retryable ? { retryable: true } : {}) },
   });
   if (!descriptor) {
     return fallback('Nothing in Vocion reads this kind of reference yet.');
@@ -88,7 +90,10 @@ export async function resolvePreview(ref: RecordRef, ctx: PreviewContext): Promi
     }
     return { ...doc, href: doc.href ?? descriptor.href?.(ref) ?? undefined };
   } catch (error) {
+    // A throw is a read that failed — most often the database going away
+    // while the server restarts — not a reference that names nothing. The
+    // pane retries it rather than saying it does not exist.
     console.error(`preview: resolving ${ref.type}:${ref.id} failed`, error);
-    return fallback('This reference could not be read just now.');
+    return fallback('This could not be read just now.', true);
   }
 }

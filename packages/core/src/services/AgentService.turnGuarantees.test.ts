@@ -21,8 +21,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
+// The turn's judge (`agents/turnJudge.ts`) reads meaning with a model; each
+// test says what that reading is. Unset, it is "no signal".
+const judge = vi.hoisted(() => ({ intent: {} as Record<string, unknown> }));
+vi.mock('@/services/agents/turnJudge', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/services/agents/turnJudge')>();
+  return {
+    ...real,
+    readIntent: vi.fn(async () => ({ ...real.NO_INTENT, ...judge.intent })),
+  };
+});
+
 const streamEvents = vi.fn();
-const backstop = vi.hoisted(() => ({ on: false, calls: [] as Array<{ name: string; args: Record<string, unknown> }>, onCall: undefined as undefined | ((mark: string) => void) }));
+const backstop = vi.hoisted(() => ({ on: false, calls: [] as Array<{ name: string; args: Record<string, unknown> }>, delays: [] as number[], onCall: undefined as undefined | ((mark: string) => void) }));
 
 vi.mock('@/services/agents/harness', () => ({
   // The turn says which model answers it (`run_meta`); the mock keeps the agent's defaults.
@@ -38,24 +49,34 @@ vi.mock('@/services/agents/harness', () => ({
 
 vi.mock('@/libs/llm', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/llm')>()),
-  // The card pass streams: each recorded call arrives as tool_call_chunks,
-  // its arguments split across two chunks, as a provider sends them.
-  buildChatModelForOrg: vi.fn(async () => ({
-    bindTools: () => ({
-      invoke: async () => ({ tool_calls: backstop.calls }),
-      stream: async () => (async function* () {
-        for (const [index, call] of backstop.calls.entries()) {
-          const json = JSON.stringify(call.args);
-          const cut = Math.floor(json.length / 2);
-          backstop.onCall?.(`model starts card ${index + 1}`);
-          yield { tool_call_chunks: [{ index, name: call.name, args: json.slice(0, cut) }] };
-          yield { tool_call_chunks: [{ index, args: json.slice(cut) }] };
-          backstop.onCall?.(`model finishes card ${index + 1}`);
-        }
-      })(),
-    }),
-  })),
+  // The card pass is two steps (services/agents/cardBackstop.ts): the
+  // classifier lists the decisions (labels only), then one extractor call per
+  // card writes it. Each recorded call is one card; `delays` holds a writer
+  // back by that many ms so a test can see the cards land out of order.
+  buildChatModelForOrg: vi.fn(async (role: string) => (role === 'classifier'
+    ? { invoke: async () => ({ content: JSON.stringify(backstop.calls.map(c => ({ label: c.args.label ?? c.args.title, why: 'named in the answer', action: c.args.action_id }))) }) }
+    : {
+        bindTools: () => ({
+          invoke: async (messages: Array<{ content: unknown }>) => {
+            const human = String(messages.at(-1)?.content ?? '');
+            const index = backstop.calls.findIndex(c => human.startsWith(`CARD FOR: ${String(c.args.label ?? c.args.title)}\n`));
+            // Any other pass (the owed-write filing) gets every recorded call.
+            if (index === -1) {
+              return { tool_calls: backstop.calls };
+            }
+            const call = backstop.calls[index]!;
+            backstop.onCall?.(`model starts card ${index + 1}`);
+            await new Promise(r => setTimeout(r, backstop.delays[index] ?? 0));
+            backstop.onCall?.(`model finishes card ${index + 1}`);
+            return { tool_calls: [{ name: call.name, args: call.args }] };
+          },
+        }),
+      })),
 }));
+// The agent's tool belt, as the filing pass builds it: empty unless a test puts propose_action on it.
+const toolBelt = vi.hoisted(() => ({ tools: [] as Array<{ name: string; invoke: (input: unknown) => Promise<unknown> }> }));
+vi.mock('@/services/agents/tools/registry', () => ({ buildDomainTools: () => toolBelt.tools }));
+
 vi.mock('@/libs/Langfuse', () => ({
   createLangfuseCallback: vi.fn(() => ({ handler: {}, trace: { id: 'trace-1', update: vi.fn() } })),
   flushTraces: vi.fn(async () => {}),
@@ -160,6 +181,7 @@ beforeEach(async () => {
   await db.delete(agentSchema);
   await db.insert(agentSchema).values({ orgId: ORG, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
   streamEvents.mockReset();
+  judge.intent = {};
 });
 
 describe('a failed delegation reaches the person', () => {
@@ -178,31 +200,16 @@ describe('a failed delegation reaches the person', () => {
     expect(toolErrors[0]).toMatchObject({ tool: 'task' });
   });
 
-  it('says so in the answer even though the model did not', async () => {
-    streamEvents.mockResolvedValue(failingDelegationStream('caught'));
-    const { result, events } = await run({ message: 'draft a pipeline report' });
+  it('says a hand-off that did not complete, from the typed failure', async () => {
+    const out = await applyTurnGuarantees({ orgId: ORG, agentSlug: 'lead', request: 'draft a pipeline report', response: 'Here is the pipeline report.', toolCalls: [], failures: [], failedDelegations: [{ name: 'Pipeline Analyst', message: 'timeout' }], answer: async () => 'should not be used', emit: () => {} });
 
-    expect(result.response).toContain('Pipeline Analyst');
-    expect(result.response).toMatch(/did not complete/);
-
-    // And the person sees it arrive, not just the persisted copy.
-    const deltas = events.filter((e): e is Extract<AgentEvent, { type: 'response_delta' }> => e.type === 'response_delta');
-
-    expect(deltas.some(d => d.delta.includes('did not complete'))).toBe(true);
-  });
-
-  it('says nothing extra when the answer already owned up to it', () => {
-    const answer = 'I could not get a read from Pipeline Analyst, so this is partial.';
-
-    expect(delegationFailureNotice([{ name: 'Pipeline Analyst', message: 'timeout' }], answer)).toBeNull();
-    expect(delegationFailureNotice([], 'all good')).toBeNull();
+    expect(out).toBe('Here is the pipeline report.\n\nThe hand-off to Pipeline Analyst did not complete (timeout), so nothing from that step is in this answer.');
+    expect(delegationFailureNotice([])).toBeNull();
   });
 
   it('names every specialist that failed, once', () => {
-    const notice = delegationFailureNotice(
-      [{ name: 'Pipeline Analyst', message: 'timed out' }, { name: 'Proposal Writer', message: 'timed out' }],
-      'Here is what I have.',
-    );
+    // The crash path's notice: the turn has no answer to judge.
+    const notice = delegationFailureNotice([{ name: 'Pipeline Analyst', message: 'timed out' }, { name: 'Proposal Writer', message: 'timed out' }]);
 
     expect(notice).toContain('Pipeline Analyst and Proposal Writer');
   });
@@ -232,99 +239,6 @@ describe('the deliverable contract', () => {
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.title).toBe('Pipeline report — not completed');
     expect(result.response).toMatch(/could not produce one/);
-  });
-
-  it('a tool\'s name written as the last word is stripped, and the loop re-enters once to make the call', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narratedToolStream());
-    const { result } = await run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-1)?.content).toContain('Call recommend_action now');
-    expect(second.messages.at(-2)?.content).toBe('Filed. The build decision card is below.');
-    expect(result.response).not.toMatch(/recommend_action\s*$/);
-  });
-
-  it('a whole call imitated as a fenced block at the end of the message is stripped and called too', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narratedToolStream('Should I reuse id 124?\n\nCARD\n```\nrecommend_action\nid: clarify-124\nquestion: which one?\n```'));
-    const { result } = await run({ message: 'Approve filing it.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-1)?.content).toContain('Call recommend_action now');
-    expect(second.messages.at(-2)?.content).toBe('Should I reuse id 124?');
-    expect(result.response).not.toContain('```');
-  });
-
-  it('a call written as a heading over a JSON block — three of them — is stripped and the loop re-enters to make it (finding 19)', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narratedToolStream('Now writing each update:\n\n**update_object — request 30**\n\n```json\n{"object_type":"request","id":30,"fields":{"title":"add-send-admin-panel"}}\n```\n\n**update_object — request 38**\n\n```json\n{"object_type":"request","id":38}\n```'));
-    const { result } = await run({ message: 'Backfill the three requests.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-1)?.content).toContain('Call update_object now');
-    expect(second.messages.at(-2)?.content).toBe('Now writing each update:');
-    expect(result.response).not.toContain('```json');
-  });
-
-  it('a call written out AFTER the continuation re-enters once more, naming the tool (mission run 5067, backlog 006)', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    streamEvents.mockClear();
-    streamEvents
-      // The one continuation is spent on a preamble…
-      .mockResolvedValueOnce(narrationStream())
-      // …and the pass it buys writes the write out as text.
-      .mockResolvedValueOnce(narratedToolStream('Now filing the single update:\n\n**update_object** — request #30\n\n```json\n{"title":"Admin panel so ops can comp orgs"}\n```\n\n*(Calling update_object now.)*'))
-      .mockResolvedValueOnce(lookupStream('[{"id":30}]'));
-    const { result } = await run({ message: 'Backfill request 30.', deliverable: 'answer', conversationId: conv.id });
-
-    expect(streamEvents).toHaveBeenCalledTimes(3);
-
-    const third = streamEvents.mock.calls[2]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(third.messages.at(-1)?.content).toContain('Call update_object now');
-    expect(result.response).not.toContain('```json');
-  });
-
-  it('a continuation that reads and stops on a tool result keeps going instead of handing the write to the answer pass (mission run 5074)', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    const readsOnly = (): AsyncIterable<unknown> => ({ async* [Symbol.asyncIterator]() {
-      yield { event: 'on_tool_end', name: 'read_object', metadata: { checkpoint_ns: 'tools:read-1' }, data: { input: { id: 30 }, output: { content: '{"id":30}' } } };
-    } });
-    streamEvents.mockClear();
-    streamEvents
-      .mockResolvedValueOnce(narrationStream())
-      .mockResolvedValueOnce(readsOnly())
-      .mockResolvedValueOnce(lookupStream('[{"id":30}]'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      await run({ message: 'Backfill request 30.', deliverable: 'answer', conversationId: conv.id });
-
-      expect(streamEvents).toHaveBeenCalledTimes(3);
-
-      const third = streamEvents.mock.calls[2]![0] as { messages: Array<{ role: string; content: string }> };
-
-      expect(third.messages.at(-1)?.content).toContain('make the write');
-      // …and it can SEE what the reads returned: a fresh graph starts from
-      // text, so without this the pass re-reads blind (mission run 5081).
-      expect(third.messages.at(-1)?.content).toContain('What your tool calls in this turn returned');
-      expect(third.messages.at(-1)?.content).toContain('### read_object');
-      expect(warn.mock.calls.some(c => String(c[0]).includes('worked and stopped on a tool result'))).toBe(true);
-    } finally {
-      warn.mockRestore();
-    }
   });
 
   it('a malformed tool call does not end the turn: the error goes back once and the answer still lands', async () => {
@@ -359,24 +273,6 @@ describe('the deliverable contract', () => {
     expect(second.messages.at(-2)?.role).toBe('user');
     expect(result.response).toContain('Found the cards.');
   });
-
-  it('makes no artifact when the turn owed an answer — and continues ONCE when the turn ended on a promise', async () => {
-    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
-    streamEvents.mockClear();
-    streamEvents.mockResolvedValue(narrationStream());
-    const { result } = await run({ message: 'what should I do right now?', deliverable: 'answer', conversationId: conv.id });
-
-    expect(await listArtifactsForConversation({ orgId: ORG, conversationId: conv.id })).toHaveLength(0);
-    // "Let me check…" with no tool call is a promise, not an answer (production
-    // turn 577): the loop re-enters once with the promise as its own last words.
-    expect(streamEvents).toHaveBeenCalledTimes(2);
-
-    const second = streamEvents.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> };
-
-    expect(second.messages.at(-2)).toEqual({ role: 'assistant', content: 'Let me check the right structure first.' });
-    expect(second.messages.at(-1)?.content).toContain('That is a promise, not an answer');
-    expect(result.response.startsWith('Let me check the right structure first.')).toBe(true);
-  });
 });
 
 /**
@@ -384,17 +280,12 @@ describe('the deliverable contract', () => {
  * @param output - What the tool returned.
  */
 /**
- * A turn that answers in prose and ends with a tool's NAME as its last word.
- * @param body
+ * A turn that answers in prose.
+ * @param body - The answer.
  */
-function narratedToolStream(body = 'Filed. The build decision card is below.\n\nrecommend_action'): AsyncIterable<unknown> {
-  const events = [
-    { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } },
-  ];
+function answerStream(body: string): AsyncIterable<unknown> {
   return { async* [Symbol.asyncIterator]() {
-    for (const e of events) {
-      yield e;
-    }
+    yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } };
   } };
 }
 
@@ -440,7 +331,7 @@ describe('the tool-call log an eval reads', () => {
     expect(logged?.output).toBe(page);
   });
 
-  it('the card backstop counts only cards that were put up: a refused action is re-put without it, and the log says so (finding 20)', async () => {
+  it('a card whose action is refused is not a dead card, and not a line in the reply either: the log says so (finding 20, conversation 351; Chris, 2026-09-29)', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
@@ -449,15 +340,14 @@ describe('the tool-call log an eval reads', () => {
     streamEvents.mockResolvedValue(longAnswerStream());
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const { events } = await run({ message: 'Seven customers lost uploads.', deliverable: 'answer', conversationId: conv.id });
+      const { events, result } = await run({ message: 'Seven customers lost uploads.', deliverable: 'answer', conversationId: conv.id });
 
-      const cards = events.filter(e => e.type === 'recommended_action') as Array<{ recommendation: { label: string; actionId: string } }>;
-
-      expect(cards).toHaveLength(1);
-      expect(cards[0]?.recommendation.label).toBe('File this as a request');
-      expect(cards[0]?.recommendation.actionId).toBeFalsy();
-      expect(warn.mock.calls.some(c => String(c[0]).includes('refused and re-put'))).toBe(true);
-      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && (c[1] as { emitted: number; refused: number }).emitted === 1 && (c[1] as { refused: number }).refused === 1)).toBe(true);
+      expect(events.filter(e => e.type === 'recommended_action')).toHaveLength(0);
+      expect(result.response).not.toContain('not a card');
+      expect(events.some(e => e.type === 'response_delta' && e.delta.includes('not a card'))).toBe(false);
+      expect(warn.mock.calls.some(c => String(c[0]).includes('refused and dropped'))).toBe(true);
+      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && String((c[1] as { dropped: string[] }).dropped).includes('no registered action "no.such.action"'))).toBe(true);
+      expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop' && (c[1] as { emitted: number; refused: number }).emitted === 0 && (c[1] as { refused: number }).refused === 1)).toBe(true);
     } finally {
       warn.mockRestore();
       backstop.on = false;
@@ -472,7 +362,7 @@ describe('the tool-call log an eval reads', () => {
     streamEvents
       .mockResolvedValueOnce(emptyStream())
       .mockResolvedValueOnce(emptyStream())
-      .mockResolvedValueOnce(narratedToolStream('Four deals closed last month, worth $216K.'));
+      .mockResolvedValueOnce(answerStream('Four deals closed last month, worth $216K.'));
     const { result } = await run({ message: 'how many deals closed?', deliverable: 'answer', conversationId: conv.id });
 
     expect(streamEvents).toHaveBeenCalledTimes(3);
@@ -510,7 +400,7 @@ describe('the tool-call log an eval reads', () => {
     backstop.calls.length = 0;
     // No action_input at all, and the label under `title` — the shape the model produced on walk 16.
     backstop.calls.push({ name: 'recommend_action', args: { action_id: 'no.such.action', title: 'Approve P1 fix: mobile upload lost on cellular' } });
-    backstop.calls.push({ name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Tell the requester' } });
+    backstop.calls.push({ name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'ops@kestrel.example', subject: 'Uploads', body: 'We are fixing it.', draft: true }, label: 'Tell the requester' } });
     streamEvents.mockClear();
     streamEvents.mockResolvedValue(longAnswerStream());
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -523,31 +413,13 @@ describe('the tool-call log an eval reads', () => {
         console.error('WARNS', JSON.stringify(warn.mock.calls.map(c => [String(c[0]), c[1]]).slice(-6)));
       }
 
-      expect(cards.map(c => c.recommendation.label)).toEqual(['Approve P1 fix: mobile upload lost on cellular', 'Tell the requester']);
+      // The refused one is a line under the answer, never a card with nothing to press.
+      expect(cards.map(c => c.recommendation.label)).toEqual(['Tell the requester']);
       expect(warn.mock.calls.some(c => String(c[0]) === 'card backstop failed')).toBe(false);
     } finally {
       warn.mockRestore();
       backstop.on = false;
     }
-  });
-});
-
-describe('a write the answer claims is a write that ran (finding 23)', () => {
-  const claimed = 'Scoped the StampSend MCP work against the Send standards and the current connector.\n\n**Filed:** Request recorded for Send. Architecture plan queued.';
-  const base = { orgId: ORG, agentSlug: 'lead', request: 'File it.', failures: [], failedDelegations: [], answer: async () => '' };
-
-  it('appends the correction, live and stored, when only reads ran', async () => {
-    const events: AgentEvent[] = [];
-    const out = await applyTurnGuarantees({ ...base, response: claimed, toolCalls: [{ tool: 'lookup_objects', output: 'request #126' }], emit: e => events.push(e) });
-
-    expect(out).toContain('Nothing was saved in this turn');
-    expect(events.some(e => e.type === 'response_delta' && e.delta.includes('Nothing was saved in this turn'))).toBe(true);
-  });
-
-  it('says nothing when the write ran', async () => {
-    const out = await applyTurnGuarantees({ ...base, response: claimed, toolCalls: [{ tool: 'update_object', output: '{"ok":true,"id":130}' }], emit: () => {} });
-
-    expect(out).toBe(claimed);
   });
 });
 
@@ -579,17 +451,19 @@ describe('the answer pass streams (2026-09-25: "the response just pops in")', ()
   });
 });
 
-describe('the card pass streams (2026-09-25: "waiting like 40 seconds for the cards")', () => {
-  it('puts the first card up before the model has started writing the second', async () => {
+describe('the card pass writes every card at once (2026-09-25/28: "waiting like 40 seconds for the cards")', () => {
+  it('starts every card call before any returns, and puts each up the moment its own call does', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
     backstop.calls.push(
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Approve the P1 upload fix', rationale: 'seven reports' } },
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Defer the admin panel', rationale: 'no demand yet' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'ops@kestrel.example', subject: 'P1 fix', body: 'Approving the upload fix today.', draft: true }, label: 'Approve the P1 upload fix', rationale: 'seven reports' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'pm@kestrel.example', subject: 'Admin panel', body: 'Deferring the admin panel.', draft: true }, label: 'Defer the admin panel', rationale: 'no demand yet' } },
     );
     const order: string[] = [];
     backstop.onCall = mark => order.push(mark);
+    // Card 1 is the slow one: card 2 must not wait for it.
+    backstop.delays = [60, 5];
     streamEvents.mockClear();
     streamEvents.mockResolvedValue(longAnswerStream());
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -607,36 +481,37 @@ describe('the card pass streams (2026-09-25: "waiting like 40 seconds for the ca
         },
       });
 
-      // Card 1 is on screen as soon as card 2 begins — before the model has
-      // finished writing card 2, let alone the last one.
+      // Both calls in flight before either returns; each card on screen right
+      // after ITS call, so the fast one lands first.
       expect(order).toEqual([
         'model starts card 1',
-        'model finishes card 1',
         'model starts card 2',
-        'on screen: Approve the P1 upload fix',
         'model finishes card 2',
         'on screen: Defer the admin panel',
+        'model finishes card 1',
+        'on screen: Approve the P1 upload fix',
       ]);
     } finally {
       warn.mockRestore();
       backstop.on = false;
       backstop.onCall = undefined;
+      backstop.delays = [];
     }
   });
 });
 
 describe('the live line says what is happening (2026-09-25: "Working is such a lazy progress label")', () => {
-  it('names the card pass and each card as it lands', async () => {
+  it('ends the turn before the cards, which land after it with no status line (conversation 392)', async () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
     backstop.on = true;
     backstop.calls.length = 0;
     backstop.calls.push(
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Approve the Kestrel upload fix', rationale: 'seven reports' } },
-      { name: 'recommend_action', args: { action_id: '', action_input: {}, label: 'Defer the admin panel', rationale: 'no demand yet' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'ops@kestrel.example', subject: 'P1 fix', body: 'Approving the upload fix today.', draft: true }, label: 'Approve the Kestrel upload fix', rationale: 'seven reports' } },
+      { name: 'recommend_action', args: { action_id: 'gmail.send', action_input: { to: 'pm@kestrel.example', subject: 'Admin panel', body: 'Deferring the admin panel.', draft: true }, label: 'Defer the admin panel', rationale: 'no demand yet' } },
     );
     streamEvents.mockClear();
     streamEvents.mockResolvedValue(longAnswerStream());
-    const statuses: string[] = [];
+    const order: string[] = [];
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await runAgentDeep({
@@ -646,16 +521,59 @@ describe('the live line says what is happening (2026-09-25: "Working is such a l
         deliverable: 'answer',
         conversationId: conv.id,
         onEvent: (e) => {
-          if (e.type === 'status') {
-            statuses.push(e.label);
+          if (e.type === 'done') {
+            order.push('done');
+          }
+          if (e.type === 'recommended_action') {
+            order.push(`card: ${e.recommendation.label}`);
+          }
+          if (e.type === 'status' && /decision/.test(e.label)) {
+            order.push(`status: ${e.label}`);
           }
         },
       });
 
-      expect(statuses).toEqual(['Writing the decision cards', 'Card 1 ready · writing the next', 'Card 2 ready · writing the next']);
+      // The composer is free the moment the answer is; the cards follow on the
+      // same stream, and nothing says "Writing…" under a finished answer.
+      expect(order[0]).toBe('done');
+      expect(order.slice(1).sort()).toEqual(['card: Approve the Kestrel upload fix', 'card: Defer the admin panel']);
     } finally {
       warn.mockRestore();
       backstop.on = false;
+    }
+  });
+});
+
+describe('a tool call written as text is the call (conversation 355)', () => {
+  it('never streams the block, runs it as the real tool, and stores the answer without it', async () => {
+    const received: unknown[] = [];
+    toolBelt.tools = [{
+      name: 'recommend_action',
+      invoke: async (input) => {
+        received.push(input);
+        return 'Surfaced a one-tap recommendation to the user: "Write the narrowed scope onto 124".';
+      },
+    }];
+    const block = '<recommend_action>\n{"action_id":"objects.update_meta","action_input":{"objectType":"request","id":124,"set":{"outcome":"Email only."}},"label":"Write the narrowed scope onto 124","confidence":0.55}\n</recommend_action>';
+    streamEvents.mockResolvedValueOnce({ async* [Symbol.asyncIterator]() {
+      for (const piece of ['Scope change taken.\n\n', block.slice(0, 40), block.slice(40), '\n\nWant a sketch first?']) {
+        yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(piece) } };
+      }
+    } }).mockResolvedValue(emptyStream());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { result, events } = await run({ message: 'What is left in scope?' });
+      const streamed = events.filter(e => e.type === 'response_delta').map(e => (e as { delta: string }).delta).join('');
+
+      expect(streamed).not.toContain('recommend_action');
+      expect(result.response).not.toContain('action_id');
+      expect(result.response).toContain('Scope change taken.');
+      expect(result.response).toContain('Want a sketch first?');
+      expect(received).toEqual([expect.objectContaining({ action_id: 'objects.update_meta', label: 'Write the narrowed scope onto 124', action_input: { objectType: 'request', id: 124, set: { outcome: 'Email only.' } } })]);
+      expect(result.toolCalls.map(c => c.tool)).toContain('recommend_action');
+    } finally {
+      warn.mockRestore();
+      toolBelt.tools = [];
     }
   });
 });

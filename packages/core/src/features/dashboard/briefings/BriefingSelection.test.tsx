@@ -78,7 +78,7 @@ describe('the briefing detail is commentable', () => {
     expect(fields).toContain('Needs your decision');
   });
 
-  it('a selection raises the standard control, and Ask about this carries the passage', async () => {
+  it('a selection raises the standard toolbar, and Ask carries the passage', async () => {
     const seen: Array<{ context?: { selection?: { text: string }; record?: { type: string; id: string } }; tags?: unknown[] }> = [];
     const onRequest = (e: Event) => {
       e.preventDefault();
@@ -92,11 +92,12 @@ describe('the briefing detail is commentable', () => {
 
       const text = await selectInFirstSection();
 
-      await expect.element(page.getByRole('dialog', { name: 'What to do with the selection' })).toBeVisible();
+      // The one selection toolbar every page shows (principle 6).
+      await expect.element(page.getByRole('toolbar', { name: 'Selected passage' })).toBeVisible();
       // A briefing has no draft to rewrite, so no intent action is offered.
-      expect(page.getByRole('button', { name: 'Add change' }).elements()).toHaveLength(0);
+      expect(page.getByRole('button', { name: 'Change', exact: true }).elements()).toHaveLength(0);
 
-      await userEvent.click(page.getByRole('button', { name: 'Ask about this' }));
+      await userEvent.click(page.getByRole('button', { name: 'Ask', exact: true }));
 
       await vi.waitFor(() => expect(seen).toHaveLength(1));
 
@@ -115,12 +116,12 @@ describe('the briefing detail is commentable', () => {
 
     await selectInFirstSection();
 
-    await expect.element(page.getByRole('dialog', { name: 'What to do with the selection' })).toBeVisible();
+    await expect.element(page.getByRole('toolbar', { name: 'Selected passage' })).toBeVisible();
 
     // What the preview panel calls instead of reaching into the layer.
     dismissSelectionControl();
 
-    await vi.waitFor(() => expect(page.getByRole('dialog', { name: 'What to do with the selection' }).elements()).toHaveLength(0));
+    await vi.waitFor(() => expect(page.getByRole('toolbar', { name: 'Selected passage' }).elements()).toHaveLength(0));
   });
 
   it('renders as ONE bordered surface — the sections inside it are not cards', async () => {

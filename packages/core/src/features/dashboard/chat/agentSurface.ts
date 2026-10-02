@@ -213,3 +213,33 @@ export function focusAgentComposer(container: HTMLElement | null): void {
   };
   requestAnimationFrame(tryFocus);
 }
+
+/**
+ * The surface a control sits in: its nearest ancestor that holds an agent
+ * composer, or null when none does. A header control (New chat) finds its
+ * own box this way — the rail's in the rail, the page's on the page —
+ * without every surface threading a ref down to it.
+ * @param from - The control.
+ */
+export function composerSurfaceOf(from: Element | null): HTMLElement | null {
+  for (let el = from?.parentElement ?? null; el; el = el.parentElement) {
+    if (el.querySelector('[data-agent-composer]')) {
+      return el;
+    }
+  }
+  return null;
+}
+
+/**
+ * The page's record as a follow-chip exclusion (`turnFollowups`): a request
+ * or any business record is an `object` there, a run a `worker_run`.
+ * @param record - The record the page is about, or null.
+ * @param record.type - Its ref type.
+ * @param record.id - Its id.
+ */
+export function followExcludeOf(record: { type: string; id: string } | null | undefined): { type: string; id: string } | null {
+  if (!record || !/^\d+$/.test(record.id)) {
+    return null;
+  }
+  return { type: record.type === 'request' ? 'object' : record.type, id: record.id };
+}

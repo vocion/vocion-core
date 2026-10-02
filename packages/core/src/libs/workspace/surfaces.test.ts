@@ -3,7 +3,7 @@
  * that config switches a core-registered surface ON and can never author a
  * route: an unknown id must fail at load rather than render a dead sidebar
  * link, and dropping an id must turn the surface back off.
- * DB is the PGlite mock; Temporal is stubbed unreachable.
+ * DB is the PGlite mock; schedules land on the in-memory engine.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,12 +11,6 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/temporal/client', () => ({
-  getTemporalClient: vi.fn(async () => {
-    throw new Error('temporal unavailable in tests');
-  }),
-}));
-
 const { db } = await import('@/libs/DB');
 const { agentSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { applyWorkspace } = await import('./applier');

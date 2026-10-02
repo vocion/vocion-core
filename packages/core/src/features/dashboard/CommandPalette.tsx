@@ -1,17 +1,18 @@
 'use client';
 
-import type { PaletteConversation, PaletteEntity, PaletteRow } from '@/features/dashboard/palette/paletteGroups';
-import { BookOpen, Bot, Compass, Loader, LogOut, MessageSquare, MessagesSquare, Moon, Network, PanelLeft, PanelRight, Plus, Search, Sparkles, Sun } from 'lucide-react';
+import type { PaletteCodeHit, PaletteConversation, PaletteEntity, PaletteRow } from '@/features/dashboard/palette/paletteGroups';
+import { BookOpen, Bot, Compass, Hash, Loader, LogOut, MessageSquare, MessagesSquare, Moon, Network, PanelLeft, PanelRight, Plus, Search, Sparkles, Sun } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { useTheme } from 'next-themes';
-
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut } from '@/components/ui/command';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { focusAgentComposer, requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { COMMAND_PALETTE_EVENT } from '@/features/dashboard/commandPaletteEvent';
-import { buildPaletteGroups, paletteFilter } from '@/features/dashboard/palette/paletteGroups';
+import { buildPaletteGroups, codeRowValue, paletteFilter } from '@/features/dashboard/palette/paletteGroups';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
+import { parseCode } from '@/libs/codes';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -90,6 +91,38 @@ export function CommandPalette({ isAdmin = false, enabledPlugins, agents = [] }:
     };
   }, [open, teams]);
 
+  // A typed code (FE-294, RUN-439) is looked up as it is typed, so ↵ opens it.
+  const [codeHit, setCodeHit] = useState<PaletteCodeHit | null>(null);
+  // The highlighted row. A code's hit arrives after the typing, so it takes
+  // the highlight then — ↵ opens FE-294, not "Ask Vocion: FE-294".
+  const [selected, setSelected] = useState('');
+  useEffect(() => {
+    const typed = query.trim();
+    const parsed = parseCode(typed);
+    if (!open || !parsed || (!parsed.prefix && !typed.startsWith('#'))) {
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetch(`/api/v1/codes/${encodeURIComponent(typed)}`, { credentials: 'same-origin' })
+        .then(res => (res.ok ? res.json() as Promise<{ code: string; title?: string; href: string }> : null))
+        .then((body) => {
+          if (!cancelled) {
+            const hit = body ? { query: typed, code: body.code, title: body.title, href: body.href } : null;
+            setCodeHit(hit);
+            if (hit) {
+              setSelected(codeRowValue(hit));
+            }
+          }
+        })
+        .catch(() => {});
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, query]);
+
   const groups = useMemo(() => buildPaletteGroups({
     query,
     routes: DASHBOARD_ROUTES,
@@ -99,8 +132,9 @@ export function CommandPalette({ isAdmin = false, enabledPlugins, agents = [] }:
     teams,
     missions,
     conversations,
+    codeHit,
     themeIsDark: resolvedTheme === 'dark',
-  }), [query, isAdmin, enabledPlugins, agents, teams, missions, conversations, resolvedTheme]);
+  }), [query, isAdmin, enabledPlugins, agents, teams, missions, conversations, codeHit, resolvedTheme]);
 
   const close = () => {
     setOpen(false);
@@ -175,7 +209,7 @@ export function CommandPalette({ isAdmin = false, enabledPlugins, agents = [] }:
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={o => (o ? setOpen(true) : close())} title="Search and commands" description="Jump to a page, an agent or a conversation, or ask Vocion." commandProps={{ filter: paletteFilter }}>
+    <CommandDialog open={open} onOpenChange={o => (o ? setOpen(true) : close())} title="Search and commands" description="Jump to a page, an agent or a conversation, or ask Vocion." commandProps={{ filter: paletteFilter, value: selected, onValueChange: setSelected }}>
       <CommandInput placeholder="Search, or ask Vocion anything…" value={query} onValueChange={setQuery} />
       <CommandList>
         <CommandEmpty>Nothing matches. Press Enter to ask Vocion instead.</CommandEmpty>
@@ -221,6 +255,7 @@ function RowIcon({ row }: { row: PaletteRow }) {
     case 'team': return <Network />;
     case 'mission': return <Compass />;
     case 'conversation': return <MessageSquare />;
+    case 'code': return <Hash />;
     default: break;
   }
   switch (row.action) {

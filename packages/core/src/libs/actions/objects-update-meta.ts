@@ -37,6 +37,8 @@
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 import { evaluateGates, gateRefusal, gatesOf } from '@/libs/gates/handoffGate';
+import { readStatusModel, withFollowedStatus } from '@/libs/objects/statusModel';
+import { bookkeepingPaths, changedFields } from '@/libs/workspace/bookkeeping';
 import { describeSchemaProblems, displayValue, humanise, loadObjectType } from './objects-propose-candidate';
 
 const UPDATE_ACTION_ID = 'objects.update_meta';
@@ -166,7 +168,7 @@ async function redraw(orgId: string, id: number, meta: Record<string, unknown>, 
  * @param orgId - The workspace.
  * @param id - The record.
  */
-async function bodyBefore(orgId: string, id: number): Promise<void> {
+export async function bodyBefore(orgId: string, id: number): Promise<void> {
   try {
     const { ensureRecordBody } = await import('@/services/objects/recordBody');
     await ensureRecordBody(orgId, id);
@@ -175,7 +177,7 @@ async function bodyBefore(orgId: string, id: number): Promise<void> {
   }
 }
 
-async function bodyAfter(input: { orgId: string; id: number; reason: string; written: string[]; invokedBy?: string; reviewedBy?: string; runId?: number }): Promise<{ status: string; version?: number; reason?: string }> {
+export async function bodyAfter(input: { orgId: string; id: number; reason: string; written: string[]; invokedBy?: string; reviewedBy?: string; runId?: number }): Promise<{ status: string; version?: number; artifactId?: number; reason?: string }> {
   try {
     const { writeRecordBodyVersion } = await import('@/services/objects/recordBody');
     return await writeRecordBodyVersion({ orgId: input.orgId, objectId: input.id, reason: input.reason, written: input.written, invokedBy: input.invokedBy ?? null, reviewedBy: input.reviewedBy ?? null, actionRunId: input.runId ?? null });
@@ -312,6 +314,12 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // marked returned to the seat that produced it so Work says so — the
     // seat fixes the work; nobody is interrupted (libs/gates/handoffGate.ts).
     const failure = evaluateGates(gatesOf(objectType.schema), meta, input.set);
+    // On the person's word the change lands (Chris, 2026-09-29: "Checks
+    // inform; they never hard-stop a person"). The gate still binds what an
+    // agent writes on its own.
+    if (failure && ctx.turn?.onPersonsWord) {
+      return undefined;
+    }
     if (failure) {
       await writeMetadata(ctx.orgId, row.id, {
         ...meta,
@@ -365,15 +373,20 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     if (!row) {
       throw new Error(`No ${objectType.label.toLowerCase()} #${input.id} in this workspace.`);
     }
+    // THE STATUS RIDES WITH THE WRITE (libs/objects/statusModel.ts): a type
+    // that declares one says which writes carry it (`state: triaged`, a
+    // person's Dismiss), so the record's one status moves with its fields and
+    // Undo puts both back.
+    const written = withFollowedStatus(readStatusModel(objectType.schema), input.set as Record<string, unknown>);
     // Sorted: the input comes back from jsonb in no particular order, and the
     // history should read the same however it was stored.
-    const keys = Object.keys(input.set).sort();
+    const keys = Object.keys(written).sort();
     const previous = previousValues(row.metadata, keys);
     // A write that crosses a gated transition and passes clears the return:
     // the seat did the work the gate asked for.
-    const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && g.when.becomes.includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
+    const crossedGates = gatesOf(objectType.schema).filter(g => typeof input.set[g.when.field] === 'string' && (g.when.becomes ?? []).includes(input.set[g.when.field] as string) && row.metadata[g.when.field] !== input.set[g.when.field]);
     const crossed = crossedGates.length > 0;
-    const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...input.set, returnedTo: null, gate: null } : input.set);
+    const next = applySet(row.metadata, crossed && 'returnedTo' in row.metadata ? { ...written, returnedTo: null, gate: null } : written);
     await bodyBefore(ctx.orgId, row.id);
     await writeMetadata(ctx.orgId, row.id, next);
     // The row is written exactly as before; the body's version rides beside
@@ -402,6 +415,26 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // the same way the gap gate is gated on `gapCheck`: this action is
     // domain-free and must stay so.
     const visual = declaresVisuals(objectType.schema) ? await redraw(ctx.orgId, row.id, next, keys) : null;
+    // Said to whoever subscribes (`object.updated`): what changed, and who
+    // changed it. `fields` is what a person would see as changed — a key
+    // written with the value it had, or one whose only change is a path the
+    // type keeps for itself (`x-bookkeeping`), is not in it — and a write
+    // that changed none raises nothing: machine bookkeeping never fans out
+    // (#269: four "drawing" marks started eight automations that did nothing).
+    const changed = changedFields(row.metadata, next, bookkeepingPaths(objectType.schema), keys);
+    if (changed.length > 0) {
+      void (async () => {
+        const { emitEvent, OBJECT_UPDATED } = await import('@/services/EventService');
+        const actor = ctx.reviewedBy ?? ctx.invokedBy ?? 'system';
+        await emitEvent({
+          orgId: ctx.orgId,
+          type: OBJECT_UPDATED,
+          payload: { objectId: row.id, objectType: input.objectType, fields: changed.join(','), actor, byPerson: actor.startsWith('usr-'), orgId: ctx.orgId },
+          dedupeKey: `${OBJECT_UPDATED}:${row.id}:${ctx.runId ?? Date.now()}`,
+          invokedBy: actor,
+        });
+      })().catch(err => console.warn('object.updated was not announced', { objectId: row.id, message: (err as Error).message }));
+    }
     // The run is the record's history: who wrote what, why, and what was
     // there before — in one place, queryable by the dedup key's prefix.
     return {
@@ -413,6 +446,9 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
       previous,
       ...(visual === null ? {} : { visual }),
       ...(body.status === 'written' || body.status === 'unchanged' ? { bodyVersion: body.version } : {}),
+      // Which version this write made, from which — what a page showing the
+      // record diffs to mark what changed (`version_written`).
+      ...(body.status === 'written' && body.artifactId && body.version ? { bodyArtifactId: body.artifactId, bodyFrom: body.version > 1 ? body.version - 1 : null } : {}),
       reason: input.reason,
       writtenBy: ctx.invokedBy ?? null,
       reviewedBy: ctx.reviewedBy ?? null,
@@ -436,6 +472,6 @@ export const objectsUpdateMetaAction: Action<typeof updateMetaInput> = {
     // Undo is a write too, so it is a version: history never shows a record
     // saying something its body does not.
     const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: `Undid run #${ctx.runId ?? '?'}: ${input.reason}`.slice(0, 500), written: Object.keys(previous).sort(), invokedBy: ctx.reviewedBy ?? ctx.invokedBy, runId: ctx.runId });
-    return { restored: Object.keys(previous), restoredAt: new Date().toISOString(), ...(body.status === 'written' ? { bodyVersion: body.version } : {}) };
+    return { restored: Object.keys(previous), restoredAt: new Date().toISOString(), ...(body.status === 'written' && body.version ? { bodyVersion: body.version, ...(body.artifactId ? { bodyArtifactId: body.artifactId, bodyFrom: body.version - 1 } : {}) } : {}) };
   },
 };

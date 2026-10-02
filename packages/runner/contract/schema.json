@@ -1,0 +1,614 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vocion/vocion-core/packages/runner/contract/schema.json",
+  "title": "EngineeringTask",
+  "description": "The task contract the Vocion runner accepts, and the one core's dispatch (libs/actions/factory-dispatch.ts) is tested against. snake_case keys only. A contract that does not match is refused before the repo is cloned; nothing is defaulted except the fields marked optional here. Everything true of one product (its surfaces, its services, its checks' commands, the files its people own) arrives in the contract from the repo record and the product's environments, never from the runner's code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "product",
+    "repo",
+    "base_sha",
+    "objective",
+    "acceptance_contract",
+    "allowed_paths",
+    "risk_class",
+    "required_checks"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "description": "Global identity of the task; becomes part of the factory/* branch name."
+    },
+    "product": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The product the task belongs to: the product record's slug."
+    },
+    "repo": {
+      "type": "string",
+      "pattern": "^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+(\\.git)?$",
+      "description": "https clone URL. ssh URLs are refused; the worker authenticates over https with a credential helper."
+    },
+    "base_sha": {
+      "type": "string",
+      "pattern": "^\\S+$",
+      "description": "Where the work starts. A commit sha or origin/main starts fresh from that commit. Any other branch name (with or without origin/), for example the factory/<task_id>-wip-<run id> branch a failed run kept, is a resume: the runner checks it out as the working branch, rebases it on origin/main before Claude starts, and records resumedFrom in the task log. Pair it with attempt: <n+1>."
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What must change."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Optional but expected. The change, literally, in the imperative, naming the user-visible outcome and where it happens, for example 'Allow a person to email a document link to recipients from the document page'. The worker derives the commit subject and the pull request title from it; without it both fall back to the first sentence of the objective, which reads as a situation report. See the naming-the-work playbook."
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional. The request that named this work (the promise rule)."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional. Free text appended to the prompt under a Notes heading."
+    },
+    "acceptance_contract": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Observable definition of done. Never empty."
+    },
+    "allowed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Globs relative to the repo root: where the plan expects the change to land. Scope, not a fence: a file beyond them is kept and named on the pull request as beyond the plan."
+    },
+    "risk_class": {
+      "type": "string",
+      "enum": [
+        "docs",
+        "marketing",
+        "deps",
+        "ui",
+        "logic",
+        "auth",
+        "billing",
+        "schema",
+        "infra",
+        "promise"
+      ],
+      "description": "The merge rule that applies (the trust ladder reads it with the diff)."
+    },
+    "required_checks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$"
+      },
+      "description": "Checks the runner runs after the engineer exits, by name. A built-in name (no-em-dashes, typecheck, test, lint, build) runs the built-in; any other name must have a command in `checks`, or the contract is refused at prepare."
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional for most tasks, required when risk_class is ui or marketing: the flows the runner screenshots before and after. Before loads each path on the surface's live URL; after builds the branch with the surface's build block, serves it in the container and loads the same path, at each viewport. The shots are published as qa-screenshot artifacts on the task record.",
+      "properties": {
+        "surface": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+          "description": "Which of `surfaces` the flows live on. The dispatch names it from the repo record."
+        },
+        "before_url": {
+          "type": "string",
+          "pattern": "^https://[A-Za-z0-9.-]+(/\\S*)?$",
+          "description": "Optional. The live origin the before shot loads, overriding the one surface implies. Use it when the production surface for this task is not the default for its surface."
+        },
+        "video": {
+          "type": "boolean",
+          "default": false,
+          "description": "Optional. When true the worker records the after run of every flow as a Playwright webm and publishes it as a qa-video artifact. Costs roughly 8 seconds and 1 MB per flow per viewport."
+        },
+        "flows": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The screens this change touches. Keep it to the pages a reviewer would open.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "path"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60,
+                "description": "What the flow is called in the gallery, for example \"document page\"."
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/\\S*$",
+                "description": "The path to load on both surfaces, starting with a slash."
+              },
+              "viewports": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "desktop",
+                    "phone"
+                  ]
+                },
+                "default": [
+                  "desktop"
+                ],
+                "description": "Which viewports to shoot. desktop is 1440x900, phone is 390x844 with a touch device profile."
+              },
+              "sign_in": {
+                "type": "boolean",
+                "default": false,
+                "description": "Optional. The path needs a signed in account. The after build then uses the surface's signed_in_env, the repo's own preview mode, so no credential exists to leak. Production cannot be signed in without a real person's account, so the before shot for such a flow is recorded absent with the reason."
+              },
+              "before": {
+                "type": "string",
+                "enum": [
+                  "production",
+                  "none"
+                ],
+                "default": "production",
+                "description": "Where the before shot comes from. production loads the same path on the live surface. none says the surface is new: the worker records a before artifact captioned \"New surface, nothing to compare\" rather than inventing one. A production path that 404s is recorded as none for that flow too."
+              },
+              "steps": {
+                "type": "array",
+                "description": "Optional. A small declarative vocabulary the worker executes with Playwright, in order, after the page loads and before the final shot. Each step names exactly one verb.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "click": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "A CSS selector, or plain text to click by its accessible name."
+                    },
+                    "fill": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "selector",
+                        "value"
+                      ],
+                      "properties": {
+                        "selector": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "description": "Type value into the field the selector names. Never put a credential here."
+                    },
+                    "wait_for": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Wait until the selector (or plain text) is visible, up to 15 seconds."
+                    },
+                    "shoot": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "description": "Take an extra screenshot here and caption it with this text."
+                    },
+                    "upload": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "selector",
+                        "megabytes"
+                      ],
+                      "properties": {
+                        "selector": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The file input, e.g. input[type=file]."
+                        },
+                        "megabytes": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 64
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "description": "The file name; defaults to sample-<N>mb.pdf."
+                        }
+                      },
+                      "description": "Put a generated file of that size into the file input, as a person picking one would."
+                    },
+                    "offline": {
+                      "type": "boolean",
+                      "description": "true drops the page's network, false restores it: the state a bad connection puts the page in."
+                    },
+                    "goto": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Open this path (or an address on the same product) in the same page, e.g. a record an earlier step remembered: {\"goto\": \"{{documentUrl}}\"}."
+                    },
+                    "remember": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z][\\w-]{0,40}$",
+                          "description": "The name later steps read it by, as {{name}} in a path, target or value."
+                        },
+                        "from": {
+                          "type": "string",
+                          "enum": [
+                            "url",
+                            "href",
+                            "text",
+                            "value"
+                          ],
+                          "description": "url: the page's address (the default without a selector); href: a link's address; text: what an element says (the default with a selector); value: a field's value."
+                        },
+                        "selector": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The element to read, as click and wait_for name one."
+                        }
+                      },
+                      "description": "Keep a value the page shows, so a later step or flow can use it: the record a step just made, the link it shares."
+                    },
+                    "pause": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 30,
+                      "description": "Wait this many seconds: time a visitor spends on a page before the product counts the visit."
+                    },
+                    "expect_response": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "path",
+                        "status"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300,
+                          "description": "The request's path, e.g. /v1/documents: a response whose path is this or ends with it counts (any host the page called)."
+                        },
+                        "status": {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+                          "description": "The method; any but a CORS preflight when omitted."
+                        }
+                      },
+                      "description": "Pass when a response the page received during this flow answered as promised; otherwise fail with what it answered (\"GET /v1/documents returned 500\") or that no such request was made. Waits up to 10 seconds."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "surfaces": {
+          "type": "object",
+          "description": "Where each surface runs and how the branch builds it, keyed by surface name. From the repo record's `surfaces` and the product's production environments. A flow whose surface is not here, or has no build block, is recorded as not captured with the reason; QA never fails the run.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "live_url": {
+                "type": "string",
+                "pattern": "^https://[A-Za-z0-9.-]+(:\\d+)?(/\\S*)?$",
+                "description": "The production origin a before shot loads."
+              },
+              "build": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "command",
+                  "dist"
+                ],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "The shell command that builds this surface from the repo root."
+                  },
+                  "dist": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Where the built files land, relative to the repo root."
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535,
+                    "description": "The port the runner serves the build on; any free one when taken."
+                  },
+                  "spa_fallback": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "An unknown path serves index.html with a 200, as a single page app's host does."
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Environment for the build."
+                  },
+                  "signed_in_env": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Environment for a build whose flows need a signed-in account: the repo's own preview or mock mode, so no credential exists to leak. Replaces env where both name a key."
+                  }
+                }
+              },
+              "list_routes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^/\\S*$"
+                },
+                "description": "Where a list of records lives, tried after a placeholder's own prefix when a flow path names one ([id], :id, {id})."
+              },
+              "error_text": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "description": "Phrases this surface's own error states show, beside the runner's generic ones, so a shot of an error is never read as the feature."
+              },
+              "preview_note": {
+                "type": "string",
+                "maxLength": 2000,
+                "description": "What the engineer should know about the preview build: where its mock data lives, how a new state is seeded."
+              }
+            }
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": [],
+      "description": "Optional. Upstream task ids. An id written as <repo>:<task_id> or <repo>#<task_id> names the repository it comes from; a dependency from another repository requires a plan."
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The architecture plan this work was approved against. Required when the plan rule (packages/runner/src/plan.mjs) says so: risk_class auth/billing/schema/infra/promise, work spanning more than one repository or declaring a cross-repo dependency, allowed_paths spanning more than one package, a change to a public interface (an HTTP route, an object type schema, a database migration, a published contract), more than one task under the request, or an estimate over the threshold. A contract that needs a plan and carries none is refused at prepare, before the repo is cloned. When risk_class is ui or logic and the work touches more than one file the plan is offered and skippable: set skipped with a skip_reason, never leave it out.",
+      "properties": {
+        "plan_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The architecture_plan record the work was approved against."
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://\\S+$",
+          "description": "Where the plan can be read."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Optional. The approach in one or two sentences, so the worker prompt carries it."
+        },
+        "approved_by": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who approved the plan. A plan on a contract is an approved plan."
+        },
+        "approved_at": {
+          "type": "string",
+          "minLength": 1,
+          "description": "When it was approved, ISO 8601."
+        },
+        "skipped": {
+          "type": "boolean",
+          "default": false,
+          "description": "The plan was offered and declined. Only open to a ui or logic change that no required trigger reaches."
+        },
+        "skip_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Why the plan was declined. Required whenever skipped is true: an optional step with no recorded skip becomes a step nobody takes."
+        }
+      }
+    },
+    "model_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ]
+        },
+        "escalate_to": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "description": "Optional. The engineer's model and effort, and the model to escalate to on failure. Defaults to the runner's DEFAULT_MODEL."
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {
+        "services": []
+      },
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "services": {
+          "type": "array",
+          "description": "Services the run needs beside the runner, each waited for before the engineer starts. A name alone (postgres) uses the runner's default address; an object names its url and the setup commands that prepare it (migrations). The target provides the service (a sidecar, a compose service); the runner only waits for it, exports its url, and runs its setup.",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "postgres"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "enum": [
+                      "postgres"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "pattern": "^postgres(ql)?://\\S+$"
+                  },
+                  "env": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Z_][A-Z0-9_]*$"
+                    },
+                    "description": "The environment variables the url is exported as. Default DATABASE_URL and TEST_DATABASE_URL."
+                  },
+                  "setup": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "description": "Commands run from the repo root after install, before the engineer starts."
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "setup": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "description": "Commands run from the repo root after install and services, before the engineer starts."
+        }
+      },
+      "description": "Optional. Image and service dependencies."
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Optional. Retry counter. The runner uses the larger of this and the Vocion run's attempt; a resumed contract passes the kept PR's attempt: <n+1> so the branch name says which try it is."
+    },
+    "token_budget_usd": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Optional. Dollar cap for the engineer's run; defaults to the runner's MAX_BUDGET_USD and never exceeds it."
+    },
+    "wall_clock_minutes": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Optional. Wall clock for the whole run; defaults to the runner's WALL_CLOCK_MINUTES and never exceeds it."
+    },
+    "checks": {
+      "type": "array",
+      "description": "Optional. The command each named check runs, from the repo record's `checks` (name and the exact command CI runs). A required check with a command here runs that command; one without runs the built-in of that name.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "command"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$"
+          },
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      }
+    },
+    "human_owned": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Optional. Globs, relative to the repo root, of files a person owns beyond the runner's own list (secrets, env files, .git, CI workflows): the engineer may not change them and the runner never commits them. From the repo record's `humanOwned`."
+    },
+    "engineer_rules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "description": "Optional. The repository's standing rules for the engineer, one line each (voice, a house style, a convention a check enforces). From the repo record's `engineerRules`; appended to the runner's own rules."
+    }
+  }
+}

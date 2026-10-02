@@ -1,4 +1,4 @@
-import type { ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatImageFetcher, ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
 import process from 'node:process';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
@@ -6,6 +6,7 @@ import { db } from '@/libs/DB';
 import { chatPermalink } from '@/libs/surfaces/slackRead';
 import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
+import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
 import { withPageContext } from '@/services/chat/pageContext';
@@ -298,7 +299,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   ].filter(Boolean).join('');
 
   try {
-    const result = await deps.runAgent({
+    // What the turn spent is counted while it runs and written with the
+    // answer (`services/budget/runCost.ts`).
+    const { cost, result } = await withRunCost({ conversationId }, async scope => ({ cost: scope, result: await deps.runAgent({
       orgId,
       agentSlug,
       message,
@@ -306,7 +309,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       conversationId,
       conversationHistory: history,
       ...(pageContext ? { pageContext } : {}),
-    });
+    }) }));
     let text = result.response.trim() || '(no reply)';
 
     // Something was missing, and the channel has not been told yet. The
@@ -323,7 +326,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
 
     // The reply went out, so the turn finished: say so rather than leaving a
     // NULL that a reader has to guess at (#114).
-    await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete' });
+    await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete', cost: { tokens: cost.tokens, microCents: cost.microCents } });
     const posted = await adapter.reply(target, text);
     await recordSlackPost({
       orgId,
@@ -360,11 +363,17 @@ export type AnnouncementInput = {
   threadTs?: string | null;
   agentSlug?: string | null;
   createdBy?: string | null;
+  /**
+   * Reads the bytes behind an image that sits behind our sign-in, so the
+   * post can upload it rather than link to a page Slack cannot open. Scoped
+   * to the caller's org by whoever builds it.
+   */
+  fetchImage?: ChatImageFetcher;
 };
 
 export type AnnouncementResult
   = | { outcome: 'unbound' }
-    | { outcome: 'posted'; ts: string; media: string; recorded: boolean }
+    | { outcome: 'posted'; channelId: string; ts: string; media: string; recorded: boolean; fileIds: string[] }
     | { outcome: 'failed'; error: string };
 
 /**
@@ -392,7 +401,7 @@ export async function postAnnouncementToChannel(adapter: ChatSurfaceAdapter, inp
   };
   let posted: ChatPostRef | null;
   try {
-    posted = await adapter.reply(target, { text: input.text, ...(input.images?.length ? { images: input.images } : {}) });
+    posted = await adapter.reply(target, { text: input.text, ...(input.images?.length ? { images: input.images } : {}) }, input.fetchImage ? { fetchImage: input.fetchImage } : undefined);
   } catch (error) {
     return { outcome: 'failed', error: error instanceof Error ? error.message : String(error) };
   }
@@ -411,5 +420,5 @@ export async function postAnnouncementToChannel(adapter: ChatSurfaceAdapter, inp
     images: input.images ?? [],
     createdBy: input.createdBy ?? null,
   });
-  return { outcome: 'posted', ts: posted?.ts ?? '', media: posted?.media ?? 'none', recorded: Boolean(row) };
+  return { outcome: 'posted', channelId: posted?.channelId ?? input.channelId, ts: posted?.ts ?? '', media: posted?.media ?? 'none', recorded: Boolean(row), fileIds: posted?.fileIds ?? [] };
 }

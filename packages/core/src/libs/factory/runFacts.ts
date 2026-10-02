@@ -180,7 +180,10 @@ export function resolveRunRequestId(run: RunLike, requestIdByTask: Map<number, n
 function checkTally(run: RunLike): { passed: number; total: number } {
   const checks = obj(run.result).checks;
   if (Array.isArray(checks) && checks.length > 0) {
-    const passed = checks.filter(c => obj(c).status === 'passed').length;
+    // Both shapes the worker writes: `{status: 'passed'}` and `{passed: true}`
+    // (the one `list_recent_runs` and the feature report read). Counting only
+    // the first said "0/6 checks passed" over six green checks.
+    const passed = checks.filter(c => obj(c).status === 'passed' || obj(c).passed === true).length;
     return { passed, total: checks.length };
   }
   // A worker whose completion call never landed still described its checks in

@@ -1,11 +1,12 @@
-import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedNotification, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
 import { readFileSync } from 'node:fs';
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
@@ -48,6 +49,8 @@ export type ApplyResult = {
     workflows: ResourceCounts;
     missions: ResourceCounts;
     automations: ResourceCounts;
+    /** Declared notification kinds (`notifications:` in plugin.yaml / workspace.yaml). */
+    notifications: ResourceCounts;
     playbooks: ResourceCounts;
     learningSteps: ResourceCounts;
     evalDatasets: ResourceCounts;
@@ -154,6 +157,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     workflows: blank(),
     missions: blank(),
     automations: blank(),
+    notifications: blank(),
     playbooks: blank(),
     learningSteps: blank(),
     evalDatasets: blank(),
@@ -257,6 +261,17 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
+  // Notification kinds: few, declared, stored as the rows the event bus
+  // matches (backlog 048). A kind the workspace stopped declaring is
+  // disabled below with the other retired rows, never left notifying.
+  for (const rule of loaded.notifications ?? []) {
+    try {
+      bump(counts.notifications, await upsertNotificationRule(orgId, rule, mode));
+    } catch (err) {
+      errors.push({ resource: 'notification', slug: rule.kind, message: (err as Error).message });
+    }
+  }
+
   // WHAT THE WORKSPACE NO LONGER SHIPS IS RETIRED, NOT LEFT RUNNING.
   //
   // Until 2026-09-24 the applier only ever added and updated: an agent, a
@@ -322,6 +337,23 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       }
     } catch (err) {
       errors.push({ resource: 'automation', slug: '(retire sweep)', message: (err as Error).message });
+    }
+    try {
+      const declared = (loaded.notifications ?? []).map(n => n.kind);
+      const retired = await db
+        .update(notificationRuleSchema)
+        .set({ status: 'disabled', updatedAt: new Date() })
+        .where(and(
+          eq(notificationRuleSchema.orgId, orgId),
+          ne(notificationRuleSchema.status, 'disabled'),
+          declared.length > 0 ? notInArray(notificationRuleSchema.kind, declared) : undefined,
+        ))
+        .returning({ kind: notificationRuleSchema.kind });
+      for (const row of retired) {
+        warnings.push({ resource: 'notification', slug: row.kind, message: 'no longer declared — this kind notifies nobody now' });
+      }
+    } catch (err) {
+      errors.push({ resource: 'notification', slug: '(retire sweep)', message: (err as Error).message });
     }
   }
   if (!mode.offline) {
@@ -435,10 +467,10 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
-  // Reconcile Temporal Schedules against the authored triggers: workflow
-  // `trigger: {type: schedule}`, mission `schedule`, source `schedule`.
-  // Best-effort — a dev box without Temporal still applies cleanly; the
-  // schedules materialize on the next apply where Temporal is reachable.
+  // Reconcile durable schedules against the authored triggers: automation
+  // `when.schedule`, workflow `trigger: {type: schedule}`, mission
+  // `schedule`, source `schedule`. A schedule that cannot be written is an
+  // error on the result by name; the rest of the apply still lands.
   if (!dryRun) {
     await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs);
   }
@@ -489,9 +521,9 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'unknown' | 'kept';
 
 /**
- * Ensure/remove Temporal Schedules to match the authored workspace. One
- * connectivity probe up front: if Temporal is unreachable, log one warning
- * and skip — never fail the apply over scheduling.
+ * Ensure/remove durable schedules to match the authored workspace. Each
+ * schedule that cannot be written lands in `errors` by name — never a silent
+ * skip, and never a failed apply over scheduling.
  * @param orgId
  * @param loaded
  * @param errors
@@ -503,7 +535,7 @@ async function reconcileSchedules(
   errors: ApplyResult['errors'],
   configChangedSourceSlugs: Set<string> = new Set(),
 ): Promise<void> {
-  // Schedule-ownership guard. Reconciling Temporal Schedules makes THIS
+  // Schedule-ownership guard. Reconciling schedules makes THIS
   // process the scheduler-of-record. Local dev commonly runs against the
   // prod DB over an SSH tunnel — 127.0.0.1 looks local but ISN'T — so a URL
   // heuristic can't tell dev from prod. Require an explicit opt-in instead:
@@ -515,14 +547,6 @@ async function reconcileSchedules(
     return;
   }
 
-  const { getTemporalClient } = await import('@/libs/temporal/client');
-  try {
-    await getTemporalClient();
-  } catch {
-    console.warn('[workspace:apply] Temporal unreachable — skipping schedule reconciliation (workflow schedules, mission schedules, source syncs). Re-apply with Temporal up to materialize them.');
-    return;
-  }
-
   const { ensureAutomationSchedule, removeAutomationSchedule } = await import('@/services/AutomationService');
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
   const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
@@ -530,16 +554,15 @@ async function reconcileSchedules(
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
   // A person's pause lives on the row, not in the YAML, and the Schedule
-  // must come out of this pass still paused — created paused if Temporal
-  // never had it, re-asserted paused if it did.
+  // must come out of this pass still paused — re-asserted paused every time.
   const pausedRows = await db
     .select({ slug: automationSchema.slug, pausedNote: automationSchema.pausedNote })
     .from(automationSchema)
     .where(and(eq(automationSchema.orgId, orgId), isNotNull(automationSchema.pausedAt)));
   const pausedBySlug = new Map(pausedRows.map(r => [r.slug, { note: r.pausedNote }]));
 
-  // Automations are the first-class WHEN. Schedule-whens get a Temporal
-  // Schedule; event-whens are matched by EventService at emit time.
+  // Automations are the first-class WHEN. Schedule-whens get a durable
+  // schedule; event-whens are matched by EventService at emit time.
   for (const automation of loaded.automations) {
     try {
       if (automation.status === 'active' && automation.when.schedule) {
@@ -572,7 +595,7 @@ async function reconcileSchedules(
   }
 
   // A mission or automation the workspace no longer ships was just disabled
-  // above; its Schedule has to go with it, or Temporal keeps firing a row
+  // above; its schedule has to go with it, or the engine keeps firing a row
   // whose status says it must not.
   try {
     const { notInArray } = await import('drizzle-orm');
@@ -642,7 +665,13 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: Apply
     icon: ot.icon ?? null,
     // Gates ride inside the stored schema (`x-gates`, beside `x-display`), so
     // the write path that already loads the schema sees them with no second read.
-    schema: gates.length > 0 ? { ...(ot.schema ?? {}), 'x-gates': gates } : (ot.schema ?? null),
+    // The type's code rides the same way (`x-code`, `libs/codes.ts`): settled
+    // once across the workspace by the loader, read by every surface after.
+    schema: {
+      ...(ot.schema ?? {}),
+      ...(gates.length > 0 ? { 'x-gates': gates } : {}),
+      [TYPE_CODE_SCHEMA_KEY]: ot.resolvedCode ?? typeCodeOf(ot),
+    },
     sourceRelevance: ot.sourceRelevance ?? null,
     classificationPrompt: ot.resolvedClassificationPrompt,
     fewShotExamples: ot.fewShotExamples.length > 0 ? ot.fewShotExamples : null,
@@ -692,6 +721,8 @@ async function upsertAgent(
     systemPrompt: agent.resolvedSystemPrompt,
     model: agent.model ?? defaults.model ?? 'gpt-4o',
     temperature: String(agent.temperature ?? defaults.temperature ?? '0.3'),
+    // What the YAML says; `voiceOverride` (a person's setting) is never written here.
+    voice: agent.voice ?? null,
     skillSlugs: agent.skills,
     connectorSources: agent.connectorSources,
     objectTypeSlugs: agent.objectTypes,
@@ -1066,6 +1097,7 @@ async function applyWorkspaceLeadConfig(
   // Plugins the same way: the resolved, dependency-closed list lands wholesale;
   // dropping one from `plugins:` turns it off everywhere that reads the column.
   const enabledPlugins = loaded.enabledPlugins;
+  const enabledDurable = loaded.manifest.durable ?? [];
   const embeddingConfig = embeddingConfigFrom(loaded.manifest.defaults ?? {});
   // Declarative like the rest: authored entries land wholesale, an omitted
   // block clears the column (no fast path for any action type).
@@ -1104,6 +1136,7 @@ async function applyWorkspaceLeadConfig(
           accountableUserId: projectSchema.accountableUserId,
           enabledSurfaces: projectSchema.enabledSurfaces,
           enabledPlugins: projectSchema.enabledPlugins,
+          enabledDurable: projectSchema.enabledDurable,
           embeddingConfig: projectSchema.embeddingConfig,
           regenerateSkills: projectSchema.regenerateSkills,
           clientFacingPlaybooks: projectSchema.clientFacingPlaybooks,
@@ -1156,6 +1189,7 @@ async function applyWorkspaceLeadConfig(
   const pluginsUnchanged
     = (project.enabledPlugins ?? []).length === enabledPlugins.length
       && (project.enabledPlugins ?? []).every((s, i) => s === enabledPlugins[i]);
+  const durableUnchanged = JSON.stringify(project.enabledDurable ?? []) === JSON.stringify(enabledDurable);
   // Compared as JSON rather than field by field: the object has two optional
   // keys, so a shallow equality check would have to enumerate both and would
   // silently stop covering a third. Same reasoning for the skill mapping,
@@ -1176,6 +1210,7 @@ async function applyWorkspaceLeadConfig(
     && (project.accountableUserId ?? null) === accountableUserId
     && surfacesUnchanged
     && pluginsUnchanged
+    && durableUnchanged
     && embeddingUnchanged
     && regenerateUnchanged
     && clientFacingUnchanged
@@ -1192,7 +1227,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }
@@ -1317,7 +1352,13 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     description: automation.description ?? null,
     status: automation.status,
     whenConfig: automation.when as { schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number },
-    doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> },
+    // A run's words (`label`, `doing`) ride the do-config: they describe what
+    // doing it is called, and need no column of their own (`runTitle`).
+    doConfig: {
+      ...(automation.do as { workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> }),
+      ...(automation.label ? { label: automation.label } : {}),
+      ...(automation.doing ? { doing: automation.doing } : {}),
+    },
     ownerAgentSlug: automation.agent ?? null,
   };
   if (mode.offline) {
@@ -1347,6 +1388,55 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
   }
   if (!mode.dryRun) {
     await db.update(automationSchema).set(payload).where(eq(automationSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+/**
+ * Store one declared notification kind. The whole manifest entry is the
+ * `config` the event bus matches on; `label`, `event`, `status` and `source`
+ * are lifted out for the settings page and the lookup index.
+ * @param orgId - Tenant.
+ * @param rule - The declared kind and the layer it came from.
+ * @param mode - Dry run / offline.
+ */
+async function upsertNotificationRule(orgId: string, rule: LoadedNotification, mode: ApplyMode): Promise<UpsertOutcome> {
+  const { source, status, ...config } = rule;
+  const payload = {
+    orgId,
+    kind: rule.kind,
+    label: rule.label,
+    description: rule.description ?? null,
+    event: rule.event,
+    status,
+    source,
+    config,
+  };
+  if (mode.offline) {
+    return 'unknown';
+  }
+  const [existing] = await db
+    .select()
+    .from(notificationRuleSchema)
+    .where(and(eq(notificationRuleSchema.orgId, orgId), eq(notificationRuleSchema.kind, rule.kind)));
+  if (!existing) {
+    if (!mode.dryRun) {
+      await db.insert(notificationRuleSchema).values(payload);
+    }
+    return 'created';
+  }
+  if (
+    existing.label === payload.label
+    && (existing.description ?? null) === payload.description
+    && existing.event === payload.event
+    && existing.status === payload.status
+    && existing.source === payload.source
+    && canonical(existing.config) === canonical(payload.config)
+  ) {
+    return 'unchanged';
+  }
+  if (!mode.dryRun) {
+    await db.update(notificationRuleSchema).set({ ...payload, updatedAt: new Date() }).where(eq(notificationRuleSchema.id, existing.id));
   }
   return 'updated';
 }
@@ -1395,6 +1485,32 @@ async function reportPausedAutomations(orgId: string, loaded: LoadedWorkspace, w
   }
 }
 
+/**
+ * The base an override is measured against. A new override, or one whose own
+ * body changed, takes its twin's body as it stands now — whoever edited it
+ * last saw that version. An unchanged override keeps the base already on its
+ * row, so a later change to the plugin's copy shows up as drift. Anything
+ * that is not an override has no base.
+ * @param existing - The stored row, when there is one.
+ * @param existing.origin
+ * @param existing.contentSha
+ * @param existing.frontmatter
+ * @param next - What this apply loaded.
+ */
+export function overrideBaseSha(
+  existing: { origin: string; contentSha: string; frontmatter: unknown } | null,
+  next: Pick<LoadedPlaybook, 'origin' | 'contentSha' | 'baseSha'>,
+): string | undefined {
+  if (next.origin !== 'override') {
+    return undefined;
+  }
+  const kept = (existing?.frontmatter as { baseSha?: unknown } | null)?.baseSha;
+  if (existing && existing.origin === 'override' && existing.contentSha === next.contentSha && typeof kept === 'string') {
+    return kept;
+  }
+  return next.baseSha;
+}
+
 async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, mode: ApplyMode): Promise<UpsertOutcome> {
   const payload = {
     orgId,
@@ -1427,6 +1543,14 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, mode: ApplyMode
     .from(playbookSchema)
     .where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.slug, pb.slug)));
 
+  // What an override was written against: kept from the row while the
+  // override itself is unchanged, so the plugin moving underneath it reads
+  // as drift rather than being quietly re-baselined on the next apply.
+  const baseSha = overrideBaseSha(existing ?? null, pb);
+  if (baseSha) {
+    payload.frontmatter.baseSha = baseSha;
+  }
+
   if (!existing) {
     if (!mode.dryRun) {
       await db.insert(playbookSchema).values(payload);
@@ -1435,7 +1559,8 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, mode: ApplyMode
   }
 
   if (
-    existing.contentSha === payload.contentSha
+    (existing.frontmatter as { baseSha?: unknown } | null)?.baseSha === payload.frontmatter.baseSha
+    && existing.contentSha === payload.contentSha
     && existing.name === payload.name
     && existing.description === payload.description
     && existing.version === payload.version
@@ -1510,7 +1635,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, mode: App
  * customer's AWS account is a network call, and apply makes none today — one
  * unreachable AWS endpoint must not stop a workspace file landing its agents,
  * its playbooks and everything else in the same pass. The remote create
- * happens later in a Temporal activity, the same split `libs/sources/upsert.ts`
+ * happens later in a background job, the same split `libs/sources/upsert.ts`
  * and `SourceSyncService` already use.
  *
  * Rows keep any `remoteId` they already have, so re-applying an unchanged file
@@ -1784,13 +1909,17 @@ function isObjectTypeEqual(a: typeof businessObjectTypeSchema.$inferSelect, b: R
   });
 }
 
-function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unknown>): boolean {
+export function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unknown>): boolean {
   const fields = [
     'name',
     'description',
     'systemPrompt',
     'model',
     'temperature',
+    // How it talks (`libs/agents/voice.ts`): left out, a voice added or
+    // changed in YAML read as "unchanged" and never reached the row (core
+    // #918 on squatch-factory, 2026-09-29).
+    'voice',
     'skillSlugs',
     'connectorSources',
     'objectTypeSlugs',

@@ -72,4 +72,65 @@ describe('the pass', () => {
     expect(await runAnswerBackstop({ orgId: 'org', request: 'What unblocks the rename?', finalText: longButUnanswered, toolCalls: calls, compose, endedOnTool: true })).toContain('DNS record');
     expect(called).toBe(1);
   });
+
+  it('a turn that ran no tool answers from the conversation, never "the context is missing" (conversation 378)', async () => {
+    let seen: { system: string; human: string } | null = null;
+    const compose = async (input: { system: string; human: string }) => {
+      seen = input;
+      return 'Plan #215 is already approved; the re-dispatch card #5201 is what unblocks it.';
+    };
+
+    await runAnswerBackstop({
+      orgId: 'org',
+      request: 'write it',
+      finalText: '',
+      toolCalls: [],
+      compose,
+      history: [
+        { role: 'user', content: 'this is critical, what do we need to unblock and finish?' },
+        { role: 'assistant', content: 'Plan #215 was written and approved last night. Re-dispatch #203 with it and it runs.' },
+      ],
+    });
+
+    expect(seen!.human).toContain('The conversation so far:');
+    expect(seen!.human).toContain('Plan #215 was written and approved last night');
+    expect(seen!.human).toContain('no tool ran this turn');
+    expect(seen!.system).toContain('never say the context is missing');
+    expect(seen!.system).not.toContain('You ran 0 tool steps');
+  });
+});
+
+describe('the answer pass continues the real conversation (conversation 384)', () => {
+  it('reads the graph\'s messages instead of pasted evidence, and hands back a card it calls', async () => {
+    const { runAnswerBackstop } = await import('./answerBackstop');
+    const messages = [
+      { role: 'user', content: 'Add branded share links to Northwind' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', name: 'read_wiki_page', args: { slug: 'northwind-capabilities' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: '# Northwind capabilities\n- Share links (UUID)' },
+    ];
+    const seen: Array<Record<string, unknown>> = [];
+    const calls: string[] = [];
+    const answer = await runAnswerBackstop({
+      orgId: 'org_answer_pass',
+      request: 'Add branded share links to Northwind',
+      finalText: 'Let me read the capabilities page.',
+      toolCalls: [{ tool: 'read_wiki_page', input: { slug: 'northwind-capabilities' }, output: '# Northwind capabilities' }],
+      endedOnTool: true,
+      messages,
+      tools: [{ name: 'recommend_action' } as never],
+      onToolCall: async (call) => {
+        calls.push(call.name);
+      },
+      compose: async (input) => {
+        seen.push(input as unknown as Record<string, unknown>);
+        await input.onToolCall?.({ id: 'c2', name: 'recommend_action', args: { action_id: 'factory.dispatch_task', label: 'Build branded links', action_input: { requestId: 88 } } });
+        return 'Branded links are not built; the Build card is below.';
+      },
+    });
+
+    expect(answer).toContain('not built');
+    expect(seen[0]!.messages).toBe(messages);
+    expect(String(seen[0]!.human)).not.toContain('What you already did and found');
+    expect(calls).toEqual(['recommend_action']);
+  });
 });

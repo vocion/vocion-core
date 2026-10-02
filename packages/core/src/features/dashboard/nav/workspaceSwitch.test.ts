@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countHiddenEmpty, filterProjects, projectAccent, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
+import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
 
 const projects = [
   { id: 'p-default', slug: 'default', name: 'Default project', agentCount: 0 },
@@ -48,5 +48,41 @@ describe('workspace switcher', () => {
   it('gives each slug a stable accent', () => {
     expect(projectAccent('revenue')).toBe(projectAccent('revenue'));
     expect(projectAccent('revenue')).toMatch(/^oklch\(/);
+  });
+
+  // vocion-core#128: a person in two accounts can hold the same slug in both.
+  describe('across accounts', () => {
+    const accounts = [
+      { id: 'acct-metacto', name: 'Metacto', slug: 'metacto' },
+      { id: 'acct-contoso', name: 'Contoso', slug: 'contoso' },
+    ];
+    const metactoSales = { id: 'p-m-sales', accountId: 'acct-metacto', slug: 'sales', name: 'Sales', agentCount: 2 };
+    const contosoSales = { id: 'p-c-sales', accountId: 'acct-contoso', slug: 'sales', name: 'Sales', agentCount: 3 };
+    const metactoOps = { id: 'p-m-ops', accountId: 'acct-metacto', slug: 'ops', name: 'Ops', agentCount: 1 };
+
+    it('names the target account only when the switch leaves the current one', () => {
+      expect(crossAccountSlug(contosoSales, 'acct-metacto', accounts)).toBe('contoso');
+      expect(crossAccountSlug(metactoOps, 'acct-metacto', accounts)).toBeNull();
+    });
+
+    it('adds the account to the switch URL and keeps the rest of the query', () => {
+      expect(workspaceSwitchHref({ slug: 'sales', pathname: '/dashboard/inbox', search: '?tab=open', locale: 'en', defaultLocale: 'en', accountSlug: 'contoso' }))
+        .toBe('/w/sales/dashboard/inbox?tab=open&account=contoso');
+    });
+
+    it('drops an account left over from an earlier switch, so the next one resolves where the person now is', () => {
+      expect(workspaceSwitchHref({ slug: 'ops', pathname: '/dashboard', search: '?account=contoso&tab=open', locale: 'en', defaultLocale: 'en', accountSlug: null }))
+        .toBe('/w/ops/dashboard?tab=open');
+    });
+
+    it('groups the list under each account in membership order and leaves out an account with nothing visible', () => {
+      const groups = groupByAccount([contosoSales, metactoSales, metactoOps], accounts);
+
+      expect(groups.map(g => [g.account.name, g.projects.map(p => p.id)])).toEqual([
+        ['Metacto', ['p-m-sales', 'p-m-ops']],
+        ['Contoso', ['p-c-sales']],
+      ]);
+      expect(groupByAccount([metactoOps], accounts).map(g => g.account.name)).toEqual(['Metacto']);
+    });
   });
 });

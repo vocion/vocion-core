@@ -21,6 +21,8 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
+import { isRecordBodyArtifact as isRecordBody } from '@/services/objects/recordBody';
+import { pageRecordIds, reviseRecordBody } from './recordWrite';
 import { authorOf } from './renderArtifacts';
 
 /**
@@ -61,6 +63,16 @@ async function resolve(ctx: RuntimeContext, id: number | undefined): Promise<{ i
   if (target) {
     return { id: target };
   }
+  // A record page: "this" is the record, and a record's body is an artifact
+  // (backlog 035), so an unqualified read or change lands on it.
+  const onPage = pageRecordIds(ctx)[0];
+  if (onPage) {
+    const { recordBody } = await import('@/services/objects/recordBody');
+    const body = await recordBody(ctx.orgId, onPage).catch(() => null);
+    if (body) {
+      return { id: body.id };
+    }
+  }
   if (ctx.conversationId) {
     const rows = await listArtifactsForConversation({ orgId: ctx.orgId, conversationId: ctx.conversationId });
     const last = rows.at(-1);
@@ -88,6 +100,28 @@ export function readArtifactTool(ctx: RuntimeContext) {
         const { html: _html, ...rest } = row.spec as Record<string, unknown>;
         return JSON.stringify({ id: row.id, kind: row.kind, title: row.title, version: row.currentVersion, folder: row.folder, spec: rest, note: 'This is a paginated document. Use read_document to read its outline or a sheet, and edit_document to change it.' });
       }
+      if (isRecordBody(row)) {
+        // Rendered from the ROW, not the last version: the row is what every
+        // reader trusts, and a figure a rollup moved since is still true.
+        const { getBusinessObject } = await import('@/services/BusinessObjectService');
+        const { recordFields, renderRecordBody } = await import('@/services/objects/recordBodyFormat');
+        const rec = await getBusinessObject(Number(row.recordId), ctx.orgId);
+        if (!rec?.type) {
+          return `Artifact #${row.id} is the body of record #${row.recordId}, which is gone.`;
+        }
+        const schema = (rec.type.schema ?? null) as never;
+        const fields = recordFields((rec.metadata ?? {}) as Record<string, unknown>, schema);
+        return JSON.stringify({
+          id: row.id,
+          kind: row.kind,
+          title: rec.title,
+          version: row.currentVersion,
+          record: { type: rec.type.slug, id: rec.id },
+          md: renderRecordBody({ title: rec.title, schema, fields }),
+          fields,
+          note: `This is the body of ${rec.type.label.toLowerCase()} #${rec.id}: its fields as YAML headmatter and its prose as ## sections. To change the record, call update_artifact with content_markdown = this markdown with ONLY the asked-for words edited (keep the --- headmatter and every ## heading), or with spec.record.fields. It is written to the record itself through objects.update_meta, as a new version with Undo.`,
+        });
+      }
       return JSON.stringify({
         id: row.id,
         kind: row.kind,
@@ -99,7 +133,7 @@ export function readArtifactTool(ctx: RuntimeContext) {
     },
     {
       name: 'read_artifact',
-      description: 'Read the CURRENT content of an artifact — its kind, title, version and full typed spec — as JSON. Call this before update_artifact so your edit modifies what is really there instead of a remembered version. Omit `id` to read the artifact the person has open.',
+      description: 'Read the CURRENT content of an artifact — its kind, title, version and full typed spec — as JSON. Call this before update_artifact so your edit modifies what is really there instead of a remembered version. Omit `id` to read the artifact the person has open, or the record on their page (its body: fields as headmatter, prose as sections).',
       schema: z.object({
         id: z.number().int().positive().optional().describe('Artifact id. Omit for the one currently open beside the conversation.'),
       }),
@@ -116,8 +150,21 @@ export function updateArtifactTool(ctx: RuntimeContext) {
       }
       try {
         const spec = args.spec === undefined ? undefined : coerceJson(args.spec);
+        const target = await getArtifact({ orgId: ctx.orgId, id: found.id });
+        // A record's body: the change is a RECORD write (the row, then the
+        // version, under the trust rule), never a version the row does not
+        // know about (backlog 035).
+        if (target && isRecordBody(target)) {
+          return await reviseRecordBody(ctx, target, {
+            spec,
+            contentMarkdown: args.content_markdown ?? null,
+            title: args.title ?? null,
+            changeSummary: args.change_summary,
+            ...(typeof args.confidence === 'number' ? { confidence: args.confidence } : {}),
+          });
+        }
         if (spec !== undefined || args.content_markdown !== undefined || args.title !== undefined) {
-          const row = await getArtifact({ orgId: ctx.orgId, id: found.id });
+          const row = target;
           if (row?.kind === 'document' && (spec !== undefined || args.content_markdown !== undefined)) {
             return `update_artifact cannot rewrite a document's content — use edit_document(${found.id}, ops) so the change is by sheet and render-verified. Title and folder changes are fine here.`;
           }
@@ -146,6 +193,8 @@ export function updateArtifactTool(ctx: RuntimeContext) {
           runId: ctx.traceId ?? null,
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
+        // The page or pane showing this artifact refreshes and marks the change.
+        ctx.emit({ type: 'version_written', ref: { type: 'artifact', id: String(artifact.id), label: artifact.title }, artifactId: artifact.id, from: version.version > 1 ? version.version - 1 : null, to: version.version });
         return `Updated "${artifact.title}" to v${version.version} (${args.change_summary}). The person sees it live in the pane — do NOT repeat the content as text.`;
       } catch (err) {
         if (err instanceof ArtifactError) {
@@ -156,14 +205,15 @@ export function updateArtifactTool(ctx: RuntimeContext) {
     },
     {
       name: 'update_artifact',
-      description: 'Change an artifact IN PLACE, creating a new version. This is how you answer "make the third column currency", "add a section on risks", "sort by owner", "drop the last row" — never by rendering a second artifact. Omit `id` to edit the one the person has open. Pass `spec` for a whole new typed payload (read_artifact first, then send it back modified), or `content_markdown` to replace just the body of a markdown artifact.',
+      description: 'Change an artifact IN PLACE, creating a new version. This is how you answer "make the third column currency", "add a section on risks", "sort by owner", "drop the last row" — never by rendering a second artifact. Omit `id` to edit the one the person has open — or, on a record\'s page, the record itself: a record\'s body is an artifact, and changing it changes the record (its fields and its story, acceptance, notes), as a new version with Undo. Pass `spec` for a whole new typed payload (read_artifact first, then send it back modified), or `content_markdown` to replace just the body of a markdown artifact.',
       schema: z.object({
         id: z.number().int().positive().optional().describe('Artifact id. Omit for the one currently open beside the conversation.'),
         title: z.string().max(200).optional().describe('New title. Omit to keep the current one.'),
         spec: z.union([z.record(z.string(), z.unknown()), z.string()]).optional().describe('Complete replacement spec for this artifact kind, same shape read_artifact returned (object; a JSON string is tolerated).'),
         content_markdown: z.string().optional().describe('Markdown artifacts only: the new body. Simpler than `spec` when only the prose changes.'),
         folder: z.string().max(120).optional().describe('Move it in the artifacts log, e.g. "revenue/weekly".'),
-        change_summary: z.string().min(1).max(160).describe('One line for the version menu, in the past tense: "made Amount a currency column".'),
+        change_summary: z.string().min(1).max(160).describe('One line for the version menu, in the past tense: "made Amount a currency column". On a record it is the write\'s reason.'),
+        confidence: z.number().min(0).max(1).optional().describe('Records only: your confidence the change is what the person asked for, 0–1. High when they stated it plainly; it decides whether the change is done for them or waits in Review.'),
       }),
     },
   );

@@ -43,7 +43,7 @@ no `parent`.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `handles` | string[] | `[]` | What this agent answers for — short topics, intents or example asks (`[wiki, standing rules, research, plans]`). The router matches a message against these when nobody named an agent. Composable: `{ $append: [...] }` adds to a base's list. |
+| `handles` | string[] | `[]` | What this agent answers for — short topics, intents or example asks (`[wiki, standing rules, research, plans]`). The router's model reads these, with the description and what the agent owns, when nobody named an agent. Composable: `{ $append: [...] }` adds to a base's list. |
 | `initiative` | `low` \| `normal` \| `high` | `normal` | How much the agent volunteers. Three effects, each real: it breaks a routing tie; `high` ends a turn that produced something standing (a fact, a decision, a plan) with **one** offer to carry it forward, asked as a question, while `low` never volunteers; and `low` sits out **debriefs** — automations on the completion events (`worker_run.completed`, `worker_run.failed`, `mission_run.completed`, `conversation.ended`, `automation_run.completed`, `pr.merged`) are skipped for a low-initiative agent. Shown on the agent card as a small label when it is not `normal`. |
 
 ### Routing — who answers a message nobody addressed
@@ -53,19 +53,28 @@ mailbox has chosen for them. Everywhere else — the chat composer with no tag,
 an MCP client's `ask_workspace` — the workspace chooses, in code a person can
 read (`services/agents/router.ts`), and writes the decision down.
 
-The rule. Every **active** agent is scored against the message: a `handles`
-entry found in the message as a phrase scores 3, one whose every word is
-present scores 2; each word the message shares with the `description` scores 1
-(at most 3); each word shared with the `suggestions` scores ½ (at most 2). The
-best score wins if it reaches 2. An exact tie goes to the higher `initiative`,
-then to the workspace lead, then to the slug that sorts first. Nothing reaches
-2, and the workspace lead answers — `lead:` in `workspace.yaml`, else the first
-active agent. Deliberately lexical, not a model call: cheap enough for every
-turn, deterministic enough to test, and the reason it records is the reason it
-used.
+The order, most structural first. An agent the person names (`@slug`, "ask
+the *name*") answers. A follow-up stays with the agent the thread is with. On a
+record's page, the agent its type names as `x-owner` answers. Otherwise a small,
+fast model (the `classifier` role) reads the message against the roster: each
+active agent's slug, name, `description` and `handles`, the record types it
+answers for (`x-owner`) and files (`objectTypes`), its `harness.grantTools` and
+its skills. It returns `{ chosen, confidence, reason }`, checked against the
+roster, and code routes on it; below a confidence of 0.5 the workspace lead
+answers — `lead:` in `workspace.yaml`, else the first active agent. Meaning is
+read by a model, never matched: "file it and build it" belongs to the agent
+that owns requests, whatever words the message shares with a researcher's
+description (conversation 397).
 
-The decision — candidates with their scores and what matched, the chosen slug,
-`defaulted`, one sentence of reason — is stored on the message it was made for
+The read is bounded at 2.5 seconds. When it fails, times out or names an agent
+that is not on the roster, the old keyword scorer decides instead — a `handles`
+phrase scores 3, all its words 2, each shared `description` word 1 (at most 3),
+each shared `suggestions` word ½ (at most 2), the best wins at 2 or more, ties
+go to `initiative`, then the lead — and the decision says so.
+
+The decision — the chosen slug, `defaulted`, one sentence of reason, which path
+decided (`decidedBy`: `named`, `thread`, `page`, `model`, `keywords`, `roster`),
+the model's `confidence`, and on a fallback why the read was not used — is stored on the message it was made for
 (`conversation_message.routing_json`), returned in the `ask_workspace` result,
 and shown in chat as "via *Agent*" with the reason on hover. An agent with no
 `handles` is reached by name, by the lead's delegation, or as the default.
@@ -79,6 +88,27 @@ and shown in chat as "via *Agent*" with the reason on hover. An agent with no
 
 Exactly one of the two is required. The loader resolves whichever is present
 into the agent's effective prompt.
+
+## Voice — how it talks in chat
+
+`voice:` sets how the agent talks in chat. You steer the agent, never its replies after they are written.
+
+| Key | Values | What it does |
+|---|---|---|
+| `length` | `brief` \| `standard` \| `detailed` | How long a reply runs. `brief` fits a phone screen, and detail goes to the card or the record. |
+| `narration` | `off` \| `on` | `off`: it never announces its next step ("Let me check…", "Here's the card:"). The trace shows its steps, and its cards sit under the reply. |
+| `creativity` | `0`–`1` | `0` stays with what the records and wiki support, and `1` offers ideas beyond them. It also sets the sampling temperature on models that accept one. Claude 4.7+ and the 5 family do not, and there the prompt carries it alone. |
+| `style` | a wiki page slug | That page, in prose, is composed in as how this workspace talks. |
+
+```yaml
+voice:
+  length: brief
+  narration: off
+  creativity: 0.2
+  style: house-voice
+```
+
+A person can change the voice from the agent's page (the Voice panel, which saves on each tap and offers Undo), by asking in chat (the `set_voice` tool: "be briefer"), over MCP (`agent_voice_get` and `agent_voice_set`), or over the API (`GET` and `PUT /api/v1/agents/:slug/voice`). All four call one service and write the agent's `voice_override`. An apply rewrites `voice` from the YAML and leaves the override alone. "Reset to the workspace voice" (or `clear: true`) drops the override. With no `voice:` at all, an agent runs with the platform voice.
 
 ## What the agent can reach
 
@@ -133,7 +163,7 @@ entry needs `systemPrompt` or `systemPromptFile`.
 | `grantTools` | string[] | `[]` | The inverse: tools too powerful to be default-on, granted only to agents that name them. |
 | `model` | string | — | Model override for the `agentcore` / `runtime` providers. |
 | `promptCache` | boolean | on | Ask the vendor to cache this agent's prompt prefix. Nothing to set for normal use — it is on, and a prefix under the model's minimum is ignored rather than charged. Written only to say `false`, for an agent called less often than once every five minutes (it would pay the 1.25x write premium on every call and never read one back), or one whose prompt must not sit in a vendor's cache at all. Beats the call site; `VOCION_PROMPT_CACHE=0` turns it off everywhere. See [prompt caching](../guides/prompt-caching.md). |
-| `recommendActionBackstop` | boolean | — | When a turn ends with zero `recommend_action` calls, run a short follow-up pass to emit the action cards the agent's rules require. |
+| `recommendActionBackstop` | boolean | — | When a turn ends with fewer than three `recommend_action` cards, run the card pass over the finished answer: one fast call lists the decisions it names, then one call per card writes it, in parallel, each card on screen as its own call returns (`services/agents/cardBackstop.ts`). A card whose action refuses it becomes one line under the answer, never a card with nothing to press; a build with no filed request becomes the filing. |
 | `ownLedger` | string[] | — | Action kinds this agent earns trust for on its **own ledger**. A proposal of a listed kind keys the autonomy ladder on `<kind>.<agent-slug>` — `wiki.write_page.wiki-researcher` — so a rule in `trust.yaml`, the rung and the alignment evidence are this agent's alone while every other agent keeps the kind's shared rule. Honoured by the actions that carry a `by` field (`wiki.write_page` today); the tool fills it from the agent it runs as, never from the model. See [trust](./trust.md#the-agents-own-writes). |
 
 For how the loop, the model vendor, and the AWS account relate — and why two fields both end in "provider" — see [where an agent turn runs](../agent-execution.md).

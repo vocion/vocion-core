@@ -26,3 +26,9 @@ describe('how sure the factory is of a plan (backlog 038)', () => {
     expect(typeof factoryApprovePlanAction.undo).toBe('function');
   });
 });
+
+describe('an approval is not the planner\'s to propose (mission 6017)', () => {
+  it('refuses an agent proposing it, before anything else', async () => {
+    expect(await factoryApprovePlanAction.precheck?.({ orgId: 'org_x', invokedBy: 'agent:product-manager' }, { planId: 3, reason: 'x' })).toMatch(/file the plan with objects\.propose_candidate/);
+  });
+});

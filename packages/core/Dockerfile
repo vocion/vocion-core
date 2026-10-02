@@ -8,6 +8,12 @@
 # Build from the repo root:
 #   docker build -t vocion-app -f packages/core/Dockerfile .
 #
+# Needs BuildKit, which `docker build` uses only when Docker's buildx plugin is
+# installed. Without it Docker falls back to its legacy builder and stops with
+# "the --mount option requires BuildKit". `infra/aws/install-buildx.sh`
+# installs a pinned, checksum-checked plugin; a parent project's deploy
+# scripts should call it before building this file.
+#
 # Run locally:
 #   docker run --rm -p 3000:3000 --env-file packages/core/.env.local vocion-app
 #
@@ -92,8 +98,25 @@ WORKDIR /app/packages/core
 # point where the same build had been finishing a half hour earlier. That is a
 # heap ceiling rather than the box running out of memory, so the cap is named
 # here instead of left to be inferred. Kept at 6 GiB so it stays safe on the
-# smaller instance size, with Postgres, Temporal and Langfuse resident on the
-# same box while the image builds.
+# smaller instance size, with Postgres and Langfuse resident on the
+# same box while the image builds. That failure was a webpack build. Since
+# #670 the build runs on Turbopack, whose compiler is native code and lives
+# outside V8's heap, so the cap now bounds the JavaScript half of the build
+# (collecting page data, prerendering, the type check). The cap stays.
+#
+# The cache mount on the build step keeps Turbopack's build cache
+# (`.next/cache`) on the box between image builds, so a deploy recompiles only
+# what changed. Measured on Next 16.3.6 (#670): the compile's peak memory is
+# about 3.3 GB on a warm cache, even after editing a file 204 others import,
+# against 6.6 GB for a build that starts with an empty cache. The first build
+# on a new box is that cold one and still needs the full amount. The cache
+# stays out of the image: a mount is never part of a layer. It is one
+# directory per box that every build reuses (about 1.3 GB after a local
+# build), and `docker builder prune` clears it. `sharing=locked`
+# makes a second build started on the same box wait for the first, so two
+# builds never write the cache at once. There's no `# syntax=` line: the
+# cache mount is in the Dockerfile frontend built into BuildKit, and a pinned
+# frontend would add a Docker Hub image to every build.
 # The build says what it is (#417): `public/version.txt` + the account-menu
 # stamp. `npm run build` runs this, but the image calls `next build` directly,
 # so the step is explicit here — the first deploy of #417 shipped an image with
@@ -111,10 +134,18 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
     VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
     node scripts/write-version.mjs
 
-RUN NODE_OPTIONS=--max-old-space-size=6144 \
+# One prerender worker, and a database that refuses at once (127.0.0.1:9),
+# never a hostname that can sit in DNS. v0.6.0's build on the deploy runner
+# (2 CPU, 7 GB) was killed at "Generating static pages using 2 workers (0/185)"
+# with ResourceExhausted (2026-10-02, run 37024351912): each worker inherits
+# the 6 GB heap the compile needs.
+RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/app/packages/core/.next/cache \
+    NODE_OPTIONS=--max-old-space-size=6144 \
+    NEXT_BUILD_CPUS=1 \
     SKIP_ENV_VALIDATION=1 \
+    VOCION_TYPES_CHECKED=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
-    DATABASE_URL="postgres://stub@stub/stub" \
+    DATABASE_URL="postgres://stub@127.0.0.1:9/stub" \
     CLERK_SECRET_KEY="sk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA" \
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \
     NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL}" \
@@ -126,6 +157,14 @@ RUN NODE_OPTIONS=--max-old-space-size=6144 \
     LANGFUSE_SECRET_KEY="sk-stub" \
     npm run build:next \
  && npm run docs:index
+
+# The standalone output still carries some of core's source, specs and test
+# output, which the server never reads: it runs the compiled bundle. Turbopack
+# matches runtime paths by name, so reading `join(pluginDir, 'agents')` pulls
+# every `agents/` folder in the project into the trace (#832). Drop them here,
+# before the runtime stage copies the standalone output.
+RUN cd .next/standalone/packages/core \
+ && rm -rf src e2e tests docs deliverables scripts test-results vitest-test-results
 
 # ----------------------------------------------------------------------
 # Stage 3 — runtime

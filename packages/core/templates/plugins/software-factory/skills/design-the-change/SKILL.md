@@ -3,13 +3,14 @@ slug: design-the-change
 name: Designing the change before it is decided
 description: >-
   How a request that changes what people see gets a visual a person decides
-  against — one mockup or one flow diagram, as an artifact on the request —
+  against — the outcome drawn as the product's own UI (`draw_mockup`), or one
+  flow diagram —
   and how the same request is closed with an after-shot from the running
   product. Covers when a visual is owed, what one screen means, where it is
   attached, and the one honest way out. Read whenever a request's `surface` is
   `ui` or `flow`, before its recommendation is filed, and again when it ships.
 playbooks: [designing-a-surface, house-voice]
-version: 1
+version: 3
 ---
 
 # Designing the change
@@ -36,53 +37,48 @@ is what satisfies it.
 
 ## The before
 
-**Read first.** The request in the asker's words (`title`, `body`, `story`);
-the product's own surface (`product.urls`, and a screenshot of the live page
-when the workspace can take one); the product's `promises`, so the mockup never
-draws something the product has promised not to do.
+**Draw the outcome as the product's own UI blocks — the component, its
+states — no labels, no documents, a short note only where the picture cannot
+say it. Use the real screen as a reference when one exists.**
 
-**Draw one recommendation — and the alternative when a real tradeoff needs a
-decision.** One picture is the default, because two pictures with no
-recommendation hand the person your job. But when the ask genuinely turns on
-a tradeoff a person should weigh (a control in the toolbar or in a menu, a
-wizard or one screen), draw both, mark which you recommend and say in one line
-what the other buys and costs. Never two options as a way to avoid choosing.
+1. `draw_mockup` with the request and no `mockups`: the product's look, the
+   canvas, and — when a capture of the surface exists — the real screen with
+   a pixel map.
+2. `draw_mockup` again with `mockups`: one image per state worth seeing — the
+   change at rest, and hover or a confirmation only when it helps. Each state
+   is `html`: the product's own cards, rows, chips and buttons at real size,
+   framed the way the 2026-09-25 mockups were (#124, #130 — the standard):
+   the product's window (`vc-window`, a `vc-bar` with its mark, nav and
+   primary button, a `vc-body`) on the quiet desk, and beside it a phone
+   (`vc-phone` / `vc-display`) or a panel (`vc-panel`) for a second state.
+   The change itself carries `data-new` — a dashed accent outline and a NEW
+   pill; `data-hint="1"` numbers a second spot. Each state has a `caption`:
+   the one line a person reads under it ("Remind a person who has not opened
+   it"). Where the picture cannot say
+   something ("copies the link, never opens the file"), one `data-note`, at
+   most three. Nothing else: no paragraphs, tables, rule boxes, headings about
+   the design. (`changes` over the real screenshot instead of `html`, when a
+   capture shows the exact spot.)
+3. The tool renders each as a PNG, files it on the request and writes
+   `visuals.mockupArtifactIds` (and `beforeArtifactIds` when it drew on a
+   screenshot) as a new version; the feature page shows them. Never type
+   those ids yourself.
+4. Say one line: what a person will see that they cannot today.
 
-**Match the evidence to the work** (review, 2026-09-24):
+You are asked without anyone asking: a ui or flow request filed with no
+mockup raises `mockup.requested` and this is the job (`design-mockup`). It
+runs beside the intake and the plan — nothing waits on you but the page — and
+if you draw nothing the reason is written on the request and you are asked
+once more with it. Do not repeat what stopped the last attempt.
 
-| Work | Useful evidence |
-|---|---|
-| UI change | the proposed screen, with the current one beside it when the difference is the point |
-| Flow change | the steps and decision points that change |
-| Bug | a reproduction or failure capture — the broken state, not a mockup of the fixed one |
-| API / infrastructure | a behaviour, interface or dependency diagram only when it decides something |
-| Question / small docs fix | usually nothing; write `noVisualReason` |
+**Drawing found a criterion wrong?** Change `acceptance` with `update_object`
+— a new version, on the person's page — and say so in one line. Ask only when
+two readings are equally good and the choice is the person's.
 
-**An honest text card beats an empty frame.** The platform draws a diagram of
-the record's shape (`visuals.drawnArtifactId`) so a card is never blank; that
-drawing never satisfies the gate — `no mock` stays on the row until you file
-a real visual or record why there is none — and it must never be presented as
-a proposed experience.
+A **flow** change is a `mermaid` fence in a document artifact, five to nine
+nodes, the changed step marked. A **bug**'s before is the broken state.
 
-**Draw one thing.**
-
-- A mockup is **one screen**, the change obvious, everything else as it is
-  today. Not a redesign of the page. Not three variants. Not a screen from a
-  different product. An image artifact (`generate_image` where the workspace
-  has it, or a rendered HTML artifact via `create_artifact` when the change is
-  structural), titled with the request's title.
-- A flow diagram is the steps a person takes, as a `mermaid` fence in a
-  document artifact, the changed step marked. Five to nine nodes; more is two
-  flows.
-
-**Attach it.** `update_object` on the request: append the artifact id to
-`visuals.beforeArtifactIds`, and set `visuals.surfaceUrl` to the live URL of
-the page the change lands on — the place a person can open to compare. One URL,
-because before and after are the same place.
-
-**Say one line.** What the mockup shows that the page does not today. If the
-request could honestly be read two ways, name the other reading in the same
-line; do not draw it.
+The platform's thumbnail (`visuals.drawnArtifactId`) never satisfies the gate.
 
 ## The after
 
@@ -98,9 +94,10 @@ open, and QA will read it as evidence it is not.
 
 ## What fails this skill
 
-- A visual attached to the wrong request, or to a task instead of the request.
-- Two mockups for one ask.
+- A mockup that is a document: paragraphs, tables, rule boxes, headings about the design.
+- More than a few short notes, or notes that restate what the picture shows.
 - A mockup that adds a control, a page or a promise the request did not name.
+- An ask where an edit to the request would do.
 - A `ui` request decided with neither a before visual nor a `noVisualReason`.
 - An after-shot from anywhere but `visuals.surfaceUrl` on the live product.
 - Prose where a picture was owed.

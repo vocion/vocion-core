@@ -1,7 +1,9 @@
 import type { PageRow } from './pageFields';
 import type { RecordLinker } from './recordHref';
+import { readReleaseLive } from '@/libs/factory/liveCheck';
 import { dayDistance, dayKey, formatDate, formatTime } from '@/libs/time/zone';
 import { relativeLabel } from '@/libs/timeAgo';
+import { featureProof } from './featureProof';
 import { genericRecordLinker } from './recordHref';
 import { hoursLive, SOAK_HOURS } from './releaseOutcome';
 
@@ -81,7 +83,12 @@ export type ReleaseLinked = {
 
 export const NO_LINKS: ReleaseLinked = { records: new Map(), products: new Map() };
 
-export type FeatureVerdict = { value: string | null; proven: number | null; total: number | null; at: string | null; by: string | null };
+/**
+ * QA's verdict on a shipped feature. `proven`/`total` count the work's own
+ * acceptance lines and `risksHandled`/`risksTotal` the plan-risk lines, both
+ * from `featureProof` — the count the feature's page shows too.
+ */
+export type FeatureVerdict = { value: string | null; proven: number | null; total: number | null; risksHandled: number | null; risksTotal: number | null; at: string | null; by: string | null };
 
 export type ReleaseFeature = {
   requestId: number | null;
@@ -120,6 +127,13 @@ export type ReleaseVerification = {
   acceptance: { state: 'passed' | 'failed' | 'missing'; line: string } | null;
   /** Post-deploy verification: did the deploy work. */
   health: { value: 'ok' | 'degraded' | 'down' | 'unknown' | null; line: string; tone: Tone; checkedAt: Date | null; freshness: string | null };
+  /**
+   * The live check: did QA see the change on the live product, as its QA
+   * account (`libs/factory/liveCheck.ts`). `pending` is a release people use
+   * that no live check has looked at yet; `none` is one with nothing to see.
+   * A health check's 200 never stands in for it.
+   */
+  live: { state: 'seen' | 'partial' | 'not_seen' | 'pending' | 'none'; line: string; tone: Tone; detail?: string | null };
   /** Product impact: did the change work. A different, later question. */
   impact: { state: 'helped' | 'regressed' | 'inconclusive' | 'pending' | 'unchecked' | 'none'; line: string; tone: Tone };
   /** The one line a feed row carries. */
@@ -243,6 +257,34 @@ export function announcementText(raw: unknown): string | null {
   return text.replace(/\s+/g, ' ') === ANNOUNCEMENT_PLACEHOLDER ? null : text;
 }
 
+/**
+ * Words that belong on the release page and never in its announcement: QA's
+ * counts, the criteria, pull request numbers, the plan's risks. The release
+ * type's `announcement-in-plain-words` gate refuses an agent's draft that
+ * matches (`objects/release/type.yaml`, the same pattern — a test holds them
+ * equal), so the product manager rewrites it.
+ */
+export const ANNOUNCEMENT_INTERNAL = /QA|criteria|proven|PR #|\bplan risk/i;
+
+/**
+ * An announcement with its internal sentences taken out — for a draft written
+ * before the gate refused them. Returns the sentences it dropped, so whoever
+ * runs it can say what changed.
+ * @param text - The drafted announcement.
+ */
+export function plainAnnouncement(text: string): { text: string; dropped: string[] } {
+  const sentences = text.replace(/\s+/g, ' ').trim().match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) ?? [];
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const raw of sentences) {
+    const sentence = raw.trim();
+    if (sentence) {
+      (ANNOUNCEMENT_INTERNAL.test(sentence) ? dropped : kept).push(sentence);
+    }
+  }
+  return { text: kept.join(' '), dropped };
+}
+
 // ---------------------------------------------------------------------------
 // Commits
 // ---------------------------------------------------------------------------
@@ -319,12 +361,56 @@ export function releaseCommits(meta: Record<string, unknown>): ReleaseCommit[] {
 function verdictOf(task: LinkedRecord | undefined, fallback: unknown): FeatureVerdict | null {
   const v = obj(task?.meta.verdict);
   if (str(v.value)) {
-    return { value: str(v.value), proven: typeof v.proven === 'number' ? v.proven : null, total: typeof v.total === 'number' ? v.total : null, at: str(v.at), by: str(v.by) };
+    return { value: str(v.value), proven: typeof v.proven === 'number' ? v.proven : null, total: typeof v.total === 'number' ? v.total : null, risksHandled: null, risksTotal: null, at: str(v.at), by: str(v.by) };
   }
-  // The pack's own line: "approve, 8 of 8 proven" or "merged without a QA verdict".
+  // The pack's own line: "approve, 6 of 6 proven · 2 plan risks handled",
+  // "approve, 8 of 8 proven" (before the risk lines were their own group) or
+  // "merged without a QA verdict".
   const line = str(fallback);
   const m = line ? /^(\w+),\s*(\d+) of (\d+) proven/.exec(line) : null;
-  return m ? { value: m[1]!, proven: Number(m[2]), total: Number(m[3]), at: null, by: null } : null;
+  const r = line ? /(?:(\d+) of )?(\d+) plan risks? handled/.exec(line) : null;
+  return m ? { value: m[1]!, proven: Number(m[2]), total: Number(m[3]), risksHandled: r ? Number(r[1] ?? r[2]) : null, risksTotal: r ? Number(r[2]) : null, at: null, by: null } : null;
+}
+
+/**
+ * The verdict counted the one way every surface counts it (`featureProof`):
+ * the work's own acceptance lines, and the plan-risk lines as their own group,
+ * judged on the attempt this release shipped.
+ * @param feature - The feature, with its verdict as the records hold it.
+ * @param linked - The records the release names.
+ */
+function countedVerdict(feature: ReleaseFeature, linked: ReleaseLinked): FeatureVerdict | null {
+  const tasks = feature.taskIds.map(id => linked.records.get(id)).filter((t): t is LinkedRecord => t !== undefined);
+  if (feature.verdict === null || tasks.length === 0) {
+    return feature.verdict;
+  }
+  const request = feature.requestId !== null ? linked.records.get(feature.requestId) ?? null : null;
+  const proof = featureProof({ request, tasks, shippedTaskIds: feature.taskIds });
+  if (proof.attempt === null || proof.total === 0) {
+    return feature.verdict;
+  }
+  return { ...feature.verdict, proven: proof.proven, total: proof.total, risksHandled: proof.risksHandled, risksTotal: proof.risksTotal };
+}
+
+/**
+ * The count a release says for one feature, as QA's verdict counts it: every
+ * line QA proved, the plan's risks with the acceptance — "8 of 8 criteria
+ * proven (6 acceptance, 2 plan risks)". QA said 8 of 8 on #277 while its
+ * release read "6 of 6 acceptance criteria proven" (2026-10-01); one number
+ * on both pages, with the split beside it.
+ * @param v - The verdict.
+ * @param noun - What the lines are called.
+ */
+export function verdictCount(v: FeatureVerdict, noun = 'criteria'): string | null {
+  if (v.total === null) {
+    return null;
+  }
+  const proven = v.proven ?? 0;
+  if (v.risksTotal === null || v.risksHandled === null || v.risksTotal === 0) {
+    return `${proven} of ${v.total} ${noun} proven`;
+  }
+  const risks = `${v.risksTotal} plan risk${v.risksTotal === 1 ? '' : 's'}`;
+  return `${proven + v.risksHandled} of ${v.total + v.risksTotal} ${noun} proven (${v.total} acceptance, ${risks}${v.risksHandled === v.risksTotal ? '' : `, ${v.risksHandled} handled`})`;
 }
 
 /**
@@ -373,7 +459,7 @@ export function releaseFeatures(meta: Record<string, unknown>, linked: ReleaseLi
       href: (linked.link ?? genericRecordLinker)(requestId !== null ? { objectType: 'request', id: requestId } : { objectType: 'engineering_task', id: e.taskId }),
     });
   }
-  return [...byKey.values()];
+  return [...byKey.values()].map(f => ({ ...f, verdict: countedVerdict(f, linked) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -395,7 +481,8 @@ function acceptanceOf(features: ReleaseFeature[]): ReleaseVerification['acceptan
   }
   if (passed.length === 1) {
     const v = passed[0]!.verdict!;
-    return { state: 'passed', line: v.total !== null ? `QA approved, ${v.proven ?? 0} of ${v.total} criteria proven` : 'QA approved' };
+    const count = verdictCount(v);
+    return { state: 'passed', line: count ? `QA approved, ${count}` : 'QA approved' };
   }
   return { state: 'passed', line: `QA approved all ${passed.length} features` };
 }
@@ -415,6 +502,22 @@ function healthOf(meta: Record<string, unknown>, now: Date): ReleaseVerification
     default:
       return { value, line: 'No post-deploy health check recorded', tone: 'warn', checkedAt, freshness: null };
   }
+}
+
+/**
+ * What the live check saw, or that it has not looked yet — for a release
+ * that shipped something people use.
+ * @param meta - The release's metadata.
+ * @param userFacing - Whether anything people use changed.
+ */
+function liveOf(meta: Record<string, unknown>, userFacing: boolean): ReleaseVerification['live'] {
+  const live = readReleaseLive(meta);
+  if (live) {
+    return { state: live.state, line: live.line, tone: live.state === 'seen' ? 'ok' : live.state === 'partial' ? 'warn' : 'bad', detail: live.detail };
+  }
+  return userFacing
+    ? { state: 'pending', line: 'Not yet seen live', tone: 'warn' }
+    : { state: 'none', line: 'Nothing to check live', tone: 'muted' };
 }
 
 function impactOf(row: PageRow, features: ReleaseFeature[], linked: ReleaseLinked, userFacing: boolean, now: Date, tz: string): ReleaseVerification['impact'] {
@@ -488,6 +591,62 @@ export function announcementOf(meta: Record<string, unknown>, userFacing: boolea
 }
 
 // ---------------------------------------------------------------------------
+// Release notes
+// ---------------------------------------------------------------------------
+
+/**
+ * The release's written notes as lines, or null when there are none a person
+ * would read as notes: empty, or the deploy's own commit log. The deploy
+ * writes its commit subjects into `notes` ("- schema: Download CSV… (#114)"),
+ * and a later draft of the announcement set `notesSource: agent` beside them
+ * without touching them — so who last wrote the field is not evidence that
+ * notes were written. The words are.
+ * @param meta - The release's metadata.
+ */
+export function writtenNotes(meta: Record<string, unknown>): string[] | null {
+  const raw = str(meta.notes);
+  if (raw === null) {
+    return null;
+  }
+  const lines = raw.split('\n').map(l => l.trim().replace(/^[-*]\s+/, '').trim()).filter(Boolean);
+  const subjects = new Set((Array.isArray(meta.commits) ? meta.commits.map(String) : []).map(c => parseCommit(c).subject));
+  const isLog = (line: string) => {
+    const c = parseCommit(line);
+    return subjects.has(c.subject) || c.sha !== null || (c.type !== null && c.type !== 'internal') || c.pr !== null || /^Deploy of [0-9a-f]+/i.test(line);
+  };
+  return lines.length === 0 || lines.every(isLog) ? null : lines;
+}
+
+export type ReleaseNotes = {
+  /** `agent` or `human` when the notes were written; `features` when they are read from what shipped. */
+  source: 'agent' | 'human' | 'features';
+  lines: string[];
+};
+
+/**
+ * THE NOTES A PERSON READS: the written ones when someone wrote them, and
+ * until then one line per change from what shipped — each feature by its own
+ * title, each product change with no feature by its plain subject, each
+ * internal change as "Internal: …". Never a commit subject.
+ * @param meta - The release's metadata.
+ * @param reading - The release, read.
+ */
+export function releaseNotes(meta: Record<string, unknown>, reading: Pick<ReleaseReading, 'features' | 'otherChanges' | 'internal'>): ReleaseNotes {
+  const written = writtenNotes(meta);
+  if (written) {
+    return { source: meta.notesSource === 'human' ? 'human' : 'agent', lines: written };
+  }
+  return {
+    source: 'features',
+    lines: [
+      ...reading.features.map(f => f.title),
+      ...reading.otherChanges.map(c => c.plain),
+      ...reading.internal.map(c => `Internal: ${c.plain}`),
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The reading
 // ---------------------------------------------------------------------------
 
@@ -555,6 +714,10 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
   let headline: string;
   if (kind === 'deployment') {
     headline = `${productName} ${surfaces[0]} deployment`;
+  } else if (str(meta.name) && changeTitles.length > 0) {
+    // The release's own short name, written once when it was linked
+    // (`services/factory/releaseName.ts`); the features keep their titles.
+    headline = str(meta.name)!;
   } else if (changeTitles.length === 1) {
     headline = changeTitles[0]!;
   } else if (changeTitles.length > 1) {
@@ -595,18 +758,23 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
 
   const acceptance = acceptanceOf(features);
   const health = healthOf(meta, now);
+  const live = liveOf(meta, userFacing);
   const impact = impactOf(row, features, linked, userFacing, now, tz);
-  const issue = health.tone === 'bad' || acceptance?.state === 'failed' || impact.state === 'regressed';
-  const missing = !issue && (health.value !== 'ok' || acceptance?.state === 'missing');
+  // A release is verified when the change was SEEN on the live product, not
+  // when the deploy answered 200 (release #280, 2026-09-30: health ok, 0 of 6
+  // live states reached).
+  const issue = health.tone === 'bad' || acceptance?.state === 'failed' || impact.state === 'regressed' || live.state === 'not_seen';
+  const missing = !issue && (health.value !== 'ok' || acceptance?.state === 'missing' || live.state === 'pending' || live.state === 'partial');
   const verification: ReleaseVerification = {
     state: issue ? 'issue' : missing ? 'missing' : 'verified',
     label: issue ? 'Issue detected' : missing ? 'Verification missing' : 'Verified',
     acceptance,
     health,
+    live,
     impact,
     // A health check that did not pass is said once, as what needs a person
     // (the attention line), not a second time as evidence beside it.
-    line: [acceptance?.line, health.value === 'ok' ? health.line : null, health.value === 'ok' ? health.freshness : null].filter((s): s is string => Boolean(s)).join(' · '),
+    line: [acceptance?.line, live.state === 'seen' ? live.line : null, health.value === 'ok' ? health.line : null, health.value === 'ok' ? health.freshness : null].filter((s): s is string => Boolean(s)).join(' · '),
   };
 
   const notNeeded = reverted.length > 0 && internal.length === 0
@@ -632,6 +800,9 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
   }
   if (acceptance?.state === 'failed' || acceptance?.state === 'missing') {
     attention.push(acceptance.line);
+  }
+  if (live.state === 'not_seen' || live.state === 'partial') {
+    attention.push(live.line);
   }
   if (impact.state === 'regressed') {
     attention.push(impact.line);

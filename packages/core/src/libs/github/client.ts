@@ -19,6 +19,7 @@
  */
 
 import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
+import { installationIdFrom, installationToken } from './app';
 
 export const GITHUB_API_URL = 'https://api.github.com';
 
@@ -69,6 +70,28 @@ export type GithubClient = {
 export function tokenFromCredentials(credentials?: Record<string, unknown>): string | undefined {
   const token = credentials?.token ?? credentials?.accessToken;
   return typeof token === 'string' && token.trim() !== '' ? token.trim() : undefined;
+}
+
+/**
+ * The token to call with, whichever kind of credential the workspace holds:
+ * a pasted token as-is, or, for a GitHub App installation (`installationId`
+ * and no token), one minted from the app and cached for the hour. Undefined
+ * when the bag holds neither. Throws only when a mint fails, with a message
+ * that names the installation and never the key.
+ * @param credentials - The decrypted credential bag, when any.
+ * @param opts - The API host, for GitHub Enterprise Server; installation tokens are minted per host.
+ * @param opts.baseUrl - API host override.
+ */
+export async function resolveGithubToken(credentials?: Record<string, unknown>, opts?: { baseUrl?: string }): Promise<string | undefined> {
+  const pasted = tokenFromCredentials(credentials);
+  if (pasted) {
+    return pasted;
+  }
+  const installationId = installationIdFrom(credentials);
+  if (!installationId) {
+    return undefined;
+  }
+  return installationToken(installationId, { baseUrl: opts?.baseUrl });
 }
 
 /**

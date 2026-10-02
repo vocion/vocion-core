@@ -6,6 +6,7 @@ import type { FeatureName } from './Langfuse/features';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { Langfuse } from 'langfuse';
 import { resolveLangfuseConfig } from './Langfuse/config';
+import { stopReasonOfMessage } from './llm/stopReason';
 import { tokenUsageOf } from './llm/usage';
 
 /* ------------------------------------------------------------------ */
@@ -117,7 +118,7 @@ export function getLangfuseClient(): Langfuse | null {
  * Flush queued traces and wait for the send to finish.
  *
  * The SDK batches in the background, so a short-lived process (a
- * serverless request, a script, a Temporal activity) has to flush before
+ * serverless request, a script, a background job) has to flush before
  * it exits or the traces are lost. A no-op when tracing is off.
  *
  * This replaces the old exported `langfuse` singleton — flushing was the
@@ -494,9 +495,14 @@ export function createLangfuseCallback(
                 cache_creation_input_tokens: anthropicUsage.cache_creation_input_tokens,
               })
             : undefined;
+      // Why the model stopped — `tool_use`, `end_turn`, `max_tokens`. Not
+      // kept until 2026-09-28, when a tool call that stopped mid-payload
+      // (conversation 349) could be read for its tokens and not its reason.
+      const stopReason = stopReasonOfMessage(firstGen?.message);
       gen.end({
         output: firstGen?.text ?? output.generations,
         usageDetails,
+        ...(stopReason ? { metadata: { stop_reason: stopReason } } : {}),
       });
       generations.delete(runId);
       const startedOnModel = modelsByRun.get(runId);

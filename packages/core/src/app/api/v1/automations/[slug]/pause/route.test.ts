@@ -9,15 +9,6 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 vi.mock('@/services/ApiTokenService', () => ({ authenticateBearer: vi.fn() }));
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
-vi.mock('@/libs/temporal/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/libs/temporal/client')>();
-  return {
-    ...actual,
-    getTemporalClient: vi.fn(async () => {
-      throw new Error('temporal unavailable in this test');
-    }),
-  };
-});
 
 const { db } = await import('@/libs/DB');
 const { automationRunSchema, automationSchema } = await import('@/models/Schema');

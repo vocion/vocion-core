@@ -1,0 +1,64 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "Bash",
+      "TodoWrite",
+      "Task",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:nodejs.org)",
+      "WebFetch(domain:developer.mozilla.org)"
+    ],
+    "deny": [
+      "Bash(git push*)",
+      "Bash(git commit*)",
+      "Bash(git merge*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr create*)",
+      "Bash(npm publish*)",
+      "Bash(sudo*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/.aws/**)",
+      "Read(**/.ssh/**)",
+      "Read(**/.netrc)",
+      "Read(**/.git-credentials)",
+      "Read(**/.claude.json)",
+      "WebSearch"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "/opt/vocion-runner/hooks/guard-bash.sh" }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "/opt/vocion-runner/hooks/guard-write.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          { "type": "command", "command": "/opt/vocion-runner/hooks/log-tool.sh" }
+        ]
+      }
+    ]
+  },
+  "enableAllProjectMcpServers": false
+}

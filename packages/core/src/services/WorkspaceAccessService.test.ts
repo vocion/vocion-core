@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
+const { eq } = await import('drizzle-orm');
 const {
   accountMembershipSchema,
   groupProjectGrantSchema,
@@ -23,7 +24,7 @@ const {
   userGroupSchema,
   userSchema,
 } = await import('@/models/Schema');
-const { accessibleProjects, effectiveRole, reachForAccount, strongerRole } = await import('@/services/WorkspaceAccessService');
+const { accessibleProjects, effectiveRole, memberWorkspace, reachForAccount, resolveActiveWorkspace, strongerRole } = await import('@/services/WorkspaceAccessService');
 
 const ACCOUNT = 'acct-northwind';
 const OTHER_ACCOUNT = 'acct-kestrel';
@@ -201,6 +202,54 @@ describe('workspace access', () => {
     it('gives a person with no membership nothing', async () => {
       expect(await accessibleProjects('usr-nobody')).toEqual([]);
       expect(await effectiveRole('usr-nobody', REVENUE)).toBeNull();
+    });
+  });
+
+  // vocion-core#128. Alex is a MEMBER of Northwind (joined now) and an ADMIN
+  // of Kestrel (joined in 2020), inserted second so row order alone is wrong.
+  describe('a person in two accounts', () => {
+    const KESTREL_DEALS = 'proj-kestrel-deals';
+
+    beforeEach(async () => {
+      await db.insert(accountMembershipSchema).values({ accountId: OTHER_ACCOUNT, userId: ALEX, role: 'admin', createdAt: new Date('2020-01-01T00:00:00Z') });
+      await db.insert(projectSchema).values({ id: KESTREL_DEALS, accountId: OTHER_ACCOUNT, slug: 'deals', name: 'Deals' });
+    });
+
+    it('takes the role from each workspace\'s own account', async () => {
+      // Admin of Kestrel, so every shared Kestrel workspace.
+      expect(await effectiveRole(ALEX, KESTREL_DEALS)).toBe('admin');
+      // Still only a member of Northwind: no grant on delivery, no access.
+      expect(await effectiveRole(ALEX, DELIVERY)).toBeNull();
+      // And the Northwind group grant still counts, at the role it grants.
+      expect(await effectiveRole(ALEX, REVENUE)).toBe('member');
+    });
+
+    it('reaches workspaces on both accounts, or on one when it is named', async () => {
+      expect(await idsFor(ALEX)).toEqual(expect.arrayContaining([REVENUE, KESTREL_DEALS]));
+      expect((await accessibleProjects(ALEX, OTHER_ACCOUNT)).map(a => a.projectId)).toEqual([KESTREL_DEALS]);
+    });
+
+    it('lets a workspace choose the account only for someone who is a member of it', async () => {
+      expect(await memberWorkspace(ALEX, KESTREL_DEALS)).toEqual({ projectId: KESTREL_DEALS, slug: 'deals', accountId: OTHER_ACCOUNT, accountRole: 'admin' });
+      expect(await memberWorkspace(BRIT, KESTREL_DEALS)).toBeNull();
+    });
+
+    it('lands in the oldest membership when nothing is picked, not the first row written', async () => {
+      expect(await resolveActiveWorkspace(ALEX)).toEqual({ accountId: OTHER_ACCOUNT, accountRole: 'admin', projectId: KESTREL_DEALS, workspaceRole: 'admin' });
+    });
+
+    it('looks in a preferred account first when nothing is picked (a just-accepted invite), and ignores one they are not in', async () => {
+      expect((await resolveActiveWorkspace(ALEX, null, ACCOUNT))?.accountId).toBe(ACCOUNT);
+      expect((await resolveActiveWorkspace(ALEX, null, 'acct-not-theirs'))?.accountId).toBe(OTHER_ACCOUNT);
+    });
+
+    it('skips an oldest account with no workspace, so the person is not stranded with no switcher', async () => {
+      await db.delete(projectSchema).where(eq(projectSchema.id, KESTREL_DEALS));
+
+      const active = await resolveActiveWorkspace(ALEX);
+
+      expect(active?.accountId).toBe(ACCOUNT);
+      expect(active?.projectId).not.toBeNull();
     });
   });
 

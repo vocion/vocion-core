@@ -39,6 +39,10 @@ type BufferedStream = {
    * acts on somebody's running turn has to prove it belongs to them first.
    */
   owner: { orgId: string; userId: string };
+  /** The conversation the turn belongs to, when it has one (`answeringIn`). */
+  conversationId?: number | null;
+  /** When the turn started (`newerTurnIn`). */
+  openedAt: number;
 };
 
 const streams = new Map<string, BufferedStream>();
@@ -60,10 +64,11 @@ function sweep(): void {
  * @param owner
  * @param owner.orgId
  * @param owner.userId
+ * @param conversationId
  */
-export function openStream(id: string, owner: { orgId: string; userId: string }): { append: (data: string) => void; close: () => void } {
+export function openStream(id: string, owner: { orgId: string; userId: string }, conversationId: number | null = null): { append: (data: string) => void; close: () => void } {
   sweep();
-  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner };
+  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner, conversationId, openedAt: Date.now() };
   streams.set(id, s);
   return {
     append: (data: string) => {
@@ -185,4 +190,42 @@ export function markStopped(id: string, by: { orgId: string; userId: string }): 
  */
 export function wasStopped(id: string): boolean {
   return streams.get(id)?.stopped === true;
+}
+
+/**
+ * Is a turn running for this conversation right now, in this process? A
+ * client that finds a question with no answer under it asks this before it
+ * waits: a turn the app lost in a restart is not running, and waiting ten
+ * minutes for it left the composer locked (Chris, 2026-09-29: "It's also stuck
+ * on queued and I can't send commands").
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ */
+export function answeringIn(orgId: string, conversationId: number): boolean {
+  for (const s of streams.values()) {
+    if (!s.done && s.owner.orgId === orgId && s.conversationId === conversationId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Has the person started another turn in this conversation since `since`?
+ * What runs after a turn's answer (its cards) checks this before it puts
+ * anything up: the composer is free once the answer is, so the next message
+ * can arrive first, and a card for a turn the person moved past is obsolete
+ * (Chris, 2026-09-30: "we get steps after that render the cards obsolete
+ * while they block chat").
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ * @param since - Epoch ms; a turn opened after this is newer.
+ */
+export function newerTurnIn(orgId: string, conversationId: number, since: number): boolean {
+  for (const s of streams.values()) {
+    if (s.owner.orgId === orgId && s.conversationId === conversationId && s.openedAt > since) {
+      return true;
+    }
+  }
+  return false;
 }

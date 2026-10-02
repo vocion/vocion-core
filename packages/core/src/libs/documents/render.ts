@@ -121,6 +121,15 @@ async function browser(): Promise<Browser> {
   return browserPromise;
 }
 
+/**
+ * The process's one Chromium, for a caller that drives its own contexts —
+ * the live check (`services/factory/liveCheck.ts`) opens the live product in
+ * it. Each caller opens and closes its own contexts and never the browser.
+ */
+export function sharedBrowser(): Promise<Browser> {
+  return browser();
+}
+
 /** Whether a Chromium this process can launch exists — checked once, cached. */
 let availability: Promise<{ ok: true } | { ok: false; reason: string }> | null = null;
 export function renderAvailable(): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -280,6 +289,55 @@ export async function renderDocument(html: string, opts: RenderOptions = {}): Pr
     // requests. Blocked hosts are the other class. Both are unresolved.
     const unresolved = [...new Set([...brokenImages, ...blocked.map(u => u.slice(0, 200))])].slice(0, 20);
     return { title, sheets, ...(pdf ? { pdf } : {}), pdfPages, unresolvedAssets: unresolved, ms: Date.now() - started };
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
+/**
+ * Photograph one screen-sized page — a mockup laid over a real screenshot
+ * (`libs/factory/mockup.ts`). Same browser and the same network allowlist as
+ * a document; the viewport is the size of the element the caller names, read
+ * after the page loaded, so the PNG has the base screenshot's own pixels.
+ * Throws when the browser cannot be used or the element is missing.
+ * @param html - A self-contained page.
+ * @param opts - Choices.
+ * @param opts.selector - The element to photograph (default `#vc-screen`).
+ * @param opts.timeoutMs - Hard cap, ms.
+ */
+export async function renderScreen(html: string, opts: { selector?: string; timeoutMs?: number } = {}): Promise<{ png: Buffer; width: number; height: number }> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const selector = opts.selector ?? '#vc-screen';
+  const b = await browser();
+  const context = await b.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, javaScriptEnabled: false });
+  const page: Page = await context.newPage();
+  page.setDefaultTimeout(timeoutMs);
+  await page.route('**/*', (route) => {
+    const url = route.request().url();
+    if (url.startsWith('data:') || url.startsWith('about:')) {
+      return route.continue();
+    }
+    try {
+      if (ALLOWED_HOSTS.test(new URL(url).hostname)) {
+        return route.continue();
+      }
+    } catch {
+      // fall through to abort
+    }
+    return route.abort();
+  });
+  try {
+    await page.setContent(html, { waitUntil: 'load', timeout: timeoutMs });
+    const el = await page.$(selector);
+    const box = await el?.boundingBox();
+    if (!el || !box) {
+      throw new Error(`nothing to photograph: ${selector} is not on the page`);
+    }
+    const width = Math.max(1, Math.round(box.width));
+    const height = Math.max(1, Math.round(box.height));
+    await page.setViewportSize({ width, height });
+    const png = Buffer.from(await el.screenshot({ type: 'png', timeout: timeoutMs }));
+    return { png, width, height };
   } finally {
     await context.close().catch(() => {});
   }

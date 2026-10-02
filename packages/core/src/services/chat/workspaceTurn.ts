@@ -27,6 +27,7 @@
 import type { RoutingDecision } from '@/services/agents/router';
 import type { AgentEvent } from '@/services/agents/types';
 import type { CollectedDoc } from '@/services/chat/runCollector';
+import type { WorkspaceAddress } from '@/services/ProjectService';
 import process from 'node:process';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -35,7 +36,7 @@ import { readModelPrefs } from '@/libs/llm/modelPrefs';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { actionRunSchema, conversationSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
-import { chooseAgent, routableFromRow } from '@/services/agents/router';
+import { routableFromRow, routeFirstTurn } from '@/services/agents/router';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
 import { preflightCheck } from '@/services/BudgetService';
@@ -43,7 +44,7 @@ import { autoProposeRecommendationDetailed } from '@/services/chat/autoPropose';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
-import { projectSlugById } from '@/services/ProjectService';
+import { workspaceAddressById } from '@/services/ProjectService';
 import { allowedSourceSlugsForUser } from '@/services/SourceAccessService';
 import { getWorkspaceLead } from '@/services/TeamService';
 import { stoppedShort } from './turnStatus';
@@ -235,7 +236,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   } else if (input.agentSlug?.trim()) {
     agentSlug = input.agentSlug.trim();
   } else {
-    routing = chooseAgent({ agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'mcp' });
+    routing = await routeFirstTurn({ orgId, agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'mcp' });
     if (!routing) {
       throw new WorkspaceTurnError('NO_AGENTS', 'This workspace has no active agent to answer. Author one and apply the workspace.');
     }
@@ -264,12 +265,12 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   const conversationId = conversation.id;
   const modelPrefs = readModelPrefs(conversation);
 
-  const [timeZone, allowedSourceSlugs, projectSlug] = await Promise.all([
+  const [timeZone, allowedSourceSlugs, workspace] = await Promise.all([
     workspaceTimeZone(orgId),
     // A token has no membership, so a restricted source drops out for it — the
     // conservative reading of the same ACL a member's chat applies.
     allowedSourceSlugsForUser(orgId, actorId),
-    projectSlugById(orgId),
+    workspaceAddressById(orgId),
   ]);
 
   // History BEFORE the new message, so the model does not see it twice. The
@@ -367,8 +368,8 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   }
   clearTimeout(timer);
 
-  const url = projectSlug
-    ? workspaceUrl(projectSlug, `/dashboard/chat/${conversationId}`, { absolute: true })
+  const url = workspace
+    ? workspaceUrl(workspace.slug, `/dashboard/chat/${conversationId}`, { absolute: true, accountSlug: workspace.accountSlug })
     : `${appBaseUrl()}/dashboard/chat/${conversationId}`;
   const base = { agentSlug, agentName: agent.name, routing, conversationId, url };
 
@@ -403,7 +404,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
           console.warn('ask_workspace: could not write the turn-failed-after-the-cut row', { conversationId }, error);
         });
       });
-    return { ...base, reply: partial.text, truncated: true, turnId: turn.id, traceId, actions: await actionsFor(orgId, projectSlug, filed) };
+    return { ...base, reply: partial.text, truncated: true, turnId: turn.id, traceId, actions: await actionsFor(orgId, workspace, filed) };
   }
 
   await Promise.allSettled(pending);
@@ -432,7 +433,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   if (!stalled && reply.trim()) {
     scheduleConversationTitle({ orgId, conversationId });
   }
-  return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, projectSlug, filed) };
+  return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, workspace, filed) };
 }
 
 /**
@@ -440,10 +441,10 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
  * reversible write above the bar may already be `done`. Org-scoped like
  * every other read.
  * @param orgId - Tenant.
- * @param projectSlug - For the links; null leaves them null.
+ * @param workspace - For the links; null leaves them null.
  * @param filed - What the events named, in order.
  */
-async function actionsFor(orgId: string, projectSlug: string | null, filed: FiledRun[]): Promise<TurnAction[]> {
+async function actionsFor(orgId: string, workspace: WorkspaceAddress | null, filed: FiledRun[]): Promise<TurnAction[]> {
   const byId = new Map<number, FiledRun>();
   for (const f of filed) {
     if (!byId.has(f.runId)) {
@@ -465,8 +466,8 @@ async function actionsFor(orgId: string, projectSlug: string | null, filed: File
     }
     const askId = typeof row.result?.askId === 'number' ? row.result.askId : null;
     let url: string | null = null;
-    if (projectSlug) {
-      url = askId !== null ? askUrlFor(projectSlug, askId) : workspaceUrl(projectSlug, `/dashboard/inbox/proposal-${row.id}`, { absolute: true });
+    if (workspace) {
+      url = askId !== null ? askUrlFor(workspace, askId) : workspaceUrl(workspace.slug, `/dashboard/inbox/proposal-${row.id}`, { absolute: true, accountSlug: workspace.accountSlug });
     }
     return [{ id: row.id, actionId: row.actionId, status: row.status, tool: f.tool, outcome: f.outcome, askId, url }];
   });

@@ -3,7 +3,7 @@ import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -215,6 +215,8 @@ export const projectSchema = pgTable(
      * only run for a workspace that asked for them. Empty = no plugins.
      */
     enabledPlugins: jsonb('enabled_plugins').$type<string[]>().default([]).notNull(),
+    /** Processes that run as durable workflows in this workspace (workspace.yaml `durable:`, backlog 054). */
+    enabledDurable: jsonb('enabled_durable').$type<string[]>().default([]).notNull(),
     /**
      * Which vendor and model produce this workspace's embeddings. Authored as
      * `defaults.embeddingProvider` / `defaults.embeddingModel` in
@@ -798,6 +800,10 @@ export const agentSchema = pgTable(
     /** LLM model (e.g. claude-sonnet-4-20250514, gpt-4o) */
     model: text('model').default('gpt-4o'),
     temperature: text('temperature').default('0.3'),
+    /** How it talks in chat, from its YAML (`libs/agents/voice.ts`); rewritten on apply. */
+    voice: jsonb('voice').$type<import('@/libs/agents/voice').Voice>(),
+    /** How a person set it to talk (page, MCP, API, chat); no apply writes it. */
+    voiceOverride: jsonb('voice_override').$type<import('@/libs/agents/voice').Voice>(),
     /** Skill slugs this agent mounts (SKILL.md units). */
     skillSlugs: jsonb('skill_slugs').$type<string[]>().default([]),
     /** Playbook slugs attached to this agent by name — always-present context. */
@@ -1110,7 +1116,7 @@ export const teamRelations = relations(teamSchema, ({ one }) => ({
  * automation binds a trigger to one of them: `{when: schedule|event,
  * do: run workflow | check mission}`. Authored in
  * workspace/<org>/automations/*.yaml; schedule-whens materialize as
- * Temporal Schedules; event-whens are matched by EventService on emit.
+ * durable schedules; event-whens are matched by EventService on emit.
  */
 export const automationSchema = pgTable(
   'automation',
@@ -1131,7 +1137,8 @@ export const automationSchema = pgTable(
      */
     whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
-    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown> }>().notNull(),
+    /** Also the run's words from the YAML — `label` ("Checked it live") and `doing` ("Checking it live") — which lists title its runs with (`libs/factory/runTitle.ts`). */
+    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; requireTool?: string; input?: Record<string, unknown>; label?: string; doing?: string }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
     ownerAgentSlug: text('owner_agent_slug'),
     /**
@@ -1325,7 +1332,7 @@ export const missionSchema = pgTable(
     desiredArtifacts: jsonb('desired_artifacts').$type<string[]>().default([]),
     /**
      * Standing-responsibility schedule — 5-field cron (UTC). When set, a
-     * Temporal Schedule fires a check run (the lead reviews the charter,
+     * durable schedule fires a check run (the lead reviews the charter,
      * does only what's needed) on this cadence. Null = brief-only.
      */
     schedule: text('schedule'),
@@ -1367,6 +1374,8 @@ export const missionRunSchema = pgTable('mission_run', {
       status: 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'skipped';
       dependsOn?: string[];
       approvalRequired?: boolean;
+      /** When a person approved this task (ISO). An approved task runs without asking again. */
+      approvedAt?: string;
       output?: string;
       traceId?: string;
       error?: string;
@@ -1395,6 +1404,14 @@ export const missionRunSchema = pgTable('mission_run', {
    * never fired by its own run's residue (`services/automations/fireGuards.ts`).
    */
   causedBy: jsonb('caused_by').$type<Array<{ automationSlug: string; automationRunId?: number; missionRunId?: number }>>(),
+  /**
+   * What the run's model calls cost — every call made while it ran (its
+   * turns, the specialists they delegated to, a recording pass), counted
+   * where each is charged (`services/budget/runCost.ts`). NULL on a run from
+   * before this was recorded (migration 0164): not recorded, never $0.00.
+   */
+  tokens: bigint('tokens', { mode: 'number' }).default(0),
+  microCents: bigint('micro_cents', { mode: 'number' }).default(0),
   rating: text('rating'),
   feedbackNote: text('feedback_note'),
   feedbackBy: text('feedback_by'),
@@ -1597,6 +1614,13 @@ export const conversationSchema = pgTable(
      */
     contextJson: jsonb('context_json').$type<import('@/services/chat/pageContext').PageContext>(),
     /**
+     * What every costed turn in the thread spent — the sum of its messages'
+     * `micro_cents`, kept in the same write that counts the message. NULL
+     * while no turn has recorded a cost (threads from before migration 0164).
+     */
+    tokens: bigint('tokens', { mode: 'number' }),
+    microCents: bigint('micro_cents', { mode: 'number' }),
+    /**
      * How recommended actions behave in this thread (0094): `ask` — each
      * recommendation is a card the person taps into the review queue;
      * `act-within-bounds` — recommendations are proposed as they arrive and
@@ -1673,7 +1697,7 @@ export const conversationMessageSchema = pgTable('conversation_message', {
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; ref?: { type: string; id: number } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number }; href?: string; hrefLabel?: string }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
   >>(),
   /**
@@ -1721,6 +1745,13 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * user messages (which don't produce a trace).
    */
   langfuseTraceId: text('langfuse_trace_id'),
+  /**
+   * What an assistant turn's model calls cost — its own and those of any
+   * specialist it delegated to in that turn (`services/budget/runCost.ts`).
+   * NULL on user messages and on turns from before migration 0164.
+   */
+  tokens: bigint('tokens', { mode: 'number' }),
+  microCents: bigint('micro_cents', { mode: 'number' }),
   /**
    * How the turn ended — one of `services/chat/turnStatus.ts`'s values:
    * `complete`, `incomplete`, `failed`, `refused`, `stopped`, `truncated`,
@@ -2166,7 +2197,7 @@ export const evalScoreSchema = pgTable('eval_score', {
  * An evaluator a workspace authored, and where it lives remotely once synced.
  *
  * Workspace apply writes the desired state here and stops. The AWS call that
- * creates the remote evaluator happens later, in a Temporal activity, because
+ * creates the remote evaluator happens later, in a background job, because
  * apply makes no external calls today and must not start failing for every
  * other resource in the file when AWS is unreachable.
  *
@@ -2289,7 +2320,7 @@ export const evalBatchJobSchema = pgTable('eval_batch_job', {
   /**
    * Our idempotency key, written before the job is started.
    *
-   * A Temporal activity is at-least-once, so the start call can run twice for
+   * A background job is at-least-once, so the start call can run twice for
    * one run. AWS reuses the existing job when it sees the same token, which
    * turns a retry into a no-op instead of a second job billing for the same
    * sessions twice.
@@ -2953,6 +2984,8 @@ export const knowledgeDocumentSchema = pgTable(
     processorAttempts: integer('processor_attempts').default(0).notNull(),
     /** Why the last try did not finish. */
     processorError: text('processor_error'),
+    /** When the last finished run said its output goes stale; once passed, the sync runs the processor again on unchanged content. */
+    processorRevisitAt: timestamp('processor_revisit_at', { mode: 'date' }),
     /** Last-modified hints from the upstream source (HTTP ETag / mtime). */
     etag: text('etag'),
     lastModifiedAt: timestamp('last_modified_at', { mode: 'date' }),
@@ -3074,6 +3107,16 @@ export const sourceSyncCheckpointSchema = pgTable(
       .$type<{ scope: 'connector' | 'document' | 'processor'; uri?: string; message: string; at: string }[]>()
       .default([])
       .notNull(),
+    /**
+     * What a run read and deliberately did not keep, with the reason — a pull
+     * request outside the source's branch prefix, a document the connector
+     * yielded twice. Not a failure: the run saw it and the rule said no. Kept
+     * so a run that completes with zero documents can say why (Noco,
+     * 2026-09-30: twelve pull requests read, none on a factory/ branch, and
+     * the card said only "0 documents"). Capped when written; `counts.skipped`
+     * is the true total.
+     */
+    skipped: jsonb('skipped').$type<Array<{ uri?: string; message: string; at: string }>>().default([]).notNull(),
   },
   table => [
     uniqueIndex('source_sync_checkpoint_source_idx').on(table.sourceId),
@@ -3217,10 +3260,14 @@ export const apiTokenSchema = pgTable(
     // wants. The list is spelled out because a partial index cannot call into
     // TypeScript; `MANY_CREDENTIAL_PLATFORM_IDS` in
     // `src/libs/platforms/registry.ts` is the copy application code reads, and
-    // `registry.test.ts` fails if the two drift.
+    // `registry.test.ts` fails if this declaration, that list or the migration
+    // that last rebuilt the index drift apart. Migration 0153 is the current
+    // one, and this predicate has to match it character for character in
+    // membership — nothing applies the DDL from here, so a difference is
+    // invisible until someone reads one and trusts it.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'apollo', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom', 'rest', 'app-login')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.
@@ -3468,7 +3515,7 @@ export const actionRunSchema = pgTable(
     /** Registered action id, e.g. `gmail.send`. */
     actionId: text('action_id').notNull(),
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
-    /** pending | approved | executing | done | failed | rejected | undone (a done run a person put back) */
+    /** pending | approved | executing | done | failed | rejected | undone (a done run a person put back) | closed (the review sweep closed it: its reason was gone, `error` says why) */
     status: text('status').default('pending').notNull(),
     result: jsonb('result').$type<Record<string, unknown>>(),
     error: text('error'),
@@ -3761,6 +3808,33 @@ export const eventLogSchema = pgTable(
   table => [
     uniqueIndex('event_log_dedupe_idx').on(table.orgId, table.dedupeKey),
     index('event_log_org_type_idx').on(table.orgId, table.type),
+  ],
+);
+
+/**
+ * live_notice — the workspace live stream's ring (migration 0155, backlog 050).
+ *
+ * One row per change a person could see: which topics it concerns
+ * (`record:12`, `list:<type>`, `card:7`, `runs`…), what changed (`ref`) and
+ * how (`kind`), never the change itself. Written by triggers on the tables
+ * that change what a person sees, and by `publish()` in `libs/live/publish.ts`
+ * for anything else; the insert rings `pg_notify('vocion_live')`, which every
+ * app process hears. Kept an hour, so a reconnecting tab replays what it
+ * missed (`Last-Event-ID`); pruned by `libs/live/hub.ts`.
+ */
+export const liveNoticeSchema = pgTable(
+  'live_notice',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    orgId: text('org_id').notNull(),
+    topics: text('topics').array().notNull(),
+    ref: text('ref').notNull(),
+    kind: text('kind').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('live_notice_org_id_idx').on(table.orgId, table.id),
+    index('live_notice_created_idx').on(table.createdAt),
   ],
 );
 
@@ -4144,6 +4218,13 @@ export const workerRunSchema = pgTable(
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
     /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */
     workerId: text('worker_id'),
+    /** What the worker says it is — image, build or commit — when it claims (and on any heartbeat). Null when it does not say. */
+    workerVersion: text('worker_version'),
+    /**
+     * Which of the installation's runner targets claimed the run (`on-box`, `aws-fargate`, …;
+     * `libs/runners/config.ts`), as the runner said at claim. Null for a worker that did not say.
+     */
+    workerTarget: text('worker_target'),
     attempt: integer('attempt').default(0).notNull(),
     leaseSeconds: integer('lease_seconds').default(300).notNull(),
     leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }),
@@ -4228,6 +4309,13 @@ export type AskOption = {
    * alignment shape as an action proposal on the sheet. Advisory only.
    */
   confidence?: number;
+  /**
+   * What choosing it DOES (Chris, 2026-09-29: "a ruling card's buttons are its
+   * options, and choosing one is the answer that restarts the build"). Run as
+   * the person who chose it, through the action rail — the same as pressing
+   * Approve on that action's card.
+   */
+  action?: { id: string; input: Record<string, unknown> };
 };
 
 /**
@@ -4474,6 +4562,18 @@ export const artifactSchema = pgTable(
     title: text('title').notNull(),
     spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
     url: text('url'),
+    /**
+     * The external link an image arrived with (0151), once its bytes were
+     * copied into the artifact store and `url` points at Vocion's copy — or
+     * while a copy is still being tried. Null for everything else.
+     */
+    sourceUrl: text('source_url'),
+    /**
+     * What happened when Vocion tried to keep that copy (0151):
+     * `libs/tools/artifacts/ingest.ts` `ArtifactIngest`. A `failed` one is
+     * retried by the sweep while the source link is still valid.
+     */
+    ingest: jsonb('ingest').$type<import('@/libs/tools/artifacts/ingest').ArtifactIngest>(),
     tile: jsonb('tile').$type<{ slot: number; span: 1 | 2 | 3 }>(),
     pinned: boolean('pinned').default(true).notNull(),
     /** Head version number (0101). Starts at 1; every edit increments it. */
@@ -4610,7 +4710,7 @@ export type BulkLeadOutcome = {
 /**
  * A bulk action on the personalization queue, as the record a person watches
  * while it runs and what remains afterwards (Metacto ticket 071). The work
- * itself is a Temporal workflow keyed to this row's id; `outcomes` carries
+ * itself is a durable job keyed to this row's id; `outcomes` carries
  * one entry per lead, and `done` / `failed` are recomputed from it on every
  * write so a retried lead never double-counts.
  */
@@ -4635,3 +4735,189 @@ export const personalizationBulkJobSchema = pgTable('personalization_bulk_job', 
 }, table => [
   index('personalization_bulk_job_org_idx').on(table.orgId, table.createdAt),
 ]);
+
+/* ------------------------------------------------------------------ */
+/* Notifications (backlog 048)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One declared notification kind for a workspace — a `notifications:` entry
+ * in a plugin's `plugin.yaml` or the workspace's own `workspace.yaml`, as the
+ * applier stored it (migration 0156). Nothing notifies unless a row here says
+ * so: core ships the mechanism, the plugin names the moments.
+ *
+ * `config` is the manifest entry as validated (`NotificationRuleManifest`):
+ * the event and its filter, who hears it, the title/body templates, the
+ * record it is about and the dedupe template. `source` says which layer
+ * declared it — `workspace`, or `plugin:<slug>` — so the settings page can
+ * say where a kind came from. `lastFiredAt` / `lastNote` are the rule's own
+ * account of its last match ("delivered to 1 person", or why nobody), so a
+ * rule that matched and reached no one is never silent.
+ */
+export const notificationRuleSchema = pgTable(
+  'notification_rule',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    kind: text('kind').notNull(),
+    label: text('label').notNull(),
+    description: text('description'),
+    event: text('event').notNull(),
+    status: text('status').notNull().default('active'),
+    source: text('source').notNull().default('workspace'),
+    config: jsonb('config').$type<import('@/libs/notifications/types').NotificationRuleConfig>().notNull(),
+    lastFiredAt: timestamp('last_fired_at', { mode: 'date' }),
+    lastNote: text('last_note'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('notification_rule_org_kind_uq').on(table.orgId, table.kind),
+    index('notification_rule_org_event_idx').on(table.orgId, table.event),
+  ],
+);
+
+/**
+ * One notification to one person: what happened, the record it is about and
+ * where it opens. Written by `notify()` alone, deduplicated per person on
+ * `dedupe_key` (the kind plus the rule's dedupe template, by default the
+ * record), so one stop is one notification however often its event is
+ * raised. `readAt` is the person's mark; the per-channel state lives on
+ * `notification_delivery`.
+ */
+export const notificationSchema = pgTable(
+  'notification',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    body: text('body'),
+    /** Workspace-prefixed app path (`/w/<slug>/dashboard/…`) the notification opens. */
+    link: text('link'),
+    recordType: text('record_type'),
+    recordId: text('record_id'),
+    dedupeKey: text('dedupe_key').notNull(),
+    /** The `event_log` row that raised it, when an event did. */
+    eventType: text('event_type'),
+    eventId: integer('event_id'),
+    readAt: timestamp('read_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('notification_org_user_dedupe_uq').on(table.orgId, table.userId, table.dedupeKey),
+    index('notification_user_org_created_idx').on(table.userId, table.orgId, table.createdAt),
+  ],
+);
+
+/**
+ * One channel's attempt at one notification — the queue. `pending` rows whose
+ * `nextAttemptAt` has passed are what the delivery pass picks up; a failure
+ * backs off and retries carrying its reason, and past the last attempt the
+ * row is `failed` with that reason on the notification for a person to see.
+ * `skipped` is a channel that could not be tried at all and says why (the
+ * server has no APNs key, the person has no Slack identity). Web and iOS push
+ * get one row per registered device (`subscriptionId`).
+ */
+export const notificationDeliverySchema = pgTable(
+  'notification_delivery',
+  {
+    id: serial('id').primaryKey(),
+    notificationId: integer('notification_id').notNull().references(() => notificationSchema.id, { onDelete: 'cascade' }),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    /** `in_app` | `ios` | `web` | `email` | `slack`. */
+    channel: text('channel').notNull(),
+    subscriptionId: integer('subscription_id'),
+    /** `pending` | `sent` | `failed` | `skipped`. */
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { mode: 'date' }).defaultNow().notNull(),
+    /** The last failure, or why the channel was skipped. Never a secret. */
+    detail: text('detail'),
+    sentAt: timestamp('sent_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('notification_delivery_due_idx').on(table.status, table.nextAttemptAt),
+    index('notification_delivery_notification_idx').on(table.notificationId),
+  ],
+);
+
+/**
+ * A device a person asked to be notified on. `web` is a browser's Push API
+ * subscription (`token` = the endpoint, `keys` = its p256dh/auth); `ios` is an
+ * APNs device token with the app's bundle id and the APNs environment it was
+ * issued for (`sandbox` from Xcode, `production` from TestFlight and the App
+ * Store). A person's, not a workspace's: one iPhone hears every workspace its
+ * owner is in. Removed when the push service says the subscription is gone.
+ */
+export const pushSubscriptionSchema = pgTable(
+  'push_subscription',
+  {
+    id: serial('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    /** `web` | `ios`. */
+    platform: text('platform').notNull(),
+    token: text('token').notNull(),
+    keys: jsonb('keys').$type<{ p256dh: string; auth: string }>(),
+    bundleId: text('bundle_id'),
+    /** `sandbox` | `production` — iOS only. */
+    environment: text('environment'),
+    /** What the person sees in the device list: "Chrome on macOS", "Chris's iPhone". */
+    label: text('label'),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('push_subscription_platform_token_uq').on(table.platform, table.token),
+    index('push_subscription_user_idx').on(table.userId),
+  ],
+);
+
+/**
+ * One person's notification settings in one workspace: per kind, per channel
+ * on/off (absent = the default for that channel), quiet hours, and where a
+ * Slack notification goes. No row = every default.
+ */
+export const notificationPreferenceSchema = pgTable(
+  'notification_preference',
+  {
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    orgId: text('org_id').notNull(),
+    channels: jsonb('channels').$type<import('@/libs/notifications/types').KindChannelSettings>().default({}).notNull(),
+    quietHours: jsonb('quiet_hours').$type<import('@/libs/notifications/types').QuietHours | null>(),
+    slackTarget: text('slack_target').notNull().default('dm'),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.userId, table.orgId] }),
+  ],
+);
+
+/**
+ * A durable run waiting for an event (backlog 054, `libs/durable/events.ts`).
+ * `emitEvent` sends a matching event to the run named here; the row is the
+ * subscription, opened before the run waits and closed after it is answered.
+ */
+export const durableWaitSchema = pgTable(
+  'durable_wait',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    workflowId: text('workflow_id').notNull(),
+    waitKey: text('wait_key').notNull(),
+    /** Event types that answer the wait. */
+    types: jsonb('types').$type<string[]>().notNull(),
+    /** Payload fields an answering event carries with exactly these values. */
+    match: jsonb('match').$type<Record<string, unknown>>().default({}).notNull(),
+    openedAt: timestamp('opened_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('durable_wait_run_key_idx').on(table.workflowId, table.waitKey),
+    index('durable_wait_org_idx').on(table.orgId),
+  ],
+);

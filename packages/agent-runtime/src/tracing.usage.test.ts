@@ -138,3 +138,44 @@ describe('usage read off llmOutput', () => {
     expect(reported).toMatchObject({ inputTokens: 5_000, outputTokens: 300, cacheReadTokens: 4_000 });
   });
 });
+
+/**
+ * Bedrock's Converse response names no model, so the model on the usage
+ * event has to come from what the loop built. Reported as `unknown`, core's
+ * price table priced every Bedrock turn at zero: the tokens were counted and
+ * the budget was never charged (found on the first production smoke,
+ * 2026-09-28).
+ */
+describe('the model a usage event names', () => {
+  it('is the model the loop built with when the response names none', async () => {
+    let reported: TurnUsage | null = null;
+    const trace = createRuntimeTrace({
+      agentSlug: 'usage-test',
+      input: { message: 'go' },
+      modelId: 'us.anthropic.claude-opus-5',
+      onTurnEnd: (turn) => {
+        reported = turn;
+      },
+    });
+    await (trace.handler as unknown as { handleLLMEnd: (o: LLMResult, id: string) => Promise<void> })
+      .handleLLMEnd(bedrockShaped({ input_tokens: 10, output_tokens: 2 }), 'run-1');
+
+    expect(reported!.model).toBe('us.anthropic.claude-opus-5');
+  });
+
+  it('is still the response\'s own when it names one', async () => {
+    let reported: TurnUsage | null = null;
+    const trace = createRuntimeTrace({
+      agentSlug: 'usage-test',
+      input: { message: 'go' },
+      modelId: 'us.anthropic.claude-opus-5',
+      onTurnEnd: (turn) => {
+        reported = turn;
+      },
+    });
+    await (trace.handler as unknown as { handleLLMEnd: (o: LLMResult, id: string) => Promise<void> })
+      .handleLLMEnd({ generations: [[]], llmOutput: { model: 'claude-sonnet-5', tokenUsage: { promptTokens: 1, completionTokens: 1 } } } as unknown as LLMResult, 'run-1');
+
+    expect(reported!.model).toBe('claude-sonnet-5');
+  });
+});

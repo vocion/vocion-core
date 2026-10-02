@@ -81,6 +81,6 @@ export async function buildServerForBearer(
 ): Promise<{ server: McpServer; identity: TokenIdentity }> {
   const { config, identity } = await mcpConfigForBearer(authHeader);
   // The bridged domain tools run as the token, auditable per token id.
-  const server = await buildServer(config, { userId: `token:${identity.tokenId}` });
+  const server = await buildServer(config, { userId: `token:${identity.tokenId}`, principal: identity.principal });
   return { server, identity };
 }

@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   BarChart3,
+  Bell,
   Blocks,
   BookOpen,
   CalendarClock,
@@ -144,7 +145,10 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users, i18nKey: 'agents', tabOf: '/dashboard/teams', keywords: ['roster', 'leads', 'specialists'] },
   { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass, i18nKey: 'missions', keywords: ['goals', 'objectives'] },
   { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch, i18nKey: 'workflows' },
-  { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation'] },
+  // Automations are workspace plumbing, not daily work (Chris, 2026-10-02:
+  // "move it back to the Manage workspace nav"): a MANAGE row beside Missions
+  // and Workflows, out of the WORK view's More list.
+  { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation', 'automations', 'pause', 'resume', 'switch', 'toggle', 'on', 'off'] },
 
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
@@ -194,6 +198,8 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
 
   // ── YOU — personal, not the workspace's ─────────────────────────────────
   { url: '/dashboard/profile', title: 'Profile', group: 'You', icon: Users, i18nKey: 'profile', keywords: ['account', 'password', 'name'] },
+  { url: '/dashboard/notifications', title: 'Notifications', group: 'You', icon: Bell, i18nKey: 'notifications', keywords: ['bell', 'alerts', 'unread', 'push'] },
+  { url: '/dashboard/notifications/settings', title: 'Notification settings', group: 'You', icon: Bell, tabOf: '/dashboard/notifications', keywords: ['notifications', 'push', 'iphone', 'chrome', 'email', 'slack', 'quiet hours', 'devices'] },
 ];
 
 /**

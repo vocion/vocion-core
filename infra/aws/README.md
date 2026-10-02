@@ -28,9 +28,17 @@ pgvector HNSW + Postgres FTS in the app DB itself, served by
 
 | Instance | vCPU / RAM | $/hour (us-east-1) | Notes |
 |---|---|---|---|
-| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. |
+| `t3.large` | 2 / 8 GB | ~$0.08 | Demo / pilot. Embedding throughput limited. Can't build the app image itself (below). |
 | `r6i.large` | 2 / 16 GB | ~$0.13 | Comfortable for small org corpora. |
 | `r6i.xlarge` | 4 / 32 GB | ~$0.25 | Multiple agents, larger contexts. |
+
+The image builds on the box, beside the running stack. A box's first build
+starts with an empty build cache and needs about 7.9 GB; every build after it
+reuses the cache and needs about 4.4 GB (measured on a 16 GB GitHub runner,
+#670). So a `t3.large` can't run its own first build, even with the stack
+stopped: a build limited to 2 CPUs and 6.8 GB ran out of memory. On a
+`t3.large`, get the image onto the box some other way, or start on a bigger
+instance.
 
 Plus one **100 GB gp3 EBS** volume attached at `/opt/vocion-data` for
 Postgres + Langfuse persistence. `bootstrap.sh` moves Docker's
@@ -79,8 +87,40 @@ sudo bash /opt/vocion/infra/aws/update.sh v0.3.0    # switch to a tag
 sudo bash /opt/vocion/infra/aws/update.sh main      # back to main
 ```
 
-The script rebuilds the app image, applies any new migrations, then
+The script gets the app image, applies any new migrations, then
 rolling-restarts only `app` + `worker` (Postgres + Caddy stay untouched).
+
+**Pull a CI-built image rather than building here.** A first build needs
+about 7.9 GB of memory, and on this box it competes with Postgres and
+Langfuse (#670). Build in CI with `push-app-image.sh` and pass the image in:
+
+```bash
+sudo VOCION_APP_IMAGE=<registry>/<repository>:<commit> bash /opt/vocion/infra/aws/update.sh <git-ref>
+```
+
+`pull-app-image.sh` logs in to ECR with the instance role, pulls with three
+tries, refuses an image built for a different `NEXT_PUBLIC_APP_URL`, and tags
+it `vocion-app:latest`. A failed pull stops the deploy before migrations, with
+the old containers still serving. `bootstrap.sh` takes the same variable. Pass
+the ref the image was built from, so the migrations match it. The CI job, IAM
+and ECR setup are in
+[docs/deployment/parent-project-pattern.md](../../docs/deployment/parent-project-pattern.md#build-the-app-image-in-ci-the-box-only-pulls-it).
+The ECR login belongs to root, so check a pull by hand with `sudo docker pull`.
+
+**Without `VOCION_APP_IMAGE`, both scripts build on the box** and log `no
+VOCION_APP_IMAGE given`. If you passed one and still see that line, sudo
+stripped the variable (see the sudo note under Migrations); use
+`sudo env VOCION_APP_IMAGE=... bash ...`.
+
+The build keeps Turbopack's build cache on the box between deploys
+(#670), so a deploy recompiles only what changed. That needs Docker's buildx
+plugin, so both scripts run `install-buildx.sh` before they build. Amazon
+Linux 2023's `docker` package, which `bootstrap.sh` installs, already ships it
+(buildx 0.12.1 with Docker 25.0.14, checked 2026-09-28), so on most boxes the
+script does nothing. On a box without it, the first deploy logs `installing
+docker-buildx plugin`, downloads a pinned release from GitHub and checks its
+checksum. A failed download stops
+the deploy before the build, with the old containers still serving.
 
 Migrations run **before** the containers roll, and a migration failure
 aborts the deploy with the old containers still serving. That order does
@@ -123,7 +163,9 @@ sudo bash /opt/vocion/infra/aws/apply-migrations.sh --baseline 0042_thing.sql
 ```
 
 Use the flag rather than `sudo MIGRATIONS_BASELINE=... bash`, which the
-default sudoers `env_reset` refuses. The env var still works when it is
+default sudoers `env_reset` can refuse for a user with narrower sudo rights
+than Amazon Linux 2023's `ec2-user` (whose `ALL` rule lets it through,
+checked 2026-09-28). The env var still works when it is
 already exported. An explicit baseline takes precedence over the drizzle
 history, so it also covers a database drizzle migrated part of the way
 and a person finished by hand.
@@ -162,7 +204,18 @@ migration step really executes against the test database — to assert that
 migrations precede the container roll and that a failed migration aborts
 the deploy instead of reporting success. Everything it creates is removed
 on exit. `bootstrap.sh`'s system-prereq and docker-data-root sections are
-skipped by the fakes; the rest of it runs.
+skipped by the fakes; the rest of it runs. `install-buildx.sh` runs against a
+fake `curl`, so the tests check its checksum and failure handling without
+downloading anything. `pull-app-image.sh` and `push-app-image.sh` run against
+fake `aws` and `docker`, covering the ECR login, pull retries, the app-URL
+check, the refusals, and that a deploy given an image never builds.
+
+Those fakes don't build anything. `.github/workflows/app-image.yml` does:
+on a pull request that touches the Dockerfile or either image script, it
+builds and pushes to a registry on the runner twice (the second time proving
+the cache works), pulls the image the way a box does, checks the app-URL
+refusal, applies the migrations and boots the image. Run it by hand from the
+Actions tab after any other change to the image build.
 
 ## Logs + ops
 

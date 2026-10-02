@@ -61,9 +61,9 @@ export type IngestDoc = {
   embedding?: number[];
 };
 
-/** `contentHash` is the stored row's; on an unchanged document, the processor fields say whether its last run finished. */
+/** `contentHash` is the stored row's; on an unchanged document, the processor fields say whether its last run finished, and `revisitDue` whether a finished run's output has gone stale. */
 export type IngestResult
-  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean; contentHash: string; processorAttempts: number; processorDue: boolean }
+  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean; contentHash: string; processorAttempts: number; processorDue: boolean; revisitDue?: boolean }
     | { status: 'created'; documentId: number; chunks: number; contentHash: string }
     | { status: 'updated'; documentId: number; chunks: number; contentHash: string };
 
@@ -194,6 +194,7 @@ export async function ingestDocument(
         uri: knowledgeDocumentSchema.uri,
         processorAttempts: knowledgeDocumentSchema.processorAttempts,
         processorError: knowledgeDocumentSchema.processorError,
+        processorRevisitAt: knowledgeDocumentSchema.processorRevisitAt,
       })
       .from(knowledgeDocumentSchema)
       .where(and(
@@ -237,6 +238,7 @@ export async function ingestDocument(
         contentHash: hash,
         processorAttempts: prior.processorAttempts,
         processorDue: prior.processorAttempts > 0 || prior.processorError !== null,
+        revisitDue: prior.processorRevisitAt !== null && prior.processorRevisitAt.getTime() <= Date.now() && prior.processorAttempts === 0 && prior.processorError === null,
       };
     }
 
@@ -313,6 +315,7 @@ export async function ingestDocument(
             lastSeenAt: new Date(),
             processorAttempts: 0,
             processorError: null,
+            processorRevisitAt: null,
             ...scope,
           })
           .where(eq(knowledgeDocumentSchema.id, documentId));
@@ -373,13 +376,14 @@ const PROCESSOR_ERROR_MAX_CHARS = 500;
 
 /**
  * One step of a document processor's run: `started` hands out a try before the
- * run, so a crash still leaves the document due; `finished` stamps the content
- * and clears the count; `failed` keeps the try and why; `deferred` spent no
- * work, so it gives back a claimed try and keeps why, which keeps it due.
+ * run, so a crash still leaves the document due; `finished` stamps the content,
+ * clears the count and stores when the output goes stale, if the run said;
+ * `failed` keeps the try and why; `deferred` spent no work, so it gives back a
+ * claimed try and keeps why, which keeps it due.
  */
 export type ProcessorRunMark
   = | { kind: 'started' }
-    | { kind: 'finished'; contentHash: string }
+    | { kind: 'finished'; contentHash: string; revisitAt?: Date }
     | { kind: 'failed'; error: string }
     | { kind: 'deferred'; error: string; claimed: boolean };
 
@@ -398,7 +402,7 @@ export async function markProcessorRun(documentId: number, mark: ProcessorRunMar
       set = { processorAttempts: sql<number>`${attempts} + 1` };
       break;
     case 'finished':
-      set = { processedHash: mark.contentHash, processorAttempts: 0, processorError: null };
+      set = { processedHash: mark.contentHash, processorAttempts: 0, processorError: null, processorRevisitAt: mark.revisitAt ?? null };
       // A run that finished on content since replaced must not clear the new content's count.
       where = and(where, eq(knowledgeDocumentSchema.contentHash, mark.contentHash))!;
       break;

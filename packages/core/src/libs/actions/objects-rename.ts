@@ -153,8 +153,14 @@ export const objectsRenameAction: Action<typeof renameInput> = {
     if (next === row.title) {
       throw new Error(`That ${objectType.label.toLowerCase()} is already called "${row.title}".`);
     }
+    // A rename is a write to the record, so it is a version of its body
+    // (backlog 035) — the history says who renamed it and why. Never throws.
+    const { bodyAfter, bodyBefore } = await import('./objects-update-meta');
+    await bodyBefore(ctx.orgId, row.id);
     await writeTitle(ctx.orgId, row.id, next);
+    const body = await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: input.reason, written: [], invokedBy: ctx.invokedBy, reviewedBy: ctx.reviewedBy, runId: ctx.runId });
     return {
+      ...(body.status === 'written' && body.version && body.artifactId ? { bodyVersion: body.version, bodyArtifactId: body.artifactId, bodyFrom: body.version - 1 } : {}),
       objectId: row.id,
       objectType: input.objectType,
       title: next,
@@ -177,6 +183,8 @@ export const objectsRenameAction: Action<typeof renameInput> = {
       throw new Error(`No ${objectType?.label.toLowerCase() ?? input.objectType} #${input.id} in this workspace to restore.`);
     }
     await writeTitle(ctx.orgId, row.id, previousTitle);
+    const { bodyAfter } = await import('./objects-update-meta');
+    await bodyAfter({ orgId: ctx.orgId, id: row.id, reason: `Undid run #${ctx.runId ?? '?'}: ${input.reason}`.slice(0, 500), written: [], invokedBy: ctx.reviewedBy ?? ctx.invokedBy, runId: ctx.runId });
     return { restoredTitle: previousTitle, restoredAt: new Date().toISOString() };
   },
 };

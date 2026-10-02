@@ -15,11 +15,12 @@
  */
 
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
-import type { Action } from '@/libs/actions/types';
+import type { Action, ActionContext } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
+import { decidedByMachine } from '@/libs/actions/decider';
 import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { policyKeyForRun } from '@/libs/actions/policyKey';
@@ -67,12 +68,14 @@ export type ActionRunResult = {
  * no consumer could tell a fresh card from a refresh, let alone from one a
  * moderator already threw out.
  */
-export type ProposeOutcome = 'created' | 'refreshed' | 'already_decided';
+export type ProposeOutcome = 'created' | 'refreshed' | 'already_decided' | 'already_underway';
 
 export type ProposeResult = ActionRunResult & {
   outcome: ProposeOutcome;
   /** When the earlier run was decided. Set on `already_decided` only. */
   decidedAt?: Date | null;
+  /** What is already happening, and where to follow it. Set on `already_underway` only. */
+  underway?: { line: string; href?: string | null };
 };
 
 const DAY_IN_MS = 86_400_000;
@@ -162,6 +165,26 @@ export type ActionOrigin = { conversationId?: number | null; userId?: string | n
  * @param proposal - The envelope as `proposalForStorage` shaped it.
  * @param origin - Where it was made.
  */
+/**
+ * The source whose vault credentials a run of `action` with `input` needs:
+ * the action's per-input answer (`sourceSlugFor`) when it gives one, else its
+ * fixed `sourceSlug`, else null. The one reader, so the run row, execute and
+ * undo agree on which credential a run spends.
+ * @param action - The registered action.
+ * @param input - The run's input, as parsed or as stored.
+ */
+function sourceSlugOf(action: Action, input: Record<string, unknown> | null | undefined): string | null {
+  try {
+    const perInput = action.sourceSlugFor?.(input ?? {});
+    if (typeof perInput === 'string' && perInput.trim()) {
+      return perInput;
+    }
+  } catch {
+    // A hook that throws on an input it did not expect falls back to the fixed slug.
+  }
+  return action.sourceSlug ?? null;
+}
+
 function withOrigin<T extends Record<string, unknown>>(proposal: T | null, origin: ActionOrigin | undefined): (T & { origin?: ActionOrigin }) | null {
   if (!origin || (!origin.conversationId && !origin.userId)) {
     return proposal;
@@ -201,13 +224,15 @@ async function findDecidedRunForKey(
   const statuses = cardKey
     ? [...CARD_STATUSES_THAT_BLOCK]
     : config?.statuses ?? [...DECIDED_STATUSES_THAT_BLOCK];
-  const [row] = await db
+  const rows = await db
     .select({
       id: actionRunSchema.id,
       status: actionRunSchema.status,
+      decidedBy: actionRunSchema.decidedBy,
       decidedAt: actionRunSchema.decidedAt,
       executedAt: actionRunSchema.executedAt,
       createdAt: actionRunSchema.createdAt,
+      result: actionRunSchema.result,
     })
     .from(actionRunSchema)
     .where(and(
@@ -217,7 +242,15 @@ async function findDecidedRunForKey(
       inArray(actionRunSchema.status, [...statuses]),
     ))
     .orderBy(desc(actionRunSchema.id))
-    .limit(1);
+    .limit(20);
+  // A MACHINE'S REJECTION DOES NOT STAND. A seat withdrawing its own
+  // card, its budget retiring it, or a sweep expiring it says nothing about
+  // the record, yet it used to bar the record for good: request #130
+  // (2026-09-30) could never be planned again because the product manager had
+  // withdrawn an old plan card for it, and every replan was refused as "a
+  // person already decided this exact record". A machine-made `done` still
+  // counts; the record it produced exists (`decisionStillStands` answers for it).
+  const row = cardKey ? rows.at(0) : rows.find(r => r.status !== 'rejected' || !decidedByMachine(r.decidedBy));
   if (!row) {
     return undefined;
   }
@@ -230,6 +263,9 @@ async function findDecidedRunForKey(
     if (Date.now() >= staleAt) {
       return undefined;
     }
+  }
+  if (!cardKey && config?.decisionStillStands && !(await config.decisionStillStands(orgId, (row.result ?? null) as Record<string, unknown> | null).catch(() => true))) {
+    return undefined;
   }
   return { id: row.id, status: row.status as 'done' | 'failed' | 'rejected', decidedAt };
 }
@@ -277,7 +313,26 @@ async function learningEagernessFor(orgId: string): Promise<number | null> {
   }
 }
 
-export async function proposeAction(input: {
+/**
+ * Propose an action — the one place every agent write lands. A turn the
+ * person spent asking a question is read-only (`agents/turnScope.ts`): the
+ * write is refused with what to do instead, and a write that lands is counted
+ * on the turn.
+ * @param input - See {@link proposeActionInTurn}.
+ */
+export async function proposeAction(input: Parameters<typeof proposeActionInTurn>[0]): Promise<ProposeResult> {
+  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  if (writesRefused()) {
+    throw new ActionError('read_only_turn', READ_ONLY_RECEIPT);
+  }
+  const res = await proposeActionInTurn(input);
+  if (res.outcome !== 'already_decided') {
+    noteWrite();
+  }
+  return res;
+}
+
+async function proposeActionInTurn(input: {
   orgId: string;
   actionId: string;
   input: Record<string, unknown>;
@@ -335,6 +390,14 @@ export async function proposeAction(input: {
    * was asked for in chat (backlog 038: a P1 filed there starts its build).
    */
   origin?: ActionOrigin;
+  /**
+   * Core's own step (the factory's automatic starts, a QA send-back retry):
+   * the action's `internalInput` fields are kept. Every other caller — a
+   * model's card or tool call, a person's tap, the API — has them removed.
+   */
+  internal?: boolean;
+  /** What the proposing agent turn has read, for a gate's `readThisTurn` (`ActionContext.turn`). */
+  turn?: ActionContext['turn'];
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   const storedProposal = withOrigin(proposalForStorage(input.proposal), input.origin);
@@ -352,7 +415,7 @@ export async function proposeAction(input: {
   // is what actually reaches the caller as a sentence they can act on.
   let parsed;
   try {
-    parsed = action.inputSchema.parse(input.input);
+    parsed = action.inputSchema.parse(input.internal ? input.input : withoutInternalInput(action, input.input));
   } catch (error) {
     if (error instanceof ZodError) {
       throw new ActionError('VALIDATION_FAILED', error.issues.map(issue => issue.message).join('; '));
@@ -362,7 +425,11 @@ export async function proposeAction(input: {
   // Canonical dedup: when the proposer passes no key, the action derives one
   // from the parsed input — so an agent proposing the same call twice collapses
   // into the deterministic job's old behaviour instead of stacking queue items.
-  const dedupKey = input.dedupKey ?? action.dedupKeyFor?.(parsed);
+  // An action whose key names its one subject (`ownsDedupKey`) keeps it
+  // whatever key the caller brought: a card's label hash is not an identity.
+  const dedupKey = action.ownsDedupKey
+    ? action.dedupKeyFor?.(parsed) ?? input.dedupKey
+    : input.dedupKey ?? action.dedupKeyFor?.(parsed);
 
   // Authorised BEFORE anything is written. The refresh path below updates a
   // pending row and calls the action's `onProposed`, which can touch a domain
@@ -385,8 +452,19 @@ export async function proposeAction(input: {
   // The action's own last word, before any row exists. Tenant state the input
   // schema cannot check lives here, and refusing costs the caller nothing but
   // a message it can act on.
+  // What was asked for is already happening: say so, start nothing, refuse nothing.
+  // Whose decision it is, by the principal: an agent's proposal is the
+  // agent's, whoever's thread it was filed in (`ActionContext.proposedBy`).
+  const proposedBy = input.principal.kind === 'agent' ? input.principal.id : (input.invokedBy ?? input.principal.id);
+  const underway = await action.underway?.(
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy, ...(input.turn ? { turn: input.turn } : {}) },
+    parsed,
+  );
+  if (underway) {
+    return { runId: 0, status: 'done', outcome: 'already_underway', underway };
+  }
   const refusal = await action.precheck?.(
-    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id, proposedBy, ...(input.turn ? { turn: input.turn } : {}) },
     parsed,
   );
   if (refusal) {
@@ -403,7 +481,18 @@ export async function proposeAction(input: {
   // `dedupKey` over the API, so two actions can share one; matching on the
   // key alone would rewrite the other action's row with this input and run
   // this action's `onProposed` against a run it does not own.
-  if (dedupKey) {
+  // A key the action itself does not trust (a candidate missing one of its
+  // identity fields) is shared by every filing missing that same field, so it
+  // answers for no one record: it neither refreshes an open card nor stands
+  // behind a decided one. Refreshing on it rewrote whichever record the first
+  // such card had made (#124, 2026-09-30); such a filing is a new card.
+  // Whose decision it is, the same for a fresh run and a refreshed one: an
+  // agent's proposal rides the ladder; a person's own (their word, a token)
+  // runs within their autonomy.
+  const gated = decision.gate === 'approve'
+    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
+  const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
+  if (dedupKey && keyIdentifiesOneRecord) {
     const refreshed = await db.transaction(async (tx) => {
       const lookup = tx
         .select({ id: actionRunSchema.id, input: actionRunSchema.input, proposal: actionRunSchema.proposal })
@@ -452,7 +541,7 @@ export async function proposeAction(input: {
           decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
-      return { id: existing.id, input: stored.input };
+      return { id: existing.id, input: stored.input, proposal: stored.proposal };
     });
     if (refreshed) {
       // Keep the action's own domain row in step with the refreshed payload.
@@ -464,6 +553,25 @@ export async function proposeAction(input: {
         refreshed.input,
         refreshed.id,
       );
+      // ONE RUN PER SUBJECT, JUDGED AS THE NEW PROPOSAL. When the key is the
+      // action's own, the proposal that just merged in would have been its
+      // own run a moment ago, and the ladder would have judged it: it still
+      // is, so merging never costs a proposal the done-for-you it earned.
+      if (action.ownsDedupKey && input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number') {
+        const verdict = await ladderVerdict(input.orgId, action, refreshed.input as Record<string, unknown>, input.proposal, input.conversationAutonomy);
+        if (verdict.mode === 'execute') {
+          await stampAutoApproval(refreshed.id, (refreshed.proposal ?? null) as Record<string, unknown> | null, verdict, input.invokedBy ?? input.principal.id, input.proposal?.agentSlug);
+          return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
+        }
+      }
+      // A PERSON'S WORD RUNS THE CARD THAT WAS WAITING (FE-130, 2026-10-02:
+      // "continue the existing branch and build it" matched the build card
+      // already up, refreshed it, and left it pending with "nothing runs
+      // until you approve it"). Not gated, it executes as a fresh run would.
+      if (!gated) {
+        await db.update(actionRunSchema).set({ status: 'approved' }).where(eq(actionRunSchema.id, refreshed.id));
+        return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
+      }
       return { runId: refreshed.id, status: 'pending', outcome: 'refreshed' };
     }
 
@@ -478,7 +586,6 @@ export async function proposeAction(input: {
     // can do instead.
     // A key the action itself does not trust — a candidate missing one of
     // its identity fields — must not answer for a record nobody has seen.
-    const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
     const decided = keyIdentifiesOneRecord
       ? await findDecidedRunForKey(input.orgId, action.id, dedupKey, action.dedupAgainstDecided)
       : undefined;
@@ -496,8 +603,6 @@ export async function proposeAction(input: {
   // and executed at 0.45 confidence past a 0.6 bar (found 2026-09-18). A
   // machine run with no envelope, and a person or token holding the grant,
   // still write within their autonomy as before.
-  const gated = decision.gate === 'approve'
-    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
   const [run] = await db
     .insert(actionRunSchema)
     .values({
@@ -506,7 +611,7 @@ export async function proposeAction(input: {
       input: parsed as Record<string, unknown>,
       status: gated ? 'pending' : 'approved',
       invokedBy: input.invokedBy ?? input.principal.id,
-      sourceSlug: action.sourceSlug ?? null,
+      sourceSlug: sourceSlugOf(action, parsed as Record<string, unknown>),
       proposal: storedProposal as never,
       dedupKey: dedupKey ?? null,
       expiresAt: input.expiresAt ?? null,
@@ -544,84 +649,9 @@ export async function proposeAction(input: {
     // item in the review queue, never release it.
     // The list itself lives in `libs/actions/neverAuto.ts` so the autonomy
     // ladder reads the same one and never offers a promotion this gate refuses.
-    if (isNeverAuto(action) && !(await internalRecord(input.orgId, action.id, parsed as Record<string, unknown>))) {
-      return { runId: run!.id, status: 'pending', outcome: 'created' };
-    }
-    // An agent that recommended anything other than approval does not get to
-    // have the trust ladder run its work anyway. Confidence and recommendation
-    // answer different questions — an agent can be highly confident that the
-    // right call is to turn this down — and a rule keyed on confidence alone
-    // would read that as "very sure, go ahead". Fails safe: it can only keep
-    // the item in the queue for a person, never release it.
-    if (input.proposal?.suggestedDecision === 'reject' || input.proposal?.suggestedDecision === 'snooze') {
-      return { runId: run!.id, status: 'pending', outcome: 'created' };
-    }
-    // Done for you, by default (`libs/actions/autoAccept.ts`): a reversible,
-    // low-risk kind runs on its own above its bar; an automating rung runs at
-    // its trust rule's floor; everything else — and anything a person has
-    // parked or held — waits for a person. The reason is written on the run.
-    // The ladder's key for THIS input — the action id, unless the action
-    // serves several ledgers (`git.merge` → `git.merge.<riskClass>`). The
-    // trust rule, the risk tier and the evidence all live under it.
-    const policyKey = policyKeyForRun(action.id, parsed as Record<string, unknown>);
-    const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
-    const policy = await effectivePolicy(input.orgId, policyKey);
-    // The workspace's appetite for the system improving itself, read only for
-    // a kind that declares it (`libs/actions/eagerness.ts`). A trust rule or a
-    // promoted policy still wins — `decideExecution` reads the dial on the
-    // default branch only, which is the branch nobody has spoken about.
-    const learningEagerness = action.selfImproving === true
-      ? await learningEagernessFor(input.orgId)
-      : null;
-    const verdict = decideExecution({
-      actionId: policyKey,
-      confidence: input.proposal?.confidence,
-      // "Reversible" is `undo` for a kind that runs here, and the hand-off's
-      // own word for one that runs elsewhere (a pushed branch is deleted with
-      // one command; nothing in this process could do it).
-      reversible: action.undo !== undefined || action.manual?.reversible === true,
-      neverAuto: false,
-      suggestedDecision: input.proposal?.suggestedDecision ?? null,
-      rung: policy.rung,
-      riskTier: policy.riskTier,
-      minConfidence: policy.minConfidence,
-      explicit: policy.policy !== null || policy.trustRule !== null,
-      conversationAutonomy: input.conversationAutonomy,
-      selfImproving: action.selfImproving === true,
-      learningEagerness,
-    });
+    const verdict = await ladderVerdict(input.orgId, action, parsed as Record<string, unknown>, input.proposal, input.conversationAutonomy);
     if (verdict.mode === 'execute') {
-      // Who to credit with the decision. An in-process agent turn stamps
-      // `agent:<slug>` on the proposing principal; a proposal made over the API
-      // stamps its caller there and names the agent in the envelope instead, so
-      // both have to be read. Neither knowing it means the ladder itself is
-      // the decider — the honest answer, rather than crediting an agent we
-      // cannot name.
-      const decidingAgent = agentSlugFromPrincipal(input.invokedBy ?? input.principal.id)
-        ?? input.proposal?.agentSlug;
-      await db
-        .update(actionRunSchema)
-        .set({
-          proposal: {
-            ...(storedProposal ?? {}),
-            autoApproved: true,
-            autoApprovedThreshold: verdict.threshold ?? undefined,
-            autoApprovedReason: verdict.reason,
-            autoApprovedBy: verdict.source,
-          } as never,
-          // `approvedByAgent` is the system of record for who decided; the
-          // envelope key above predates it and is kept so runs written before
-          // the column landed still read as auto-approved.
-          //
-          // Stamping the decision fields here is what makes "did a decision
-          // happen" one question instead of two: before this, an auto-approved
-          // run left `decidedBy` and `decidedAt` empty and was indistinguishable
-          // from one nobody had touched.
-          approvedByAgent: true,
-          decidedBy: decidingAgent ? `agent:${decidingAgent}` : 'trust-ladder',
-          decidedAt: new Date(),
-        })
-        .where(eq(actionRunSchema.id, run!.id));
+      await stampAutoApproval(run!.id, storedProposal, verdict, input.invokedBy ?? input.principal.id, input.proposal?.agentSlug);
       // Deliberately NOT written to the adoption stream. Adoption measures what
       // people do, and an agent actor on a `review.%` event would count itself
       // as an active user and as an interaction, inflating the very numbers the
@@ -640,6 +670,183 @@ export async function proposeAction(input: {
     return { runId: run!.id, status: 'pending', outcome: 'created' };
   }
   return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
+}
+
+/**
+ * The input with the action's core-only fields removed (`internalInput`).
+ * @param action - The action.
+ * @param raw - The caller's input.
+ */
+export function withoutInternalInput(action: Action, raw: Record<string, unknown>): Record<string, unknown> {
+  const internal = action.internalInput ?? [];
+  if (internal.length === 0 || !raw || typeof raw !== 'object') {
+    return raw;
+  }
+  return Object.fromEntries(Object.entries(raw).filter(([k]) => !internal.includes(k)));
+}
+
+/**
+ * Stamp the ladder's approval on a run it is about to execute.
+ * @param runId - The run.
+ * @param storedProposal - Its envelope as stored.
+ * @param verdict - The ladder's answer.
+ * @param verdict.threshold - The bar it cleared.
+ * @param verdict.reason - Why.
+ * @param verdict.source - Which rule.
+ * @param caller - `invokedBy`, or the principal's id.
+ * @param envelopeAgent - The agent the envelope names.
+ */
+async function stampAutoApproval(
+  runId: number,
+  storedProposal: Record<string, unknown> | null,
+  verdict: { threshold?: number | null; reason: string; source: string },
+  caller: string,
+  envelopeAgent: string | undefined,
+): Promise<void> {
+  // Who to credit with the decision. An in-process agent turn stamps
+  // `agent:<slug>` on the proposing principal; a proposal made over the API
+  // stamps its caller there and names the agent in the envelope instead, so
+  // both have to be read. Neither knowing it means the ladder itself is
+  // the decider — the honest answer, rather than crediting an agent we
+  // cannot name.
+  const decidingAgent = agentSlugFromPrincipal(caller) ?? envelopeAgent;
+  await db
+    .update(actionRunSchema)
+    .set({
+      proposal: {
+        ...(storedProposal ?? {}),
+        autoApproved: true,
+        autoApprovedThreshold: verdict.threshold ?? undefined,
+        autoApprovedReason: verdict.reason,
+        autoApprovedBy: verdict.source,
+      } as never,
+      // `approvedByAgent` is the system of record for who decided; the
+      // envelope key above predates it and is kept so runs written before
+      // the column landed still read as auto-approved.
+      //
+      // Stamping the decision fields here is what makes "did a decision
+      // happen" one question instead of two: before this, an auto-approved
+      // run left `decidedBy` and `decidedAt` empty and was indistinguishable
+      // from one nobody had touched.
+      approvedByAgent: true,
+      decidedBy: decidingAgent ? `agent:${decidingAgent}` : 'trust-ladder',
+      decidedAt: new Date(),
+    })
+    .where(eq(actionRunSchema.id, runId));
+}
+
+/**
+ * THE LADDER'S ANSWER for one gated proposal, without writing anything: does
+ * it execute on its own, or wait for a person? The one reading
+ * `proposeAction` acts on, and the one a caller asks before counting a
+ * proposal against a person's attention (`willExecuteOnItsOwn`).
+ *
+ * Never-auto guard (safety invariant): an outbound send to a real person,
+ * discovery.review_proposal, personalization.enroll and an extracted
+ * objects.propose_candidate ALWAYS require an explicit human approve, no
+ * matter what trust rules exist (the list lives in `libs/actions/neverAuto.ts`
+ * so the autonomy ladder reads the same one). An agent that recommended
+ * anything other than approval does not get the ladder to run its work
+ * anyway. Both fail safe: they can only keep an item for a person.
+ * @param orgId - Tenant.
+ * @param action - The action.
+ * @param parsed - Its parsed input.
+ * @param proposal - The envelope.
+ * @param conversationAutonomy - The thread's own rung, when it has one.
+ */
+async function ladderVerdict(
+  orgId: string,
+  action: Action,
+  parsed: Record<string, unknown>,
+  proposal: { confidence?: number; suggestedDecision?: SuggestedDecision | null } | undefined,
+  conversationAutonomy: 'ask' | 'act' | undefined,
+): Promise<ReturnType<typeof decideExecution>> {
+  if (isNeverAuto(action) && !(await internalRecord(orgId, action.id, parsed))) {
+    return { mode: 'ask', reason: 'held at approval by the platform', threshold: null, source: 'never-auto' };
+  }
+  if (proposal?.suggestedDecision === 'reject' || proposal?.suggestedDecision === 'snooze') {
+    return { mode: 'ask', reason: `the agent itself advised "${proposal.suggestedDecision}"`, threshold: null, source: 'advice' };
+  }
+  // Done for you, by default (`libs/actions/autoAccept.ts`): a reversible,
+  // low-risk kind runs on its own above its bar; an automating rung runs at
+  // its trust rule's floor; everything else waits for a person. The ladder's
+  // key is the one for THIS input (`git.merge` → `git.merge.<riskClass>`).
+  const policyKey = policyKeyForRun(action.id, parsed);
+  const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
+  const policy = await effectivePolicy(orgId, policyKey);
+  const learningEagerness = action.selfImproving === true ? await learningEagernessFor(orgId) : null;
+  return decideExecution({
+    actionId: policyKey,
+    confidence: proposal?.confidence,
+    // "Reversible" is `undo` for a kind that runs here, and the hand-off's
+    // own word for one that runs elsewhere.
+    reversible: action.undo !== undefined || action.manual?.reversible === true,
+    neverAuto: false,
+    suggestedDecision: proposal?.suggestedDecision ?? null,
+    rung: policy.rung,
+    riskTier: policy.riskTier,
+    minConfidence: policy.minConfidence,
+    explicit: policy.policy !== null || policy.trustRule !== null,
+    conversationAutonomy,
+    selfImproving: action.selfImproving === true,
+    learningEagerness,
+  });
+}
+
+/**
+ * Would this proposal execute on its own — never landing in Review for a
+ * person — if it were proposed now? Read-only. The proposal budget asks this
+ * before refusing an agent for having too much waiting in Review: a proposal
+ * that runs within bounds adds nothing to what a person owes (backlog 038:
+ * the planner was refused filing a plan the trust bar would have filed).
+ * @param opts - What `proposeAction` would be given.
+ * @param opts.orgId - Tenant.
+ * @param opts.actionId - The action.
+ * @param opts.input - Its input, unparsed.
+ * @param opts.principal - Who proposes.
+ * @param opts.proposal - The envelope.
+ * @param opts.proposal.confidence - The confidence.
+ * @param opts.proposal.suggestedDecision - The recommendation.
+ */
+export async function willExecuteOnItsOwn(opts: { orgId: string; actionId: string; input: Record<string, unknown>; principal: Principal; proposal?: { confidence?: number; suggestedDecision?: SuggestedDecision | null } }): Promise<boolean> {
+  const action = getAction(opts.actionId);
+  const parsed = action?.inputSchema.safeParse(opts.input);
+  if (!action || !parsed?.success) {
+    return false;
+  }
+  let decision;
+  try {
+    decision = enforce(opts.principal, { kind: 'action', action: action.grant, external: action.external, scope: { orgId: opts.orgId } }, 'mutate');
+  } catch {
+    return false;
+  }
+  const gated = decision.gate === 'approve' || (opts.principal.kind === 'agent' && typeof opts.proposal?.confidence === 'number');
+  if (!gated) {
+    return true;
+  }
+  return (await ladderVerdict(opts.orgId, action, parsed.data as Record<string, unknown>, opts.proposal, undefined)).mode === 'execute';
+}
+
+/**
+ * Whether the workspace's trust bar for this action clears at this
+ * confidence — the ladder's own verdict (`ladderVerdict`), for a caller
+ * inside an action that decides a second thing on the same bar: a ruling
+ * answering itself with its recommended option (`ask.file`). Read-only;
+ * never a threshold of its own.
+ * @param opts - The action and what the bar is asked about.
+ * @param opts.orgId - Tenant.
+ * @param opts.actionId - The action whose bar applies.
+ * @param opts.input - Its input, unparsed.
+ * @param opts.confidence - How sure the proposer is.
+ */
+export async function clearsTrustBar(opts: { orgId: string; actionId: string; input: Record<string, unknown>; confidence: number }): Promise<boolean> {
+  const action = getAction(opts.actionId);
+  const parsed = action?.inputSchema.safeParse(opts.input);
+  if (!action || !parsed?.success) {
+    return false;
+  }
+  const verdict = await ladderVerdict(opts.orgId, action, parsed.data as Record<string, unknown>, { confidence: opts.confidence, suggestedDecision: 'approve' }, undefined);
+  return verdict.mode === 'execute';
 }
 
 /**
@@ -735,7 +942,8 @@ export async function executeAction(
     .update(actionRunSchema)
     .set({ status: 'executing', ...decision })
     .where(eq(actionRunSchema.id, runId));
-  const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
+  const credentialSource = sourceSlugOf(action, run.input);
+  const credentials = credentialSource ? await getCredentialsForSource(orgId, credentialSource) : undefined;
 
   try {
     const result = await action.execute({
@@ -935,7 +1143,8 @@ export async function undoAction(runId: number, orgId: string, opts: { by: strin
   if (run.status !== 'done') {
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — only a done run can be undone`);
   }
-  const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
+  const undoSource = sourceSlugOf(action, run.input);
+  const credentials = undoSource ? await getCredentialsForSource(orgId, undoSource) : undefined;
   const wasAuto = run.approvedByAgent === true;
   const confidence = typeof run.proposal?.confidence === 'number' ? run.proposal.confidence : null;
   let undoResult: Record<string, unknown> | void;

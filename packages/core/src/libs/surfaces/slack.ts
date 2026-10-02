@@ -1,4 +1,4 @@
-import type { ChatImage, ChatInbound, ChatMessage, ChatParse, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
+import type { ChatImage, ChatImageFetcher, ChatInbound, ChatMessage, ChatParse, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
 import { Buffer } from 'node:buffer';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -305,7 +305,7 @@ export async function uploadSlackImages(
 }
 
 /** Fetch the bytes behind an image so the upload rung can hand them to Slack. */
-export type ImageFetcher = (image: ChatImage) => Promise<Uint8Array | null>;
+export type ImageFetcher = ChatImageFetcher;
 
 /**
  * Post a message into the thread, carrying its images the best way the
@@ -359,7 +359,7 @@ export async function postSlackReply(
         if (uploaded.ok) {
           // completeUploadExternal posts the message; there is no separate
           // chat.postMessage, and no `ts` to key an outbound record on.
-          return { channelId: target.channelId, ts: '', ...(target.threadRef ? { threadRef: target.threadRef } : {}), media: 'uploaded' };
+          return { channelId: target.channelId, ts: '', ...(target.threadRef ? { threadRef: target.threadRef } : {}), media: 'uploaded', fileIds: uploaded.fileIds };
         }
       }
       // Fell through: a byte read or the upload failed. The block rung below
@@ -436,6 +436,42 @@ export async function postAnnouncement(
   return postSlackReply(target, message, token, baseUrl, opts);
 }
 
+/**
+ * Take a post back: `chat.delete` for a message Slack gave a `ts` for, and
+ * `files.delete` for each file an upload created (an upload posts the message
+ * itself, so its files are its handle). The undo of a published announcement.
+ * `message_not_found` / `file_not_found` count as done: someone already
+ * removed it in Slack, which is what undo was for.
+ * @param post - Where it landed and what it created.
+ * @param post.channelId - The channel.
+ * @param post.ts - The message's Slack id, when there is one.
+ * @param post.fileIds - The uploaded files, when there are any.
+ * @param token - Bot token.
+ * @param baseUrl - Overridable for tests.
+ * @param fetchImpl - Injectable for tests.
+ */
+export async function deleteSlackPost(
+  post: { channelId: string; ts?: string | null; fileIds?: string[] | null },
+  token: string | undefined,
+  baseUrl = SLACK_API_BASE,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const gone = new Set(['message_not_found', 'file_not_found', 'file_deleted']);
+  if (post.ts) {
+    const res = await slackApi('chat.delete', { channel: post.channelId, ts: post.ts }, token, baseUrl, fetchImpl);
+    if (!res.ok && !gone.has(res.error)) {
+      return res;
+    }
+  }
+  for (const file of post.fileIds ?? []) {
+    const res = await slackApi('files.delete', { file }, token, baseUrl, fetchImpl);
+    if (!res.ok && !gone.has(res.error)) {
+      return res;
+    }
+  }
+  return { ok: true };
+}
+
 /* ------------------------------------------------------------------ */
 /* Scopes — what this install can actually do                          */
 /* ------------------------------------------------------------------ */
@@ -482,5 +518,5 @@ export const slackSurface: ChatSurfaceAdapter = {
   id: 'slack',
   verify: (rawBody, headers) => verifySlackSignature(rawBody, headers, process.env.SLACK_SIGNING_SECRET),
   parse: payload => parseSlackPayload(payload, process.env.SLACK_BOT_USER_ID),
-  reply: (target, message) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN),
+  reply: (target, message, opts) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN, SLACK_API_BASE, opts?.fetchImage ? { fetchImage: opts.fetchImage } : {}),
 };

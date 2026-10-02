@@ -373,6 +373,53 @@ describe('a document read again with its venue worded differently', () => {
   });
 });
 
+describe('a series read again with its title worded differently', () => {
+  const base = {
+    objectType: 'event-candidate',
+    agentSlug: 'event-ingestion-lead',
+    dedupOn: ['title', 'startDate', 'venueName'],
+    titleFrom: 'title',
+    promptFragment: 'Only events open to the public.',
+    timezone: 'America/New_York',
+    occurrenceFields: { day: 'startDate' },
+  };
+  const plain = candidateExtractorConfigSchema.parse(base);
+  const keeping = candidateExtractorConfigSchema.parse({ ...base, keepIdentityOnReread: { sameOn: ['startDate', 'venueName'] } });
+  const read = (title: string) => answer([eventRecord({
+    fields: { title, startDate: day(7), venueName: 'The Ember Room', venueCity: 'Riverton' },
+    repeats: { rule: 'FREQ=WEEKLY', evidence: 'Thursday, 8pm' },
+  })]);
+
+  beforeEach(resetOrg);
+
+  it('files the whole series again when nothing keeps the identity', async () => {
+    invoke.mockResolvedValueOnce(read('Open Mic Night'));
+    const first = await run({ ...context(), config: plain });
+    invoke.mockResolvedValueOnce(read('Open Mic Nite'));
+    const second = await run({ ...context(), config: plain });
+    const filed = first.counts?.proposed ?? 0;
+
+    expect(filed).toBeGreaterThan(1);
+    expect(second.counts?.proposed).toBe(filed);
+    expect((await cards()).events).toHaveLength(2 * filed);
+  });
+
+  it('refreshes every card of the series when the reread keeps the day and the venue', async () => {
+    invoke.mockResolvedValueOnce(read('Open Mic Night'));
+    const first = await run({ ...context(), config: keeping });
+    invoke.mockResolvedValueOnce(read('Open Mic Nite'));
+    const second = await run({ ...context(), config: keeping });
+    const { events } = await cards();
+    const filed = first.counts?.proposed ?? 0;
+
+    expect(filed).toBeGreaterThan(1);
+    expect(second.counts).toMatchObject({ refreshed: filed, identity_kept: filed });
+    expect(second.counts).not.toHaveProperty('proposed');
+    expect(events).toHaveLength(filed);
+    expect(events.every(event => (event.input as { fields: { title?: string } }).fields.title === 'Open Mic Night')).toBe(true);
+  });
+});
+
 describe('an event page and a listing that both name the event', () => {
   const EVENT_PAGE = 'https://listings.example.org/riverton/open-mic-night';
   const TICKETS = 'https://tickets.example.org/open-mic-night';

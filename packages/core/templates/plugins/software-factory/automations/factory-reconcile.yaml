@@ -1,0 +1,25 @@
+# WEBHOOKS FIRST, A RECONCILER BEHIND THEM (backlog 049; Chris, 2026-09-30:
+# "I love those web hooks. Leverage that with fallback sweep"). GitHub does
+# not redeliver a failed webhook, and a worker that never picks a run up sends
+# nothing. Every five minutes this reads every open factory pull request back
+# from GitHub (checks, merged, closed) and raises whichever event Vocion never
+# received, with the webhook's own dedupe key, so the same handler runs once;
+# checks again every pull request a fixed default branch unblocked; restarts a
+# review that never started; and asks the pipeline's owner about a run no
+# worker picked up. Cheap and idempotent: the heavier sweep stays hourly
+# (`factory-recover-stuck`).
+slug: factory-reconcile
+name: Read the pipeline back
+description: >-
+  Every five minutes, compare what GitHub and the workers say with what Vocion
+  heard, and raise what is missing. Deterministic: a built-in job on a
+  schedule.
+status: active
+agent: release-engineer
+when:
+  schedule: '*/5 * * * *'
+do:
+  job: factory-reconcile
+  input:
+    # The seat asked when the pipeline itself needs a person.
+    owner: release-engineer

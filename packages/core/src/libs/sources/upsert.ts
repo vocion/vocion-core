@@ -7,7 +7,7 @@
  * every ingestable venue through it). Both mean the same thing by "upsert",
  * find by `(orgId, slug)`, validate the connector's config and the processor's,
  * REPLACE the stored blob including the `_connector` / `_processor` stamps, then
- * make the source's two Temporal schedules match what was declared, so the
+ * make the source's two durable schedules match what was declared, so the
  * logic lives here once instead of being written twice and diverging on the
  * third change.
  *
@@ -22,6 +22,7 @@
 
 import type { ProcessorRef } from '@/libs/sources/processor';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { listProcessorSlugs, processorConfigSchema } from '@/libs/processors/registry';
 import { withManifestDir } from '@/libs/sources/manifestDir';
@@ -131,6 +132,7 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
     knownCandidates?: { keyedBy?: string };
     seriesLabel?: { sameOn?: string[]; differsOn?: string; keyField?: string };
     keepIdentityOnReread?: { sameOn?: string[] };
+    occurrenceFields?: { day?: string };
   };
   for (const step of parsed.learningSteps ?? []) {
     if (!known.learningSteps.has(step)) {
@@ -166,6 +168,17 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
   if (keepSameOn.length > 0 && [...identity].every(field => keepSameOn.includes(field))) {
     throw new Error(`source "${spec.slug}" processor names every dedupOn field in keepIdentityOnReread.sameOn, so no identity value is left to keep (${[...identity].join(', ')})`);
   }
+  // The occurrences written from one record differ only on their day, so the
+  // day is what keeps each its own card, and what makes them one series.
+  const occurrenceDay = parsed.occurrenceFields?.day;
+  requireIdentity(occurrenceDay, 'occurrenceFields.day');
+  if (occurrenceDay !== undefined && parsed.keepIdentityOnReread && !keepSameOn.includes(occurrenceDay)) {
+    throw new Error(`source "${spec.slug}" processor names "${occurrenceDay}" in occurrenceFields.day but not in keepIdentityOnReread.sameOn, so a reread could give one occurrence another's day`);
+  }
+  const differsOn = parsed.seriesLabel?.differsOn;
+  if (occurrenceDay !== undefined && differsOn !== undefined && differsOn !== occurrenceDay) {
+    throw new Error(`source "${spec.slug}" processor names "${occurrenceDay}" in occurrenceFields.day, which is not its seriesLabel.differsOn ("${differsOn}"), so the occurrences it writes would not read as one series`);
+  }
   // And the one knob that must NOT be identity. The label stage runs BEFORE
   // the proposal (`candidateExtractor/labels.ts` writes into `record.fields`,
   // `propose.ts` reads them), so a key written into an identity field would
@@ -195,8 +208,13 @@ export function validateSourceSpec(spec: SourceUpsertSpec, known: KnownProcessor
   if (!connector) {
     throw new Error(`source "${spec.slug}" references unknown connector kind: "${spec.kind}". Registered: ${listConnectors().map(c => c.slug).join(', ')}`);
   }
-  // Validate the per-connector config blob. Throws ZodError on bad input.
-  connector.configSchema.parse(spec.config);
+  // Validate the per-connector config blob. A ZodError's own message is its
+  // issues as JSON; the apply prints `message`, so it is rewritten as the
+  // source's name plus one line per fault — what a person fixes the YAML from.
+  const parsed = connector.configSchema.safeParse(spec.config);
+  if (!parsed.success) {
+    throw new Error(`source "${spec.slug}" config is not valid for the ${spec.kind} connector:\n${z.prettifyError(parsed.error)}`);
+  }
   return validateSourceProcessor(spec, known);
 }
 
@@ -270,12 +288,12 @@ export async function upsertSourceRow(
 }
 
 /**
- * Make the source's two Temporal schedules match what was declared: the
+ * Make the source's two durable schedules match what was declared: the
  * incremental cron and the full-sync reconcile. A disabled source, or one with
  * no cron, has its schedule removed rather than left firing at a row nobody
  * wants synced, that is the rollback path, since no writer here deletes rows.
  *
- * Talks to Temporal, so callers that can survive without a schedule (the
+ * Talks to the durable engine, so callers that can survive without a schedule (the
  * applier collects the failure and carries on) must catch.
  * @param orgId - Org that owns the source.
  * @param spec - What the writer declared.

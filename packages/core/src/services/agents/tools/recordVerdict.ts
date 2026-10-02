@@ -11,18 +11,21 @@
  * (`do.requireTool`).
  *
  * The model says what it judged; the server says what that means:
- * - the head is read from GitHub with the workspace token, never typed by the model;
+ * - the head is read from the code host with the workspace token, never typed by the model;
  * - the count ("4 of 6 proven") is computed from the criteria, never claimed;
  * - an approve with an unproven criterion or a blocking finding is refused;
  * - on approve the merge card (`git.merge`) is filed in the same call, so
- *   there is no second step to forget.
+ *   there is no second step to forget;
+ * - the verdict is mirrored onto the pull request as a review on the code
+ *   host (`repo.submit_review`), so the repository's engineers read it too.
  */
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { MERGE_RISK_CLASSES } from '@/libs/actions/factory';
+import { MERGE_ACTION_ID, MERGE_PROPOSAL_CONFIDENCE } from '@/libs/actions/mergeAction';
+import { alignToContract, contractOf } from '@/libs/workspace/featureProof';
 
 /**
  * A list the model may have sent as JSON text, read as the list; anything
@@ -43,6 +46,8 @@ export function parseJsonArray(v: unknown): unknown[] {
   }
   return [];
 }
+
+export { alignToContract, contractOf };
 
 export const VERDICT_VALUES = ['approve', 'changes', 'reject'] as const;
 export const CRITERION_STATUSES = ['proven', 'unproven', 'unchecked'] as const;
@@ -84,7 +89,7 @@ export function reachable(evidence: string, shotIds: ReadonlySet<number> = new S
  * @param shotIds - The task's own screenshot artifact ids.
  * @returns The count, and the refusal when the verdict contradicts itself.
  */
-export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[], shotIds: ReadonlySet<number> = new Set()): { proven: number; total: number; refusal: string | null } {
+export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[], shotIds: ReadonlySet<number> = new Set()): { proven: number; total: number; refusal: string | null; value?: string; recordedAs?: string } {
   const total = criteria.length;
   const proven = criteria.filter(c => c.status === 'proven').length;
   if (total === 0) {
@@ -105,63 +110,20 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
   }
   if (value === 'approve') {
     const open = criteria.filter(c => c.status !== 'proven');
+    // AN APPROVE WITH SOMETHING UNPROVEN IS A CHANGES (2026-09-30, #130 review
+    // 9025: QA approved 7 of 8, was refused, the recording pass approved again
+    // and was refused again, and the task sat "QA could not finish" asking a
+    // person to Build again). The evidence allows one verdict, so that is the
+    // one recorded, and the next attempt is sent back with the open criteria.
     if (open.length > 0) {
-      return { proven, total, refusal: `Not recorded: an approve cannot carry ${open.length} criteria that are not proven (${proven} of ${total} proven; first: "${open[0]!.criterion}"). Record changes with what would settle them, or prove them.` };
+      return { proven, total, refusal: null, value: 'changes', recordedAs: `Recorded as changes, not approve: ${open.length} of ${total} criteria are not proven (first: "${open[0]!.criterion}"), so the next attempt proves ${open.length === 1 ? 'it' : 'them'}.` };
     }
     const block = findings.find(f => f.severity === 'block');
     if (block) {
-      return { proven, total, refusal: `Not recorded: an approve cannot carry a blocking finding ([${block.against}] ${block.ref}: ${block.what}). Record changes or reject.` };
+      return { proven, total, refusal: null, value: 'changes', recordedAs: `Recorded as changes, not approve: a blocking finding is open ([${block.against}] ${block.ref}: ${block.what}).` };
     }
   }
   return { proven, total, refusal: null };
-}
-
-/**
- * The acceptance contract on a task, as a list of statements.
- * @param meta - The task's metadata.
- */
-export function contractOf(meta: Record<string, unknown>): string[] {
-  const raw = Array.isArray(meta.acceptanceContract) ? meta.acceptanceContract : [];
-  return raw
-    .map(c => (typeof c === 'string' ? c : c && typeof c === 'object' && typeof (c as { statement?: unknown }).statement === 'string' ? (c as { statement: string }).statement : ''))
-    .map(c => c.trim())
-    .filter(Boolean);
-}
-
-function normal(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-/**
- * Pair the reviewer's judgements to the contract, line by line. A judgement
- * matches a line when one's words contain the other's. Never by position: a
- * reviewer that invents as many lines as the contract has would pass it.
- * Every contract line comes back, in contract order, in the contract's own
- * words; a line no judgement named is `unchecked`.
- * @param contract - The frozen contract statements.
- * @param judged - What the reviewer sent.
- */
-export function alignToContract(contract: string[], judged: VerdictCriterion[]): VerdictCriterion[] {
-  const used = new Set<number>();
-  const byText = contract.map((line) => {
-    const n = normal(line);
-    const i = judged.findIndex((j, k) => {
-      if (used.has(k)) {
-        return false;
-      }
-      const m = normal(j.criterion ?? '');
-      return m.length >= 12 && (n.includes(m) || m.includes(n) || n.slice(0, 40) === m.slice(0, 40));
-    });
-    if (i >= 0) {
-      used.add(i);
-    }
-    return i;
-  });
-  return contract.map((line, idx) => {
-    const i = byText[idx]!;
-    const j = i >= 0 ? judged[i] : undefined;
-    return j ? { criterion: line, status: j.status, ...(j.evidence ? { evidence: j.evidence } : {}) } : { criterion: line, status: 'unchecked' as const };
-  });
 }
 
 /**
@@ -196,7 +158,65 @@ export function mergeSummary(note: string, criteria: VerdictCriterion[], proven:
   return [`${note.trim()}`, '', `QA: ${proven} of ${criteria.length} criteria proven.`, ...lines].join('\n').slice(0, 4_000);
 }
 
-async function findTaskByPr(orgId: string, prUrl: string) {
+/**
+ * THE VERDICT, MIRRORED WHERE THE ENGINEERS READ IT. The verdict decides the
+ * merge card in Vocion; the same judgement goes onto the pull request as a
+ * review on the code host (`repo.submit_review`), so a repository's own
+ * engineers see it in the tool they already use. Approve → approve; changes
+ * and reject → request changes (a rejected contract still means the change
+ * does not go in as it is). The body is the note, the count and every
+ * finding keyed to what it is against; no inline comments, because the
+ * verdict's findings are keyed to criteria, not to lines.
+ * @param v - What was judged.
+ * @param v.url - The pull request.
+ * @param v.value - The verdict.
+ * @param v.note - The reviewer's sentence.
+ * @param v.proven - Criteria proven.
+ * @param v.total - Criteria in the contract.
+ * @param v.findings - Findings keyed to the contract.
+ * @param v.taskId - The task the verdict is on.
+ */
+export function reviewMirrorInput(v: { url: string; value: typeof VERDICT_VALUES[number]; note: string; proven: number; total: number; findings: VerdictFinding[]; taskId: number }): { url: string; event: 'approve' | 'request_changes'; body: string; taskId: number; recordId: number } {
+  const lines = [
+    `**QA verdict: ${v.value}** — ${v.proven} of ${v.total} criteria proven.`,
+    v.note.trim(),
+    ...(v.findings.length > 0 ? ['', ...v.findings.map(f => `- [${f.severity}] against ${f.against} \`${f.ref}\`: ${f.what}${f.closeBy ? ` Close by: ${f.closeBy}` : ''}`)] : []),
+    '',
+    `_Recorded on task #${v.taskId} in Vocion; the merge is decided there by a person._`,
+  ];
+  return { url: v.url, event: v.value === 'approve' ? 'approve' : 'request_changes', body: lines.join('\n').slice(0, 20_000), taskId: v.taskId, recordId: v.taskId };
+}
+
+/**
+ * Propose the review mirror, done for you or on a card by the workspace's
+ * trust rule. Never throws: a refusal (no code host connected for the pull
+ * request, a rule that holds it) becomes a clause in the verdict's receipt.
+ * @param orgId - The workspace.
+ * @param by - The reviewing agent's slug.
+ * @param input - From {@link reviewMirrorInput}.
+ * @param count - The "N of M criteria proven" line, for the rationale.
+ */
+export async function mirrorVerdictOnPull(orgId: string, by: string, input: ReturnType<typeof reviewMirrorInput>, count: string): Promise<string> {
+  try {
+    const { proposeAction } = await import('@/services/ActionService');
+    const { SUBMIT_REVIEW_ACTION_ID } = await import('@/libs/actions/repo-submit-review');
+    const res = await proposeAction({
+      orgId,
+      actionId: SUBMIT_REVIEW_ACTION_ID,
+      input,
+      principal: { kind: 'agent', id: `agent:${by}`, scope: { orgId }, grants: ['*'], autonomy: 2 },
+      invokedBy: `agent:${by}`,
+      proposal: { confidence: 0.9, rationale: `QA's verdict, mirrored as a review on the pull request: ${count}.`, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: 'The verdict is recorded; the review repeats it where the engineers read.' },
+    });
+    return res.status === 'pending'
+      ? `The review on the pull request waits on a card (run #${res.runId}).`
+      : `The verdict is also on the pull request as a review (run #${res.runId}, ${res.status}).`;
+  } catch (err) {
+    return `The review on the pull request was not filed: ${(err as Error).message}`;
+  }
+}
+
+export async function findTaskByPr(orgId: string, prUrl: string) {
   const { and, eq, sql } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
@@ -248,6 +268,49 @@ export async function markReviewFailed(orgId: string, prUrl: string): Promise<nu
   return task.id;
 }
 
+/** Where a sent-back attempt goes next. */
+export type SendBack = {
+  to: 'engineer' | 'plan';
+  why: string;
+  note?: string;
+  /** What sent it back, when it was not QA (a red CI): the attempt's line on the feature page. */
+  reason?: string;
+  /** Who sent it back, for the stop line; QA when omitted. */
+  by?: string;
+};
+
+/**
+ * WHERE A SEND-BACK GOES (Chris, 2026-09-29: "does our flow handle a QA send
+ * back to plan/eng?"). The engineer by default; planning when QA says the plan
+ * cannot be built as written, or — whatever QA said — when the same criterion
+ * stayed unproven on two attempts in a row under one plan, because a third
+ * build to the same plan repeats the second (#224: "a visible confirmation"
+ * open on attempts 2 and 3 of plan #236).
+ * @param input - The verdict just recorded and the attempt before it.
+ * @param input.asked - QA's own `send_back_to`.
+ * @param input.why - QA's reason for it.
+ * @param input.criteria - This verdict's criteria.
+ * @param input.planId - The plan this attempt was built to.
+ * @param input.previous - The attempt this one superseded: its verdict's criteria and its plan.
+ * @param input.previous.criteria
+ * @param input.previous.planId
+ */
+export function sendBackRoute(input: { asked?: 'engineer' | 'plan' | null; why?: string | null; criteria: VerdictCriterion[]; planId: number | null; previous?: { criteria: VerdictCriterion[]; planId: number | null } | null }): SendBack {
+  if (input.asked === 'plan') {
+    return { to: 'plan', why: input.why?.trim() || 'QA read the plan as what stands in the way.' };
+  }
+  const prev = input.previous;
+  if (prev && input.planId !== null && prev.planId === input.planId) {
+    const open = (list: VerdictCriterion[]) => new Set(list.filter(c => c.status !== 'proven').map(c => c.criterion.trim().toLowerCase()));
+    const before = open(prev.criteria);
+    const twice = input.criteria.filter(c => c.status !== 'proven' && before.has(c.criterion.trim().toLowerCase())).map(c => c.criterion);
+    if (twice.length > 0) {
+      return { to: 'plan', why: `${twice.length === 1 ? 'a criterion' : `${twice.length} criteria`} stayed unproven on two attempts in a row under plan #${input.planId}: ${twice.slice(0, 3).map(c => `"${c}"`).join('; ')}` };
+    }
+  }
+  return { to: 'engineer', why: input.why?.trim() || 'QA named what would settle each open criterion.' };
+}
+
 /**
  * BUILD AGAIN, DONE FOR YOU (Chris, 2026-09-26: "auto Build again, yes").
  * When QA sends back an attempt a person started, the next attempt starts on
@@ -259,34 +322,61 @@ export async function markReviewFailed(orgId: string, prUrl: string): Promise<nu
  * @param task - The task QA just sent back.
  * @param task.id
  * @param task.meta
+ * @param route
  * @returns One sentence for the verdict's receipt, or null when nothing started.
  */
-export async function buildAgain(orgId: string, task: { id: number; meta: Record<string, unknown> }): Promise<string | null> {
+export async function buildAgain(orgId: string, task: { id: number; meta: Record<string, unknown> }, route: SendBack = { to: 'engineer', why: '' }): Promise<string | null> {
   const requestId = Number(task.meta.requestId);
-  if (!Number.isFinite(requestId) || requestId <= 0 || task.meta.autoRetryOf) {
-    return task.meta.autoRetryOf ? 'This attempt was already the automatic retry, so the next build is a person\'s call.' : null;
+  // A re-plan is a different step from a rebuild, so a retry may still send
+  // its work back to planning; the three-per-request limit bounds both.
+  // Bounded by the per-stage limit (stopIfAtLimit), not by "a retry of a
+  // retry is a person's call" (2026-09-30: that rule parked a build a third
+  // attempt would have fixed).
+  if (!Number.isFinite(requestId) || requestId <= 0) {
+    return null;
   }
   try {
+    // AN ATTEMPT THAT IS HISTORY IS NEVER BUILT AGAIN, and never files a stop
+    // either: a later attempt replaced it, or the request has settled.
+    const { attemptIsHistory } = await import('@/services/factory/supersededPulls');
+    const history = await attemptIsHistory(orgId, task);
+    if (history) {
+      return `Nothing built again: attempt #${task.id} is history (${history}).`;
+    }
     // ONE LIMIT FOR EVERY AUTOMATIC STEP (backlog 038): a QA send-back retry
     // counts toward the same three per request as a recovery does.
-    const { stopIfAtLimit } = await import('@/services/factory/carry');
-    const stopped = await stopIfAtLimit(orgId, requestId, `QA sent attempt #${task.id} back`);
-    if (stopped) {
-      return stopped;
+    // A request its durable workflow owns is counted there (backlog 054): the
+    // send-back is told to the workflow, which numbers the next attempt.
+    const { readRecord } = await import('@/libs/actions/factory-dispatch');
+    const { ownedByWorkflow } = await import('@/services/factory/requestWorkflowStart');
+    const owner = await readRecord(orgId, requestId);
+    if (!owner || !(await ownedByWorkflow(orgId, owner.meta))) {
+      const { stopIfAtLimit } = await import('@/services/factory/carry');
+      const stopped = await stopIfAtLimit(orgId, requestId, `${route.by ?? 'QA'} sent attempt #${task.id} back`);
+      if (stopped) {
+        return stopped;
+      }
     }
     const { proposeAction } = await import('@/services/ActionService');
     const planId = Number(task.meta.planId);
+    const hasPlan = Number.isFinite(planId) && planId > 0;
+    const toPlan = route.to === 'plan'
+      ? (hasPlan ? { replan: route.why.slice(0, 1500) } : { planFirst: `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 1000) })
+      : {};
     const res = await proposeAction({
       orgId,
       actionId: 'factory.dispatch_task',
-      input: { requestId, ...(Number.isFinite(planId) && planId > 0 ? { planId } : {}), autoRetryOf: task.id, reason: `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.` },
+      input: { requestId, ...(hasPlan ? { planId } : {}), autoRetryOf: task.id, ...toPlan, ...(route.note ? { note: route.note.slice(0, 4000) } : {}), reason: route.reason?.slice(0, 500) ?? (route.to === 'plan' ? `QA sent attempt #${task.id} back to planning: ${route.why}`.slice(0, 500) : `QA sent attempt #${task.id} back; the next attempt carries what would settle each criterion.`) },
       principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: 'agent:product-manager',
+      // Core's own retry, not the model's: `autoRetryOf` is kept.
+      internal: true,
       proposal: { confidence: 0.9, rationale: `QA sent attempt #${task.id} back with named gaps; one automatic retry carries them.`, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'One automatic retry after changes asked.' },
     });
+    const what = route.to === 'plan' ? `Planning again (${route.why})` : 'Build again';
     return res.status === 'pending'
-      ? `Build again is on a card for a person (run #${res.runId}).`
-      : `Build again started on its own (run #${res.runId}, ${res.status}); Undo cancels it until a worker claims it.`;
+      ? `${what} is on a card for a person (run #${res.runId}).`
+      : `${what} started on its own (run #${res.runId}, ${res.status}); Undo cancels it until a worker claims it.`;
   } catch (err) {
     return `Build again could not start: ${(err as Error).message}`;
   }
@@ -376,10 +466,29 @@ export async function unopenedShots(ctx: RuntimeContext, taskId: number): Promis
   return `Not recorded: task #${taskId} has ${shots.length} screenshots and this review opened none of them. Open the ones each criterion needs with fetch_image, then record the verdict on what they show:\n${links}`;
 }
 
+/**
+ * The attempt a task superseded, with its verdict's criteria, for {@link sendBackRoute}.
+ * @param orgId - The workspace.
+ * @param id - `previousTaskId` from the task.
+ */
+async function previousAttempt(orgId: string, id: unknown): Promise<{ meta: Record<string, unknown>; criteria: VerdictCriterion[] } | null> {
+  const taskId = Number(id);
+  if (!Number.isFinite(taskId) || taskId <= 0) {
+    return null;
+  }
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, taskId))).limit(1);
+  const meta = (row?.meta ?? null) as Record<string, unknown> | null;
+  const criteria = (meta?.verdict as { criteria?: VerdictCriterion[] } | undefined)?.criteria;
+  return meta && Array.isArray(criteria) ? { meta, criteria } : null;
+}
+
 export function recordVerdictTool(ctx: RuntimeContext) {
   return tool(
     async (raw) => {
-      const args = raw as { pr_url: string; value: typeof VERDICT_VALUES[number]; criteria: unknown; findings?: unknown; note: string; independent_checks?: unknown };
+      const args = raw as { pr_url: string; value: typeof VERDICT_VALUES[number]; criteria: unknown; findings?: unknown; note: string; independent_checks?: unknown; send_back_to?: 'engineer' | 'plan'; send_back_reason?: string };
       // THE SHAPE THE MODEL SENDS, accepted (as update_object learned, backlog
       // 006): on the first live verdict (fire 7051) the lists arrived as JSON
       // text. Text that parses to a list IS the list; the rules then judge it.
@@ -390,6 +499,11 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       if (!task) {
         return `Not recorded: no engineering task in this workspace carries the pull request ${args.pr_url}. Pass the task's prUrl exactly as it is on the record.`;
       }
+      const { attemptIsHistory } = await import('@/services/factory/supersededPulls');
+      const history = await attemptIsHistory(ctx.orgId, task);
+      if (history) {
+        return `Read as history: task #${task.id} is not the attempt that decides anything (${history}). Its status stays ${String(task.status ?? task.meta.status ?? 'as it was')}, nothing is built again and no merge is filed. The review is done.`;
+      }
       // THE CONTRACT IS THE LIST, NOT THE MODEL. On fire 7061 the reviewer
       // wrote three easy criteria of its own and approved "3 of 3" against a
       // contract of eight; a verdict whose criteria the grader picks can
@@ -398,7 +512,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // unchecked — absent is not proven.
       const contract = contractOf(task.meta);
       const criteria = contract.length > 0 ? alignToContract(contract, judged) : judged;
-      const { proven, total, refusal: ruled } = judgeVerdict(args.value, criteria, findings, await taskShotIds(ctx.orgId, task.id));
+      const { proven, total, refusal: ruled, value: judgedValue, recordedAs } = judgeVerdict(args.value, criteria, findings, await taskShotIds(ctx.orgId, task.id));
+      const value = (judgedValue ?? args.value) as typeof VERDICT_VALUES[number];
       // JUDGED WITHOUT LOOKING. On #131 attempt 176 the PR listed seventeen
       // short screenshot links and QA opened none: it read the task through a
       // lookup that clips long fields and called every link "truncated". A
@@ -423,14 +538,14 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       const taskSha = typeof task.meta.commitSha === 'string' ? task.meta.commitSha : null;
       const commitSha = head?.sha ?? taskSha;
       if (!commitSha) {
-        return `Not recorded: could not read the head of ${task.url} from GitHub, and task #${task.id} names no commit. A verdict is about one commit.`;
+        return `Not recorded: could not read the head of ${task.url} from the code host, and task #${task.id} names no commit. A verdict is about one commit.`;
       }
       if (head?.merged) {
         return `Not recorded: ${task.url} is already merged. A verdict before the merge is the only one that decides anything.`;
       }
       const by = ctx.agentSlug ?? 'change-reviewer';
       const verdict = {
-        value: args.value,
+        value,
         commitSha,
         at: new Date().toISOString(),
         by,
@@ -441,19 +556,42 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         findings,
         independentChecks,
       };
-      await writeTask(ctx.orgId, task.id, { verdict, status: TASK_STATUS_FOR[args.value] });
+      await writeTask(ctx.orgId, task.id, { verdict, status: TASK_STATUS_FOR[value] });
       // The request's counts move with the task, or the Work row keeps saying
       // "Awaiting QA" under a verdict (2026-09-26: rollups only reran on cost).
       const { recomputeRollupsForObject } = await import('@/services/objects/rollups');
       await recomputeRollupsForObject(ctx.orgId, task.id).catch(() => undefined);
-      ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value: args.value, proven, total } } as never);
+      ctx.emit({ type: 'tool_progress', tool: 'record_verdict', meta: { taskId: task.id, value, proven, total } } as never);
       const count = `${proven} of ${total} criteria proven`;
-      if (args.value !== 'approve') {
-        const retry = args.value === 'changes' ? await buildAgain(ctx.orgId, task) : null;
-        return `Verdict recorded on task #${task.id}: ${args.value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[args.value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''}`;
+      if (value !== 'approve') {
+        // QA sent it back: the request's status says so before any retry
+        // goes out (a retry's own start then reads Building).
+        const sentBackFor = Number(task.meta.requestId);
+        if (Number.isInteger(sentBackFor) && sentBackFor > 0) {
+          const { markStatus } = await import('@/services/objects/statusField');
+          await markStatus(ctx.orgId, sentBackFor, `qa_${value}`, { line: `QA sent it back: ${count}.` });
+        }
+        let retry: string | null = null;
+        if (value === 'changes') {
+          const planOf = (m: Record<string, unknown>) => (Number(m.planId) > 0 ? Number(m.planId) : null);
+          const previous = await previousAttempt(ctx.orgId, task.meta.previousTaskId);
+          const route = sendBackRoute({ asked: args.send_back_to ?? null, why: args.send_back_reason ?? null, criteria, planId: planOf(task.meta), previous: previous ? { criteria: previous.criteria, planId: planOf(previous.meta) } : null });
+          if (route.to === 'plan') {
+            await writeTask(ctx.orgId, task.id, { sendBack: route });
+          }
+          retry = await buildAgain(ctx.orgId, task, route);
+        }
+        const mirrored = await mirrorVerdictOnPull(ctx.orgId, by, reviewMirrorInput({ url: task.url, value, note: verdict.note, proven, total, findings, taskId: task.id }), count);
+        return `${recordedAs ? `${recordedAs} ` : ''}Verdict recorded on task #${task.id}: ${value}, ${count}, at ${commitSha.slice(0, 12)}. The task now reads ${TASK_STATUS_FOR[value]}; the Work page shows what would settle it.${retry ? ` ${retry}` : ''} ${mirrored}`;
       }
-      const riskRaw = typeof task.meta.riskClass === 'string' ? task.meta.riskClass : 'logic';
-      const riskClass = (MERGE_RISK_CLASSES as readonly string[]).includes(riskRaw) ? riskRaw : 'logic';
+      // THE MERGE CARRIES WHAT THE DIFF TOUCHED (2026-09-30). The engineer may
+      // go beyond the plan's paths when the outcome needs it; the merge's class,
+      // and so its trust rule, is the higher of the task's and the class of the
+      // files it changed (the repo's riskDefaults), so a change that reached
+      // auth or billing is ruled as auth or billing. One reading, shared with
+      // the status facts that say whether the merge runs itself.
+      const { mergeRiskClassOf } = await import('@/services/factory/pullSignals');
+      const riskClass = await mergeRiskClassOf(ctx.orgId, task.meta);
       const rollback = typeof task.meta.rollback === 'string' && task.meta.rollback.length >= 8
         ? task.meta.rollback.slice(0, 600)
         : 'Revert the pull request and merge the revert; the merge is the deploy, so the revert ships the same way.';
@@ -461,7 +599,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         const { proposeAction } = await import('@/services/ActionService');
         const res = await proposeAction({
           orgId: ctx.orgId,
-          actionId: 'git.merge',
+          actionId: MERGE_ACTION_ID,
           input: {
             title: `Merge ${task.title}`.slice(0, 200),
             headline: 'QA approved it; merging is the deploy.',
@@ -480,9 +618,21 @@ export function recordVerdictTool(ctx: RuntimeContext) {
           },
           principal: { kind: 'agent', id: `agent:${by}`, scope: { orgId: ctx.orgId }, grants: ['*'], autonomy: 2 },
           invokedBy: `agent:${by}`,
-          proposal: { confidence: 0.9, rationale: verdict.note, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: `${count}. ${verdict.note}`.slice(0, 160) },
+          proposal: { confidence: MERGE_PROPOSAL_CONFIDENCE, rationale: verdict.note, agentSlug: by, suggestedDecision: 'approve', suggestedDecisionReason: `${count}. ${verdict.note}`.slice(0, 160) },
         });
-        return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges.`;
+        // THE REQUEST'S STAGE SETTLES ON THE CARD (Walk 7, 2026-10-02): a recovery
+        // stage left from an earlier failure of this attempt is no longer true once
+        // QA approved it; the card says whose move it is now.
+        const requestId = Number(task.meta.requestId);
+        const { mergeCardLine } = await import('@/services/factory/recovery');
+        const settled = mergeCardLine({ proven, total, riskClass, status: res.status });
+        if (settled && Number.isInteger(requestId) && requestId > 0) {
+          const { settleOnMergeCard } = await import('@/services/factory/carry');
+          const now = new Date().toISOString();
+          await settleOnMergeCard(ctx.orgId, requestId, settled, now, now, res.status === 'pending').catch((err: Error) => console.warn('record_verdict: settling the request\'s stage failed', { orgId: ctx.orgId, requestId, message: err.message }));
+        }
+        const mirrored = await mirrorVerdictOnPull(ctx.orgId, by, reviewMirrorInput({ url: task.url, value, note: verdict.note, proven, total, findings, taskId: task.id }), count);
+        return `Verdict recorded on task #${task.id}: approve, ${count}, at ${commitSha.slice(0, 12)}. The merge card is filed (run #${res.runId}, ${res.status}); a person merges. ${mirrored}`;
       } catch (err) {
         return `Verdict recorded on task #${task.id} (approve, ${count}), but the merge card was refused: ${(err as Error).message}`;
       }
@@ -511,6 +661,8 @@ export function recordVerdictTool(ctx: RuntimeContext) {
         // task sat in Awaiting QA. A long sentence is clipped, never refused.
         note: z.string().min(1).describe('One sentence for the person who merges: what they accept and the one risk to know.'),
         independent_checks: z.union([z.array(z.string()), z.string()]).optional().describe('Checks that ran on trusted CI or that you reproduced, not the worker\'s report.'),
+        send_back_to: z.enum(['engineer', 'plan']).optional().describe('With changes: engineer (default) when a better build of the same plan would settle it; plan when the plan itself stands in the way — wrong component or surface, a path or API it never named, a risk it did not answer.'),
+        send_back_reason: z.string().max(600).optional().describe('With send_back_to plan: what about the plan must change, in one or two sentences the planner can act on.'),
       }),
     },
   );

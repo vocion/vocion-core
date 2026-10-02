@@ -88,7 +88,8 @@ test.describe('the document loop, by chat', () => {
 
     await expect(chip).toContainText('Northwind - Hiring Agents Proposal');
     await expect(chip).toContainText('v2');
-    await expect(page.getByText('Worked it out · 2 steps')).toBeVisible();
+    // Both document tools fold into one line, named by the last of them.
+    await expect(page.getByRole('button', { name: 'Edited the document · 2 steps' })).toBeVisible();
 
     await shot(page, '02-chat-after-draft');
 
@@ -101,7 +102,9 @@ test.describe('the document loop, by chat', () => {
 
     await page.goto(`/dashboard/chat/${conversation}?artifact=${artifactId}`);
 
-    await expect(page.locator('[data-document-frame]')).toBeVisible({ timeout: 60_000 });
+    // .first(): while React streams the page in, a second copy of the frame
+    // sits in the hidden streaming container for a moment.
+    await expect(page.locator('[data-document-frame]').first()).toBeVisible({ timeout: 60_000 });
     await expect(page.locator('[data-document-state]')).toHaveText('5 sheets · verified');
     await expect(page.locator('[data-artifact-version]')).toContainText('v2');
 
@@ -113,7 +116,7 @@ test.describe('the document loop, by chat', () => {
     const { conversation, artifactId } = await latestDocument(page);
     await page.goto(`/dashboard/chat/${conversation}?artifact=${artifactId}`);
 
-    await expect(page.locator('[data-document-frame]')).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator('[data-document-frame]').first()).toBeVisible({ timeout: 60_000 });
 
     await say(page, 'Make it three agents.', 'Added the Offer Coordinator');
 
@@ -156,7 +159,7 @@ test.describe('the document loop, by chat', () => {
       sel.addRange(range);
       el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     });
-    const control = page.locator('[data-document-selection-control]');
+    const control = page.locator('[data-selection-toolbar="document"]');
 
     await expect(control).toBeVisible();
 
@@ -183,7 +186,7 @@ test.describe('the document loop, by chat', () => {
     const { conversation, artifactId } = await latestDocument(page);
     await page.goto(`/dashboard/chat/${conversation}?artifact=${artifactId}`);
 
-    await expect(page.locator('[data-document-frame]')).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator('[data-document-frame]').first()).toBeVisible({ timeout: 60_000 });
 
     await say(page, 'Export the PDF.', 'The PDF is filed beside the document');
     const pdfChip = page.locator('[data-artifact-chip]', { hasText: '.pdf' }).last();

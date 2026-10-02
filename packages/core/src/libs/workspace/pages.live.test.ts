@@ -18,6 +18,19 @@ describe('live', () => {
     expect(list({ live: {} }).success).toBe(false);
   });
 
+  it('follows what the page is made of on the live stream — a type\'s records and the workspace feeds — with every as the fallback', () => {
+    expect(list({ live: { follow: ['list:request', 'runs'] } }).success).toBe(true);
+    expect(list({ live: { follow: ['cards', 'asks', 'events'], every: 30 } }).success).toBe(true);
+
+    // One thing by id is not a page's to follow: the page is a list.
+    const one = list({ live: { follow: ['record:12'] } });
+
+    expect(one.success).toBe(false);
+    expect(!one.success && one.error.issues[0]?.message).toContain('list:<type> or a feed');
+    expect(list({ live: { follow: ['everything'] } }).success).toBe(false);
+    expect(list({ live: { follow: [] } }).success).toBe(false);
+  });
+
   it('is off unless asked for', () => {
     const page = list({});
 

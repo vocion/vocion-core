@@ -12,15 +12,6 @@ import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/temporal/client', () => ({
-  getTemporalClient: vi.fn(async () => {
-    throw new Error('temporal unavailable in tests');
-  }),
-  automationScheduleIdFor: (orgId: string, slug: string) => `automation-${orgId}-${slug}`,
-  AUTOMATION_FIRE_WORKFLOW: 'automationFire',
-  VOCION_WORKFLOWS_TASK_QUEUE: 'vocion-workflows',
-}));
-
 const { db } = await import('@/libs/DB');
 const { agentSchema, automationRunSchema, automationSchema, userSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { applyWorkspace } = await import('./applier');

@@ -20,7 +20,11 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { ActionError, proposeAction } from '@/services/ActionService';
+import { nounCode } from '@/libs/codes';
+import { ActionError } from '@/services/ActionService';
+import { codeForRecord } from '@/services/codes';
+import { recordIdArg, recordIdOf } from './recordIdArg';
+import { notWritableMessage, pageRecordIds, recordWritable, writeRecordAsAgent } from './recordWrite';
 
 /**
  * A value the model sent as JSON text, read as the object it describes;
@@ -43,8 +47,14 @@ export function updateObjectTool(ctx: RuntimeContext) {
   const writable = ctx.objectTypeSlugs;
   return tool(
     async (raw) => {
-      const args = raw as { object_type: string; id: number; set: unknown; reason?: string; confidence?: unknown };
-      const { object_type, id } = args;
+      const args = raw as { object_type: string; id: number | string; set: unknown; reason?: string; confidence?: unknown };
+      const { object_type } = args;
+      // Named by its code (FE-294) or id; a code of the wrong type is refused, saying why.
+      const ref = await recordIdOf(ctx.orgId, args.id);
+      if ('reason' in ref) {
+        return `Update refused: ${ref.reason}.`;
+      }
+      const id = ref.id;
       // The shape the model sends, accepted here rather than in the schema:
       // `set` as JSON text is the object it describes; no reason says so on
       // the run; no (or a non-numeric) confidence is the middle of the scale,
@@ -57,47 +67,40 @@ export function updateObjectTool(ctx: RuntimeContext) {
       const reason = typeof args.reason === 'string' && args.reason.trim() ? args.reason.trim() : 'No reason given by the agent.';
       const c = typeof args.confidence === 'number' ? args.confidence : Number(args.confidence);
       const confidence = Number.isFinite(c) && c >= 0 && c <= 1 ? c : 0.5;
-      if (!writable.includes(object_type)) {
-        return `Refused: this agent does not work with "${object_type}" records. It may write: ${writable.join(', ')}. A type is added under objectTypes in the agent's YAML, not here.`;
+      if (!recordWritable(ctx, object_type, id)) {
+        return notWritableMessage(ctx, object_type, id);
       }
-      const input = { objectType: object_type, id, set, reason };
       try {
-        const res = await proposeAction({
-          orgId: ctx.orgId,
-          actionId: 'objects.update_meta',
-          input,
-          principal: {
-            kind: 'agent',
-            id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
-            scope: { orgId: ctx.orgId },
-            grants: ['*'],
-            autonomy: 2,
-          },
-          invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId,
-          proposal: {
-            confidence,
-            rationale: reason,
-            agentSlug: ctx.agentSlug,
-            suggestedDecision: 'approve',
-            suggestedDecisionReason: reason.slice(0, 160),
-          },
-        });
+        const writtenAt = new Date(Date.now() - 1_000);
+        // On the person's word (the turn's intent read) the change is theirs and runs, with undo.
+        const intent = ctx.userId && !ctx.missionRunId ? await (ctx.turnIntent ?? Promise.resolve(null)).catch(() => null) : null;
+        const onPersonsWord = intent?.asks === 'change' || intent?.asks === 'decide';
+        const res = await writeRecordAsAgent(ctx, { objectType: object_type, id, set, reason, confidence, onPersonsWord });
+        // What the record and the action are read by (`libs/codes.ts`).
+        const name = await codeForRecord(ctx.orgId, id).catch(() => null) ?? `${object_type} #${id}`;
+        const act = nounCode('action', res.runId);
         ctx.emit({ type: 'tool_progress', tool: 'update_object', meta: { runId: res.runId, status: res.status, outcome: res.outcome } } as never);
         const fields = Object.keys(set).join(', ');
         if (res.outcome === 'already_decided') {
-          return `Not written: a person already decided this exact change to ${object_type} #${id} (run #${res.runId}, ${res.status}). Do not propose it again.`;
+          return `Not written: a person already decided this exact change to ${name} (${act}, ${res.status}). Do not propose it again.`;
         }
         if (res.outcome === 'refreshed') {
-          return `The pending update to ${object_type} #${id} (${fields}) now carries these values (run #${res.runId}); it is still waiting for a person. Do NOT say the record changed.`;
+          return `The pending update to ${name} (${fields}) now carries these values (${act}); it is still waiting for a person. Do NOT say the record changed.`;
         }
         if (res.status === 'pending') {
-          return `Update to ${object_type} #${id} (${fields}) is PENDING a person's decision (run #${res.runId}, confidence ${confidence} was under the bar for objects.update_meta in this workspace). Do NOT say the record changed — say the update is queued in Review.`;
+          return `Update to ${name} (${fields}) is PENDING a person's decision (${act}, held by this workspace's trust rule for this kind of change). Do NOT say the record changed — say in one line it is waiting, with its link: [Review the change](/dashboard/inbox/proposal-${res.runId}).`;
         }
         if (res.status !== 'done') {
-          return `Update to ${object_type} #${id} did not land (run #${res.runId} is ${res.status}${res.error ? `: ${res.error}` : ''}).`;
+          return `Update to ${name} did not land (${act} is ${res.status}${res.error ? `: ${res.error}` : ''}).`;
         }
         const r = (res.result ?? {}) as { title?: string; previous?: Record<string, unknown> };
-        return `${object_type} #${id}${r.title ? ` "${r.title}"` : ''} updated — ${fields} written (run #${res.runId}, confidence ${confidence}). Done for you; the previous values are on the run and a person can undo it from Review › Decided.`;
+        // A request's contract changed: say what the factory started from it,
+        // so the answer does not offer to do what already happened.
+        const { contractChangeHeard, contractChangeReceipt } = await import('@/services/factory/carry');
+        const started = await contractChangeHeard(ctx.orgId, object_type, Object.keys(set)).catch(() => false)
+          ? await contractChangeReceipt(ctx.orgId, id, writtenAt).catch(() => null)
+          : null;
+        return `${name}${r.title ? ` "${r.title}"` : ''} updated — ${fields} written (${act}, confidence ${confidence})${res.version ? `, now version ${res.version.to} of its history` : ''}. Done for you; the previous values are on the run and a person can undo it from Review › Decided.${started ? `\n\n${started}` : ''}`;
       } catch (err) {
         if (err instanceof ActionError) {
           return `Update refused (${err.code}): ${err.message}`;
@@ -107,10 +110,10 @@ export function updateObjectTool(ctx: RuntimeContext) {
     },
     {
       name: 'update_object',
-      description: `Write one or more fields on an EXISTING record of an object type you work with (${writable.join(', ')}) — a priority and its reason, a state, the task that answered a request. Only fields the type declares, checked against its schema; never the title, the lifecycle status or the id (those have their own paths). Look the record up first (lookup_objects) and pass its id, not its name. Set a field to null to clear it. Done for you above the confidence bar — the fields are written at once and a person can undo them; below it a person decides on a card showing before → after. Give the reason a person could check against the record.`,
+      description: `Write one or more fields on an EXISTING record — the record on the person's page (always), or one of a type you work with${writable.length ? ` (${writable.join(', ')})` : ''} — a priority and its reason, a state, the task that answered a request. Only fields the type declares, checked against its schema; never the title, the lifecycle status or the id (those have their own paths). Look the record up first (lookup_objects) and pass its code (FE-294) or id, not its name. Set a field to null to clear it. Done for you above the confidence bar — the fields are written at once and a person can undo them; below it a person decides on a card showing before → after. Give the reason a person could check against the record.`,
       schema: z.object({
-        object_type: z.string().min(1).describe(`The object type slug. One of: ${writable.join(', ')}.`),
-        id: z.number().int().positive().describe('The record\'s id (from lookup_objects), never its title.'),
+        object_type: z.string().min(1).describe(`The object type slug${writable.length ? ` — ${writable.join(', ')}, or the type of the record on the page` : ' of the record on the page'}.`),
+        id: recordIdArg('The record (from the page or lookup_objects)'),
         // THE SHAPE THE MODEL SENDS, accepted. On 2026-09-25 (backlog 006) the
         // first call of every write passed `set` as a JSON string and left
         // out `reason` and `confidence`; the schema threw, the turn spent its
@@ -138,7 +141,9 @@ export function updateObjectTool(ctx: RuntimeContext) {
  * @param ctx
  */
 export function updateObjectTools(ctx: RuntimeContext): StructuredToolInterface[] {
-  if (ctx.objectTypeSlugs.length === 0) {
+  // The page's record is always writable (`recordWrite.ts`), so an agent with
+  // no object types still has the tool while a record is on the page.
+  if (ctx.objectTypeSlugs.length === 0 && pageRecordIds(ctx).length === 0) {
     return [];
   }
   return [updateObjectTool(ctx)];

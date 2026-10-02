@@ -1,5 +1,5 @@
 /**
- * The two copies of the prompt-cache module must not drift.
+ * The two copies of the prompt-cache code must not drift.
  *
  * `packages/agent-runtime/src/promptCache.ts` is a hand copy of
  * `packages/core/src/libs/llm/promptCache.ts`. The copy is deliberate — the
@@ -9,7 +9,7 @@
  * caching quietly stops on one runtime, or the kill switch stops working
  * there, and nothing fails until someone reads a bill.
  *
- * Three things are compared, chosen because each one's drift is invisible:
+ * Four things are compared, chosen because each one's drift is invisible:
  *
  *   1. The TTL and cache type sent to the vendor. A five-minute cache on one
  *      side and an hour on the other is a 1.6x difference in write cost with
@@ -19,6 +19,9 @@
  *      other two caches nothing on the path the agent runs.
  *   3. The values the kill switch accepts. `VOCION_PROMPT_CACHE=off` working
  *      in one process and not the other is the worst kind of incident switch.
+ *   4. Which Bedrock models get a `cachePoint` at all (`bedrockTakesCachePoint`,
+ *      in this package's `model.ts` and core's `libs/llm/bedrock.ts`). A copy
+ *      that marks every model sends a request another vendor's model refuses.
  *
  * Compared as source text rather than by importing core, because importing
  * across the package boundary is the exact thing the copy exists to avoid.
@@ -31,6 +34,8 @@ import { describe, expect, it } from 'vitest';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNTIME_COPY = join(HERE, 'promptCache.ts');
 const CORE_COPY = join(HERE, '..', '..', 'core', 'src', 'libs', 'llm', 'promptCache.ts');
+const RUNTIME_MODEL = join(HERE, 'model.ts');
+const CORE_BEDROCK = join(HERE, '..', '..', 'core', 'src', 'libs', 'llm', 'bedrock.ts');
 
 const runtimeSource = readFileSync(RUNTIME_COPY, 'utf8');
 const coreSource = readFileSync(CORE_COPY, 'utf8');
@@ -90,5 +95,24 @@ describe('promptCache.ts, core copy versus runtime copy', () => {
     const exported = (source: string) => [...source.matchAll(/export class (\w+)/g)].map(m => m[1]!).sort();
 
     expect(exported(runtimeSource)).toEqual(exported(coreSource));
+  });
+});
+
+/**
+ * The whole body of the rule that decides which Bedrock models get a
+ * `cachePoint`, up to the function's own closing brace.
+ * @param source - The source text of the file that holds it.
+ */
+function cachePointRule(source: string): string {
+  const body = source.match(/function bedrockTakesCachePoint\(model: string\): boolean \{\n([\s\S]*?)\n\}/)?.[1];
+  if (!body) {
+    throw new Error('no bedrockTakesCachePoint found, did the function get renamed?');
+  }
+  return body.replace(/\s+/g, ' ').trim();
+}
+
+describe('bedrockTakesCachePoint, core copy versus runtime copy', () => {
+  it('gives the same Bedrock models a cachePoint', () => {
+    expect(cachePointRule(readFileSync(RUNTIME_MODEL, 'utf8'))).toBe(cachePointRule(readFileSync(CORE_BEDROCK, 'utf8')));
   });
 });

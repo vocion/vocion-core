@@ -1,0 +1,57 @@
+{
+  "task_id": "northwind-t101-runner-smoke",
+  "product": "northwind-portal",
+  "repo": "https://github.com/example/northwind-portal.git",
+  "base_sha": "origin/main",
+  "objective": "Write docs/RUNNER-SMOKE.md: a short note (under 60 lines) that records what the Vocion runner is, that this file was produced by a headless Claude Code run inside the runner container, the date, and the three things a reviewer should check on a runner pull request (the files beyond the plan are explained, the checks passed, the run id is in the body).",
+  "title": "Write a short note on what a reviewer checks on a runner pull request",
+  "request_id": "101",
+  "acceptance_contract": [
+    "docs/RUNNER-SMOKE.md exists and is the only changed file",
+    "The file is under 60 lines"
+  ],
+  "allowed_paths": [
+    "docs/RUNNER-SMOKE.md"
+  ],
+  "risk_class": "docs",
+  "qa": {
+    "surface": "app",
+    "surfaces": {
+      "app": {
+        "live_url": "https://app.northwind.example",
+        "build": {
+          "command": "npm run build -w @northwind/web",
+          "dist": "apps/web/dist",
+          "port": 5274,
+          "spa_fallback": true,
+          "env": { "VITE_API_URL": "https://api.northwind.example" },
+          "signed_in_env": { "VITE_MOCK_API": "1", "VITE_API_URL": "http://127.0.0.1:1" }
+        },
+        "list_routes": ["/"],
+        "preview_note": "The preview build answers from apps/web/src/mock; a state a criterion needs is a record added there in the same change."
+      }
+    },
+    "video": false,
+    "flows": [
+      {
+        "name": "document page",
+        "path": "/documents/doc_q3",
+        "viewports": ["desktop", "phone"],
+        "sign_in": true,
+        "steps": [{ "wait_for": "main" }, { "shoot": "the page as it loads" }]
+      }
+    ]
+  },
+  "dependencies": [],
+  "model_policy": { "model": "sonnet", "effort": "medium", "escalate_to": "opus" },
+  "token_budget_usd": 3,
+  "wall_clock_minutes": 15,
+  "attempt": 1,
+  "environment": {
+    "services": [{ "name": "postgres", "url": "postgresql://runner:runner@localhost:5432/northwind", "setup": ["npm run db:migrate -w @northwind/api"] }]
+  },
+  "required_checks": ["no-em-dashes", "test"],
+  "checks": [{ "name": "test", "command": "npm test" }],
+  "human_owned": ["infra/secrets/**"],
+  "engineer_rules": ["Follow CLAUDE.md for voice: short declaratives, plain nouns."]
+}

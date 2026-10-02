@@ -21,7 +21,7 @@ go in the runtime's encrypted vault, attached to the source after apply.
 | `slug` | slug | required | Stable id. Agents reference it in `connectorSources:`. |
 | `name` | string | required | Display name on the Sources page. |
 | `description` | string | — | One-line summary for the catalog. |
-| `kind` | string | required | Connector kind — must match a registered connector in `libs/sources/registry`. Built-ins: `web`, `local-files`. |
+| `kind` | string | required | Connector kind — must match a registered connector in `libs/sources/registry`. Built-ins: `web`, `local-files`. `rest` turns any bearer-token API into live tools and gated writes from endpoints declared in `config` — see the [REST guide](../guides/rest.md). |
 | `config` | object | `{}` | Per-connector settings, validated against that connector's own config schema at apply. |
 | `schedule` | cron | — | Scheduled sync cadence. Omit for manual-only syncing from `/dashboard/sources`. |
 | `reconcileSchedule` | 5-field cron \| `false` | connector default | Cadence for a periodic *full* sync that tombstones records deleted upstream, which incremental syncs cannot see. `false` disables the reconcile pass. |

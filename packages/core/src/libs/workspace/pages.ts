@@ -43,7 +43,9 @@ export * from '@/libs/workspace/pageFields';
 
 function workspaceDir(): string | null {
   const p = process.env.WORKSPACE_PATH ?? process.env.CONTEXT_PATH ?? null;
-  return p && existsSync(p) ? p : null;
+  // turbopackIgnore: this path is only known at runtime, so the build must not
+  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+  return p && existsSync(/* turbopackIgnore: true */ p) ? p : null;
 }
 
 export function workspacePagesDir(): string | null {
