@@ -22,7 +22,7 @@ import type { ObjectTypeRow } from './objects-propose-candidate';
 import type { Action, ActionContext } from './types';
 import { z } from 'zod';
 import { createdStatus } from '@/libs/objects/statusModel';
-import { candidateDedupKey, loadObjectType } from './objects-propose-candidate';
+import { candidateDedupKey, describeSchemaProblems, loadObjectType } from './objects-propose-candidate';
 
 const CREATE_GROUP_ACTION_ID = 'objects.create_group';
 
@@ -171,6 +171,35 @@ async function landMember(tx: DbTransaction, ctx: ActionContext, type: ObjectTyp
 }
 
 /**
+ * The children as they are stored: each carrying the parent's link value.
+ * @param input - The parsed group.
+ */
+function linkedChildrenOf(input: GroupInput): GroupMember[] {
+  const linkValue = input.parent.fields[input.link.parentField];
+  return input.children.map(child => ({ ...child, fields: { ...child.fields, [input.link.childField]: linkValue } }));
+}
+
+/**
+ * The first record of the group that does not fit its type's schema, as a
+ * sentence naming the record and each problem, or undefined when all fit.
+ * Uses the check `objects.propose_candidate` reports with, but refuses on it:
+ * a group is created active by one tap, so nothing a person could not have
+ * filed through that door may land here. The children are checked as stored,
+ * with the link field filled in.
+ * @param input - The parsed group.
+ * @param types - Each type the group names, by slug.
+ */
+async function memberRefusal(input: GroupInput, types: Map<string, ObjectTypeRow>): Promise<string | undefined> {
+  for (const member of [input.parent, ...linkedChildrenOf(input)]) {
+    const problems = await describeSchemaProblems(types.get(member.type)?.schema ?? null, member.fields);
+    if (problems.length > 0) {
+      return `The ${member.type} "${member.title}" does not fit its type: ${problems.join('; ')}. Nothing was created.`;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Everything the group writes, inside the caller's transaction. Any throw
  * rolls back every record already written here.
  * @param tx - The open transaction.
@@ -179,8 +208,7 @@ async function landMember(tx: DbTransaction, ctx: ActionContext, type: ObjectTyp
  * @param types - The parent's type, then each distinct child type, by slug.
  */
 async function writeGroup(tx: DbTransaction, ctx: ActionContext, input: GroupInput, types: Map<string, ObjectTypeRow>): Promise<{ parent: Landed; children: Landed[] }> {
-  const linkValue = input.parent.fields[input.link.parentField];
-  const linkedChildren = input.children.map(child => ({ ...child, fields: { ...child.fields, [input.link.childField]: linkValue } }));
+  const linkedChildren = linkedChildrenOf(input);
   const knownByType = new Map<string, { known: KnownRecords; identityFields: string[] }>();
   for (const [slug, type] of types) {
     const identityFields = (await identityFieldsOf(type)) ?? ['title'];
@@ -270,7 +298,7 @@ export const objectsCreateGroupAction: Action<typeof objectsCreateGroupInput> = 
     if (!(input.link.parentField in input.parent.fields)) {
       return `The ${input.parent.type} has no "${input.link.parentField}" field to link its records by. Give it one, or name a field it has.`;
     }
-    return undefined;
+    return memberRefusal(input, types);
   },
 
   async execute(ctx, input) {
@@ -278,6 +306,10 @@ export const objectsCreateGroupAction: Action<typeof objectsCreateGroupInput> = 
     const { types, missing } = await loadGroupTypes(ctx.orgId, input);
     if (missing.length > 0) {
       throw new Error(`This workspace has no object type ${missing.map(slug => `"${slug}"`).join(' or ')}; nothing was created.`);
+    }
+    const refusal = await memberRefusal(input, types);
+    if (refusal) {
+      throw new Error(refusal);
     }
     // One-line callback into a module-level function: db.transaction offers
     // no other way to hand over the open transaction.

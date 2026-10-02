@@ -170,6 +170,50 @@ describe('objects.create_group', () => {
     expect(await records()).toHaveLength(0);
   });
 
+  describe('validating what it creates', () => {
+    async function seedStrictTypes() {
+      forgetCachedObjectTypes();
+      await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'product', label: 'Product', schema: { ...PRODUCT_SCHEMA, required: ['name'] } });
+      await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'repo', label: 'Repository', schema: { ...REPO_SCHEMA, required: ['url'] } });
+    }
+
+    it('refuses a child missing a required field, names the field, and creates nothing', async () => {
+      await seedStrictTypes();
+      const input = groupInput({ children: [
+        { type: 'repo', title: 'northwind/portal', fields: { slug: 'northwind-portal-web', url: 'https://github.com/northwind/portal' } },
+        { type: 'repo', title: 'northwind/portal-api', fields: { slug: 'northwind-portal-api' } },
+      ] });
+      const refusal = await objectsCreateGroupAction.precheck!(CTX, input);
+
+      expect(refusal).toMatch(/northwind\/portal-api/);
+      expect(refusal).toMatch(/url/);
+
+      await expect(objectsCreateGroupAction.execute(CTX, input)).rejects.toThrow(/url/);
+      expect(await records()).toHaveLength(0);
+    });
+
+    it('refuses a parent missing a required field', async () => {
+      await seedStrictTypes();
+      const refusal = await objectsCreateGroupAction.precheck!(CTX, groupInput({ parent: { type: 'product', title: 'Northwind Portal', fields: { slug: 'northwind-portal' } } }));
+
+      expect(refusal).toMatch(/Northwind Portal/);
+      expect(refusal).toMatch(/name/);
+    });
+
+    it('a valid group passes the check and lands in one transaction', async () => {
+      await seedStrictTypes();
+      const input = groupInput({ children: [
+        { type: 'repo', title: 'northwind/portal', fields: { slug: 'northwind-portal-web', url: 'https://github.com/northwind/portal' } },
+      ] });
+
+      expect(await objectsCreateGroupAction.precheck!(CTX, input)).toBeUndefined();
+
+      await objectsCreateGroupAction.execute(CTX, input);
+
+      expect(await records()).toHaveLength(2);
+    });
+  });
+
   it('names no record type in its own source, so the plugin boundary holds', () => {
     const source = readFileSync(new URL('./objects-create-group.ts', import.meta.url), 'utf8');
 
