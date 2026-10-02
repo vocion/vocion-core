@@ -27,3 +27,13 @@ describe('what a required tool asks of a run', () => {
     expect(isRefusal('Proposed factory.dispatch_task → action run #4 is PENDING')).toBe(false);
   });
 });
+
+describe('a look-only call is not the required work', () => {
+  it('does not count check_live run with explore, and counts the recording call', () => {
+    const req = parseToolRequirement('check_live');
+    const call = { tool: 'check_live', input: { release_id: 355, flows: [], explore: true }, output: 'Explored 2 flows. Nothing was written.', error: null };
+
+    expect(callMeets(req, call)).toBe(false);
+    expect(callMeets(req, { ...call, input: { release_id: 355, flows: [] }, output: 'Seen live: 2 of 2 states reached' })).toBe(true);
+  });
+});
