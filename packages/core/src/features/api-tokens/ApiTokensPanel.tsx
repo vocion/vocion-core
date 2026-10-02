@@ -366,6 +366,16 @@ function CredentialKeyCell({
   onReveal: () => void;
   onHide: () => void;
 }) {
+  // A login holds tokens the provider issued, and Vocion never shows those. The
+  // row names the account instead, and offers no button for the server to refuse.
+  if (token.obtainedVia === 'login') {
+    return (
+      <TableCell className="max-w-72 font-mono text-xs text-muted-foreground">
+        <span className="break-all">{`Login · ${token.account ?? 'unknown account'}`}</span>
+      </TableCell>
+    );
+  }
+
   if (!token.revealable) {
     return (
       <TableCell className="max-w-72 font-mono text-xs text-muted-foreground">
