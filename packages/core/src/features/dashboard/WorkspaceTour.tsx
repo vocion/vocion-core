@@ -3,6 +3,7 @@
 import type { TourManifest, TourStep } from '@/libs/workspace/tour';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 
 /**
@@ -362,6 +363,23 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);
   }, [active, idx, slug, step.advance, step.selector, step.selectorText, router]);
+
+  // `prefill` — put the step's line in the chat composer, unsent, so the
+  // audience sends it. Once per step; the surface may mount a beat after the
+  // route changes, so retry briefly until one claims the request.
+  useEffect(() => {
+    if (!active || !onRoute || !step.prefill) {
+      return;
+    }
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (requestAgentSurface({ prompt: step.prefill }) || tries > 20) {
+        clearInterval(timer);
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  }, [active, stepKey, onRoute, step.prefill]);
 
   // `scrollTo` — page to the named element (in a same-origin frame, when
   // given) once it exists. The frame may still be loading, so keep looking.
