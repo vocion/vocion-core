@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { keptShots, LIVE_STEP_VERBS, liveAfterRun, LiveFlowSchema, liveReasonSentence, liveVerdict, orderedFlows, pickAnnouncementImage, readLiveReason, readReleaseLive, readRequestLive, shotStatus, stepReason } from './liveCheck';
+import { acceptanceLines, keptShots, LIVE_STEP_VERBS, liveAfterRun, LiveFlowSchema, liveReasonSentence, liveVerdict, orderedFlows, pickAnnouncementImage, readLiveReason, readReleaseLive, readRequestLive, resolveLines, shotStatus, stepReason, uncheckedRow } from './liveCheck';
 
 const row = (status: 'reached' | 'not_reached', extra: Record<string, unknown> = {}) => ({ requestId: 41, flow: 'Last opened line', criterion: 'The line says when it was last opened.', viewport: 'desktop', artifactId: null, status, url: null, ...extra });
 
@@ -140,5 +140,111 @@ describe('why it was not seen, said in a sentence (run 2, 2026-10-01: "locator.s
     expect(readRequestLive({ liveCheck: { state: 'not_seen', line: 'Not seen live: QA could not set up the test data it needed', releaseId: 302, why } })).toMatchObject({ detail: RAW });
     // A release checked before reasons were typed still reads in the check's own words.
     expect(readReleaseLive({ liveState: 'not_seen', liveReason: 'no state was reached' })?.line).toMatch(/^Not seen live: QA could not reach the change on the live product\. Why: no state was reached/);
+  });
+});
+
+// FE-314 / REL-347 (2026-10-02), fictional: five lines, four only provable before the merge, one on
+// production. QA checked a line the feature never had, and the release read "Not seen live".
+const proven = (statement: string) => ({ statement, met: true, evidence: 'Named test passed: https://ci.example/run/7' });
+const FE = {
+  acceptance: [
+    proven('CI builds the arm64 image three times without exit 132.'),
+    proven('The engine in the image is linux-musl-arm64.'),
+    proven('After deploy, GET /v1/documents with a signed-in session returns 200.'),
+    proven('npm ci targets arm64.'),
+    { statement: 'The revert stays the baseline until the fix lands.' },
+  ],
+};
+const check = (extra: Record<string, unknown>) => LiveFlowSchema.parse({ name: 'documents list', path: '/documents', steps: [{ expect_response: { path: '/v1/documents', status: 200 } }, { shoot: 'Documents list' }], ...extra });
+
+describe('a check flow cites an acceptance line by its number', () => {
+  const lines = new Map([[314, acceptanceLines(FE)]]);
+
+  it('reads the lines from the record, numbered, with whether QA proved each before the merge', () => {
+    expect(acceptanceLines(FE).map(l => [l.n, l.provenBeforeMerge])).toEqual([[1, true], [2, true], [3, true], [4, true], [5, false]]);
+    expect(acceptanceLines({ acceptance: ['A bare line.'] })).toEqual([{ n: 1, text: 'A bare line.', provenBeforeMerge: false }]);
+    expect(acceptanceLines({})).toEqual([]);
+  });
+
+  it('writes the line\'s words from the record, never QA\'s, and ties it to the one request shipped', () => {
+    const out = resolveLines([check({ line: 3, criterion: 'A visitor can download the shared file' })], [], lines);
+
+    expect(out.ok).toBe(true);
+    expect(out.ok && out.flows[0]).toMatchObject({ request_id: 314, line: 3, criterion: 'After deploy, GET /v1/documents with a signed-in session returns 200.' });
+  });
+
+  it('refuses a line the request does not have, listing its lines with their numbers', () => {
+    const out = resolveLines([check({ line: 7 })], [], lines);
+
+    expect(out.ok).toBe(false);
+    expect(!out.ok && out.refusal).toContain('cites line 7 of request #314, which has 5');
+    expect(!out.ok && out.refusal).toContain('  3. After deploy, GET /v1/documents with a signed-in session returns 200. (proven before merge by QA\'s verdict)');
+    expect(!out.ok && out.refusal).toContain('  5. The revert stays the baseline until the fix lands.\n');
+  });
+
+  it('refuses a check that cites nothing when the request has lines, except while exploring', () => {
+    expect(resolveLines([check({})], [], lines)).toMatchObject({ ok: false, refusal: expect.stringContaining('cites no acceptance line') });
+    expect(resolveLines([check({})], [], lines, { explore: true }).ok).toBe(true);
+    // A request with no lines has nothing to cite: its check runs, as before.
+    expect(resolveLines([check({})], [], new Map([[9, []]])).ok).toBe(true);
+  });
+
+  it('refuses a request the release did not ship, and asks which request on a release that shipped several', () => {
+    expect(resolveLines([check({ line: 1, request_id: 99 })], [], lines)).toMatchObject({ ok: false, refusal: expect.stringContaining('request #99, which this release did not ship') });
+    expect(resolveLines([check({ line: 1 })], [], new Map([[1, acceptanceLines(FE)], [2, acceptanceLines(FE)]]))).toMatchObject({ ok: false, refusal: expect.stringContaining('names no request_id') });
+  });
+
+  it('keeps the lines production cannot show, and says which no flow and no word covered', () => {
+    const out = resolveLines([check({ line: 3 })], [{ line: 1, why: 'a CI run' }, { line: 2, why: 'the image' }, { line: 5, why: 'before the merge' }, { line: 3, why: 'checked anyway' }], lines);
+
+    expect(out.ok && out.beforeMerge.map(b => [b.line, b.proven])).toEqual([[1, true], [2, true], [5, false]]);
+    expect(out.ok && out.uncovered.map(u => u.line.n)).toEqual([4]);
+    expect(resolveLines([check({ line: 3 })], [{ line: 6, why: 'x' }], lines)).toMatchObject({ ok: false, refusal: expect.stringContaining('not_observable line 6 of request #314 is not there') });
+  });
+
+  it('runs a check flow alone: no setup is asked for', () => {
+    const out = resolveLines([check({ line: 3 })], [1, 2, 4, 5].map(line => ({ line, why: 'pre-merge' })), lines);
+
+    expect(out.ok && out.flows.map(f => f.phase)).toEqual(['check']);
+    expect(out.ok && out.uncovered).toEqual([]);
+  });
+});
+
+describe('the live state counts only what production can show', () => {
+  const before = [1, 2, 4].map(line => ({ requestId: 314, line, text: `line ${line}`, why: 'pre-merge', proven: true }));
+
+  it('reads Seen live when every live-observable line was reached, with what the API answered and the lines proven before merge', () => {
+    const v = liveVerdict([row('reached', { proved: ['GET /v1/documents returned 200 signed in'] })], [], before);
+
+    expect(v.state).toBe('seen');
+    expect(v.line).toBe('Seen live: 1 of 1 state reached (GET /v1/documents returned 200 signed in). 3 more lines proven before merge by QA\'s verdict');
+  });
+
+  it('counts a line QA never covered, or one production cannot show that QA never proved, as unreached, saying why', () => {
+    const v = liveVerdict([row('reached'), uncheckedRow(314, { n: 5, text: 'The revert stays the baseline.', provenBeforeMerge: false }, true)], [], before);
+
+    expect(v.state).toBe('partial');
+    expect(v.line).toContain('Not reached: Line 5 of request #314 cannot be seen on the live product, and QA\'s verdict did not prove it before merge');
+    expect(liveVerdict([uncheckedRow(314, { n: 4, text: 'x', provenBeforeMerge: true }, false)]).line).toBe('Not seen live: QA did not check line 4 of request #314 on the live product, and did not say production cannot show it');
+  });
+
+  it('reads Nothing to see when every line was proven before merge and none can be seen live', () => {
+    expect(liveVerdict([], [], before)).toMatchObject({ state: 'seen', line: 'Nothing to see on the live product: 3 lines proven before merge by QA\'s verdict' });
+    expect(liveVerdict([], ['the browser would not start'], before).state).toBe('not_seen');
+  });
+});
+
+describe('expect_response', () => {
+  it('takes {path, status, method?} and refuses anything else', () => {
+    expect(LiveFlowSchema.safeParse({ name: 'x', path: '/', steps: [{ expect_response: { path: '/v1/documents', status: 200, method: 'GET' } }] }).success).toBe(true);
+    expect(LiveFlowSchema.safeParse({ name: 'x', path: '/', steps: [{ expect_response: { path: '/v1/documents' } }] }).success).toBe(false);
+    expect(LiveFlowSchema.safeParse({ name: 'x', path: '/', steps: [{ expect_response: '/v1/documents' }] }).success).toBe(false);
+  });
+
+  it('says what the API answered instead, from the runner\'s own words for the step', () => {
+    const why = stepReason('check', 'documents list', { index: 1, verb: 'expect_response', target: '/v1/documents', error: 'GET /v1/documents returned 500, not 200' }, 'step 2 failed');
+
+    expect(liveReasonSentence(why)).toBe('QA reached the page, but the API did not answer as promised: GET /v1/documents returned 500, not 200');
+    expect(readLiveReason(JSON.parse(JSON.stringify(why)))?.step?.error).toBe('GET /v1/documents returned 500, not 200');
   });
 });

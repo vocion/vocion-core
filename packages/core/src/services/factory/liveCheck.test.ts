@@ -25,10 +25,12 @@ const ORG = 'org_live_check';
 const flows = (raw: unknown[]) => raw.map(f => LiveFlowSchema.parse(f));
 const author = { kind: 'agent' as const, id: 'agent:change-reviewer' };
 
-async function seed(orgId: string) {
+const ONE_LINE = [{ statement: 'Under the title, a line says when the document was last opened.' }];
+
+async function seed(orgId: string, acceptance: unknown[] = ONE_LINE) {
   const [reqType] = await createObjectType({ slug: 'request', label: 'Request' }, orgId);
   const [relType] = await createObjectType({ slug: 'release', label: 'Release' }, orgId);
-  const [request] = await db.insert(businessObjectSchema).values({ orgId, typeId: reqType!.id, title: 'Show when a document was last opened', status: 'active', metadata: { state: 'shipped', acceptance: [{ statement: 'Under the title, a line says when the document was last opened.' }] } }).returning();
+  const [request] = await db.insert(businessObjectSchema).values({ orgId, typeId: reqType!.id, title: 'Show when a document was last opened', status: 'active', metadata: { state: 'shipped', acceptance } }).returning();
   const [release] = await db.insert(businessObjectSchema).values({ orgId, typeId: relType!.id, title: 'relay 930a23f', status: 'active', metadata: { product: 'relay', releasedAt: '2026-10-01T09:00:00Z', requestIds: [request!.id], taskIds: [] } }).returning();
   return { requestId: request!.id, releaseId: release!.id };
 }
@@ -120,6 +122,15 @@ describe('the live check, end to end in a real browser against a fictional produ
       if (url.pathname === '/new-broken') {
         return send('<input type="file"><p>Something went wrong on our end. Try again in a moment.</p>');
       }
+      // A page that loads its list from the API, and the API: 200 signed in, 500 when it is broken.
+      if (url.pathname === '/library') {
+        return send(`<ul id="l"></ul><script>fetch('/api/docs'+location.search).then(r=>r.ok?r.json():[]).then(d=>{document.getElementById('l').innerHTML=d.length?'<li>'+d.length+' documents</li>':'<li>Could not load</li>'})</script>`);
+      }
+      if (url.pathname === '/api/docs') {
+        res.statusCode = url.searchParams.has('broken') ? 500 : 200;
+        res.setHeader('content-type', 'application/json');
+        return res.end(res.statusCode === 200 ? '[{"title":"Q3 board deck"}]' : '{"error":"engine"}');
+      }
       if (url.pathname === '/api/upload') {
         const id = `d${docs.size + 1}`;
         docs.set(id, { views: 0 });
@@ -158,7 +169,7 @@ describe('the live check, end to end in a real browser against a fictional produ
       { remember: { name: 'shareUrl', from: 'href', selector: 'Open as a viewer' } },
     ] },
     { name: 'open it once as a visitor', phase: 'setup', signed_in: false, path: '{{shareUrl}}', steps: [{ wait_for: 'Page 1 of 1' }, { pause: 0 }] },
-    { name: 'Last opened line', phase: 'check', criterion: 'Under the title, a line says when the document was last opened.', path: '{{documentUrl}}', steps: [{ wait_for: 'Last opened' }, { shoot: 'Last opened line under the title' }] },
+    { name: 'Last opened line', phase: 'check', line: 1, path: '{{documentUrl}}', steps: [{ wait_for: 'Last opened' }, { shoot: 'Last opened line under the title' }] },
     { name: 'delete it', phase: 'cleanup', path: '{{documentUrl}}', steps: [{ click: 'Delete document' }, { wait_for: 'Nothing here yet' }] },
   ]);
   const deps = () => ({
@@ -173,7 +184,7 @@ describe('the live check, end to end in a real browser against a fictional produ
 
     const out = await runLiveCheck(org, { releaseId, flows: flows([
       { name: 'upload a document', phase: 'setup', path: '/new', steps: [{ upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'vocion-live-check.pdf' } }, { wait_for: 'Not opened yet' }] },
-      { name: 'Not opened line', phase: 'check', criterion: 'Under the title, a line says when the document was last opened.', path: '{{setupPage}}', steps: [{ wait_for: 'Not opened yet' }, { shoot: 'The line under the title' }] },
+      { name: 'Not opened line', phase: 'check', line: 1, path: '{{setupPage}}', steps: [{ wait_for: 'Not opened yet' }, { shoot: 'The line under the title' }] },
       { name: 'delete it', phase: 'cleanup', path: '{{setupPage}}', steps: [{ click: 'Delete document' }, { wait_for: 'Nothing here yet' }] },
     ]) }, { author }, deps());
 
@@ -189,7 +200,7 @@ describe('the live check, end to end in a real browser against a fictional produ
 
     const out = await runLiveCheck(org, { releaseId, flows: flows([
       { name: 'upload a document', phase: 'setup', path: '/new-broken', steps: [{ upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'vocion-live-check.pdf' } }, { pause: 1 }, { remember: { name: 'recordUrl' } }] },
-      { name: 'Last opened line', phase: 'check', criterion: 'Under the title, a line says when the document was last opened.', path: '{{recordUrl}}', steps: [{ wait_for: 'Last opened' }, { shoot: 'Last opened line' }] },
+      { name: 'Last opened line', phase: 'check', line: 1, path: '{{recordUrl}}', steps: [{ wait_for: 'Last opened' }, { shoot: 'Last opened line' }] },
     ]) }, { author }, deps());
 
     expect(out.verdict.state).toBe('not_seen');
@@ -253,6 +264,47 @@ describe('the live check, end to end in a real browser against a fictional produ
     expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen' });
   });
 
+  // FE-314 / REL-347 (2026-10-02), fictional: one line production can show (the API answers 200
+  // signed in), one only CI could (proven before the merge). QA cites lines by number.
+  const API_LINES = [
+    { statement: 'CI builds the image three times without exit 132.', met: true, evidence: 'Named test passed: https://ci.example/run/7' },
+    { statement: 'After deploy, GET /api/docs with a signed-in session returns 200.' },
+  ];
+  const apiCheck = (path: string) => flows([{ name: 'documents list', line: 2, criterion: 'A visitor can download the shared file', path, steps: [{ expect_response: { path: '/api/docs', status: 200 } }, { shoot: 'The documents list' }] }]);
+
+  it('proves an API line with a check flow alone: Seen live, with what the API answered, and the line production cannot show proven before merge', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_api`;
+    const { requestId, releaseId } = await seed(org, API_LINES);
+    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
+
+    const out = await runLiveCheck(org, { releaseId, flows: apiCheck('/library'), notObservable: [{ line: 1, why: 'a CI run' }] }, { author }, deps());
+
+    expect(out.runs.map(r => r.phase)).toEqual(['check']);
+    expect(out.verdict).toMatchObject({ state: 'seen', line: 'Seen live: 1 of 1 state reached (GET /api/docs returned 200 signed in). 1 more line proven before merge by QA\'s verdict' });
+
+    const rel = await meta(releaseId);
+
+    // The words are the record's, never the flow's.
+    expect(rel.liveEvidence[0]).toMatchObject({ line: 2, criterion: 'After deploy, GET /api/docs with a signed-in session returns 200.', status: 'reached', proved: ['GET /api/docs returned 200 signed in'] });
+    expect(rel.liveBeforeMerge).toEqual([{ requestId, line: 1, text: 'CI builds the image three times without exit 132.', why: 'a CI run', proven: true }]);
+
+    const [shot] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, org), eq(artifactSchema.id, rel.liveEvidence[0].artifactId)));
+
+    expect((shot!.spec as Record<string, unknown>).caption).toBe('After deploy, GET /api/docs with a signed-in session returns 200. (GET /api/docs returned 200 signed in)');
+    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'seen', beforeMerge: [{ line: 1, proven: true }] });
+  });
+
+  it('says what the API answered when it broke its promise', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_api_broken`;
+    const { releaseId } = await seed(org, API_LINES);
+    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
+
+    const out = await runLiveCheck(org, { releaseId, flows: apiCheck('/library?broken=1'), notObservable: [{ line: 1, why: 'a CI run' }] }, { author }, deps());
+
+    expect(out.verdict.state).toBe('not_seen');
+    expect(out.verdict.line).toBe('Not seen live: QA reached the page, but the API did not answer as promised: GET /api/docs returned 500, not 200. 1 more line proven before merge by QA\'s verdict');
+  });
+
   it('explores without writing, and refuses an address that is not the product\'s', { skip: !chromium, timeout: 120_000 }, async () => {
     const org = `${ORG}_explore`;
     const { releaseId } = await seed(org);
@@ -271,13 +323,29 @@ describe('the live check, end to end in a real browser against a fictional produ
   });
 });
 
+describe('a line the feature never promised', () => {
+  it('is refused before anything runs, with the request\'s lines listed by number, and nothing is written', async () => {
+    const org = `${ORG}_refused`;
+    const { requestId, releaseId } = await seed(org);
+    access.environments = [];
+
+    const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'visitor download', line: 4, path: '/' }]) }, { author });
+
+    expect(out.refused).toBe(`check flow "visitor download" cites line 4 of request #${requestId}, which has 1.\nrequest #${requestId}'s acceptance lines:\n  1. Under the title, a line says when the document was last opened.\nCite a line by its number (line: n, with request_id when the release shipped more than one request), and name the lines the live product cannot show in not_observable.`);
+    expect(out.acceptance).toEqual([{ requestId, lines: [{ n: 1, text: 'Under the title, a line says when the document was last opened.', provenBeforeMerge: false }] }]);
+    expect(out.runs).toEqual([]);
+    expect((await meta(releaseId)).liveState).toBeUndefined();
+    expect((await meta(releaseId)).liveAttempts).toBeUndefined();
+  });
+});
+
 describe('without a product to check', () => {
   it('says why on the release instead of passing', async () => {
     const org = `${ORG}_noenv`;
     const { releaseId } = await seed(org);
     access.environments = [];
 
-    const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'line', path: '/' }]) }, { author });
+    const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'line', line: 1, path: '/' }]) }, { author });
 
     expect(out.verdict.line).toBe('Not seen live: QA could not reach the change on the live product. Why: no production environment is recorded for relay; an environment record names its product, stage, url and QA sign-in');
     expect((await meta(releaseId)).liveState).toBe('not_seen');

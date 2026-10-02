@@ -527,7 +527,7 @@ export type ReportStatus = {
   sentence: string;
   action: ReportAction | null;
   /** A second, quieter way out: Dismiss before work starts, Build again beside a review. */
-  secondary: ReportAction | { kind: 'dismiss'; label: string } | null;
+  secondary: ReportAction | { kind: 'dismiss'; label: string } | { kind: 'check_live'; label: string; releaseId: number } | null;
   /**
    * THE NEXT LINE: what happens after the current step, said from the stage
    * this is in — "The build starts when the plan is approved". Null when
@@ -642,6 +642,8 @@ export type ReportReleaseSummary = {
    * looked. Null before it is live. Shipped is not the same as seen.
    */
   seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string; detail?: string | null } | null;
+  /** The release that shipped it, when one did: what "Check live again" asks QA to check. */
+  releaseId?: number;
   at: Date | null;
   /** Where to open it: the running product, else the release record. */
   href: string | null;
@@ -3283,6 +3285,7 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
       label: 'Live',
       sentence: `Live since ${formatStamp(shipped.at)}, in ${name}. ${seen.line}${/[.!?]$/.test(seen.line) ? '' : '.'}`,
       seen,
+      releaseId: shipped.r.id,
       at: shipped.at,
       href: surfaceUrl ?? (input.link ?? genericRecordLinker)({ objectType: shipped.r.type, id: shipped.r.id }),
     };
@@ -3446,7 +3449,11 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
             headline: 'Live',
             sentence: `${release.sentence} ${state.detail.includes('helped') ? `It ${state.detail.replace(/^live, and it /, '')}.` : 'Whether it helped has not been checked yet.'}`,
             action: ctx.surfaceUrl ? { kind: 'link', label: 'Open feature', href: ctx.surfaceUrl } : { kind: 'drawer', label: 'Open feature', drawer: 'release' },
-            secondary: null,
+            // A live check that did not see it, once its attempts are spent, is checked again
+            // when a person asks (`factory.check_live_again`), not by hand.
+            secondary: release.releaseId !== undefined && (release.seen?.state === 'not_seen' || release.seen?.state === 'partial')
+              ? { kind: 'check_live', label: 'Check live again', releaseId: release.releaseId }
+              : null,
             next: state.detail.includes('helped') ? null : 'Next, whether it helped is checked.',
           }
         : { tone: 'warn', headline: 'Release not verified', sentence: `${release.sentence} Whether it is live is not established.`, action: { kind: 'drawer', label: 'Review delivery status', drawer: 'release' }, secondary: null, next: null };

@@ -1453,6 +1453,15 @@ describe('the release, read honestly', () => {
     expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', detail: null });
   });
 
+  it('offers Check live again while QA has not seen it live, and not once it has (FE-314, 2026-10-02)', () => {
+    const missed = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'not_seen', line: 'Not seen live: QA could not set up the test data it needed', releaseId: 88 } } } }));
+
+    expect(missed.status.secondary).toEqual({ kind: 'check_live', label: 'Check live again', releaseId: missed.release.releaseId });
+    expect(missed.release.releaseId).toEqual(expect.any(Number));
+    expect(assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).status.secondary).toBeNull();
+    expect(assembleFeatureReport(input()).status.secondary).toBeNull();
+  });
+
   it('is Release not verified — never Not released — when the change merged and nothing records a release', () => {
     expect(assembleFeatureReport(input({ releases: [] })).release).toMatchObject({ state: 'unverified', label: 'Release not verified' });
   });

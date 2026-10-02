@@ -6,7 +6,7 @@ description: >-
   account: derive the live flow from the acceptance criteria and the live app,
   prepare its own state, check each criterion with a picture, clean up, and
   record what was seen with check_live.
-version: 1
+version: 2
 ---
 
 # Check the live release
@@ -36,6 +36,15 @@ empty states. Nothing is written on an exploring run, and cleanup still runs.
 ## 3. Write the flows
 
 Three phases, run in this order. Values carry from one flow to the next.
+Setup and cleanup are only for lines that need state made on production; a
+check flow that needs none runs alone.
+
+Every acceptance line is either checked by a flow or named in
+`not_observable` (`{line, why}`) as one the live product cannot show — a CI
+run, an image's contents, a guarantee about what happened before the merge.
+Those read "proven before merge by QA's verdict" on the release and the
+feature when the verdict proved them, and the live state counts only the lines
+production can show. A line that is neither stands unchecked.
 
 - **setup** — make the state the change needs, as the QA account. Upload a
   small test record (`upload` sends a real one-page PDF; name it so a person
@@ -51,8 +60,15 @@ Three phases, run in this order. Values carry from one flow to the next.
   started, the remember fails with that reason instead of keeping the upload
   page as the record. Read the setup run's `pageText`: an error the product
   shows there ("Something went wrong") means nothing was made.
-- **check** — one flow per acceptance line a person can see: `request_id`, the
-  `criterion` in the request's own words, `path` naming what setup made:
+- **check** — one flow per acceptance line the live product can show, citing
+  it by its number: `line: 3` (1-based, in the request's `acceptance`), with
+  `request_id` when the release shipped more than one request. `check_live`
+  writes the line's words from the record; a number that is not there is
+  refused with the lines listed, so read them (every answer carries
+  `acceptance`) and cite again. A line about an API ("GET /v1/documents
+  returns 200 signed in") is proven by the response: `goto` the page that
+  calls it, `{expect_response: {path: "/v1/documents", status: 200}}`, then
+  `shoot`. `path` names the page, or what setup made:
   `{{recordUrl}}` (or any name setup remembered), or `{{setupPage}}`, the page
   the last finished setup flow ended on. Never the setup's own start page.
   `wait_for` the state, and a `shoot` naming what the picture shows. Prove what

@@ -484,6 +484,57 @@ async function urlAfterAction(page, ctx) {
   return page.url();
 }
 
+// ---------- what the page asked the server, and what it answered ----------
+//
+// A promise about an API is proven by its response, not by a picture (2026-10-02, FE-314: "after
+// deploy, GET /v1/documents with a valid signed-in session returns 200" could only be shot as the
+// page around it). Every flow keeps the responses its page received (method, path, status; never a
+// body, a header or a query), and `expect_response` passes when one answered as promised.
+
+/** How long `expect_response` waits for the response it names, in milliseconds. */
+export const EXPECT_RESPONSE_TIMEOUT_MS = 10000;
+
+/** The path part of a path or an address: what `expect_response` compares. */
+function pathOf(target) {
+  const t = String(target || '').trim();
+  try {
+    return /^https?:\/\//i.test(t) ? new URL(t).pathname : t.split(/[?#]/)[0];
+  } catch {
+    return t;
+  }
+}
+
+/**
+ * Whether a response the page received answered as `want` promised: its path is `want.path` or ends
+ * with it (at a segment), its method is `want.method` when one is named (a CORS preflight never
+ * stands in when none is), and its status is `want.status`. When none did, `line` says what was seen
+ * instead: "GET /v1/documents returned 500", or "no request to /v1/documents (the page made: …)".
+ * @param {Array<{method: string, url: string, status: number, type?: string}>} seen - The responses, in order.
+ * @param {{path: string, status: number, method?: string}} want - The promise.
+ * @returns {{ok: boolean, line: string, match?: {method: string, path: string, status: number}}}
+ */
+export function matchResponse(seen, want) {
+  const path = pathOf(want.path);
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  const method = want.method ? String(want.method).toUpperCase() : null;
+  const status = Number(want.status);
+  const at = r => pathOf(r.url);
+  const named = (seen || []).filter((r) => {
+    const p = at(r);
+    return (p === path || p.endsWith(suffix)) && (method ? r.method === method : r.method !== 'OPTIONS');
+  });
+  const hit = named.find(r => r.status === status);
+  if (hit) {
+    return { ok: true, line: `${hit.method} ${at(hit)} returned ${hit.status}`, match: { method: hit.method, path: at(hit), status: hit.status } };
+  }
+  if (named.length > 0) {
+    const answers = [...new Set(named.map(r => `${r.method} ${at(r)} returned ${r.status}`))];
+    return { ok: false, line: `${answers.slice(0, 3).join('; ')}, not ${status}` };
+  }
+  const made = [...new Set((seen || []).filter(r => !r.type || ['fetch', 'xhr', 'document'].includes(r.type)).map(r => `${r.method} ${at(r)} ${r.status}`))];
+  return { ok: false, line: `no ${method ? `${method} ` : ''}request to ${path} was made${made.length ? ` (the page made: ${made.slice(0, 6).join(', ')})` : ''}` };
+}
+
 /** The longest `pause` a step may ask for, in seconds. */
 export const MAX_PAUSE_SECONDS = 30;
 
@@ -525,6 +576,21 @@ async function runStep(page, rawStep, shoot, ctx = {}) {
       throw new Error(`nothing to remember as ${name}: the ${from}${selector ? ` of ${JSON.stringify(selector).slice(0, 80)}` : ''} is empty`);
     }
     vars[name] = value;
+    return;
+  }
+  if (step.expect_response) {
+    const want = step.expect_response;
+    const seen = ctx.responses || [];
+    const deadline = Date.now() + (ctx.expectResponseTimeoutMs ?? EXPECT_RESPONSE_TIMEOUT_MS);
+    let found = matchResponse(seen, want);
+    while (!found.ok && Date.now() < deadline) {
+      await page.waitForTimeout(250);
+      found = matchResponse(seen, want);
+    }
+    if (!found.ok) {
+      throw new Error(found.line);
+    }
+    (ctx.proofs ||= []).push(found.match);
     return;
   }
   if (step.pause !== undefined) {
@@ -728,7 +794,7 @@ export function viewportContextOptions(viewport) {
  * shoots where the page got, instead of trying the rest: on production a failed step means the
  * state is not there, and every later step would only wait out its own timeout.
  */
-export async function shootFlow({ browser, base, flow, viewport, side, outDir, record = false, log = () => {}, context: given = null, stopAtFailure = false, errorPatterns = ERROR_STATE_PATTERNS, vars = {}, allow = null, withText = false, urlMoveTimeoutMs = URL_MOVE_TIMEOUT_MS }) {
+export async function shootFlow({ browser, base, flow, viewport, side, outDir, record = false, log = () => {}, context: given = null, stopAtFailure = false, errorPatterns = ERROR_STATE_PATTERNS, vars = {}, allow = null, withText = false, urlMoveTimeoutMs = URL_MOVE_TIMEOUT_MS, expectResponseTimeoutMs = EXPECT_RESPONSE_TIMEOUT_MS }) {
   const vp = VIEWPORTS[viewport];
   const context = given || await browser.newContext({
     ...viewportContextOptions(viewport),
@@ -749,6 +815,14 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
   let video = null;
   // What production answered for the flow's page, so a live check can say "page not found".
   let httpStatus = null;
+  // Every response the page received, for `expect_response`: method, address, status, kind. No body.
+  const responses = [];
+  page.on('response', (r) => {
+    try {
+      responses.push({ method: r.request().method(), url: r.url(), status: r.status(), type: r.request().resourceType() });
+    } catch { /* a response the page dropped as it closed */ }
+  });
+  const proofs = [];
   try {
     const target = addressOf(base, fillVars(flow.path, vars));
     if (allow && !allow(target)) {
@@ -762,7 +836,7 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
     }
     if (!absent) {
       // Where the flow opened, so `remember from url` can tell a page its steps moved to from the start.
-      const flowCtx = { vars, allow, base, startUrl: page.url(), acted: false, urlMoveTimeoutMs };
+      const flowCtx = { vars, allow, base, startUrl: page.url(), acted: false, urlMoveTimeoutMs, responses, proofs, expectResponseTimeoutMs };
       for (const [index, step] of flow.steps.entries()) {
         try {
           await runStep(page, step, shoot, flowCtx);
@@ -793,14 +867,14 @@ export async function shootFlow({ browser, base, flow, viewport, side, outDir, r
   }
   // The webm is written when the context closes; a video that never materialized is no video.
   const videoPath = video ? await video.path().catch(() => null) : null;
-  return { shots, absent, stepFailures, videoPath, httpStatus };
+  return { shots, absent, stepFailures, videoPath, httpStatus, responses: proofs };
 }
 
 /** What a step pointed at, for a failure a person can read: the selector, the text, the file. */
 export function stepTarget(step) {
   const v = step && Object.values(step)[0];
   if (v && typeof v === 'object') {
-    return String(v.selector || '');
+    return String(v.selector || v.path || '');
   }
   return String(v ?? '');
 }

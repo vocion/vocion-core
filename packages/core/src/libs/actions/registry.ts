@@ -13,6 +13,7 @@ import { chatReplyInThreadAction } from './chat-reply-in-thread';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { factoryApprovePlanAction } from './factory-approve-plan';
+import { factoryCheckLiveAgainAction } from './factory-check-live';
 import { factoryDispatchAction } from './factory-dispatch';
 import { githubDispatchWorkflowAction } from './github-dispatch';
 import { githubOpenPullAction } from './github-pull';
@@ -110,6 +111,8 @@ registerAction(objectsRenameAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);
+// A person asks QA to check a release on the live product again, a fresh round (`factory-check-live.ts`).
+registerAction(factoryCheckLiveAgainAction);
 // Re-run a red CI's failed jobs once — changes no code, Undo cancels it while
 // it runs; done for you on the software factory's trust ladder (backlog 049).
 registerAction(githubRerunFailedJobsAction);

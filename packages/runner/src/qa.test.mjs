@@ -571,3 +571,74 @@ describe('a flow that prepares its own state (the live check, 2026-10-01)', asyn
     }
   });
 });
+
+describe('a flow that proves what an API answered (expect_response, FE-314 2026-10-02)', async () => {
+  const { matchResponse, shootFlow, stepTarget } = await import('./qa.mjs');
+  const seen = [
+    { method: 'GET', url: 'https://app.acme.example/documents', status: 200, type: 'document' },
+    { method: 'OPTIONS', url: 'https://api.acme.example/v1/documents', status: 204, type: 'preflight' },
+    { method: 'GET', url: 'https://api.acme.example/v1/documents?page=1', status: 200, type: 'fetch' },
+    { method: 'GET', url: 'https://api.acme.example/v1/me', status: 500, type: 'fetch' },
+    { method: 'GET', url: 'https://app.acme.example/logo.svg', status: 200, type: 'image' },
+  ];
+
+  it('passes on a response whose path is or ends with the one named, on any host, with the status promised', () => {
+    assert.deepEqual(matchResponse(seen, { path: '/v1/documents', status: 200 }), { ok: true, line: 'GET /v1/documents returned 200', match: { method: 'GET', path: '/v1/documents', status: 200 } });
+    assert.equal(matchResponse(seen, { path: 'https://api.acme.example/v1/documents', status: 200, method: 'get' }).ok, true);
+    // A segment, not a substring: /documents ends /v1/documents, mydocuments ends nothing.
+    assert.equal(matchResponse(seen, { path: 'documents', status: 200 }).ok, true);
+    assert.equal(matchResponse([{ method: 'GET', url: 'https://x.example/mydocuments', status: 200 }], { path: '/documents', status: 200 }).ok, false);
+  });
+
+  it('fails with what the API answered instead, never counting a CORS preflight when no method is named', () => {
+    assert.deepEqual(matchResponse(seen, { path: '/v1/me', status: 200 }), { ok: false, line: 'GET /v1/me returned 500, not 200' });
+    assert.equal(matchResponse(seen, { path: '/v1/documents', status: 204 }).line, 'GET /v1/documents returned 200, not 204');
+    assert.equal(matchResponse(seen, { path: '/v1/documents', status: 204, method: 'OPTIONS' }).ok, true);
+  });
+
+  it('fails with no such request, naming what the page did call (not its images)', () => {
+    assert.equal(matchResponse(seen, { path: '/v1/orgs', status: 200 }).line, 'no request to /v1/orgs was made (the page made: GET /documents 200, GET /v1/documents 200, GET /v1/me 500)');
+    assert.equal(matchResponse([], { path: '/v1/orgs', status: 200, method: 'POST' }).line, 'no POST request to /v1/orgs was made');
+    assert.equal(stepTarget({ expect_response: { path: '/v1/orgs', status: 200 } }), '/v1/orgs');
+  });
+
+  let chromiumOk = false;
+  try {
+    const pw = await import('playwright'); const b = await pw.chromium.launch(); await b.close(); chromiumOk = true;
+  } catch {
+    chromiumOk = false;
+  }
+
+  it('reads the responses the page itself made, and reports the ones that answered as promised', { skip: chromiumOk ? false : 'playwright chromium is not installed here', timeout: 90000 }, async () => {
+    let status = 200;
+    const server = http.createServer((req, res) => {
+      if (req.url === '/v1/documents') {
+        res.statusCode = status;
+        res.setHeader('content-type', 'application/json');
+        return res.end(status === 200 ? '[{"title":"Q3 board deck"}]' : '{"error":"engine"}');
+      }
+      res.setHeader('content-type', 'text/html');
+      return res.end('<ul id="list"></ul><script>fetch("/v1/documents").then(r=>r.ok?r.json():[]).then(d=>{document.getElementById("list").innerHTML=d.map(x=>"<li>"+x.title+"</li>").join("")||"<li>Could not load documents</li>"})</script>');
+    });
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const pw = await import('playwright');
+    const browser = await pw.chromium.launch();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-resp-'));
+    const flow = { name: 'documents', path: '/documents', steps: [{ expect_response: { path: '/v1/documents', status: 200 } }, { shoot: 'Documents list' }] };
+    try {
+      const ok = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow });
+      assert.deepEqual(ok.stepFailures, []);
+      assert.deepEqual(ok.responses, [{ method: 'GET', path: '/v1/documents', status: 200 }]);
+      status = 500;
+      const bad = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, expectResponseTimeoutMs: 500, flow });
+      assert.equal(bad.stepFailures[0]?.verb, 'expect_response');
+      assert.equal(bad.stepFailures[0].error, 'GET /v1/documents returned 500, not 200');
+      assert.deepEqual(bad.responses, []);
+    } finally {
+      await browser.close();
+      server.close();
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+});

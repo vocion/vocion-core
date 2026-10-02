@@ -11,6 +11,7 @@ import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { showsAnError } from '@/libs/factory/mockup';
 import { liveTopic } from '@/libs/live/topics';
 import { featureStatusOf, oneOfEachPicture } from '@/services/factory/featureReport';
+import { CheckLiveAgain } from './CheckLiveAgain';
 import { FeatureActivity } from './FeatureActivity';
 import { FeatureBuild, FeatureHeadline } from './FeatureBuild';
 import { FeatureDismiss } from './FeatureDismiss';
@@ -290,7 +291,9 @@ function StatusBlock({ report, status }: { report: FeatureReport; status: Record
     ? null
     : s.secondary.kind === 'dismiss'
       ? <FeatureDismiss requestId={report.requestId} />
-      : <ActionButton action={s.secondary} report={report} primary={false} />;
+      : s.secondary.kind === 'check_live'
+        ? <CheckLiveAgain releaseId={s.secondary.releaseId} label={s.secondary.label} />
+        : <ActionButton action={s.secondary} report={report} primary={false} />;
   // The move that IS the running run ("Watch the plan being written") is
   // the Now line already; drawn twice it would be two ways to one place.
   const moveIsLive = s.action?.kind === 'link' && report.live !== null && s.action.href === report.live.runHref;
