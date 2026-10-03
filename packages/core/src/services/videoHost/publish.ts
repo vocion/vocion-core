@@ -16,6 +16,9 @@
  *     one a person should watch. A raw recording whose narrated twin was filed
  *     after it on the same record is not uploaded: the twin is published in
  *     its place (once — its own claim holds), however the twin was filed.
+ *   - **Public while shared.** A recording that lands while the feature it
+ *     shows has a live public link goes up `public`; one whose link changed
+ *     during the upload is set to match the moment it is published.
  *   - **Never blocks, never silent.** Nothing here throws to the caller. A
  *     refusal is kept on the artifacts (`hostedVideo.state = failed`, its
  *     reason, the attempt count), where the feature page reads it, and comes
@@ -23,7 +26,7 @@
  */
 
 import type { Buffer } from 'node:buffer';
-import type { VideoHost } from './host';
+import type { VideoAudience, VideoHost } from './host';
 
 /** The role a narrated recording is filed under: its raw recording's role and this suffix. */
 export const NARRATED_ROLE_SUFFIX = '-narrated';
@@ -61,6 +64,8 @@ export type PublishStore = {
   share: (orgId: string, artifact: RecordingArtifact, fields: Record<string, unknown>) => Promise<void>;
   readBytes: (orgId: string, url: string) => Promise<Buffer | null>;
   codeFor: (orgId: string, recordId: number) => Promise<string | null>;
+  /** Who may watch recordings filed on these records: `public` while one of them shows on a live public link. */
+  audienceFor: (orgId: string, recordIds: string[]) => Promise<VideoAudience>;
   /** The newest narrated recording filed on this record under the narrated twin of a role, at or after `since`, or null. */
   narratedTwin: (orgId: string, recordId: string, narratedRole: string, since: Date) => Promise<number | null>;
 };
@@ -143,9 +148,25 @@ export async function publishRecording(input: { orgId: string; artifactId: numbe
     const code = Number.isInteger(recordId) && recordId > 0 ? await store.codeFor(input.orgId, recordId).catch(() => null) : null;
     const caption = typeof artifact.spec.caption === 'string' ? artifact.spec.caption : artifact.title;
     const title = code && !artifact.title.includes(code) ? `${code} · ${artifact.title}` : artifact.title;
-    const published = await host.publish({ data, contentType: contentTypeOf(artifact), title, summary: caption });
+    const recordIds = [...new Set(all.map(s => s.recordId).filter((id): id is string => Boolean(id)))];
+    const audienceNow = () => store.audienceFor(input.orgId, recordIds).catch(() => 'workspace' as const);
+    const audience = await audienceNow();
+    const published = await host.publish({ data, contentType: contentTypeOf(artifact), title, summary: caption, audience });
     if (!published.ok) {
       return fail(published.reason, published.retryable);
+    }
+    // The link may have been turned on or off while the bytes went up.
+    let visibility: { visibility: string } | { visibility: string; visibilityError: string } = { visibility: published.visibility };
+    const after = await audienceNow();
+    if (after !== audience) {
+      const changed = await host.setAudience(published.hostRef, after).catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err), retryable: true }));
+      visibility = changed.ok ? { visibility: changed.visibility } : { visibility: published.visibility, visibilityError: changed.reason.slice(0, 500) };
+      if (!changed.ok) {
+        try {
+          const { logger } = await import('@/libs/Logger');
+          logger.warn('recording audience not changed on the video host', { orgId: input.orgId, hostRef: published.hostRef, audience: after, reason: changed.reason });
+        } catch { /* logging is best effort */ }
+      }
     }
     const hosted: HostedVideo = {
       state: 'published',
@@ -155,7 +176,7 @@ export async function publishRecording(input: { orgId: string; artifactId: numbe
       hostRef: published.hostRef,
       watchUrl: published.watchUrl,
       embedUrl: published.embedUrl,
-      visibility: published.visibility,
+      ...visibility,
       attempts,
       at: now().toISOString(),
     };
@@ -232,6 +253,10 @@ async function defaultStore(): Promise<PublishStore> {
     async codeFor(orgId, recordId) {
       const { codeForRecord } = await import('@/services/codes');
       return codeForRecord(orgId, recordId);
+    },
+    async audienceFor(orgId, recordIds) {
+      const { publicLinkLiveFor } = await import('@/services/factory/featureShareData');
+      return (await publicLinkLiveFor(orgId, recordIds)) ? 'public' : 'workspace';
     },
     async narratedTwin(orgId, recordId, narratedRole, since) {
       const [row] = await db.select({ id: artifactSchema.id }).from(artifactSchema).where(and(

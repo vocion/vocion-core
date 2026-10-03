@@ -11,7 +11,7 @@
 
 import type { SlateCredentials, SlateFetch } from './client';
 import type { VideoHost, VideoHostProvider } from '@/services/videoHost/host';
-import { slateCredentialsFrom, slateVisibilityFrom, uploadSlateVideo } from './client';
+import { setSlateVisibility, slateCredentialsFrom, slateVisibilityFrom, uploadSlateVideo } from './client';
 
 export const SLATE_CONNECTOR_SLUG = 'slate';
 const LABEL = 'Slate';
@@ -19,7 +19,8 @@ const LABEL = 'Slate';
 /**
  * A host over one resolved credential. Exported for tests.
  * @param c - The credential.
- * @param visibility - Who may watch what it uploads.
+ * @param visibility - Who may watch what it uploads (the workspace's choice);
+ *   a recording asked for with audience `public` is `public` instead.
  * @param doFetch - The network.
  */
 export function slateHostFor(c: SlateCredentials, visibility: unknown, doFetch?: SlateFetch): VideoHost {
@@ -28,7 +29,8 @@ export function slateHostFor(c: SlateCredentials, visibility: unknown, doFetch?:
     id: SLATE_CONNECTOR_SLUG,
     label: LABEL,
     async publish(input) {
-      const r = await uploadSlateVideo(c, { data: input.data, contentType: input.contentType, title: input.title, summary: input.summary, visibility: vis }, doFetch);
+      const visibility = input.audience === 'public' ? 'public' : vis;
+      const r = await uploadSlateVideo(c, { data: input.data, contentType: input.contentType, title: input.title, summary: input.summary, visibility }, doFetch);
       if (!r.ok) {
         return { ok: false, reason: r.message, retryable: r.retryable };
       }
@@ -40,6 +42,10 @@ export function slateHostFor(c: SlateCredentials, visibility: unknown, doFetch?:
         embedUrl: r.data.embedUrl,
         visibility: r.data.visibility,
       };
+    },
+    async setAudience(hostRef, audience) {
+      const r = await setSlateVisibility(c, hostRef, audience === 'public' ? 'public' : vis, doFetch);
+      return r.ok ? { ok: true, visibility: r.data.visibility } : { ok: false, reason: r.message, retryable: r.retryable };
     },
     specFields: shareId => ({ slateShareId: shareId }),
   };

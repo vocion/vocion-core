@@ -57,6 +57,7 @@ function memoryStore(rows: RecordingArtifact[], over: Partial<PublishStore> = {}
     readBytes: async () => Buffer.from('fictional webm bytes'),
     codeFor: async (_o, id) => (id === 41 ? 'FE-41' : null),
     narratedTwin: async () => null,
+    audienceFor: async () => 'workspace',
     ...over,
   };
   return { store, byId, shares, notes };
@@ -64,8 +65,9 @@ function memoryStore(rows: RecordingArtifact[], over: Partial<PublishStore> = {}
 
 function host(result: Awaited<ReturnType<VideoHost['publish']>> = { ok: true, shareId: 'share-fictional-1', hostRef: 'vid-1', watchUrl: 'https://video-host.example/v/share-fictional-1', embedUrl: 'https://video-host.example/embed/share-fictional-1', visibility: 'team' }) {
   const publish = vi.fn<VideoHost['publish']>(async () => result);
-  const h: VideoHost = { id: 'slate', label: 'Slate', publish, specFields: shareId => ({ slateShareId: shareId }) };
-  return { h, publish };
+  const setAudience = vi.fn<VideoHost['setAudience']>(async (_ref, audience) => ({ ok: true, visibility: audience === 'public' ? 'public' : 'team' }));
+  const h: VideoHost = { id: 'slate', label: 'Slate', publish, setAudience, specFields: shareId => ({ slateShareId: shareId }) };
+  return { h, publish, setAudience };
 }
 
 describe('publishing a filed recording to the video host', () => {
@@ -85,7 +87,7 @@ describe('publishing a filed recording to the video host', () => {
 
     expect(r).toEqual({ status: 'published', shareId: 'share-fictional-1', watchUrl: 'https://video-host.example/v/share-fictional-1', artifactIds: [1, 2] });
     expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith({ data: Buffer.from('fictional webm bytes'), contentType: 'video/webm', title: 'FE-41 · Live check of REL-9, 2026-10-03', summary: 'Live check of REL-9, 2026-10-03' });
+    expect(publish).toHaveBeenCalledWith({ data: Buffer.from('fictional webm bytes'), contentType: 'video/webm', title: 'FE-41 · Live check of REL-9, 2026-10-03', summary: 'Live check of REL-9, 2026-10-03', audience: 'workspace' });
     expect(shares.map(s => s.id)).toEqual([1, 2]);
     expect(byId.get(2)!.spec).toMatchObject({ slateShareId: 'share-fictional-1', hostedVideo: { state: 'published', host: 'slate', shareId: 'share-fictional-1', embedUrl: 'https://video-host.example/embed/share-fictional-1', visibility: 'team', attempts: 1 } });
   });
@@ -173,6 +175,39 @@ describe('publishing a filed recording to the video host', () => {
     await expect(publishRecording({ orgId: ORG, artifactId: 1 }, { host: h, store })).resolves.toMatchObject({ status: 'skipped' });
     await expect(publishRecording({ orgId: ORG, artifactId: 99 }, { host: h, store })).resolves.toMatchObject({ status: 'skipped' });
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('uploads public straight away when the feature it shows already has a live public link', async () => {
+    const audienceFor = vi.fn<PublishStore['audienceFor']>(async () => 'public');
+    const { store, byId } = memoryStore([recording(1), recording(2, { recordId: '9' })], { audienceFor });
+    const { h, publish, setAudience } = host({ ok: true, shareId: 'share-fictional-1', hostRef: 'vid-1', watchUrl: 'https://video-host.example/v/share-fictional-1', embedUrl: 'https://video-host.example/embed/share-fictional-1', visibility: 'public' });
+    await publishRecording({ orgId: ORG, artifactId: 1 }, { host: h, store, now: () => NOW });
+
+    expect(audienceFor).toHaveBeenCalledWith(ORG, ['41', '9']);
+    expect(publish.mock.calls[0]![0].audience).toBe('public');
+    expect(setAudience).not.toHaveBeenCalled();
+    expect(byId.get(1)!.spec.hostedVideo).toMatchObject({ state: 'published', visibility: 'public' });
+  });
+
+  it('sets who may watch to match a link turned on while the bytes went up, and keeps why when it cannot', async () => {
+    const turnedOn = () => {
+      let n = 0;
+      return vi.fn<PublishStore['audienceFor']>(async () => (n++ === 0 ? 'workspace' : 'public'));
+    };
+    const a = memoryStore([recording(1)], { audienceFor: turnedOn() });
+    const ok = host();
+    await publishRecording({ orgId: ORG, artifactId: 1 }, { host: ok.h, store: a.store, now: () => NOW });
+
+    expect(ok.setAudience).toHaveBeenCalledWith('vid-1', 'public');
+    expect(a.byId.get(1)!.spec.hostedVideo).toMatchObject({ state: 'published', visibility: 'public' });
+
+    const b = memoryStore([recording(1)], { audienceFor: turnedOn() });
+    const down = host();
+    down.setAudience.mockResolvedValueOnce({ ok: false, reason: 'The host could not be reached.', retryable: true });
+    const r = await publishRecording({ orgId: ORG, artifactId: 1 }, { host: down.h, store: b.store, now: () => NOW });
+
+    expect(r.status).toBe('published');
+    expect(b.byId.get(1)!.spec.hostedVideo).toMatchObject({ state: 'published', visibility: 'team', visibilityError: 'The host could not be reached.' });
   });
 });
 

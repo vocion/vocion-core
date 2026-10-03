@@ -245,20 +245,24 @@ describe('which files a public page may show', () => {
     expect(walkthroughOf([video(1, 'qa-video', '2026-10-02T08:00:00Z', { url: 'https://bucket.example/x.webm' })])).toBeNull();
   });
 
-  it('plays a recording with a video-host share id in that host\'s player, public or not; else Vocion\'s own copy', () => {
+  it('plays a recording in its video host\'s player only while the host lets anyone watch; else Vocion\'s own copy', () => {
     const onHost = (visibility: string) => video(5, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { contentType: 'video/webm', caption: 'c', slateShareId: 'share-fictional-1', hostedVideo: { state: 'published', visibility } } });
 
     expect(playerEmbed(onHost('public'))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`);
-    expect(playerEmbed(onHost('team'))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`);
+    // Team-only (or a change that failed): a stranger would see "not available", so not the player.
+    expect(playerEmbed(onHost('team'))).toBeNull();
     expect(playerEmbed(video(6, 'qa-live-video', '2026-10-02T09:00:00Z'))).toBeNull();
+    expect(playerEmbed(video(8, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { slateShareId: 'share-fictional-1' } }))).toBeNull();
     // A share id is a path segment, never markup or a second URL.
-    expect(playerEmbed(video(7, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { slateShareId: '../x?y=<z>' } }))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/..%2Fx%3Fy%3D%3Cz%3E`);
+    expect(playerEmbed(video(7, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { slateShareId: '../x?y=<z>', hostedVideo: { state: 'published', visibility: 'public' } } }))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/..%2Fx%3Fy%3D%3Cz%3E`);
 
-    const page = publicFeaturePage(input({ recordings: [onHost('team')], code: 'FE-370', name: 'Upload date on library rows' }));
+    const page = publicFeaturePage(input({ recordings: [onHost('public')], code: 'FE-370', name: 'Upload date on library rows' }));
 
     expect(page.media[0]).toEqual({ kind: 'embed', src: `${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`, label: 'On the live product', caption: 'c', title: 'FE-370 · Upload date on library rows' });
     // No share id: the native recording through the link.
     expect(publicFeaturePage(input()).media[0]).toMatchObject({ kind: 'video', src: '/api/share/feature/TOKEN/media/951?k=sig-951' });
+    // On the host but not public: the native recording through the link too.
+    expect(publicFeaturePage(input({ recordings: [onHost('team')] })).media[0]).toMatchObject({ kind: 'video', src: '/api/share/feature/TOKEN/media/5?k=sig-5' });
   });
 });
 

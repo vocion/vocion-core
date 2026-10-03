@@ -1,7 +1,8 @@
 import type { SlateCredentials, SlateFetch } from './client';
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
-import { readSlateMe, SLATE_PART_BYTES, slateCredentialsFrom, slateVisibilityFrom, uploadSlateVideo } from './client';
+import { readSlateMe, setSlateVisibility, SLATE_PART_BYTES, slateCredentialsFrom, slateVisibilityFrom, uploadSlateVideo } from './client';
+import { slateHostFor } from './videoHost';
 
 const C: SlateCredentials = { token: 'slt_fixture_token_0001', apiBase: 'https://api.video-host.example', webOrigin: 'https://video-host.example' };
 
@@ -116,5 +117,47 @@ describe('uploading a recording', () => {
     await expect(uploadSlateVideo(C, { data: Buffer.from('x'), contentType: 'image/png', title: 't', summary: null, visibility: 'team' }, doFetch)).resolves.toMatchObject({ ok: false, retryable: false });
     await expect(uploadSlateVideo(C, { data: Buffer.alloc(0), contentType: 'video/webm', title: 't', summary: null, visibility: 'team' }, doFetch)).resolves.toMatchObject({ ok: false });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('changing who may watch', () => {
+  it('patches one recording\'s visibility and answers with what Slate now reports', async () => {
+    const { doFetch, calls } = fake({ 'PATCH /v1/videos/vid-7': () => ({ json: { id: 'vid-7', visibility: 'public' } }) });
+
+    await expect(setSlateVisibility(C, 'vid-7', 'public', doFetch)).resolves.toEqual({ ok: true, data: { visibility: 'public' } });
+    expect(calls.map(c => `${c.method} ${new URL(c.url).pathname}`)).toEqual(['PATCH /v1/videos/vid-7']);
+    expect(JSON.parse(calls[0]!.body as string)).toEqual({ visibility: 'public' });
+    expect(calls[0]!.headers.Authorization).toBe('Bearer slt_fixture_token_0001');
+  });
+
+  it('says why when Slate cannot be reached, without throwing', async () => {
+    const doFetch: SlateFetch = async () => {
+      throw new Error('getaddrinfo ENOTFOUND');
+    };
+
+    await expect(setSlateVisibility(C, 'vid-7', 'public', doFetch)).resolves.toMatchObject({ ok: false, retryable: true, message: expect.stringMatching(/could not be reached/) });
+  });
+
+  it('as a video host: public for a shared page, the workspace\'s choice otherwise', async () => {
+    const { doFetch, calls } = fake({ 'PATCH /v1/videos/vid-7': call => ({ json: { visibility: JSON.parse(call.body as string).visibility } }) });
+    const host = slateHostFor(C, 'signedIn', doFetch);
+
+    await expect(host.setAudience('vid-7', 'public')).resolves.toEqual({ ok: true, visibility: 'public' });
+    await expect(host.setAudience('vid-7', 'workspace')).resolves.toEqual({ ok: true, visibility: 'signedIn' });
+    expect(calls.map(c => JSON.parse(c.body as string).visibility)).toEqual(['public', 'signedIn']);
+  });
+
+  it('as a video host: uploads public when asked for a public audience', async () => {
+    const { doFetch, calls } = fake({
+      'POST /v1/videos': () => ({ json: { videoId: 'vid-1', shareId: 'share-fictional-1', parts: [{ partNumber: 1, url: 'https://uploads.video-host.example/raw?part=1' }] } }),
+      'PUT PART': () => ({ etag: '"etag-1"' }),
+      'POST /v1/videos/vid-1/complete': () => ({ json: { id: 'vid-1' } }),
+      'PATCH /v1/videos/vid-1': () => ({ json: { visibility: 'public' } }),
+    });
+    const r = await slateHostFor(C, 'team', doFetch).publish({ data: Buffer.from('x'), contentType: 'video/webm', title: 't', summary: null, audience: 'public' });
+
+    expect(r).toMatchObject({ ok: true, visibility: 'public' });
+    expect(JSON.parse(calls[0]!.body as string).visibility).toBe('public');
+    expect(JSON.parse(calls[3]!.body as string).visibility).toBe('public');
   });
 });

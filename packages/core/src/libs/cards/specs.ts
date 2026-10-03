@@ -172,6 +172,8 @@ export const fileSpecSchema = z.object({
     watchUrl: z.string().max(2000).optional(),
     embedUrl: z.string().max(2000).optional(),
     visibility: z.string().max(40).optional(),
+    /** Why the last change of who may watch did not take (the host was down, refused); cleared when one does. */
+    visibilityError: z.string().max(500).optional(),
     reason: z.string().max(500).optional(),
     attempts: z.number().int().nonnegative().optional(),
     at: z.string().max(40),

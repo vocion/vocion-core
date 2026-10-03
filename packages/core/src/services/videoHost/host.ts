@@ -13,12 +13,24 @@
 import type { Buffer } from 'node:buffer';
 import { slateVideoHost } from '@/libs/slate/videoHost';
 
+/**
+ * Who may watch a recording, in Vocion's words: anyone with the link
+ * (`public`, while the feature it shows is shared publicly), or whoever the
+ * workspace configured for its host (`workspace`). The host maps it to its own.
+ */
+export type VideoAudience = 'public' | 'workspace';
+
+/** The visibility, in a host's words, that means anyone with the link may watch. */
+export const PUBLIC_VISIBILITY = 'public';
+
 export type VideoHostPublishInput = {
   data: Buffer | Uint8Array;
   contentType: string;
   title: string;
   /** The line under it: what the recording shows. */
   summary: string | null;
+  /** Who may watch; the workspace's choice when absent. */
+  audience?: VideoAudience;
 };
 
 export type VideoHostPublished = {
@@ -40,6 +52,8 @@ export type VideoHost = {
   /** Its name, for "Open in …". */
   label: string;
   publish: (input: VideoHostPublishInput) => Promise<VideoHostPublished | VideoHostRefusal>;
+  /** Change who may watch a published recording, by the host's id for it (`hostRef`). Never throws. */
+  setAudience: (hostRef: string, audience: VideoAudience) => Promise<{ ok: true; visibility: string } | VideoHostRefusal>;
   /** Fields the provider keeps on the artifact's spec under its own names, for a share. */
   specFields: (shareId: string) => Record<string, unknown>;
 };

@@ -7,7 +7,7 @@ import { fileRecording } from '@/services/artifacts/recordings';
 import { NARRATION_GRACE_MS, queueRecordingPublish, VIDEO_HOST_PUBLISH_JOB } from './queue';
 
 const ORG = 'org_northwind';
-const HOST: VideoHost = { id: 'slate', label: 'Slate', publish: async () => ({ ok: false, reason: 'unused', retryable: false }), specFields: () => ({}) };
+const HOST: VideoHost = { id: 'slate', label: 'Slate', publish: async () => ({ ok: false, reason: 'unused', retryable: false }), setAudience: async () => ({ ok: false, reason: 'unused', retryable: false }), specFields: () => ({}) };
 
 vi.mock('@/services/ArtifactService', () => {
   let id = 100;

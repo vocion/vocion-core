@@ -34,6 +34,7 @@ import { slatePlayerUrl } from '@/libs/slate/client';
 import { API_ARTIFACTS_BASE } from '@/libs/tools/artifacts/url';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { firstSentence } from '@/libs/workspace/releaseFeed';
+import { isPubliclyHosted } from '@/services/videoHost/audience';
 import { money, RECORDING_ROLES } from './featureReport';
 
 /** The role the public link is filed under on its request. */
@@ -274,13 +275,15 @@ const WALKTHROUGH_LABEL: Record<string, string> = {
  * THE RECORDING'S PLAYER (Chris, 2026-10-03: "Carousel video = the Slate
  * embedded player whenever the recording artifact has a Slate share id").
  * The share id the upload kept on the artifact (`slateShareId`) names the
- * player; who may watch is the video host's to decide, and its player says
- * so itself. Without one, the page plays Vocion's own copy through the link.
+ * player — but only while the host lets anyone watch it
+ * (`hostedVideo.visibility` is public, which sharing the feature sets). A
+ * stranger shown a team-only player sees "not available", so otherwise the
+ * page plays Vocion's own copy through the link: the page is never broken.
  * @param a - The recording.
  */
 export function playerEmbed(a: Pick<SharedArtifact, 'spec'>): string | null {
   const shareId = str(a.spec, 'slateShareId');
-  return shareId ? slatePlayerUrl(shareId) : null;
+  return shareId && isPubliclyHosted(a.spec) ? slatePlayerUrl(shareId) : null;
 }
 
 /**

@@ -20,7 +20,10 @@
  * The player is `<web origin>/embed/:shareId` and the watch page
  * `<web origin>/v/:shareId`. Who may watch is the recording's `visibility`:
  * `team` (the uploader's Slate organization) unless a workspace configures
- * otherwise; never `public` unless configured.
+ * otherwise; never `public` unless configured. A person sharing a feature
+ * publicly is that configuration for the recordings its page shows: they go
+ * `public` while the link is live and back to the workspace's choice when it
+ * is turned off (`services/factory/featureShareData.ts`).
  *
  * Auth today is a pasted session token (`slt_…`, ~90 days, from Slate's device
  * flow). TODO(oauth): Slate is also an OAuth 2.1 authorization server with
@@ -217,6 +220,19 @@ export type SlateMe = { id?: string; email?: string; name?: string | null; paidS
  */
 export function readSlateMe(c: SlateCredentials, doFetch?: SlateFetch): Promise<SlateResult<SlateMe>> {
   return slateFetchJson<SlateMe>(c, 'GET', '/v1/me', 'read the account', undefined, doFetch);
+}
+
+/**
+ * Change who may watch one recording (`PATCH /v1/videos/:id { visibility }`).
+ * Never throws; the answer is the visibility Slate now reports.
+ * @param c - The credential.
+ * @param videoId - Slate's id for the recording (the upload's `videoId`).
+ * @param visibility - Who may watch.
+ * @param doFetch - The network.
+ */
+export async function setSlateVisibility(c: SlateCredentials, videoId: string, visibility: SlateVisibility, doFetch: SlateFetch = defaultFetch): Promise<SlateResult<{ visibility: SlateVisibility }>> {
+  const r = await slateFetchJson<{ visibility?: string }>(c, 'PATCH', `/v1/videos/${encodeURIComponent(videoId)}`, 'change who may watch the recording', { visibility }, doFetch);
+  return r.ok ? { ok: true, data: { visibility: slateVisibilityFrom(r.data?.visibility ?? visibility) } } : r;
 }
 
 export type SlateUpload = {

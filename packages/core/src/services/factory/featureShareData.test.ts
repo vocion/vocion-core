@@ -7,6 +7,7 @@
  * Kestrel).
  */
 import type { FeatureReportInput } from './featureReport';
+import type { VideoHost } from '@/services/videoHost/host';
 import process from 'node:process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -20,7 +21,7 @@ const { artifactSchema, businessObjectSchema, businessObjectTypeSchema, projectS
 const { shareCard } = await import('./featureShare');
 const { assembleFeatureReport } = await import('./featureReport');
 const { loadFeatureReport } = await import('./featureReportData');
-const { featureShareOf, loadSharedFeature, setFeatureShare, sharedFeatureMedia } = await import('./featureShareData');
+const { featureShareOf, loadSharedFeature, publicLinkLiveFor, setFeatureShare, sharedFeatureMedia } = await import('./featureShareData');
 const { signShareMedia, verifyArtifactShare } = await import('@/libs/share/artifactShareToken');
 const { GET } = await import('@/app/api/share/feature/[token]/media/[artifactId]/route');
 
@@ -256,5 +257,71 @@ describe('the files a shared page loads', () => {
     await setFeatureShare({ orgId: ORG, requestId, userId: ADA, shared: false });
 
     expect((await call(token, mockup, signShareMedia({ shareId, artifactId: mockup }))).status).toBe(404);
+  });
+});
+
+describe('the recordings follow the link on their video host', () => {
+  const fakeHost = (down = false) => {
+    const setAudience = vi.fn<VideoHost['setAudience']>(async (_ref, audience) => (down
+      ? { ok: false, reason: 'The video host could not be reached (ECONNREFUSED).', retryable: true }
+      : { ok: true, visibility: audience === 'public' ? 'public' : 'team' }));
+    const host: VideoHost = { id: 'slate', label: 'Slate', publish: vi.fn(), setAudience, specFields: shareId => ({ slateShareId: shareId }) };
+    return { host, setAudience };
+  };
+  const hostedOf = async (id: number) => {
+    const { eq } = await import('drizzle-orm');
+    const [row] = await db.select({ spec: artifactSchema.spec }).from(artifactSchema).where(eq(artifactSchema.id, id));
+    return (row!.spec as Record<string, unknown>).hostedVideo as Record<string, unknown>;
+  };
+  let walkthrough = 0;
+
+  beforeAll(async () => {
+    // The narrated walkthrough on the feature's task, uploaded team-only while the feature was not shared.
+    walkthrough = await picture(ORG, taskId, 'qa-live-video-narrated', {
+      kind: 'file',
+      title: 'Walkthrough',
+      url: '/api/media/live/walkthrough-bbbbbbbbbbbbbbbb.webm',
+      createdAt: new Date('2026-10-02T11:00:00Z'),
+      spec: { contentType: 'video/webm', caption: 'Walkthrough', slateShareId: 'share-fictional-9', hostedVideo: { state: 'published', host: 'slate', label: 'Slate', shareId: 'share-fictional-9', hostRef: 'vid-fictional-9', visibility: 'team', at: '2026-10-02T11:05:00Z' } },
+    });
+  });
+
+  it('shares even when the host is down: the reason is kept and the page plays its own copy', async () => {
+    const { host, setAudience } = fakeHost(true);
+    const state = await setFeatureShare({ orgId: ORG, requestId, userId: ADA, shared: true }, { host });
+
+    expect(state!.shared).toBe(true);
+    expect(setAudience).toHaveBeenCalledWith('vid-fictional-9', 'public');
+    expect(await hostedOf(walkthrough)).toMatchObject({ visibility: 'team', visibilityError: expect.stringMatching(/could not be reached/) });
+
+    const page = (await loadSharedFeature(tokenOf(state!.path)))!;
+
+    expect(page.media[0]).toMatchObject({ kind: 'video', src: expect.stringContaining(`/media/${walkthrough}?k=`) });
+  });
+
+  it('makes the walkthrough public when shared, so the page plays the host\'s player', async () => {
+    const { host, setAudience } = fakeHost();
+    // Pressed again (or a later Share): the failed change is tried again.
+    const state = await setFeatureShare({ orgId: ORG, requestId, userId: ADA, shared: true }, { host });
+
+    expect(setAudience.mock.calls).toEqual([['vid-fictional-9', 'public']]);
+
+    const hv = await hostedOf(walkthrough);
+
+    expect(hv).toMatchObject({ visibility: 'public', hostRef: 'vid-fictional-9' });
+    expect(hv.visibilityError).toBeUndefined();
+    expect((await loadSharedFeature(tokenOf(state!.path)))!.media[0]).toMatchObject({ kind: 'embed', src: expect.stringContaining('/embed/share-fictional-9') });
+    // A recording landing now, filed on the feature's task, goes up public.
+    expect(await publicLinkLiveFor(ORG, [String(taskId)])).toBe(true);
+    expect(await publicLinkLiveFor(ORG, [String(otherRequestId)])).toBe(false);
+  });
+
+  it('puts it back to the workspace\'s choice when the link is turned off', async () => {
+    const { host, setAudience } = fakeHost();
+    await setFeatureShare({ orgId: ORG, requestId, userId: ADA, shared: false }, { host });
+
+    expect(setAudience.mock.calls).toEqual([['vid-fictional-9', 'workspace']]);
+    expect(await hostedOf(walkthrough)).toMatchObject({ visibility: 'team' });
+    expect(await publicLinkLiveFor(ORG, [String(taskId)])).toBe(false);
   });
 });
