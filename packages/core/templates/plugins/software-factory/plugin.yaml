@@ -345,7 +345,7 @@ name: Software factory
 #   (every acceptance line seen or not seen citing this run's evidence, or not
 #   observable). `check_live` and its step language are gone; the release and
 #   the feature carry the same live records as before.
-version: 3.7.0
+version: 3.8.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
