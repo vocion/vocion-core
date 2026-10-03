@@ -272,6 +272,29 @@ describe('the browser tools, in a real browser against a fictional product', asy
   const env = (password: string): EnvironmentAccess[] => [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password, stored: true }, liveSetup: null }];
   const refOf = (snapshot: string | undefined, line: RegExp) => line.exec(snapshot ?? '')?.[1] ?? '';
 
+  it('checks without recording when this installation cannot record, rather than failing the check (FE-419)', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_norecord`;
+    const { releaseId } = await seed(org);
+    access.environments = env('fictional-secret');
+    const key = browserSvc.browserSessionKey({ orgId: org, missionRunId: 502 });
+    // A browser whose recording contexts cannot open a page, as on an image without a video encoder.
+    const broken = {
+      newContext: async (opts: Record<string, unknown>) => (opts.recordVideo
+        ? { newPage: async () => {
+            throw new Error('browserContext.newPage: Executable doesn\'t exist at /home/app/.cache/ms-playwright/ffmpeg-1011/ffmpeg-linux');
+          }, close: async () => {} }
+        : browser!.newContext(opts)),
+    };
+
+    const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/rename' }, { ...deps('/tmp/vocion-live-video-test'), browser: async () => broken as never });
+
+    expect(opened.ok).toBe(true);
+    expect(opened.snapshot).toMatch(/button "Save"/);
+
+    await browserSvc.closeBrowserSession(key);
+    browserSvc.resetRecordingProbe();
+  });
+
   it('sees a disabled Save as disabled, clicks it and hears "disabled" at once, screenshots it, and records the line seen (FE-402 line 6)', { skip: !chromium, timeout: 120_000 }, async () => {
     const org = `${ORG}_browser`;
     const { requestId, releaseId } = await seed(org);

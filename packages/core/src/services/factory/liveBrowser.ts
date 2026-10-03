@@ -56,6 +56,14 @@ export const BROWSER_VIEWPORTS = {
 export type BrowserViewport = keyof typeof BROWSER_VIEWPORTS;
 
 /** What one session may do. */
+/** Why recording failed on this process, once it has; later sessions check without it. */
+let recordingBroken: string | null = null;
+
+/** Forget a failed recording probe (tests, and a process whose installation changed). */
+export function resetRecordingProbe(): void {
+  recordingBroken = null;
+}
+
 export const BROWSER_LIMITS = {
   /** Browser contexts (an environment × viewport × signed in or not). */
   contexts: 6,
@@ -377,7 +385,26 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
       return fail(`the live check could not start a browser on this installation: ${short(e)}`, { kind: 'could_not_run', detail: `the live check could not start a browser on this installation: ${short(e)}` });
     }
     // Recorded at the viewport's own size, so a phone check plays as a phone.
-    const context = await browser.newContext({ ...BROWSER_VIEWPORTS[viewport], ...(s.videoDir ? { recordVideo: { dir: s.videoDir, size: BROWSER_VIEWPORTS[viewport].viewport } } : {}) });
+    // A RECORDING NEVER COSTS THE CHECK (2026-10-03, FE-419): recording needs a
+    // video encoder this installation may not have ("Executable doesn't exist
+    // at …/ffmpeg-linux" failed every page). The first page is opened here; when
+    // that fails with recording on, the check runs without it and says so once.
+    if (recordingBroken) {
+      s.videoDir = null;
+    }
+    let context = await browser.newContext({ ...BROWSER_VIEWPORTS[viewport], ...(s.videoDir ? { recordVideo: { dir: s.videoDir, size: BROWSER_VIEWPORTS[viewport].viewport } } : {}) });
+    let primed: Page | null = null;
+    if (s.videoDir) {
+      try {
+        primed = await context.newPage();
+      } catch (e) {
+        recordingBroken = short(e);
+        console.warn('live check: recording is not available here; checking without it', { reason: recordingBroken });
+        await context.close().catch(() => {});
+        s.videoDir = null;
+        context = await browser.newContext({ ...BROWSER_VIEWPORTS[viewport] });
+      }
+    }
     const session = s;
     // The page goes only where the product lives: a top-level navigation elsewhere is answered
     // 204 (the browser stays on the page it was on) and said on the next answer.
@@ -401,7 +428,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
         session.evidence.delete(session.responses.shift()!);
       }
     });
-    tab = { key: tabKey, env, viewport, signedIn, context, page: null, videos: [], openedAt: d.now().toISOString() };
+    tab = { key: tabKey, env, viewport, signedIn, context, page: primed, videos: primed?.video() ? [primed.video()!] : [], openedAt: d.now().toISOString() };
     if (signedIn) {
       const problem = signInProblem(env) || await signIn(context, env);
       if (problem) {
