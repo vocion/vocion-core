@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, BookOpen, Box, Bug, CircleHelp, Cpu, Database, FileText, FolderOpen, GitBranch, Globe, Layers, LayoutDashboard, Lightbulb, ListChecks, Mail, Package, PanelsTopLeft, Puzzle, Radar, Rocket, Send, Server, Shapes, Shield, Siren, Sparkles, Video, Zap } from 'lucide-react';
+import { AlertTriangle, BookOpen, Bot, Box, Bug, CheckCheck, CircleHelp, ClipboardCheck, Cpu, Database, FileDiff, FileText, FolderOpen, Gauge, GitBranch, Globe, KeyRound, Layers, LayoutDashboard, Lightbulb, ListChecks, Mail, MessageCircleQuestion, Package, PanelsTopLeft, Puzzle, Radar, Receipt, Rocket, Send, Server, Shapes, Shield, Siren, Sparkles, Video, Zap } from 'lucide-react';
 
 /**
  * lucide icon NAMES a workspace row may carry — a plugin, a page, a product
@@ -11,24 +11,32 @@ import { AlertTriangle, BookOpen, Box, Bug, CircleHelp, Cpu, Database, FileText,
 export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'alert-triangle': AlertTriangle,
   'book-open': BookOpen,
+  'bot': Bot,
   'box': Box,
   'bug': Bug,
+  'check-check': CheckCheck,
   'circle-help': CircleHelp,
+  'clipboard-check': ClipboardCheck,
   'cpu': Cpu,
   'database': Database,
+  'file-diff': FileDiff,
   'file-text': FileText,
   'folder-open': FolderOpen,
+  'gauge': Gauge,
   'git-branch': GitBranch,
   'globe': Globe,
+  'key-round': KeyRound,
   'layers': Layers,
   'layout-dashboard': LayoutDashboard,
   'lightbulb': Lightbulb,
   'list-checks': ListChecks,
   'mail': Mail,
+  'message-circle-question': MessageCircleQuestion,
   'package': Package,
   'panels-top-left': PanelsTopLeft,
   'puzzle': Puzzle,
   'radar': Radar,
+  'receipt': Receipt,
   'rocket': Rocket,
   'send': Send,
   'server': Server,
