@@ -344,7 +344,12 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
         // navigated here, client-side and in this tab — including one that
         // would open a new tab (the full-screen document) — so no other
         // handler on the way (a preview closing itself) can cancel the move.
-        const link = (t as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
+        // A control that names its page (`data-href`, the artifact chips) is
+        // followed the same way: the tour opens the page itself, with no
+        // preview in between (Chris, 2026-10-03: "open straight to full screen").
+        const named = (t as HTMLElement).closest?.('[data-href]') as HTMLElement | null;
+        const link = (t as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null
+          ?? (named?.dataset.href ? ({ href: new URL(named.dataset.href, window.location.href).href } as HTMLAnchorElement) : null);
         if (link && new URL(link.href, window.location.href).origin === window.location.origin) {
           e.preventDefault();
           // Stopped here, in the capture phase above React's root, so the
@@ -411,15 +416,50 @@ export function WorkspaceTour({ tours }: { tours: TourManifest[] }) {
     if (!active || !onRoute || !step.prefill) {
       return;
     }
+    // Typed, not pasted: once a surface claims the line, it arrives a few
+    // characters at a time, so the audience watches it being written.
+    const text = step.prefill;
     let tries = 0;
-    const timer = setInterval(() => {
+    let at = 0;
+    let typing: ReturnType<typeof setInterval> | undefined;
+    const claim = setInterval(() => {
       tries += 1;
-      if (requestAgentSurface({ prompt: step.prefill }) || tries > 20) {
-        clearInterval(timer);
+      if (!requestAgentSurface({ prompt: '' }) && tries <= 20) {
+        return;
       }
+      clearInterval(claim);
+      typing = setInterval(() => {
+        at = Math.min(text.length, at + 3);
+        requestAgentSurface({ prompt: text.slice(0, at) });
+        if (at >= text.length) {
+          clearInterval(typing);
+        }
+      }, 60);
     }, 250);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(claim);
+      if (typing) {
+        clearInterval(typing);
+      }
+    };
   }, [active, stepKey, onRoute, step.prefill]);
+
+  // `rail` — a step that wants the conversation closed (the booth at the end
+  // of a tour) or open asks the surface to toggle, once, when it opens.
+  useEffect(() => {
+    if (!active || !onRoute || !step.rail) {
+      return;
+    }
+    const t = setTimeout(() => {
+      const open = document.querySelector('[data-testid=agent-rail]') !== null;
+      if (step.rail === 'closed' && open) {
+        requestAgentSurface({ toggle: true });
+      } else if (step.rail === 'open' && !open) {
+        requestAgentSurface({});
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [active, stepKey, onRoute, step.rail]);
 
   // `scrollTo` — page to the named element (in a same-origin frame, when
   // given) once it exists. The frame may still be loading, so keep looking.
