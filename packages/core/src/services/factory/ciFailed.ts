@@ -376,6 +376,9 @@ export async function watchAwaitingReview(orgId: string, now: Date = new Date(),
     // review, at most REVIEW_RESTARTS times per task, so it can never loop.
     .where(and(eq(businessObjectSchema.orgId, orgId), inArray(businessObjectSchema.status, ['awaiting_review', 'review_failed']), lt(businessObjectSchema.updatedAt, new Date(now.getTime() - AWAITING_REVIEW_QUIET_MS))))
     .limit(20);
+  const { workspaceVersionSchema } = await import('@/models/Schema');
+  const [applied] = await db.select({ at: workspaceVersionSchema.appliedAt }).from(workspaceVersionSchema).where(and(eq(workspaceVersionSchema.orgId, orgId), eq(workspaceVersionSchema.status, 'applied'))).orderBy(desc(workspaceVersionSchema.id)).limit(1);
+  const deployAt = applied?.at && applied.at.getTime() <= now.getTime() ? applied.at.getTime() : null;
   const out: Result[] = [];
   for (const task of waiting) {
     const meta = (task.meta ?? {}) as Meta;
@@ -390,7 +393,12 @@ export async function watchAwaitingReview(orgId: string, now: Date = new Date(),
     // run's second row started after the task's last write, so it was never
     // restarted again).
     const restarts = Number(meta.reviewRestarts ?? 0);
-    if (reviewed || restarts >= REVIEW_RESTARTS) {
+    // A DEPLOY IS NEW CAPABILITY (Walk 18, FE-419): a review that used its
+    // restarts on a gap a later deploy fixed gets one more after that deploy.
+    const lastRestart = Date.parse(String(meta.reviewRestartedAt ?? ''));
+    const lastWrite = Number.isNaN(lastRestart) ? (task.updatedAt?.getTime() ?? 0) : lastRestart;
+    const deployedSince = deployAt !== null && deployAt > lastWrite;
+    if (reviewed || (restarts >= REVIEW_RESTARTS && !deployedSince)) {
       continue;
     }
     const [checks] = await db.select({ payload: eventLogSchema.payload, dedupeKey: eventLogSchema.dedupeKey }).from(eventLogSchema).where(and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.type, 'pr.checks_completed'), sql`${eventLogSchema.payload} ->> 'url' = ${url}`)).orderBy(desc(eventLogSchema.id)).limit(1);
@@ -409,7 +417,7 @@ export async function watchAwaitingReview(orgId: string, now: Date = new Date(),
     // the event again so the review starts, and count it. Keyed on the count,
     // so each restart is its own event and a second pass of the same one is not.
     await db.update(businessObjectSchema)
-      .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ reviewRestarts: restarts + 1 })}::jsonb` })
+      .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ reviewRestarts: restarts + 1, reviewRestartedAt: now.toISOString() })}::jsonb` })
       .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, task.id)));
     const { emitEvent } = await import('@/services/EventService');
     await emitEvent({ orgId, type: 'pr.checks_completed', payload, dedupeKey: `${checks.dedupeKey ?? url}:resweep:${restarts + 1}`, invokedBy: 'system:factory-reconcile' }).catch(() => undefined);

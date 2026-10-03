@@ -27,8 +27,8 @@
  * that will not (not an image, not public, too large, expired) is not.
  */
 
-import type { Buffer } from 'node:buffer';
 import type { FetchedImage, FetchedImageBytes } from '@/libs/tools/image/remote';
+import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
@@ -256,6 +256,18 @@ export async function keepImageInVocion(
  * @param opts.maxEdge - Longest edge after the downscale.
  */
 export async function openImage(orgId: string, url: string, opts: { maxEdge?: number } = {}): Promise<FetchedImage> {
+  // AN IMAGE HELD INLINE ON THE ARTIFACT (Walk 18): a worker with no evidence
+  // bucket files its screenshots as `data:` images; they are read from the row,
+  // never fetched (a fetch of the artifact's page needs a session and is 401).
+  const inline = /^data:image\/[\w.+-]+;base64,([\s\S]*)$/.exec(url);
+  if (inline) {
+    const bytes = Buffer.from(inline[1]!, 'base64');
+    const kind = sniffImage(bytes);
+    if (!kind) {
+      throw new ImageFetchError('the image held on that artifact is not an image.', 'not_image');
+    }
+    return shrinkImage({ kind, bytes, contentType: CONTENT_TYPES[kind], url: url.slice(0, 64) }, opts);
+  }
   if (!isStoredArtifactUrl(url)) {
     return fetchImage(url, opts);
   }

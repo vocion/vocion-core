@@ -1043,6 +1043,22 @@ describe('nothing waits on a review that never starts (2026-09-30, #269: CI fail
     expect(raised).toHaveLength(2);
   });
 
+  it('gives a review that used its restarts one more after a deploy (Walk 18, FE-419)', async () => {
+    const { watchAwaitingReview } = await import('./ciFailed');
+    const spent = await waitingOnQa('Rooms sort by name', 144);
+    await db.update(businessObjectSchema).set({ status: 'review_failed', updatedAt: new Date(Date.now() - 3_600_000), metadata: { ...(spent.task.metadata as Record<string, unknown>), status: 'review_failed', prUrl: spent.prUrl, reviewRestarts: 2 } }).where(eq(businessObjectSchema.id, spent.task.id));
+    await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.checks_completed', payload: { url: spent.prUrl, conclusion: 'success', headSha: 'bc9f315a148d' }, dedupeKey: 'github:144:checks' } as never);
+
+    const before = await watchAwaitingReview(ORG);
+
+    expect(before.find(o => o.requestId === spent.r.id)).toBeUndefined();
+
+    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-5e1d', status: 'applied', appliedAt: new Date(Date.now() - 1000) });
+    const after = await watchAwaitingReview(ORG);
+
+    expect(after.find(o => o.requestId === spent.r.id)?.did).toBe('review started again');
+  });
+
   it('starts a review again when the one after the task\'s last write errored (Walk 11, task 389)', async () => {
     const { watchAwaitingReview } = await import('./ciFailed');
     const failed = await waitingOnQa('Rooms show when each was last opened', 143);

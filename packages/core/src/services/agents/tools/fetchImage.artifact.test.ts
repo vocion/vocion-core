@@ -27,4 +27,20 @@ describe('artifactImageUrl', () => {
 
     expect(await artifactImageUrl('org_a', `https://agents.example/dashboard/artifacts/${kept!.id}`)).toBe(stored);
   });
+
+  it('hands over an image held inline on the artifact, and openImage reads it without a fetch (Walk 18, task 423)', async () => {
+    // A 1×1 PNG, as a worker with no evidence bucket files it.
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const inline = `data:image/png;base64,${png}`;
+    const [shot] = await db.insert(artifactSchema).values({ orgId: 'org_a', kind: 'link', title: 'library sort · phone', url: inline, spec: { url: inline } } as never).returning({ id: artifactSchema.id });
+
+    const own = await artifactImageUrl('org_a', `https://agents.example/dashboard/artifacts/${shot!.id}`);
+
+    expect(own).toBe(inline);
+
+    const { openImage } = await import('@/libs/tools/artifacts/ingest');
+    const opened = await openImage('org_a', own!, { maxEdge: 64 });
+
+    expect(opened.contentType).toBe('image/png');
+  });
 });
