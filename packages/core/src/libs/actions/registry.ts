@@ -22,6 +22,7 @@ import { githubRerunFailedJobsAction } from './github-rerun';
 import { githubRevertPullAction } from './github-revert';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
+import { evalAddCaseAction } from './eval-add-case';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
@@ -164,6 +165,8 @@ registerAction(wikiWritePageAction);
 // A correction a person made, adopted as a standing rule — reversible (Undo
 // removes it from the step), done-for-you above the bar in the plugin's trust.yaml.
 registerAction(learningAdoptRuleAction);
+// A correction becomes a regression case the agent's updates are run against.
+registerAction(evalAddCaseAction);
 // The rest of the self-improvement class (`libs/actions/selfUpdate.ts`) — the
 // system changing itself rather than the world. Each one is reversible, each
 // shows where it happened, and each is undone in one click.

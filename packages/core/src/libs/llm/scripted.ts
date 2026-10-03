@@ -32,8 +32,13 @@
  *         "fails": { "after": "half a sentence", "reason": "connection reset" }
  *       }
  *     ],
- *     "fallback": "This scripted model has no line for that."
+ *     "fallback": "This scripted model has no line for that.",
+ *     "pace": { "thinkMs": 1000, "charsPerSecond": 95 }  // optional
  *   }
+ * A step may carry `say` (a line spoken as the call is made) and `thinkMs`;
+ * a turn may carry `thinkMs` before its reply. With `pace`, text streams at a
+ * reading speed and each move waits its think time — for a script performed
+ * in front of people rather than run in a test.
  * `{ "$file": "<path>" }` anywhere in args reads a file relative to the script,
  * at the moment the step is played — so a test can write the fixture after
  * the server has started and before the first turn.
@@ -55,6 +60,10 @@ import { z } from 'zod';
 const StepSchema = z.object({
   tool: z.string().min(1),
   args: z.record(z.string(), z.unknown()).default({}),
+  /** A line the model says as it makes the call ("Checking the ASI log first."). */
+  say: z.string().optional(),
+  /** Pause before this call, overriding the script's `pace.thinkMs`. */
+  thinkMs: z.number().int().nonnegative().optional(),
 });
 /**
  * A turn that dies part-way: the model speaks `after` and then throws with
@@ -71,10 +80,23 @@ const TurnSchema = z.object({
   steps: z.array(StepSchema).default([]),
   reply: z.string().default('Done.'),
   fails: FailureSchema.optional(),
+  /** Pause before the reply, overriding the script's `pace.thinkMs`. */
+  thinkMs: z.number().int().nonnegative().optional(),
+});
+/**
+ * Pacing, for a script played in front of people rather than a test: a
+ * pause before each call and reply, and text streamed at a reading speed
+ * instead of arriving whole. Omitted, the script plays as fast as it can.
+ */
+const PaceSchema = z.object({
+  thinkMs: z.number().int().nonnegative().default(0),
+  /** Streaming speed for spoken text; 0 sends it in one chunk. */
+  charsPerSecond: z.number().nonnegative().default(0),
 });
 export const ScriptSchema = z.object({
   turns: z.array(TurnSchema).min(1),
   fallback: z.string().default('This scripted model has no line for that message.'),
+  pace: PaceSchema.optional(),
 });
 export type Script = z.infer<typeof ScriptSchema>;
 export type ScriptTurn = z.infer<typeof TurnSchema>;
@@ -169,17 +191,46 @@ export function personLine(human: string): string {
   return (cut === -1 ? human : human.slice(0, cut)).trim();
 }
 
-export type ScriptedChatModelParams = BaseChatModelParams & { script: Script; baseDir?: string };
+export type ScriptedChatModelParams = BaseChatModelParams & {
+  script: Script;
+  baseDir?: string;
+  /**
+   * A real model for everything the script does not name. Without one, an
+   * unscripted line gets the script's fallback sentence; with one, the
+   * written parts stay written and anything else is answered for real, with
+   * the same tools. That is what lets a demo keep its performed walkthroughs
+   * deterministic and still take any question a visitor asks.
+   */
+  live?: LiveModel;
+};
+
+/**
+ * What the live stand-in has to do: answer a conversation, whole or
+ * streamed. A chat model and a chat model bound to tools (a Runnable, not a
+ * model) both do, through their public interface.
+ */
+type LiveModel = Pick<BaseChatModel, 'invoke' | 'stream'>;
 
 export class ScriptedChatModel extends BaseChatModel {
   private readonly script: Script;
   private readonly baseDir: string;
+  private readonly live?: LiveModel;
   private boundTools: StructuredToolInterface[] = [];
 
   constructor(params: ScriptedChatModelParams) {
     super(params);
     this.script = params.script;
     this.baseDir = params.baseDir ?? process.cwd();
+    this.live = params.live;
+  }
+
+  /**
+   * Whether this call belongs to the live model: nothing in the script
+   * matches the person's line, and a live model was given.
+   * @param messages - The conversation so far.
+   */
+  private unscripted(messages: BaseMessage[]): boolean {
+    return this.live !== undefined && matchTurn(this.script, positionInTurn(messages).human) === null;
   }
 
   _llmType(): string {
@@ -192,7 +243,9 @@ export class ScriptedChatModel extends BaseChatModel {
    * @param tools
    */
   override bindTools(tools: StructuredToolInterface[]): this {
-    const next = new ScriptedChatModel({ script: this.script, baseDir: this.baseDir }) as this;
+    const bindable = this.live as unknown as { bindTools?: (t: StructuredToolInterface[]) => LiveModel } | undefined;
+    const live = bindable?.bindTools ? bindable.bindTools(tools) : this.live;
+    const next = new ScriptedChatModel({ script: this.script, baseDir: this.baseDir, live }) as this;
     next.boundTools = tools;
     return next;
   }
@@ -206,6 +259,19 @@ export class ScriptedChatModel extends BaseChatModel {
    * @param runManager
    */
   override async* _streamResponseChunks(messages: BaseMessage[], _options: this['ParsedCallOptions'], runManager?: CallbackManagerForLLMRun): AsyncGenerator<ChatGenerationChunk> {
+    if (this.unscripted(messages)) {
+      // No callbacks of its own: it would otherwise inherit this run's
+      // handlers and every token would reach the chat twice — once from the
+      // inner model, once from the chunk yielded here.
+      for await (const chunk of await this.live!.stream(messages, { callbacks: [] })) {
+        const text = typeof chunk.content === 'string' ? chunk.content : '';
+        yield new ChatGenerationChunk({ text, message: chunk });
+        if (text) {
+          await runManager?.handleLLMNewToken(text);
+        }
+      }
+      return;
+    }
     const failure = this.failureFor(messages);
     if (failure) {
       // Speak the fragment, then die on it — the shape of a run that loses its
@@ -222,15 +288,44 @@ export class ScriptedChatModel extends BaseChatModel {
     const message = result.generations[0]!.message as AIMessage;
     const text = typeof message.content === 'string' ? message.content : '';
     const toolCalls = message.tool_calls ?? [];
-    const chunk = new ChatGenerationChunk({
-      text,
-      message: new AIMessageChunk({
-        content: text,
-        tool_call_chunks: toolCalls.map((tc, i) => ({ name: tc.name, args: JSON.stringify(tc.args), id: tc.id, index: i, type: 'tool_call_chunk' as const })),
-      }),
-    });
-    yield chunk;
-    await runManager?.handleLLMNewToken(text);
+    const pace = this.script.pace;
+    const think = this.thinkFor(messages) ?? pace?.thinkMs ?? 0;
+    if (think > 0) {
+      await sleep(think);
+    }
+    // Paced text streams in word-sized pieces; the calls ride the last one.
+    const paced = pace !== undefined && pace.charsPerSecond > 0;
+    const pieces = paced && text.length > 0 ? speechPieces(text) : [text];
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = pieces[i]!;
+      const last = i === pieces.length - 1;
+      yield new ChatGenerationChunk({
+        text: piece,
+        message: new AIMessageChunk({
+          content: piece,
+          tool_call_chunks: last ? toolCalls.map((tc, j) => ({ name: tc.name, args: JSON.stringify(tc.args), id: tc.id, index: j, type: 'tool_call_chunk' as const })) : [],
+        }),
+      });
+      await runManager?.handleLLMNewToken(piece);
+      if (!last && paced) {
+        await sleep((piece.length / pace.charsPerSecond) * 1000);
+      }
+    }
+  }
+
+  /**
+   * The authored pause for the move the model is about to make — the next
+   * step's `thinkMs`, or the turn's before its reply — if one was written.
+   * @param messages - The conversation so far, as the runtime hands it over.
+   */
+  private thinkFor(messages: BaseMessage[]): number | undefined {
+    const { human, toolResults } = positionInTurn(messages);
+    const turn = matchTurn(this.script, human);
+    if (!turn) {
+      return undefined;
+    }
+    const step = turn.steps[toolResults];
+    return step ? step.thinkMs : turn.thinkMs;
   }
 
   /**
@@ -248,7 +343,11 @@ export class ScriptedChatModel extends BaseChatModel {
     return turn.fails;
   }
 
-  async _generate(messages: BaseMessage[]): Promise<ChatResult> {
+  async _generate(messages: BaseMessage[], options?: this['ParsedCallOptions'], _runManager?: CallbackManagerForLLMRun): Promise<ChatResult> {
+    if (this.unscripted(messages)) {
+      const message = await this.live!.invoke(messages, { ...options, callbacks: [] });
+      return { generations: [{ text: typeof message.content === 'string' ? message.content : '', message }] };
+    }
     const { human, toolResults } = positionInTurn(messages);
     const turn = matchTurn(this.script, human);
     if (process.env.VOCION_SCRIPTED_DEBUG === '1') {
@@ -264,13 +363,26 @@ export class ScriptedChatModel extends BaseChatModel {
       }
       const args = resolveFileRefs(step.args, this.baseDir) as Record<string, unknown>;
       const message = new AIMessage({
-        content: '',
+        content: step.say ?? '',
         tool_calls: [{ id: `scripted-${toolResults + 1}-${Date.now()}`, name: step.tool, args, type: 'tool_call' }],
       });
       return { generations: [{ text: '', message }] };
     }
     return reply(turn.reply);
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Text cut into word-sized pieces, whitespace kept, so joining them gives
+ * back the text exactly.
+ * @param text - What the model says.
+ */
+export function speechPieces(text: string): string[] {
+  return text.match(/\S+\s*|\s+/g) ?? [text];
 }
 
 function reply(text: string): ChatResult {
@@ -281,8 +393,9 @@ function reply(text: string): ChatResult {
  * Build the scripted model from the environment. Throws in production and
  * when the script is missing, because a silent fallback here would be a
  * chatbot that says the same sentence to every customer.
+ * @param live
  */
-export function buildScriptedChatModel(): ScriptedChatModel {
+export function buildScriptedChatModel(live?: () => LiveModel): ScriptedChatModel {
   if (process.env.NODE_ENV === 'production' && process.env.VOCION_ALLOW_SCRIPTED_MODEL !== '1') {
     throw new Error('VOCION_LLM_PROVIDER=scripted is refused in production');
   }
@@ -291,5 +404,5 @@ export function buildScriptedChatModel(): ScriptedChatModel {
     throw new Error('VOCION_LLM_PROVIDER=scripted needs VOCION_LLM_SCRIPT=<path to a script JSON>');
   }
   const { baseDir, ...script } = loadScript(file);
-  return new ScriptedChatModel({ script, baseDir });
+  return new ScriptedChatModel({ script, baseDir, live: live?.() });
 }

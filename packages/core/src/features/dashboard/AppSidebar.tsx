@@ -5,6 +5,7 @@ import type { PinnableItem } from './nav/navPins';
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { PluginNav } from '@/features/navigation/pluginNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
+import type { WorkspaceBrand } from '@/libs/workspace/home';
 import { ArrowLeft, FileText, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -72,6 +73,8 @@ const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
 
 /** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
 export type WorkspaceNavPage = {
+  /** A Lucide icon name from the page's `nav.icon` (features/dashboard/iconByName.ts); pages without one share the panel icon. */
+  icon?: string;
   /** Sits under "More" however few pages there are (`nav.secondary`). */
   secondary?: boolean;
   title: string;
@@ -89,7 +92,11 @@ function pluginIcon(url: string, name: string): LucideIcon {
   return DASHBOARD_ROUTES.find(r => r.url === url)?.icon ?? iconByName(name);
 }
 
-export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, brand = null, pagesLabel = null, ...props }: React.ComponentProps<typeof Sidebar> & {
+  /** Whose workspace this is (`defaults.brand` in workspace.yaml): shown in place of the product's own mark and name, with an optional "by" line. */
+  brand?: WorkspaceBrand | null;
+  /** The heading over the workspace's own pages (`defaults.nav.pagesLabel`); the product's "Pages" when unset. */
+  pagesLabel?: string | null;
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
   /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
@@ -189,7 +196,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // they are a WORK row of their own now (registry), with their own log.
   const pageItems = useMemo<PinnableItem[]>(
     () => [
-      ...workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft, origin: 'page' as const })),
+      ...workspacePages.map(p => ({ title: p.title, url: p.url, icon: iconByName(p.icon, PanelsTopLeft), origin: 'page' as const })),
       ...pluginSecondary.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), origin: 'page' as const })),
     ],
     [workspacePages, pluginSecondary],
@@ -249,11 +256,26 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   return (
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
-        {/* Brand block — mark + wordmark, nothing else. */}
+        {/* Brand block — mark + wordmark, nothing else. A workspace that names
+            its own brand (defaults.brand) takes this spot: the people working
+            here work in THEIR company's tool, and whoever built it gets the
+            "by" line under the name. */}
         <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
           {/* eslint-disable-next-line next/no-img-element */}
-          <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
-          {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
+          <img src={brand?.mark ?? BRAND_MARK} alt="" className={brand?.mark ? 'h-6 w-6 shrink-0 rounded-md' : 'h-5 w-auto shrink-0'} aria-hidden />
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="truncate text-[15px] leading-tight font-semibold tracking-tight text-foreground">{brand?.name ?? BRAND_NAME}</div>
+              {brand?.by && (
+                <div className="mt-0.5 flex items-center gap-1 text-[11px] leading-none text-muted-foreground">
+                  <span>by</span>
+                  {/* eslint-disable-next-line next/no-img-element */}
+                  {brand.by.mark && <img src={brand.by.mark} alt="" className="h-3 w-3 shrink-0" aria-hidden />}
+                  <span className="truncate font-medium">{brand.by.name}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </SidebarHeader>
 
@@ -295,7 +317,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                     They are sorted last and the cut is made just above them,
                     so ordinary overflow still applies to everything else. */}
                 <PinnableNav
-                  label={t('pages')}
+                  label={pagesLabel ?? t('pages')}
                   items={pagesPrimaryFirst}
                   pins={prefs.pins}
                   onTogglePin={prefs.togglePin}

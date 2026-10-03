@@ -370,7 +370,14 @@ export function buildChatModel(
   if (provider === 'scripted') {
     // A written part, for reproducible chat use cases (`./scripted.ts`).
     // No key, no network, no replay cache: the script IS the recording.
-    return buildScriptedChatModel();
+    // `VOCION_LLM_UNSCRIPTED_PROVIDER` hands every line the script does not
+    // name to a real provider instead of the fallback sentence.
+    const unscripted = process.env.VOCION_LLM_UNSCRIPTED_PROVIDER as LangChainProvider | undefined;
+    return buildScriptedChatModel(unscripted && unscripted !== 'scripted' && PROVIDERS.includes(unscripted)
+      // The agent's model name is for its own provider; the live stand-in
+      // takes its provider's model for the role (`VOCION_LLM_MODEL_<ROLE>`).
+      ? () => buildChatModel(role, { ...opts, provider: unscripted, model: undefined })
+      : undefined);
   }
   const model = opts.model ?? resolveModel(role, provider);
   const temperature = opts.temperature ?? 0;

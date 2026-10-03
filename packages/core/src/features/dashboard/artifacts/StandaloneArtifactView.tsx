@@ -40,14 +40,16 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conver
     ready: true,
   });
   return (
-    <ArtifactPane
-      key={current.id}
-      artifact={current}
-      selfId={selfId}
-      workspaceSlug={workspaceSlug}
-      onUpdated={setCurrent}
-      surface="page"
-      conversationId={conversationId ?? null}
-    />
+    <div className="rounded-2xl">
+      <ArtifactPane
+        key={`${current.id}:${current.version}`}
+        artifact={current}
+        selfId={selfId}
+        workspaceSlug={workspaceSlug}
+        onUpdated={setCurrent}
+        surface="page"
+        conversationId={conversationId ?? null}
+      />
+    </div>
   );
 }

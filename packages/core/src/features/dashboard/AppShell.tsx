@@ -23,9 +23,10 @@ import { pluginNav } from '@/features/navigation/pluginNav';
 import { isSurfaceId } from '@/features/navigation/surfaces';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { workspaceChrome } from '@/libs/workspace/home';
 import { readWorkspacePages } from '@/libs/workspace/pages';
 import { listPlugins } from '@/libs/workspace/plugins';
-import { readWorkspaceTour } from '@/libs/workspace/tour';
+import { readWorkspaceTours } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
@@ -104,6 +105,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   const cookieStore = await cookies();
   // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
+  const chrome = workspaceChrome();
 
   // Agent picker options for the dock (and the ⌘K palette). Empty outside an
   // org — the dock renders nothing rather than a picker with no agents in it.
@@ -183,12 +185,14 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
           instead of sliding off-canvas; the rail toggle / ⌘B persist it. */}
       <AppSidebar
         collapsible="icon"
+        brand={chrome.brand}
+        pagesLabel={chrome.pagesLabel}
         isAdmin={isAdmin}
         enabledPlugins={enabledPlugins}
         enabledSurfaces={enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id))}
         pluginNav={nav}
         needsYouCount={waiting}
-        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary }))}
+        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.nav.title ?? p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary, icon: p.nav.icon }))}
       />
       <SidebarInset className="md:min-h-0 md:overflow-hidden">
         <ShellBarActionsProvider>
@@ -227,9 +231,9 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
           </PageContextProvider>
         </ShellBarActionsProvider>
         {(() => {
-          const tour = readWorkspaceTour();
-          return tour
-            ? <WorkspaceTour steps={tour.steps} title={tour.title} autoStart={tour.autoStart} />
+          const tours = readWorkspaceTours();
+          return tours.length > 0
+            ? <WorkspaceTour tours={tours} />
             : null;
         })()}
         <WorkspaceDriftBanner />

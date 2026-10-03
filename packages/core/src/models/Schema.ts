@@ -3552,6 +3552,10 @@ export const actionRunSchema = pgTable(
       autoApprovedReason?: string;
       /** Which rule released it: `trust-rule` (a promoted kind) or `default` (reversible, low-risk, above the bar). */
       autoApprovedBy?: string;
+      /** Why it waits for a person, in one clause, when the ladder held it (`libs/actions/autoAccept.ts`). */
+      heldReason?: string;
+      /** Which rule held it: `held` (a person set this kind to ask), `parked`, `trust-rule`, `default`, `advice`, … */
+      heldBy?: string;
       /**
        * Which agent's judgement this proposal represents. `invokedBy` cannot
        * always answer that: a proposal made over the API records the human or

@@ -171,7 +171,7 @@ function useNarrowViewport(): boolean {
  * Same brain as the other surfaces (`useChatSession`). Record-scoped, it
  * resumes the current user's latest conversation FOR THIS RECORD; everything-
  * scoped, it opens a NEW conversation unless this browser session was already
- * in one or the URL names one (§9). Below 1200px the rail covers the page as
+ * in one or the URL names one (§9). Below 1024px the rail covers the page as
  * a sheet instead of narrowing it.
  *
  * Mounted once by the shell (`PageDock`) or by a record page that knows its

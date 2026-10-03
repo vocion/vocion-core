@@ -137,6 +137,27 @@ export const WorkspaceManifestSchema = z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
     /**
+     * Where `/dashboard` lands, e.g. `/dashboard/p/booth`. Omitted, it lands
+     * on Chat. A workspace whose front door is one of its own pages — a
+     * booth, an operations board — says so here, and the sign-in callback,
+     * the logo and the `/w/<slug>` entry all arrive there.
+     */
+    home: z.string().startsWith('/dashboard', 'home must be a dashboard path such as /dashboard/p/booth').optional(),
+    /**
+     * Whose workspace this is, as the sidebar shows it: the tenant's own name
+     * and mark where the product's would otherwise sit, with an optional
+     * "by <builder>" line under it. A client's people work in THEIR company's
+     * tool; the firm that built the agents gets the byline.
+     */
+    brand: z.object({
+      name: z.string().min(1).max(60),
+      /** URL of a square mark, e.g. `/construct26/kestrel-mark.svg`. Omitted, the product's mark stays. */
+      mark: z.string().optional(),
+      by: z.object({ name: z.string().min(1).max(60), mark: z.string().optional() }).optional(),
+    }).optional(),
+    /** Sidebar wording a workspace may change: the heading over its own pages ("Pages" by default). */
+    nav: z.object({ pagesLabel: z.string().min(1).max(40).optional() }).optional(),
+    /**
      * IANA time zone the workspace lives in (`America/Los_Angeles`). The day
      * boundary for missions, briefings and every run no browser is behind; a
      * person's own turns carry their browser's zone and win over it.

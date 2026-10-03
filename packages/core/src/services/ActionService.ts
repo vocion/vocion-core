@@ -660,6 +660,13 @@ async function proposeActionInTurn(input: {
       // for the decision and is indexed for exactly that question.
       return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
     }
+    // Held: say why on the run, the way a release says why it ran. Review
+    // reads it — a kind the workspace itself holds at a person is a decision
+    // however routine its action id looks (`services/inbox/admissionBar.ts`).
+    await db
+      .update(actionRunSchema)
+      .set({ proposal: { ...(storedProposal ?? {}), heldReason: verdict.reason, heldBy: verdict.source } as never })
+      .where(eq(actionRunSchema.id, run!.id));
     return { runId: run!.id, status: 'pending', outcome: 'created' };
   }
   return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };

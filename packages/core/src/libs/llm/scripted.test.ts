@@ -2,7 +2,7 @@ import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { matchTurn, personLine, positionInTurn, resolveFileRefs, ScriptedChatModel, ScriptSchema } from './scripted';
+import { matchTurn, personLine, positionInTurn, resolveFileRefs, ScriptedChatModel, ScriptSchema, speechPieces } from './scripted';
 
 const script = ScriptSchema.parse({
   turns: [
@@ -63,5 +63,49 @@ describe('ScriptedChatModel', () => {
     expect(resolved.html).toContain('ScriptedChatModel');
     expect(resolved.keep).toBe(1);
     expect(resolved.list[0]).toContain('ScriptedChatModel');
+  });
+});
+
+describe('pacing', () => {
+  it('cuts speech into pieces that join back to the text', () => {
+    const text = 'Checked the ASI log.  A-501 is superseded\nby ASI-07.';
+    const pieces = speechPieces(text);
+
+    expect(pieces.length).toBeGreaterThan(5);
+    expect(pieces.join('')).toBe(text);
+  });
+
+  it('streams a paced reply in pieces and says a line with its call', async () => {
+    const model = new ScriptedChatModel({
+      script: {
+        turns: [
+          { match: 'draft', steps: [{ tool: 'search_knowledge', args: { query: 'ASI' }, say: 'Checking the ASI log.', thinkMs: 1 }], reply: 'Drafted and cited.', thinkMs: 1 },
+        ],
+        fallback: 'none',
+        pace: { thinkMs: 0, charsPerSecond: 100000 },
+      },
+    });
+    const call: Array<{ text: string; message: unknown }> = [];
+    for await (const c of model._streamResponseChunks([new HumanMessage('draft it')], {} as never)) {
+      call.push(c);
+    }
+
+    expect(call.map(c => c.text).join('')).toBe('Checking the ASI log.');
+    expect((call.at(-1)!.message as unknown as { tool_call_chunks: unknown[] }).tool_call_chunks).toHaveLength(1);
+  });
+});
+
+describe('live stand-in', () => {
+  it('answers an unscripted line with the live model and keeps scripted lines written', async () => {
+    const live = new ScriptedChatModel({ script: { turns: [{ match: 'anything', steps: [], reply: 'live answer' }], fallback: 'live answer' } });
+    const model = new ScriptedChatModel({
+      script: { turns: [{ match: 'draft rfi', steps: [], reply: 'scripted answer' }], fallback: 'none' },
+      live,
+    });
+    const scripted = await model._generate([new HumanMessage('Draft RFI-112')]);
+    const unscripted = await model._generate([new HumanMessage('what is the pour date?')]);
+
+    expect(scripted.generations[0]!.text).toBe('scripted answer');
+    expect(unscripted.generations[0]!.text).toMatch(/^live answer/);
   });
 });

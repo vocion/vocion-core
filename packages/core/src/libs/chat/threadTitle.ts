@@ -24,8 +24,23 @@ export const DEFAULT_THREAD_TITLE = 'New conversation';
  * @param content - The first message as sent.
  * @param maxLen - The longest the title may be.
  */
+/**
+ * The words of a message with its markdown taken off: images gone, links
+ * reduced to their text, emphasis and code marks dropped. A title is prose.
+ * @param content
+ */
+export function plainWords(content: string): string {
+  return content
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~#>]+/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ');
+}
+
 export function firstMessageTitle(content: string, maxLen = 60): string {
-  const s = content.split(/\s+/).filter(Boolean).join(' ');
+  const s = plainWords(content);
   if (s.length <= maxLen) {
     return s || DEFAULT_THREAD_TITLE;
   }

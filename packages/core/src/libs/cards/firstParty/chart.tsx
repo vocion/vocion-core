@@ -39,9 +39,12 @@ function niceTicks(max: number, count = 4): number[] {
   const raw = max / count;
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) ?? raw;
-  const ticks: number[] = [];
-  for (let v = 0; v <= max + step * 0.001; v += step) {
-    ticks.push(Math.round(v * 1e6) / 1e6);
+  // The last tick is the first one at or above the maximum: the top of the
+  // scale is the top of the plot, so stopping below the maximum drew the
+  // tallest bars through the top of the chart.
+  const ticks: number[] = [0];
+  while (ticks[ticks.length - 1]! < max - step * 0.001) {
+    ticks.push(Math.round((ticks[ticks.length - 1]! + step) * 1e6) / 1e6);
   }
   return ticks;
 }
