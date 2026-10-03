@@ -776,7 +776,10 @@ export async function runAgentDeep(opts: {
   // and the row, for as long as the process lived (finding 22). The graph
   // runs under the budget signal AND a wall-clock deadline; past it the turn
   // ends incomplete with what it said so far, and says why.
-  const deadlineMs = turnDeadlineMs();
+  // A seat that needs longer (a QA review opening a build's screenshots,
+  // Walk 18) says so in its harness; everyone else keeps the deployment's.
+  const seatMinutes = Number((harness as { turnDeadlineMinutes?: number } | undefined)?.turnDeadlineMinutes);
+  const deadlineMs = Number.isFinite(seatMinutes) && seatMinutes > 0 ? Math.min(seatMinutes, 30) * 60_000 : turnDeadlineMs();
   const deadline = AbortSignal.timeout(deadlineMs);
   const turnSignal = AbortSignal.any([budgetGuard.signal, deadline]);
 

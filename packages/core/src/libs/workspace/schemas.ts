@@ -926,6 +926,12 @@ export const AgentManifestSchema = z.object({
      * `services/agents/stepLimit.ts`.
      */
     maxSteps: z.number().int().positive().optional(),
+    /**
+     * How long one turn of this agent may run, in minutes (default: the
+     * deployment's `VOCION_TURN_DEADLINE_MS`, eight minutes). Walk 18: a QA
+     * review that opens a build's screenshots ran past eight and was stopped.
+     */
+    turnDeadlineMinutes: z.number().int().min(1).max(30).optional(),
     excludeTools: z.array(z.string()).default([]),
     /**
      * Granted-only tools this agent receives. Some built-ins (the discovery
