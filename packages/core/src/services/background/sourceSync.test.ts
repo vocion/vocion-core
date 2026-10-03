@@ -13,10 +13,17 @@ vi.mock('@/services/SourceSyncService', () => ({
   },
 }));
 
+const state = vi.hoisted(() => ({ row: null as null | { slug: string; config: Record<string, unknown>; lastSyncedAt: Date | null }, connected: false }));
+vi.mock('@/libs/DB', () => ({ db: { select: () => ({ from: () => ({ where: async () => (state.row ? [state.row] : []) }) }) } }));
+vi.mock('@/libs/sources/registry', () => ({ listConnectors: () => [{ slug: 'github', authKind: 'oauth' }, { slug: 'web', authKind: 'none' }] }));
+vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: async () => ({ bySourceId: {}, byConnectorSlug: { github: { connected: state.connected, updatedAt: null, broken: null } } }) }));
+
 const mockRunSync = vi.mocked(runSync);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.row = null;
+  state.connected = false;
 });
 
 describe('syncSourceActivity', () => {
@@ -62,5 +69,27 @@ describe('syncSourceActivity', () => {
     mockRunSync.mockRejectedValue(new Error('connector exploded'));
 
     await expect(syncSourceActivity({ orgId: 'org1', sourceId: 7 })).rejects.toThrow('connector exploded');
+  });
+
+  it('skips a source that has never synced and has nothing connected, without running or throwing', async () => {
+    state.row = { slug: 'github', config: {}, lastSyncedAt: null };
+
+    const out = await syncSourceActivity({ orgId: 'org1', sourceId: 9 });
+
+    expect(mockRunSync).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ sourceId: 9, skipped: true, firstError: 'not connected' });
+  });
+
+  it('runs once the connector is connected, and always runs a source that synced before', async () => {
+    mockRunSync.mockResolvedValue({ sourceId: 9, created: 0, updated: 0, unchanged: 0, metadataRefreshed: 0, tombstoned: 0, errors: 0, firstError: null, firstProcessorError: null });
+    state.row = { slug: 'github', config: {}, lastSyncedAt: null };
+    state.connected = true;
+    await syncSourceActivity({ orgId: 'org1', sourceId: 9 });
+
+    state.connected = false;
+    state.row = { slug: 'github', config: {}, lastSyncedAt: new Date('2026-09-01T00:00:00Z') };
+    await syncSourceActivity({ orgId: 'org1', sourceId: 9 });
+
+    expect(mockRunSync).toHaveBeenCalledTimes(2);
   });
 });
