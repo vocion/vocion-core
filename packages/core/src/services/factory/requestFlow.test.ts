@@ -31,6 +31,13 @@ function harness(outcomes: Outcome[], reads: Record<number, Read>, opts: { live?
     },
     async runAction(_org, actionId, input, by) {
       if (actionId === 'factory.dispatch_task') {
+        // The flow's input must be one the real action accepts (Walk 18: a
+        // `trigger: deploy` the action refused passed this harness unseen).
+        const { factoryDispatchAction } = await import('@/libs/actions/factory-dispatch');
+        const parsed = factoryDispatchAction.inputSchema.safeParse(input);
+        if (!parsed.success) {
+          throw new Error(`the flow sent factory.dispatch_task an input it refuses: ${parsed.error.message}`);
+        }
         const contract = (input.contract ?? {}) as { attempt?: number; baseSha?: string };
         const d: Dispatch = { attempt: Number(contract.attempt), base: contract.baseSha ?? null, reason: String(input.reason), by, ...(input.note ? { note: String(input.note) } : {}), ...(input.planId ? { planId: Number(input.planId) } : {}), ...(input.trigger ? { trigger: String(input.trigger) } : {}) };
         dispatches.push(d);
@@ -257,7 +264,7 @@ describe('the software-factory request flow owns a request from Build to live (b
       await emit('worker_run.failed', { workerRunId: w });
     }
     await until(id, 'stopped');
-    await emit(BUILD_REQUESTED, { requestId: 43, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'deploy' });
+    await emit(BUILD_REQUESTED, { requestId: 43, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'recovery', afterDeploy: true });
     await vi.waitFor(() => expect(h.dispatches).toHaveLength(5));
     await emit('worker_run.failed', { workerRunId: 605 });
     await vi.waitFor(() => expect(h.stops).toHaveLength(2));

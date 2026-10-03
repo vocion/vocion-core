@@ -1074,7 +1074,7 @@ describe('a deploy resumes a workflow\'s stop once (Walk 12, FE-376)', () => {
     const asked = (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.build_requested'))))
       .filter(e => (e.payload as { requestId: number }).requestId === stopped.id);
 
-    expect(asked.map(e => (e.payload as { trigger: string }).trigger)).toEqual(['deploy']);
+    expect(asked.map(e => (e.payload as { trigger: string; afterDeploy: boolean }))).toEqual([expect.objectContaining({ trigger: 'recovery', afterDeploy: true })]);
     expect(await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: true })).toEqual([]);
     expect(await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: false })).toEqual([]);
   });

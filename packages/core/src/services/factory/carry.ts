@@ -1630,7 +1630,7 @@ export async function resumeWorkflowStopsAfterDeploy(orgId: string, now: Date = 
       continue;
     }
     const line = `Vocion was deployed since the stop (${version}); one more attempt.`;
-    await emitEvent({ orgId, type: BUILD_REQUESTED, payload: { requestId: r.id, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'deploy', note: line, planId: null }, dedupeKey: `${BUILD_REQUESTED}:${r.id}:deploy:${applied.id}`, invokedBy: 'system:factory-reconcile' });
+    await emitEvent({ orgId, type: BUILD_REQUESTED, payload: { requestId: r.id, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'recovery', afterDeploy: true, note: line, planId: null }, dedupeKey: `${BUILD_REQUESTED}:${r.id}:deploy:${applied.id}`, invokedBy: 'system:factory-reconcile' });
     await writeMeta(orgId, r.id, { deployResumedFor: version });
     const askId = readRecovery(meta).askId;
     if (askId) {
