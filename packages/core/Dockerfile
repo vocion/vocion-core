@@ -187,11 +187,18 @@ ENV HOSTNAME=0.0.0.0
 # not Playwright's download (glibc); the engine finds it through
 # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH. Fonts so text has a face to fall back
 # to when a document's web fonts do not load.
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-dejavu ttf-liberation font-noto-emoji \
+# ffmpeg (with ffprobe, libvpx and libx264) for recordings: Playwright encodes
+# the live check's video with it (VP8 WebM, linked below), and a narrated
+# recording is composed with it (`libs/media/ffmpeg.ts`, H.264/AAC MP4).
+# Alpine's `ffmpeg` is the smallest package that has all three.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-dejavu ttf-liberation font-noto-emoji ffmpeg \
   && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Where Playwright looks for its own binaries, fixed so it does not depend on
+# the runtime user's HOME (it was /home/nextjs/.cache/ms-playwright).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Copy the standalone server + the static + public + context tree.
 # The standalone output already includes the trimmed node_modules.
@@ -213,6 +220,24 @@ COPY --from=builder --chown=nextjs:nodejs /app/README.md ./README.md
 # package.json + the workspace root marker so `getRepoRoot()` resolves
 # to /app inside the container (the standalone build's CWD).
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+
+# Playwright records video by piping frames to its OWN ffmpeg build, which it
+# downloads for glibc and never for Alpine: with recording on, every page of the
+# live check failed with "Executable doesn't exist at
+# /home/nextjs/.cache/ms-playwright/ffmpeg-1011/ffmpeg-linux" (2026-10-03, #1107
+# falls back to checking without recording). Alpine's ffmpeg (VP8 via libvpx)
+# takes the same arguments, so it is linked where the installed playwright-core
+# looks — the path asked of its own registry, so a Playwright upgrade that moves
+# the revision moves the link with it. A build whose playwright-core cannot say
+# fails here rather than shipping an image that cannot record.
+RUN cd /app/packages/core \
+ && FFMPEG_AT="$(node -e "process.stdout.write(require('playwright-core/lib/server/registry/index').registry.findExecutable('ffmpeg').executablePath('javascript') || '')")" \
+ && test -n "$FFMPEG_AT" \
+ && mkdir -p "$(dirname "$FFMPEG_AT")" \
+ && ln -sf /usr/bin/ffmpeg "$FFMPEG_AT" \
+ && chown -R nextjs:nodejs "$PLAYWRIGHT_BROWSERS_PATH" \
+ && echo "playwright ffmpeg -> $FFMPEG_AT" \
+ && "$FFMPEG_AT" -hide_banner -encoders 2>/dev/null | grep -q libvpx
 
 USER nextjs
 EXPOSE 3000

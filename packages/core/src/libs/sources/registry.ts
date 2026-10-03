@@ -10,6 +10,7 @@
 import type { SourceConnector } from './types';
 import { apolloConnector } from './apollo';
 import { driveConnector } from './drive';
+import { elevenLabsConnector } from './elevenlabs';
 import { fileImportConnector } from './fileImport';
 import { ga4Connector } from './ga4';
 import { githubConnector } from './github';
@@ -69,3 +70,4 @@ registerConnector(githubConnector);
 registerConnector(restConnector);
 registerConnector(sentryConnector);
 registerConnector(slateConnector);
+registerConnector(elevenLabsConnector);

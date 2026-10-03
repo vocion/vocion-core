@@ -64,6 +64,7 @@ export async function keepLiveRecordings(orgId: string, releaseId: number, recor
       title: caption,
       caption,
       provenance: { liveCheck: true, releaseId, viewport: r.viewport, signedIn: r.signedIn, environment: r.env, startedAt: r.startedAt, endedAt: r.endedAt },
+      timeline: r.timeline,
       author: { kind: 'system', id: 'live-check' },
     });
     if (!filed.ok) {

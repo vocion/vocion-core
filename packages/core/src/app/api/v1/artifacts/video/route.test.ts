@@ -13,7 +13,7 @@ vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 const { authenticateBearer } = await import('@/services/ApiTokenService');
 const { clerkAuth } = await import('@/libs/Auth');
 const { db } = await import('@/libs/DB');
-const { artifactSchema, businessObjectSchema } = await import('@/models/Schema');
+const { artifactSchema, businessObjectSchema, eventLogSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
 const { POST } = await import('./route');
@@ -108,6 +108,12 @@ describe('POST /api/v1/artifacts/video', () => {
     const rows = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, ORG), eq(artifactSchema.url, body.url)));
 
     expect(rows.map(r => [r.recordId, r.recordRole, r.kind]).sort()).toEqual([[String(requestId), 'qa-video', 'file'], [String(taskId), 'qa-video', 'file']].sort());
+
+    // One recording.filed for the filing, for a plugin to narrate it (2026-10-03).
+    const events = await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'recording.filed')));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ artifactId: body.artifactIds[0], role: 'qa-video', url: body.url, narrated: false });
     expect(rows[0]!.spec).toMatchObject({ caption: 'rename · desktop · before merge', contentType: 'video/webm', url: body.url });
 
     const [, , , recordSeg, file] = (body.url as string).split('/');

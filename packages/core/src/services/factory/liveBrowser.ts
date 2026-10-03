@@ -39,6 +39,7 @@
 import type { Buffer } from 'node:buffer';
 import type { Browser, BrowserContext, Page, Video } from 'playwright';
 import type { AcceptanceLine, LiveReason } from '@/libs/factory/liveCheck';
+import type { TimelineMoment } from '@/services/artifacts/recordings';
 import type { Author } from '@/services/ArtifactService';
 import type { EnvironmentAccess } from '@/services/factory/productAccess';
 import { rm } from 'node:fs/promises';
@@ -88,10 +89,14 @@ export type BrowserEvidence
     | { id: string; kind: 'response'; at: string; method: string; url: string; status: number; signedIn: boolean }
     | { id: string; kind: 'action'; at: string; what: string; ok: boolean; detail: string | null; url: string | null };
 
-type Tab = { key: string; env: EnvironmentAccess; viewport: BrowserViewport; signedIn: boolean; context: BrowserContext; page: Page | null; videos: Video[]; openedAt: string };
+type Tab = { key: string; env: EnvironmentAccess; viewport: BrowserViewport; signedIn: boolean; context: BrowserContext; page: Page | null; videos: Array<{ video: Video; startedAt: string }>; openedAt: string };
 
-/** A tab's recording, set aside when its context closed, kept when the session closes. */
-export type SessionRecording = { path: string; viewport: BrowserViewport; signedIn: boolean; env: string; startedAt: string; endedAt: string };
+/**
+ * A tab's recording, set aside when its context closed, kept when the session
+ * closes — with what QA did while it ran (`timeline`, ms from the video's
+ * start), so a narration is timed to the moments it describes.
+ */
+export type SessionRecording = { path: string; viewport: BrowserViewport; signedIn: boolean; env: string; startedAt: string; endedAt: string; timeline: TimelineMoment[] };
 
 type Session = {
   key: string;
@@ -186,6 +191,38 @@ function touch(s: Session): void {
   s.idle.unref?.();
 }
 
+/**
+ * What QA did while one video ran, as moments from its start: each action,
+ * page read and screenshot, and any response that failed. Captures of another
+ * viewport are left out.
+ * @param evidence - The session's captures.
+ * @param viewport - The video's viewport.
+ * @param startedAt - When the video started.
+ * @param endedAt - When it ended.
+ */
+export function timelineOf(evidence: readonly BrowserEvidence[], viewport: BrowserViewport, startedAt: string, endedAt: string): TimelineMoment[] {
+  const t0 = Date.parse(startedAt);
+  const t1 = Date.parse(endedAt);
+  const out: TimelineMoment[] = [];
+  for (const e of evidence) {
+    const at = Date.parse(e.at);
+    if (!Number.isFinite(at) || at < t0 || at > t1) {
+      continue;
+    }
+    const atMs = at - t0;
+    if (e.kind === 'action') {
+      out.push({ atMs, what: e.what, ok: e.ok, detail: e.detail, url: e.url, evidenceId: e.id });
+    } else if (e.kind === 'snapshot' && e.viewport === viewport) {
+      out.push({ atMs, what: `read the page "${e.title}"`, url: e.url, evidenceId: e.id });
+    } else if (e.kind === 'screenshot' && e.viewport === viewport) {
+      out.push({ atMs, what: `took a screenshot: ${e.caption}`, url: e.pageUrl, evidenceId: e.id });
+    } else if (e.kind === 'response' && e.status >= 400) {
+      out.push({ atMs, what: `${e.method} answered ${e.status}`, ok: false, url: e.url, evidenceId: e.id });
+    }
+  }
+  return out.sort((a, b) => a.atMs - b.atMs);
+}
+
 async function closeTabs(s: Session): Promise<void> {
   const tabs = [...s.tabs.values()];
   s.tabs.clear();
@@ -194,9 +231,10 @@ async function closeTabs(s: Session): Promise<void> {
     await t.context.close().catch(() => {});
     // A page's video is written when its context closes; only the pages QA drove are set aside.
     for (const v of t.videos) {
-      const file = await v.path().catch(() => null);
+      const file = await v.video.path().catch(() => null);
       if (file) {
-        s.recordings.push({ path: file, viewport: t.viewport, signedIn: t.signedIn, env: t.env.slug, startedAt: t.openedAt, endedAt: s.deps.now().toISOString() });
+        const endedAt = s.deps.now().toISOString();
+        s.recordings.push({ path: file, viewport: t.viewport, signedIn: t.signedIn, env: t.env.slug, startedAt: v.startedAt, endedAt, timeline: timelineOf([...s.evidence.values()], t.viewport, v.startedAt, endedAt) });
       }
     }
   }
@@ -428,7 +466,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
         session.evidence.delete(session.responses.shift()!);
       }
     });
-    tab = { key: tabKey, env, viewport, signedIn, context, page: primed, videos: primed?.video() ? [primed.video()!] : [], openedAt: d.now().toISOString() };
+    tab = { key: tabKey, env, viewport, signedIn, context, page: primed, videos: primed?.video() ? [{ video: primed.video()!, startedAt: d.now().toISOString() }] : [], openedAt: d.now().toISOString() };
     if (signedIn) {
       const problem = signInProblem(env) || await signIn(context, env);
       if (problem) {
@@ -446,7 +484,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
     tab.page = await tab.context.newPage();
     const video = tab.page.video();
     if (video) {
-      tab.videos.push(video);
+      tab.videos.push({ video, startedAt: d.now().toISOString() });
     }
   }
   let status: number | null = null;

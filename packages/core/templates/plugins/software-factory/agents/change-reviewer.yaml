@@ -53,4 +53,8 @@ harness:
     # The check output the verdict is judged on, read from the code host
     # rather than from the engineer's report (plugin 2.43.0).
     - repo_read_check_logs
+  # The voice QA narrates its recordings in (plugin 3.10.0, `narrateRecordings`):
+  # a voice id from the workspace's voice connector. Unset, the connector's first
+  # voice. A workspace that overrides this seat sets its own.
+  # voiceId: <voice id>
 systemPromptFile: ./change-reviewer.system-prompt.md

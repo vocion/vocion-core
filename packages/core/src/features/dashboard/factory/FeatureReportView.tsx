@@ -19,6 +19,7 @@ import { FeatureDrawerLink } from './FeatureDrawerLink';
 import { FeatureTimeline } from './FeatureTimeline';
 import { LocalDate } from './LocalDate';
 import { MediaCarousel } from './MediaCarousel';
+import { RecordingPlayer } from './RecordingPlayer';
 import { WorkStatus } from './WorkStatus';
 
 /**
@@ -511,8 +512,9 @@ function OutcomeBlock({ report }: { report: FeatureReport }) {
 /**
  * RECORDINGS (Chris, 2026-10-03): the newest recording of QA on the live
  * product and the newest of the engineer's own browser tests before merge,
- * each a native player that loads only its first frame until pressed. A
- * phone-sized recording keeps its shape inside the column; nothing is drawn
+ * each a native player that loads only its first frame until pressed, with a
+ * Recording | Narrated switch when the seat narrated it (`RecordingPlayer`).
+ * A phone-sized recording keeps its shape inside the column; nothing is drawn
  * when neither was kept.
  *
  * When the recording is on the workspace's video host (it has a share), the
@@ -536,35 +538,7 @@ function RecordingsRow({ recordings }: { recordings: FeatureReport['recordings']
       <div className="mt-1 grid min-w-0 gap-3 sm:grid-cols-2">
         {items.map(({ key, label, r }) => (
           <figure key={key} className="m-0 min-w-0" data-testid={`report-recording-${key}`}>
-            {r.slateShareId && r.hosted
-              ? (
-                  <div className="relative aspect-video w-full max-w-full overflow-hidden rounded-md bg-muted" data-testid={`report-recording-${key}-embed`}>
-                    <iframe
-                      src={r.hosted.embedUrl}
-                      title={`${label}: ${r.caption}`}
-                      className="absolute inset-0 size-full border-0"
-                      allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
-                      allowFullScreen
-                      loading="lazy"
-                      referrerPolicy="strict-origin-when-cross-origin"
-                    />
-                  </div>
-                )
-              : (
-                  <>
-                    {/* A browser recording has no sound to caption; what it shows is the figcaption below. */}
-                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                    <video
-                      controls
-                      preload="metadata"
-                      playsInline
-                      className="block max-h-80 w-full max-w-full rounded-md bg-muted object-contain"
-                      aria-label={`${label}: ${r.caption}`}
-                    >
-                      <source src={r.url} type={r.contentType} />
-                    </video>
-                  </>
-                )}
+            <RecordingPlayer label={label} recording={r} testKey={key} />
             <figcaption className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">
               <span className="text-foreground">{label}</span>
               {` · ${r.caption} · `}

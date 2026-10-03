@@ -48,6 +48,7 @@ export type CredentialPlatformId
   // Connector platforms. One per API-key connector, so a workspace types its
   // Jira or Strapi key once and every connector install can point at it.
     | 'apollo'
+    | 'elevenlabs'
     | 'github'
     | 'granola'
     | 'hubspot'
@@ -608,6 +609,24 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         secret: true,
       },
     ],
+  },
+  {
+    id: 'elevenlabs',
+    label: 'ElevenLabs',
+    keySource: 'supplied',
+    // `one-live`, for the reason Apollo, Notion, PostHog and Sentry are:
+    // widening the cap means rebuilding `api_token_org_platform_live_idx`, and
+    // one key speaks in every voice of the account.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['elevenlabs'],
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an ElevenLabs API key',
+    helpText: 'An ElevenLabs API key, from Developers → API Keys. It needs Text to Speech and Voices (read); User (read) lets Test connection show the characters left. Speaking a line spends the account\'s characters, so the usage lands on your own ElevenLabs plan.',
+    // `apiKey`: the key `libs/voice/elevenlabs.ts` reads out of the credential.
+    fields: singleKeyField('API key', /^\S{16,}$/, 'is an API key with no spaces, at least 16 characters (sk_…)'),
   },
   {
     id: 'strapi',

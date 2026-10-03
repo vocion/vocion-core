@@ -609,6 +609,9 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       defaultValue: 'https://slatevideo.com',
     },
   ],
+  // A voice is called, never synced: the API key is the whole connection,
+  // taken by Connect. Nothing to configure here.
+  'elevenlabs': [],
 
   'posthog': [
     {

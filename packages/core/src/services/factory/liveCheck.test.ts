@@ -440,6 +440,12 @@ describe('the browser tools, in a real browser against a fictional product', asy
       expect(rows[0]).toMatchObject({ kind: 'file', url: expect.stringMatching(new RegExp(`^/api/media/${releaseId}/live-check-desktop-1-[0-9a-f]{16}\\.webm$`)) });
       expect(rows[0]!.spec).toMatchObject({ contentType: 'video/webm', caption: expect.stringMatching(/^Live check of \S+, \d{4}-\d{2}-\d{2}$/) });
 
+      // What QA did while it ran, timed from the video's start, for a narration to follow.
+      const timeline = (rows[0]!.spec as { timeline?: Array<{ atMs: number; what: string }> }).timeline ?? [];
+
+      expect(timeline.some(m => /^open \/rename/.test(m.what))).toBe(true);
+      expect(timeline.every(m => m.atMs >= 0)).toBe(true);
+
       const file = path.join(store, 'media', org, String(releaseId), rows[0]!.url!.split('/').pop()!);
 
       expect((await stat(file)).size).toBeGreaterThan(1000);

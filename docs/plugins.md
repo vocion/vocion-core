@@ -243,6 +243,43 @@ The renderer is `features/dashboard/configure/` over
 `services/plugins/configureData.ts`; the tab and block kinds are a closed set
 in `libs/workspace/pageFields.ts`.
 
+## Settings — a plugin's options, set per workspace
+
+A plugin declares its options in `plugin.yaml`, each an on/off switch with its
+default and what it does in a person's words; a workspace sets them under
+`pluginSettings:` in `workspace.yaml`:
+
+```yaml
+# plugin.yaml
+settings:
+  narrateRecordings:
+    type: boolean
+    default: false
+    label: Narrate QA recordings
+    description: When a voice is connected, QA adds a second, narrated video to every recording on a feature.
+
+# workspace.yaml
+plugins: [software-factory]
+pluginSettings:
+  software-factory:
+    narrateRecordings: true
+```
+
+A plugin automation that waits for an option names it with `setting:`, and the
+load applies it `disabled` while the option is off (the workspace's value, else
+the plugin's default) — so the switch is the automation being there, on the
+Configure page's automations tab like every other. A key the plugin does not
+declare, or a plugin that is not on, fails the load; `setting:` on a workspace's
+own automation does too (it has `status:`).
+
+The software factory's one option, `narrateRecordings`, needs a voice connected
+on Connections (the ElevenLabs connector today, through the generic voice
+capability in `services/voice/provider.ts`). QA then narrates each recording
+filed on a feature in its own voice (`harness.voiceId` on its agent, else the
+connector's first voice), under its avatar, and the feature page offers
+Recording | Narrated (`services/jobs/narrateRecording.ts`,
+`services/artifacts/narrate.ts`).
+
 ## Factory types — the roles a factory plugin's records play
 
 Core's factory services (`services/factory/`, `libs/actions/factory*`) name no

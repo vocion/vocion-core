@@ -345,7 +345,19 @@ name: Software factory
 #   (every acceptance line seen or not seen citing this run's evidence, or not
 #   observable). `check_live` and its step language are gone; the release and
 #   the feature carry the same live records as before.
-version: 3.9.0
+# 3.10.0 — QA narrates its recordings (Chris, 2026-10-03: "When it's
+#   connected, an option in Software Factory that adds a second video on top
+#   of the QA video: a second pass with an avatar bubble and voiceover"). The
+#   plugin's first setting, `narrateRecordings` (off by default): on, and with
+#   a voice connected (Connections), every recording filed on a feature —
+#   QA's live check, the engineer's tests before merge — gets a second video.
+#   QA writes a 5–10 line walkthrough timed to what its browser logged, says
+#   it in its voice (`harness.voiceId`, else the connector's first), under its
+#   avatar bubble (its image, else its initials on its accent), and the
+#   feature page offers Recording | Narrated. A failure is one line on the
+#   request; the check and the review never wait on it. Turn it on:
+#     pluginSettings: {software-factory: {narrateRecordings: true}}
+version: 3.10.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
@@ -372,6 +384,16 @@ factory:
     release: release
     product: product
     repo: repo
+# Options a workspace sets under `pluginSettings: {software-factory: {…}}`.
+settings:
+  narrateRecordings:
+    type: boolean
+    default: false
+    label: Narrate QA recordings
+    description: >-
+      When a voice is connected, QA adds a second video to every recording on a
+      feature: its avatar in the corner and its voice walking through what the
+      recording shows. The original recording is kept as it was.
 # The two moments a person hears about (2.26.0). Few on purpose: an event not
 # named here notifies nobody. `{field}` is filled from the event's payload.
 notifications:

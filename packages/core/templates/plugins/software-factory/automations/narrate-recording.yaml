@@ -1,0 +1,27 @@
+# A recording was filed on a feature — QA's live check of a release, or the
+# engineer's own browser tests before merge — and the workspace turned on
+# `narrateRecordings` (plugin.yaml `settings`). QA narrates it: a short
+# walkthrough timed to what its browser logged, in its voice, under its avatar,
+# filed beside the original as `<role>-narrated` (core: `narrate-recording`,
+# then the `recording.narrate` background job). With no voice connected it does
+# nothing; a failure is one line on the request. The check and the review it
+# came from never wait on it.
+slug: narrate-recording
+name: Narrate a recording
+label: Narrated the recording
+doing: Narrating the recording
+description: >-
+  When a recording is filed on a feature, QA adds a second video of it: its
+  avatar bubble in the corner and its voice walking through what it shows.
+status: active
+setting: narrateRecordings
+agent: change-reviewer
+when:
+  event: recording.filed
+  filter:
+    narrated: false
+do:
+  job: narrate-recording
+  input:
+    # The seat that narrates: its name, avatar, accent and harness.voiceId.
+    narrator: change-reviewer

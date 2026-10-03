@@ -81,6 +81,7 @@ import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { liveTopic } from '@/libs/live/topics';
+import { narratedRole } from '@/libs/media/roles';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
@@ -935,6 +936,12 @@ export type ReportRecording = {
   hosted: { label: string; watchUrl: string; embedUrl: string } | null;
   /** Why it is not on the video host, when publishing it failed. */
   hostNote: string | null;
+  /**
+   * Its second pass with the seat's avatar and voiceover, when one was made
+   * (`services/artifacts/narrate.ts`, role `<role>-narrated`, `spec.narratedFrom`
+   * naming this recording). The page offers Recording | Narrated then.
+   */
+  narrated: { artifactId: number; url: string; contentType: string; caption: string; at: Date; hosted: ReportRecording['hosted'] } | null;
 };
 export type ReportRecordings = { live: ReportRecording | null; qa: ReportRecording | null };
 
@@ -958,6 +965,15 @@ export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecord
     if (!top) {
       return null;
     }
+    // The narration of THIS recording: it names the source by id (any of its
+    // filings, which share one served file) or by that file's URL.
+    const sourceIds = new Set(artifacts.filter(a => evidenceUrl(a) === top.url).map(a => a.id));
+    const narration = artifacts
+      .filter(a => a.recordRole === narratedRole(role))
+      .filter(a => sourceIds.has(Number((a.spec as Record<string, unknown> | null)?.narratedFrom)) || str(a.spec, 'narratedFromUrl') === top.url)
+      .map(a => ({ a, url: evidenceUrl(a) }))
+      .filter((x): x is { a: ReportArtifact; url: string } => x.url !== null && x.url.startsWith('/api/media/'))
+      .sort((x, y) => y.a.createdAt.getTime() - x.a.createdAt.getTime() || y.a.id - x.a.id)[0];
     return {
       artifactId: top.a.id,
       url: top.url,
@@ -966,6 +982,9 @@ export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecord
       at: top.a.createdAt,
       slateShareId: str(top.a.spec, 'slateShareId'),
       ...hostedOf(top.a.spec),
+      narrated: narration
+        ? { artifactId: narration.a.id, url: narration.url, contentType: str(narration.a.spec, 'contentType') ?? 'video/mp4', caption: str(narration.a.spec, 'caption') ?? narration.a.title, at: narration.a.createdAt, hosted: hostedOf(narration.a.spec).hosted }
+        : null,
     };
   };
   return { live: pick(RECORDING_ROLES.live), qa: pick(RECORDING_ROLES.qa) };

@@ -312,6 +312,32 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(row.querySelector('[data-testid="report-recording-live"] time')).not.toBeNull();
     expect(row.querySelector('[data-testid="report-recording-qa"]')!.textContent).toContain('Before merge');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+    // No narration was made: no switch.
+    expect(row.querySelector('[data-testid="recording-switch"]')).toBeNull();
+  });
+
+  // Chris, 2026-10-03: QA's narrated second pass, beside the recording it narrates.
+  it('offers Recording | Narrated when the recording was narrated, playing one at a time, phone-wide', async () => {
+    await page.viewport(390, 844);
+    const live = { id: 1, kind: 'file', title: 'Live check of REL-9, 2026-09-20', recordType: 'object', recordId: '41', recordRole: 'qa-live-video', spec: { url: '/api/media/9/live-check-desktop-1-0000000000000001.webm', contentType: 'video/webm', caption: 'Live check of REL-9, 2026-09-20' }, url: '/api/media/9/live-check-desktop-1-0000000000000001.webm', createdAt: T('2026-09-20T09:00:00Z') };
+    const narrated = { id: 2, kind: 'file', title: 'Narrated: Live check of REL-9, 2026-09-20', recordType: 'object', recordId: '41', recordRole: 'qa-live-video-narrated', spec: { url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', contentType: 'video/mp4', caption: 'Live check of REL-9, 2026-09-20 · narrated by QA', narratedFrom: 1 }, url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', createdAt: T('2026-09-20T09:05:00Z') };
+    await draw(fixture({ artifacts: [live, narrated] }));
+
+    const figure = document.querySelector('[data-testid="report-recording-live"]')!;
+    const tabs = [...figure.querySelectorAll('[role="tab"]')];
+
+    expect(tabs.map(t => t.textContent)).toEqual(['Recording', 'Narrated']);
+    expect(figure.querySelectorAll('video')).toHaveLength(1);
+    expect(figure.querySelector('video source')!.getAttribute('src')).toBe(live.url);
+
+    await page.getByRole('tab', { name: 'Narrated' }).click();
+
+    await expect.element(page.getByTestId('recording-player-narrated')).toBeInTheDocument();
+
+    expect(figure.querySelectorAll('video')).toHaveLength(1);
+    expect(figure.querySelector('video source')!.getAttribute('src')).toBe(narrated.url);
+    expect(figure.querySelector('video source')!.getAttribute('type')).toBe('video/mp4');
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 
   it('frames the video host\'s player, 16:9 and phone-wide, only for a recording with a share', async () => {

@@ -56,4 +56,25 @@ describe('the recordings a feature page plays (2026-10-03)', () => {
 
     expect([pending.live?.hosted, pending.live?.hostNote, unsafe.live?.hosted]).toEqual([null, null, null]);
   });
+
+  it('pairs a recording with its narrated version, and only with its own', () => {
+    const live = '/api/media/9/live-check-desktop-1-ffffffffffffffff.webm';
+    const narrated = (id: number, from: number | null, at: string, fromUrl?: string) => video(id, 'qa-live-video-narrated', `/api/media/9/live-check-desktop-1-narrated-${String(id).padStart(16, '0')}.mp4`, at, {
+      spec: { url: `/api/media/9/live-check-desktop-1-narrated-${String(id).padStart(16, '0')}.mp4`, contentType: 'video/mp4', caption: `narrated ${id}`, ...(from !== null ? { narratedFrom: from } : {}), ...(fromUrl ? { narratedFromUrl: fromUrl } : {}) },
+    });
+    const r = recordingsOf([
+      video(7, 'qa-live-video', live, '2026-10-02T09:00:00Z'),
+      // The same file filed on the release: a narration naming that filing is this recording's too.
+      video(8, 'qa-live-video', live, '2026-10-02T09:00:00Z', { recordId: '77' }),
+      narrated(9, 8, '2026-10-02T09:05:00Z'),
+      // A narration of an older live check is not this one's.
+      narrated(10, 3, '2026-10-02T09:06:00Z'),
+    ]);
+
+    expect(r.live?.narrated).toMatchObject({ artifactId: 9, contentType: 'video/mp4', caption: 'narrated 9' });
+    // A narrated version is never picked as a recording of its own.
+    expect([r.live?.artifactId, r.qa]).toEqual([8, null]);
+    expect(recordingsOf([video(7, 'qa-live-video', live, '2026-10-02T09:00:00Z'), narrated(11, null, '2026-10-02T09:05:00Z', live)]).live?.narrated?.artifactId).toBe(11);
+    expect(recordingsOf([video(7, 'qa-live-video', live, '2026-10-02T09:00:00Z')]).live?.narrated).toBeNull();
+  });
 });

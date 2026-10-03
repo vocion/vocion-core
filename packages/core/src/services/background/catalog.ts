@@ -20,6 +20,7 @@ export const JOB = {
   bulkBriefRegenerate: 'brief.bulk-regenerate',
   durablePrune: 'durable.prune',
   videoHostPublish: VIDEO_HOST_PUBLISH_JOB,
+  recordingNarrate: 'recording.narrate',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -124,4 +125,12 @@ const PRUNE_AFTER_DAYS = 7;
 defineJob(JOB.durablePrune, async () => {
   const { pruneFinishedJobRuns } = await import('@/libs/durable/prune');
   return pruneFinishedJobRuns(PRUNE_AFTER_DAYS);
+});
+
+// A recording narrated in its seat's voice (`services/jobs/narrateRecording.ts`): a
+// model call, a few voice calls and one ffmpeg pass — minutes, off the event's path.
+// Never retried: a refusal is written where the person reads the request.
+defineJob<{ orgId: string; artifactId: number; narrator: string }>(JOB.recordingNarrate, async (input) => {
+  const { narrateRecordingActivity } = await import('@/services/jobs/narrateRecording');
+  return narrateRecordingActivity(input);
 });

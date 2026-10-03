@@ -176,6 +176,26 @@ export const fileSpecSchema = z.object({
     attempts: z.number().int().nonnegative().optional(),
     at: z.string().max(40),
   }).optional(),
+  /**
+   * A recording's moments, when its maker logged them: what was done and when,
+   * in ms from the recording's start (`services/artifacts/recordings.ts`). A
+   * narration is timed to them.
+   */
+  timeline: z.array(z.object({
+    atMs: z.number().int().nonnegative(),
+    what: z.string().max(200),
+    ok: z.boolean().optional(),
+    detail: z.string().max(300).nullable().optional(),
+    url: z.string().max(2000).nullable().optional(),
+    evidenceId: z.string().max(80).optional(),
+  })).max(120).optional(),
+  /** A narrated recording's source: the recording it narrates, by artifact id and served URL. */
+  narratedFrom: z.number().int().positive().optional(),
+  narratedFromUrl: z.string().max(2000).optional(),
+  /** A narrated recording's script, as spoken: when each line starts and ends, what it says. */
+  script: z.array(z.object({ atMs: z.number().int().nonnegative(), endMs: z.number().int().nonnegative(), text: z.string().max(400) })).max(20).optional(),
+  /** Who speaks in a narrated recording. */
+  speaker: z.object({ name: z.string().max(120), slug: z.string().max(80).optional() }).optional(),
 });
 export type FileSpec = z.infer<typeof fileSpecSchema>;
 

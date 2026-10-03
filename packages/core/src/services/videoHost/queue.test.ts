@@ -46,6 +46,7 @@ describe('the trigger: a filed recording is queued for the video host', () => {
     const publish = vi.fn(async () => {
       throw new Error('boom');
     });
+    const announce = vi.fn(async () => {});
     const filed = await fileRecording({
       orgId: ORG,
       keptUnder: 41,
@@ -56,9 +57,11 @@ describe('the trigger: a filed recording is queued for the video host', () => {
       title: 'Live check of REL-9',
       caption: 'Live check of REL-9',
       author: { kind: 'system', id: 'live-check' },
-    }, { bucket: null, dir: path.join(os.tmpdir(), 'vocion-media-queue-test'), publish });
+    }, { bucket: null, dir: path.join(os.tmpdir(), 'vocion-media-queue-test'), publish, announce });
 
     expect(filed).toMatchObject({ ok: true, artifactIds: [101, 102] });
     expect(publish).toHaveBeenCalledWith({ orgId: ORG, artifactIds: [101, 102], role: 'qa-live-video' });
+    // The same filing is raised once as recording.filed, for a plugin to narrate it.
+    expect(announce).toHaveBeenCalledWith(ORG, expect.objectContaining({ artifactId: 101, artifactIds: '101,102', role: 'qa-live-video', recordIds: '41,9', narrated: false }));
   });
 });

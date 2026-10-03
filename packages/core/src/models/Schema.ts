@@ -857,6 +857,8 @@ export const agentSchema = pgTable(
        * `buildChatModelForOrg`.
        */
       model?: string;
+      /** The voice this agent narrates in (`harness.voiceId`); absent, the voice connector's first. */
+      voiceId?: string;
       /**
        * Which vendor serves this agent's chat model. A different axis from
        * `provider` above, which selects where the agent *loop* executes —
