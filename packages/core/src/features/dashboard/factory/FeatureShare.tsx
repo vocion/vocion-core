@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Globe, Link2, UserRound } from 'lucide-react';
+import { ArrowUpRight, Check, Globe, Link2, UserRound } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useCallback, useState } from 'react';
 import { Switch } from '@/components/ui/switch';
@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 
-type State = { shared: boolean; path: string | null; hideAsker: boolean };
+type State = { shared: boolean; path: string | null; hideAsker: boolean; showOpenLink: boolean };
 
 /**
  * SHARE A FEATURE (Chris, 2026-10-03): a public, read-only page — the ask and
@@ -18,7 +18,8 @@ type State = { shared: boolean; path: string | null; hideAsker: boolean };
  * The same control as an artifact's Share (`artifacts/SharePicker.tsx`): a
  * link icon on the title row, a popover under it. Nothing is public until
  * the switch is turned on; turning it off revokes every copy of the link.
- * "Show who asked" is on by default and changes every copy at once.
+ * "Show who asked" and "Show the Open button" (the page's one link back to
+ * the feature in the workspace) are on by default and change every copy at once.
  * @param props
  * @param props.requestId - The feature.
  * @param props.title - For the accessible name.
@@ -38,7 +39,7 @@ export function FeatureShare({ requestId, title }: { requestId: number; title: s
     }
   }, [requestId]);
 
-  const save = useCallback(async (next: { shared: boolean; hideAsker?: boolean }) => {
+  const save = useCallback(async (next: { shared: boolean; hideAsker?: boolean; showOpenLink?: boolean }) => {
     setBusy(true);
     setError(null);
     try {
@@ -100,6 +101,14 @@ export function FeatureShare({ requestId, title }: { requestId: number; title: s
               <span className="block text-[12px] text-muted-foreground">Their name only, never their email.</span>
             </span>
             <Switch on={!(state?.hideAsker ?? false)} label="Show who asked" disabled={busy || !state?.shared} onChange={show => void save({ shared: true, hideAsker: !show })} />
+          </div>
+          <div className={cn('flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-sm', !state?.shared && 'opacity-60')}>
+            <ArrowUpRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-foreground">Show the Open button</span>
+              <span className="block text-[12px] text-muted-foreground">Opens this feature in the workspace; only members get in.</span>
+            </span>
+            <Switch on={state?.showOpenLink ?? true} label="Show the Open button" disabled={busy || !state?.shared} onChange={show => void save({ shared: true, showOpenLink: show })} />
           </div>
           {link && (
             <div className="mt-1 flex items-center gap-2 border-t border-border/60 px-2.5 pt-2 pb-1">

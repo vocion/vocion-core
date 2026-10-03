@@ -1,8 +1,10 @@
 import type { FeatureReportInput, ReportActivity } from './featureReport';
 import type { PublicFeatureInput, SharedArtifact } from './featureShare';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_BUILDER } from '@/libs/factory/featureGlance';
+import { SLATE_PLAYER_ORIGIN } from '@/libs/slate/client';
 import { assembleFeatureReport } from './featureReport';
-import { publicEmbed, publicFeaturePage, publicSteps, scrub, serveVia, sharedPictures, walkthroughOf } from './featureShare';
+import { playerEmbed, publicFeaturePage, publicSteps, scrub, serveVia, shareCard, sharedPictures, shippedEvidence, shortSpan, STEP_SENTENCE, walkthroughOf } from './featureShare';
 
 /**
  * A FEATURE'S PUBLIC PAGE (Chris, 2026-10-03): the ask and who asked, what it
@@ -86,6 +88,15 @@ const art = (id: number, over: Partial<SharedArtifact> = {}): SharedArtifact => 
 });
 
 const video = (id: number, role: string, at: string, over: Partial<SharedArtifact> = {}): SharedArtifact => art(id, { title: `Recording ${id}`, url: `/api/media/370/rec-${id}-aaaaaaaaaaaaaaaa.webm`, spec: { contentType: 'video/webm', caption: `Recording caption ${id}` }, recordRole: role, createdAt: T(at), ...over });
+const shot = (id: number, task: number, title: string, at: string, over: Partial<SharedArtifact> = {}): SharedArtifact => art(id, { title, recordRole: 'qa-screenshot', recordId: String(task), createdAt: T(at), spec: { contentType: 'image/png', caption: title }, ...over });
+// QA's screenshots: the approved attempt's (374) after and before, a capture
+// QA named as the error state, and the attempt it sent back (373).
+const evidence = [
+  shot(961, 374, 'Library · desktop · before', '2026-10-02T08:20:00Z'),
+  shot(962, 374, 'Library · desktop · after', '2026-10-02T08:21:00Z'),
+  shot(963, 374, 'Library · phone · after (app error state)', '2026-10-02T08:21:30Z'),
+  shot(964, 373, 'Library · desktop · after', '2026-10-02T08:05:00Z'),
+];
 
 function input(over: Partial<PublicFeatureInput> = {}): PublicFeatureInput {
   const r = reportInput();
@@ -94,7 +105,9 @@ function input(over: Partial<PublicFeatureInput> = {}): PublicFeatureInput {
     request: { title: r.request.title, createdAt: r.request.createdAt, meta: r.request.meta },
     pictures: [art(901), art(902), art(903), art(904, { url: 'https://cdn.example/after.png' })],
     recordings: [video(950, 'qa-video', '2026-10-02T08:05:00Z'), video(951, 'qa-live-video', '2026-10-02T08:32:00Z')],
+    evidence,
     hideAsker: false,
+    openUrl: '/w/northwind-studio/dashboard/p/feature/370',
     mediaSrc: id => `/api/share/feature/TOKEN/media/${id}?k=sig-${id}`,
     ...over,
   };
@@ -103,8 +116,10 @@ function input(over: Partial<PublicFeatureInput> = {}): PublicFeatureInput {
 describe('the public page of a feature', () => {
   const page = publicFeaturePage(input());
 
-  it('carries exactly the six parts and nothing else', () => {
-    expect(Object.keys(page).sort()).toEqual(['ask', 'built', 'effort', 'pictures', 'timeline', 'title', 'video']);
+  it('carries exactly its parts and nothing else', () => {
+    expect(Object.keys(page).sort()).toEqual(['ask', 'built', 'builtBy', 'effort', 'media', 'openUrl', 'productName', 'status', 'timeline', 'title', 'workspaceName']);
+    expect(page.status).toEqual({ word: 'Shipped', at: page.status.at });
+    expect(page.status.at).not.toBeNull();
     expect(Object.keys(page.ask).sort()).toEqual(['at', 'by', 'text']);
     expect(page.title).toBe('Show the upload date on each library row');
     expect(page.ask.by).toBe('Dana Okafor');
@@ -113,8 +128,11 @@ describe('the public page of a feature', () => {
     expect(page.built).toBe('Library rows show when each file was uploaded.');
   });
 
-  it('holds no email, no internal link, no pull request, no run and no other record', () => {
-    const all = JSON.stringify(page);
+  it('holds no email, no internal link but the one Open link, no pull request, no run and no other record', () => {
+    // The one allow-listed link back in: the feature's own page in the app.
+    expect(page.openUrl).toBe('/w/northwind-studio/dashboard/p/feature/370');
+
+    const all = JSON.stringify({ ...page, openUrl: null });
 
     expect(all).not.toMatch(/@northwind\.example|dana@/);
     expect(all).not.toMatch(/https?:\/\/(?!video-host)/);
@@ -123,9 +141,9 @@ describe('the public page of a feature', () => {
     expect(page.ask.text).toContain('[email hidden]');
     expect(page.ask.text).toContain('[link hidden]');
 
-    // Every picture and the recording load through the share route only.
-    for (const src of [...page.pictures.map(p => p.src), page.video && page.video.kind === 'file' ? page.video.src : null].filter(Boolean)) {
-      expect(src).toMatch(/^\/api\/share\/feature\/TOKEN\/media\/\d+\?k=/);
+    // Every picture, QA shot and the recording load through the share route only.
+    for (const m of page.media.filter(m => m.kind !== 'embed')) {
+      expect(m.src).toMatch(/^\/api\/share\/feature\/TOKEN\/media\/\d+\?k=/);
     }
   });
 
@@ -143,6 +161,14 @@ describe('the public page of a feature', () => {
     expect(page.effort.duration).toBe('1h 19m');
     expect(page.effort.attempts).toBe(2);
     expect(page.effort.total).toBe('$2.33');
+    // Where the time went, from the timeline's own steps: the parts add up to the ask → seen live span.
+    expect(page.effort.timeSplit).toEqual([
+      { label: 'Plan', amount: '2m' },
+      { label: 'Build', amount: '59m' },
+      { label: 'QA', amount: '8m' },
+      { label: 'Release', amount: '8m' },
+      { label: 'Live check', amount: '1m' },
+    ]);
     expect(page.effort.split).toEqual([
       { label: 'Builds', amount: '$1.81' },
       { label: 'Agents', amount: '$0.40' },
@@ -150,22 +176,36 @@ describe('the public page of a feature', () => {
     ]);
   });
 
-  it('shows the mockup, the screen it was drawn on and the after-shot, only ones it can serve', () => {
-    expect(page.pictures.map(p => [p.label, p.src])).toEqual([
-      ['Mockup', '/api/share/feature/TOKEN/media/901?k=sig-901'],
-      ['Before', '/api/share/feature/TOKEN/media/902?k=sig-902'],
-      ['After', '/api/share/feature/TOKEN/media/903?k=sig-903'],
+  it('lays the carousel out walkthrough first, then the mockups, then the shipped attempt\'s QA shots', () => {
+    expect(page.media.map(m => [m.kind, m.label, m.src])).toEqual([
+      ['video', 'On the live product', '/api/share/feature/TOKEN/media/951?k=sig-951'],
+      ['image', 'Mockup', '/api/share/feature/TOKEN/media/901?k=sig-901'],
+      ['image', 'Before', '/api/share/feature/TOKEN/media/902?k=sig-902'],
+      ['image', 'After', '/api/share/feature/TOKEN/media/903?k=sig-903'],
+      // After before before; the error-state capture and the sent-back attempt's shot stay out.
+      ['image', 'QA after', '/api/share/feature/TOKEN/media/962?k=sig-962'],
+      ['image', 'QA before', '/api/share/feature/TOKEN/media/961?k=sig-961'],
     ]);
-    expect(page.pictures[0]).toMatchObject({ alt: 'Picture 901', caption: 'Caption 901' });
+    expect(page.media[1]).toMatchObject({ alt: 'Picture 901', caption: 'Caption 901' });
   });
 
   it('plays the newest live-check recording when there is no narrated one, through the share route', () => {
-    expect(page.video).toEqual({ kind: 'file', src: '/api/share/feature/TOKEN/media/951?k=sig-951', type: 'video/webm', label: 'On the live product', caption: 'Recording caption 951', at: '2026-10-02T08:32:00.000Z' });
+    expect(page.media[0]).toEqual({ kind: 'video', src: '/api/share/feature/TOKEN/media/951?k=sig-951', type: 'video/webm', label: 'On the live product', caption: 'Recording caption 951' });
   });
 
-  it('reads the timeline as fixed steps, oldest first, each with a time', () => {
+  it('reads the timeline as fixed steps, oldest first, each with a time, how long to the next and a sentence', () => {
     expect(page.timeline.map(t => t.step)).toEqual(['Asked', 'Plan approved', 'Built', 'QA asked for changes', 'Built', 'QA approved', 'Merged', 'Deployed', 'Released', 'Seen live']);
     expect(page.timeline.every(t => !Number.isNaN(Date.parse(t.at)))).toBe(true);
+    // Asked 07:12 → plan approved 07:14.
+    expect(page.timeline[0]).toMatchObject({ step: 'Asked', took: '2 min', sentence: STEP_SENTENCE.Asked });
+    expect(page.timeline.at(-1)!.took).toBeNull();
+    expect(page.timeline.every(t => t.sentence.length > 0)).toBe(true);
+    // The sentences are fixed words: no person, run, pull request or record code.
+    expect(page.timeline.map(t => t.sentence).join(' ')).not.toMatch(/Dana|PR|RUN-|FE-|ET-|#\d/);
+  });
+
+  it('leads with the name it was given, never the whole ask', () => {
+    expect(publicFeaturePage(input({ name: 'Upload date on library rows' })).title).toBe('Upload date on library rows');
   });
 });
 
@@ -205,16 +245,80 @@ describe('which files a public page may show', () => {
     expect(walkthroughOf([video(1, 'qa-video', '2026-10-02T08:00:00Z', { url: 'https://bucket.example/x.webm' })])).toBeNull();
   });
 
-  it('embeds the video host\'s player only for a recording published there for anyone', () => {
-    const hosted = (visibility: string) => video(5, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { contentType: 'video/webm', caption: 'c', slateShareId: 'share-fictional-1', hostedVideo: { state: 'published', visibility, embedUrl: 'https://video-host.example/embed/share-fictional-1' } } });
+  it('plays a recording with a video-host share id in that host\'s player, public or not; else Vocion\'s own copy', () => {
+    const onHost = (visibility: string) => video(5, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { contentType: 'video/webm', caption: 'c', slateShareId: 'share-fictional-1', hostedVideo: { state: 'published', visibility } } });
 
-    expect(publicEmbed(hosted('public'))).toBe('https://video-host.example/embed/share-fictional-1');
-    expect(publicEmbed(hosted('team'))).toBeNull();
-    expect(publicEmbed(video(6, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { hostedVideo: { state: 'published', visibility: 'public', embedUrl: 'javascript:alert(1)' } } }))).toBeNull();
+    expect(playerEmbed(onHost('public'))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`);
+    expect(playerEmbed(onHost('team'))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`);
+    expect(playerEmbed(video(6, 'qa-live-video', '2026-10-02T09:00:00Z'))).toBeNull();
+    // A share id is a path segment, never markup or a second URL.
+    expect(playerEmbed(video(7, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { slateShareId: '../x?y=<z>' } }))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/..%2Fx%3Fy%3D%3Cz%3E`);
 
-    const page = publicFeaturePage(input({ recordings: [hosted('public')] }));
+    const page = publicFeaturePage(input({ recordings: [onHost('team')], code: 'FE-370', name: 'Upload date on library rows' }));
 
-    expect(page.video).toMatchObject({ kind: 'embed', src: 'https://video-host.example/embed/share-fictional-1' });
+    expect(page.media[0]).toEqual({ kind: 'embed', src: `${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`, label: 'On the live product', caption: 'c', title: 'FE-370 · Upload date on library rows' });
+    // No share id: the native recording through the link.
+    expect(publicFeaturePage(input()).media[0]).toMatchObject({ kind: 'video', src: '/api/share/feature/TOKEN/media/951?k=sig-951' });
+  });
+});
+
+describe('the one link back in', () => {
+  it('is a workspace path or nothing — never a link out, a query or an internal API', () => {
+    expect(publicFeaturePage(input({ openUrl: null })).openUrl).toBeNull();
+    expect(publicFeaturePage(input({ openUrl: 'https://elsewhere.example/w/x/y' })).openUrl).toBeNull();
+    expect(publicFeaturePage(input({ openUrl: '/api/media/370/x.webm' })).openUrl).toBeNull();
+    expect(publicFeaturePage(input({ openUrl: '/w/northwind-studio/dashboard/p/feature/370?token=x' })).openUrl).toBeNull();
+    expect(publicFeaturePage(input({ openUrl: '//elsewhere.example/w/x' })).openUrl).toBeNull();
+  });
+});
+
+describe('who built it', () => {
+  it('is the workspace\'s own name, else the factory\'s; and the product by its own name', () => {
+    expect(publicFeaturePage(input({ workspaceName: 'Northwind Studio', productName: 'Ledger' }))).toMatchObject({ builtBy: 'Northwind Studio', workspaceName: 'Northwind Studio', productName: 'Ledger' });
+    expect(publicFeaturePage(input())).toMatchObject({ workspaceName: null, productName: null });
+    expect(publicFeaturePage(input({ workspaceName: null })).builtBy).toBe(DEFAULT_BUILDER);
+    expect(publicFeaturePage(input({ workspaceName: '  ' })).builtBy).toBe(DEFAULT_BUILDER);
+  });
+});
+
+describe('the link\'s preview card', () => {
+  const ORIGIN = 'https://agents.northwind.example';
+
+  it('leads the description with who built it, how long and the cost — the page\'s own figures — then what it built', () => {
+    const page = publicFeaturePage(input({ workspaceName: 'Northwind Studio', name: 'Upload date on library rows' }));
+    const card = shareCard(page, ORIGIN);
+
+    expect(card.description).toBe(`Built by Northwind Studio in ${page.effort.duration} for ${page.effort.total} · Library rows show when each file was uploaded.`);
+    expect(card.description).toBe('Built by Northwind Studio in 1h 19m for $2.33 · Library rows show when each file was uploaded.');
+    expect(card.description.length).toBeLessThanOrEqual(200);
+    expect(card.title).toBe('Upload date on library rows · 1h 19m · $2.33');
+    expect(card.siteName).toBe('Northwind Studio');
+    expect(shareCard(publicFeaturePage(input({ workspaceName: 'Northwind Studio', productName: 'Ledger' })), ORIGIN).description).toBe('Built by Northwind Studio for Ledger in 1h 19m for $2.33 · Library rows show when each file was uploaded.');
+  });
+
+  it('falls back to the factory as the builder and Vocion as the site', () => {
+    const card = shareCard(publicFeaturePage(input({ workspaceName: null })), ORIGIN);
+
+    expect(card.description.startsWith(`Built by ${DEFAULT_BUILDER} in 1h 19m for $2.33 · `)).toBe(true);
+    expect(card.siteName).toBe('Vocion');
+  });
+
+  it('pictures the first mockup, else QA\'s first shot, else nothing — absolute, through the link', () => {
+    const page = publicFeaturePage(input());
+
+    expect(shareCard(page, ORIGIN).image).toEqual({ url: `${ORIGIN}/api/share/feature/TOKEN/media/901?k=sig-901`, alt: 'Caption 901' });
+
+    const noMockups = input();
+    noMockups.request = { ...noMockups.request, meta: { ...noMockups.request.meta, visuals: {} } };
+
+    expect(shareCard(publicFeaturePage(noMockups), ORIGIN).image?.url).toBe(`${ORIGIN}/api/share/feature/TOKEN/media/962?k=sig-962`);
+    expect(shareCard(publicFeaturePage({ ...noMockups, evidence: [] }), ORIGIN).image).toBeNull();
+  });
+
+  it('carries the picture\'s size when the file says it', () => {
+    const sized = input({ pictures: [art(901, { spec: { contentType: 'image/png', caption: 'Caption 901', width: 1200, height: 630 } })] });
+
+    expect(shareCard(publicFeaturePage(sized), ORIGIN).image).toMatchObject({ width: 1200, height: 630 });
   });
 });
 
@@ -224,6 +328,25 @@ describe('the words that leave the workspace', () => {
   });
 
   it('starts the timeline at the ask even when nothing else happened', () => {
-    expect(publicSteps([], T('2026-10-02T07:12:00Z'))).toEqual([{ step: 'Asked', at: '2026-10-02T07:12:00.000Z' }]);
+    expect(publicSteps([], T('2026-10-02T07:12:00Z'))).toEqual([{ step: 'Asked', at: '2026-10-02T07:12:00.000Z', took: null, sentence: STEP_SENTENCE.Asked }]);
+  });
+
+  it('says a span the short way', () => {
+    expect(shortSpan(20_000)).toBe('under a minute');
+    expect(shortSpan(18 * 60_000)).toBe('18 min');
+    expect(shortSpan(79 * 60_000)).toBe('1 h 19 min');
+    expect(shortSpan(2 * 3_600_000)).toBe('2 h');
+    expect(shortSpan(52 * 3_600_000)).toBe('2 d 4 h');
+  });
+});
+
+describe('the QA shots a public page shows', () => {
+  it('shows the shipped or approved attempt\'s, never a sent-back attempt\'s, an "Only me" shot or a link out', () => {
+    const ids = (attempt: Parameters<typeof shippedEvidence>[1]) => shippedEvidence([...evidence, shot(965, 374, 'Library · phone · after', '2026-10-02T08:22:00Z', { shareAudience: 'me' }), shot(966, 374, 'Library · tablet · after', '2026-10-02T08:22:00Z', { url: 'https://bucket.example/s.png' })], attempt).map(e => e.artifact.id);
+
+    expect(ids({ taskId: 374, why: 'shipped' })).toEqual([962, 961]);
+    expect(ids({ taskId: 374, why: 'judged', verdict: 'approve' })).toEqual([962, 961]);
+    expect(ids({ taskId: 373, why: 'judged', verdict: 'changes' })).toEqual([]);
+    expect(ids(null)).toEqual([]);
   });
 });

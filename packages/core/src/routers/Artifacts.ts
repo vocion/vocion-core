@@ -243,10 +243,10 @@ export const featureShare = os
  * one. The person's own act: it runs as they pressed it.
  */
 export const setFeatureShare = os
-  .input(z.object({ requestId: z.number().int().positive(), shared: z.boolean(), hideAsker: z.boolean().optional() }))
+  .input(z.object({ requestId: z.number().int().positive(), shared: z.boolean(), hideAsker: z.boolean().optional(), showOpenLink: z.boolean().optional() }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
-    const state = await writeFeatureShare({ orgId, requestId: input.requestId, userId: userId ?? null, shared: input.shared, hideAsker: input.hideAsker });
+    const state = await writeFeatureShare({ orgId, requestId: input.requestId, userId: userId ?? null, shared: input.shared, hideAsker: input.hideAsker, showOpenLink: input.showOpenLink });
     if (!state) {
       throw ApiError.notFound({ id: input.requestId });
     }

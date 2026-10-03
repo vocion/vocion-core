@@ -1,7 +1,7 @@
 'use client';
 
 import type { EvidenceSource } from '@/services/factory/carouselSource';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -18,7 +18,87 @@ export type MediaSlide = {
   caption: string | null;
   /** Who or what made it and when, linked to where it came from. */
   source?: EvidenceSource | null;
+  /**
+   * A picture (the default), a recording Vocion serves (`type` is its content
+   * type), or a video host's player. A recording or a player opens full
+   * screen and plays there; a picture opens zoomable.
+   */
+  kind?: 'image' | 'video' | 'embed';
+  /** The recording's content type, for `kind: 'video'`. */
+  type?: string;
 };
+
+/**
+ * A video host's player, in the host's own responsive 16:9 frame (Chris,
+ * 2026-10-03: the Slate embed, exactly). It plays where it is, and its own
+ * control takes it full screen.
+ * @param props
+ * @param props.slide - The slide (`kind: 'embed'`); its title labels the frame.
+ */
+function EmbedPlayer({ slide }: { slide: MediaSlide }) {
+  return (
+    <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }} className="w-full" data-testid="report-embed">
+      <iframe
+        src={slide.src}
+        frameBorder="0"
+        allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
+        allowFullScreen
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+        title={slide.title}
+      />
+    </div>
+  );
+}
+
+/**
+ * What a slide shows in the strip before it is opened: the picture, or the
+ * recording's first frame under a play mark — it plays once opened.
+ * @param props
+ * @param props.slide - The slide.
+ * @param props.eager - Load it now (the first slide).
+ */
+function SlidePreview({ slide, eager }: { slide: MediaSlide; eager: boolean }) {
+  const alt = slide.caption ?? slide.title;
+  if (slide.kind === 'video') {
+    return (
+      <span className="relative flex size-full items-center justify-center overflow-hidden rounded-md bg-[#09090b]" data-testid="report-slide-video">
+        {/* The first frame stands for the recording; it plays full screen. */}
+        { }
+        <video src={`${slide.src}#t=0.1`} muted playsInline preload="metadata" aria-hidden className="max-h-full max-w-full object-contain" />
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex size-14 items-center justify-center rounded-full bg-white/90 text-[#09090b] shadow-md">
+            <Play className="size-6 translate-x-0.5 fill-current" aria-hidden />
+          </span>
+        </span>
+      </span>
+    );
+  }
+  return <img src={slide.src} alt={alt} loading={eager ? 'eager' : 'lazy'} className="max-h-full max-w-full rounded-md object-contain" />;
+}
+
+/**
+ * A recording or a player, full screen: it plays with its own controls (the
+ * player's own full-screen button included) while it is the slide in view.
+ * @param props
+ * @param props.slide - The slide.
+ * @param props.inView - Whether it is the slide being looked at; one out of view is not loaded.
+ */
+function SlidePlayer({ slide, inView }: { slide: MediaSlide; inView: boolean }) {
+  const label = `${slide.label}: ${slide.caption ?? slide.title}`;
+  if (!inView) {
+    return <span className="size-full" aria-hidden />;
+  }
+  if (slide.kind === 'embed') {
+    return <div className="w-full max-w-4xl"><EmbedPlayer slide={slide} /></div>;
+  }
+  return (
+    // A browser recording has no sound to caption; what it shows is the caption below.
+    // eslint-disable-next-line jsx-a11y/media-has-caption
+    <video controls autoPlay playsInline preload="auto" aria-label={label} className="max-h-full max-w-full rounded-md bg-black object-contain" data-testid="report-lightbox-video">
+      <source src={slide.src} {...(slide.type ? { type: slide.type } : {})} />
+    </video>
+  );
+}
 
 /**
  * WHO MADE IT, WHEN — the picture's source line. It opens where the picture
@@ -122,25 +202,33 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
           onScroll={onScroll}
           className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-muted [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {slides.map((s, i) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setOpen(i)}
-              // The page itself never zooms (layout.tsx), so a pinch here opens
-              // the picture full screen, where it pinches.
-              onTouchStart={(e) => {
-                if (e.touches.length >= 2) {
-                  setOpen(i);
-                }
-              }}
-              aria-label={`Open ${s.caption ?? s.title} full screen`}
-              data-testid="report-slide"
-              className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
-            >
-              <img src={s.src} alt={s.caption ?? s.title} loading={i === 0 ? 'eager' : 'lazy'} className="max-h-full max-w-full rounded-md object-contain" />
-            </button>
-          ))}
+          {slides.map((s, i) => (s.kind === 'embed'
+            // A player is not a picture to open: it plays in place, and its
+            // own control takes it full screen.
+            ? (
+                <div key={s.id} data-testid="report-slide" className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]">
+                  <EmbedPlayer slide={s} />
+                </div>
+              )
+            : (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setOpen(i)}
+                  // The page itself never zooms (layout.tsx), so a pinch here opens
+                  // the picture full screen, where it pinches.
+                  onTouchStart={(e) => {
+                    if (e.touches.length >= 2) {
+                      setOpen(i);
+                    }
+                  }}
+                  aria-label={`${s.kind === 'video' ? 'Play' : 'Open'} ${s.caption ?? s.title} full screen`}
+                  data-testid="report-slide"
+                  className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
+                >
+                  <SlidePreview slide={s} eager={i === 0} />
+                </button>
+              )))}
         </div>
         {many && (
           <>
@@ -167,7 +255,9 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
               onClick={() => go(i)}
               className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border bg-muted transition sm:h-16 sm:w-24 ${i === idx ? 'border-foreground ring-1 ring-foreground' : 'border-border opacity-70 hover:opacity-100'}`}
             >
-              <img src={s.src} alt="" loading="lazy" className="size-full object-cover object-top" />
+              {s.kind === 'video' || s.kind === 'embed'
+                ? <span className="flex size-full items-center justify-center bg-[#09090b] text-white"><Play className="size-4 fill-current" aria-hidden /></span>
+                : <img src={s.src} alt="" loading="lazy" className="size-full object-cover object-top" />}
             </button>
           ))}
         </div>
@@ -287,14 +377,18 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
       >
         {slides.map((s, i) => (
           <div key={s.id} className="flex h-full w-full shrink-0 snap-center items-center justify-center overflow-hidden p-2">
-            <ZoomableImage
-              // Remounted when it leaves view, so the next visit opens fitted.
-              key={i === idx ? 'in-view' : 'out'}
-              src={s.src}
-              alt={s.caption ?? s.title}
-              testId={i === idx ? 'report-lightbox-image' : undefined}
-              onZoomChange={z => i === idx && setZoomed(z)}
-            />
+            {s.kind === 'video' || s.kind === 'embed'
+              ? <SlidePlayer slide={s} inView={i === idx} />
+              : (
+                  <ZoomableImage
+                    // Remounted when it leaves view, so the next visit opens fitted.
+                    key={i === idx ? 'in-view' : 'out'}
+                    src={s.src}
+                    alt={s.caption ?? s.title}
+                    testId={i === idx ? 'report-lightbox-image' : undefined}
+                    onZoomChange={z => i === idx && setZoomed(z)}
+                  />
+                )}
           </div>
         ))}
       </div>
@@ -304,7 +398,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
           {current.caption ?? current.title}
         </span>
         {current.source && <SourceLine source={current.source} tone="dark" onOpen={() => onClose(idx)} />}
-        <span className="mt-1 block text-[11px] opacity-50">{zoomed ? 'Pinch or tap to fit · drag to look around' : 'Pinch or tap to zoom · swipe for the next'}</span>
+        <span className="mt-1 block text-[11px] opacity-50">{current.kind === 'video' || current.kind === 'embed' ? (slides.length > 1 ? 'Swipe for the next' : '') : zoomed ? 'Pinch or tap to fit · drag to look around' : 'Pinch or tap to zoom · swipe for the next'}</span>
       </div>
     </div>,
     document.body,

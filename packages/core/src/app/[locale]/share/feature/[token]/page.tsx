@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import { setRequestLocale } from 'next-intl/server';
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { PublicFeatureView } from '@/features/share/PublicFeatureView';
+import { sharedFeatureMetadata } from '@/features/share/shareMetadata';
+import { requestOrigin } from '@/libs/http/publicOrigin';
 import { loadSharedFeature } from '@/services/factory/featureShareData';
 
 export const dynamic = 'force-dynamic';
@@ -12,18 +15,15 @@ const load = cache(async (token: string) => loadSharedFeature(token));
 
 /**
  * Never indexed, never followed, and no referrer leaves it: a link a person
- * pasted somewhere is for the people they pasted it to.
+ * pasted somewhere is for the people they pasted it to — and where they
+ * pasted it, it unfurls to the feature's card (`sharedFeatureMetadata`).
  * @param props
  * @param props.params
  */
 export async function generateMetadata(props: { params: Promise<{ token: string }> }): Promise<Metadata> {
   const { token } = await props.params;
   const page = await load(token).catch(() => null);
-  return {
-    title: page?.title ?? 'Not found',
-    robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
-    referrer: 'no-referrer',
-  };
+  return sharedFeatureMetadata(page, requestOrigin(await headers()));
 }
 
 /**

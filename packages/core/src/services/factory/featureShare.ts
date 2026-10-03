@@ -14,8 +14,10 @@
  *
  * SAFE BY CONSTRUCTION. What a visitor sees is `PublicFeaturePage`, built
  * here from an explicit list of fields — never the report, the record or an
- * artifact row passed through. No email, no internal link, no run log, no
- * code, no pull request, no per-agent cost, no other record. Every picture
+ * artifact row passed through. No email, no internal link but one (the
+ * "Open in <workspace>" button's `openUrl`, which the sharer can turn off),
+ * no run log, no code, no pull request, no per-agent cost, no other record;
+ * the workspace and product by display name only. Every picture
  * and the recording are served through the share token, by a URL the page
  * signed for that one file (`mediaSrc`); a file the page did not choose is
  * not reachable through the link.
@@ -24,15 +26,21 @@
  */
 
 import type { FeatureReport, HistoryRow } from './featureReport';
+import type { Phase } from '@/libs/factory/featureGlance';
+import { cardDescription, cardTitle, compactSpan, DEFAULT_BUILDER, DEFAULT_SITE_NAME, timeSplit } from '@/libs/factory/featureGlance';
 import { readRequestLive } from '@/libs/factory/liveCheck';
+import { showsAnError } from '@/libs/factory/mockup';
+import { slatePlayerUrl } from '@/libs/slate/client';
 import { API_ARTIFACTS_BASE } from '@/libs/tools/artifacts/url';
+import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { firstSentence } from '@/libs/workspace/releaseFeed';
-import { formatDuration, money, RECORDING_ROLES } from './featureReport';
+import { money, RECORDING_ROLES } from './featureReport';
 
 /** The role the public link is filed under on its request. */
 export const FEATURE_PAGE_ROLE = 'public-page';
-/** The part of the page a sharer can leave out: who asked. */
+/** The parts of the page a sharer can leave out: who asked, and the button back into the workspace. */
 export const HIDE_ASKER = 'asker';
+export const HIDE_OPEN_LINK = 'open-link';
 /** A narrated cut of a recording is filed under its role plus this. */
 export const NARRATED_SUFFIX = '-narrated';
 
@@ -44,13 +52,50 @@ export type SharedArtifact = {
   url: string | null;
   spec: Record<string, unknown>;
   recordRole: string | null;
+  /** The record it is filed on, when the loader read it (the attempt a QA shot belongs to). */
+  recordId?: string | null;
   createdAt: Date;
   shareAudience: string;
 };
 
+/** The QA role a screenshot of the change is filed under, on the attempt that took it. */
+export const QA_SHOT_ROLE = 'qa-screenshot';
+/** The most QA screenshots the page shows: the evidence, not the whole QA record. */
+const MAX_QA_SHOTS = 8;
+
+/** One slide in the page's carousel, in the order it is shown. */
+export type PublicSlide
+  = | { kind: 'image'; src: string; label: 'Mockup' | 'Before' | 'After' | 'QA after' | 'QA before'; alt: string; caption: string | null; width?: number; height?: number }
+    | { kind: 'video'; src: string; type: string; label: string; caption: string }
+  /** The video host's player; `title` labels the frame for a screen reader ("FE-402 · Sort the library"). */
+    | { kind: 'embed'; src: string; label: string; caption: string; title: string };
+
 /** What a visitor sees. Every field is listed here; nothing else reaches the page. */
 export type PublicFeaturePage = {
+  /** The feature's ticket-sized name (`recordName`), never the whole ask. */
   title: string;
+  /** The line under the name: "Shipped · 2 Oct 2026", or still being built. */
+  status: { word: 'Shipped' | 'In progress'; at: string | null };
+  /** Who built it: the workspace's own name, else {@link DEFAULT_BUILDER}. */
+  builtBy: string;
+  /** The workspace's display name (never its id or slug), or null when it cannot be read. */
+  workspaceName: string | null;
+  /** The product's display name, when the work names a product. */
+  productName: string | null;
+  /**
+   * THE ONE LINK BACK IN (Chris, 2026-10-03: an "Open in <workspace>"
+   * button): the feature's own page in the app, `/w/<slug>/…`, relative so it
+   * opens on the address the page was opened at. A visitor without a session
+   * signs in; one outside the workspace is refused there. Null when the
+   * sharer turned it off. The only internal URL on the page.
+   */
+  openUrl: string | null;
+  /**
+   * The carousel, right under the name: the walkthrough first, then the
+   * mockups (and the screen before, the shot after), then QA's screenshots
+   * of the attempt that shipped. Every file through the share route.
+   */
+  media: PublicSlide[];
   ask: {
     /** The request as the person typed it. */
     text: string;
@@ -62,7 +107,7 @@ export type PublicFeaturePage = {
   /** What it built, in one sentence. */
   built: string;
   effort: {
-    /** "2d 4h", or null when nothing is dated. */
+    /** "1h 12m" (`compactSpan`), or null when nothing is dated. */
     duration: string | null;
     /** What the duration runs to. */
     until: 'seen live' | 'shipped' | 'so far' | null;
@@ -71,18 +116,29 @@ export type PublicFeaturePage = {
     total: string | null;
     /** Builds, agents, chat: "not recorded" when that kind carries no cost. */
     split: Array<{ label: string; amount: string }>;
+    /** Where the time went: Plan, Build, QA, Release, Live check — the ones that took any. */
+    timeSplit: Array<{ label: string; amount: string }>;
   };
-  pictures: Array<{ src: string; label: 'Mockup' | 'Before' | 'After'; alt: string; caption: string | null }>;
-  video:
-    | { kind: 'embed'; src: string; label: string; caption: string; at: string }
-    | { kind: 'file'; src: string; type: string; label: string; caption: string; at: string }
-    | null;
-  /** Oldest first: asked, planned, built, QA approved, merged, released, seen live. */
-  timeline: Array<{ step: string; at: string }>;
+  /**
+   * Oldest first: asked, planned, built, QA approved, merged, released, seen
+   * live — each with how long until the next step and one plain sentence.
+   */
+  timeline: PublicStep[];
+};
+
+/** One step of the timeline. */
+export type PublicStep = {
+  step: string;
+  /** ISO. The page shows it in the reader's clock. */
+  at: string;
+  /** "18 min" until the next step; null on the last. */
+  took: string | null;
+  /** What happened, in one fixed sentence per kind of step. */
+  sentence: string;
 };
 
 /** The fields this module reads off the feature report. */
-export type PublicFeatureReport = Pick<FeatureReport, 'title' | 'summary' | 'historyCost' | 'history' | 'release'>;
+export type PublicFeatureReport = Pick<FeatureReport, 'title' | 'summary' | 'historyCost' | 'history' | 'release'> & { acceptance?: Pick<FeatureReport['acceptance'], 'attempt'> };
 
 export type PublicFeatureInput = {
   report: PublicFeatureReport;
@@ -91,6 +147,18 @@ export type PublicFeatureInput = {
   pictures: readonly SharedArtifact[];
   /** Recording candidates on the request and its tasks. */
   recordings: readonly SharedArtifact[];
+  /** QA screenshots on the request's tasks; the page shows the shipped attempt's. */
+  evidence?: readonly SharedArtifact[];
+  /** The feature's name when the loader read one now (`nameOnRead`); else the report's. */
+  name?: string;
+  /** The feature's own code ("FE-402"), for the player's frame label. */
+  code?: string | null;
+  /** The workspace's display name (its project row), for "Built by …". */
+  workspaceName?: string | null;
+  /** The feature's page in the app (`recordHref`), unless the sharer hid the button. */
+  openUrl?: string | null;
+  /** The product record's display name, when the work names a product. */
+  productName?: string | null;
   hideAsker: boolean;
   /** Where the page loads a file it chose from: the share route, signed for that file. */
   mediaSrc: (artifactId: number) => string;
@@ -203,16 +271,16 @@ const WALKTHROUGH_LABEL: Record<string, string> = {
 };
 
 /**
- * The video host's player, when the recording was published there for
- * anyone to watch (`spec.hostedVideo`). A recording shared with the team
- * only would show a stranger a sign-in wall, so it is played from Vocion's
- * own copy instead.
+ * THE RECORDING'S PLAYER (Chris, 2026-10-03: "Carousel video = the Slate
+ * embedded player whenever the recording artifact has a Slate share id").
+ * The share id the upload kept on the artifact (`slateShareId`) names the
+ * player; who may watch is the video host's to decide, and its player says
+ * so itself. Without one, the page plays Vocion's own copy through the link.
  * @param a - The recording.
  */
-export function publicEmbed(a: Pick<SharedArtifact, 'spec'>): string | null {
-  const hosted = bag(a.spec.hostedVideo);
-  const embed = str(hosted, 'embedUrl');
-  return hosted.state === 'published' && hosted.visibility === 'public' && embed !== null && /^https:\/\//i.test(embed) ? embed : null;
+export function playerEmbed(a: Pick<SharedArtifact, 'spec'>): string | null {
+  const shareId = str(a.spec, 'slateShareId');
+  return shareId ? slatePlayerUrl(shareId) : null;
 }
 
 /**
@@ -223,7 +291,7 @@ export function publicEmbed(a: Pick<SharedArtifact, 'spec'>): string | null {
 export function walkthroughOf(candidates: readonly SharedArtifact[]): SharedArtifact | null {
   for (const role of WALKTHROUGH_ROLES) {
     const playable = candidates
-      .filter(a => a.recordRole === role && a.shareAudience !== 'me' && (publicEmbed(a) !== null || serveVia(a) === 'media' || serveVia(a) === 'file' || serveVia(a) === 'stored'))
+      .filter(a => a.recordRole === role && a.shareAudience !== 'me' && (playerEmbed(a) !== null || serveVia(a) === 'media' || serveVia(a) === 'file' || serveVia(a) === 'stored'))
       .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime() || y.id - x.id);
     if (playable[0]) {
       return playable[0];
@@ -260,13 +328,76 @@ function stepOf(row: HistoryRow): string | null {
 }
 
 /**
- * The steps, oldest first, each with its time: the person's ask, then the
- * feature page's Timeline rows said as fixed words. A row's own title can
- * name a person or a pull request; these words cannot.
+ * WHAT EACH STEP MEANS, in one plain sentence (Chris, 2026-10-03: "on the
+ * timeline, simplified timestamps, run time, and a little sentence
+ * explaining"). Fixed words per kind of step — never a row's own title,
+ * which can name a person, a pull request or a run.
+ */
+export const STEP_SENTENCE: Readonly<Record<string, string>> = {
+  'Asked': 'The ask came in and was filed as a feature.',
+  'Planned': 'The product manager wrote a plan for the change.',
+  'Plan approved': 'The plan was approved, so building could start.',
+  'Building': 'An engineer agent is building the change.',
+  'Built': 'An engineer agent built the change and sent it for review.',
+  'A build attempt failed': 'A build attempt did not pass its checks, so another was started.',
+  'QA approved': 'QA checked the change against what was asked and approved it.',
+  'QA asked for changes': 'QA found something missing and sent it back to be built again.',
+  'Merged': 'The change was merged into the product\'s code.',
+  'Deploying': 'The change is being deployed.',
+  'Deployed': 'The change was deployed.',
+  'A deploy failed': 'A deploy did not finish.',
+  'Released': 'The change went out in a release.',
+  'Seen live': 'QA opened the live product and saw it working.',
+  'Checked live': 'QA checked the live product.',
+};
+
+/** The phase each step closes, for where the time went (`timeSplit`). */
+const STEP_PHASE: Readonly<Record<string, Phase>> = {
+  'Planned': 'plan',
+  'Plan approved': 'plan',
+  'Building': 'build',
+  'Built': 'build',
+  'A build attempt failed': 'build',
+  'QA approved': 'qa',
+  'QA asked for changes': 'qa',
+  'Merged': 'release',
+  'Deploying': 'release',
+  'Deployed': 'release',
+  'A deploy failed': 'release',
+  'Released': 'release',
+  'Seen live': 'live',
+  'Checked live': 'live',
+};
+
+/**
+ * A short span for the timeline: "under a minute", "18 min", "1 h 19 min", "2 d 4 h".
+ * @param ms - The span.
+ */
+export function shortSpan(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  if (!Number.isFinite(ms) || min < 1) {
+    return 'under a minute';
+  }
+  if (min < 60) {
+    return `${min} min`;
+  }
+  const h = Math.floor(min / 60);
+  if (h < 24) {
+    return min % 60 === 0 ? `${h} h` : `${h} h ${min % 60} min`;
+  }
+  const d = Math.floor(h / 24);
+  return h % 24 === 0 ? `${d} d` : `${d} d ${h % 24} h`;
+}
+
+/**
+ * The steps, oldest first, each with its time, how long until the next one
+ * and what it means: the person's ask, then the feature page's Timeline rows
+ * said as fixed words. A row's own title can name a person or a pull
+ * request; these words cannot.
  * @param history - The report's Timeline, newest first.
  * @param askedAt - When they asked.
  */
-export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null): PublicFeaturePage['timeline'] {
+export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null): PublicStep[] {
   const rows = history.flatMap(r => (r.kind === 'attempt' ? r.children ?? [] : [r]));
   const steps = rows
     .map(r => ({ step: stepOf(r), at: r.at }))
@@ -274,7 +405,35 @@ export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null
   if (askedAt) {
     steps.push({ step: 'Asked', at: askedAt.toISOString() });
   }
-  return steps.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const sorted = steps.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return sorted.map((s, i) => {
+    const next = sorted[i + 1];
+    return { ...s, took: next ? shortSpan(Date.parse(next.at) - Date.parse(s.at)) : null, sentence: STEP_SENTENCE[s.step] ?? '' };
+  });
+}
+
+/** The attempt whose judgement counts, as the report reads it. */
+type CountedAttempt = NonNullable<FeatureReport['acceptance']['attempt']>;
+
+/**
+ * QA's screenshots of the attempt that shipped — the one whose judgement
+ * counts (`featureProof.countedAttempt`), when a release carried it or QA
+ * approved it. The shot after the change first, the screen before it after;
+ * a capture QA named as the app's error state stays in the QA record (the
+ * feature page's own rule, `showsAnError`). Only files the share route can
+ * serve, never one narrowed to "Only me".
+ * @param candidates - QA screenshots on the request's tasks.
+ * @param attempt - The attempt that counts.
+ */
+export function shippedEvidence(candidates: readonly SharedArtifact[], attempt: CountedAttempt | null | undefined): Array<{ artifact: SharedArtifact; label: 'QA after' | 'QA before' }> {
+  if (!attempt || (attempt.why !== 'shipped' && attempt.verdict !== 'approve')) {
+    return [];
+  }
+  return candidates
+    .filter(a => a.recordRole === QA_SHOT_ROLE && a.recordId === String(attempt.taskId) && a.shareAudience !== 'me' && isPicture(a) && serveVia(a) !== null && !showsAnError({ title: a.title, spec: a.spec }))
+    .map(a => ({ artifact: a, label: shotParts(a.title).side === 'before' ? 'QA before' as const : 'QA after' as const }))
+    .sort((x, y) => Number(x.label === 'QA before') - Number(y.label === 'QA before') || x.artifact.createdAt.getTime() - y.artifact.createdAt.getTime() || x.artifact.id - y.artifact.id)
+    .slice(0, MAX_QA_SHOTS);
 }
 
 /**
@@ -291,12 +450,61 @@ function durationOf(report: PublicFeatureReport, meta: Record<string, unknown>):
   const live = readRequestLive(meta);
   const seenAt = report.release.state === 'live' && live?.state === 'seen' && live.checkedAt ? new Date(live.checkedAt) : null;
   if (seenAt && !Number.isNaN(seenAt.getTime()) && seenAt.getTime() >= askedAt.getTime()) {
-    return { duration: formatDuration(seenAt.getTime() - askedAt.getTime()), until: 'seen live' };
+    return { duration: compactSpan(seenAt.getTime() - askedAt.getTime()), until: 'seen live' };
   }
   if (report.summary.shippedAt) {
-    return { duration: formatDuration(report.summary.shippedAt.getTime() - askedAt.getTime()), until: 'shipped' };
+    return { duration: compactSpan(report.summary.shippedAt.getTime() - askedAt.getTime()), until: 'shipped' };
   }
   return { duration: report.summary.elapsed, until: report.summary.elapsed ? 'so far' : null };
+}
+
+/**
+ * A picture's pixel size, when the file says it (`spec.width`, `spec.height`).
+ * @param spec - The artifact's spec.
+ */
+function sizeOf(spec: Record<string, unknown>): { width?: number; height?: number } {
+  const w = Number(spec.width);
+  const h = Number(spec.height);
+  return Number.isInteger(w) && w > 0 && Number.isInteger(h) && h > 0 ? { width: w, height: h } : {};
+}
+
+/** What a link unfurls to in a chat app: the name, what it built, and one picture. */
+export type ShareCard = {
+  /** The name, with how long and the cost when it fits (`cardTitle`). */
+  title: string;
+  /** "Built by Northwind in 1h 12m for $4.80 · <what it built>" (`cardDescription`). */
+  description: string;
+  /** The workspace's name, else "Vocion". */
+  siteName: string;
+  /** Absolute, served through the share link with no cookie; null when the page has no picture to lead with. */
+  image: { url: string; width?: number; height?: number; alt: string } | null;
+};
+
+/**
+ * THE LINK'S PREVIEW (Chris, 2026-10-03: share metadata for Slack unfurls).
+ * The name (with how long and the cost when it fits), who built it, how long
+ * and for what, then the one sentence of what it built — the same figures as
+ * the page's own (`libs/factory/featureGlance.ts`) — and the first mockup, else
+ * QA's first screenshot of the change, else no picture. The picture's URL is
+ * the page's own share-route URL made absolute against the origin the
+ * request came in on (never a configured public origin: a link pasted from
+ * one address is fetched back from that address), so a chat app fetches the
+ * real `image/*` bytes with no cookie; a picture kept inline (`data:`) is
+ * decoded and served by that route, since an unfurler cannot read one.
+ * @param page - The page.
+ * @param origin - The request's origin.
+ */
+export function shareCard(page: Pick<PublicFeaturePage, 'title' | 'built' | 'media' | 'effort' | 'builtBy' | 'productName'>, origin: string): ShareCard {
+  const images = page.media.filter((m): m is Extract<PublicSlide, { kind: 'image' }> => m.kind === 'image');
+  const lead = images.find(m => m.label === 'Mockup') ?? images.find(m => m.label === 'QA after' || m.label === 'QA before') ?? null;
+  return {
+    title: cardTitle(page.title, page.effort),
+    description: cardDescription(page.effort, page.builtBy, page.built, page.productName),
+    siteName: page.builtBy === DEFAULT_BUILDER ? DEFAULT_SITE_NAME : page.builtBy,
+    image: lead && lead.src.startsWith('/')
+      ? { url: new URL(lead.src, origin).toString(), ...(lead.width && lead.height ? { width: lead.width, height: lead.height } : {}), alt: lead.caption ?? lead.alt }
+      : null,
+  };
 }
 
 /**
@@ -314,11 +522,44 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
   const builtFrom = str(meta, 'outcome') ?? str(meta, 'summary') ?? report.title;
   const byId = new Map(input.pictures.map(a => [a.id, a]));
   const recording = walkthroughOf(input.recordings);
-  const embed = recording ? publicEmbed(recording) : null;
+  const embed = recording ? playerEmbed(recording) : null;
   const caption = (a: SharedArtifact) => scrub(str(a.spec, 'caption') ?? a.title);
   const cost = report.historyCost;
+  const label = recording ? WALKTHROUGH_LABEL[recording.recordRole ?? ''] ?? 'Walkthrough' : '';
+  const title = scrub(input.name ?? report.title);
+  const image = (artifact: SharedArtifact, l: Extract<PublicSlide, { kind: 'image' }>['label']): PublicSlide => ({
+    kind: 'image',
+    src: input.mediaSrc(artifact.id),
+    label: l,
+    alt: scrub(artifact.title),
+    caption: str(artifact.spec, 'caption') ? scrub(str(artifact.spec, 'caption')!) : null,
+    ...sizeOf(artifact.spec),
+  });
+  // THE CAROUSEL (Chris, 2026-10-03: "the walkthrough video as the primary
+  // carousel item, with the mocks, then QA evidence"). One picture is shown
+  // once, in its first place.
+  const pictures = sharedPictures(meta, byId);
+  const shown = new Set(pictures.map(p => p.artifact.id));
+  const media: PublicSlide[] = [
+    ...(recording === null
+      ? []
+      : [embed
+          ? { kind: 'embed' as const, src: embed, label, caption: caption(recording), title: input.code ? `${input.code} · ${title}` : title }
+          : { kind: 'video' as const, src: input.mediaSrc(recording.id), type: str(recording.spec, 'contentType') ?? 'video/webm', label, caption: caption(recording) }]),
+    ...pictures.map(({ artifact, label: l }) => image(artifact, l)),
+    ...shippedEvidence(input.evidence ?? [], report.acceptance?.attempt).filter(e => !shown.has(e.artifact.id)).map(({ artifact, label: l }) => image(artifact, l)),
+  ];
+  const shippedAt = report.summary.shippedAt;
+  const timeline = publicSteps(report.history, report.summary.askedAt);
   return {
-    title: scrub(report.title),
+    title,
+    builtBy: input.workspaceName?.trim() ? scrub(input.workspaceName.trim()) : DEFAULT_BUILDER,
+    workspaceName: input.workspaceName?.trim() ? scrub(input.workspaceName.trim()) : null,
+    productName: input.productName?.trim() ? scrub(input.productName.trim()) : null,
+    // A workspace path and nothing else: never a link out, never a query.
+    openUrl: input.openUrl && /^\/w\/[\w-]+\/[\w/-]+$/.test(input.openUrl) ? input.openUrl : null,
+    status: shippedAt ? { word: 'Shipped', at: shippedAt.toISOString() } : { word: 'In progress', at: null },
+    media,
     ask: { text: scrub(text), by, at: report.summary.askedAt?.toISOString() ?? null },
     built: scrub(firstSentence(builtFrom) ?? builtFrom),
     effort: {
@@ -326,18 +567,8 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
       attempts: report.summary.attempts,
       total: cost.totalCents > 0 ? money(cost.totalCents) : null,
       split: cost.split.map(s => ({ label: s.label, amount: s.cents === null ? 'not recorded' : money(s.cents) })),
+      timeSplit: timeSplit(timeline.map(t => ({ at: t.at, phase: STEP_PHASE[t.step] ?? null }))),
     },
-    pictures: sharedPictures(meta, byId).map(({ artifact, label }) => ({
-      src: input.mediaSrc(artifact.id),
-      label,
-      alt: scrub(artifact.title),
-      caption: str(artifact.spec, 'caption') ? scrub(str(artifact.spec, 'caption')!) : null,
-    })),
-    video: recording === null
-      ? null
-      : embed
-        ? { kind: 'embed', src: embed, label: WALKTHROUGH_LABEL[recording.recordRole ?? ''] ?? 'Walkthrough', caption: caption(recording), at: recording.createdAt.toISOString() }
-        : { kind: 'file', src: input.mediaSrc(recording.id), type: str(recording.spec, 'contentType') ?? 'video/webm', label: WALKTHROUGH_LABEL[recording.recordRole ?? ''] ?? 'Walkthrough', caption: caption(recording), at: recording.createdAt.toISOString() },
-    timeline: publicSteps(report.history, report.summary.askedAt),
+    timeline,
   };
 }

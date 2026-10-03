@@ -16,7 +16,8 @@ vi.mock('@/libs/DB');
 vi.mock('./featureReportData', () => ({ loadFeatureReport: vi.fn() }));
 
 const { db } = await import('@/libs/DB');
-const { artifactSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+const { artifactSchema, businessObjectSchema, businessObjectTypeSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
+const { shareCard } = await import('./featureShare');
 const { assembleFeatureReport } = await import('./featureReport');
 const { loadFeatureReport } = await import('./featureReportData');
 const { featureShareOf, loadSharedFeature, setFeatureShare, sharedFeatureMedia } = await import('./featureShareData');
@@ -36,6 +37,7 @@ let mockup = 0;
 let recording = 0;
 let chatUpload = 0;
 let otherPicture = 0;
+let qaShot = 0;
 
 async function typeId(orgId: string, slug: string): Promise<number> {
   const [t] = await db.insert(businessObjectTypeSchema).values({ orgId, slug, label: slug }).returning({ id: businessObjectTypeSchema.id });
@@ -50,7 +52,7 @@ async function picture(orgId: string, recordId: number | null, role: string | nu
 function reportFor(id: number, meta: Record<string, unknown>) {
   const input: FeatureReportInput = {
     request: { id, title: 'Show the upload date on each library row', status: 'shipped', createdAt: new Date('2026-10-02T07:12:00Z'), meta },
-    tasks: [{ id: taskId, title: 'Attempt 1', status: 'accepted', createdAt: new Date('2026-10-02T07:40:00Z'), meta: { requestId: id } }],
+    tasks: [{ id: taskId, title: 'Attempt 1', status: 'accepted', createdAt: new Date('2026-10-02T07:40:00Z'), meta: { requestId: id, verdict: { value: 'approve', at: '2026-10-02T07:58:00Z' } } }],
     plans: [],
     workerRuns: [{ id: 501, agentSlug: 'northwind-engineer', kind: 'worker', status: 'completed', attempt: 1, cents: 120, model: null, summary: null, error: null, createdAt: new Date('2026-10-02T07:41:00Z'), claimedAt: null, completedAt: new Date('2026-10-02T07:55:00Z'), input: { record: { type: 'engineering_task', id: taskId } }, result: null, progress: {} }],
     asks: [],
@@ -71,6 +73,8 @@ const call = (token: string, artifactId: number, sig: string | null) => GET(
 
 beforeAll(async () => {
   process.env.AUTH_SECRET = 'feature-share-test-secret';
+  await db.insert(tenantAccountSchema).values({ id: 'acct_share_northwind', name: 'Northwind', slug: 'northwind-share' });
+  await db.insert(projectSchema).values({ id: ORG, accountId: 'acct_share_northwind', slug: 'northwind-studio', name: 'Northwind Studio' });
   const request = await typeId(ORG, 'request');
   const task = await typeId(ORG, 'engineering_task');
   const otherType = await typeId(OTHER, 'request');
@@ -84,6 +88,7 @@ beforeAll(async () => {
   mockup = await picture(ORG, requestId, null);
   chatUpload = await picture(ORG, requestId, 'reported');
   otherPicture = await picture(ORG, otherRequestId, null);
+  qaShot = await picture(ORG, taskId, 'qa-screenshot', { title: 'Library · desktop · after', url: null, spec: { href: '#', title: 'x', contentType: 'image/png', caption: 'Rows with dates', url: PNG } });
   recording = await picture(ORG, taskId, 'qa-live-video', { kind: 'link', url: '/api/media/live/live-check-aaaaaaaaaaaaaaaa.webm', spec: { href: '#', title: 'x', contentType: 'video/webm', caption: 'Live check' } });
   const meta = {
     body: 'I cannot tell which file is newest. Email dana@northwind.example.',
@@ -102,7 +107,7 @@ afterAll(() => {
 
 describe('sharing a feature', () => {
   it('is off until someone presses Share', async () => {
-    expect(await featureShareOf(ORG, requestId)).toEqual({ shared: false, path: null, hideAsker: false });
+    expect(await featureShareOf(ORG, requestId)).toEqual({ shared: false, path: null, hideAsker: false, showOpenLink: true });
   });
 
   it('refuses a record that is not one of this workspace\'s features', async () => {
@@ -120,14 +125,16 @@ describe('sharing a feature', () => {
     const token = tokenOf(on!.path);
     const page = await loadSharedFeature(token);
 
-    expect(page).toMatchObject({ title: 'Show the upload date on each library row', built: 'Library rows show when each file was uploaded.', ask: { by: 'Dana Okafor' } });
-    expect(JSON.stringify(page)).not.toMatch(/dana@|northwind\.example|\/api\/media|\/api\/artifacts|\/dashboard/);
-    expect(page!.pictures.map(p => p.label)).toEqual(['Mockup']);
-    expect(page!.video).toMatchObject({ kind: 'file', label: 'On the live product' });
+    expect(page).toMatchObject({ title: 'Show the upload date on each library row', built: 'Library rows show when each file was uploaded.', ask: { by: 'Dana Okafor' }, builtBy: 'Northwind Studio', workspaceName: 'Northwind Studio' });
+    // The one link back in: the feature's page in the workspace, as the app links it.
+    expect(page!.openUrl).toBe(`/w/northwind-studio/dashboard/objects/${requestId}`);
+    expect(JSON.stringify({ ...page, openUrl: null })).not.toMatch(/dana@|northwind\.example|\/api\/media|\/api\/artifacts|\/dashboard/);
+    // The walkthrough, the mockup, then QA's shot of the attempt that shipped.
+    expect(page!.media.map(m => [m.kind, m.label])).toEqual([['video', 'On the live product'], ['image', 'Mockup'], ['image', 'QA after']]);
 
     const off = await setFeatureShare({ orgId: ORG, requestId, userId: ADA, shared: false });
 
-    expect(off).toEqual({ shared: false, path: null, hideAsker: false });
+    expect(off).toEqual({ shared: false, path: null, hideAsker: false, showOpenLink: true });
     expect(await loadSharedFeature(token)).toBeNull();
   });
 
@@ -139,6 +146,18 @@ describe('sharing a feature', () => {
     expect(second).not.toBe(first);
     expect(await loadSharedFeature(first)).toBeNull();
     expect(await loadSharedFeature(second)).not.toBeNull();
+  });
+
+  it('hides the Open button on every copy when the sharer turns it off, and shows it again', async () => {
+    const state = await setFeatureShare({ orgId: ORG, requestId, userId: ADA, shared: true, showOpenLink: false });
+
+    expect(state).toMatchObject({ shared: true, showOpenLink: false, hideAsker: false });
+    expect((await loadSharedFeature(tokenOf(state!.path)))!.openUrl).toBeNull();
+
+    const shown = await setFeatureShare({ orgId: ORG, requestId, userId: ADA, shared: true, showOpenLink: true });
+
+    expect(shown!.path).toBe(state!.path);
+    expect((await loadSharedFeature(tokenOf(shown!.path)))!.openUrl).not.toBeNull();
   });
 
   it('hides who asked on every copy when the sharer turns it off', async () => {
@@ -175,13 +194,39 @@ describe('the files a shared page loads', () => {
   it('serves the mockup and the recording it chose, through the link', async () => {
     const token = tokenOf((await featureShareOf(ORG, requestId)).path);
     const page = (await loadSharedFeature(token))!;
-    const src = new URL(page.pictures[0]!.src, 'http://localhost');
+    const src = new URL(page.media[1]!.src, 'http://localhost');
     const res = await call(token, Number(src.pathname.split('/').pop()), src.searchParams.get('k'));
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(res.headers.get('x-robots-tag')).toContain('noindex');
-    expect(page.video!.kind).toBe('file');
+    expect(page.media[0]!.kind).toBe('video');
+
+    // QA's screenshot on the shipped attempt is the feature's, through the link.
+    const shotSrc = new URL(page.media[2]!.src, 'http://localhost');
+
+    expect(Number(shotSrc.pathname.split('/').pop())).toBe(qaShot);
+    expect((await call(token, qaShot, shotSrc.searchParams.get('k'))).status).toBe(200);
+  });
+
+  it('unfurls to an absolute picture a chat app can fetch with no cookie, decoded from an inline picture', async () => {
+    const token = tokenOf((await featureShareOf(ORG, requestId)).path);
+    const page = (await loadSharedFeature(token))!;
+    const card = shareCard(page, 'https://agents.northwind.example');
+
+    expect(card.siteName).toBe('Northwind Studio');
+    expect(card.image!.url).toMatch(/^https:\/\/agents\.northwind\.example\/api\/share\/feature\/[^/]+\/media\/\d+\?k=/);
+
+    // Fetched back exactly as an unfurler would: that URL, no cookie, no session.
+    const url = new URL(card.image!.url);
+    const res = await GET(
+      { nextUrl: url, headers: new Headers() } as never,
+      { params: Promise.resolve({ token: url.pathname.split('/')[4]!, artifactId: url.pathname.split('/')[6]! }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(Number(res.headers.get('content-length'))).toBeGreaterThan(0);
   });
 
   it('serves nothing it did not choose, nothing of another feature, and nothing once revoked', async () => {

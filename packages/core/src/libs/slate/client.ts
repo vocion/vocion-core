@@ -130,6 +130,22 @@ export function slateEmbedUrl(webOrigin: string, shareId: string): string {
   return `${webOrigin}/embed/${encodeURIComponent(shareId)}`;
 }
 
+/**
+ * Where Slate's embedded player is served (Chris, 2026-10-03: "the host is
+ * slate.metacto.com/embed/"). The one place the origin is written: a page
+ * that frames a recording by its share id, and anything that has to allow
+ * that frame, read it here.
+ */
+export const SLATE_PLAYER_ORIGIN = 'https://slate.metacto.com';
+
+/**
+ * The embedded player for a recording's Slate share id.
+ * @param shareId - The share id kept on the artifact (`slateShareId`).
+ */
+export function slatePlayerUrl(shareId: string): string {
+  return slateEmbedUrl(SLATE_PLAYER_ORIGIN, shareId);
+}
+
 const defaultFetch: SlateFetch = (url, init) => fetch(url, init as RequestInit);
 
 async function failureFrom(res: { status: number; text: () => Promise<string> }, what: string): Promise<SlateFailure> {

@@ -14,8 +14,14 @@ import { factoryTypes } from '@/libs/factory/types';
 import { signArtifactShare, signShareMedia, verifyArtifactShare, verifyShareMedia } from '@/libs/share/artifactShareToken';
 import { createArtifact, getArtifact, listArtifactsByIds, listArtifactsForRecord, listArtifactsForRecords, setArtifactShare, updateArtifact } from '@/services/ArtifactService';
 import { getBusinessObject } from '@/services/BusinessObjectService';
+import { codeForRecord } from '@/services/codes';
+import { recordHref } from '@/services/objects/recordHref';
+import { nameOnRead } from '@/services/objects/recordName';
 import { loadFeatureReport } from './featureReportData';
-import { FEATURE_PAGE_ROLE, HIDE_ASKER, publicFeaturePage, WALKTHROUGH_ROLES } from './featureShare';
+import { FEATURE_PAGE_ROLE, HIDE_ASKER, HIDE_OPEN_LINK, publicFeaturePage, QA_SHOT_ROLE, WALKTHROUGH_ROLES } from './featureShare';
+
+/** Every role a file filed on the feature or its attempts may be served under: the recordings and QA's screenshots. */
+const FILED_ROLES: readonly string[] = [...WALKTHROUGH_ROLES, QA_SHOT_ROLE];
 
 /** What the Share control shows. */
 export type FeatureShareState = {
@@ -23,9 +29,11 @@ export type FeatureShareState = {
   /** The public path (`/share/feature/<token>`) while shared. */
   path: string | null;
   hideAsker: boolean;
+  /** The page's "Open in <workspace>" button; on unless the sharer turned it off. */
+  showOpenLink: boolean;
 };
 
-const OFF: FeatureShareState = { shared: false, path: null, hideAsker: false };
+const OFF: FeatureShareState = { shared: false, path: null, hideAsker: false, showOpenLink: true };
 
 /**
  * The public path for a link artifact.
@@ -51,7 +59,7 @@ function isLiveLink(row: Pick<ArtifactRow, 'recordRole' | 'recordType' | 'record
 }
 
 function stateOf(row: ArtifactRow | null): FeatureShareState {
-  return row ? { shared: true, path: featureSharePath(row), hideAsker: hiddenOf(row).includes(HIDE_ASKER) } : OFF;
+  return row ? { shared: true, path: featureSharePath(row), hideAsker: hiddenOf(row).includes(HIDE_ASKER), showOpenLink: !hiddenOf(row).includes(HIDE_OPEN_LINK) } : OFF;
 }
 
 /**
@@ -94,8 +102,9 @@ export async function featureShareOf(orgId: string, requestId: number): Promise<
  * @param opts.userId - Who pressed it: the link's author.
  * @param opts.shared - On or off.
  * @param opts.hideAsker - Leave out who asked. Absent, unchanged (a new link shows them).
+ * @param opts.showOpenLink - Show the "Open in <workspace>" button. Absent, unchanged (a new link shows it).
  */
-export async function setFeatureShare(opts: { orgId: string; requestId: number; userId: string | null; shared: boolean; hideAsker?: boolean }): Promise<FeatureShareState | null> {
+export async function setFeatureShare(opts: { orgId: string; requestId: number; userId: string | null; shared: boolean; hideAsker?: boolean; showOpenLink?: boolean }): Promise<FeatureShareState | null> {
   const row = await featureRow(opts.orgId, opts.requestId);
   if (!row) {
     return null;
@@ -109,11 +118,15 @@ export async function setFeatureShare(opts: { orgId: string; requestId: number; 
     }
     return OFF;
   }
-  const hide = opts.hideAsker ?? (live ? hiddenOf(live).includes(HIDE_ASKER) : false);
-  const hidden = hide ? [HIDE_ASKER] : [];
+  const was = live ? hiddenOf(live) : [];
+  const hideAsker = opts.hideAsker ?? was.includes(HIDE_ASKER);
+  const hideOpen = opts.showOpenLink === undefined ? was.includes(HIDE_OPEN_LINK) : !opts.showOpenLink;
+  const hidden = [...(hideAsker ? [HIDE_ASKER] : []), ...(hideOpen ? [HIDE_OPEN_LINK] : [])];
   const title = row.title;
   if (live) {
-    if (opts.hideAsker === undefined || hiddenOf(live).includes(HIDE_ASKER) === opts.hideAsker) {
+    const askerChanged = hideAsker !== was.includes(HIDE_ASKER);
+    const openChanged = hideOpen !== was.includes(HIDE_OPEN_LINK);
+    if (!askerChanged && !openChanged) {
       return stateOf(live);
     }
     const { artifact } = await updateArtifact({
@@ -121,7 +134,7 @@ export async function setFeatureShare(opts: { orgId: string; requestId: number; 
       id: live.id,
       spec: { ...(live.spec as Record<string, unknown>), hidden },
       author,
-      changeSummary: opts.hideAsker ? 'Hid who asked' : 'Showed who asked',
+      changeSummary: askerChanged ? (hideAsker ? 'Hid who asked' : 'Showed who asked') : (hideOpen ? 'Hid the Open button' : 'Showed the Open button'),
       noCollapse: true,
     });
     return stateOf(artifact);
@@ -168,8 +181,21 @@ async function linkFor(token: string): Promise<{ orgId: string; link: ArtifactRo
   return { orgId: claim.orgId, link, requestId: Number(link.recordId) };
 }
 
+/**
+ * The workspace's display name — its project row's — for "Built by …" on the
+ * page and the site a pasted link unfurls under. Null when it cannot be read.
+ * @param orgId - The workspace.
+ */
+async function workspaceNameOf(orgId: string): Promise<string | null> {
+  const { eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { projectSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ name: projectSchema.name }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
+  return row?.name?.trim() || null;
+}
+
 function toShared(a: ArtifactRow): SharedArtifact {
-  return { id: a.id, kind: a.kind, title: a.title, url: a.url ?? null, spec: (a.spec ?? {}) as Record<string, unknown>, recordRole: a.recordRole ?? null, createdAt: a.createdAt, shareAudience: a.shareAudience };
+  return { id: a.id, kind: a.kind, title: a.title, url: a.url ?? null, spec: (a.spec ?? {}) as Record<string, unknown>, recordRole: a.recordRole ?? null, recordId: a.recordId ?? null, createdAt: a.createdAt, shareAudience: a.shareAudience };
 }
 
 function visualIds(meta: Record<string, unknown>): number[] {
@@ -202,12 +228,32 @@ export async function loadSharedFeature(token: string, now: Date = new Date()): 
     pictureIds.length === 0 ? Promise.resolve([]) : listArtifactsByIds({ orgId, ids: pictureIds }),
     listArtifactsForRecords({ orgId, recordType: 'object', recordIds: [...new Set([requestId, ...taskIds])].map(String) }),
   ]);
+  // A feature filed with the whole ask as its title is named the first time
+  // its page is read, and the name is kept (`services/objects/recordName.ts`).
+  const hidden = hiddenOf(link);
+  const product = typeof meta.product === 'string' ? meta.product : null;
+  const [name, code, workspaceName, openUrl, productName] = await Promise.all([
+    nameOnRead({ orgId, id: requestId, title: row.title, meta, kind: row.type?.label?.toLowerCase() }),
+    codeForRecord(orgId, requestId).catch(() => null),
+    workspaceNameOf(orgId).catch(() => null),
+    // The feature's own page in the app, the way the app links it: a visitor
+    // without a session signs in, one outside the workspace is refused there.
+    hidden.includes(HIDE_OPEN_LINK) ? Promise.resolve(null) : recordHref(orgId, { objectType: row.type?.slug ?? null, id: requestId }).catch(() => null),
+    // The product's name, read the way the factory reads its product record.
+    product ? import('@/libs/actions/factory-dispatch').then(m => m.readProduct(orgId, product)).then(p => p?.title ?? null).catch(() => null) : Promise.resolve(null),
+  ]);
   return publicFeaturePage({
     report,
     request: { title: row.title, createdAt: row.createdAt ?? null, meta },
+    name,
+    code,
+    workspaceName,
+    openUrl,
+    productName,
     pictures: pictures.map(toShared),
     recordings: onRecords.filter(a => (WALKTHROUGH_ROLES as readonly string[]).includes(a.recordRole ?? '')).map(toShared),
-    hideAsker: hiddenOf(link).includes(HIDE_ASKER),
+    evidence: onRecords.filter(a => a.recordRole === QA_SHOT_ROLE && a.recordId !== String(requestId)).map(toShared),
+    hideAsker: hidden.includes(HIDE_ASKER),
     mediaSrc: artifactId => `/api/share/feature/${encodeURIComponent(token)}/media/${artifactId}?k=${signShareMedia({ shareId: link.id, artifactId })}`,
   });
 }
@@ -216,8 +262,8 @@ export async function loadSharedFeature(token: string, now: Date = new Date()): 
  * The one file a shared feature's page may load, or null. All of: the link
  * is live; the page signed this file for this link; the file is in the same
  * workspace and not narrowed to "Only me"; and it belongs to the feature —
- * one of the request's own pictures, or a recording filed on the request or
- * on one of its tasks. Any one missing is the same null.
+ * one of the request's own pictures, or a recording or QA screenshot filed
+ * on the request or on one of its tasks. Any one missing is the same null.
  * @param token - The link's token.
  * @param artifactId - The file.
  * @param sig - The page's signature for it.
@@ -239,7 +285,7 @@ export async function sharedFeatureMedia(token: string, artifactId: number, sig:
   if (visualIds((row.metadata ?? {}) as Record<string, unknown>).includes(artifact.id)) {
     return { orgId, artifact };
   }
-  if (!(WALKTHROUGH_ROLES as readonly string[]).includes(artifact.recordRole ?? '') || artifact.recordType !== 'object') {
+  if (!FILED_ROLES.includes(artifact.recordRole ?? '') || artifact.recordType !== 'object') {
     return null;
   }
   const filedOn = Number(artifact.recordId);
