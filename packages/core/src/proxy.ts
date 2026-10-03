@@ -190,6 +190,7 @@ export const config = {
     // request the proxy matches has its body cut at Next's 10 MB clone limit
     // (`proxyClientMaxBodySize`), so a phone video or a 20 MB chat file arrived
     // truncated and failed to parse. The proxy passes `/api/*` through untouched.
-    '/((?!_next|_vercel|monitoring|api/auth|api/mobile/share|api/chat/attachments|icon|apple-icon|opengraph-image|twitter-image|manifest|robots|sitemap|.*\\..*).*)',
+    // `api/v1/artifacts/video` is the factory's recording upload (up to 200 MB).
+    '/((?!_next|_vercel|monitoring|api/auth|api/mobile/share|api/chat/attachments|api/v1/artifacts/video|icon|apple-icon|opengraph-image|twitter-image|manifest|robots|sitemap|.*\\..*).*)',
   ],
 };

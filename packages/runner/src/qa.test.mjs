@@ -11,8 +11,10 @@ import {
   buildSurface,
   caption,
   captionForShotFile,
+  captionForVideoFile,
   captureEvidence,
   collectRepoTestShots,
+  collectRepoTestVideos,
   detectErrorState,
   duplicateOf,
   ERROR_STATE_PATTERNS,
@@ -794,6 +796,55 @@ describe('the repo\'s own test screenshots (FE-398, 2026-10-03)', () => {
   it('does not add the heading when there is nothing from the repo\'s tests', () => {
     const md = qaReportMarkdown({ taskId: 't1', runId: 'r1', base: '', qa: { surface: 'app' }, rows: [], failures: [], repoShots: { uploaded: [], skipped: [] } });
     assert.doesNotMatch(md, /From the repo's own tests/);
+  });
+});
+
+describe('the repo\'s own test recordings (2026-10-03)', () => {
+  it('captions a recording by its name, or by its folder when Playwright called it video.webm', () => {
+    assert.deepEqual(captionForVideoFile('rename-save-disabled-desktop.webm'), { caption: `rename save disabled ${String.fromCharCode(0xB7)} desktop`, viewport: 'desktop' });
+    assert.deepEqual(captionForVideoFile('rename-blank-name-phone/video.webm'), { caption: `rename blank name ${String.fromCharCode(0xB7)} phone`, viewport: 'phone' });
+  });
+
+  it('sends each recording to Vocion as raw bytes with its type, and leaves the pictures to the shots pass', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'rename-desktop.webm'), Buffer.from('fake webm'));
+    fs.writeFileSync(path.join(dir, 'rename-desktop.png'), Buffer.from('fake png'));
+    fs.mkdirSync(path.join(dir, 'library-phone'));
+    fs.writeFileSync(path.join(dir, 'library-phone', 'video.mp4'), Buffer.from('fake mp4'));
+    const sent = [];
+    const upload = async (p, bytes, type) => {
+      sent.push({ p, bytes: bytes.toString(), type });
+      return { ok: true, status: 201, json: { url: `/api/media/41/v-${sent.length}.webm`, artifactIds: [900 + sent.length, 950 + sent.length] } };
+    };
+    try {
+      const r = await collectRepoTestVideos({ dir, recordId: 77, upload });
+      assert.equal(r.skipped.length, 0);
+      assert.deepEqual(sent.map(x => [x.type, x.bytes]), [['video/mp4', 'fake mp4'], ['video/webm', 'fake webm']]);
+      const q = new URLSearchParams(sent[1].p.split('?')[1]);
+      assert.ok(sent[1].p.startsWith('/artifacts/video?'));
+      assert.equal(q.get('recordId'), '77');
+      assert.equal(q.get('role'), 'qa-video');
+      assert.match(q.get('caption'), /rename .* desktop .* before merge$/);
+      assert.deepEqual(r.evidence.map(e => [e.role, e.source, e.url]), [['qa-video', 'repo-test', '/api/media/41/v-1.webm'], ['qa-video', 'repo-test', '/api/media/41/v-2.webm']]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('names what it did not send: over the cap, refused by Vocion, or with no task to file it on', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'a-desktop.webm'), Buffer.alloc(10));
+    fs.writeFileSync(path.join(dir, 'b-desktop.webm'), Buffer.alloc(2));
+    try {
+      const refused = async () => ({ ok: false, status: 413, json: { error: { message: 'A recording may be 200 MB at most; this one is larger.' } } });
+      const r = await collectRepoTestVideos({ dir, recordId: 77, upload: refused, maxBytes: 5 });
+      assert.match(r.skipped.find(s => s.file === 'a-desktop.webm').reason, /over the 0 MB cap/);
+      assert.match(r.skipped.find(s => s.file === 'b-desktop.webm').reason, /Vocion refused it: A recording may be 200 MB at most/);
+      const none = await collectRepoTestVideos({ dir, recordId: null, upload: refused });
+      assert.ok(none.skipped.every(s => /no task record/.test(s.reason)));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

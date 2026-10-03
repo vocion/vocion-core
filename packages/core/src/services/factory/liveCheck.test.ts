@@ -3,7 +3,11 @@ import type { Server } from 'node:http';
 import type { Browser } from 'playwright';
 import type { BrowserEvidence } from './liveBrowser';
 import type { EnvironmentAccess } from './productAccess';
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { RecordedLineSchema } from '@/libs/factory/liveCheck';
 
@@ -259,9 +263,11 @@ describe('the browser tools, in a real browser against a fictional product', asy
     server?.close();
   });
 
-  const deps = () => ({
+  // Recording is off unless a test turns it on, so the other tests leave no files behind.
+  const deps = (videoDir: string | null = null) => ({
     browser: async () => browser!,
     store: async (_org: string, png: Buffer) => ({ url: `/api/artifacts/files/live-${png.length}.png`, filename: `live-${png.length}.png`, bytes: png.length, contentType: 'image/png' }),
+    videoDir: () => videoDir,
   });
   const env = (password: string): EnvironmentAccess[] => [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password, stored: true }, liveSetup: null }];
   const refOf = (snapshot: string | undefined, line: RegExp) => line.exec(snapshot ?? '')?.[1] ?? '';
@@ -384,6 +390,47 @@ describe('the browser tools, in a real browser against a fictional product', asy
     expect(JSON.stringify(await meta(releaseId))).not.toContain('not-the-password');
 
     await browserSvc.closeBrowserSession(key);
+  });
+
+  it('records the pages QA drove and, when the run\'s browser closes, keeps the recording on the feature request and the release (2026-10-03)', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_browser_video`;
+    const { requestId, releaseId } = await seed(org);
+    access.environments = env('fictional-secret');
+    const key = browserSvc.browserSessionKey({ orgId: org, missionRunId: 510 });
+    const store = await mkdtemp(path.join(tmpdir(), 'vocion-live-store-'));
+    const videos = await mkdtemp(path.join(tmpdir(), 'vocion-live-video-'));
+    const before = process.env.VOCION_ARTIFACTS_DIR;
+    process.env.VOCION_ARTIFACTS_DIR = store;
+    try {
+      const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/rename' }, deps(videos));
+
+      expect(opened.ok).toBe(true);
+
+      await browserSvc.browserType(key, { ref: /textbox "Name" \[ref=(e\d+)\]/.exec(opened.snapshot ?? '')?.[1] ?? '', text: 'Q3 board deck' }, deps(videos));
+      await browserSvc.closeBrowserSession(key);
+
+      const rows = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, org), eq(artifactSchema.recordRole, 'qa-live-video')));
+
+      // One recording (the page QA drove, never the sign-in page), filed on the request and the release.
+      expect(rows.map(r => r.recordId).sort()).toEqual([String(requestId), String(releaseId)].sort());
+      expect(new Set(rows.map(r => r.url)).size).toBe(1);
+      expect(rows[0]).toMatchObject({ kind: 'file', url: expect.stringMatching(new RegExp(`^/api/media/${releaseId}/live-check-desktop-1-[0-9a-f]{16}\\.webm$`)) });
+      expect(rows[0]!.spec).toMatchObject({ contentType: 'video/webm', caption: expect.stringMatching(/^Live check of \S+, \d{4}-\d{2}-\d{2}$/) });
+
+      const file = path.join(store, 'media', org, String(releaseId), rows[0]!.url!.split('/').pop()!);
+
+      expect((await stat(file)).size).toBeGreaterThan(1000);
+      // The raw videos, the sign-in page's among them, go with the session.
+      expect(await readdir(videos).catch(() => [])).toEqual([]);
+    } finally {
+      if (before === undefined) {
+        delete process.env.VOCION_ARTIFACTS_DIR;
+      } else {
+        process.env.VOCION_ARTIFACTS_DIR = before;
+      }
+      await rm(store, { recursive: true, force: true });
+      await rm(videos, { recursive: true, force: true });
+    }
   });
 });
 

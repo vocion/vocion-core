@@ -492,6 +492,8 @@ function OutcomeBlock({ report }: { report: FeatureReport }) {
             )}
       </div>
 
+      <RecordingsRow recordings={report.recordings} />
+
       {attempt?.prUrl && (
         <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground" data-testid="report-shipped-pr">
           <a href={attempt.prUrl} target="_blank" rel="noreferrer" className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">
@@ -503,6 +505,52 @@ function OutcomeBlock({ report }: { report: FeatureReport }) {
         </p>
       )}
     </Section>
+  );
+}
+
+/**
+ * RECORDINGS (Chris, 2026-10-03): the newest recording of QA on the live
+ * product and the newest of the engineer's own browser tests before merge,
+ * each a native player that loads only its first frame until pressed. A
+ * phone-sized recording keeps its shape inside the column; nothing is drawn
+ * when neither was kept.
+ * @param props
+ * @param props.recordings - The report's recordings.
+ */
+function RecordingsRow({ recordings }: { recordings: FeatureReport['recordings'] }) {
+  const items = [
+    recordings?.live ? { key: 'live', label: 'Live check', r: recordings.live } : null,
+    recordings?.qa ? { key: 'qa', label: 'Before merge', r: recordings.qa } : null,
+  ].filter(x => x !== null);
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mt-4 min-w-0" data-testid="report-recordings">
+      <p className="text-[12px] text-muted-foreground">Recordings</p>
+      <div className="mt-1 grid min-w-0 gap-3 sm:grid-cols-2">
+        {items.map(({ key, label, r }) => (
+          <figure key={key} className="m-0 min-w-0" data-testid={`report-recording-${key}`}>
+            {/* A browser recording has no sound to caption; what it shows is the figcaption below. */}
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video
+              controls
+              preload="metadata"
+              playsInline
+              className="block max-h-80 w-full max-w-full rounded-md bg-muted object-contain"
+              aria-label={`${label}: ${r.caption}`}
+            >
+              <source src={r.url} type={r.contentType} />
+            </video>
+            <figcaption className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">
+              <span className="text-foreground">{label}</span>
+              {` · ${r.caption} · `}
+              <LocalDate at={r.at} />
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </div>
   );
 }
 

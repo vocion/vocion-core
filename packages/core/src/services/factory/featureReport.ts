@@ -503,6 +503,12 @@ export type FeatureReport = {
   /** Every conversation and run tied to this feature, newest first (loaded beside the report). */
   activity?: ReportActivity[];
   /**
+   * The newest recording of each kind (Chris, 2026-10-03): QA driving the live
+   * product after release, and the engineer's own browser tests before merge.
+   * Each null when none was kept; the page draws nothing then.
+   */
+  recordings?: ReportRecordings;
+  /**
    * Where the default mockup stands, when it is not drawn yet — "The designer
    * is drawing the mockup", or why it drew nothing (`visuals.mockupDraw`).
    * Shown where the mockup would be. Null once drawn, or when none was asked for.
@@ -909,6 +915,75 @@ export function formatDuration(ms: number): string {
     rest -= n * size;
   }
   return parts.length > 0 ? parts.join(' ') : '0s';
+}
+
+// ---------------------------------------------------------------------------
+// Recordings
+// ---------------------------------------------------------------------------
+
+/** One recording the page plays. */
+export type ReportRecording = {
+  artifactId: number;
+  /** Where it plays from: Vocion's media route (`/api/media/…`). */
+  url: string;
+  contentType: string;
+  caption: string;
+  at: Date;
+  /** Its share on Slate, once uploaded there (a later phase); the page prefers that player. */
+  slateShareId: string | null;
+};
+export type ReportRecordings = { live: ReportRecording | null; qa: ReportRecording | null };
+
+/** The roles a recording is filed under: the live check's, and the engineer's own tests'. */
+export const RECORDING_ROLES = { live: 'qa-live-video', qa: 'qa-video' } as const;
+
+/**
+ * The newest playable recording of each kind among a feature's artifacts. A
+ * recording Vocion keeps (its media route) is preferred to a link out, which
+ * may be a presigned URL that has since expired.
+ * @param artifacts - The artifacts on the request and its tasks.
+ */
+export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecordings {
+  const pick = (role: string): ReportRecording | null => {
+    const candidates = artifacts
+      .filter(a => a.recordRole === role)
+      .map(a => ({ a, url: evidenceUrl(a) }))
+      .filter((x): x is { a: ReportArtifact; url: string } => x.url !== null && (x.url.startsWith('/api/media/') || /^https?:\/\//i.test(x.url)))
+      .sort((x, y) => Number(y.url.startsWith('/api/media/')) - Number(x.url.startsWith('/api/media/')) || y.a.createdAt.getTime() - x.a.createdAt.getTime() || y.a.id - x.a.id);
+    const top = candidates[0];
+    if (!top) {
+      return null;
+    }
+    return {
+      artifactId: top.a.id,
+      url: top.url,
+      contentType: str(top.a.spec, 'contentType') ?? 'video/webm',
+      caption: str(top.a.spec, 'caption') ?? top.a.title,
+      at: top.a.createdAt,
+      slateShareId: str(top.a.spec, 'slateShareId'),
+    };
+  };
+  return { live: pick(RECORDING_ROLES.live), qa: pick(RECORDING_ROLES.qa) };
+}
+
+/**
+ * One artifact per served file: a recording is filed on the task AND on its
+ * request (`services/artifacts/recordings.ts`), so the same file arrives
+ * twice. The newest filing is kept.
+ * @param artifacts - QA evidence.
+ */
+function oncePerFile(artifacts: readonly ReportArtifact[]): ReportArtifact[] {
+  const newest = new Map<string, ReportArtifact>();
+  for (const a of artifacts) {
+    const url = evidenceUrl(a);
+    const key = url && !url.startsWith('data:') ? `url:${url}` : `id:${a.id}`;
+    const had = newest.get(key);
+    if (!had || had.createdAt.getTime() < a.createdAt.getTime()) {
+      newest.set(key, a);
+    }
+  }
+  const kept = new Set(newest.values());
+  return artifacts.filter(a => kept.has(a));
 }
 
 // ---------------------------------------------------------------------------
@@ -1723,7 +1798,7 @@ export function oneOfEachPicture<T extends { id: number; imageUrl: string | null
 
 function qaSection(artifacts: ReportArtifact[], taskCount: number, ctx: PictureContext = NO_PICTURE_CONTEXT): ReportSection {
   const s = blank('qa', 'QA');
-  s.evidence = artifacts
+  s.evidence = oncePerFile(artifacts.filter(a => qaEvidenceRole(a) !== null))
     .map(a => ({ a, role: qaEvidenceRole(a) }))
     .filter((x): x is { a: ReportArtifact; role: QaEvidenceRole } => x.role !== null)
     .map(({ a, role }) => {
@@ -2213,7 +2288,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
     }
   }
 
-  for (const artifact of input.artifacts) {
+  for (const artifact of oncePerFile(input.artifacts.filter(a => qaEvidenceRole(a) !== null))) {
     const role = qaEvidenceRole(artifact);
     if (role) {
       out.push({
@@ -3965,6 +4040,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     hero: visualsSection(input.request, input.artifacts, pictures).evidence.find(e => e.imageUrl !== null) ?? null,
     mockupStatus: mockupStatusOf(input.request, input.now, sections.some(x => PICTURE_SECTIONS.has(x.key) && x.evidence.some(e => e.imageUrl !== null && e.role !== 'proposed'))),
     follow: followOf(input),
+    recordings: recordingsOf(input.artifacts),
   };
 }
 

@@ -118,8 +118,8 @@ const SHOT_FILE_RE = /\.(?:png|jpe?g)$/i;
 const SHOT_CONTENT_TYPE = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 export const REPO_SHOT_LIMITS = { files: 24, bytes: 5 * 1024 * 1024 };
 
-/** Every PNG/JPEG under `dir`, recursively, sorted so the report and the upload order agree. */
-function listShotFiles(dir) {
+/** Every PNG/JPEG (or, with `re`, every match) under `dir`, recursively, sorted so the report and the upload order agree. */
+function listShotFiles(dir, re = SHOT_FILE_RE) {
   const out = [];
   const walk = (d, rel) => {
     let entries;
@@ -133,7 +133,7 @@ function listShotFiles(dir) {
       const relPath = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) {
         walk(full, relPath);
-      } else if (SHOT_FILE_RE.test(e.name)) {
+      } else if (re.test(e.name)) {
         out.push({ full, rel: relPath, name: e.name });
       }
     }
@@ -248,6 +248,79 @@ export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, 
     }
     uploaded.push({ file: f.rel, caption: text, viewport, url });
     evidence.push({ role: 'qa-screenshot', source: 'repo-test', flow: f.rel, viewport: viewport || undefined, url, caption: text, ...(artifactId ? { artifactId } : {}) });
+  }
+  return { uploaded, skipped, evidence };
+}
+
+// ---------- the repo's own test recordings ----------
+//
+// Decision (Chris, 2026-10-03): keep a recording of the QA run on the Feature Request. The repo's
+// browser tests record video into the same shots directory; the worker sends each file to Vocion as
+// raw bytes (POST /api/v1/artifacts/video), and Vocion keeps it (disk, or its own media bucket) and
+// files it on the task and on its request. The worker never needs a bucket for a video.
+
+const VIDEO_FILE_RE = /\.(?:webm|mp4)$/i;
+const VIDEO_CONTENT_TYPE = { webm: 'video/webm', mp4: 'video/mp4' };
+export const REPO_VIDEO_LIMITS = { files: 6, bytes: 200 * 1024 * 1024 };
+
+/**
+ * A recording's caption from its path: the file name read as a shot's is, or, for Playwright's own
+ * generic `video.webm`, the folder it sits in (the test's name).
+ */
+export function captionForVideoFile(rel) {
+  const parts = String(rel || '').split('/');
+  const name = parts.pop() || '';
+  const generic = /^video(?:-\d+)?\.[^.]+$/i.test(name) && parts.length > 0;
+  return captionForShotFile(generic ? `${parts.pop()}.webm` : name);
+}
+
+/**
+ * Sends every recording in the shots directory to Vocion as a qa-video on the task (and, through
+ * the task, its request). `upload(path, body, contentType)` is the worker's raw-body POST. Never
+ * fails the run: a read, size or upload problem is a named row in `skipped`.
+ */
+export async function collectRepoTestVideos({ dir, recordId, upload, limit = REPO_VIDEO_LIMITS.files, maxBytes = REPO_VIDEO_LIMITS.bytes }) {
+  const uploaded = [];
+  const skipped = [];
+  const evidence = [];
+  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    return { uploaded, skipped, evidence };
+  }
+  for (const f of listShotFiles(dir, VIDEO_FILE_RE)) {
+    if (!upload || !recordId) {
+      skipped.push({ file: f.rel, reason: 'the run has no task record in Vocion to file it on' });
+      continue;
+    }
+    if (uploaded.length >= limit) {
+      skipped.push({ file: f.rel, reason: `over the limit of ${limit} recordings; the rest were not sent` });
+      continue;
+    }
+    let size = 0;
+    try {
+      size = fs.statSync(f.full).size;
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `could not read: ${String(e.message || e).slice(0, 150)}` });
+      continue;
+    }
+    if (size > maxBytes) {
+      skipped.push({ file: f.rel, reason: `${(size / 1024 / 1024).toFixed(1)} MB is over the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap` });
+      continue;
+    }
+    const ext = (f.name.match(/\.([^.]+)$/)?.[1] ?? 'webm').toLowerCase();
+    const { caption: text, viewport } = captionForVideoFile(f.rel);
+    const title = `${text} ${MIDDOT} recording`.slice(0, 100);
+    const query = new URLSearchParams({ recordId: String(recordId), role: 'qa-video', title, caption: `${text} ${MIDDOT} before merge`, name: `repo-test ${text}` });
+    try {
+      const r = await upload(`/artifacts/video?${query}`, fs.readFileSync(f.full), VIDEO_CONTENT_TYPE[ext] || 'video/webm');
+      if (!r?.ok) {
+        skipped.push({ file: f.rel, reason: `Vocion refused it: ${String(r?.json?.error?.message || r?.json?.raw || r?.status || 'no answer').slice(0, 200)}` });
+        continue;
+      }
+      uploaded.push({ file: f.rel, caption: text, viewport, url: r.json?.url || '' });
+      evidence.push({ role: 'qa-video', source: 'repo-test', flow: f.rel, viewport: viewport || undefined, url: r.json?.url || '', caption: text, ...(r.json?.artifactIds?.length ? { artifactId: r.json.artifactIds[r.json.artifactIds.length - 1] } : {}) });
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `upload failed: ${String(e.message || e).slice(0, 200)}` });
+    }
   }
   return { uploaded, skipped, evidence };
 }
@@ -1136,7 +1209,7 @@ export async function publishArtifact(post, body) {
  *
  * `run` is the worker's spawnSync wrapper, `log` its JSON logger, `post` its Vocion POST.
  */
-export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, outDir, aws, run, log, post, artifactUrl, refusedFlows = [] }) {
+export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, outDir, aws, run, log, post, upload = null, artifactUrl, refusedFlows = [] }) {
   const started = Date.now();
   const rows = [];
   const failures = [];
@@ -1368,6 +1441,18 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
     try {
       const body = fs.readFileSync(file);
       bytes += body.length;
+      if (!canUpload && upload && recordId) {
+        // NO BUCKET, STILL A RECORDING (2026-10-03): Vocion keeps it and files it on the request too.
+        const text = caption(flow.name, viewport, 'after video', `${seconds}s, ${Math.round(body.length / 1024)} KB`);
+        const query = new URLSearchParams({ recordId: String(recordId), role: 'qa-video', title: evidenceTitle(flow.name, viewport, 'after video'), caption: text, name: `${flow.name} ${viewport}` });
+        const r = await upload(`/artifacts/video?${query}`, body, 'video/webm');
+        if (!r?.ok) {
+          throw new Error(`Vocion refused the video: ${String(r?.json?.error?.message || r?.status || 'no answer').slice(0, 200)}`);
+        }
+        rows.push({ flow: flow.name, viewport, side: 'after video', url: r.json?.url || '', note: `${seconds}s, ${Math.round(body.length / 1024)} KB, stored in Vocion` });
+        evidence.push({ role: 'qa-video', flow: flow.name, viewport, side: 'after', url: r.json?.url || '', caption: text });
+        return;
+      }
       if (!canUpload) {
         throw new Error('the container could not reach the evidence bucket');
       }

@@ -147,6 +147,11 @@ export const fileSpecSchema = z.object({
   provenance: z.record(z.string(), z.unknown()).optional(),
   /** For a capture of the running product: the page it was taken from. */
   capturedFrom: z.string().max(2000).optional(),
+  /**
+   * A recording's share on Slate, once it is uploaded there (a later phase):
+   * the page prefers that player to the stored file when it is set.
+   */
+  slateShareId: z.string().max(200).optional(),
 });
 export type FileSpec = z.infer<typeof fileSpecSchema>;
 

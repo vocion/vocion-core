@@ -25,13 +25,26 @@
  * this process: the tools of one run execute where the run's tool calls land,
  * and a screenshot's id is checkable from the database even when the session
  * is gone (`shot-<artifact id>`).
+ *
+ * Recording (Chris, 2026-10-03): every page QA drives is recorded (Playwright's
+ * `recordVideo`, at the viewport's size). When a tab's context closes its video
+ * is set aside, and when the session closes each one is kept by the media store
+ * and filed on every request the release shipped and on the release
+ * (`qa-live-video`), captioned "Live check of REL-<n>, <date>". The sign-in
+ * page is never kept: only pages QA opened after signing in are. A recording
+ * that cannot be kept is logged and said on the request; it never fails or
+ * holds up the check. `VOCION_LIVE_CHECK_VIDEO=0` turns recording off.
  */
 
 import type { Buffer } from 'node:buffer';
-import type { Browser, BrowserContext, Page } from 'playwright';
+import type { Browser, BrowserContext, Page, Video } from 'playwright';
 import type { AcceptanceLine, LiveReason } from '@/libs/factory/liveCheck';
 import type { Author } from '@/services/ArtifactService';
 import type { EnvironmentAccess } from '@/services/factory/productAccess';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
 import { LIVE_ROLE } from '@/libs/factory/liveCheck';
 import { allowedOrigins, environmentFor, releaseLines, signIn, signInProblem } from './liveCheck';
 
@@ -67,7 +80,10 @@ export type BrowserEvidence
     | { id: string; kind: 'response'; at: string; method: string; url: string; status: number; signedIn: boolean }
     | { id: string; kind: 'action'; at: string; what: string; ok: boolean; detail: string | null; url: string | null };
 
-type Tab = { key: string; env: EnvironmentAccess; viewport: BrowserViewport; signedIn: boolean; context: BrowserContext; page: Page | null };
+type Tab = { key: string; env: EnvironmentAccess; viewport: BrowserViewport; signedIn: boolean; context: BrowserContext; page: Page | null; videos: Video[]; openedAt: string };
+
+/** A tab's recording, set aside when its context closed, kept when the session closes. */
+export type SessionRecording = { path: string; viewport: BrowserViewport; signedIn: boolean; env: string; startedAt: string; endedAt: string };
 
 type Session = {
   key: string;
@@ -88,6 +104,10 @@ type Session = {
   actions: number;
   lastUsed: number;
   idle: ReturnType<typeof setTimeout> | null;
+  /** Where this session's videos are written, or null when it does not record. */
+  videoDir: string | null;
+  recordings: SessionRecording[];
+  deps: LiveBrowserDeps;
 };
 
 /** What a session needs from outside, so a test can stand in for the browser and the store. */
@@ -95,6 +115,10 @@ export type LiveBrowserDeps = {
   browser: () => Promise<Browser>;
   store: (orgId: string, png: Buffer) => Promise<{ url: string; filename: string; bytes: number; contentType: string }>;
   now: () => Date;
+  /** The directory a session's videos go to, or null to record nothing. */
+  videoDir: (key: string) => string | null;
+  /** Keep a closed session's recordings (the media store, filed on the requests and the release). */
+  keepRecordings: (orgId: string, releaseId: number, recordings: SessionRecording[], now: Date) => Promise<void>;
 };
 
 const defaultDeps: LiveBrowserDeps = {
@@ -105,6 +129,8 @@ const defaultDeps: LiveBrowserDeps = {
     return { url: f.url, filename: f.filename, bytes: f.bytes, contentType: f.contentType };
   },
   now: () => new Date(),
+  videoDir: key => process.env.VOCION_LIVE_CHECK_VIDEO === '0' ? null : path.join(tmpdir(), 'vocion-live-video', key.replace(/[^\w-]+/g, '_')),
+  keepRecordings: async (orgId, releaseId, recordings, now) => (await import('./liveRecording')).keepLiveRecordings(orgId, releaseId, recordings, now),
 };
 
 const sessions = new Map<string, Session>();
@@ -158,6 +184,13 @@ async function closeTabs(s: Session): Promise<void> {
   s.current = null;
   for (const t of tabs) {
     await t.context.close().catch(() => {});
+    // A page's video is written when its context closes; only the pages QA drove are set aside.
+    for (const v of t.videos) {
+      const file = await v.path().catch(() => null);
+      if (file) {
+        s.recordings.push({ path: file, viewport: t.viewport, signedIn: t.signedIn, env: t.env.slug, startedAt: t.openedAt, endedAt: s.deps.now().toISOString() });
+      }
+    }
   }
 }
 
@@ -287,7 +320,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
     }
     const { productAccess } = await import('@/services/factory/productAccess');
     const access = await productAccess(orgId, release.product, { reveal: true });
-    s = { key, orgId, releaseId: input.releaseId, product: release.product, envs: access.environments, origins: allowedOrigins(access.environments), tabs: new Map(), current: null, seq: 0, evidence: new Map(), responses: [], problems: [], blocked: [], actions: 0, lastUsed: Date.now(), idle: null };
+    s = { key, orgId, releaseId: input.releaseId, product: release.product, envs: access.environments, origins: allowedOrigins(access.environments), tabs: new Map(), current: null, seq: 0, evidence: new Map(), responses: [], problems: [], blocked: [], actions: 0, lastUsed: Date.now(), idle: null, videoDir: d.videoDir(key), recordings: [], deps: d };
     sessions.set(key, s);
     acceptance = release.acceptance;
     if (s.envs.length === 0) {
@@ -343,7 +376,8 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
     } catch (e) {
       return fail(`the live check could not start a browser on this installation: ${short(e)}`, { kind: 'could_not_run', detail: `the live check could not start a browser on this installation: ${short(e)}` });
     }
-    const context = await browser.newContext({ ...BROWSER_VIEWPORTS[viewport] });
+    // Recorded at the viewport's own size, so a phone check plays as a phone.
+    const context = await browser.newContext({ ...BROWSER_VIEWPORTS[viewport], ...(s.videoDir ? { recordVideo: { dir: s.videoDir, size: BROWSER_VIEWPORTS[viewport].viewport } } : {}) });
     const session = s;
     // The page goes only where the product lives: a top-level navigation elsewhere is answered
     // 204 (the browser stays on the page it was on) and said on the next answer.
@@ -367,7 +401,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
         session.evidence.delete(session.responses.shift()!);
       }
     });
-    tab = { key: tabKey, env, viewport, signedIn, context, page: null };
+    tab = { key: tabKey, env, viewport, signedIn, context, page: null, videos: [], openedAt: d.now().toISOString() };
     if (signedIn) {
       const problem = signInProblem(env) || await signIn(context, env);
       if (problem) {
@@ -383,6 +417,10 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
   s.current = tabKey;
   if (!tab.page || tab.page.isClosed()) {
     tab.page = await tab.context.newPage();
+    const video = tab.page.video();
+    if (video) {
+      tab.videos.push(video);
+    }
   }
   let status: number | null = null;
   try {
@@ -585,8 +623,9 @@ export function browserSessionEvidence(key: string | null): { releaseId: number 
 }
 
 /**
- * Close a session's browser and drop what it captured. The automation calls this when its run's
- * check has ended (after the recording pass).
+ * Close a session's browser, keep its recordings, and drop what it captured. The automation calls
+ * this when its run's check has ended (after the recording pass). Keeping a recording never throws:
+ * a failure is logged and said where the request is read.
  * @param key - The session.
  */
 export async function closeBrowserSession(key: string | null): Promise<void> {
@@ -599,4 +638,14 @@ export async function closeBrowserSession(key: string | null): Promise<void> {
     clearTimeout(s.idle);
   }
   await closeTabs(s);
+  if (s.recordings.length > 0) {
+    await s.deps.keepRecordings(s.orgId, s.releaseId, s.recordings, s.deps.now()).catch(async (err) => {
+      const { logger } = await import('@/libs/Logger');
+      logger.warn('live check recordings not kept', { orgId: s.orgId, releaseId: s.releaseId, error: short(err) });
+    });
+  }
+  // The sign-in page's video and anything not kept go with the session.
+  if (s.videoDir) {
+    await rm(s.videoDir, { recursive: true, force: true }).catch(() => {});
+  }
 }

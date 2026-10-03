@@ -26,6 +26,9 @@ import { featureProof } from '@/libs/workspace/featureProof';
 /** The role a live shot carries on the release, beside QA's pre-merge `qa-screenshot`. */
 export const LIVE_ROLE = 'live-screenshot';
 
+/** The role the live check's recording carries on each request the release shipped, and on the release. */
+export const LIVE_VIDEO_ROLE = 'qa-live-video';
+
 /** Attempts a release gets: the first, and the one retry carrying what the first learned. */
 export const LIVE_ATTEMPTS = 2;
 

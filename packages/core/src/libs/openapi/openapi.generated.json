@@ -503,6 +503,83 @@
         }
       }
     },
+    "/api/v1/artifacts/video": {
+      "post": {
+        "operationId": "post_artifacts_video",
+        "summary": "A recording, as the raw body (`Content-Type: video/webm` or `video/mp4`), kept by Vocion's media store — on disk, or in `VOCION_MEDIA_BUCKET` when it is set —…",
+        "tags": [
+          "artifacts"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error. Codes: `PAYLOAD_TOO_LARGE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Error. Codes: `UNSUPPORTED_MEDIA_TYPE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "A recording, as the raw body (`Content-Type: video/webm` or `video/mp4`),\nkept by Vocion's media store — on disk, or in `VOCION_MEDIA_BUCKET` when it\nis set — and filed on the record AND on the feature request that record\nbelongs to (its `requestId`), so the request's page plays it. The factory\nworker sends its repo tests' recordings here: it never needs a bucket of its\nown. Capped (`VOCION_MEDIA_MAX_BYTES`, 200 MB by default); an over-cap body\nis refused with the cap in the sentence.\n\nNot behind the proxy (`proxy.ts` matcher): a request the proxy matches has\nits body cut at 10 MB.\n\nAuth: a tenant API token or run token (`Authorization: Bearer …`), or a\nsigned-in dashboard session."
+      }
+    },
     "/api/v1/asks": {
       "get": {
         "operationId": "get_asks",

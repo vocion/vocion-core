@@ -281,6 +281,38 @@ describe('the feature page, in the order a product owner reads it', () => {
 
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
   });
+
+  // Chris, 2026-10-03: the recordings of QA's runs live on the feature.
+  it('draws no Recordings row when nothing was recorded', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    expect(document.querySelector('[data-testid="report-recordings"]')).toBeNull();
+    expect(document.querySelector('video')).toBeNull();
+  });
+
+  it('plays the newest live-check and pre-merge recordings under "Did it work?", phone-wide without scrolling sideways', async () => {
+    await page.viewport(390, 844);
+    const recording = (id: number, role: string, recordId: string, caption: string, at: string) => ({ id, kind: 'file', title: caption, recordType: 'object', recordId, recordRole: role, spec: { url: `/api/media/${recordId}/rec-${id}000000000000000.webm`, contentType: 'video/webm', caption }, url: `/api/media/${recordId}/rec-${id}000000000000000.webm`, createdAt: T(at) });
+    await draw(fixture({ artifacts: [
+      recording(1, 'qa-live-video', '41', 'Live check of REL-9, 2026-09-20', '2026-09-20T09:00:00Z'),
+      recording(2, 'qa-video', '77', 'share menu offers pdf · desktop · before merge', '2026-09-04T11:00:00Z'),
+      recording(3, 'qa-video', '41', 'share menu offers pdf · desktop · before merge', '2026-09-04T11:00:00Z'),
+    ] }));
+
+    const row = document.querySelector('#report-outcome [data-testid="report-recordings"]')!;
+
+    expect(row).not.toBeNull();
+
+    const players = [...row.querySelectorAll('video')];
+
+    expect(players).toHaveLength(2);
+    expect(players.every(v => v.controls && v.preload === 'metadata')).toBe(true);
+    expect(row.querySelector('[data-testid="report-recording-live"]')!.textContent).toContain('Live check of REL-9, 2026-09-20');
+    expect(row.querySelector('[data-testid="report-recording-live"] time')).not.toBeNull();
+    expect(row.querySelector('[data-testid="report-recording-qa"]')!.textContent).toContain('Before merge');
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
 });
 
 describe('the action follows the state', () => {
