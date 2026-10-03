@@ -648,6 +648,8 @@ export const PageManifestSchema = z.object({
   icon: z.string().optional(),
   nav: z.object({
     section: z.string().default('Workspace'),
+    /** A Lucide icon name for the sidebar row (`features/dashboard/iconByName.ts`), e.g. `receipt`; pages without one share the panel icon. */
+    icon: z.string().optional(),
     order: z.number().default(0),
     hidden: z.boolean().default(false),
     /**
