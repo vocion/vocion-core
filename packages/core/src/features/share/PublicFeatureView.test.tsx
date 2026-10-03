@@ -152,6 +152,21 @@ describe('a feature\'s public page', () => {
     expect(q('report-lightbox-image')!.getAttribute('src')).toBe(PNG);
   });
 
+  it('moves the carousel with the left and right arrows, from a thumbnail too', async () => {
+    await render(<PublicFeatureView page={fixture()} />);
+    const tabs = [...q('report-thumbs')!.querySelectorAll('[role="tab"]')] as HTMLElement[];
+
+    tabs[0]!.focus();
+    await userEvent.keyboard('{ArrowRight}');
+
+    await expect.poll(() => tabs[1]!.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tabs[1]);
+
+    await userEvent.keyboard('{ArrowLeft}');
+
+    await expect.poll(() => tabs[0]!.getAttribute('aria-selected')).toBe('true');
+  });
+
   it('plays a recording with a video-host share id in the host\'s own player, in place', async () => {
     const embed = { kind: 'embed' as const, src: 'https://player.example/embed/share-fictional-1', label: 'Walkthrough', caption: 'A walk through it', title: 'FE-370 · Upload date on each library row' };
     await render(<PublicFeatureView page={fixture({ media: [embed, ...fixture().media.slice(1)] })} />);

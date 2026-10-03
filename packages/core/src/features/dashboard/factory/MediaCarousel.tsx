@@ -1,5 +1,6 @@
 'use client';
 
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { EvidenceSource } from '@/services/factory/carouselSource';
 import { ChevronLeft, ChevronRight, Play, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -169,6 +170,7 @@ function SlideCaption({ slide }: { slide: MediaSlide }) {
  */
 export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
   const strip = useRef<HTMLDivElement>(null);
+  const thumbs = useRef<HTMLDivElement>(null);
   const [idx, setIdx] = useState(0);
   const [open, setOpen] = useState<number | null>(null);
 
@@ -180,6 +182,34 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
     const next = Math.max(0, Math.min(slides.length - 1, to));
     el.scrollTo({ left: next * el.clientWidth, behavior: 'smooth' });
   }, [slides.length]);
+
+  // The thumbnail in view stays in view as the index moves, without
+  // scrolling the page.
+  useEffect(() => {
+    const t = thumbs.current?.children[idx] as HTMLElement | undefined;
+    const row = thumbs.current;
+    if (t && row) {
+      const left = t.offsetLeft - row.offsetLeft;
+      if (left < row.scrollLeft || left + t.offsetWidth > row.scrollLeft + row.clientWidth) {
+        row.scrollTo({ left: left - (row.clientWidth - t.offsetWidth) / 2, behavior: 'smooth' });
+      }
+    }
+  }, [idx]);
+
+  // Left and right arrows move the index (Chris, 2026-10-03: "should advance
+  // index, not scroll the thumbnails"), from anywhere inside the carousel —
+  // a focused thumbnail hands focus to the new one.
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') {
+      return;
+    }
+    e.preventDefault();
+    const to = Math.max(0, Math.min(slides.length - 1, idx + (e.key === 'ArrowRight' ? 1 : -1)));
+    go(to);
+    if (thumbs.current?.contains(document.activeElement)) {
+      (thumbs.current.children[to] as HTMLElement | undefined)?.focus({ preventScroll: true });
+    }
+  };
 
   const onScroll = () => {
     const el = strip.current;
@@ -195,7 +225,8 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
   const many = slides.length > 1;
 
   return (
-    <div data-testid="report-carousel" className="space-y-2">
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- arrow keys from the slides and thumbnails inside
+    <div data-testid="report-carousel" className="space-y-2" onKeyDown={onKeyDown}>
       <div className="group relative">
         <div
           ref={strip}
@@ -244,13 +275,14 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
       {/* THUMBNAILS (Chris, 2026-09-25: "show thumbnails on the gallery"):
           every picture at a glance, the one in view outlined, a tap goes to it. */}
       {many && (
-        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Pictures" data-testid="report-thumbs">
+        <div ref={thumbs} className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Pictures" data-testid="report-thumbs">
           {slides.map((s, i) => (
             <button
               key={s.id}
               type="button"
               role="tab"
               aria-selected={i === idx}
+              tabIndex={i === idx ? 0 : -1}
               aria-label={`Picture ${i + 1} of ${slides.length}: ${s.label} — ${s.caption ?? s.title}`}
               onClick={() => go(i)}
               className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border bg-muted transition sm:h-16 sm:w-24 ${i === idx ? 'border-foreground ring-1 ring-foreground' : 'border-border opacity-70 hover:opacity-100'}`}
