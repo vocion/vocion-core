@@ -164,6 +164,10 @@ export type GithubPullRequest = {
   merge_commit_sha?: string | null;
   /** Who pressed merge — GitHub's login; absent on a list read that omits it. */
   merged_by?: { login?: string } | null;
+  /** Single-PR reads only: false when it conflicts with its base; null while GitHub computes it. */
+  mergeable?: boolean | null;
+  /** Single-PR reads only: `dirty` when it conflicts with its base. */
+  mergeable_state?: string;
 };
 
 /** A check run as `GET /repos/{o}/{r}/commits/{sha}/check-runs` lists it. */

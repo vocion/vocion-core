@@ -62,6 +62,28 @@ function log(meta: unknown): string[] {
 }
 
 describe('the read-back raises what the webhook never delivered', () => {
+  it('sends an attempt whose pull request conflicts with its base back to the engineer, once per head commit (Walk 18, FE-376)', async () => {
+    const { request, task } = await taskFor(560);
+    const asked: unknown[] = [];
+    vi.doMock('./requestWorkflowStart', async orig => ({ ...(await orig<object>()), askRequestWorkflow: vi.fn(async (_o: string, requestId: number, intent: unknown) => {
+      asked.push({ requestId, intent });
+      return { line: 'Told the request\'s workflow.' };
+    }) }));
+    const { d } = deps({ readPull: async (_o, url) => ({ repo: REPO, pr: pr(Number(url.split('/').at(-1)), { mergeable: false, mergeable_state: 'dirty' }) as never, checkRuns: [] }) });
+
+    const first = await reconcileOpenPulls(ORG, new Date(), d);
+
+    expect(first.find(r => r.requestId === request.id)?.did).toBe('conflict sent back');
+    expect(asked).toEqual([{ requestId: request.id, intent: expect.objectContaining({ trigger: 'recovery', byPerson: false, note: expect.stringMatching(/conflicts with main.*Merge main into the branch/) }) }]);
+    expect(((await read(task.id)).metadata as { conflictSentFor?: string }).conflictSentFor).toBe('abc123');
+
+    await reconcileOpenPulls(ORG, new Date(), d);
+
+    expect(asked).toHaveLength(1);
+
+    vi.doUnmock('./requestWorkflowStart');
+  });
+
   it('raises a red CI whose webhook never arrived, once, with the webhook\'s own key', async () => {
     const { request, prUrl } = await taskFor(501);
     const { d, emitted } = deps();

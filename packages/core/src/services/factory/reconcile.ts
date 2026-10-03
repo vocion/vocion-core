@@ -175,6 +175,20 @@ export async function reconcileOpenPulls(orgId: string, now: Date, deps: Reconci
     if (state !== (str(meta.prState) ?? 'open') || (state === 'open' && read.pr.head.sha !== str(meta.headSha))) {
       await stamp(orgId, task.id, { prState: state, ...(state === 'open' ? { headSha: read.pr.head.sha } : {}) });
     }
+    // A PULL REQUEST THAT CONFLICTS WITH ITS BASE RUNS NO CHECKS (Walk 18,
+    // FE-376: PR #193 sat "QA is reviewing" for hours; GitHub never ran CI, so
+    // no review could start and nothing said why). The attempt goes back to the
+    // engineer on its kept branch to merge the base in, once per head commit.
+    const conflicting = state === 'open' && (read.pr.mergeable === false || read.pr.mergeable_state === 'dirty');
+    if (conflicting && !history && requestId && str(meta.conflictSentFor) !== read.pr.head.sha) {
+      const why = `${url} conflicts with ${read.pr.base.ref}, so GitHub ran none of its checks`;
+      const { askRequestWorkflow } = await import('./requestWorkflowStart');
+      const asked = await askRequestWorkflow(orgId, requestId, { by: 'system:factory-reconcile', byPerson: false, from: 'a conflict with the base branch', trigger: 'recovery', note: `${why}. Merge ${read.pr.base.ref} into the branch, resolve the conflicts so both changes stand, and push.`, planId: null }).catch((err: Error) => ({ line: `could not ask: ${err.message}` }));
+      await stamp(orgId, task.id, { conflictSentFor: read.pr.head.sha });
+      const line = `${why}; sent back to the engineer to merge ${read.pr.base.ref} in.`;
+      await note(orgId, requestId, line);
+      out.push({ requestId, did: 'conflict sent back', line: `${line} (${String((asked as { line?: string }).line ?? '')})` });
+    }
   }
   return out;
 }
