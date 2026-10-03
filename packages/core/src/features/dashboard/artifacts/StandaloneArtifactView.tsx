@@ -37,13 +37,17 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conver
       }
       setCurrent(next);
       setFlash(true);
-      setTimeout(() => setFlash(false), 200);
+      // Held long enough to be seen from across a booth, then a slow fade.
+      setTimeout(() => setFlash(false), 700);
     };
     window.addEventListener(ARTIFACT_EVENT, onArtifact);
     return () => window.removeEventListener(ARTIFACT_EVENT, onArtifact);
   }, [current.id, current.version]);
   return (
-    <div className={`rounded-2xl transition-colors ${flash ? 'bg-amber-200/50 duration-0' : 'bg-transparent duration-[1800ms]'}`}>
+    <div
+      data-artifact-flash={flash ? '' : undefined}
+      className={`rounded-2xl transition-[background-color,box-shadow] ${flash ? 'bg-brand-amber-deep/15 shadow-[0_0_0_3px_var(--color-brand-amber-deep)] duration-0' : 'bg-transparent shadow-[0_0_0_3px_transparent] duration-[2600ms]'}`}
+    >
       <ArtifactPane
         key={`${current.id}:${current.version}`}
         artifact={current}
