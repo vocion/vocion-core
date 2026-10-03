@@ -267,6 +267,16 @@ export function validateContract(raw, context = {}) {
  * sign_in flag, the before source and an empty step list. Returns null when the contract has none,
  * so the worker's capture pass is a no-op for a task that asks for no evidence.
  */
+/**
+ * The directory, relative to the repo root, where the repo's own tests save QA screenshots —
+ * `qa.shots_dir` when the contract names one, else the schema default (`qa-shots`). Read from the
+ * raw contract, not the normalized qa block, so it resolves even for a task with no `qa.flows`
+ * (a repo test can still prove a line with no worker-shot flow defined).
+ */
+export function shotsDirFor(qa) {
+  return (qa && typeof qa.shots_dir === 'string' && qa.shots_dir.trim()) || schema.properties.qa.properties.shots_dir.default;
+}
+
 export function normalizeQa(qa) {
   if (!qa || typeof qa !== 'object' || !Array.isArray(qa.flows)) {
     return null;
@@ -277,6 +287,7 @@ export function normalizeQa(qa) {
     surfaces: qa.surfaces && typeof qa.surfaces === 'object' ? structuredClone(qa.surfaces) : {},
     before_url: qa.before_url || '',
     video: qa.video ?? schema.properties.qa.properties.video.default,
+    shots_dir: qa.shots_dir || schema.properties.qa.properties.shots_dir.default,
     flows: qa.flows.map(flow => ({
       name: flow.name,
       path: flow.path,

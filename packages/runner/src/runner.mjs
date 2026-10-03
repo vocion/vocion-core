@@ -32,12 +32,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
-import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa } from './contract.mjs';
+import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor } from './contract.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown } from './events.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
-import { captureEvidence, containerCredentials, productionBase, publishArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
+import { captureEvidence, collectRepoTestShots, containerCredentials, excludeShotsDir, productionBase, publishArtifact, qaReportMarkdown, reportArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
 import { repairBrief, repairDecision, repairRecord, repairsLine } from './repair.mjs';
 import { resumeConflictNote } from './resume.mjs';
@@ -711,6 +711,12 @@ function prepareRepo(task, run) {
   if (resumedFrom && !resumedFrom.conflicts) {
     log('resumed', resumedFrom);
   }
+  // The repo's own QA tests may write screenshots under the shots directory for the worker to pick
+  // up after the checks run (see collectRepoTestShots). They prove a line to QA, not a change to
+  // ship: excluded here, before the engineer's first commit, so `git status` never offers them to
+  // `land`'s `git add`, whatever the engineer or a test run writes there.
+  excludeShotsDir(REPO_DIR, shotsDirFor(task.qa));
+
   const headBranch = must('git', ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   log('prepared', { branch: headBranch, base_sha: baseSha, attempt, resumed_from: resumedFrom || undefined });
   return { branch: headBranch, baseSha, attempt, resumedFrom };
@@ -1990,6 +1996,46 @@ async function main() {
     }
   } else if (qa) {
     log('qa.skipped', { note: 'QA_CAPTURE=0' });
+  }
+
+  // Repo-test screenshots (2026-10-03 decision, FE-398): the repo's own browser tests prove a line
+  // a person sees and save it under qa.shots_dir; the worker uploads them the same way it uploads
+  // its own shots. Independent of qa.flows, because a repo can carry this proof with no worker-shot
+  // flow configured at all.
+  let repoShots = { uploaded: [], skipped: [], evidence: [] };
+  if (cfg.qaEnabled) {
+    try {
+      repoShots = await collectRepoTestShots({
+        dir: path.join(REPO_DIR, shotsDirFor(task.qa)),
+        taskId: task.task_id,
+        runId,
+        recordId: state.record?.id || null,
+        aws: { bucket: cfg.qaBucket, region: cfg.qaRegion, presign: { accessKeyId: cfg.qaPresignKeyId, secretAccessKey: cfg.qaPresignSecret } },
+        post: vocion.enabled ? (p, body) => vocion.post(p, body) : null,
+        artifactUrl: vocion.enabled ? id => `${cfg.vocionUrl}/dashboard/artifacts/${id}` : null,
+      });
+      if (repoShots.uploaded.length || repoShots.skipped.length) {
+        log('qa.repo_shots', { uploaded: repoShots.uploaded.length, skipped: repoShots.skipped.map(s => `${s.file}: ${s.reason}`).slice(0, 8) });
+      }
+    } catch (e) {
+      log('qa.repo_shots.crashed', { error: String(e.message || e).slice(0, 300) });
+    }
+  }
+  if (repoShots.uploaded.length || repoShots.skipped.length) {
+    if (!evidence) {
+      evidence = { captured: false, shots: 0, rows: [], evidence: [], failures: [], markdown: '', summary: '', elapsedS: 0, bytes: 0, videoSeconds: 0, reportPublished: false, refusedFlows: [] };
+    }
+    evidence.evidence = [...evidence.evidence, ...repoShots.evidence];
+    evidence.shots += repoShots.uploaded.length;
+    evidence.captured = evidence.captured || repoShots.uploaded.length > 0;
+    evidence.markdown = qaReportMarkdown({ taskId: task.task_id, runId, base: qa ? productionBase(qa) : '', qa, rows: evidence.rows, failures: evidence.failures, elapsedS: evidence.elapsedS, bytes: evidence.bytes, videoSeconds: evidence.videoSeconds, repoShots });
+    evidence.summary = [evidence.summary, `${repoShots.uploaded.length} repo-test shot(s) uploaded${repoShots.skipped.length ? `, ${repoShots.skipped.length} skipped` : ''}`].filter(Boolean).join('; ');
+    fs.mkdirSync(path.join(SCRATCH_DIR, 'qa'), { recursive: true });
+    fs.writeFileSync(path.join(SCRATCH_DIR, 'qa', 'qa-report.md'), evidence.markdown);
+    if (vocion.enabled && state.record?.id) {
+      const r = await publishArtifact((p, body) => vocion.post(p, body), reportArtifact({ recordId: state.record.id, taskId: task.task_id, markdown: evidence.markdown, summary: evidence.summary }));
+      evidence.reportPublished = r.ok || evidence.reportPublished;
+    }
   }
 
   let tests = { proofs: [], runLink: null, notRun: [], allSkipped: [] };

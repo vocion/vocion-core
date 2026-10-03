@@ -106,6 +106,148 @@ export function videoArtifact({ recordId, flowName, viewport, url, seconds, byte
   return artifact(recordId, 'qa-video', 'link', title, { href: url, url, title, description: text, caption: text, filename, contentType: 'video/webm', bytes });
 }
 
+// ---------- the repo's own test screenshots ----------
+//
+// Decision (2026-10-03, FE-398): pre-merge visual proof comes from the product repo's own
+// browser tests, not from the runner building and serving a signed-in app it has no contract to
+// build. A repo test that proves a line a person sees saves its screenshot under the contract's
+// shots directory (default qa-shots/ at the repo root); the worker uploads whatever it finds
+// there the same way it uploads its own shots, so QA can cite them from the task record.
+
+const SHOT_FILE_RE = /\.(png|jpe?g)$/i;
+const SHOT_CONTENT_TYPE = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+export const REPO_SHOT_LIMITS = { files: 24, bytes: 5 * 1024 * 1024 };
+
+/** Every PNG/JPEG under `dir`, recursively, sorted so the report and the upload order agree. */
+function listShotFiles(dir) {
+  const out = [];
+  const walk = (d, rel) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      const relPath = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        walk(full, relPath);
+      } else if (SHOT_FILE_RE.test(e.name)) {
+        out.push({ full, rel: relPath, name: e.name });
+      }
+    }
+  };
+  walk(dir, '');
+  return out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+}
+
+/**
+ * "title-line-phone.png" -> { caption: "title line · phone", viewport: "phone" }. A trailing
+ * -phone, -desktop or -<width> names the viewport; anything else is read as one caption with no
+ * viewport, so a file named plainly still uploads.
+ */
+export function captionForShotFile(filename) {
+  const base = String(filename || '').replace(/\.[^.]+$/, '');
+  const m = /^(.*[^-])-(phone|desktop|\d{2,4})$/.exec(base);
+  const namePart = m ? m[1] : base;
+  const viewport = m ? m[2] : '';
+  const text = namePart.replace(/[-_]+/g, ' ').trim() || base;
+  return { caption: viewport ? `${text} ${MIDDOT} ${viewport}` : text, viewport };
+}
+
+/**
+ * Uploads the repo's own test screenshots as qa-screenshot artifacts, exactly the shape and
+ * storage path (`evidenceKey`, `uploadEvidence`, `publishArtifact`) the worker's own shots use, so
+ * `taskPicturesStored` sees them and QA can cite them. Never fails the run: a read, size or upload
+ * problem for one file is recorded in `skipped` and the rest still upload. Capped at
+ * REPO_SHOT_LIMITS so a test suite that writes hundreds of frames cannot flood the task record.
+ */
+/**
+ * Keeps the repo's own QA shots out of the branch: appends an ignore line for the shots directory
+ * to `.git/info/exclude` (never `.gitignore`, which would itself be a change the engineer commits)
+ * unless it is already there. Called before the engineer's first commit, so a test run's
+ * screenshots are never untracked files `git status` offers to `land`'s `git add`, whatever the
+ * engineer or a test writes there later in the run.
+ */
+export function excludeShotsDir(repoDir, shotsDir) {
+  const file = path.join(repoDir, '.git', 'info', 'exclude');
+  const line = `/${String(shotsDir).replace(/^\/+|\/+$/g, '')}/`;
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  if (existing.split('\n').map(l => l.trim()).includes(line)) {
+    return;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${existing && !existing.endsWith('\n') ? '\n' : ''}${line}\n`);
+}
+
+export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, post, artifactUrl, limit = REPO_SHOT_LIMITS.files, maxBytes = REPO_SHOT_LIMITS.bytes }) {
+  const uploaded = [];
+  const skipped = [];
+  const evidence = [];
+  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    return { uploaded, skipped, evidence };
+  }
+  const files = listShotFiles(dir);
+  if (!files.length) {
+    return { uploaded, skipped, evidence };
+  }
+  let credentials = null;
+  try {
+    credentials = await containerCredentials();
+  } catch {
+    // no task role; canUpload below records the reason per file
+  }
+  const canUpload = Boolean(credentials && aws?.bucket && aws?.presign?.accessKeyId);
+  for (const f of files) {
+    if (uploaded.length >= limit) {
+      skipped.push({ file: f.rel, reason: `over the limit of ${limit} files; the rest were not uploaded` });
+      continue;
+    }
+    let stat;
+    try {
+      stat = fs.statSync(f.full);
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `could not read: ${String(e.message || e).slice(0, 150)}` });
+      continue;
+    }
+    if (stat.size > maxBytes) {
+      skipped.push({ file: f.rel, reason: `${(stat.size / 1024 / 1024).toFixed(1)} MB is over the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap` });
+      continue;
+    }
+    if (!canUpload) {
+      skipped.push({ file: f.rel, reason: 'the container could not reach the evidence bucket' });
+      continue;
+    }
+    const ext = (f.name.match(/\.([^.]+)$/) || [, 'png'])[1].toLowerCase();
+    const contentType = SHOT_CONTENT_TYPE[ext] || 'image/png';
+    const { caption: text, viewport } = captionForShotFile(f.name);
+    const title = text.slice(0, 100);
+    let url = '';
+    try {
+      const body = fs.readFileSync(f.full);
+      const key = evidenceKey(taskId, runId, `repo-test ${text}`, viewport || 'desktop', 'after', ext === 'jpg' ? 'jpeg' : ext);
+      url = await uploadEvidence({ bucket: aws.bucket, region: aws.region, key, body, contentType, credentials, presign: aws.presign });
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `upload failed: ${String(e.message || e).slice(0, 200)}` });
+      continue;
+    }
+    const spec = { href: url, url, title, description: text, caption: text, filename: f.name, contentType, bytes: stat.size };
+    let artifactId = null;
+    if (post && recordId) {
+      const r = await publishArtifact(post, artifact(recordId, 'qa-screenshot', 'link', title, spec));
+      if (r.ok) {
+        artifactId = r.id;
+      } else {
+        skipped.push({ file: f.rel, reason: `artifact refused: ${r.error} (${r.status})` });
+      }
+    }
+    uploaded.push({ file: f.rel, caption: text, viewport, url });
+    evidence.push({ role: 'qa-screenshot', source: 'repo-test', flow: f.rel, viewport: viewport || undefined, url, caption: text, ...(artifactId ? { artifactId } : {}) });
+  }
+  return { uploaded, skipped, evidence };
+}
+
 export function reportArtifact({ recordId, taskId, markdown, summary }) {
   const title = `QA evidence for ${taskId}`.slice(0, 100);
   return artifact(recordId, 'qa-report', 'markdown', title, { md: markdown, summary: String(summary || 'What the worker captured, and anything it could not').slice(0, 200), caption: summary, title });
@@ -115,7 +257,7 @@ export function reportArtifact({ recordId, taskId, markdown, summary }) {
  * The one markdown artifact that says what happened, including when nothing did. Absence is a row
  * in the table with a reason, never a missing row.
  */
-export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures = [], elapsedS = 0, bytes = 0, videoSeconds = 0 }) {
+export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures = [], elapsedS = 0, bytes = 0, videoSeconds = 0, repoShots = null }) {
   const cell = v => String(v ?? '').replace(/\|/g, '\\|').slice(0, 200);
   const lines = [
     `# QA evidence for ${taskId}`,
@@ -132,6 +274,26 @@ export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures 
   }
   if (videoSeconds) {
     lines.push('', `Video added ${videoSeconds}s to the pass.`);
+  }
+  // From the repo's own tests: a line a person sees, proven by a browser test in the repo rather
+  // than by the worker building and serving the app (it has no contract to build a signed-in
+  // surface; see the FE-398 decision). A reader should tell these apart from the worker's shots.
+  if (repoShots && (repoShots.uploaded?.length || repoShots.skipped?.length)) {
+    lines.push('', "## From the repo's own tests", '');
+    if (repoShots.uploaded?.length) {
+      lines.push('| file | caption | viewport |', '|---|---|---|');
+      for (const s of repoShots.uploaded) {
+        lines.push(`| ${cell(s.file)} | ${cell(s.caption)} | ${cell(s.viewport || 'desktop')} |`);
+      }
+    } else {
+      lines.push('(none uploaded)');
+    }
+    if (repoShots.skipped?.length) {
+      lines.push('', 'Skipped:');
+      for (const s of repoShots.skipped) {
+        lines.push(`- **${cell(s.file)}**: ${String(s.reason).slice(0, 300)}`);
+      }
+    }
   }
   if (failures.length) {
     lines.push('', '## What failed', '');

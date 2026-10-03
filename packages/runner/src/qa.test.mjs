@@ -10,13 +10,16 @@ import { describe, it } from 'node:test';
 import {
   buildSurface,
   caption,
+  captionForShotFile,
   captureEvidence,
+  collectRepoTestShots,
   detectErrorState,
   duplicateOf,
   ERROR_STATE_PATTERNS,
   errorPatternsFor,
   evidenceKey,
   evidenceTitle,
+  excludeShotsDir,
   findPlaceholder,
   firstListItemHref,
   hasPlaceholder,
@@ -29,6 +32,7 @@ import {
   productionBase,
   qaReportMarkdown,
   reportArtifact,
+  REPO_SHOT_LIMITS,
   resolveRoutePlaceholders,
   screenshotArtifact,
   shotNote,
@@ -640,5 +644,148 @@ describe('a flow that proves what an API answered (expect_response, FE-314 2026-
       server.close();
       fs.rmSync(outDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the repo\'s own test screenshots (FE-398, 2026-10-03)', () => {
+  it('reads a trailing -phone, -desktop or -<width> as the viewport, and turns dashes into spaces', () => {
+    assert.deepEqual(captionForShotFile('title-line-phone.png'), { caption: `title line ${String.fromCharCode(0xB7)} phone`, viewport: 'phone' });
+    assert.deepEqual(captionForShotFile('empty-state-desktop.jpg'), { caption: `empty state ${String.fromCharCode(0xB7)} desktop`, viewport: 'desktop' });
+    assert.deepEqual(captionForShotFile('filter-chip-375.png'), { caption: `filter chip ${String.fromCharCode(0xB7)} 375`, viewport: '375' });
+    assert.deepEqual(captionForShotFile('search-box.png'), { caption: 'search box', viewport: '' });
+  });
+
+  it('with no shots directory, uploads and skips nothing', async () => {
+    const r = await collectRepoTestShots({ dir: path.join(os.tmpdir(), 'no-such-qa-shots-dir'), taskId: 't1', runId: 'r1', recordId: null, aws: { bucket: 'b', region: 'us-west-2', presign: {} }, post: null });
+    assert.deepEqual(r, { uploaded: [], skipped: [], evidence: [] });
+  });
+
+  it('skips every file, named, when no credentials can reach the evidence bucket', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'title-line-phone.png'), Buffer.from('fake png'));
+    fs.mkdirSync(path.join(dir, 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'nested', 'empty-state-desktop.png'), Buffer.from('fake png too'));
+    const savedEnv = { AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY, AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, AWS_CONTAINER_CREDENTIALS_FULL_URI: process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI };
+    delete process.env.AWS_ACCESS_KEY_ID;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+    delete process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI;
+    delete process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI;
+    try {
+      const r = await collectRepoTestShots({ dir, taskId: 't1', runId: 'r1', recordId: null, aws: { bucket: 'b', region: 'us-west-2', presign: {} }, post: null });
+      assert.equal(r.uploaded.length, 0);
+      assert.equal(r.skipped.length, 2);
+      assert.ok(r.skipped.every(s => /could not reach the evidence bucket/.test(s.reason)));
+      // Recursive, and sorted so the report reads the same way twice.
+      assert.deepEqual(r.skipped.map(s => s.file).sort(), ['nested/empty-state-desktop.png', 'title-line-phone.png']);
+    } finally {
+      for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) {
+          delete process.env[k];
+        } else {
+          process.env[k] = v;
+        }
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a file over the byte cap, naming its size', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'huge-desktop.png'), Buffer.alloc(10));
+    const r = await collectRepoTestShots({ dir, taskId: 't1', runId: 'r1', recordId: null, aws: { bucket: 'b', region: 'us-west-2', presign: {} }, post: null, maxBytes: 5 });
+    assert.equal(r.uploaded.length, 0);
+    assert.match(r.skipped[0].reason, /over the 0 MB cap/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('uploads up to the limit and caps the rest, with S3 PUT and presign exercised for real', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    for (let i = 0; i < 3; i++) {
+      fs.writeFileSync(path.join(dir, `line-${i}-desktop.png`), Buffer.from(`fake png ${i}`));
+    }
+    const puts = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts) => {
+      puts.push({ url: String(url), method: opts?.method });
+      return { ok: true, status: 200, text: async () => '' };
+    };
+    process.env.AWS_ACCESS_KEY_ID = 'AKIAFAKETESTKEY0001';
+    process.env.AWS_SECRET_ACCESS_KEY = 'fakeSecretKeyForTestsOnly0000000000000000';
+    try {
+      const posted = [];
+      const post = async (p, body) => {
+        posted.push({ p, body }); return { ok: true, status: 200, json: { id: `art-${posted.length}` } };
+      };
+      const r = await collectRepoTestShots({
+        dir,
+        taskId: 't1',
+        runId: 'r1',
+        recordId: 42,
+        aws: { bucket: 'vocion-qa-test', region: 'us-west-2', presign: { accessKeyId: 'AKIAFAKETESTKEY0001', secretAccessKey: 'fakeSecretKeyForTestsOnly0000000000000000' } },
+        post,
+        limit: 2,
+      });
+      assert.equal(r.uploaded.length, 2);
+      assert.equal(r.skipped.length, 1);
+      assert.match(r.skipped[0].reason, /over the limit of 2 files/);
+      assert.equal(puts.length, 2);
+      assert.ok(puts.every(p => p.method === 'PUT' && p.url.includes('vocion-qa-test.s3.us-west-2.amazonaws.com')));
+      assert.ok(r.uploaded.every(u => /^https:\/\/vocion-qa-test\.s3\.us-west-2\.amazonaws\.com\//.test(u.url) && u.url.includes('X-Amz-Signature=')));
+      assert.equal(posted.length, 2);
+      assert.equal(posted[0].body.recordRole, 'qa-screenshot');
+      assert.equal(posted[0].body.recordId, '42');
+      assert.deepEqual(r.evidence.map(e => e.source), ['repo-test', 'repo-test']);
+      assert.ok(r.evidence.every(e => e.artifactId));
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.AWS_ACCESS_KEY_ID;
+      delete process.env.AWS_SECRET_ACCESS_KEY;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is its own heading in the qa report, with what uploaded and what did not', () => {
+    const md = qaReportMarkdown({
+      taskId: 't1',
+      runId: 'r1',
+      base: 'https://example.test',
+      qa: { surface: 'app', video: false },
+      rows: [],
+      failures: [],
+      repoShots: { uploaded: [{ file: 'title-line-phone.png', caption: 'title line', viewport: 'phone' }], skipped: [{ file: 'huge.png', reason: 'over the 5 MB cap' }] },
+    });
+    assert.match(md, /## From the repo's own tests/);
+    assert.match(md, /title-line-phone\.png/);
+    assert.match(md, /title line/);
+    assert.match(md, /huge\.png.*over the 5 MB cap/);
+  });
+
+  it('does not add the heading when there is nothing from the repo\'s tests', () => {
+    const md = qaReportMarkdown({ taskId: 't1', runId: 'r1', base: '', qa: { surface: 'app' }, rows: [], failures: [], repoShots: { uploaded: [], skipped: [] } });
+    assert.doesNotMatch(md, /From the repo's own tests/);
+  });
+});
+
+describe('keeping the repo\'s own shots out of the branch', () => {
+  it('appends an ignore line to .git/info/exclude, once, never .gitignore', () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-exclude-'));
+    fs.mkdirSync(path.join(repoDir, '.git'), { recursive: true });
+    excludeShotsDir(repoDir, 'qa-shots');
+    excludeShotsDir(repoDir, 'qa-shots'); // idempotent: a second run must not duplicate the line
+    const exclude = fs.readFileSync(path.join(repoDir, '.git', 'info', 'exclude'), 'utf8');
+    assert.equal(exclude.split('\n').filter(l => l.trim() === '/qa-shots/').length, 1);
+    assert.ok(!fs.existsSync(path.join(repoDir, '.gitignore')));
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it('keeps an existing exclude file\'s other lines', () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-exclude-'));
+    fs.mkdirSync(path.join(repoDir, '.git', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, '.git', 'info', 'exclude'), '*.local\n');
+    excludeShotsDir(repoDir, 'screens');
+    const exclude = fs.readFileSync(path.join(repoDir, '.git', 'info', 'exclude'), 'utf8');
+    assert.match(exclude, /\*\.local/);
+    assert.match(exclude, /\/screens\//);
+    fs.rmSync(repoDir, { recursive: true, force: true });
   });
 });

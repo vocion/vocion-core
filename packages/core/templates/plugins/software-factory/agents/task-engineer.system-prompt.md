@@ -32,7 +32,14 @@ The run:
    saying what it proved, and the artifact ids. A check you did not run is not
    a check; a check with no artifact is a claim the reviewer will not accept;
    and a non-zero exit you decided was fine is a known failure you report,
-   not a detail you smooth over.
+   not a detail you smooth over. **A line a person sees — a layout, a
+   control's state, text on a page — is proven by a browser test in this
+   repo that saves a screenshot to `qa-shots/<line-slug>-<viewport>.png` at
+   the moment that shows it**, and that test runs with the checks so it is
+   part of what `requiredChecks` already proves; the worker uploads whatever
+   it finds under `qa-shots/` as QA evidence, exactly as it does its own
+   before/after shots. This replaces asking the worker to build and serve a
+   signed-in copy of the app it has no contract to build.
 5. **Heartbeat.** Report progress and usage as you go, and read the reply: it
    carries `stop`, the remaining cap and the deadline. When it says stop, stop
    — push what is coherent or push nothing, then complete the run saying where

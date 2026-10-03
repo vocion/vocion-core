@@ -4,7 +4,7 @@ import path from 'node:path';
 // node --test packages/runner/src/
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { BUILTIN_CHECKS, ContractError, criterionTests, interactionNamed, mergeEngineerFlows, normalizeContract, normalizeQa, QA_STEP_VERBS, RISK_CLASSES, validateContract } from './contract.mjs';
+import { BUILTIN_CHECKS, ContractError, criterionTests, interactionNamed, mergeEngineerFlows, normalizeContract, normalizeQa, QA_STEP_VERBS, RISK_CLASSES, shotsDirFor, validateContract } from './contract.mjs';
 import { PLAN_REQUIRED_RISK_CLASSES } from './plan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -242,6 +242,19 @@ describe('the qa block', () => {
   it('normalizeQa returns null when there is nothing to capture', () => {
     assert.equal(normalizeQa(undefined), null);
     assert.equal(normalizeQa({}), null);
+  });
+
+  it('shots_dir: defaults to qa-shots, accepts the contract\'s own directory, and refuses a leading or trailing slash', () => {
+    assert.equal(normalizeQa({ flows: [{ name: 'x', path: '/x' }] }).shots_dir, 'qa-shots');
+    assert.equal(normalizeQa({ flows: [{ name: 'x', path: '/x' }], shots_dir: 'evidence/screens' }).shots_dir, 'evidence/screens');
+    assert.equal(shotsDirFor(undefined), 'qa-shots');
+    assert.equal(shotsDirFor({}), 'qa-shots');
+    assert.equal(shotsDirFor({ shots_dir: 'evidence/screens' }), 'evidence/screens');
+    // shotsDirFor reads the raw contract, so it resolves even with no qa.flows at all.
+    assert.equal(shotsDirFor({ shots_dir: 'evidence/screens', flows: undefined }), 'evidence/screens');
+    assert.deepEqual(validateContract({ ...ui, qa: { shots_dir: 'evidence/screens', flows: [{ name: 'x', path: '/x' }] } }), { ok: true, errors: [] });
+    const bad = validateContract({ ...ui, qa: { shots_dir: '/leading-slash', flows: [{ name: 'x', path: '/x' }] } });
+    assert.ok(bad.errors.some(e => /qa\.shots_dir does not match/.test(e)), bad.errors.join('; '));
   });
 
   it('names qa as the canonical spelling for the shapes people write instead', () => {

@@ -120,6 +120,12 @@
           "default": false,
           "description": "Optional. When true the worker records the after run of every flow as a Playwright webm and publishes it as a qa-video artifact. Costs roughly 8 seconds and 1 MB per flow per viewport."
         },
+        "shots_dir": {
+          "type": "string",
+          "pattern": "^[^/][^\\n]*[^/]$|^[^/]$",
+          "default": "qa-shots",
+          "description": "Optional. The directory, relative to the repo root, where the repo's own browser tests save PNG/JPEG screenshots that prove a line a person sees (layout, a control's state, text on a page). The worker uploads every image it finds there as a qa-screenshot artifact after the checks and named tests run, captioned from the file name, then makes sure the directory never reaches the commit."
+        },
         "flows": {
           "type": "array",
           "minItems": 1,
