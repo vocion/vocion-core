@@ -27,13 +27,16 @@ export const DEFAULT_THREAD_TITLE = 'New conversation';
 /**
  * The words of a message with its markdown taken off: images gone, links
  * reduced to their text, emphasis and code marks dropped. A title is prose.
+ * @param content
  */
 export function plainWords(content: string): string {
   return content
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[*_`~#>]+/g, '')
-    .split(/\s+/).filter(Boolean).join(' ');
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ');
 }
 
 export function firstMessageTitle(content: string, maxLen = 60): string {
