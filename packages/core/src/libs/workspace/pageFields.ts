@@ -561,6 +561,12 @@ export const PageManifestSchema = z.object({
      * once somebody added a seventh.
      */
     secondary: z.boolean().default(false),
+    /**
+     * A shorter name for the sidebar row. The page keeps its full `title`
+     * for its own header and the browser tab; a sidebar is 200px wide, and
+     * "CONSTRUCT26 · Pick a workflow" was reading as "CONSTRUCT26 · Pick a w…".
+     */
+    title: z.string().min(1).optional(),
   }).default({ section: 'Workspace', order: 0, hidden: false, secondary: false }),
   /**
    * `link` is a nav row, not a page: it pins an existing core route into the
