@@ -260,9 +260,25 @@ steps:
             any:
               - types: [release.linked]
                 match: {requestIds: ['{{input.requestId}}']}
+              - types: [run.failed]
+                match: {headSha: '{{vars.reviewed.payload.mergeSha}}'}
             timeout: 21600
             since: '{{vars.reviewFrom}}'
           as: released
+        # A failed deploy of the merge is said where the person looks (Walk 15,
+        # FE-406: "deploying" for half an hour over a failed run), and the flow
+        # waits on for the release a re-run or a fix records.
+        - when:
+            - if: {path: vars.released.type, equals: run.failed}
+              then:
+                - status: {stage: deploying, line: 'Merged {{vars.prUrl}}, but its deploy failed ({{vars.released.payload.name}}: {{vars.released.payload.url}}); the release engineer is answering it.', with: {prUrl: '{{vars.prUrl}}'}}
+                - wait_event:
+                    any:
+                      - types: [release.linked]
+                        match: {requestIds: ['{{input.requestId}}']}
+                    timeout: 21600
+                    since: '{{vars.reviewFrom}}'
+                  as: released
         - when:
             - if: {path: vars.released, exists: false}
               then:

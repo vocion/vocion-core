@@ -132,6 +132,22 @@ describe('the software-factory request flow owns a request from Build to live (b
     await until(id, 'deploying');
   });
 
+  it('says when the merge\'s deploy failed, and still takes the release a re-run records (Walk 15, FE-406)', async () => {
+    const h = harness([{ kind: 'building', workerRunId: 621, taskId: 1 }], { 621: opened('feat-1', 'pr/81') }, { live: () => ({ state: 'seen', line: 'Seen live: 1 of 1' }) });
+    await ask(80);
+    const id = await start(h.name, 80);
+    await until(id, 'building');
+    await emit('worker_run.completed', { workerRunId: 621 });
+    await until(id, 'review');
+    await emit('pr.merged', { url: 'pr/81', mergeSha: 'c0ffee81' });
+    await until(id, 'deploying');
+    await emit('run.failed', { headSha: 'c0ffee81', name: 'Deploy', url: 'https://ci.example/runs/81' });
+    await vi.waitFor(() => expect(h.marks.map(([, line]) => line)).toContain('Merged pr/81, but its deploy failed (Deploy: https://ci.example/runs/81); the release engineer is answering it.'));
+    await emit('release.linked', { releaseId: 981, requestIds: [80] });
+
+    await vi.waitFor(() => expect(h.marks.map(([t]) => t)).toContain('checking_live'));
+  });
+
   it('retries a failure on the kept branch, takes QA\'s send-back as the next attempt, and ends live', async () => {
     const h = harness(
       [{ kind: 'building', workerRunId: 501, taskId: 1 }, { kind: 'building', workerRunId: 502, taskId: 2 }, { kind: 'building', workerRunId: 503, taskId: 3 }],
