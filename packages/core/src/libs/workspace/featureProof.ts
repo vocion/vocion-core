@@ -29,7 +29,7 @@
 export const PLAN_RISK_PREFIX = 'The plan\'s risk is handled: ';
 
 /** One judged line, as `record_verdict` stores it on a task (`verdict.criteria`). */
-export type JudgedCriterion = { criterion: string; status: 'proven' | 'unproven' | 'unchecked'; evidence?: string; tests?: string[] };
+export type JudgedCriterion = { criterion: string; status: 'proven' | 'unproven' | 'unchecked' | 'live'; evidence?: string; tests?: string[] };
 
 /** A record with only what the proof reads. */
 export type ProofRecord = { id: number; meta: Record<string, unknown> };
@@ -154,7 +154,7 @@ function verdictOf(task: ProofRecord): { value: string | null; criteria: JudgedC
     .filter(c => typeof c.criterion === 'string')
     .map((c): JudgedCriterion => ({
       criterion: String(c.criterion),
-      status: c.status === 'proven' || c.status === 'unproven' ? c.status : 'unchecked',
+      status: c.status === 'proven' || c.status === 'unproven' || c.status === 'live' ? c.status : 'unchecked',
       ...(str(c.evidence) ? { evidence: str(c.evidence)! } : {}),
     }));
   return { value: str(v.value), criteria, at: str(v.at), by: str(v.by) };
@@ -190,7 +190,7 @@ function fromJudgement(statement: string, group: ProofCriterion['group'], j: Jud
   const state: ProofState = j.status === 'proven' && evidence !== null ? 'passed' : j.status === 'unproven' ? 'failed' : 'unverified';
   const note = j.status === 'proven' && evidence === null
     ? 'QA marked it proven, with no evidence attached.'
-    : j.status === 'unchecked' ? 'QA did not judge this line.' : null;
+    : j.status === 'unchecked' ? 'QA did not judge this line.' : j.status === 'live' ? 'No picture could be made before the merge; the live check proves it in production.' : null;
   return { statement, group, state, evidence, evidenceUrl: firstUrl(evidence), from: 'verdict', note };
 }
 

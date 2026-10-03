@@ -63,6 +63,11 @@ do:
 
     The task's stored test run lists every test that ran on the branch, each
     with an id: cite the tests that prove a criterion by id in its `tests`.
+
+    When the run stored no screenshot (its QA evidence says the surface could
+    not be built or reached), a line only the running product can show is
+    `live`, not unproven: judge everything else, approve when the rest is
+    proven, and the live check after deploy proves those lines in production.
     A named test that matched no test that ran is the engineer's naming gap,
     not a skipped test; judge the criterion on the tests that did run.
 

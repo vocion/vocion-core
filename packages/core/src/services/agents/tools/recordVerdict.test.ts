@@ -4,6 +4,14 @@ import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeS
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
 describe('judgeVerdict', () => {
+  it('approves with a line left to the live check when no picture could be stored, and refuses live when one was (Walk 12, FE-392)', () => {
+    const lines = [proven('a'), { criterion: 'Fits a phone at 390px', status: 'live' as const }];
+
+    expect(judgeVerdict('approve', lines, [], new Set(), false)).toMatchObject({ refusal: null, proven: 1, total: 2 });
+    expect(judgeVerdict('approve', lines, [], new Set(), false).value).toBeUndefined();
+    expect(judgeVerdict('approve', lines, [], new Set(), true).refusal).toMatch(/is marked live, but this task has stored screenshots/);
+  });
+
   it('counts proven criteria itself', () => {
     const r = judgeVerdict('changes', [proven('a'), { criterion: 'b', status: 'unproven' }, { criterion: 'c', status: 'unchecked' }], []);
 

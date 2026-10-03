@@ -50,7 +50,11 @@ export function parseJsonArray(v: unknown): unknown[] {
 export { alignToContract, contractOf };
 
 export const VERDICT_VALUES = ['approve', 'changes', 'reject'] as const;
-export const CRITERION_STATUSES = ['proven', 'unproven', 'unchecked'] as const;
+// `live`: only the running product can settle the line, and the factory could
+// store no picture before the merge (Walk 12, FE-392: QA sent a 5-of-7 build
+// back twice for layout lines no branch build could show). The live check
+// after deploy proves it there; it never stands in when a picture exists.
+export const CRITERION_STATUSES = ['proven', 'unproven', 'unchecked', 'live'] as const;
 
 export type VerdictCriterion = { criterion: string; status: typeof CRITERION_STATUSES[number]; evidence?: string; tests?: string[] };
 export type VerdictFinding = { against: 'criterion' | 'path' | 'check'; ref: string; severity: 'block' | 'fix' | 'note'; what: string; closeBy?: string };
@@ -87,9 +91,10 @@ export function reachable(evidence: string, shotIds: ReadonlySet<number> = new S
  * @param criteria - Every acceptance criterion, judged.
  * @param findings - Typed findings.
  * @param shotIds - The task's own screenshot artifact ids.
+ * @param picturesStored - Whether the run stored any screenshot with an image; `live` is allowed only when it did not.
  * @returns The count, and the refusal when the verdict contradicts itself.
  */
-export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[], shotIds: ReadonlySet<number> = new Set()): { proven: number; total: number; refusal: string | null; value?: string; recordedAs?: string } {
+export function judgeVerdict(value: string, criteria: VerdictCriterion[], findings: VerdictFinding[], shotIds: ReadonlySet<number> = new Set(), picturesStored = true): { proven: number; total: number; refusal: string | null; value?: string; recordedAs?: string } {
   const total = criteria.length;
   const proven = criteria.filter(c => c.status === 'proven').length;
   if (total === 0) {
@@ -111,8 +116,12 @@ export function judgeVerdict(value: string, criteria: VerdictCriterion[], findin
   if (unreachable.length > 0) {
     return { proven, total, refusal: `Not recorded: "${unreachable[0]!.criterion}" is marked proven on "${(unreachable[0]!.evidence ?? '').slice(0, 80)}", which is a description, not evidence. Cite the screenshot's link (open it with fetch_image first) or the named test, or mark it unproven.` };
   }
+  const live = criteria.filter(c => c.status === 'live');
+  if (live.length > 0 && picturesStored) {
+    return { proven, total, refusal: `Not recorded: "${live[0]!.criterion}" is marked live, but this task has stored screenshots. Cite the one that shows it, or mark it unproven.` };
+  }
   if (value === 'approve') {
-    const open = criteria.filter(c => c.status !== 'proven');
+    const open = criteria.filter(c => c.status !== 'proven' && c.status !== 'live');
     // AN APPROVE WITH SOMETHING UNPROVEN IS A CHANGES (2026-09-30, #130 review
     // 9025: QA approved 7 of 8, was refused, the recording pass approved again
     // and was refused again, and the task sat "QA could not finish" asking a
@@ -211,7 +220,7 @@ export function clipNote(note: string): string {
  * @param proven - How many are proven.
  */
 export function mergeSummary(note: string, criteria: VerdictCriterion[], proven: number): string {
-  const lines = criteria.map(c => `- ${c.status === 'proven' ? 'Proven' : c.status === 'unproven' ? 'Unproven' : 'Unchecked'}: ${c.criterion}${c.evidence ? ` (${c.evidence})` : ''}`);
+  const lines = criteria.map(c => `- ${c.status === 'proven' ? 'Proven' : c.status === 'live' ? 'Proven live after deploy' : c.status === 'unproven' ? 'Unproven' : 'Unchecked'}: ${c.criterion}${c.evidence ? ` (${c.evidence})` : ''}`);
   return [`${note.trim()}`, '', `QA: ${proven} of ${criteria.length} criteria proven.`, ...lines].join('\n').slice(0, 4_000);
 }
 
@@ -454,6 +463,23 @@ export async function buildAgain(orgId: string, task: { id: number; meta: Record
  * @param taskId - The task under review.
  */
 /**
+ * Whether the run stored any screenshot with an image behind it.
+ * @param orgId - The workspace.
+ * @param taskId - The task.
+ */
+async function taskPicturesStored(orgId: string, taskId: number): Promise<boolean> {
+  const { and, eq, isNotNull, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { artifactSchema } = await import('@/models/Schema');
+  const [row] = await db
+    .select({ id: artifactSchema.id })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.recordId, String(taskId)), sql`${artifactSchema.recordRole} = 'qa-screenshot'`, isNotNull(artifactSchema.url)))
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
  * The ids of a task's QA evidence: its screenshots and the stored run of its named tests.
  * @param orgId - The workspace.
  * @param taskId - The task.
@@ -596,7 +622,7 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       // unchecked — absent is not proven.
       const contract = contractOf(task.meta);
       const criteria = contract.length > 0 ? alignToContract(contract, judged) : judged;
-      const { proven, total, refusal: ruled, value: judgedValue, recordedAs } = judgeVerdict(args.value, criteria, findings, await taskShotIds(ctx.orgId, task.id));
+      const { proven, total, refusal: ruled, value: judgedValue, recordedAs } = judgeVerdict(args.value, criteria, findings, await taskShotIds(ctx.orgId, task.id), await taskPicturesStored(ctx.orgId, task.id));
       const value = (judgedValue ?? args.value) as typeof VERDICT_VALUES[number];
       // JUDGED WITHOUT LOOKING. On #131 attempt 176 the PR listed seventeen
       // short screenshot links and QA opened none: it read the task through a
@@ -727,12 +753,12 @@ export function recordVerdictTool(ctx: RuntimeContext) {
       description: 'Record QA\'s verdict on a factory pull request: every line of the task\'s acceptance contract (acceptanceContract, in order, in its own words) judged proven, unproven or unchecked, with the evidence for each proven one. A contract line you do not judge is recorded as unchecked. The server binds it to the PR\'s current head, counts the proven criteria itself, sets the task to accepted, changes_requested or rejected, and on approve files the merge card for a person. This call IS the review; a review that does not end in it did not happen.',
       schema: z.object({
         pr_url: z.string().url().describe('The pull request, e.g. https://github.com/acme/app/pull/12.'),
-        value: z.enum(VERDICT_VALUES).describe('approve only when every criterion is proven and nothing blocks; changes when something specific would make it right; reject when the contract itself was wrong.'),
+        value: z.enum(VERDICT_VALUES).describe('approve only when every criterion is proven (or live, when no picture could be stored) and nothing blocks; changes when something specific would make it right; reject when the contract itself was wrong.'),
         // PLAIN TYPES ONLY (no transforms — they cannot be sent as JSON Schema,
         // #731); a list sent as text is parsed in the handler.
         criteria: z.union([z.array(z.object({
           criterion: z.string().min(1).describe('The acceptance criterion, as written on the contract.'),
-          status: z.enum(CRITERION_STATUSES),
+          status: z.enum(CRITERION_STATUSES).describe('proven, unproven or unchecked; live only when the run stored no screenshot and only the running product can show the line (the live check after deploy proves it).'),
           evidence: z.string().optional().describe('The link, check or screenshot that settles it. Required for proven, unless tests names the tests that prove it.'),
           tests: z.array(z.string()).optional().describe('The tests that prove it, by id (e.g. "t3") from the stored run\'s list of every test that ran on the branch. A test not on that list is refused with the list; a proven criterion needs tests that passed.'),
         })), z.string()]).describe('Every acceptance criterion, in contract order, as a list.'),
