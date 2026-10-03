@@ -134,6 +134,10 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
     VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
     node scripts/write-version.mjs
 
+# Two passes, compile then generate (2026-10-03): in one process the compile's
+# memory (~4.6 GB) is still held while pages render (+~1.3 GB), and the 7 GB
+# deploy runner was killed twice (ResourceExhausted). Each pass now has the
+# memory to itself; the standalone output is the same.
 # One prerender worker, and a database that refuses at once (127.0.0.1:9),
 # never a hostname that can sit in DNS. v0.6.0's build on the deploy runner
 # (2 CPU, 7 GB) was killed at "Generating static pages using 2 workers (0/185)"
@@ -155,7 +159,7 @@ RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/ap
     ANTHROPIC_API_KEY="sk-ant-build-stub" \
     LANGFUSE_PUBLIC_KEY="pk-stub" \
     LANGFUSE_SECRET_KEY="sk-stub" \
-    npm run build:next \
+    npm run build:next:staged \
  && npm run docs:index
 
 # The standalone output still carries some of core's source, specs and test
