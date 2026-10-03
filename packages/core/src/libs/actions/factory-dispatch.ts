@@ -375,6 +375,26 @@ export function contractGaps(meta: Meta): string[] {
   return gaps;
 }
 
+/** The runner's contract caps `title` (packages/runner/contract/schema.json, maxLength). */
+export const CONTRACT_TITLE_MAX = 120;
+
+/**
+ * A request's title as a contract title: whole when it fits, else cut at a word
+ * and marked. Walk 18 (FE-419): a 164-character title (the person's whole ask)
+ * made the worker refuse the contract before it cloned; the objective and the
+ * acceptance lines carry the full ask, so the title is only the label.
+ * @param title - The task's title.
+ */
+export function contractTitle(title: string): string {
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (t.length <= CONTRACT_TITLE_MAX) {
+    return t;
+  }
+  const cut = t.slice(0, CONTRACT_TITLE_MAX - 1);
+  const word = cut.lastIndexOf(' ');
+  return `${(word > CONTRACT_TITLE_MAX / 2 ? cut.slice(0, word) : cut).replace(/[\s,;:.-]+$/, '')}…`;
+}
+
 /**
  * The engineering_task record as the worker's contract (snake_case, the
  * squatch factory schema). Pure, so the mapping is tested without a database.
@@ -404,7 +424,7 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
     repo,
     base_sha: str(m, 'baseSha') ?? 'origin/main',
     objective: str(m, 'objective'),
-    title: task.title,
+    title: contractTitle(task.title),
     acceptance_contract: list(m, 'acceptanceContract'),
     allowed_paths: list(m, 'allowedPaths'),
     risk_class: str(m, 'riskClass'),
