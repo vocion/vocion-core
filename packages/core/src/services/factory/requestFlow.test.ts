@@ -229,6 +229,26 @@ describe('the software-factory request flow owns a request from Build to live (b
     expect(h.stops[0]).toMatch(/3 automatic attempts/);
   });
 
+  it('a deploy since the stop gets exactly one more attempt, then stops again (Walk 12, FE-376)', async () => {
+    const h = harness(
+      [601, 602, 603, 604, 605].map(w => ({ kind: 'building', workerRunId: w, taskId: w }) as Outcome),
+      { 601: failed('c1'), 602: failed('c2'), 603: failed('c3'), 604: failed('c4'), 605: failed('c5') },
+    );
+    await ask(43);
+    const id = await start(h.name, 43);
+    for (const w of [601, 602, 603, 604]) {
+      await vi.waitFor(() => expect(h.dispatches.length).toBeGreaterThanOrEqual(w - 600));
+      await emit('worker_run.failed', { workerRunId: w });
+    }
+    await until(id, 'stopped');
+    await emit(BUILD_REQUESTED, { requestId: 43, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'deploy' });
+    await vi.waitFor(() => expect(h.dispatches).toHaveLength(5));
+    await emit('worker_run.failed', { workerRunId: 605 });
+    await vi.waitFor(() => expect(h.stops).toHaveLength(2));
+
+    expect(h.dispatches).toHaveLength(5);
+  });
+
   it('an ask raised while the dispatch runs is not lost (FE-370: the plan approved before the wait opened)', async () => {
     let planned = false;
     const h = harness([{ kind: 'planning', line: 'Planning first' }, { kind: 'building', workerRunId: 801, taskId: 8 }], {}, {

@@ -1056,6 +1056,30 @@ describe('nothing waits on a review that never starts (2026-09-30, #269: CI fail
   });
 });
 
+describe('a deploy resumes a workflow\'s stop once (Walk 12, FE-376)', () => {
+  it('asks the stopped request\'s flow to build once more after a deploy, once per deploy, and never a request that stopped after it', async () => {
+    const { resumeWorkflowStopsAfterDeploy } = await import('./carry');
+    const stopped = await request({ product: 'rooms', title: 'Rooms show how many people each was sent to' });
+    const later = await request({ product: 'rooms', title: 'Rooms show a New badge' });
+    const hour = 3_600_000;
+    const now = new Date();
+    await db.update(businessObjectSchema).set({ metadata: { ...(stopped.metadata as Record<string, unknown>), status: 'stopped', statusAt: new Date(now.getTime() - 3 * hour).toISOString() } }).where(eq(businessObjectSchema.id, stopped.id));
+    await db.update(businessObjectSchema).set({ metadata: { ...(later.metadata as Record<string, unknown>), status: 'stopped', statusAt: new Date(now.getTime() - hour / 2).toISOString() } }).where(eq(businessObjectSchema.id, later.id));
+    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-7e1a', status: 'applied', appliedAt: new Date(now.getTime() - hour) });
+
+    const out = await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: true });
+
+    expect(out.map(o => o.requestId)).toEqual([stopped.id]);
+
+    const asked = (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.build_requested'))))
+      .filter(e => (e.payload as { requestId: number }).requestId === stopped.id);
+
+    expect(asked.map(e => (e.payload as { trigger: string }).trigger)).toEqual(['deploy']);
+    expect(await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: true })).toEqual([]);
+    expect(await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: false })).toEqual([]);
+  });
+});
+
 describe('a stop whose ask is closed is still a stop (2026-09-30, "Open alerts" #124)', () => {
   it('resumes on a deploy after the stop, though no ask is open', async () => {
     const r = await request({ product: 'rooms', title: 'Rooms alert on the first open' });

@@ -336,7 +336,7 @@ name: Software factory
 #   sent back as "skipped"). The worker stores every test that ran with an
 #   id; QA's review cites them by id (record_verdict `tests`), and a name
 #   that matched nothing reads "No test matched".
-version: 3.3.0
+version: 3.4.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

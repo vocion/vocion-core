@@ -61,9 +61,10 @@ steps:
                     intent: {from: vars.asked.payload}
 
         # A person's ask resets the automatic count; three automatic attempts
-        # in a row stop and ask a person once.
+        # in a row stop and ask a person once. A deploy since the stop gets
+        # exactly one more attempt (Walk 12): it stops again if that fails.
         - set:
-            automatic: {if: {cond: {path: vars.intent.byPerson, equals: true}, then: 0, else: {add: [{from: vars.automatic}, 1]}}}
+            automatic: {if: {cond: {path: vars.intent.byPerson, equals: true}, then: 0, else: {if: {cond: {path: vars.intent.trigger, equals: deploy}, then: 3, else: {add: [{from: vars.automatic}, 1]}}}}}
         - when:
             - if: {all: [{path: vars.intent.byPerson, notEquals: true}, {path: vars.automatic, gt: 3}]}
               then:

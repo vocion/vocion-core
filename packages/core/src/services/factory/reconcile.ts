@@ -411,6 +411,8 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the merge read-back', async () => (await (await import('./delivery')).refreshDeliveries(orgId, now, d.deliveries)).map(r => ({ requestId: r.requestId, did: r.did, line: null })));
   await step('the pipeline changes', async () => (await import('./pipelineChange')).reconcileChanges(orgId, now, owner));
   await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
+  // A STOP RESUMES ONCE AFTER A DEPLOY, for requests their workflow runs (Walk 12).
+  await step('the stops a deploy resumes', async () => (await import('./carry')).resumeWorkflowStopsAfterDeploy(orgId, now));
   await step('the closed requests', () => settleClosedRequests(orgId, now));
   await step('the waiting merges', () => settleWaitingMerges(orgId, now));
   await step('the missed deploys', async () => (await import('./environments')).watchMissedDeploys(orgId, now, owner).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));
