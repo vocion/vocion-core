@@ -67,3 +67,26 @@ export async function askRequestWorkflow(orgId: string, requestId: number, inten
     ? { owner: 'workflow', workflowId: run.workflowId, requestId, line: 'Started the request\'s workflow; it takes the build from here.' }
     : { owner: 'workflow', workflowId: run.workflowId, requestId, line: 'Told the request\'s workflow; it takes the build from here.' };
 }
+
+/**
+ * Restart a stopped request's flow on the current definition when it was
+ * started on another (`restartOnCurrentFlow`). Called at a safe point only:
+ * the request is stopped, waiting on a person, nothing in flight.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param since - Where the new generation's first wait catches up from.
+ */
+export async function restartRequestFlowIfChanged(orgId: string, requestId: number, since: string): Promise<boolean> {
+  const { restartOnCurrentFlow } = await import('@/libs/durable/records');
+  const { readRecord, writeMeta } = await import('@/libs/actions/factory-dispatch');
+  const run = await restartOnCurrentFlow({
+    orgId,
+    recordId: requestId,
+    kind: 'request',
+    flowRef: REQUEST_FLOW,
+    input: { requestId, since },
+    readMeta: async () => (await readRecord(orgId, requestId))?.meta ?? null,
+    writeMeta: patch => writeMeta(orgId, requestId, patch),
+  });
+  return run.restarted;
+}

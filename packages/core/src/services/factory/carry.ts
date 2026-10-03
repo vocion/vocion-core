@@ -1630,8 +1630,13 @@ export async function resumeWorkflowStopsAfterDeploy(orgId: string, now: Date = 
       continue;
     }
     const line = `Vocion was deployed since the stop (${version}); one more attempt.`;
+    const since = new Date(Date.now() - 1000).toISOString();
     await emitEvent({ orgId, type: BUILD_REQUESTED, payload: { requestId: r.id, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'recovery', afterDeploy: true, note: line, planId: null }, dedupeKey: `${BUILD_REQUESTED}:${r.id}:deploy:${applied.id}`, invokedBy: 'system:factory-reconcile' });
     await writeMeta(orgId, r.id, { deployResumedFor: version });
+    // A run started on an older flow would read this ask under the old rules
+    // (FE-419); at this safe point it is restarted on the current flow.
+    const { restartRequestFlowIfChanged } = await import('./requestWorkflowStart');
+    await restartRequestFlowIfChanged(orgId, r.id, since).catch(err => console.warn('factory: could not restart a stopped flow on the current definition', { orgId, requestId: r.id, message: (err as Error).message }));
     const askId = readRecovery(meta).askId;
     if (askId) {
       const { supersedeAsk } = await import('@/services/AskService');

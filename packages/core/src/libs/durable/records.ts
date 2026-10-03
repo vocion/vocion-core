@@ -1,7 +1,18 @@
+import { createHash } from 'node:crypto';
+
 type Meta = Record<string, unknown>;
 
 /** The mark a record carries once a flow owns it: which run, and which generation. */
-export type DurableMark = { workflowId: string; generation: number; startedAt: string };
+export type DurableMark = { workflowId: string; generation: number; startedAt: string; flowHash?: string };
+
+/**
+ * A short fingerprint of a flow definition: two runs on the same definition
+ * share it, and a run started before the definition changed does not.
+ * @param flow - The loaded flow.
+ */
+export function flowHash(flow: unknown): string {
+  return createHash('sha256').update(JSON.stringify(flow)).digest('hex').slice(0, 16);
+}
 
 /**
  * The flow mark on a record, when it has one.
@@ -9,7 +20,7 @@ export type DurableMark = { workflowId: string; generation: number; startedAt: s
  */
 export function durableMarkOf(meta: Meta): DurableMark | null {
   const m = meta.durable as Partial<DurableMark> | undefined;
-  return m && typeof m.workflowId === 'string' ? { workflowId: m.workflowId, generation: Number(m.generation) || 1, startedAt: String(m.startedAt ?? '') } : null;
+  return m && typeof m.workflowId === 'string' ? { workflowId: m.workflowId, generation: Number(m.generation) || 1, startedAt: String(m.startedAt ?? ''), ...(typeof m.flowHash === 'string' ? { flowHash: m.flowHash } : {}) } : null;
 }
 
 /**
@@ -60,7 +71,44 @@ export async function ensureRecordFlow(o: {
   const workflowId = durableIdFor(o.orgId, o.kind, `${o.recordId}.${generation}`);
   const { loadFlow } = await import('./flowDefinitions');
   const { FLOW_RUN } = await import('./flow');
-  await durable().start(FLOW_RUN, workflowId, { orgId: o.orgId, flowRef: o.flowRef, flow: loadFlow(o.flowRef), input: o.input });
-  await o.writeMeta({ durable: { workflowId, generation, startedAt: new Date().toISOString() } });
+  const flow = loadFlow(o.flowRef);
+  await durable().start(FLOW_RUN, workflowId, { orgId: o.orgId, flowRef: o.flowRef, flow, input: o.input });
+  await o.writeMeta({ durable: { workflowId, generation, startedAt: new Date().toISOString(), flowHash: flowHash(flow) } });
   return { workflowId, started: true };
+}
+
+/**
+ * A RUN ON AN OLD FLOW IS RESTARTED ON THE CURRENT ONE (Walk 18, 2026-10-03:
+ * FE-376 and FE-419 each kept the flow they started with, so two fixes to the
+ * flow never reached them and each stopped again under the old rule). A run
+ * keeps its snapshot by design (a step must replay the same way), so the
+ * change reaches it as a new generation: when the record's run was started on
+ * a different definition (or before runs carried one), the run is cancelled
+ * and the next generation starts on the current flow. Callers do this only at
+ * a safe point — a run waiting on a person, with nothing in flight.
+ * @param o - As for {@link ensureRecordFlow}.
+ * @param o.orgId - The workspace.
+ * @param o.recordId - The record.
+ * @param o.kind - The run id's kind segment.
+ * @param o.flowRef - `<plugin>/<name>`.
+ * @param o.input - The new generation's input.
+ * @param o.readMeta - Reads the record's metadata.
+ * @param o.writeMeta - Writes the mark onto the record.
+ */
+export async function restartOnCurrentFlow(o: Parameters<typeof ensureRecordFlow>[0]): Promise<{ restarted: boolean; workflowId: string | null }> {
+  const meta = await o.readMeta();
+  const mark = meta ? durableMarkOf(meta) : null;
+  if (!mark) {
+    return { restarted: false, workflowId: null };
+  }
+  const { loadFlow } = await import('./flowDefinitions');
+  if (mark.flowHash === flowHash(loadFlow(o.flowRef))) {
+    return { restarted: false, workflowId: mark.workflowId };
+  }
+  const { durable } = await import('./index');
+  if (['pending', 'enqueued'].includes(await durable().state(mark.workflowId))) {
+    await durable().cancel(mark.workflowId);
+  }
+  const run = await ensureRecordFlow(o);
+  return { restarted: run.started, workflowId: run.workflowId };
 }
