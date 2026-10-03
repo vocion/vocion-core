@@ -659,6 +659,38 @@ describe('the repo\'s own test screenshots (FE-398, 2026-10-03)', () => {
     assert.deepEqual(r, { uploaded: [], skipped: [], evidence: [] });
   });
 
+  it('stores each picture inline in Vocion when no bucket is reachable but the task can be posted to (Walk 17)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'archived-link-desktop.png'), Buffer.from('fake png'));
+    const savedEnv = { AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY, AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, AWS_CONTAINER_CREDENTIALS_FULL_URI: process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI };
+    for (const k of Object.keys(savedEnv)) {
+      delete process.env[k];
+    }
+    const posted = [];
+    const post = async (p, body) => {
+      posted.push({ p, body });
+      return { ok: true, json: { artifact: { id: 77 } } };
+    };
+    try {
+      const r = await collectRepoTestShots({ dir, taskId: 't1', runId: 'r1', recordId: 'TK-9', aws: { bucket: '', region: 'us-west-2', presign: {} }, post });
+      assert.equal(r.skipped.length, 0);
+      assert.equal(r.uploaded.length, 1);
+      assert.match(r.uploaded[0].url, /^data:image\/png;base64,/);
+      assert.equal(posted.length, 1);
+      assert.equal(posted[0].body.recordRole, 'qa-screenshot');
+      assert.equal(r.evidence[0].artifactId, 77);
+    } finally {
+      for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) {
+          delete process.env[k];
+        } else {
+          process.env[k] = v;
+        }
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('skips every file, named, when no credentials can reach the evidence bucket', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
     fs.writeFileSync(path.join(dir, 'title-line-phone.png'), Buffer.from('fake png'));

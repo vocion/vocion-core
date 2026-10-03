@@ -215,7 +215,9 @@ export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, 
       skipped.push({ file: f.rel, reason: `${(stat.size / 1024 / 1024).toFixed(1)} MB is over the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap` });
       continue;
     }
-    if (!canUpload) {
+    // NO BUCKET, STILL EVIDENCE (Walk 17, FE-415): like the worker's own shots, a container
+    // with no evidence bucket stores the picture in Vocion itself, inline on the artifact.
+    if (!canUpload && !(post && recordId)) {
       skipped.push({ file: f.rel, reason: 'the container could not reach the evidence bucket' });
       continue;
     }
@@ -227,7 +229,9 @@ export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, 
     try {
       const body = fs.readFileSync(f.full);
       const key = evidenceKey(taskId, runId, `repo-test ${text}`, viewport || 'desktop', 'after', ext === 'jpg' ? 'jpeg' : ext);
-      url = await uploadEvidence({ bucket: aws.bucket, region: aws.region, key, body, contentType, credentials, presign: aws.presign });
+      url = canUpload
+        ? await uploadEvidence({ bucket: aws.bucket, region: aws.region, key, body, contentType, credentials, presign: aws.presign })
+        : `data:${contentType};base64,${body.toString('base64')}`;
     } catch (e) {
       skipped.push({ file: f.rel, reason: `upload failed: ${String(e.message || e).slice(0, 200)}` });
       continue;
