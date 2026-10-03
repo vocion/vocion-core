@@ -320,7 +320,9 @@ function StatusBlock({ report, status }: { report: FeatureReport; status: Record
   // Timeline always read the same calendar day for the same instant, instead
   // of this line's old fixed-UTC stamp disagreeing with the Timeline's
   // reader-zone one across a day boundary.
-  const sentence = s.headline === 'Live' && report.release.state === 'live' && report.release.at
+  // Any headline of a live release ("Live", "Shipped · seen live"…): keyed on
+  // the headline word, FE-398's line lost its date entirely (2026-10-03).
+  const sentence = report.release.state === 'live' && report.release.at
     ? (
         <>
           {'Live since '}
@@ -391,7 +393,11 @@ function CriterionList({ report, items, offset, testId }: { report: FeatureRepor
             <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
               <StatusDot tone={CRITERION_TONE[c.state]} label={<span className={c.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{CRITERION_WORD[c.state]}</span>} />
             </span>
-            <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
+              {/* Why a line is not passed, when the proof says (e.g. "Left to the live check…"): a bare "Unverified" explains nothing. */}
+              {c.state !== 'passed' && c.note && <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground" data-testid="criterion-note">{c.note}</span>}
+            </span>
           </FeatureDrawerLink>
         </li>
       ))}

@@ -192,6 +192,24 @@ describe('the feature page, in the order a product owner reads it', () => {
   // clocks disagreeing on one page across a day boundary. Both now render
   // the live date through the same `LocalDate` component off the same
   // `report.release.at`, so they can never read a different calendar day.
+  it('keeps the live date when the headline is not just "Live" (FE-398: "Shipped · seen live" lost it)', async () => {
+    await page.viewport(390, 844);
+    await draw(fixture({
+      releases: [{
+        id: 9,
+        title: 'northwind-portal 2.4.0',
+        status: 'shipped',
+        createdAt: T('2026-10-03T01:00:00Z'),
+        meta: { product: 'northwind-portal', version: '2.4.0', releasedAt: '2026-10-03T01:27:00Z', taskIds: [77], requestIds: [41], liveState: 'seen', liveSummary: 'Seen live: 3 of 3 states reached.' },
+      }],
+    }));
+
+    const sentence = document.querySelector('[data-testid="report-status-sentence"]')!;
+
+    expect(sentence.textContent).toMatch(/^Live since /);
+    expect(sentence.querySelector('time')).not.toBeNull();
+  });
+
   it('reads the same live date in Current state and in "Did it work?" (FE-392)', async () => {
     await page.viewport(1440, 900);
     await draw(fixture({
@@ -222,6 +240,18 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(acceptance.textContent).toContain('Unverified');
     expect(acceptance.textContent).not.toContain('Passed');
     expect(acceptance.querySelector('[data-preview-key="feature_section:41.criterion-0"]')).not.toBeNull();
+  });
+
+  it('says why a line is not passed under it, and nothing under a passed line (Walk 12)', async () => {
+    await page.viewport(390, 844);
+    const report = fixture({
+      tasks: [{ id: 77, title: 'Room PDF export', status: 'changes_requested', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41, acceptanceContract: ['The share menu offers PDF'], prUrl: LONG_PR, verdict: { value: 'changes', at: '2026-09-04T12:00:00Z', by: 'change-reviewer', criteria: [{ criterion: 'The share menu offers PDF', status: 'unchecked' }] } } }],
+    });
+    await draw(report);
+
+    const note = document.querySelector('#report-outcome [data-testid="criterion-note"]');
+
+    expect(note?.textContent).toBe('QA did not judge this line.');
   });
 
   it('opens a drawer in the one preview pane, in the URL so Back closes it', async () => {
