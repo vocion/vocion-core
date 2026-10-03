@@ -311,6 +311,16 @@
                         }
                       },
                       "description": "Pass when a response the page received during this flow answered as promised; otherwise fail with what it answered (\"GET /v1/documents returned 500\") or that no such request was made. Waits up to 10 seconds."
+                    },
+                    "expect_disabled": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "A CSS selector, or plain text for the control's accessible name. Passes when the control is present and disabled; otherwise fails saying it is enabled (or was not found)."
+                    },
+                    "expect_enabled": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "A CSS selector, or plain text for the control's accessible name. Passes when the control is present and enabled; otherwise fails saying it is disabled (or was not found)."
                     }
                   }
                 }

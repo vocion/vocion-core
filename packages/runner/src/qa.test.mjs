@@ -642,3 +642,100 @@ describe('a flow that proves what an API answered (expect_response, FE-314 2026-
     }
   });
 });
+
+describe('a control a flow can prove is disabled (expect_disabled, FE-402 Walk 14 2026-10-03)', async () => {
+  const { shootFlow } = await import('./qa.mjs');
+
+  let chromiumOk = false;
+  try {
+    const pw = await import('playwright'); const b = await pw.chromium.launch(); await b.close(); chromiumOk = true;
+  } catch {
+    chromiumOk = false;
+  }
+
+  // A rename field whose Save is disabled for a blank/whitespace name, exactly Stamp's shape:
+  // `disabled={!value.trim()}`.
+  const html = '<!doctype html><html><body><main><input id="name" value="Q3 board deck">'
+    + '<button id="save" disabled>Save</button><button id="cancel">Cancel</button>'
+    + '<script>document.getElementById("name").addEventListener("input", (e) => {'
+    + 'document.getElementById("save").disabled = !e.target.value.trim();});</script>'
+    + '</main></body></html>';
+
+  const withServer = async (fn) => {
+    const server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'text/html'); res.end(html);
+    });
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const pw = await import('playwright');
+    const browser = await pw.chromium.launch();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-disabled-'));
+    try {
+      await fn({ browser, base, outDir });
+    } finally {
+      await browser.close();
+      server.close();
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  };
+
+  it('passes when the control is disabled, and names it (not enabled) when it is not', { skip: chromiumOk ? false : 'playwright chromium is not installed here', timeout: 30000 }, async () => {
+    await withServer(async ({ browser, base, outDir }) => {
+      const disabled = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow: { name: 'blank name', path: '/', steps: [
+        { fill: { selector: '#name', value: '' } },
+        { expect_disabled: 'Save' },
+      ] } });
+      assert.deepEqual(disabled.stepFailures, []);
+      const enabled = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow: { name: 'typed name', path: '/', steps: [
+        { fill: { selector: '#name', value: 'Q4 plan' } },
+        { expect_disabled: 'Save' },
+      ] } });
+      assert.equal(enabled.stepFailures[0]?.verb, 'expect_disabled');
+      assert.equal(enabled.stepFailures[0].error, '"Save" is enabled, not disabled');
+    });
+  });
+
+  it('names a target that is not on the page, rather than timing out silently', { skip: chromiumOk ? false : 'playwright chromium is not installed here', timeout: 30000 }, async () => {
+    await withServer(async ({ browser, base, outDir }) => {
+      const missing = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow: { name: 'no such control', path: '/', steps: [{ expect_disabled: 'Publish' }] } });
+      assert.equal(missing.stepFailures[0]?.error, '"Publish" was not found');
+    });
+  });
+
+  it('passes when the control is enabled, and names it (not disabled) when it is not', { skip: chromiumOk ? false : 'playwright chromium is not installed here', timeout: 30000 }, async () => {
+    await withServer(async ({ browser, base, outDir }) => {
+      const enabled = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow: { name: 'typed name', path: '/', steps: [
+        { fill: { selector: '#name', value: 'Q4 plan' } },
+        { expect_enabled: 'Save' },
+      ] } });
+      assert.deepEqual(enabled.stepFailures, []);
+      const disabled = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow: { name: 'blank name', path: '/', steps: [
+        { fill: { selector: '#name', value: '' } },
+        { expect_enabled: 'Save' },
+      ] } });
+      assert.equal(disabled.stepFailures[0]?.verb, 'expect_enabled');
+      assert.equal(disabled.stepFailures[0].error, '"Save" is disabled, not enabled');
+    });
+  });
+
+  it('fails a click on a disabled control fast, naming it, instead of waiting out the click timeout', { skip: chromiumOk ? false : 'playwright chromium is not installed here', timeout: 30000 }, async () => {
+    await withServer(async ({ browser, base, outDir }) => {
+      const start = Date.now();
+      const r = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow: { name: 'blank name', path: '/', steps: [
+        { fill: { selector: '#name', value: '' } },
+        { click: 'Save' },
+      ] } });
+      const elapsedMs = Date.now() - start;
+      assert.equal(r.stepFailures[0]?.verb, 'click');
+      assert.equal(r.stepFailures[0].error, '"Save" is disabled, so it could not be clicked — if a disabled control is what the line expects, assert it with expect_disabled');
+      assert.ok(elapsedMs < 10000, `expected a fast failure, took ${elapsedMs}ms`);
+    });
+  });
+
+  it('still clicks an enabled control normally', { skip: chromiumOk ? false : 'playwright chromium is not installed here', timeout: 30000 }, async () => {
+    await withServer(async ({ browser, base, outDir }) => {
+      const r = await shootFlow({ browser, base, viewport: 'desktop', side: 'live', outDir, stopAtFailure: true, flow: { name: 'cancel', path: '/', steps: [{ click: 'Cancel' }] } });
+      assert.deepEqual(r.stepFailures, []);
+    });
+  });
+});

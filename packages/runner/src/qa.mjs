@@ -602,8 +602,40 @@ async function runStep(page, rawStep, shoot, ctx = {}) {
     return;
   }
   if (step.click) {
-    await locate(page, step.click).first().click({ timeout: 15000 });
+    const el = locate(page, step.click).first();
+    // A disabled control never becomes clickable, so Playwright's click() waits out its full
+    // timeout for nothing (#402, Walk 14: Stamp's rename Save is correctly disabled for a blank
+    // name, and the step read "Timeout 15000ms exceeded" with nothing to act on). Attached is
+    // enough to read disabled/enabled; a control that never attaches falls through to the normal
+    // click, which still times out and names what it was waiting for.
+    const attached = await el.waitFor({ state: 'attached', timeout: 15000 }).then(() => true).catch(() => false);
+    if (attached && await el.isDisabled().catch(() => false)) {
+      throw new Error(`"${step.click}" is disabled, so it could not be clicked — if a disabled control is what the line expects, assert it with expect_disabled`);
+    }
+    await el.click({ timeout: 15000 });
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    return;
+  }
+  if (step.expect_disabled) {
+    const el = locate(page, step.expect_disabled).first();
+    const attached = await el.waitFor({ state: 'attached', timeout: 15000 }).then(() => true).catch(() => false);
+    if (!attached) {
+      throw new Error(`"${step.expect_disabled}" was not found`);
+    }
+    if (!await el.isDisabled()) {
+      throw new Error(`"${step.expect_disabled}" is enabled, not disabled`);
+    }
+    return;
+  }
+  if (step.expect_enabled) {
+    const el = locate(page, step.expect_enabled).first();
+    const attached = await el.waitFor({ state: 'attached', timeout: 15000 }).then(() => true).catch(() => false);
+    if (!attached) {
+      throw new Error(`"${step.expect_enabled}" was not found`);
+    }
+    if (!await el.isEnabled()) {
+      throw new Error(`"${step.expect_enabled}" is disabled, not enabled`);
+    }
     return;
   }
   if (step.fill) {

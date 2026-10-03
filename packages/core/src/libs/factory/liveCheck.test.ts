@@ -18,6 +18,14 @@ describe('the live flow', () => {
     expect(LiveFlowSchema.safeParse({ name: 'x', path: '/', steps: [{ hover: 'Share' }] }).success).toBe(false);
   });
 
+  // FE-402, Walk 14 2026-10-03: a flow could only `click` "Save" to prove a blank name is not
+  // saved, and Playwright's click() waits out its full timeout on a control that is correctly
+  // disabled. A step can now assert a control's state directly.
+  it('accepts expect_disabled and expect_enabled, taking visible text or a selector like click', () => {
+    expect(LiveFlowSchema.safeParse({ name: 'blank name not saved', path: '/d/1', steps: [{ expect_disabled: 'Save' }] }).success).toBe(true);
+    expect(LiveFlowSchema.safeParse({ name: 'typed name enables Save', path: '/d/1', steps: [{ expect_enabled: '#save' }] }).success).toBe(true);
+  });
+
   it('runs setup, then the checks, then cleanup, each in the order written', () => {
     const flows = [{ name: 'c1', phase: 'check' }, { name: 'z', phase: 'cleanup' }, { name: 's1', phase: 'setup' }, { name: 'c2', phase: 'check' }, { name: 's2', phase: 'setup' }] as const;
 
@@ -139,6 +147,13 @@ describe('why it was not seen, said in a sentence (run 2, 2026-10-01: "locator.s
     expect(liveReasonSentence(stepReason('check', 'C1', { index: 2, verb: 'wait_for', target: 'Viewed', error: 'Timeout' }, 'x'))).toBe('QA reached the page, but the change was not visible: it waited for "Viewed" and it never appeared');
     expect(liveReasonSentence({ kind: 'sign_in_failed', detail: 'x' })).toBe('QA could not sign in to the live product as its QA account');
     expect(liveReasonSentence({ kind: 'app_error', detail: 'x' })).toBe('The page showed an error instead of the change');
+  });
+
+  it('names the control an expect_disabled/expect_enabled step checked, in the failure sentence (FE-402)', () => {
+    expect(liveReasonSentence(stepReason('check', 'C1', { index: 1, verb: 'expect_disabled', target: 'Save', error: '"Save" is enabled, not disabled' }, 'x')))
+      .toBe('QA reached the page, but the change was not visible: it stopped at checking that "Save" is disabled (step 2 of "C1")');
+    expect(liveReasonSentence(stepReason('check', 'C1', { index: 1, verb: 'expect_enabled', target: 'Save', error: '"Save" is disabled, not enabled' }, 'x')))
+      .toBe('QA reached the page, but the change was not visible: it stopped at checking that "Save" is enabled (step 2 of "C1")');
   });
 
   it('reads back from the release and the feature: the sentence on the line, the raw words as the detail', () => {

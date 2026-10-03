@@ -36,6 +36,7 @@ const inputSchema = z.object({
     + '{name, from: url|href|text|value, selector?} keeps a value for later steps as {{name}}; pause seconds; '
     + 'expect_response {path, status, method?} passes when a response the page received during the flow (any host it called, e.g. its API) has that path (or ends with it) and status, '
     + 'and fails with what it answered instead ("GET /v1/documents returned 500") — the way to prove a line about an API: goto the page that calls it, expect_response, then shoot; '
+    + 'expect_disabled/expect_enabled (visible text or a selector) pass when the control is present and disabled/enabled, and fail saying it is enabled/disabled (or not found) otherwise — the way to prove a line like "a blank name cannot be saved": assert the control\'s state directly instead of clicking it (click on a disabled control fails fast, naming it, rather than waiting out its timeout); '
     + 'shoot "<what it shows>" takes the picture that proves the line. Setup and cleanup are only for lines that need state made: a check flow may run alone.',
   ),
   not_observable: z.array(NotObservableSchema).max(40).optional().describe(

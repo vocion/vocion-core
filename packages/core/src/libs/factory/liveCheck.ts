@@ -41,7 +41,7 @@ export type LivePhase = typeof LIVE_PHASES[number];
  * one contract both sides hold to (`liveCheck.test.ts` reads the runner's
  * list and compares).
  */
-export const LIVE_STEP_VERBS = ['click', 'fill', 'wait_for', 'shoot', 'upload', 'offline', 'goto', 'remember', 'pause', 'expect_response'] as const;
+export const LIVE_STEP_VERBS = ['click', 'fill', 'wait_for', 'shoot', 'upload', 'offline', 'goto', 'remember', 'pause', 'expect_response', 'expect_disabled', 'expect_enabled'] as const;
 
 /** The viewports a flow may name — the runner's. */
 export const LIVE_VIEWPORTS = ['desktop', 'phone'] as const;
@@ -112,6 +112,10 @@ function stepDoing(verb: string, target: string): string {
       return 'reading a value off the page';
     case 'expect_response':
       return `checking the response to ${quoteTarget(target) || 'a request'}`;
+    case 'expect_disabled':
+      return `checking that ${quoteTarget(target) || 'a control'} is disabled`;
+    case 'expect_enabled':
+      return `checking that ${quoteTarget(target) || 'a control'} is enabled`;
     default:
       return verb;
   }
