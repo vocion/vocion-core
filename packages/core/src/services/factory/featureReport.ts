@@ -85,6 +85,7 @@ import { narratedRole } from '@/libs/media/roles';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
+import { recordName } from '@/libs/workspace/recordName';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { blockerResolution } from './blocker';
 import { captionOf, CAROUSEL_SECTIONS, sourceOf } from './carouselSource';
@@ -2897,7 +2898,7 @@ export type ReportAcceptance = {
   /** "2 plan risks handled", or null when the contract carried none. */
   risksLine: string | null;
   /** The attempt whose judgement is read: the one that shipped, else the newest judged. */
-  attempt: { taskId: number; why: 'shipped' | 'judged' } | null;
+  attempt: { taskId: number; why: 'shipped' | 'judged'; verdict?: string | null } | null;
   /** When the contract stopped being a draft. Null while it still is. */
   frozenAt: Date | null;
   /** Where the criteria were read: the work's own contract, or the newest task's when the work carries none. */
@@ -2943,7 +2944,7 @@ function buildAcceptance(request: ReportObject, tasks: ReportObject[] = [], plan
     risksHandled: proof.risksHandled,
     risksTotal: proof.risksTotal,
     risksLine: risksLine(proof),
-    attempt: proof.attempt ? { taskId: proof.attempt.taskId, why: proof.attempt.why } : null,
+    attempt: proof.attempt ? { taskId: proof.attempt.taskId, why: proof.attempt.why, verdict: proof.attempt.verdict } : null,
     frozenAt: asDate(request.meta.acceptanceFrozenAt),
     source: proof.source,
     procedure: (plan ? str(plan.meta, 'verification') : null) ?? str(request.meta, 'howWeCheck'),
@@ -4067,8 +4068,9 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     // what a person can do afterwards; the ask is kept underneath, verbatim.
     // The short name leads; the outcome sentence is the subtitle under it
     // (`goalOf`). A page titled with a sentence read like a ticket (Chris,
-    // 2026-09-25: "Short title: Share a document").
-    title: input.request.title,
+    // 2026-09-25: "Short title: Share a document"). A request filed with the
+    // whole ask as its title is read by its stored name (`recordName`).
+    title: recordName(input.request.title, input.request.meta),
     asked: input.request.title,
     story: str(input.request.meta, 'story'),
     state,

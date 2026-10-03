@@ -74,6 +74,8 @@ type AgentFileConfig = {
   fields?: string[];
   /** Dotted paths to leave out (`acceptance.met` reaches into an array's items). */
   omit?: string[];
+  /** The field a title longer than the title's `maxLength` is kept in, as the ask, before a model names the record. */
+  longTitleTo?: string;
 };
 
 /** One opted-in type, resolved into what its tool is built from. */
@@ -93,6 +95,10 @@ export type FilingType = {
   titleIsField: boolean;
   /** The type's own words for its title, when it has a title field. */
   titleDescription?: string;
+  /** The longest title the type wants (its title's `maxLength`), when it says. */
+  titleMax?: number;
+  /** Where a longer title's words are kept (`x-agent-file.longTitleTo`), when the type says. */
+  longTitleTo?: string;
   /**
    * The type's raw stored schema (gates inside, as `x-gates`) — kept for
    * `capabilitiesToCheck`, which needs the full schema (`x-display.to`, the
@@ -122,7 +128,7 @@ function agentFileConfig(schema: JsonSchema | null | undefined): AgentFileConfig
   }
   const r = raw as Record<string, unknown>;
   const list = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : undefined);
-  return { dedupOn: list(r.dedupOn), fields: list(r.fields), omit: list(r.omit) };
+  return { dedupOn: list(r.dedupOn), fields: list(r.fields), omit: list(r.omit), longTitleTo: typeof r.longTitleTo === 'string' && r.longTitleTo.trim() ? r.longTitleTo.trim() : undefined };
 }
 
 /**
@@ -313,6 +319,8 @@ export function filingTypeOf(
     }
   }
   const titleIsField = Boolean(declared.title);
+  const max = declared.title?.maxLength;
+  const titleMax = typeof max === 'number' && Number.isInteger(max) && max > 0 ? max : undefined;
   const dedupOn = (cfg.dedupOn ?? ['title']).filter(f => f === 'title' || f in properties);
   return {
     slug: type.slug,
@@ -324,6 +332,8 @@ export function filingTypeOf(
     dedupOn: dedupOn.length > 0 ? dedupOn : ['title'],
     titleIsField,
     titleDescription: typeof declared.title?.description === 'string' ? declared.title.description : undefined,
+    ...(titleMax ? { titleMax } : {}),
+    ...(cfg.longTitleTo && properties[cfg.longTitleTo]?.type === 'string' ? { longTitleTo: cfg.longTitleTo } : {}),
     schema: type.schema ?? null,
   };
 }
@@ -386,8 +396,12 @@ const ENVELOPE = ['confidence', 'rationale'] as const;
  */
 export function filingSchema(spec: FilingType): z.ZodObject {
   const required = new Set(spec.required);
+  const said = spec.titleDescription ?? `One line naming this ${spec.label.toLowerCase()}.`;
+  // The limit is told, not enforced: a longer title is not refused (that
+  // would cost the person a retry) but named by a model (`nameLongTitle`).
+  const limit = spec.titleMax ? ` At most ${spec.titleMax} characters.${spec.longTitleTo ? ` The whole ask goes in \`${spec.longTitleTo}\`, never in the title.` : ''}` : '';
   const shape: Record<string, z.ZodType> = {
-    title: z.string().min(1).max(500).describe(spec.titleDescription ?? `One line naming this ${spec.label.toLowerCase()}.`),
+    title: z.string().min(1).max(500).describe(`${said}${limit}`),
   };
   for (const [name, js] of Object.entries(spec.properties)) {
     shape[name] = required.has(name) ? zodOf(js) : zodOf(js).optional();
@@ -420,6 +434,48 @@ export function filingInputOf(spec: FilingType, args: Record<string, unknown>): 
     fields.title = title;
   }
   return { objectType: spec.slug, title, fields, dedupOn: spec.dedupOn };
+}
+
+/**
+ * A TITLE LONGER THAN A NAME (Chris, 2026-10-03: "we need a better
+ * ticket-sized name … not a full request or spec in the title"). The type
+ * says how long a title may be (its title's `maxLength`); a filer that hands
+ * over more is not refused — the person would pay a retry for it. The long
+ * words are kept as the ask (`x-agent-file.longTitleTo`, when that field is
+ * empty) and a model reads them into a ticket-sized name
+ * (`services/objects/recordName.ts`). Never cut by a character count; a read
+ * that fails files the title as it came.
+ * @param orgId - The workspace.
+ * @param spec - The filing type.
+ * @param filing - What `filingInputOf` made of the arguments.
+ * @param filing.title - The title as handed over.
+ * @param filing.fields - The fields.
+ * @param read - The model read; injected in tests.
+ */
+export async function nameLongTitle(
+  orgId: string,
+  spec: Pick<FilingType, 'slug' | 'label' | 'titleMax' | 'longTitleTo' | 'titleIsField' | 'dedupOn'>,
+  filing: { title: string; fields: Record<string, unknown> },
+  read?: (input: { orgId: string; text: string; kind?: string }) => Promise<string | null>,
+): Promise<{ title: string; fields: Record<string, unknown>; named: boolean }> {
+  const { title } = filing;
+  if (!spec.titleMax || title.length <= spec.titleMax) {
+    return { ...filing, named: false };
+  }
+  const readName = read ?? (await import('@/services/objects/recordName')).readRecordName;
+  const name = await readName({ orgId, text: title, kind: spec.label.toLowerCase() });
+  if (!name) {
+    return { ...filing, named: false };
+  }
+  const fields = { ...filing.fields };
+  const to = spec.longTitleTo;
+  if (to && (typeof fields[to] !== 'string' || (fields[to] as string).trim() === '')) {
+    fields[to] = title;
+  }
+  if (spec.titleIsField || spec.dedupOn.includes('title')) {
+    fields.title = name;
+  }
+  return { title: name, fields, named: true };
 }
 
 /**
@@ -597,7 +653,7 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       if (offJob) {
         return offJob;
       }
-      const { title, fields } = filingInputOf(spec, args);
+      const { title, fields } = await nameLongTitle(ctx.orgId, spec, filingInputOf(spec, args));
       const meant = await referenceToCorrect(ctx, spec, fields);
       if (meant) {
         return meant;

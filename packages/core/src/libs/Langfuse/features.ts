@@ -31,6 +31,8 @@ export const FEATURES = {
   RECORD_REFERENCE: 'record.reference',
   /** A release's short name, written once when it is linked (`services/factory/releaseName.ts`). */
   RELEASE_NAME: 'release.name',
+  /** A record's ticket-sized name, read from a title longer than a name (`services/objects/recordName.ts`). */
+  RECORD_NAME: 'record.name',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /**

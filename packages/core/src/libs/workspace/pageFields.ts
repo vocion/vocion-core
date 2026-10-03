@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseTopic } from '@/libs/live/topics';
+import { recordName } from './recordName';
 
 /**
  * Workspace pages, the part that runs anywhere — the page manifest schema,
@@ -53,7 +54,7 @@ const FieldSchema = z.object({
   /** Column key; also the default accessor when `from` is omitted. */
   key: z.string(),
   label: z.string().optional(),
-  /** Accessor: `title` | `status` | `createdAt` | `meta.<dot.path>` */
+  /** Accessor: `title` | `name` (the short name, else the title) | `status` | `createdAt` | `meta.<dot.path>` */
   from: z.string().optional(),
   /**
    * `image` renders the value (a URL) as a thumbnail; `money` reads an
@@ -1022,6 +1023,11 @@ export type PageRow = {
 export function resolveField(row: PageRow, from: string): unknown {
   if (from === 'title') {
     return row.title;
+  }
+  // What a person reads the record by: its short name, else its title
+  // (`libs/workspace/recordName.ts`).
+  if (from === 'name') {
+    return recordName(row.title, row.meta);
   }
   if (from === 'status') {
     return row.status;

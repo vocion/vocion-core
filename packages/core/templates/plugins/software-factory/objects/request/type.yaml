@@ -64,6 +64,9 @@ schema:
   # "Stamp"`, no story, no dedupOn), was refused twice, and nothing was filed.
   x-agent-file:
     dedupOn: [product, title]
+    # A title longer than the title's maxLength is kept here, as the ask, and
+    # the request is named by a model (core: services/agents/tools/fileRecord.ts).
+    longTitleTo: body
     fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, gapCheck, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
     omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.beforeArtifactIds, visuals.mockupArtifactIds, visuals.afterArtifactIds, visuals.drawnArtifactId, visuals.mockupDraw]
   # RELATED (core: libs/workspace/related.ts): what a request is connected
@@ -100,7 +103,28 @@ schema:
     title:
       x-display: {hidden: true}
       type: string
-      description: One line, in the asker's terms where possible. The row on the backlog.
+      # TICKET-SIZED (Chris, 2026-10-03: "The title is too long and verbose …
+      # not a full request or spec in the title"). FE-402's title was the whole
+      # ask — "On Stamp's library list, let me sort the documents by name,
+      # upload date or last opened, newest first by default, and remember my
+      # choice…" — and every row, page header and share page led with it. The
+      # filing tool reads this limit; handed a longer title, it keeps the words
+      # in `body` (`x-agent-file.longTitleTo`) and a model names the work
+      # (core: services/objects/recordName.ts). Never cut by a character count.
+      maxLength: 60
+      description: >-
+        A ticket-sized name for the work, at most 60 characters: a noun phrase
+        or an imperative in the asker's terms ("Sort the library by name, date
+        or last opened", "Upload date on each library row"). The row on Work
+        and the heading of the feature page. Not the ask itself — the person's
+        whole words go in `body`, verbatim.
+    name:
+      x-display: {hidden: true}
+      type: string
+      description: >-
+        The short name a model read from a title longer than a name, for a
+        request filed before titles were ticket-sized. Surfaces read it before
+        the title (core: libs/workspace/recordName.ts). Never written by a filer.
     outcome:
       x-display: {label: Outcome, role: prose, order: 0}
       type: string
@@ -108,8 +132,8 @@ schema:
         WHAT A PERSON CAN DO AFTERWARDS THAT THEY CANNOT DO NOW, in one
         sentence, and the line every surface leads with.
 
-        The title is the asker's words and is evidence, so it is never
-        rewritten — which left the work with no line stating the change. A
+        The asker's words are evidence and are kept verbatim in `body`; the
+        title names the work. Neither states the change. A
         page that leads with the ask leads with a situation; a person deciding
         needs the outcome. "Add send/share to the file detail page" is a
         control and a place. "Allow users to send files to email recipients"

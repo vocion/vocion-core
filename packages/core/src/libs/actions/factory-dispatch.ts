@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { nounCode } from '@/libs/codes';
 import { REOPENABLE_REQUEST_STATES, settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
+import { recordName } from '@/libs/workspace/recordName';
 import { codesForRecords } from '@/services/codes';
 import { USABLE_RECORD_STATUSES } from './objects-propose-candidate';
 
@@ -382,8 +383,9 @@ export const CONTRACT_TITLE_MAX = 120;
  * A request's title as a contract title: whole when it fits, else cut at a word
  * and marked. Walk 18 (FE-419): a 164-character title (the person's whole ask)
  * made the worker refuse the contract before it cloned; the objective and the
- * acceptance lines carry the full ask, so the title is only the label.
- * @param title - The task's title.
+ * acceptance lines carry the full ask, so the title is only the label. A
+ * record with a ticket-sized name (`recordName`) is labelled by it first.
+ * @param title - The task's name, else its title.
  */
 export function contractTitle(title: string): string {
   const t = title.replace(/\s+/g, ' ').trim();
@@ -424,7 +426,7 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
     repo,
     base_sha: str(m, 'baseSha') ?? 'origin/main',
     objective: str(m, 'objective'),
-    title: contractTitle(task.title),
+    title: contractTitle(recordName(task.title, m)),
     acceptance_contract: list(m, 'acceptanceContract'),
     allowed_paths: list(m, 'allowedPaths'),
     risk_class: str(m, 'riskClass'),
@@ -1078,8 +1080,11 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     const { reportedLinks } = await import('@/services/objects/reported');
     const reported = await reportedLinks(ctx.orgId, request.id).catch(() => []);
     const environments = await productEnvironments(ctx.orgId, str(request.meta, 'product'));
-    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note, reported, environments });
-    task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: (await factoryTypes(ctx.orgId)).task, meta: { ...meta, requestId: request.id } };
+    // The request's ticket-sized name, else its title (`recordName`): the
+    // contract is labelled with the name, the ask rides the objective.
+    const named = recordName(request.title, request.meta);
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: named }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note, reported, environments });
+    task = { id: 0, title: String(meta.title ?? named), typeId: 0, typeSlug: (await factoryTypes(ctx.orgId)).task, meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request, repo };
 }
