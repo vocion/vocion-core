@@ -26,9 +26,9 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conver
 }) {
   const [current, setCurrent] = useState<ArtifactEntry>(artifact as ArtifactEntry);
   // A newer version announced by the chat beside this page lands here in
-  // place, with a soft wash of colour so the change is seen, not just there
-  // on the next reload (Chris, 2026-10-03).
-  const [flash, setFlash] = useState(false);
+  // place. No wash of colour: the content changing where the reader is
+  // looking is the signal, and a tour that wants eyes on the changed line
+  // scrolls to it and rings it (Chris, 2026-10-03).
   useEffect(() => {
     const onArtifact = (e: Event) => {
       const next = (e as CustomEvent<ArtifactEntry>).detail;
@@ -36,18 +36,12 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conver
         return;
       }
       setCurrent(next);
-      setFlash(true);
-      // Held long enough to be seen from across a booth, then a slow fade.
-      setTimeout(() => setFlash(false), 700);
     };
     window.addEventListener(ARTIFACT_EVENT, onArtifact);
     return () => window.removeEventListener(ARTIFACT_EVENT, onArtifact);
   }, [current.id, current.version]);
   return (
-    <div
-      data-artifact-flash={flash ? '' : undefined}
-      className={`rounded-2xl transition-[background-color,box-shadow] ${flash ? 'bg-brand-amber-deep/15 shadow-[0_0_0_3px_var(--color-brand-amber-deep)] duration-0' : 'bg-transparent shadow-[0_0_0_3px_transparent] duration-[2600ms]'}`}
-    >
+    <div className="rounded-2xl">
       <ArtifactPane
         key={`${current.id}:${current.version}`}
         artifact={current}
