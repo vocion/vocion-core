@@ -40,7 +40,7 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conver
     ready: true,
   });
   return (
-    <div className={`rounded-2xl transition-colors ${flash ? 'bg-amber-200/50 duration-0' : 'bg-transparent duration-[1800ms]'}`}>
+    <div className="rounded-2xl">
       <ArtifactPane
         key={`${current.id}:${current.version}`}
         artifact={current}
