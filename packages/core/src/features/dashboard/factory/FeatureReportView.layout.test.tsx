@@ -313,6 +313,37 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(row.querySelector('[data-testid="report-recording-qa"]')!.textContent).toContain('Before merge');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
+
+  it('frames the video host\'s player, 16:9 and phone-wide, only for a recording with a share', async () => {
+    await page.viewport(390, 844);
+    const media = (id: number, recordId: string) => `/api/media/${recordId}/rec-${id}000000000000000.webm`;
+    const hosted = { state: 'published', host: 'slate', label: 'Slate', shareId: 'share-fictional-1', watchUrl: 'https://video-host.example/v/share-fictional-1', embedUrl: 'https://video-host.example/embed/share-fictional-1', visibility: 'team', at: '2026-09-20T09:05:00Z' };
+    await draw(fixture({ artifacts: [
+      { id: 1, kind: 'file', title: 'Live check of REL-9', recordType: 'object', recordId: '41', recordRole: 'qa-live-video', spec: { url: media(1, '41'), contentType: 'video/webm', caption: 'Live check of REL-9', slateShareId: 'share-fictional-1', hostedVideo: hosted }, url: media(1, '41'), createdAt: T('2026-09-20T09:00:00Z') },
+      { id: 3, kind: 'file', title: 'before merge', recordType: 'object', recordId: '41', recordRole: 'qa-video', spec: { url: media(3, '41'), contentType: 'video/webm', caption: 'before merge', hostedVideo: { state: 'failed', host: 'slate', label: 'Slate', reason: 'Slate refused the token.', at: '2026-09-04T11:05:00Z' } }, url: media(3, '41'), createdAt: T('2026-09-04T11:00:00Z') },
+    ] }));
+
+    const live = document.querySelector('[data-testid="report-recording-live"]')!;
+    const frame = live.querySelector('iframe')!;
+
+    expect(frame.getAttribute('src')).toBe('https://video-host.example/embed/share-fictional-1');
+    expect(live.querySelector('video')).toBeNull();
+
+    const box = live.querySelector('[data-testid="report-recording-live-embed"]')!.getBoundingClientRect();
+
+    expect(Math.abs(box.width / box.height - 16 / 9)).toBeLessThan(0.02);
+    expect(box.right).toBeLessThanOrEqual(390);
+    expect(live.querySelector<HTMLAnchorElement>('[data-testid="report-recording-live-open"]')!.href).toBe('https://video-host.example/v/share-fictional-1');
+    expect(live.textContent).toContain('Open in Slate');
+
+    // No share: the native player, and why it is not on the host.
+    const qa = document.querySelector('[data-testid="report-recording-qa"]')!;
+
+    expect(qa.querySelector('iframe')).toBeNull();
+    expect(qa.querySelector('video')).not.toBeNull();
+    expect(qa.querySelector('[data-testid="report-recording-qa-host-note"]')!.textContent).toBe('Not on Slate: Slate refused the token.');
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
 });
 
 describe('the action follows the state', () => {

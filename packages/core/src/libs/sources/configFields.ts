@@ -577,6 +577,39 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  // Slate is a destination and syncs nothing: the session token is the
+  // credential, taken by Connect. This says who may watch what the factory
+  // uploads, and, for a non-production Slate, where it lives.
+  'slate': [
+    {
+      key: 'visibility',
+      label: 'Who may watch uploaded recordings',
+      type: 'select',
+      defaultValue: 'team',
+      options: [
+        { value: 'team', label: 'Your Slate team' },
+        { value: 'signedIn', label: 'Anyone signed in to Slate' },
+        { value: 'private', label: 'Only the account that uploads' },
+        { value: 'public', label: 'Anyone with the link' },
+      ],
+      help: 'Team by default. Public only when every recording may be seen by anyone holding its link.',
+    },
+    {
+      key: 'apiBase',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://api.slatevideo.com',
+    },
+    {
+      key: 'webOrigin',
+      label: 'Player address',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://slatevideo.com',
+    },
+  ],
+
   'posthog': [
     {
       key: 'projectName',

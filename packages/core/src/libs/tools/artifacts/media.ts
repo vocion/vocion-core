@@ -24,13 +24,15 @@
  * decides its audience. A file on disk streams with byte ranges; one in S3 is a
  * redirect to a presigned GET that lasts minutes, never days.
  *
- * Later (not here): a recording uploaded to Slate carries `slateShareId` on its
- * artifact's spec, and the page prefers that embed when present.
+ * When the workspace connects a video host (`services/videoHost/`), a filed
+ * recording is also published there, read back with `readMediaBytes`; its
+ * artifact then carries the share (`hostedVideo`) and the page prefers that
+ * player. The copy kept here stays the source of truth.
  */
 
 import type { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { artifactsDir } from './store';
@@ -223,6 +225,38 @@ export async function locateMedia(orgId: string, recordId: string, filename: str
   }
   const bucket = deps.bucket === undefined ? mediaBucket() : deps.bucket;
   return bucket ? { store: 's3', bucket: bucket.bucket, region: bucket.region, key, contentType } : null;
+}
+
+/**
+ * The bytes of a recording the caller's org owns, from its served URL
+ * (`/api/media/<record>/<file>`), wherever the store keeps it — for a copy
+ * sent elsewhere (a video host). Null for a URL this store did not serve or a
+ * file that is gone.
+ * @param orgId - The CALLER's org.
+ * @param url - The served URL an artifact carries.
+ * @param deps - Seams for tests.
+ * @param deps.dir - The media directory.
+ * @param deps.bucket - The bucket, or null for none.
+ * @param deps.get - Reads an object from the bucket.
+ */
+export async function readMediaBytes(orgId: string, url: string, deps: Pick<MediaDeps, 'dir' | 'bucket'> & { get?: (opts: { bucket: string; key: string; region?: string }) => Promise<{ bytes: Buffer }> } = {}): Promise<Buffer | null> {
+  const m = new RegExp(`^${MEDIA_ROUTE_BASE}/([^/?#]+)/([^/?#]+)$`).exec(url);
+  if (!m) {
+    return null;
+  }
+  const found = await locateMedia(orgId, decodeURIComponent(m[1]!), decodeURIComponent(m[2]!), deps);
+  if (!found) {
+    return null;
+  }
+  try {
+    if (found.store === 'disk') {
+      return await readFile(found.abs);
+    }
+    const get = deps.get ?? (await import('@/libs/aws/s3')).getObjectBytes;
+    return (await get({ bucket: found.bucket, key: found.key, region: found.region })).bytes;
+  } catch {
+    return null;
+  }
 }
 
 /**

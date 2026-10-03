@@ -929,8 +929,12 @@ export type ReportRecording = {
   contentType: string;
   caption: string;
   at: Date;
-  /** Its share on Slate, once uploaded there (a later phase); the page prefers that player. */
+  /** Its share on Slate, once uploaded there; the page prefers that player. */
   slateShareId: string | null;
+  /** The video host's player and watch page, once published there (`services/videoHost/`). */
+  hosted: { label: string; watchUrl: string; embedUrl: string } | null;
+  /** Why it is not on the video host, when publishing it failed. */
+  hostNote: string | null;
 };
 export type ReportRecordings = { live: ReportRecording | null; qa: ReportRecording | null };
 
@@ -961,9 +965,33 @@ export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecord
       caption: str(top.a.spec, 'caption') ?? top.a.title,
       at: top.a.createdAt,
       slateShareId: str(top.a.spec, 'slateShareId'),
+      ...hostedOf(top.a.spec),
     };
   };
   return { live: pick(RECORDING_ROLES.live), qa: pick(RECORDING_ROLES.qa) };
+}
+
+/**
+ * A recording's place on the video host, read from `spec.hostedVideo`: its
+ * player when published, the reason when publishing failed, nothing otherwise.
+ * Only an http(s) player is offered to the page.
+ * @param spec - The artifact's spec.
+ */
+function hostedOf(spec: Record<string, unknown> | null | undefined): Pick<ReportRecording, 'hosted' | 'hostNote'> {
+  const h = spec?.hostedVideo as Record<string, unknown> | undefined;
+  if (!h || typeof h !== 'object') {
+    return { hosted: null, hostNote: null };
+  }
+  const label = str(h, 'label') ?? 'the video host';
+  const watchUrl = str(h, 'watchUrl');
+  const embedUrl = str(h, 'embedUrl');
+  if (h.state === 'published' && watchUrl && embedUrl && /^https:\/\//i.test(embedUrl) && /^https:\/\//i.test(watchUrl)) {
+    return { hosted: { label, watchUrl, embedUrl }, hostNote: null };
+  }
+  if (h.state === 'failed') {
+    return { hosted: null, hostNote: `Not on ${label}: ${str(h, 'reason') ?? 'the upload failed'}` };
+  }
+  return { hosted: null, hostNote: null };
 }
 
 /**

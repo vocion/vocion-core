@@ -55,6 +55,7 @@ export type CredentialPlatformId
     | 'notion'
     | 'posthog'
     | 'sentry'
+    | 'slate'
     | 'strapi'
   // Any bearer-token REST API the workspace declares endpoints for
   // (`libs/sources/rest.ts`). One-live for the same reason as `apollo` — see
@@ -580,6 +581,30 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         // "every read is unauthorized" into a sentence at paste time.
         pattern: /^(?!https?:\/\/)\S{16,}$/i,
         shapeHint: 'is an auth token (sntrys_… or sntryu_…), not a DSN — a DSN is an https:// address that can only send events',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'slate',
+    label: 'Slate',
+    keySource: 'supplied',
+    // `one-live`, like Sentry and PostHog: the factory asks for "the org's
+    // video host" with no row id in hand, and one account uploads everything.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['slate'],
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Slate session token (slt_…)',
+    helpText: 'A Slate session token (slt_…, about 90 days) for the account recordings are uploaded as — sign in to Slate\'s desktop or command-line app and copy its token. The account needs a paid seat to upload a file. Recordings are shared with that account\'s Slate team unless the connector says otherwise.',
+    fields: [
+      {
+        name: 'token',
+        label: 'Session token',
+        pattern: /^slt_\S{8,}$/,
+        shapeHint: 'is a Slate session token, starting slt_',
         secret: true,
       },
     ],

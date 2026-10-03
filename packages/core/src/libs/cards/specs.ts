@@ -152,6 +152,24 @@ export const fileSpecSchema = z.object({
    * the page prefers that player to the stored file when it is set.
    */
   slateShareId: z.string().max(200).optional(),
+  /**
+   * The recording on a video host (`services/videoHost/`): being published,
+   * published (its share, watch page and player), or why it could not be.
+   * Absent when no host is connected.
+   */
+  hostedVideo: z.object({
+    state: z.enum(['publishing', 'published', 'failed']),
+    host: z.string().max(40),
+    label: z.string().max(80).optional(),
+    shareId: z.string().max(200).optional(),
+    hostRef: z.string().max(200).optional(),
+    watchUrl: z.string().max(2000).optional(),
+    embedUrl: z.string().max(2000).optional(),
+    visibility: z.string().max(40).optional(),
+    reason: z.string().max(500).optional(),
+    attempts: z.number().int().nonnegative().optional(),
+    at: z.string().max(40),
+  }).optional(),
 });
 export type FileSpec = z.infer<typeof fileSpecSchema>;
 

@@ -8,6 +8,9 @@
  * engineer's own browser tests before merge, `qa-live-video` for QA driving
  * the live product after release (`libs/factory/liveCheck.ts`). The feature
  * page reads them by role.
+ *
+ * When the workspace has a video host connected, each filing is also queued
+ * for it (`services/videoHost/queue.ts`); without one, nothing more happens.
  */
 
 import type { Buffer } from 'node:buffer';
@@ -38,7 +41,7 @@ export type FiledRecording
  * @param input.provenance - Who made it and where.
  * @param input.capturedFrom - The page it was recorded on, when one.
  * @param input.author - Who it is filed as.
- * @param deps - Seams for tests.
+ * @param deps - Seams for tests; `publish` queues the filing for the video host (null: never).
  */
 export async function fileRecording(input: {
   orgId: string;
@@ -52,7 +55,7 @@ export async function fileRecording(input: {
   provenance?: Record<string, unknown>;
   capturedFrom?: string | null;
   author: Author;
-}, deps: MediaDeps = {}): Promise<FiledRecording> {
+}, deps: MediaDeps & { publish?: ((input: { orgId: string; artifactIds: number[]; role: string | null }) => Promise<unknown>) | null } = {}): Promise<FiledRecording> {
   const kept = await keepMedia({ orgId: input.orgId, recordId: input.keptUnder, name: input.name, data: input.data, contentType: input.contentType }, deps);
   if (!kept.ok) {
     return kept;
@@ -92,6 +95,12 @@ export async function fileRecording(input: {
       const { logger } = await import('@/libs/Logger');
       logger.warn('recording artifact not written', { orgId: input.orgId, recordId: r.id, role: r.role, error: err instanceof Error ? err.message : String(err) });
     }
+  }
+  if (artifactIds.length > 0 && deps.publish !== null) {
+    // Never throws, and returns as soon as the publish is queued (or there is
+    // no host): the recording is filed whatever happens next.
+    const publish = deps.publish ?? (await import('@/services/videoHost/queue')).queueRecordingPublish;
+    await publish({ orgId: input.orgId, artifactIds, role: input.records[0]?.role ?? null }).catch(() => undefined);
   }
   return { ok: true, url: kept.url, filename: kept.filename, bytes: kept.bytes, store: kept.store, artifactIds };
 }

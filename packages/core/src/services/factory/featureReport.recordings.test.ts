@@ -39,4 +39,21 @@ describe('the recordings a feature page plays (2026-10-03)', () => {
 
     expect(r.live?.slateShareId).toBe('share-fictional-1');
   });
+
+  it('offers the video host\'s player only once published there, and says why when it failed', () => {
+    const url = '/api/media/9/x-ffffffffffffffff.webm';
+    const published = recordingsOf([video(7, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', slateShareId: 'share-fictional-2', hostedVideo: { state: 'published', host: 'slate', label: 'Slate', shareId: 'share-fictional-2', watchUrl: 'https://video-host.example/v/share-fictional-2', embedUrl: 'https://video-host.example/embed/share-fictional-2', at: '2026-10-02T09:05:00Z' } } })]);
+
+    expect(published.live).toMatchObject({ hosted: { label: 'Slate', watchUrl: 'https://video-host.example/v/share-fictional-2', embedUrl: 'https://video-host.example/embed/share-fictional-2' }, hostNote: null });
+
+    const failed = recordingsOf([video(8, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', hostedVideo: { state: 'failed', host: 'slate', label: 'Slate', reason: 'Slate answered 503 while trying to start an upload.', at: '2026-10-02T09:05:00Z' } } })]);
+
+    expect(failed.live).toMatchObject({ hosted: null, hostNote: 'Not on Slate: Slate answered 503 while trying to start an upload.' });
+
+    // Mid-upload, or a player address that is not https: nothing to frame.
+    const pending = recordingsOf([video(9, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', hostedVideo: { state: 'publishing', host: 'slate', at: '2026-10-02T09:05:00Z' } } })]);
+    const unsafe = recordingsOf([video(10, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', hostedVideo: { state: 'published', host: 'slate', watchUrl: 'javascript:alert(1)', embedUrl: 'javascript:alert(1)', at: '2026-10-02T09:05:00Z' } } })]);
+
+    expect([pending.live?.hosted, pending.live?.hostNote, unsafe.live?.hosted]).toEqual([null, null, null]);
+  });
 });
