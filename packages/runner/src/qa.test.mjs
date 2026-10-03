@@ -32,7 +32,6 @@ import {
   productionBase,
   qaReportMarkdown,
   reportArtifact,
-  REPO_SHOT_LIMITS,
   resolveRoutePlaceholders,
   screenshotArtifact,
   shotNote,

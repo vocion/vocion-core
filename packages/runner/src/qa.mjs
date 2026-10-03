@@ -114,7 +114,7 @@ export function videoArtifact({ recordId, flowName, viewport, url, seconds, byte
 // shots directory (default qa-shots/ at the repo root); the worker uploads whatever it finds
 // there the same way it uploads its own shots, so QA can cite them from the task record.
 
-const SHOT_FILE_RE = /\.(png|jpe?g)$/i;
+const SHOT_FILE_RE = /\.(?:png|jpe?g)$/i;
 const SHOT_CONTENT_TYPE = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 export const REPO_SHOT_LIMITS = { files: 24, bytes: 5 * 1024 * 1024 };
 
@@ -181,7 +181,7 @@ export function excludeShotsDir(repoDir, shotsDir) {
   fs.appendFileSync(file, `${existing && !existing.endsWith('\n') ? '\n' : ''}${line}\n`);
 }
 
-export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, post, artifactUrl, limit = REPO_SHOT_LIMITS.files, maxBytes = REPO_SHOT_LIMITS.bytes }) {
+export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, post, artifactUrl: _artifactUrl, limit = REPO_SHOT_LIMITS.files, maxBytes = REPO_SHOT_LIMITS.bytes }) {
   const uploaded = [];
   const skipped = [];
   const evidence = [];
@@ -219,7 +219,7 @@ export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, 
       skipped.push({ file: f.rel, reason: 'the container could not reach the evidence bucket' });
       continue;
     }
-    const ext = (f.name.match(/\.([^.]+)$/) || [, 'png'])[1].toLowerCase();
+    const ext = (f.name.match(/\.([^.]+)$/)?.[1] ?? 'png').toLowerCase();
     const contentType = SHOT_CONTENT_TYPE[ext] || 'image/png';
     const { caption: text, viewport } = captionForShotFile(f.name);
     const title = text.slice(0, 100);
@@ -279,7 +279,7 @@ export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures 
   // than by the worker building and serving the app (it has no contract to build a signed-in
   // surface; see the FE-398 decision). A reader should tell these apart from the worker's shots.
   if (repoShots && (repoShots.uploaded?.length || repoShots.skipped?.length)) {
-    lines.push('', "## From the repo's own tests", '');
+    lines.push('', '## From the repo\'s own tests', '');
     if (repoShots.uploaded?.length) {
       lines.push('| file | caption | viewport |', '|---|---|---|');
       for (const s of repoShots.uploaded) {
