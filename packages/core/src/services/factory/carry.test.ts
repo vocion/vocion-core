@@ -1045,16 +1045,18 @@ describe('nothing waits on a review that never starts (2026-09-30, #269: CI fail
 
   it('gives a review that used its restarts one more after a deploy (Walk 18, FE-419)', async () => {
     const { watchAwaitingReview } = await import('./ciFailed');
+    // Its own clock, ahead of any deploy another test recorded in this database.
+    const T = Date.now() + 60_000;
     const spent = await waitingOnQa('Rooms sort by name', 144);
-    await db.update(businessObjectSchema).set({ status: 'review_failed', updatedAt: new Date(Date.now() - 3_600_000), metadata: { ...(spent.task.metadata as Record<string, unknown>), status: 'review_failed', prUrl: spent.prUrl, reviewRestarts: 2 } }).where(eq(businessObjectSchema.id, spent.task.id));
+    await db.update(businessObjectSchema).set({ status: 'review_failed', updatedAt: new Date(Date.now() - 3_600_000), metadata: { ...(spent.task.metadata as Record<string, unknown>), status: 'review_failed', prUrl: spent.prUrl, reviewRestarts: 2, reviewRestartedAt: new Date(T - 30_000).toISOString() } }).where(eq(businessObjectSchema.id, spent.task.id));
     await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.checks_completed', payload: { url: spent.prUrl, conclusion: 'success', headSha: 'bc9f315a148d' }, dedupeKey: 'github:144:checks' } as never);
 
-    const before = await watchAwaitingReview(ORG);
+    const before = await watchAwaitingReview(ORG, new Date(T));
 
     expect(before.find(o => o.requestId === spent.r.id)).toBeUndefined();
 
-    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-5e1d', status: 'applied', appliedAt: new Date(Date.now() - 1000) });
-    const after = await watchAwaitingReview(ORG);
+    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-5e1d', status: 'applied', appliedAt: new Date(T - 10_000) });
+    const after = await watchAwaitingReview(ORG, new Date(T));
 
     expect(after.find(o => o.requestId === spent.r.id)?.did).toBe('review started again');
   });
