@@ -26,6 +26,7 @@
 
 import process from 'node:process';
 import { and, asc, eq, sql } from 'drizzle-orm';
+import { plainWords } from '@/libs/chat/threadTitle';
 import { db } from '@/libs/DB';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
 
@@ -57,7 +58,9 @@ export type TitleModel = (system: string, user: string) => Promise<{ text: strin
  * @returns The cleaned title, or null when nothing usable is left.
  */
 export function cleanTitle(raw: string): string | null {
-  let s = (raw.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? '');
+  // Markup off first: a model that answers with a line of its own prose can
+  // hand back an image or a bold span, and a title is words.
+  let s = plainWords(raw.split(/\r?\n/).map(l => l.trim()).find(Boolean) ?? '');
   s = s.replace(/^title\s*:\s*/i, '');
   s = s.replace(/^[#*_`>\s-]+/, '').replace(/[*_`]+$/g, '');
   s = s.replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '').trim();
