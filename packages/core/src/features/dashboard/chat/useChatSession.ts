@@ -10,6 +10,7 @@ import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ARTIFACT_EVENT } from '@/features/dashboard/artifacts/artifactEvents';
 import { announceVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { openPreview, previewMayOpenItself } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
@@ -849,6 +850,10 @@ export function useChatSession({
         if (!a || typeof a.id !== 'number' || typeof a.title !== 'string') {
           return;
         }
+        // Whatever is showing this artifact full page can take the new
+        // version in place (StandaloneArtifactView listens), so a revision
+        // the chat announces is also seen happening on the left.
+        window.dispatchEvent(new CustomEvent(ARTIFACT_EVENT, { detail: evt.artifact }));
         const chip: ChatMessageArtifact = {
           id: a.id,
           title: a.title,
