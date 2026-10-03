@@ -363,9 +363,17 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                           // line, not a figure: text-height, inline, no prose
                           // margins. An agent marks the system a line came from
                           // (the contract, the spec book, the daily log) this way.
-                          img: ({ node: _node, src, alt, ...rest }) => (typeof src === 'string' && src.endsWith('#icon')
-                            ? <img src={src} alt={alt ?? ''} className="m-0! mr-1.5 inline-block size-[1.05em] align-[-0.15em]" {...rest} />
-                            : <img src={src} alt={alt ?? ''} {...rest} />),
+                          // `#spark` is the same glyph for a moment of judgement
+                          // — the line where the agent caught something — drawn
+                          // a touch larger; the bold word after it goes amber
+                          // (see `strong` below), so the catch has colour at a glance.
+                          img: ({ node: _node, src, alt, ...rest }) => (typeof src === 'string' && src.endsWith('#spark')
+                            ? <img src={src} alt={alt ?? ''} data-spark className="m-0! mr-1.5 inline-block size-[1.2em] align-[-0.2em]" {...rest} />
+                            : typeof src === 'string' && src.endsWith('#icon')
+                              ? <img src={src} alt={alt ?? ''} className="m-0! mr-1.5 inline-block size-[1.05em] align-[-0.15em]" {...rest} />
+                              : <img src={src} alt={alt ?? ''} {...rest} />),
+                          // The first bold run after a spark is the catch's label ("Caught:"): amber.
+                          strong: ({ node: _node, children, ...rest }) => <strong className="[img[data-spark]+&]:text-brand-amber-deep" {...rest}>{children}</strong>,
                           // A table is the one thing in a turn that cannot
                           // wrap: its width is the sum of its columns, and a
                           // column holding an identifier has a min-content of
