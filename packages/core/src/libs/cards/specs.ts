@@ -123,6 +123,12 @@ export const linkSpecSchema = z.object({
   href: z.string().min(1),
   title: z.string().min(1),
   description: z.string().optional(),
+  /**
+   * For a link to one of Vocion's own public pages: the parts of that page
+   * its sharer chose to leave out (`asker` — who asked, on a shared feature).
+   * The page reads it on every request, so changing it changes every copy.
+   */
+  hidden: z.array(z.string().max(40)).max(20).optional(),
 });
 export type LinkSpec = z.infer<typeof linkSpecSchema>;
 
