@@ -75,7 +75,7 @@ import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { nounCode } from '@/libs/codes';
 import { deliveryStage, failedRun, pausedAnswerLine, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
-import { readRequestLive } from '@/libs/factory/liveCheck';
+import { LIVE_RECHECKS, readRequestLive } from '@/libs/factory/liveCheck';
 import { blockedYou, pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
@@ -758,7 +758,7 @@ export type ReportReleaseSummary = {
    * `liveCheck`): seen, partly, not, or `pending` while no live check has
    * looked. Null before it is live. Shipped is not the same as seen.
    */
-  seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string; detail?: string | null; reached?: number; total?: number } | null;
+  seen: { state: 'seen' | 'partial' | 'not_seen' | 'not_checked' | 'pending'; line: string; detail?: string | null; reached?: number; total?: number; attempts?: number } | null;
   /** The release record's code (REL-375), when the codes were read. */
   code?: string | null;
   /** The release that shipped it, when one did: what "Check live again" asks QA to check. */
@@ -3632,7 +3632,7 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
     const name = [str(shipped.r.meta, 'product'), str(shipped.r.meta, 'version')].filter(Boolean).join(' ') || shipped.r.title;
     const live = readRequestLive(input.request.meta);
     const counts = liveCounts(shipped.r.meta, input.request.id);
-    const seen = live ? { state: live.state, line: live.line, detail: live.detail, ...counts } : { state: 'pending' as const, line: 'Not yet seen live' };
+    const seen = live ? { state: live.state, line: live.line, detail: live.detail, ...counts, ...(live.state === 'not_checked' ? { attempts: live.attempts } : {}) } : { state: 'pending' as const, line: 'Not yet seen live' };
     return {
       state: 'live',
       code: input.codes?.get(shipped.r.id) ?? null,
@@ -3810,8 +3810,9 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
             sentence: `${release.sentence} ${state.detail.includes('helped') ? `It ${state.detail.replace(/^live, and it /, '')}.` : 'Whether it helped has not been checked yet.'}`,
             action: ctx.surfaceUrl ? { kind: 'link', label: 'Open feature', href: ctx.surfaceUrl } : { kind: 'drawer', label: 'Open feature', drawer: 'release' },
             // A live check that did not see it, once its attempts are spent, is checked again
-            // when a person asks (`factory.check_live_again`), not by hand.
-            secondary: release.releaseId !== undefined && (release.seen?.state === 'not_seen' || release.seen?.state === 'partial')
+            // when a person asks (`factory.check_live_again`), not by hand. One that never looked
+            // is rechecked by Vocion itself, and asks the person only once those rechecks are spent.
+            secondary: release.releaseId !== undefined && (release.seen?.state === 'not_seen' || release.seen?.state === 'partial' || (release.seen?.state === 'not_checked' && (release.seen.attempts ?? 0) >= LIVE_RECHECKS))
               ? { kind: 'check_live', label: 'Check live again', releaseId: release.releaseId }
               : null,
             next: state.detail.includes('helped') ? null : 'Next, whether it helped is checked.',

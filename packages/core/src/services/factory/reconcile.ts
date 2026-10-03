@@ -427,6 +427,8 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
   // A STOP RESUMES ONCE AFTER A DEPLOY, for requests their workflow runs (Walk 12).
   await step('the stops a deploy resumes', async () => (await import('./carry')).resumeWorkflowStopsAfterDeploy(orgId, now));
+  // A LIVE CHECK THAT NEVER LOOKED IS CHECKED AGAIN: after each deploy, and once by itself (FE-419).
+  await step('the live checks that never looked', async () => (await import('./liveCheck')).recheckNeverLooked(orgId, now));
   await step('the closed requests', () => settleClosedRequests(orgId, now));
   await step('the waiting merges', () => settleWaitingMerges(orgId, now));
   await step('the missed deploys', async () => (await import('./environments')).watchMissedDeploys(orgId, now, owner).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));

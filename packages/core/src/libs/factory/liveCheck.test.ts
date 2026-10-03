@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptanceLines, lineResults, liveAfterRun, liveReasonSentence, liveVerdict, pickAnnouncementImage, readLiveReason, readReleaseLive, readRequestLive, RecordedLineSchema, resolveRecordedLines, uncheckedRow } from './liveCheck';
+import { acceptanceLines, lineResults, liveAfterRun, liveNeverLooked, liveReasonSentence, liveVerdict, notCheckedLine, pickAnnouncementImage, readLiveReason, readReleaseLive, readRequestLive, recheckDecision, RecordedLineSchema, releaseRecordedCheck, resolveRecordedLines, uncheckedRow } from './liveCheck';
 
 const row = (status: 'reached' | 'not_reached', extra: Record<string, unknown> = {}) => ({ requestId: 41, flow: 'Last opened line', criterion: 'The line says when it was last opened.', viewport: 'desktop', artifactId: null, status, url: null, ...extra });
 
@@ -246,5 +246,56 @@ describe('a line QA\'s verdict left to the live check is one the check must acco
       { line: 3, text: RISK, result: 'not_reached', url: 'https://kestrel.example/documents/9', reason: 'menu not visible' },
       { line: 2, text: OWN[1], result: 'not_checked', url: null, reason: expect.stringContaining('cannot be seen on the live product') },
     ]);
+  });
+});
+
+describe('a live check that never looked (FE-419)', () => {
+  const now = new Date('2026-10-03T12:00:00Z');
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
+  const noReport = { state: 'not_checked', releaseId: 9, checkedAt: hoursAgo(2), attempts: 0, lastReason: 'the run wrote no report' };
+
+  it('says it could not check, why, and that Vocion checks again; once the rechecks are spent it asks once', () => {
+    expect(notCheckedLine('run #12 ended without record_live_check.', 0)).toBe('Couldn\'t check live yet: run #12 ended without record_live_check. Vocion will check again.');
+    expect(notCheckedLine('run #12 ended without record_live_check', 2)).toBe('Couldn\'t check live yet: run #12 ended without record_live_check. Vocion will check again.');
+    expect(notCheckedLine('run #12 ended without record_live_check', 3)).toBe('Couldn\'t check live: run #12 ended without record_live_check. Vocion checked again 3 times by itself and none recorded a report; press Check live again once what stops it is fixed.');
+  });
+
+  it('reads not_checked on the request and the release as its own state, never "not seen"', () => {
+    expect(readRequestLive({ liveCheck: { ...noReport, line: 'Couldn\'t check live yet: x. Vocion will check again.' } })).toMatchObject({ state: 'not_checked', line: 'Couldn\'t check live yet: x. Vocion will check again.', releaseId: 9, attempts: 0, detail: 'the run wrote no report' });
+    expect(readReleaseLive({ liveState: 'not_checked', liveSummary: 'Couldn\'t check live yet: x. Vocion will check again.', liveReason: 'x' })).toMatchObject({ state: 'not_checked', line: 'Couldn\'t check live yet: x. Vocion will check again.', detail: 'x' });
+  });
+
+  it('tells a check that recorded from one that wrote no report by the record, not the words', () => {
+    expect(releaseRecordedCheck({ liveAttempts: 1, liveEvidence: [] })).toBe(true);
+    expect(releaseRecordedCheck({ liveEvidence: [{ status: 'not_reached' }] })).toBe(true);
+    expect(releaseRecordedCheck({ liveState: 'not_seen', liveSummary: 'Not seen live: …', liveAttempts: 0 })).toBe(false);
+    expect(liveNeverLooked({ state: 'not_seen' }, { liveState: 'not_seen' })).toBe(true);
+    expect(liveNeverLooked({ state: 'not_seen' }, { liveState: 'not_seen', liveAttempts: 1, liveEvidence: [{}] })).toBe(false);
+    expect(liveNeverLooked({ state: 'seen' }, {})).toBe(false);
+  });
+
+  it('rechecks once per deploy after the round, never twice for one deploy', () => {
+    const deploy = { id: 41, at: new Date(hoursAgo(1)) };
+
+    expect(recheckDecision({ mark: noReport, releaseMeta: {}, deploy, now })).toEqual({ do: 'recheck', key: 'deploy 41', attempt: 1 });
+    expect(recheckDecision({ mark: { ...noReport, attempts: 1, recheckedFor: 'deploy 41', recheckedAt: hoursAgo(0.5) }, releaseMeta: {}, deploy, now }).do).toBe('skip');
+    // A deploy older than the round is not a reason to look again.
+    expect(recheckDecision({ mark: noReport, releaseMeta: {}, deploy: { id: 40, at: new Date(hoursAgo(3)) }, now })).toEqual({ do: 'recheck', key: 'delay', attempt: 1 });
+    // While a recheck may still run, a newer deploy waits for it.
+    expect(recheckDecision({ mark: { ...noReport, attempts: 1, recheckedFor: 'delay', recheckedAt: hoursAgo(0.2) }, releaseMeta: {}, deploy, now }).do).toBe('skip');
+  });
+
+  it('rechecks once by itself after a short delay, and only once', () => {
+    expect(recheckDecision({ mark: { ...noReport, checkedAt: hoursAgo(0.1) }, releaseMeta: {}, deploy: null, now }).do).toBe('skip');
+    expect(recheckDecision({ mark: noReport, releaseMeta: {}, deploy: null, now })).toEqual({ do: 'recheck', key: 'delay', attempt: 1 });
+    expect(recheckDecision({ mark: { ...noReport, attempts: 1, recheckedFor: 'delay', recheckedAt: hoursAgo(1) }, releaseMeta: {}, deploy: null, now }).do).toBe('skip');
+  });
+
+  it('respects the cap', () => {
+    expect(recheckDecision({ mark: { ...noReport, attempts: 3 }, releaseMeta: {}, deploy: { id: 50, at: new Date(hoursAgo(1)) }, now })).toEqual({ do: 'skip', why: 'the rechecks are spent; a person checks it again' });
+  });
+
+  it('never rechecks a genuine not seen: QA looked and recorded what failed', () => {
+    expect(recheckDecision({ mark: { state: 'not_seen', releaseId: 9, checkedAt: hoursAgo(2), attempt: 1, lines: [{ line: 1, result: 'not_reached' }] }, releaseMeta: { liveState: 'not_seen', liveAttempts: 1, liveEvidence: [{ status: 'not_reached' }] }, deploy: { id: 50, at: new Date(hoursAgo(1)) }, now })).toEqual({ do: 'skip', why: 'the check looked' });
   });
 });

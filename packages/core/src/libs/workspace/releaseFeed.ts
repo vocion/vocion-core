@@ -133,7 +133,7 @@ export type ReleaseVerification = {
    * that no live check has looked at yet; `none` is one with nothing to see.
    * A health check's 200 never stands in for it.
    */
-  live: { state: 'seen' | 'partial' | 'not_seen' | 'pending' | 'none'; line: string; tone: Tone; detail?: string | null };
+  live: { state: 'seen' | 'partial' | 'not_seen' | 'not_checked' | 'pending' | 'none'; line: string; tone: Tone; detail?: string | null };
   /** Product impact: did the change work. A different, later question. */
   impact: { state: 'helped' | 'regressed' | 'inconclusive' | 'pending' | 'unchecked' | 'none'; line: string; tone: Tone };
   /** The one line a feed row carries. */
@@ -513,7 +513,7 @@ function healthOf(meta: Record<string, unknown>, now: Date): ReleaseVerification
 function liveOf(meta: Record<string, unknown>, userFacing: boolean): ReleaseVerification['live'] {
   const live = readReleaseLive(meta);
   if (live) {
-    return { state: live.state, line: live.line, tone: live.state === 'seen' ? 'ok' : live.state === 'partial' ? 'warn' : 'bad', detail: live.detail };
+    return { state: live.state, line: live.line, tone: live.state === 'seen' ? 'ok' : live.state === 'partial' || live.state === 'not_checked' ? 'warn' : 'bad', detail: live.detail };
   }
   return userFacing
     ? { state: 'pending', line: 'Not yet seen live', tone: 'warn' }
@@ -764,7 +764,7 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
   // when the deploy answered 200 (release #280, 2026-09-30: health ok, 0 of 6
   // live states reached).
   const issue = health.tone === 'bad' || acceptance?.state === 'failed' || impact.state === 'regressed' || live.state === 'not_seen';
-  const missing = !issue && (health.value !== 'ok' || acceptance?.state === 'missing' || live.state === 'pending' || live.state === 'partial');
+  const missing = !issue && (health.value !== 'ok' || acceptance?.state === 'missing' || live.state === 'pending' || live.state === 'partial' || live.state === 'not_checked');
   const verification: ReleaseVerification = {
     state: issue ? 'issue' : missing ? 'missing' : 'verified',
     label: issue ? 'Issue detected' : missing ? 'Verification missing' : 'Verified',
@@ -801,7 +801,7 @@ export function readRelease(row: PageRow, options: { linked?: ReleaseLinked; now
   if (acceptance?.state === 'failed' || acceptance?.state === 'missing') {
     attention.push(acceptance.line);
   }
-  if (live.state === 'not_seen' || live.state === 'partial') {
+  if (live.state === 'not_seen' || live.state === 'partial' || live.state === 'not_checked') {
     attention.push(live.line);
   }
   if (impact.state === 'regressed') {

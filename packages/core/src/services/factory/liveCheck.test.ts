@@ -21,10 +21,10 @@ vi.mock('@/services/factory/productAccess', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { artifactSchema, automationRunSchema, businessObjectSchema } = await import('@/models/Schema');
+const { artifactSchema, automationRunSchema, businessObjectSchema, eventLogSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
-const { allowedOrigins, environmentFor, liveCheckEnded, recordLiveCheck } = await import('./liveCheck');
+const { allowedOrigins, environmentFor, liveCheckEnded, recheckNeverLooked, recordLiveCheck } = await import('./liveCheck');
 const browserSvc = await import('./liveBrowser');
 
 const ORG = 'org_live_check';
@@ -464,7 +464,7 @@ describe('the browser tools, in a real browser against a fictional product', asy
 });
 
 describe('when QA\'s fire ends', () => {
-  it('asks for the one retry carrying the reason, then writes "could not reach the change" on the release and the feature', async () => {
+  it('asks for the one retry carrying the reason; a round that wrote no report is not checked, never "not seen" (FE-419)', async () => {
     const org = `${ORG}_ended`;
     const { requestId, releaseId } = await seed(org);
     const fire = async (attempt: number) => (await db.insert(automationRunSchema).values({ orgId: org, slug: 'release-live-check', kind: 'mission', status: 'completed', input: { releaseId, attempt }, error: 'the agent stopped' }).returning())[0]!.id;
@@ -476,7 +476,108 @@ describe('when QA\'s fire ends', () => {
     const second = await liveCheckEnded(org, { automationRunId: await fire(2), attempts: 2 });
 
     expect(second).toEqual({ releaseId, did: 'gave-up', line: 'the agent stopped' });
-    expect(await meta(releaseId)).toMatchObject({ liveState: 'not_seen', liveSummary: 'Not seen live: QA could not reach the change on the live product. Why: the agent stopped' });
-    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen', line: 'Not seen live: QA could not reach the change on the live product. Why: the agent stopped', releaseId });
+    expect(await meta(releaseId)).toMatchObject({ liveState: 'not_checked', liveSummary: 'Couldn\'t check live yet: the agent stopped. Vocion will check again.', liveWhy: { kind: 'not_checked', detail: 'the agent stopped' } });
+    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_checked', line: 'Couldn\'t check live yet: the agent stopped. Vocion will check again.', releaseId, attempts: 0, lastReason: 'the agent stopped', why: { kind: 'not_checked', detail: 'the agent stopped' } });
+  });
+
+  it('a check that ran and recorded what failed stays "not seen" when its fire ends', async () => {
+    const org = `${ORG}_ended_recorded`;
+    const { requestId, releaseId } = await seed(org);
+    const [run] = await db.insert(automationRunSchema).values({ orgId: org, slug: 'release-live-check', kind: 'mission', status: 'completed', input: { releaseId, attempt: 2 } }).returning();
+    await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'not_seen', evidence: ['shot-7'], why: 'The blank name was saved.' }]) }, { session: new Map([['shot-7', shotEvidence(7)]]) });
+
+    await liveCheckEnded(org, { automationRunId: run!.id, attempts: 2 });
+
+    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen', releaseId });
+    expect((await meta(releaseId)).liveState).toBe('not_seen');
+  });
+});
+
+describe('a live check that never looked is checked again by Vocion (FE-419)', () => {
+  const hour = 3_600_000;
+  const rechecks = async (org: string, releaseId: number) => (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, org), eq(eventLogSchema.type, 'release.live_check.requested'))))
+    .filter(e => (e.payload as { releaseId: number }).releaseId === releaseId);
+  const setMeta = async (id: number, m: Record<string, unknown>) => db.update(businessObjectSchema).set({ metadata: { ...(await meta(id)), ...m } }).where(eq(businessObjectSchema.id, id));
+  const deploy = (org: string, at: Date, sha: string) => db.insert(workspaceVersionSchema).values({ orgId: org, sha, status: 'applied', appliedAt: at });
+
+  it('re-runs the check once per deploy, through the event a live check starts with, with the count and reason on the feature', async () => {
+    const org = `${ORG}_recheck_deploy`;
+    const { requestId, releaseId } = await seed(org);
+    const now = new Date();
+    await setMeta(requestId, { liveCheck: { state: 'not_checked', line: 'x', releaseId, checkedAt: new Date(now.getTime() - 2 * hour).toISOString(), attempts: 0, lastReason: 'the run wrote no report', why: { kind: 'not_checked', detail: 'the run wrote no report' } } });
+    await deploy(org, new Date(now.getTime() - hour), 'local-a1');
+
+    const out = await recheckNeverLooked(org, now);
+
+    expect(out).toEqual([expect.objectContaining({ requestId, did: 'live recheck 1' })]);
+
+    const events = await rechecks(org, releaseId);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ releaseId, product: 'relay', userFacing: true, attempt: 2, requestIds: [requestId] });
+    expect(String((events[0]!.payload as { lastFailure: string }).lastFailure)).toContain('the run wrote no report');
+
+    const mark = (await meta(requestId)).liveCheck;
+
+    expect(mark).toMatchObject({ state: 'not_checked', attempts: 1, lastReason: 'the run wrote no report', recheckedFor: expect.stringMatching(/^deploy \d+$/) });
+    expect(mark.line).toContain('Vocion is checking again');
+
+    // The same deploy never starts a second one, and neither does the delay while one runs.
+    expect(await recheckNeverLooked(org, new Date(now.getTime() + hour))).toEqual([]);
+    expect(await rechecks(org, releaseId)).toHaveLength(1);
+  });
+
+  it('picks up a feature stamped "not seen" before this state existed, when its release recorded no check', async () => {
+    const org = `${ORG}_recheck_legacy`;
+    const { requestId, releaseId } = await seed(org);
+    const now = new Date();
+    const old = new Date(now.getTime() - 3 * hour).toISOString();
+    await setMeta(releaseId, { liveState: 'not_seen', liveSummary: 'Not seen live: QA could not reach the change on the live product. Why: no report', liveReason: 'no report', liveCheckedAt: old, liveProblems: ['no report'] });
+    await setMeta(requestId, { liveCheck: { state: 'not_seen', line: 'Not seen live: QA could not reach the change on the live product. Why: no report', releaseId, checkedAt: old } });
+    await deploy(org, new Date(now.getTime() - hour), 'local-b2');
+
+    expect(await recheckNeverLooked(org, now)).toEqual([expect.objectContaining({ requestId, did: 'live recheck 1' })]);
+    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_checked', attempts: 1 });
+  });
+
+  it('checks once by itself a while after the round, with no deploy', async () => {
+    const org = `${ORG}_recheck_delay`;
+    const { requestId, releaseId } = await seed(org);
+    const now = new Date();
+    await setMeta(requestId, { liveCheck: { state: 'not_checked', line: 'x', releaseId, checkedAt: new Date(now.getTime() - 5 * 60_000).toISOString(), attempts: 0, lastReason: 'no report' } });
+
+    expect(await recheckNeverLooked(org, now)).toEqual([]);
+    expect(await recheckNeverLooked(org, new Date(now.getTime() + 20 * 60_000))).toEqual([expect.objectContaining({ requestId, did: 'live recheck 1' })]);
+    expect(await recheckNeverLooked(org, new Date(now.getTime() + 2 * hour))).toEqual([]);
+    expect((await meta(requestId)).liveCheck).toMatchObject({ recheckedFor: 'delay', attempts: 1 });
+  });
+
+  it('respects the cap: after three rechecks it asks the person once, and starts nothing', async () => {
+    const org = `${ORG}_recheck_cap`;
+    const { requestId, releaseId } = await seed(org);
+    const now = new Date();
+    await setMeta(requestId, { liveCheck: { state: 'not_checked', line: 'x', releaseId, checkedAt: new Date(now.getTime() - 2 * hour).toISOString(), attempts: 3, lastReason: 'no report', recheckedFor: 'deploy 1' } });
+    await deploy(org, new Date(now.getTime() - hour), 'local-c3');
+
+    expect(await recheckNeverLooked(org, now)).toEqual([]);
+    expect(await rechecks(org, releaseId)).toHaveLength(0);
+
+    // The round that ends after the third recheck says so, and asks once.
+    const [run] = await db.insert(automationRunSchema).values({ orgId: org, slug: 'release-live-check', kind: 'mission', status: 'completed', input: { releaseId, attempt: 2 }, error: 'no report' }).returning();
+    await liveCheckEnded(org, { automationRunId: run!.id, attempts: 2 });
+
+    expect((await meta(requestId)).liveCheck.line).toBe('Couldn\'t check live: no report. Vocion checked again 3 times by itself and none recorded a report; press Check live again once what stops it is fixed.');
+  });
+
+  it('never re-runs a genuine "not seen": the check ran and recorded what failed', async () => {
+    const org = `${ORG}_recheck_genuine`;
+    const { requestId, releaseId } = await seed(org);
+    await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'not_seen', evidence: ['shot-7'], why: 'The blank name was saved.' }]) }, { session: new Map([['shot-7', shotEvidence(7)]]) });
+    const now = new Date(Date.now() + 2 * hour);
+    await deploy(org, new Date(now.getTime() - 60_000), 'local-d4');
+
+    expect((await meta(requestId)).liveCheck.state).toBe('not_seen');
+    expect(await recheckNeverLooked(org, now)).toEqual([]);
+    expect(await rechecks(org, releaseId)).toHaveLength(0);
   });
 });

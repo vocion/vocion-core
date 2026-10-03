@@ -416,7 +416,7 @@ function seenLive(seen: ReportReleaseSummary['seen']): string | null {
     return null;
   }
   const count = seen.reached !== undefined && seen.total !== undefined && seen.total > 0 ? ` ${seen.reached} of ${seen.total}` : '';
-  return seen.state === 'seen' ? `seen live${count}` : seen.state === 'partial' ? `partly seen live${count}` : seen.state === 'not_seen' ? 'not seen live' : 'not yet seen live';
+  return seen.state === 'seen' ? `seen live${count}` : seen.state === 'partial' ? `partly seen live${count}` : seen.state === 'not_seen' ? 'not seen live' : seen.state === 'not_checked' ? 'not checked live yet' : 'not yet seen live';
 }
 
 /**

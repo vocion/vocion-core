@@ -24,7 +24,7 @@ import type { BrowserEvidence } from '@/services/factory/liveBrowser';
 import type { EnvironmentAccess } from '@/services/factory/productAccess';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { acceptanceLines, isSignInPath, lineResults, LIVE_ROLE, liveVerdict, notSeenLine, pickAnnouncementImage, resolveRecordedLines, uncheckedRow } from '@/libs/factory/liveCheck';
+import { acceptanceLines, isSignInPath, lineResults, LIVE_ROLE, liveVerdict, pickAnnouncementImage, resolveRecordedLines, uncheckedRow } from '@/libs/factory/liveCheck';
 import { artifactSchema, businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
@@ -392,6 +392,13 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
  * The live check's last word, when the attempts are spent and QA never saw
  * the change: written on the release and each feature, so nothing reads
  * healthy or simply shipped on the strength of a deploy alone.
+ *
+ * A ROUND THAT WROTE NO REPORT DID NOT LOOK (FE-419, 2026-10-03): QA's run
+ * ended without `record_live_check`, the recording pass found nothing to
+ * record, and the feature read "Not seen live". When the release carries no
+ * recorded check (`releaseRecordedCheck`, a structural test) the state is
+ * `not_checked`, the line says Vocion checks again, and `recheckNeverLooked`
+ * starts it again by itself.
  * @param orgId - The workspace.
  * @param releaseId - The release.
  * @param reason - Why it was not seen.
@@ -402,16 +409,17 @@ export async function liveCheckGaveUp(orgId: string, releaseId: number, reason: 
   if (!release) {
     return;
   }
-  const { readReleaseLive } = await import('@/libs/factory/liveCheck');
+  const { readReleaseLive, releaseRecordedCheck } = await import('@/libs/factory/liveCheck');
   const live = readReleaseLive(release.meta);
   if (live?.state === 'seen' || live?.state === 'partial') {
     return;
   }
-  const line = live?.line ?? notSeenLine(reason).slice(0, 500);
-  const checkedAt = now.toISOString();
-  if (!live) {
-    await mergeMeta(orgId, releaseId, { liveState: 'not_seen', liveSummary: line, liveReason: reason.slice(0, 400), liveCheckedAt: checkedAt, liveProblems: [reason.slice(0, 400)] });
+  if (!live || !releaseRecordedCheck(release.meta)) {
+    await liveCheckNotChecked(orgId, releaseId, release.meta, reason, now);
+    return;
   }
+  const line = live.line;
+  const checkedAt = now.toISOString();
   for (const requestId of ids(release.meta.requestIds)) {
     const request = await readMeta(orgId, requestId);
     const mark = (request?.meta.liveCheck && typeof request.meta.liveCheck === 'object' ? request.meta.liveCheck : {}) as Meta;
@@ -424,6 +432,135 @@ export async function liveCheckGaveUp(orgId: string, releaseId: number, reason: 
     const { noteOnRequest } = await import('./carry');
     await noteOnRequest(orgId, requestId, `${line} (release #${releaseId}).`).catch(() => undefined);
   }
+}
+
+/**
+ * A round that wrote no report, on the release and each feature: `not_checked`, with why, how
+ * many rechecks Vocion has started, and what happens next.
+ * @param orgId - The workspace.
+ * @param releaseId - The release.
+ * @param releaseMeta - Its metadata.
+ * @param reason - Why the round wrote no report.
+ * @param now - The clock.
+ */
+async function liveCheckNotChecked(orgId: string, releaseId: number, releaseMeta: Meta, reason: string, now: Date): Promise<void> {
+  const { notCheckedLine, recheckCount } = await import('@/libs/factory/liveCheck');
+  const detail = reason.slice(0, 400);
+  const why: LiveReason = { kind: 'not_checked', detail };
+  const checkedAt = now.toISOString();
+  let most = 0;
+  for (const requestId of ids(releaseMeta.requestIds)) {
+    const request = await readMeta(orgId, requestId);
+    if (!request) {
+      continue;
+    }
+    const prior = (request.meta.liveCheck && typeof request.meta.liveCheck === 'object' ? request.meta.liveCheck : {}) as Meta;
+    // A mark another release wrote carries nothing over; this release's keeps its recheck count.
+    const own = prior.releaseId === releaseId ? prior : {};
+    const attempts = recheckCount(own);
+    most = Math.max(most, attempts);
+    const line = notCheckedLine(detail, attempts).slice(0, 600);
+    await mergeMeta(orgId, requestId, {
+      liveCheck: {
+        state: 'not_checked',
+        line,
+        releaseId,
+        checkedAt,
+        why,
+        attempts,
+        lastReason: detail,
+        ...(typeof own.recheckedFor === 'string' ? { recheckedFor: own.recheckedFor } : {}),
+        ...(typeof own.recheckedAt === 'string' ? { recheckedAt: own.recheckedAt } : {}),
+      },
+    });
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, requestId, 'shipped', { line });
+    const { noteOnRequest } = await import('./carry');
+    await noteOnRequest(orgId, requestId, `${line} (release #${releaseId}).`).catch(() => undefined);
+  }
+  await mergeMeta(orgId, releaseId, { liveState: 'not_checked', liveSummary: notCheckedLine(detail, most).slice(0, 500), liveReason: detail, liveWhy: why, liveCheckedAt: checkedAt, liveProblems: [detail] });
+}
+
+/**
+ * START THE LIVE CHECK AGAIN WHERE IT NEVER LOOKED (FE-419, 2026-10-03). A feature whose last
+ * round wrote no report — `not_checked`, or a `not_seen` written before that state on a release
+ * with no recorded check — is checked again by the event the factory already raises for a live
+ * check (`release.live_check.requested`): once after each new deploy, and once by itself a short
+ * while after the round (`recheckDecision`), up to `LIVE_RECHECKS`. The count and the reason stay
+ * on the feature's `liveCheck`, so its line says why; after the cap it asks the person once.
+ * Runs in the factory sweep (`reconcilePipeline`).
+ * @param orgId - The workspace.
+ * @param now - The clock.
+ */
+export async function recheckNeverLooked(orgId: string, now: Date = new Date()): Promise<Array<{ requestId: number; did: string; line: string | null }>> {
+  const { desc } = await import('drizzle-orm');
+  const { workspaceVersionSchema } = await import('@/models/Schema');
+  const [applied] = await db.select({ id: workspaceVersionSchema.id, at: workspaceVersionSchema.appliedAt }).from(workspaceVersionSchema).where(and(eq(workspaceVersionSchema.orgId, orgId), eq(workspaceVersionSchema.status, 'applied'))).orderBy(desc(workspaceVersionSchema.id)).limit(1);
+  const deploy = applied?.at ? { id: applied.id, at: applied.at } : null;
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const requests = (await listBusinessObjects(orgId, (await factoryTypes(orgId)).request).catch(() => [])) as Array<{ id: number; metadata: unknown }>;
+  const { LIVE_ATTEMPTS, LIVE_RECHECKS, recheckDecision } = await import('@/libs/factory/liveCheck');
+  const releases = new Map<number, Meta | null>();
+  // One check per release and key: every feature it shipped is rechecked by the same fire.
+  const due = new Map<string, { releaseId: number; releaseMeta: Meta; key: string; marks: Array<{ requestId: number; mark: Meta; attempt: number }> }>();
+  for (const r of requests) {
+    const meta = (r.metadata ?? {}) as Meta;
+    const mark = (meta.liveCheck && typeof meta.liveCheck === 'object' && !Array.isArray(meta.liveCheck) ? meta.liveCheck : null) as Meta | null;
+    const releaseId = Number(mark?.releaseId);
+    if (!mark || !Number.isSafeInteger(releaseId) || releaseId <= 0) {
+      continue;
+    }
+    if (!releases.has(releaseId)) {
+      releases.set(releaseId, (await readMeta(orgId, releaseId))?.meta ?? null);
+    }
+    const releaseMeta = releases.get(releaseId);
+    if (!releaseMeta) {
+      continue;
+    }
+    const decision = recheckDecision({ mark, releaseMeta, deploy, now });
+    if (decision.do !== 'recheck') {
+      continue;
+    }
+    const at = `${releaseId}:${decision.key}`;
+    const group = due.get(at) ?? { releaseId, releaseMeta, key: decision.key, marks: [] };
+    group.marks.push({ requestId: r.id, mark, attempt: decision.attempt });
+    due.set(at, group);
+  }
+  const out: Array<{ requestId: number; did: string; line: string | null }> = [];
+  const { emitEvent, RELEASE_LIVE_CHECK_REQUESTED } = await import('@/services/EventService');
+  for (const g of due.values()) {
+    const reason = String(g.marks[0]!.mark.lastReason ?? g.marks[0]!.mark.line ?? 'the last check wrote no report').slice(0, 400);
+    const startedAt = now.toISOString();
+    const why = g.key === 'delay' ? 'a while after the last check' : `Vocion was deployed since the last check (${g.key})`;
+    // Written before the event, so an overlapping sweep never starts a second check for the same key.
+    for (const m of g.marks) {
+      const line = `Couldn't check live yet: ${reason.replace(/[.\s]+$/, '')}. Vocion is checking again, ${why} (recheck ${m.attempt} of ${LIVE_RECHECKS}).`.slice(0, 600);
+      await mergeMeta(orgId, m.requestId, { liveCheck: { ...m.mark, state: 'not_checked', line, attempts: m.attempt, lastReason: reason, recheckedFor: g.key, recheckedAt: startedAt } });
+      out.push({ requestId: m.requestId, did: `live recheck ${m.attempt}`, line });
+    }
+    const payload: import('@/services/EventService').ReleaseLiveCheckRequestedPayload = {
+      releaseId: g.releaseId,
+      product: typeof g.releaseMeta.product === 'string' ? g.releaseMeta.product : null,
+      userFacing: true,
+      // The last attempt of a round: a recheck that again writes no report ends the round
+      // (`liveAfterRun`) and the next recheck is the sweep's, by its own key.
+      attempt: LIVE_ATTEMPTS,
+      lastFailure: `The last live check wrote no report (${reason.replace(/[.\s]+$/, '')}). Vocion is checking again, ${why}. Look at the live product with the browser tools and record every acceptance line with record_live_check.`.slice(0, 600),
+      requestIds: ids(g.releaseMeta.requestIds),
+      taskIds: ids(g.releaseMeta.taskIds),
+    };
+    try {
+      await emitEvent({ orgId, type: RELEASE_LIVE_CHECK_REQUESTED, payload, dedupeKey: `${RELEASE_LIVE_CHECK_REQUESTED}:${g.releaseId}:recheck:${g.key}`, invokedBy: 'system:factory-reconcile', dispatchMode: 'auto' });
+    } catch (err) {
+      // Said where the person looks; the recheck it spent keeps the count honest.
+      for (const m of g.marks) {
+        const line = `Couldn't check live yet: ${reason.replace(/[.\s]+$/, '')}. The recheck could not be started (${short(err)}); Vocion tries again after the next deploy.`.slice(0, 600);
+        await mergeMeta(orgId, m.requestId, { liveCheck: { ...m.mark, state: 'not_checked', line, attempts: m.attempt, lastReason: reason, recheckedFor: g.key, recheckedAt: startedAt } });
+      }
+    }
+  }
+  return out;
 }
 
 /**

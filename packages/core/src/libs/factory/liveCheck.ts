@@ -319,7 +319,12 @@ export type LiveRow = {
   evidence?: string[];
 };
 
-export type LiveState = 'seen' | 'partial' | 'not_seen';
+/**
+ * `not_checked` is its own state (FE-419, 2026-10-03): a check that recorded no report observed
+ * nothing, so it never reads "not seen". Only the end of a fire that wrote no report writes it
+ * (`liveCheckGaveUp`); a recorded check is seen, partly seen or not seen.
+ */
+export type LiveState = 'seen' | 'partial' | 'not_seen' | 'not_checked';
 
 /** What a live check concluded, said once: on the release, the feature and the tool's answer. */
 export type LiveVerdict = {
@@ -435,6 +440,14 @@ export function lineResults(rows: readonly LiveRow[]): LiveLineMark[] {
 
 /** Where a feature stands on the live product, on its request (`liveCheck`). */
 export type RequestLiveMark = {
+  /** On `not_checked`: the checks Vocion started again by itself (`recheckDecision`), capped at {@link LIVE_RECHECKS}. */
+  attempts?: number;
+  /** On `not_checked`: why the last round wrote no report, in the fire's own words. */
+  lastReason?: string;
+  /** On `not_checked`: what the last recheck was keyed to (`deploy <id>` or `delay`), so one key starts one check. */
+  recheckedFor?: string;
+  /** On `not_checked`: when the last recheck was started. */
+  recheckedAt?: string;
   state: LiveState;
   line: string;
   releaseId: number;
@@ -465,11 +478,16 @@ function text(v: unknown): string | null {
  * @param meta - The release's metadata.
  */
 export function readReleaseLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; detail: string | null } | null {
-  const state = meta.liveState === 'seen' || meta.liveState === 'partial' || meta.liveState === 'not_seen' ? meta.liveState : null;
+  const state = isLiveState(meta.liveState) ? meta.liveState : null;
   const summary = text(meta.liveSummary);
   const attempts = Number.isInteger(meta.liveAttempts) ? Number(meta.liveAttempts) : null;
   const next = (line: string) => `${line.replace(/[.\s]+$/, '')}. ${liveNext(attempts)}`;
   if (state) {
+    if (state === 'not_checked') {
+      // Nothing was observed: said as such, with what happens next already in its line.
+      const reason = text(meta.liveReason);
+      return { state, line: summary ?? notCheckedLine(reason ?? 'no reason was recorded', 0), checkedAt: text(meta.liveCheckedAt), detail: reason };
+    }
     if (state === 'seen') {
       return { state, line: summary ?? 'Seen live', checkedAt: text(meta.liveCheckedAt), detail: null };
     }
@@ -500,15 +518,120 @@ export function readReleaseLive(meta: Meta): { state: LiveState; line: string; c
  * `liveCheck`. Null when no live check has looked at it.
  * @param meta - The request's metadata.
  */
-export function readRequestLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; releaseId: number | null; detail: string | null } | null {
+export function readRequestLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; releaseId: number | null; detail: string | null; attempts: number } | null {
   const m = bag(meta.liveCheck);
-  const state = m.state === 'seen' || m.state === 'partial' || m.state === 'not_seen' ? m.state : null;
+  const state = isLiveState(m.state) ? m.state : null;
   if (!state) {
     return null;
   }
   const releaseId = Number(m.releaseId);
   const why = state === 'seen' ? null : readLiveReason(m.why);
-  return { state, line: text(m.line) ?? (state === 'seen' ? 'Seen live' : 'Not yet seen live'), checkedAt: text(m.checkedAt), releaseId: Number.isSafeInteger(releaseId) && releaseId > 0 ? releaseId : null, detail: why?.detail ?? null };
+  const fallback = state === 'seen' ? 'Seen live' : state === 'not_checked' ? 'Not checked live yet' : 'Not yet seen live';
+  return { state, line: text(m.line) ?? fallback, checkedAt: text(m.checkedAt), releaseId: Number.isSafeInteger(releaseId) && releaseId > 0 ? releaseId : null, detail: why?.detail ?? text(m.lastReason), attempts: recheckCount(m) };
+}
+
+function isLiveState(v: unknown): v is LiveState {
+  return v === 'seen' || v === 'partial' || v === 'not_seen' || v === 'not_checked';
+}
+
+/**
+ * THE LIVE CHECK HEALS ITSELF WHEN IT NEVER LOOKED (FE-419, 2026-10-03). A fire that wrote no
+ * report — the seat never called `record_live_check`, the recording pass found nothing — observed
+ * nothing, so the feature reads "Couldn't check live yet" and Vocion starts the check again by
+ * itself: once a short while after, and once after each new deploy, at most this many times.
+ */
+export const LIVE_RECHECKS = 3;
+
+/** How long after a round that wrote no report Vocion checks again on its own (the factory sweep runs every five minutes). */
+export const LIVE_RECHECK_DELAY_MS = 15 * 60_000;
+
+/**
+ * The checks Vocion has started again by itself, from a request's `liveCheck`.
+ * @param mark - The request's `liveCheck`.
+ */
+export function recheckCount(mark: Meta): number {
+  return Number.isInteger(mark.attempts) && Number(mark.attempts) > 0 ? Number(mark.attempts) : 0;
+}
+
+/**
+ * A feature the live check could not look at, for a person: why, then what happens next. While
+ * rechecks are left Vocion says it checks again; once they are spent it asks the person once, with
+ * the "Check live again" action beside it.
+ * @param reason - Why the last round wrote no report.
+ * @param attempts - Rechecks already started.
+ * @param limit - Rechecks in all.
+ */
+export function notCheckedLine(reason: string, attempts: number, limit: number = LIVE_RECHECKS): string {
+  const why = reason.replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').slice(0, 400) || 'the check ended without a report';
+  return attempts < limit
+    ? `Couldn't check live yet: ${why}. Vocion will check again.`
+    : `Couldn't check live: ${why}. Vocion checked again ${limit} times by itself and none recorded a report; press Check live again once what stops it is fixed.`;
+}
+
+/**
+ * Whether a release carries a check QA recorded. `record_live_check` always writes a positive
+ * `liveAttempts` and its line rows (`liveEvidence`); the end of a fire that wrote no report writes
+ * neither. A structural test, never the line's words.
+ * @param releaseMeta - The release's metadata.
+ */
+export function releaseRecordedCheck(releaseMeta: Meta): boolean {
+  const attempts = Number(releaseMeta.liveAttempts);
+  return (Number.isInteger(attempts) && attempts > 0) || (Array.isArray(releaseMeta.liveEvidence) && releaseMeta.liveEvidence.length > 0);
+}
+
+/**
+ * A feature whose live check never looked: `not_checked`, or — on a record written before that
+ * state existed — `not_seen` on a release that carries no recorded check. A genuine "not seen"
+ * (QA looked and recorded what failed) is never one.
+ * @param mark - The request's `liveCheck`.
+ * @param releaseMeta - Its release's metadata.
+ */
+export function liveNeverLooked(mark: Meta, releaseMeta: Meta): boolean {
+  if (mark.state === 'not_checked') {
+    return true;
+  }
+  return mark.state === 'not_seen' && !releaseRecordedCheck(releaseMeta);
+}
+
+/** Whether Vocion starts a feature's live check again now, and keyed to what. */
+export type RecheckDecision
+  = | { do: 'recheck'; key: string; attempt: number }
+    | { do: 'skip'; why: string };
+
+/**
+ * Whether to start the live check again for a feature whose check never looked: once after each
+ * new deploy (a fix may have shipped), and once by itself a short while after the round ended —
+ * one check per key, never while one it started may still run, and never past the cap.
+ * @param input - What the decision reads.
+ * @param input.mark - The request's `liveCheck`.
+ * @param input.releaseMeta - Its release's metadata.
+ * @param input.deploy - The newest applied deploy (its id, and when it was applied), if any.
+ * @param input.now - The clock.
+ * @param input.limit - Rechecks in all.
+ * @param input.delayMs - How long after a round the check runs again by itself.
+ */
+export function recheckDecision(input: { mark: Meta; releaseMeta: Meta; deploy: { id: number; at: Date } | null; now: Date; limit?: number; delayMs?: number }): RecheckDecision {
+  const { mark, releaseMeta, deploy, now } = input;
+  const limit = input.limit ?? LIVE_RECHECKS;
+  if (!liveNeverLooked(mark, releaseMeta)) {
+    return { do: 'skip', why: 'the check looked' };
+  }
+  const attempts = recheckCount(mark);
+  if (attempts >= limit) {
+    return { do: 'skip', why: 'the rechecks are spent; a person checks it again' };
+  }
+  const checkedAt = Date.parse(String(mark.checkedAt ?? ''));
+  const recheckedAt = Date.parse(String(mark.recheckedAt ?? ''));
+  // The last thing that happened: the round's end, or a recheck still running after it.
+  const last = Math.max(Number.isFinite(checkedAt) ? checkedAt : 0, Number.isFinite(recheckedAt) ? recheckedAt : 0);
+  const key = deploy ? `deploy ${deploy.id}` : null;
+  if (deploy && key && mark.recheckedFor !== key && deploy.at.getTime() > last && deploy.at.getTime() <= now.getTime()) {
+    return { do: 'recheck', key, attempt: attempts + 1 };
+  }
+  if (!text(mark.recheckedFor) && last > 0 && now.getTime() - last >= (input.delayMs ?? LIVE_RECHECK_DELAY_MS)) {
+    return { do: 'recheck', key: 'delay', attempt: attempts + 1 };
+  }
+  return { do: 'skip', why: 'no new deploy since the last check' };
 }
 
 /** What the live-check fire's end decides: done, once more with the reason, or written down. */

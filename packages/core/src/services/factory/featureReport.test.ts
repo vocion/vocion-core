@@ -1483,6 +1483,16 @@ describe('the release, read honestly', () => {
     expect(assembleFeatureReport(input()).status.secondary).toBeNull();
   });
 
+  it('a check that never looked reads "Couldn\'t check live yet" and asks the person only once Vocion\'s rechecks are spent (FE-419)', () => {
+    const mark = (attempts: number) => ({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'not_checked', line: 'Couldn\'t check live yet: the run wrote no report. Vocion will check again.', releaseId: 88, attempts, lastReason: 'the run wrote no report' } } } });
+    const healing = assembleFeatureReport(input(mark(1)));
+
+    expect(healing.release.seen).toMatchObject({ state: 'not_checked', attempts: 1, detail: 'the run wrote no report' });
+    expect(healing.release.sentence).toContain('Couldn\'t check live yet: the run wrote no report. Vocion will check again.');
+    expect(healing.status.secondary).toBeNull();
+    expect(assembleFeatureReport(input(mark(3))).status.secondary).toEqual({ kind: 'check_live', label: 'Check live again', releaseId: expect.any(Number) });
+  });
+
   it('is Release not verified — never Not released — when the change merged and nothing records a release', () => {
     expect(assembleFeatureReport(input({ releases: [] })).release).toMatchObject({ state: 'unverified', label: 'Release not verified' });
   });
