@@ -72,6 +72,8 @@ const StepSchema = z.object({
    * nobody reads it, so give it the next step's words.
    */
   follow: z.string().optional(),
+  /** Ask the conversation rail to be closed or open when the step opens — the booth at a tour's end wants the page to itself. */
+  rail: z.enum(['open', 'closed']).optional(),
   /** Autoplay: how long the step holds before moving on. Defaults from the body's length. */
   dwellMs: z.number().int().positive().optional(),
   /** Override the tour's `mask` for this step. */

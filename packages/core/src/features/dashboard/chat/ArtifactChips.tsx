@@ -83,6 +83,8 @@ export function ArtifactChips({ artifacts, follow = [], onOpen }: {
                     ? onOpen(a.id)
                     : openPreview({ type: 'artifact', id: String(a.id) }, ev.currentTarget))}
                   data-artifact-chip={a.id}
+                  // The page this chip stands for, for a tour that opens it straight there (WorkspaceTour follows data-href).
+                  data-href={`/dashboard/artifacts/${a.id}`}
                   className={CHIP}
                 >
                   <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
