@@ -361,6 +361,33 @@ describe('a line the feature never promised', () => {
   });
 });
 
+describe('a line QA\'s verdict left to the live check (FE-392)', () => {
+  it('is put in front of the check after the request\'s lines, from the attempt the release shipped, and a call that skips it is refused', async () => {
+    const org = `${ORG}_left_to_live`;
+    const { requestId, releaseId } = await seed(org);
+    const risk = 'The plan\'s risk is handled: a third badge must not push the menu off the title row on a phone.';
+    const [taskType] = await createObjectType({ slug: 'engineering_task', label: 'Task' }, org);
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: taskType!.id, title: 'attempt', status: 'active', metadata: {
+      requestId,
+      acceptanceContract: [ONE_LINE[0]!.statement, risk],
+      verdict: { value: 'approve', criteria: [{ criterion: ONE_LINE[0]!.statement, status: 'proven', evidence: 'Screenshot https://relay.example/a/1' }, { criterion: risk, status: 'live' }] },
+    } }).returning();
+    const release = await meta(releaseId);
+    await db.update(businessObjectSchema).set({ metadata: { ...release, taskIds: [task!.id] } }).where(eq(businessObjectSchema.id, releaseId));
+    access.environments = [];
+
+    const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'last opened', line: 1, path: '/' }]) }, { author });
+
+    expect(out.acceptance).toEqual([{ requestId, lines: [
+      { n: 1, text: ONE_LINE[0]!.statement, provenBeforeMerge: true },
+      { n: 2, text: risk, provenBeforeMerge: false, leftToLive: true },
+    ] }]);
+    expect(out.refused).toContain(`request #${requestId}: line 2 (The plan's risk is handled`);
+    expect(out.refused).toContain(`  2. ${risk} (QA left this to the live check)`);
+    expect((await meta(releaseId)).liveState).toBeUndefined();
+  });
+});
+
 describe('without a product to check', () => {
   it('says why on the release instead of passing', async () => {
     const org = `${ORG}_noenv`;

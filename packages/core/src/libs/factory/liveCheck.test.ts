@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { acceptanceLines, keptShots, LIVE_STEP_VERBS, liveAfterRun, LiveFlowSchema, liveReasonSentence, liveVerdict, orderedFlows, pickAnnouncementImage, readLiveReason, readReleaseLive, readRequestLive, resolveLines, shotStatus, stepReason, uncheckedRow } from './liveCheck';
+import { acceptanceLines, keptShots, lineResults, LIVE_STEP_VERBS, liveAfterRun, LiveFlowSchema, liveReasonSentence, liveVerdict, orderedFlows, pickAnnouncementImage, readLiveReason, readReleaseLive, readRequestLive, resolveLines, shotStatus, stepReason, uncheckedRow } from './liveCheck';
 
 const row = (status: 'reached' | 'not_reached', extra: Record<string, unknown> = {}) => ({ requestId: 41, flow: 'Last opened line', criterion: 'The line says when it was last opened.', viewport: 'desktop', artifactId: null, status, url: null, ...extra });
 
@@ -287,5 +287,54 @@ describe('expect_response', () => {
 
     expect(liveReasonSentence(why)).toBe('QA reached the page, but the API did not answer as promised: GET /v1/documents returned 500, not 200');
     expect(readLiveReason(JSON.parse(JSON.stringify(why)))?.step?.error).toBe('GET /v1/documents returned 500, not 200');
+  });
+});
+
+// FE-392 (2026-10-03), fictional: QA approved the acceptance lines and left one plan-risk line to the
+// live check (`live`); the live check was never shown it, saw "4 of 4", and the page read it Unverified.
+describe('a line QA\'s verdict left to the live check is one the check must account for', () => {
+  const RISK = 'The plan\'s risk is handled: a third badge must not push the menu off the title row on a phone.';
+  const OWN = ['The title shows a Shared badge when a link is live.', 'The badge opens the share panel.'];
+  const attempt = {
+    id: 77,
+    meta: {
+      requestId: 12,
+      acceptanceContract: [...OWN, RISK],
+      verdict: { value: 'approve', criteria: [...OWN.map(criterion => ({ criterion, status: 'proven', evidence: 'Screenshot https://kestrel.example/a/1' })), { criterion: RISK, status: 'live' }] },
+    },
+  };
+  const request = { acceptance: OWN.map(statement => ({ statement })) };
+  const lines = acceptanceLines(request, { tasks: [attempt], shippedTaskIds: [77] });
+
+  it('follows the acceptance lines, numbered on from them, marked as left to the live check', () => {
+    expect(lines).toEqual([
+      { n: 1, text: OWN[0], provenBeforeMerge: true },
+      { n: 2, text: OWN[1], provenBeforeMerge: true },
+      { n: 3, text: RISK, provenBeforeMerge: false, leftToLive: true },
+    ]);
+    // Without the shipped attempts, only the request's own lines, as before.
+    expect(acceptanceLines(request).map(l => l.n)).toEqual([1, 2]);
+  });
+
+  it('refuses a recording call that neither cites it nor names it not_observable, and lists it labelled', () => {
+    const out = resolveLines([check({ line: 1 }), check({ line: 2 })], [], new Map([[12, lines]]));
+
+    expect(out.ok).toBe(false);
+    expect(!out.ok && out.refusal).toContain('An acceptance line is neither cited by a check flow nor named in not_observable:\nrequest #12: line 3 (The plan\'s risk is handled');
+    expect(!out.ok && out.refusal).toContain(`  3. ${RISK} (QA left this to the live check)`);
+
+    const cited = resolveLines([check({ line: 1 }), check({ line: 2 }), check({ line: 3 })], [], new Map([[12, lines]]));
+
+    expect(cited.ok && cited.flows[2]).toMatchObject({ request_id: 12, line: 3, criterion: RISK });
+  });
+
+  it('keeps what the check saw of each line by its words, for the feature page', () => {
+    const row = (line: number, criterion: string, status: 'reached' | 'not_reached', viewport = 'desktop') => ({ requestId: 12, flow: `line ${line}`, line, criterion, viewport, artifactId: null, status, url: status === 'reached' ? 'https://kestrel.example/documents/9' : null, ...(status === 'not_reached' ? { reason: 'menu not visible' } : {}) });
+
+    expect(lineResults([row(1, OWN[0]!, 'reached'), row(3, RISK, 'reached'), row(3, RISK, 'not_reached', 'phone'), uncheckedRow(12, { n: 2, text: OWN[1]!, provenBeforeMerge: false }, true)])).toEqual([
+      { line: 1, text: OWN[0], result: 'reached', url: 'https://kestrel.example/documents/9', reason: null },
+      { line: 3, text: RISK, result: 'not_reached', url: 'https://kestrel.example/documents/9', reason: 'menu not visible' },
+      { line: 2, text: OWN[1], result: 'not_checked', url: null, reason: expect.stringContaining('cannot be seen on the live product') },
+    ]);
   });
 });

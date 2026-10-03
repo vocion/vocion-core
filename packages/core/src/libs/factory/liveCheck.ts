@@ -249,15 +249,38 @@ export type AcceptanceLine = {
   text: string;
   /** QA's pre-merge verdict proved it, with evidence (`featureProof`). */
   provenBeforeMerge: boolean;
+  /** QA's verdict left it to the live check (`live`): only the running product can show it. Present only when true. */
+  leftToLive?: true;
 };
+
+/** The words the line list puts on a line QA's verdict left to the live check. */
+export const LEFT_TO_LIVE = 'QA left this to the live check';
 
 /**
  * A request's acceptance lines, numbered, read the one way every surface reads them
- * (`libs/workspace/featureProof.ts`).
+ * (`libs/workspace/featureProof.ts`) — and, when the attempts the release shipped are given, every
+ * other line their verdict left to the live check (FE-392, 2026-10-03: a plan-risk line QA marked
+ * `live` was never put in front of the live check, so the feature page read it "Unverified" after a
+ * check that "saw 4 of 4"). Those follow the acceptance lines, numbered on from them, so the check
+ * must cite each or name it in not_observable like any other line.
  * @param meta - The request's metadata.
+ * @param shipped - The release's attempts at this request (`tasks`) and which of them it shipped.
+ * @param shipped.tasks - The attempts.
+ * @param shipped.shippedTaskIds - The ones the release carried.
  */
-export function acceptanceLines(meta: Record<string, unknown>): AcceptanceLine[] {
-  return featureProof({ request: { id: 0, meta }, tasks: [] }).acceptance.map((c, i) => ({ n: i + 1, text: c.statement, provenBeforeMerge: c.state === 'passed' }));
+export function acceptanceLines(meta: Record<string, unknown>, shipped: { tasks: Array<{ id: number; meta: Record<string, unknown> }>; shippedTaskIds?: Iterable<number> } = { tasks: [] }): AcceptanceLine[] {
+  const proof = featureProof({ request: { id: 0, meta }, tasks: shipped.tasks, shippedTaskIds: shipped.shippedTaskIds });
+  const line = (c: (typeof proof.acceptance)[number], n: number): AcceptanceLine => ({
+    n,
+    text: c.statement,
+    // A line the live check itself passed is not one QA proved before the merge.
+    provenBeforeMerge: c.state === 'passed' && c.from !== 'live',
+    ...(c.leftToLive ? { leftToLive: true as const } : {}),
+  });
+  const own = proof.acceptance.map((c, i) => line(c, i + 1));
+  const known = new Set(own.map(l => l.text));
+  const left = proof.risks.filter(c => c.leftToLive && !known.has(c.statement));
+  return [...own, ...left.map((c, i) => line(c, own.length + i + 1))];
 }
 
 /** A line QA says the live product cannot show: proven before merge, or not proven at all. */
@@ -282,7 +305,7 @@ export const PROVEN_BEFORE_MERGE = 'proven before merge by QA\'s verdict';
 export function linesList(requestId: number, lines: readonly AcceptanceLine[]): string {
   return lines.length === 0
     ? `request #${requestId} has no acceptance lines`
-    : `request #${requestId}'s acceptance lines:\n${lines.map(l => `  ${l.n}. ${l.text}${l.provenBeforeMerge ? ` (${PROVEN_BEFORE_MERGE})` : ''}`).join('\n')}`;
+    : `request #${requestId}'s acceptance lines:\n${lines.map(l => `  ${l.n}. ${l.text}${l.provenBeforeMerge ? ` (${PROVEN_BEFORE_MERGE})` : l.leftToLive ? ` (${LEFT_TO_LIVE})` : ''}`).join('\n')}`;
 }
 
 export type ResolvedLines
@@ -560,6 +583,35 @@ export function pickAnnouncementImage(rows: readonly LiveRow[]): number | null {
   return (candidates.find(r => r.viewport === 'desktop') ?? candidates[0])?.artifactId ?? null;
 }
 
+/** What the live check saw of one line, kept on the request's `liveCheck.lines`. */
+export type LiveLineMark = { line: number | null; text: string; result: 'reached' | 'not_reached' | 'not_checked'; url: string | null; reason: string | null };
+
+/**
+ * What the check saw of each line it accounted for, by the line's words: reached when every state
+ * of it was, not checked when nothing checked it on production, else not reached with the first
+ * reason. `featureProof` reads it for a line QA left to the live check.
+ * @param rows - One feature's check rows.
+ */
+export function lineResults(rows: readonly LiveRow[]): LiveLineMark[] {
+  const byText = new Map<string, LiveRow[]>();
+  for (const r of rows) {
+    if (r.criterion) {
+      byText.set(r.criterion, [...(byText.get(r.criterion) ?? []), r]);
+    }
+  }
+  return [...byText.entries()].map(([text, own]) => {
+    const miss = own.find(r => r.status !== 'reached');
+    const result = !miss ? 'reached' : own.every(r => r.why?.kind === 'not_checked') ? 'not_checked' : 'not_reached';
+    return {
+      line: own[0]!.line ?? null,
+      text: text.slice(0, 300),
+      result,
+      url: (own.find(r => r.status === 'reached' && r.url) ?? own.find(r => r.url))?.url ?? null,
+      reason: miss ? (miss.why?.detail ?? miss.reason ?? null)?.slice(0, 300) ?? null : null,
+    };
+  });
+}
+
 /** Where a feature stands on the live product, on its request (`liveCheck`). */
 export type RequestLiveMark = {
   state: LiveState;
@@ -573,6 +625,8 @@ export type RequestLiveMark = {
   why?: LiveReason | null;
   /** The lines production cannot show, and whether QA's verdict proved them before the merge. */
   beforeMerge?: BeforeMergeLine[];
+  /** What it saw of each line, by the line's words (`lineResults`). */
+  lines?: LiveLineMark[];
 };
 
 type Meta = Record<string, unknown>;

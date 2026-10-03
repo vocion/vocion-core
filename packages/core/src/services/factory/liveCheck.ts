@@ -28,7 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { acceptanceLines, keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, resolveLines, SETUP_PAGE_VAR, stepReason, uncheckedRow } from '@/libs/factory/liveCheck';
+import { acceptanceLines, keptShots, lineResults, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, resolveLines, SETUP_PAGE_VAR, stepReason, uncheckedRow } from '@/libs/factory/liveCheck';
 import { businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
@@ -270,11 +270,20 @@ export async function runLiveCheck(
   const onlyRequest = requestIds.length === 1 ? requestIds[0]! : null;
   // WHAT THE FEATURES PROMISED, from their records: a check flow cites one of these lines by its
   // number, and a line it cites that is not there is refused before anything runs.
+  // The attempts this release shipped bring the lines their verdict left to the live check (FE-392).
+  const shippedTaskIds = ids(release.meta.taskIds);
+  const shippedTasks: Array<{ id: number; meta: Meta }> = [];
+  for (const id of shippedTaskIds) {
+    const task = await readMeta(orgId, id);
+    if (task) {
+      shippedTasks.push({ id, meta: task.meta });
+    }
+  }
   const linesByRequest = new Map<number, AcceptanceLine[]>();
   for (const id of requestIds) {
     const request = await readMeta(orgId, id);
     if (request) {
-      linesByRequest.set(id, acceptanceLines(request.meta));
+      linesByRequest.set(id, acceptanceLines(request.meta, { tasks: shippedTasks.filter(t => Number(t.meta.requestId) === id), shippedTaskIds }));
       acceptance.push({ requestId: id, lines: linesByRequest.get(id)! });
     }
   }
@@ -571,6 +580,8 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
         flows: w.flows.filter(f => f.request_id === undefined || f.request_id === requestId),
         why: verdict.why,
         beforeMerge,
+        // What it saw of each line, by its words: how the feature page reads a line QA left to it.
+        lines: lineResults(own),
       },
       ...(shots.length > 0 ? { visuals: { ...visuals, afterArtifactIds: after } } : {}),
     });

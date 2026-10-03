@@ -2765,7 +2765,7 @@ export type ReportCriterion = {
   state: CriterionState;
   note: string | null;
   /** Where the state came from: the counted attempt's QA verdict, or a mark on the request. */
-  from: 'verdict' | 'request' | null;
+  from: 'verdict' | 'request' | 'live' | null;
 };
 
 export type ReportAcceptance = {

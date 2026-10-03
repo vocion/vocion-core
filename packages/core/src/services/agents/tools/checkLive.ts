@@ -87,6 +87,7 @@ export function checkLiveTools(ctx: RuntimeContext): StructuredToolInterface[] {
       name: 'check_live',
       description: 'Check a shipped release on the live product as the product\'s QA account (its stored sign-in; the password never leaves the server). '
         + 'Each check flow cites one acceptance line of the release\'s request by its number (line: n); the check writes the line\'s words from the record and refuses a number the request does not have, listing its lines. '
+        + 'After the acceptance lines come, numbered on, the lines QA\'s verdict left to the live check (marked leftToLive, "QA left this to the live check", often a plan risk): check them like any other line. '
         + 'Lines the live product cannot show go in not_observable and read as proven before merge when QA\'s verdict proved them; the live state counts only the lines production can show. '
         + 'Runs your setup flows (only when a line needs state made on production), your check flows (one per line, with a shoot, and expect_response for a line about an API), then your cleanup flows (remove what setup made; always run). '
         + 'Writes liveEvidence, liveSummary, liveState and the announcement image on the release, a live-screenshot per shot, and on each feature its '
