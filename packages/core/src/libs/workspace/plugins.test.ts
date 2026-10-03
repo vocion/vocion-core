@@ -297,7 +297,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@3.4.0');
+    expect(ws.sha).toContain('+software-factory@3.5.0');
     // A re-run of a red CI's failed jobs is done for you: it changes no code (backlog 049).
     expect(ws.trust?.rules.find(r => r.action === 'repo.rerun_failed_checks')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
     // The pipeline's owner opens its own fix, and it merges on green (plugin 2.33.0).
@@ -486,13 +486,13 @@ describe('loadWorkspace with the software factory', () => {
     expect(draft.do.prompt).toContain('do not propose release.announce');
 
     // Vocion checks the release on the live product (backlog 043): QA, on the
-    // same moment and on its one retry, ending in check_live; its end decides
+    // same moment and on its one retry, ending in record_live_check; its end decides
     // the retry or writes the reason, in code.
     const live = ws.automations.find(a => a.slug === 'release-live-check')!;
 
     expect(live).toMatchObject({ agent: 'change-reviewer', status: 'active' });
     expect(live.when).toEqual({ event: ['release.linked', 'release.live_check.requested'], filter: { userFacing: true } });
-    expect(live.do).toMatchObject({ checkMission: 'prove-the-contract', requireTool: 'check_live' });
+    expect(live.do).toMatchObject({ checkMission: 'prove-the-contract', requireTool: 'record_live_check' });
     expect(live.do.prompt).toContain('check-the-live-release');
 
     const ended = ws.automations.find(a => a.slug === 'release-live-check-ended')!;
@@ -502,7 +502,8 @@ describe('loadWorkspace with the software factory', () => {
 
     const qa = ws.agents.find(a => a.slug === 'change-reviewer')!;
 
-    expect(qa.harness?.grantTools).toEqual(expect.arrayContaining(['product_access', 'check_live']));
+    expect(qa.harness?.grantTools).toEqual(expect.arrayContaining(['product_access', 'browser', 'record_live_check']));
+    expect(qa.harness?.grantTools).not.toContain('check_live');
     expect(qa.skills).toContain('check-the-live-release');
 
     // The score and the decision still live on the request record.

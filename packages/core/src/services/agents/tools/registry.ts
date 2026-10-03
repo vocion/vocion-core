@@ -27,7 +27,6 @@ import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './bri
 import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
 import { chatTools } from './chatTools';
-import { checkLiveTools } from './checkLive';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -65,6 +64,7 @@ import {
   removeLearningTool,
   updateLearningTool,
 } from './learnings';
+import { liveBrowserTools } from './liveBrowser';
 import { lookupObjectsTool } from './lookupObjects';
 import { lookupPersonTools } from './lookupPerson';
 import { updateMissionNotesTool } from './missionNotes';
@@ -75,6 +75,7 @@ import { productAccessTools } from './productAccess';
 import { proposeActionTool } from './proposeAction';
 import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
+import { recordLiveCheckTools } from './recordLiveCheck';
 import { recordVerdictTools } from './recordVerdict';
 import { renderArtifactTools } from './renderArtifacts';
 import { repoTools } from './repoTools';
@@ -198,9 +199,11 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Granted-only: a product's production URLs and QA sign-in (never the
     // password, which only the worker reads, over the API).
     ...productAccessTools(ctx),
-    // Granted-only: a shipped release checked on the live product as the QA
-    // account, and what QA saw written on the release and its features.
-    ...checkLiveTools(ctx),
+    // Granted-only: a shipped release looked at on the live product as the QA
+    // account (the browser tools), and what QA saw, line by line with its
+    // evidence, written on the release and its features (record_live_check).
+    ...liveBrowserTools(ctx),
+    ...recordLiveCheckTools(ctx),
     // Granted-only: production errors from the workspace's Sentry — issues by
     // project, environment, release and time, and one issue's latest event
     // (sentry_issues, sentry_issue).

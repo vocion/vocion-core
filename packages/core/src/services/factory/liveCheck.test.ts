@@ -1,14 +1,15 @@
 import type { Buffer } from 'node:buffer';
 import type { Server } from 'node:http';
 import type { Browser } from 'playwright';
+import type { BrowserEvidence } from './liveBrowser';
 import type { EnvironmentAccess } from './productAccess';
 import { createServer } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { LiveFlowSchema } from '@/libs/factory/liveCheck';
+import { RecordedLineSchema } from '@/libs/factory/liveCheck';
 
 vi.mock('@/libs/DB');
 
-// The product's production access, as the vault would reveal it to the check
+// The product's production access, as the vault would reveal it to the browser
 // (and never to the agent): set per test.
 const access: { environments: EnvironmentAccess[] } = { environments: [] };
 vi.mock('@/services/factory/productAccess', () => ({
@@ -19,18 +20,19 @@ const { db } = await import('@/libs/DB');
 const { artifactSchema, automationRunSchema, businessObjectSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
-const { allowedOrigins, environmentFor, liveCheckEnded, runLiveCheck } = await import('./liveCheck');
+const { allowedOrigins, environmentFor, liveCheckEnded, recordLiveCheck } = await import('./liveCheck');
+const browserSvc = await import('./liveBrowser');
 
 const ORG = 'org_live_check';
-const flows = (raw: unknown[]) => raw.map(f => LiveFlowSchema.parse(f));
 const author = { kind: 'agent' as const, id: 'agent:change-reviewer' };
+const lines = (raw: unknown[]) => raw.map(l => RecordedLineSchema.parse(l));
 
-const ONE_LINE = [{ statement: 'Under the title, a line says when the document was last opened.' }];
+const ONE_LINE = [{ statement: 'A blank name is not saved.' }];
 
 async function seed(orgId: string, acceptance: unknown[] = ONE_LINE) {
   const [reqType] = await createObjectType({ slug: 'request', label: 'Request' }, orgId);
   const [relType] = await createObjectType({ slug: 'release', label: 'Release' }, orgId);
-  const [request] = await db.insert(businessObjectSchema).values({ orgId, typeId: reqType!.id, title: 'Show when a document was last opened', status: 'active', metadata: { state: 'shipped', acceptance } }).returning();
+  const [request] = await db.insert(businessObjectSchema).values({ orgId, typeId: reqType!.id, title: 'Rename a document', status: 'active', metadata: { state: 'shipped', acceptance } }).returning();
   const [release] = await db.insert(businessObjectSchema).values({ orgId, typeId: relType!.id, title: 'relay 930a23f', status: 'active', metadata: { product: 'relay', releasedAt: '2026-10-01T09:00:00Z', requestIds: [request!.id], taskIds: [] } }).returning();
   return { requestId: request!.id, releaseId: release!.id };
 }
@@ -40,13 +42,15 @@ async function meta(id: number) {
   return (r?.meta ?? {}) as Record<string, any>;
 }
 
-describe('where a flow runs, and where it may go', () => {
+const shotEvidence = (artifactId: number, extra: Partial<BrowserEvidence> = {}): BrowserEvidence => ({ id: `shot-${artifactId}`, kind: 'screenshot', at: '2026-10-03T09:00:00Z', artifactId, url: `/api/artifacts/files/live-${artifactId}.png`, pageUrl: 'https://app.relay.example/documents/d1/rename', caption: 'Save is disabled while the name is blank', viewport: 'desktop', signedIn: true, ...extra } as BrowserEvidence);
+
+describe('where the browser opens, and where it may go', () => {
   const envs: EnvironmentAccess[] = [
     { slug: 'relay-marketing-production', surface: 'marketing', url: 'https://relay.example', login: null, liveSetup: null },
     { slug: 'relay-web-production', surface: 'web', url: 'https://app.relay.example', login: { signInUrl: 'https://auth.relay.example/sign-in', email: 'qa@relay.example', stored: true }, liveSetup: null },
   ];
 
-  it('runs on the surface a flow names, else where the QA sign-in is', () => {
+  it('opens on the surface named, else where the QA sign-in is', () => {
     expect(environmentFor({ surface: 'marketing' }, envs)?.slug).toBe('relay-marketing-production');
     expect(environmentFor({}, envs)?.slug).toBe('relay-web-production');
     expect(environmentFor({ surface: 'api' }, envs)).toBeNull();
@@ -57,7 +61,132 @@ describe('where a flow runs, and where it may go', () => {
   });
 });
 
-describe('the live check, end to end in a real browser against a fictional product', async () => {
+describe('record_live_check, against what this run captured', () => {
+  it('writes the release and the feature in the shape every reader reads, each line with its evidence', async () => {
+    const org = `${ORG}_record`;
+    const API = [{ statement: 'A blank name is not saved.' }, { statement: 'CI builds the image without exit 132.', met: true, evidence: 'Named test passed: https://ci.example/run/7' }, { statement: 'GET /api/docs returns 200 signed in.' }];
+    const { requestId, releaseId } = await seed(org, API);
+    const session = new Map<string, BrowserEvidence>([
+      ['shot-501', shotEvidence(501)],
+      ['snap-2', { id: 'snap-2', kind: 'snapshot', at: '2026-10-03T09:00:00Z', url: 'https://app.relay.example/documents/d1/rename', title: 'Rename', viewport: 'desktop', signedIn: true }],
+      ['resp-3', { id: 'resp-3', kind: 'response', at: '2026-10-03T09:00:01Z', method: 'GET', url: 'https://app.relay.example/api/docs?x=1', status: 200, signedIn: true }],
+    ]);
+
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([
+      { line: 1, result: 'seen', evidence: ['snap-2', 'shot-501'], why: 'With the name blank, Save is disabled, so a blank name cannot be saved.' },
+      { line: 2, result: 'not_observable', why: 'a CI run' },
+      { line: 3, result: 'seen', evidence: ['resp-3'], why: 'The library called GET /api/docs and got 200.' },
+    ]) }, { session, missionRunId: 9 }, new Date('2026-10-03T09:05:00Z'));
+
+    expect(out.refused).toBeUndefined();
+    expect(out.verdict).toMatchObject({ state: 'seen', line: 'Seen live: 2 of 2 states reached (GET /api/docs?x=1 returned 200 signed in). 1 more line proven before merge by QA\'s verdict' });
+
+    const rel = await meta(releaseId);
+
+    expect(rel).toMatchObject({ liveState: 'seen', liveSummary: out.verdict.line, liveAttempts: 1, liveProblems: [], liveCheckedAt: '2026-10-03T09:05:00.000Z', announcementImageArtifactId: 501 });
+    expect(rel.liveEvidence[0]).toEqual({ requestId, flow: 'line 1', line: 1, criterion: 'A blank name is not saved.', viewport: 'desktop', artifactId: 501, status: 'reached', url: 'https://app.relay.example/documents/d1/rename', label: 'Save is disabled while the name is blank', evidence: ['snap-2', 'shot-501'] });
+    expect(rel.liveEvidence[1]).toMatchObject({ line: 3, status: 'reached', proved: ['GET /api/docs?x=1 returned 200 signed in'], artifactId: null });
+    expect(rel.liveBeforeMerge).toEqual([{ requestId, line: 2, text: 'CI builds the image without exit 132.', why: 'a CI run', proven: true }]);
+
+    const req = await meta(requestId);
+
+    expect(req.liveCheck).toMatchObject({ state: 'seen', releaseId, attempt: 1, beforeMerge: [{ line: 2, proven: true }] });
+    expect(req.liveCheck.flows).toBeUndefined();
+    expect(req.liveCheck.lines).toEqual([
+      { line: 1, text: 'A blank name is not saved.', result: 'reached', url: 'https://app.relay.example/documents/d1/rename', reason: null },
+      { line: 3, text: 'GET /api/docs returns 200 signed in.', result: 'reached', url: null, reason: null },
+    ]);
+    expect(req.visuals.afterArtifactIds).toEqual([501]);
+  });
+
+  it('a line looked for and not seen reads in QA\'s words, and the feature says so', async () => {
+    const org = `${ORG}_not_seen`;
+    const { requestId, releaseId } = await seed(org);
+    const session = new Map<string, BrowserEvidence>([['shot-7', shotEvidence(7, { caption: 'The blank name was saved' })]]);
+
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'not_seen', evidence: ['shot-7'], why: 'Save stayed enabled with a blank name, and the blank name was saved.' }]) }, { session });
+
+    expect(out.verdict.line).toBe('Not seen live: QA looked on the live product and did not see it: Save stayed enabled with a blank name, and the blank name was saved');
+    expect((await meta(releaseId)).liveWhy).toEqual({ kind: 'not_seen', detail: 'Save stayed enabled with a blank name, and the blank name was saved.' });
+    expect((await meta(requestId)).liveCheck.lines).toEqual([{ line: 1, text: 'A blank name is not saved.', result: 'not_reached', url: 'https://app.relay.example/documents/d1/rename', reason: 'Save stayed enabled with a blank name, and the blank name was saved.' }]);
+  });
+
+  it('refuses evidence this run did not capture, naming it and what the run did capture, and writes nothing', async () => {
+    const org = `${ORG}_foreign_evidence`;
+    const { releaseId } = await seed(org);
+    const session = new Map<string, BrowserEvidence>([['snap-1', { id: 'snap-1', kind: 'snapshot', at: 'x', url: 'https://app.relay.example/', title: 'Library', viewport: 'desktop', signedIn: true }]]);
+
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: ['snap-1', 'shot-999'], why: 'Save is disabled.' }]) }, { session, missionRunId: 9 });
+
+    expect(out.refused).toContain('An evidence id was not captured by this run\'s browser: shot-999.');
+    expect(out.refused).toContain('This run captured: snap-1 (https://app.relay.example/)');
+    expect((await meta(releaseId)).liveState).toBeUndefined();
+  });
+
+  it('accepts a screenshot this run filed on the release once the session is gone, and refuses one another run filed', async () => {
+    const org = `${ORG}_stored_shot`;
+    const { releaseId } = await seed(org);
+    const file = (missionRunId: number) => db.insert(artifactSchema).values({ orgId: org, kind: 'file', title: 'Save disabled · desktop · live', spec: { url: '/api/artifacts/files/a.png', caption: 'Save is disabled', capturedFrom: 'https://app.relay.example/r', provenance: { liveCheck: true, releaseId, missionRunId, viewport: 'desktop', signedIn: true } }, recordType: 'object', recordId: String(releaseId), recordRole: 'live-screenshot' } as never).returning();
+    const [mine] = await file(41);
+    const [theirs] = await file(40);
+
+    const refused = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: [`shot-${theirs!.id}`], why: 'Save is disabled.' }]) }, { session: new Map(), missionRunId: 41 });
+
+    expect(refused.refused).toContain(`shot-${theirs!.id}`);
+
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: [`shot-${mine!.id}`], why: 'Save is disabled.' }]) }, { session: new Map(), missionRunId: 41 });
+
+    expect(out.verdict.state).toBe('seen');
+    expect((await meta(releaseId)).liveEvidence[0]).toMatchObject({ artifactId: mine!.id, url: 'https://app.relay.example/r', label: 'Save is disabled' });
+  });
+
+  it('refuses a recording that leaves a line out, listing it, and writes nothing', async () => {
+    const org = `${ORG}_missing`;
+    const { requestId, releaseId } = await seed(org, [{ statement: 'A blank name is not saved.' }, { statement: 'A saved name shows in the title.' }]);
+
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: ['shot-1'], why: 'x' }]) }, { session: new Map([['shot-1', shotEvidence(1)]]) });
+
+    expect(out.refused).toContain(`An acceptance line is not recorded:\nrequest #${requestId}: line 2 (A saved name shows in the title.)`);
+    expect((await meta(releaseId)).liveState).toBeUndefined();
+    expect((await meta(releaseId)).liveAttempts).toBeUndefined();
+  });
+
+  it('puts a line QA\'s verdict left to the live check in front of the recording, after the request\'s lines (FE-392)', async () => {
+    const org = `${ORG}_left_to_live`;
+    const { requestId, releaseId } = await seed(org);
+    const risk = 'The plan\'s risk is handled: a long name must not push the menu off the title row on a phone.';
+    const [taskType] = await createObjectType({ slug: 'engineering_task', label: 'Task' }, org);
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: taskType!.id, title: 'attempt', status: 'active', metadata: {
+      requestId,
+      acceptanceContract: [ONE_LINE[0]!.statement, risk],
+      verdict: { value: 'approve', criteria: [{ criterion: ONE_LINE[0]!.statement, status: 'proven', evidence: 'Screenshot https://relay.example/a/1' }, { criterion: risk, status: 'live' }] },
+    } }).returning();
+    const release = await meta(releaseId);
+    await db.update(businessObjectSchema).set({ metadata: { ...release, taskIds: [task!.id] } }).where(eq(businessObjectSchema.id, releaseId));
+
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: ['shot-1'], why: 'x' }]) }, { session: new Map([['shot-1', shotEvidence(1)]]) });
+
+    expect(out.acceptance).toEqual([{ requestId, lines: [
+      { n: 1, text: ONE_LINE[0]!.statement, provenBeforeMerge: true },
+      { n: 2, text: risk, provenBeforeMerge: false, leftToLive: true },
+    ] }]);
+    expect(out.refused).toContain(`request #${requestId}: line 2 (The plan's risk is handled`);
+    expect(out.refused).toContain(`  2. ${risk} (QA left this to the live check)`);
+  });
+
+  it('says why when the release names no product', async () => {
+    const org = `${ORG}_noproduct`;
+    const { releaseId } = await seed(org);
+    const release = await meta(releaseId);
+    await db.update(businessObjectSchema).set({ metadata: { ...release, product: null } }).where(eq(businessObjectSchema.id, releaseId));
+
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'not_observable', why: 'x' }]) }, { session: new Map() });
+
+    expect(out.refused).toBe(`release #${releaseId} names no product, so there is no live product to check`);
+  });
+});
+
+describe('the browser tools, in a real browser against a fictional product', async () => {
   let chromium: typeof import('playwright').chromium | null = null;
   try {
     const pw = await import('playwright');
@@ -68,10 +197,9 @@ describe('the live check, end to end in a real browser against a fictional produ
     chromium = null;
   }
 
-  // A product with a sign-in page, an upload, a document page whose line
-  // says when it was last opened, a share link a visitor opens, and a delete
-  // that asks first. The QA account starts with nothing, as on production.
-  const docs = new Map<string, { views: number }>();
+  // A product with a sign-in page, a rename page whose Save is disabled while
+  // the name is blank (FE-402 line 6, fictional), a library that loads its list
+  // from an API, and a link to a site that is not the product's.
   const sessions = new Set<string>();
   let server: Server;
   let base = '';
@@ -85,7 +213,7 @@ describe('the live check, end to end in a real browser against a fictional produ
       const signedIn = sessions.has(/sid=(\w+)/.exec(req.headers.cookie ?? '')?.[1] ?? '');
       const url = new URL(req.url ?? '/', 'http://x');
       res.setHeader('content-type', 'text/html');
-      const send = (html: string) => res.end(`<!doctype html><body style="font:16px sans-serif">${html}</body>`);
+      const send = (html: string) => res.end(`<!doctype html><title>Relay</title><body style="font:16px sans-serif">${html}</body>`);
       if (url.pathname === '/sign-in' && req.method === 'POST') {
         let body = '';
         req.on('data', (c) => {
@@ -105,50 +233,21 @@ describe('the live check, end to end in a real browser against a fictional produ
       if (url.pathname === '/sign-in') {
         return send('<form method="post"><label>Email <input name="email"></label><label>Password <input name="password" type="password"></label><button type="submit">Sign in</button></form>');
       }
-      if (url.pathname.startsWith('/s/')) {
-        const doc = docs.get(url.pathname.slice(3));
-        if (doc && !signedIn) {
-          doc.views += 1;
-        }
-        return send(doc ? '<p>Page 1 of 1</p>' : '<p>This link does not exist.</p>');
-      }
       if (!signedIn) {
         res.writeHead(302, { location: '/sign-in' });
         return res.end();
       }
-      if (url.pathname === '/new') {
-        return send(`<label>Title <input id="t"></label><input type="file" onchange="fetch('/api/upload',{method:'POST'}).then(r=>r.text()).then(id=>location.href='/documents/'+id)">`);
+      if (url.pathname === '/rename') {
+        return send(`<h1>Rename document</h1><label>Name <input id="n" oninput="document.getElementById('s').disabled=!this.value.trim()"></label><button id="s" disabled onclick="document.getElementById('m').textContent='Saved as '+document.getElementById('n').value">Save</button><p id="m"></p><a href="https://elsewhere.example/help">Help centre</a>`);
       }
-      if (url.pathname === '/new-broken') {
-        return send('<input type="file"><p>Something went wrong on our end. Try again in a moment.</p>');
-      }
-      // A page that loads its list from the API, and the API: 200 signed in, 500 when it is broken.
       if (url.pathname === '/library') {
-        return send(`<ul id="l"></ul><script>fetch('/api/docs'+location.search).then(r=>r.ok?r.json():[]).then(d=>{document.getElementById('l').innerHTML=d.length?'<li>'+d.length+' documents</li>':'<li>Could not load</li>'})</script>`);
+        return send(`<ul id="l"></ul><script>fetch('/api/docs').then(r=>r.json()).then(d=>{document.getElementById('l').innerHTML='<li>'+d.length+' documents</li>'})</script>`);
       }
       if (url.pathname === '/api/docs') {
-        res.statusCode = url.searchParams.has('broken') ? 500 : 200;
         res.setHeader('content-type', 'application/json');
-        return res.end(res.statusCode === 200 ? '[{"title":"Q3 board deck"}]' : '{"error":"engine"}');
+        return res.end('[{"title":"Q3 board deck"}]');
       }
-      if (url.pathname === '/api/upload') {
-        const id = `d${docs.size + 1}`;
-        docs.set(id, { views: 0 });
-        return res.end(id);
-      }
-      if (url.pathname.startsWith('/documents/')) {
-        const id = url.pathname.split('/')[2]!;
-        const doc = docs.get(id);
-        if (url.searchParams.has('delete')) {
-          docs.delete(id);
-          res.writeHead(302, { location: '/' });
-          return res.end();
-        }
-        return send(doc
-          ? `<h1>Q3 board deck</h1><p>${doc.views ? 'Last opened just now' : 'Not opened yet'}</p><a href="/s/${id}">Open as a viewer</a><button onclick="if(confirm('Delete?'))location.href='?delete=1'">Delete document</button>`
-          : '<p>This document does not exist.</p>');
-      }
-      return send(`<p>${docs.size ? `${docs.size} documents` : 'Nothing here yet'}</p>`);
+      return send('<p>Nothing here yet</p>');
     });
     await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()));
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -160,244 +259,131 @@ describe('the live check, end to end in a real browser against a fictional produ
     server?.close();
   });
 
-  const theFlows = () => flows([
-    { name: 'upload a document', phase: 'setup', path: '/new', steps: [
-      { fill: { selector: '#t', value: 'Vocion live check' } },
-      { upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'vocion-live-check.pdf' } },
-      { wait_for: 'Not opened yet' },
-      { remember: { name: 'documentUrl' } },
-      { remember: { name: 'shareUrl', from: 'href', selector: 'Open as a viewer' } },
-    ] },
-    { name: 'open it once as a visitor', phase: 'setup', signed_in: false, path: '{{shareUrl}}', steps: [{ wait_for: 'Page 1 of 1' }, { pause: 0 }] },
-    { name: 'Last opened line', phase: 'check', line: 1, path: '{{documentUrl}}', steps: [{ wait_for: 'Last opened' }, { shoot: 'Last opened line under the title' }] },
-    { name: 'delete it', phase: 'cleanup', path: '{{documentUrl}}', steps: [{ click: 'Delete document' }, { wait_for: 'Nothing here yet' }] },
-  ]);
   const deps = () => ({
     browser: async () => browser!,
     store: async (_org: string, png: Buffer) => ({ url: `/api/artifacts/files/live-${png.length}.png`, filename: `live-${png.length}.png`, bytes: png.length, contentType: 'image/png' }),
   });
+  const env = (password: string): EnvironmentAccess[] => [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password, stored: true }, liveSetup: null }];
+  const refOf = (snapshot: string | undefined, line: RegExp) => line.exec(snapshot ?? '')?.[1] ?? '';
 
-  it('a check opens the page setup ended on as {{setupPage}} (run 3, 2026-10-01)', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_setup_page`;
-    const { releaseId } = await seed(org);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
-
-    const out = await runLiveCheck(org, { releaseId, flows: flows([
-      { name: 'upload a document', phase: 'setup', path: '/new', steps: [{ upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'vocion-live-check.pdf' } }, { wait_for: 'Not opened yet' }] },
-      { name: 'Not opened line', phase: 'check', line: 1, path: '{{setupPage}}', steps: [{ wait_for: 'Not opened yet' }, { shoot: 'The line under the title' }] },
-      { name: 'delete it', phase: 'cleanup', path: '{{setupPage}}', steps: [{ click: 'Delete document' }, { wait_for: 'Nothing here yet' }] },
-    ]) }, { author }, deps());
-
-    expect(out.verdict).toMatchObject({ state: 'seen' });
-    expect(out.runs.find(r => r.phase === 'check')!.shots[0]!.at).toMatch(/^\/documents\/d\d+$/);
-    expect(docs.size).toBe(0);
-  });
-
-  it('a setup whose upload failed does not remember the upload page as the record, and no check runs on it (run 3)', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_setup_stuck`;
-    const { releaseId } = await seed(org);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
-
-    const out = await runLiveCheck(org, { releaseId, flows: flows([
-      { name: 'upload a document', phase: 'setup', path: '/new-broken', steps: [{ upload: { selector: 'input[type=file]', megabytes: 0.001, name: 'vocion-live-check.pdf' } }, { pause: 1 }, { remember: { name: 'recordUrl' } }] },
-      { name: 'Last opened line', phase: 'check', line: 1, path: '{{recordUrl}}', steps: [{ wait_for: 'Last opened' }, { shoot: 'Last opened line' }] },
-    ]) }, { author }, deps());
-
-    expect(out.verdict.state).toBe('not_seen');
-    expect(out.runs[0]).toMatchObject({ phase: 'setup', ok: false });
-    expect(out.runs[0]!.failure).toMatch(/the page never left \/new-broken, where this flow started/);
-    // The check never opened the upload page as if it were the record.
-    expect(out.runs[1]!.shots).toEqual([]);
-  });
-
-  it('prepares its own state as the QA account, sees the change, cleans up, and writes it on the release and the feature', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_e2e`;
+  it('sees a disabled Save as disabled, clicks it and hears "disabled" at once, screenshots it, and records the line seen (FE-402 line 6)', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_browser`;
     const { requestId, releaseId } = await seed(org);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
+    access.environments = env('fictional-secret');
+    const key = browserSvc.browserSessionKey({ orgId: org, missionRunId: 501 });
 
-    const out = await runLiveCheck(org, { releaseId, flows: theFlows() }, { author }, deps());
+    const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/rename' }, deps());
+
+    expect(opened.ok).toBe(true);
+    expect(opened.snapshot).toMatch(/button "Save" \[disabled\] \[ref=e\d+\]/);
+    expect(opened.snapshot).toContain(`URL: ${base}/rename`);
+    expect(opened.acceptance).toEqual([{ requestId, lines: [{ n: 1, text: 'A blank name is not saved.', provenBeforeMerge: false }] }]);
+    // The password reached the browser and nothing else.
+    expect(JSON.stringify(opened)).not.toContain('fictional-secret');
+
+    const save = refOf(opened.snapshot, /button "Save" \[disabled\] \[ref=(e\d+)\]/);
+    const started = Date.now();
+    const clicked = await browserSvc.browserClick(key, save, deps());
+
+    expect(clicked).toMatchObject({ ok: false, result: expect.stringMatching(/^disabled/) });
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(clicked.id).toMatch(/^act-\d+$/);
+
+    const shot = await browserSvc.browserScreenshot(key, 'Save is disabled while the name is blank', { author, provenance: { agentSlug: 'change-reviewer', missionRunId: 501 } }, deps());
+
+    expect(shot).toMatchObject({ ok: true, id: expect.stringMatching(/^shot-\d+$/), url: expect.stringMatching(/^\/api\/artifacts\/files\/live-\d+\.png$/) });
+
+    const [row] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, org), eq(artifactSchema.id, Number(shot.id!.slice(5)))));
+
+    expect(row).toMatchObject({ recordType: 'object', recordId: String(releaseId), recordRole: 'live-screenshot', kind: 'file' });
+
+    // Typing a name enables Save, and the click goes through.
+    const name = refOf(clicked.snapshot, /textbox "Name" \[ref=(e\d+)\]/);
+    const typed = await browserSvc.browserType(key, { ref: name, text: 'Q3 board deck' }, deps());
+
+    expect(typed.snapshot).toMatch(/button "Save" \[ref=e\d+\]/);
+
+    const saved = await browserSvc.browserClick(key, refOf(typed.snapshot, /button "Save" \[ref=(e\d+)\]/), deps());
+
+    expect(saved).toMatchObject({ ok: true, result: 'clicked' });
+    expect(saved.snapshot).toContain('Saved as Q3 board deck');
+
+    const session = browserSvc.browserSessionEvidence(key);
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: [opened.snapshotId!, clicked.id!, shot.id!], why: 'With the name blank, Save is disabled and a click does nothing.' }]) }, { session: session.evidence, problems: session.problems, missionRunId: 501 });
 
     expect(out.verdict).toMatchObject({ state: 'seen', line: 'Seen live: 1 of 1 state reached' });
-    expect(out.problems).toEqual([]);
-    expect(out.runs.map(r => [r.phase, r.flow, r.ok])).toEqual([['setup', 'upload a document', true], ['setup', 'open it once as a visitor', true], ['check', 'Last opened line', true], ['cleanup', 'delete it', true]]);
-    // Cleaned up: nothing the check made is left on the product.
-    expect(docs.size).toBe(0);
-    // The password reached the browser and nothing else.
-    expect(JSON.stringify(out)).not.toContain('fictional-secret');
+    expect((await meta(releaseId)).announcementImageArtifactId).toBe(Number(shot.id!.slice(5)));
+    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'seen', lines: [{ line: 1, result: 'reached', url: `${base}/rename` }] });
 
-    const rel = await meta(releaseId);
+    await browserSvc.closeBrowserSession(key);
 
-    expect(rel).toMatchObject({ liveState: 'seen', liveSummary: 'Seen live: 1 of 1 state reached', liveAttempts: 1, liveProblems: [] });
-    expect(rel.liveEvidence).toHaveLength(1);
-
-    const shotId = rel.liveEvidence[0].artifactId as number;
-
-    expect(rel.announcementImageArtifactId).toBe(shotId);
-
-    const [shot] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, org), eq(artifactSchema.id, shotId)));
-
-    expect(shot).toMatchObject({ recordType: 'object', recordId: String(releaseId), recordRole: 'live-screenshot', kind: 'file' });
-    expect((shot!.spec as Record<string, unknown>).caption).toBe('Under the title, a line says when the document was last opened.');
-
-    const req = await meta(requestId);
-
-    expect(req.liveCheck).toMatchObject({ state: 'seen', releaseId, attempt: 1 });
-    expect(req.liveCheck.flows).toHaveLength(4);
-    expect(req.visuals.afterArtifactIds).toEqual([shotId]);
+    expect(await browserSvc.browserSnapshot(key, deps())).toMatchObject({ ok: false, refused: expect.stringMatching(/^Refused: no page is open/) });
   });
 
-  it('says it could not reach the change when setup cannot sign in, writes nothing as seen, and still never leaks the password', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_badlogin`;
+  it('refuses an address that is not the product\'s, and a page that tries to go there is stopped and says so', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_browser_origin`;
+    const { releaseId } = await seed(org);
+    access.environments = env('fictional-secret');
+    const key = browserSvc.browserSessionKey({ orgId: org, missionRunId: 502 });
+
+    const foreign = await browserSvc.browserOpen(key, org, { releaseId, target: 'http://169.254.169.254/latest/meta-data' }, deps());
+
+    expect(foreign).toMatchObject({ ok: false, refused: expect.stringContaining('is not one of the product\'s own addresses') });
+    expect(foreign.id).toMatch(/^act-\d+$/);
+
+    const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/rename' }, deps());
+    const help = await browserSvc.browserClick(key, refOf(opened.snapshot, /link "Help centre" \[ref=(e\d+)\]/), deps());
+
+    expect(help.url).toBe(`${base}/rename`);
+    expect(help.result).toContain('https://elsewhere.example/help, which is not one of the product\'s own addresses; it was not opened');
+    // One run checks one release.
+    expect(await browserSvc.browserOpen(key, org, { releaseId: releaseId + 1000, target: '/' }, deps())).toMatchObject({ ok: false, refused: expect.stringContaining('one run checks one release') });
+
+    await browserSvc.closeBrowserSession(key);
+  });
+
+  it('lists the responses a page received, each with an id a line about an API cites', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_browser_api`;
+    const { releaseId } = await seed(org, [{ statement: 'GET /api/docs returns 200 signed in.' }]);
+    access.environments = env('fictional-secret');
+    const key = browserSvc.browserSessionKey({ orgId: org, missionRunId: 503 });
+
+    const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/library' }, deps());
+
+    expect(opened.snapshot).toContain('1 documents');
+
+    const { responses } = browserSvc.browserResponses(key, '/api/docs');
+
+    expect(responses).toEqual([{ id: expect.stringMatching(/^resp-\d+$/), method: 'GET', url: `${base}/api/docs`, status: 200, signedIn: true }]);
+
+    const session = browserSvc.browserSessionEvidence(key);
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: [responses[0]!.id], why: 'The library called it and got 200.' }]) }, { session: session.evidence, missionRunId: 503 });
+
+    expect(out.verdict.line).toBe('Seen live: 1 of 1 state reached (GET /api/docs returned 200 signed in)');
+
+    await browserSvc.closeBrowserSession(key);
+  });
+
+  it('a failed sign-in is refused with its reason, and a line recorded not seen leads with it, never leaking the password', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_browser_badlogin`;
     const { requestId, releaseId } = await seed(org);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'not-the-password', stored: true }, liveSetup: null }];
+    access.environments = env('not-the-password');
+    const key = browserSvc.browserSessionKey({ orgId: org, missionRunId: 504 });
 
-    const out = await runLiveCheck(org, { releaseId, flows: theFlows() }, { author }, deps());
+    const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/rename' }, deps());
 
-    expect(out.verdict.state).toBe('not_seen');
-    // Said in a sentence from the reason's kind; the check's own words are the detail, one click away.
+    expect(opened).toMatchObject({ ok: false, refused: expect.stringContaining('signing in to relay-web-production as the QA account failed: still on the sign-in page after submitting ("Wrong email or password")') });
+    expect(JSON.stringify(opened)).not.toContain('not-the-password');
+
+    const session = browserSvc.browserSessionEvidence(key);
+    const out = await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'not_seen', evidence: [opened.id!], why: 'QA could not sign in, so the rename page was never seen.' }]) }, { session: session.evidence, problems: session.problems, missionRunId: 504 });
+
     expect(out.verdict.line).toBe('Not seen live: QA could not sign in to the live product as its QA account');
-    expect(out.verdict.why).toMatchObject({ kind: 'sign_in_failed', flow: 'upload a document' });
-    expect(out.verdict.reason).toMatch(/^setup "upload a document" \(desktop\) did not finish: signing in to relay-web-production as the QA account failed: still on the sign-in page after submitting \("Wrong email or password"\)/);
     expect((await meta(releaseId)).liveWhy).toMatchObject({ kind: 'sign_in_failed' });
-    expect(JSON.stringify(out)).not.toContain('not-the-password');
-    expect((await meta(releaseId)).liveState).toBe('not_seen');
     expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_seen' });
-  });
+    expect(JSON.stringify(await meta(releaseId))).not.toContain('not-the-password');
 
-  // WALK 10 (2026-10-02, release #386), fictional: every signed-in flow reached its page and the
-  // release still read "QA could not sign in to the live product as its QA account". The flow that
-  // missed ran signed out on a page behind sign-in; it never tried to sign in.
-  const TWO_LINES = [{ statement: 'The library lists each document with its page count.' }, { statement: 'A visitor sees the document.' }];
-
-  it('a visitor flow on a signed-in page says it ran signed out, not that sign-in failed, while the signed-in flows reach theirs', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_visitor_bounce`;
-    const { releaseId } = await seed(org, TWO_LINES);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
-
-    const out = await runLiveCheck(org, { releaseId, flows: flows([
-      { name: 'library', phase: 'check', line: 1, path: '/', viewports: ['desktop', 'phone'], steps: [{ wait_for: 'body' }, { shoot: 'The library' }] },
-      { name: 'visitor view', phase: 'check', line: 2, signed_in: false, path: '/', steps: [{ shoot: 'What a visitor sees' }] },
-    ]) }, { author }, deps());
-
-    expect(out.runs.map(r => [r.flow, r.viewport, r.shots[0]?.status])).toEqual([['library', 'desktop', 'reached'], ['library', 'phone', 'reached'], ['visitor view', 'desktop', 'not_reached']]);
-    expect(out.verdict.why).toMatchObject({ kind: 'visitor_sent_to_sign_in', flow: 'visitor view', path: '/' });
-    expect(out.verdict.line).toContain('"visitor view" ran signed out, and the page it opened (/) needs sign-in');
-    expect(out.verdict.line).not.toContain('could not sign in');
-    expect((await meta(releaseId)).liveWhy).toMatchObject({ kind: 'visitor_sent_to_sign_in' });
-  });
-
-  // FE-314 / REL-347 (2026-10-02), fictional: one line production can show (the API answers 200
-  // signed in), one only CI could (proven before the merge). QA cites lines by number.
-  const API_LINES = [
-    { statement: 'CI builds the image three times without exit 132.', met: true, evidence: 'Named test passed: https://ci.example/run/7' },
-    { statement: 'After deploy, GET /api/docs with a signed-in session returns 200.' },
-  ];
-  const apiCheck = (path: string) => flows([{ name: 'documents list', line: 2, criterion: 'A visitor can download the shared file', path, steps: [{ expect_response: { path: '/api/docs', status: 200 } }, { shoot: 'The documents list' }] }]);
-
-  it('proves an API line with a check flow alone: Seen live, with what the API answered, and the line production cannot show proven before merge', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_api`;
-    const { requestId, releaseId } = await seed(org, API_LINES);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
-
-    const out = await runLiveCheck(org, { releaseId, flows: apiCheck('/library'), notObservable: [{ line: 1, why: 'a CI run' }] }, { author }, deps());
-
-    expect(out.runs.map(r => r.phase)).toEqual(['check']);
-    expect(out.verdict).toMatchObject({ state: 'seen', line: 'Seen live: 1 of 1 state reached (GET /api/docs returned 200 signed in). 1 more line proven before merge by QA\'s verdict' });
-
-    const rel = await meta(releaseId);
-
-    // The words are the record's, never the flow's.
-    expect(rel.liveEvidence[0]).toMatchObject({ line: 2, criterion: 'After deploy, GET /api/docs with a signed-in session returns 200.', status: 'reached', proved: ['GET /api/docs returned 200 signed in'] });
-    expect(rel.liveBeforeMerge).toEqual([{ requestId, line: 1, text: 'CI builds the image three times without exit 132.', why: 'a CI run', proven: true }]);
-
-    const [shot] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, org), eq(artifactSchema.id, rel.liveEvidence[0].artifactId)));
-
-    expect((shot!.spec as Record<string, unknown>).caption).toBe('After deploy, GET /api/docs with a signed-in session returns 200. (GET /api/docs returned 200 signed in)');
-    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'seen', beforeMerge: [{ line: 1, proven: true }] });
-  });
-
-  it('says what the API answered when it broke its promise', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_api_broken`;
-    const { releaseId } = await seed(org, API_LINES);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
-
-    const out = await runLiveCheck(org, { releaseId, flows: apiCheck('/library?broken=1'), notObservable: [{ line: 1, why: 'a CI run' }] }, { author }, deps());
-
-    expect(out.verdict.state).toBe('not_seen');
-    expect(out.verdict.line).toBe('Not seen live: QA reached the page, but the API did not answer as promised: GET /api/docs returned 500, not 200. 1 more line proven before merge by QA\'s verdict');
-  });
-
-  it('explores without writing, and refuses an address that is not the product\'s', { skip: !chromium, timeout: 120_000 }, async () => {
-    const org = `${ORG}_explore`;
-    const { releaseId } = await seed(org);
-    access.environments = [{ slug: 'relay-web-production', surface: 'web', url: base, login: { signInUrl: `${base}/sign-in`, email: 'qa@relay.example', password: 'fictional-secret', stored: true }, liveSetup: null }];
-
-    const out = await runLiveCheck(org, { releaseId, explore: true, flows: flows([
-      { name: 'library', path: '/', steps: [{ shoot: 'library' }] },
-      { name: 'elsewhere', path: '/', steps: [{ goto: 'http://169.254.169.254/latest/meta-data' }] },
-    ]) }, { author }, deps());
-
-    expect(out.written).toBe('nothing written: this was an exploring run');
-    expect(out.runs[0]!.shots[0]!.pageText).toContain('Nothing here yet');
-    expect(out.runs[1]!.failure).toMatch(/not one of the product's own addresses/);
-    expect((await meta(releaseId)).liveState).toBeUndefined();
-    expect(await db.select().from(artifactSchema).where(eq(artifactSchema.orgId, org))).toEqual([]);
-  });
-});
-
-describe('a line the feature never promised', () => {
-  it('is refused before anything runs, with the request\'s lines listed by number, and nothing is written', async () => {
-    const org = `${ORG}_refused`;
-    const { requestId, releaseId } = await seed(org);
-    access.environments = [];
-
-    const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'visitor download', line: 4, path: '/' }]) }, { author });
-
-    expect(out.refused).toBe(`check flow "visitor download" cites line 4 of request #${requestId}, which has 1.\nrequest #${requestId}'s acceptance lines:\n  1. Under the title, a line says when the document was last opened.\nCite a line by its number (line: n, with request_id when the release shipped more than one request), and name the lines the live product cannot show in not_observable.`);
-    expect(out.acceptance).toEqual([{ requestId, lines: [{ n: 1, text: 'Under the title, a line says when the document was last opened.', provenBeforeMerge: false }] }]);
-    expect(out.runs).toEqual([]);
-    expect((await meta(releaseId)).liveState).toBeUndefined();
-    expect((await meta(releaseId)).liveAttempts).toBeUndefined();
-  });
-});
-
-describe('a line QA\'s verdict left to the live check (FE-392)', () => {
-  it('is put in front of the check after the request\'s lines, from the attempt the release shipped, and a call that skips it is refused', async () => {
-    const org = `${ORG}_left_to_live`;
-    const { requestId, releaseId } = await seed(org);
-    const risk = 'The plan\'s risk is handled: a third badge must not push the menu off the title row on a phone.';
-    const [taskType] = await createObjectType({ slug: 'engineering_task', label: 'Task' }, org);
-    const [task] = await db.insert(businessObjectSchema).values({ orgId: org, typeId: taskType!.id, title: 'attempt', status: 'active', metadata: {
-      requestId,
-      acceptanceContract: [ONE_LINE[0]!.statement, risk],
-      verdict: { value: 'approve', criteria: [{ criterion: ONE_LINE[0]!.statement, status: 'proven', evidence: 'Screenshot https://relay.example/a/1' }, { criterion: risk, status: 'live' }] },
-    } }).returning();
-    const release = await meta(releaseId);
-    await db.update(businessObjectSchema).set({ metadata: { ...release, taskIds: [task!.id] } }).where(eq(businessObjectSchema.id, releaseId));
-    access.environments = [];
-
-    const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'last opened', line: 1, path: '/' }]) }, { author });
-
-    expect(out.acceptance).toEqual([{ requestId, lines: [
-      { n: 1, text: ONE_LINE[0]!.statement, provenBeforeMerge: true },
-      { n: 2, text: risk, provenBeforeMerge: false, leftToLive: true },
-    ] }]);
-    expect(out.refused).toContain(`request #${requestId}: line 2 (The plan's risk is handled`);
-    expect(out.refused).toContain(`  2. ${risk} (QA left this to the live check)`);
-    expect((await meta(releaseId)).liveState).toBeUndefined();
-  });
-});
-
-describe('without a product to check', () => {
-  it('says why on the release instead of passing', async () => {
-    const org = `${ORG}_noenv`;
-    const { releaseId } = await seed(org);
-    access.environments = [];
-
-    const out = await runLiveCheck(org, { releaseId, flows: flows([{ name: 'line', line: 1, path: '/' }]) }, { author });
-
-    expect(out.verdict.line).toBe('Not seen live: QA could not reach the change on the live product. Why: no production environment is recorded for relay; an environment record names its product, stage, url and QA sign-in');
-    expect((await meta(releaseId)).liveState).toBe('not_seen');
+    await browserSvc.closeBrowserSession(key);
   });
 });
 

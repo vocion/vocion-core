@@ -307,7 +307,7 @@ steps:
                       - do: factory.check_live_again
                         input:
                           releaseId: '{{vars.releaseId}}'
-                          reason: the last QA run ended without recording a live check; record one with check_live (not explore), citing every acceptance line or naming it not observable
+                          reason: the last QA run ended without recording a live check; look at the live product with the browser tools and record it with record_live_check, every acceptance line seen, not seen or not observable
         - set:
             why: {value: 'REL-{{vars.releaseId}} is live, but no live check was recorded after 2 tries.'}
         - do: factory.stop_request

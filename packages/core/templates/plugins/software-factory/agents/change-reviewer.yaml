@@ -45,9 +45,11 @@ harness:
     - record_verdict
     # The product's production URLs and QA sign-in, to judge the live product.
     - product_access
-    # A shipped release checked on the live product as the QA account, and what
-    # QA saw written on the release and its features (backlog 043).
-    - check_live
+    # A shipped release looked at on the live product as the QA account (the
+    # browser tools), and what QA saw of each line, with its evidence, written
+    # on the release and its features (backlog 043; plugin 3.5.0).
+    - browser
+    - record_live_check
     # The check output the verdict is judged on, read from the code host
     # rather than from the engineer's report (plugin 2.43.0).
     - repo_read_check_logs

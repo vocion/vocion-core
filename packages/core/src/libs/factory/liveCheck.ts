@@ -1,29 +1,23 @@
 /**
- * THE LIVE CHECK, the decisions (pure). The browser, the records and the
- * artifacts are `services/factory/liveCheck.ts`; the tool is `check_live`.
+ * THE LIVE CHECK, the decisions (pure). The browser session is
+ * `services/factory/liveBrowser.ts`, the records `services/factory/liveCheck.ts`;
+ * the tools are the `browser_*` tools and `record_live_check`.
  *
  * Chris, 2026-10-01, after release #280: the check a product's deploy ran
  * replayed QA's pre-merge flows on production, waited for the mock build's
  * records, and reached 0 of 6 states, while the release still read healthy
- * and the request shipped. "You do it. Make it work. Make it run from Vocion
- * where possible." So:
+ * and the request shipped. So Vocion runs it: a release linked to what it
+ * shipped wakes QA, which looks at the live product signed in as its QA
+ * account and records what it saw, line by line, on the release and each
+ * feature. An HTTP 200 never stands in for it.
  *
- *   - VOCION RUNS IT. A release linked to what it shipped wakes QA, which
- *     writes the live flow from the acceptance criteria and the live app (not
- *     the mock flow) and runs it with `check_live`, signed in as the product's
- *     QA account, in the browser where agents' tools run.
- *   - IT PREPARES ITS OWN STATE. A flow has a phase: `setup` makes what the
- *     check needs on production as the QA account (upload a record, open its
- *     link once as a visitor), `check` shoots each acceptance line, `cleanup`
- *     removes what setup made, and always runs. Values carry between flows
- *     (`remember`, `{{name}}`).
- *   - IT SAYS WHAT IT SAW. Seen, partly seen, or "Live check could not reach
- *     the change: <reason>" — on the release and on each feature. An HTTP 200
- *     never stands in for it.
- *
- * Core names no product, page or flow: the flows are QA's, written per
- * feature and kept on the request (`liveCheck.flows`); the product's own
- * notes on how to prepare state are its environment's `liveSetup`.
+ * THE STRUCTURE IS ON THE EVIDENCE, NOT THE STEPS (Chris, 2026-10-03, FE-402
+ * line 6): a step language made QA write `click: "Save"` for "a blank name is
+ * not saved"; Save was correctly disabled, the click waited 15 s, and a
+ * correct feature read broken. QA now drives a browser by the page's
+ * accessibility snapshot (it sees `button "Save" [disabled]`) and records
+ * each acceptance line as seen, not seen or not observable, citing what it
+ * captured in this run's session. Core names no product, page or flow.
  */
 
 import { z } from 'zod';
@@ -31,29 +25,6 @@ import { featureProof } from '@/libs/workspace/featureProof';
 
 /** The role a live shot carries on the release, beside QA's pre-merge `qa-screenshot`. */
 export const LIVE_ROLE = 'live-screenshot';
-
-/** The phases of a live check, in the order they run. Cleanup runs whatever happened before it. */
-export const LIVE_PHASES = ['setup', 'check', 'cleanup'] as const;
-export type LivePhase = typeof LIVE_PHASES[number];
-
-/**
- * The step vocabulary — the runner's (`packages/runner/contract/schema.json`),
- * one contract both sides hold to (`liveCheck.test.ts` reads the runner's
- * list and compares).
- */
-export const LIVE_STEP_VERBS = ['click', 'fill', 'wait_for', 'shoot', 'upload', 'offline', 'goto', 'remember', 'pause', 'expect_response'] as const;
-
-/** The viewports a flow may name — the runner's. */
-export const LIVE_VIEWPORTS = ['desktop', 'phone'] as const;
-
-/** At most this many flows, steps per flow, and flow-viewport runs in one check, and this long for all of it. */
-export const LIVE_LIMITS = { flows: 12, steps: 16, runs: 24, seconds: 480 } as const;
-
-/**
- * The value a check and a cleanup read the page setup ended on by: `{{setupPage}}`, the full
- * address the last setup flow that finished stood on. Anything setup `remember`ed carries too.
- */
-export const SETUP_PAGE_VAR = 'setupPage';
 
 /** Attempts a release gets: the first, and the one retry carrying what the first learned. */
 export const LIVE_ATTEMPTS = 2;
@@ -67,7 +38,7 @@ export const LIVE_ATTEMPTS = 2;
  * the place it failed, never read back out of the message; the message itself
  * is the `detail`, one click away.
  */
-export const LIVE_REASON_KINDS = ['sign_in_failed', 'visitor_sent_to_sign_in', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run', 'not_checked'] as const;
+export const LIVE_REASON_KINDS = ['sign_in_failed', 'visitor_sent_to_sign_in', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run', 'not_checked', 'not_seen'] as const;
 export type LiveReasonKind = typeof LIVE_REASON_KINDS[number];
 
 /** One reason, typed: its kind, the flow and step it stopped at, and the check's own words. */
@@ -82,12 +53,6 @@ export type LiveReason = {
   /** The check's own words, kept whole for whoever fixes it. */
   detail: string;
 };
-
-/** A step failure as the runner reports it (`shootFlow`'s `stepFailures`). */
-export type RunnerStepFailure = { index: number; verb: string; target: string; error: string };
-
-/** A response a flow's `expect_response` saw, as the runner reports it (`shootFlow`'s `responses`). */
-export type RunnerResponseProof = { method: string; path: string; status: number };
 
 const quoteTarget = (t: string) => (t ? `"${t.slice(0, 60)}"` : '');
 
@@ -118,23 +83,6 @@ function stepDoing(verb: string, target: string): string {
 }
 
 /**
- * A step that failed, typed by where it ran: in setup it is the test data
- * that could not be made; in a check, a page that would not open is a page not
- * there, and anything else is the change not visible.
- * @param phase - The flow's phase.
- * @param flow - The flow's name.
- * @param f - The runner's step failure.
- * @param detail - The check's own words for it.
- */
-export function stepReason(phase: LivePhase, flow: string, f: RunnerStepFailure, detail: string): LiveReason {
-  const step = { n: f.index + 1, verb: f.verb, target: String(f.target ?? ''), ...(f.error ? { error: f.error.slice(0, 200) } : {}) };
-  if (phase !== 'check') {
-    return { kind: 'setup_failed', flow, step, detail };
-  }
-  return { kind: f.verb === 'goto' ? 'page_not_found' : 'not_visible', flow, step, ...(f.verb === 'goto' ? { path: step.target } : {}), detail };
-}
-
-/**
  * What could not be checked and why, in one sentence a person reads.
  * @param r - The reason.
  */
@@ -158,6 +106,8 @@ export function liveReasonSentence(r: LiveReason): string {
       return 'The page showed an error instead of the change';
     case 'not_checked':
       return r.detail.replace(/[.\s]+$/, '');
+    case 'not_seen':
+      return `QA looked on the live product and did not see it: ${r.detail.replace(/[.\s]+$/, '')}`;
     default:
       return `The live check could not run: ${r.detail.replace(/[.\s]+$/, '')}`;
   }
@@ -182,65 +132,11 @@ export function readLiveReason(v: unknown): LiveReason | null {
   };
 }
 
-/** `expect_response`: a response the page receives during the flow answered as promised (the runner's contract). */
-export const ExpectResponseSchema = z.object({
-  path: z.string().trim().min(1).max(300),
-  status: z.number().int().min(100).max(599),
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).optional(),
-}).strict();
-
-const stepSchema = z.record(z.string(), z.unknown()).superRefine((step, ctx) => {
-  const keys = Object.keys(step);
-  if (keys.length !== 1 || !(LIVE_STEP_VERBS as readonly string[]).includes(keys[0]!)) {
-    ctx.addIssue({ code: 'custom', message: `a step names exactly one of ${LIVE_STEP_VERBS.join(', ')}; got ${keys.join(', ') || 'nothing'}` });
-    return;
-  }
-  if (keys[0] === 'expect_response') {
-    const r = ExpectResponseSchema.safeParse(step.expect_response);
-    if (!r.success) {
-      ctx.addIssue({ code: 'custom', message: `expect_response takes {path, status, method?}, e.g. {"path": "/v1/documents", "status": 200}: ${r.error.issues.map(i => `${i.path.join('.') || 'value'} ${i.message}`).join('; ')}` });
-    }
-  }
-});
-
-export const LiveFlowSchema = z.object({
-  // A long name is clipped, never refused (release #369: a 61-character name failed the recording call).
-  name: z.string().trim().min(1).transform(v => v.slice(0, 60)),
-  phase: z.enum(LIVE_PHASES).default('check'),
-  /** The feature a check flow proves; omitted when the release shipped one. */
-  request_id: z.number().int().positive().optional(),
-  /**
-   * The acceptance line a check flow proves, by its number (1-based) in the request's `acceptance`.
-   * The check fills in `criterion` from the record; a number the request does not have is refused.
-   */
-  line: z.number().int().positive().optional(),
-  /** The acceptance line's words, as the record has them: written by the check from `line`, never by QA. */
-  criterion: z.string().trim().max(300).optional(),
-  /** Run signed in as the product's QA account (default), or as a visitor with no session. */
-  signed_in: z.boolean().default(true),
-  /** The environment surface it runs on (`web` …); the one with the QA sign-in when omitted. */
-  surface: z.string().trim().max(40).optional(),
-  /** A path on the environment, an address on it, or `{{name}}` an earlier flow remembered. */
-  path: z.string().trim().min(1).max(2000),
-  viewports: z.array(z.enum(LIVE_VIEWPORTS)).min(1).max(2).default(['desktop']),
-  steps: z.array(stepSchema).max(LIVE_LIMITS.steps).default([]),
-});
-export type LiveFlow = z.infer<typeof LiveFlowSchema>;
-
-/**
- * The flows in the order they run: setup, check, cleanup, each phase in the
- * order written.
- * @param flows - The flows as given.
- */
-export function orderedFlows<T extends { phase: LivePhase }>(flows: readonly T[]): T[] {
-  return LIVE_PHASES.flatMap(p => flows.filter(f => f.phase === p));
-}
-
 /**
  * ONE ACCEPTANCE LINE, BY ITS NUMBER (2026-10-02, FE-314 / REL-347): QA wrote a check for "A visitor
  * can open the shared link and download the file", a line FE-314 never had, and the release read
  * "Not seen live" while its one live-observable promise (signed-in GET /v1/documents returns 200)
- * held. A check flow now cites a line of the request by its position; the words come from the
+ * held. The check records a line of the request by its position; the words come from the
  * record, so a check can only prove what the feature promised.
  */
 export type AcceptanceLine = {
@@ -262,7 +158,7 @@ export const LEFT_TO_LIVE = 'QA left this to the live check';
  * other line their verdict left to the live check (FE-392, 2026-10-03: a plan-risk line QA marked
  * `live` was never put in front of the live check, so the feature page read it "Unverified" after a
  * check that "saw 4 of 4"). Those follow the acceptance lines, numbered on from them, so the check
- * must cite each or name it in not_observable like any other line.
+ * must record each like any other line.
  * @param meta - The request's metadata.
  * @param shipped - The release's attempts at this request (`tasks`) and which of them it shipped.
  * @param shipped.tasks - The attempts.
@@ -286,13 +182,25 @@ export function acceptanceLines(meta: Record<string, unknown>, shipped: { tasks:
 /** A line QA says the live product cannot show: proven before merge, or not proven at all. */
 export type BeforeMergeLine = { requestId: number; line: number; text: string; why: string; proven: boolean };
 
-/** A line QA names as one production cannot show, as the tool takes it. */
-export const NotObservableSchema = z.object({
+/** What QA found of one line: seen on the live product, looked for and not seen, or not something production can show. */
+export const LIVE_RESULTS = ['seen', 'not_seen', 'not_observable'] as const;
+export type LiveResult = typeof LIVE_RESULTS[number];
+
+/** At most this many evidence ids on one line. */
+export const MAX_EVIDENCE_PER_LINE = 12;
+
+/** One acceptance line as QA records it (`record_live_check`): the result, what in this run's browser session shows it, and why. */
+export const RecordedLineSchema = z.object({
   request_id: z.number().int().positive().optional(),
   line: z.number().int().positive(),
-  why: z.string().trim().min(1).max(300),
+  result: z.enum(LIVE_RESULTS),
+  evidence: z.array(z.string().trim().min(1).max(40)).max(MAX_EVIDENCE_PER_LINE).default([]),
+  why: z.string().trim().min(1).max(400),
 });
-export type NotObservable = z.infer<typeof NotObservableSchema>;
+export type RecordedLine = z.infer<typeof RecordedLineSchema>;
+
+/** One recorded line, tied to the record's words. */
+export type ResolvedLine = { requestId: number; line: AcceptanceLine; result: LiveResult; evidence: string[]; why: string };
 
 /** The words a person reads for a line production cannot show that QA proved before the merge. */
 export const PROVEN_BEFORE_MERGE = 'proven before merge by QA\'s verdict';
@@ -308,107 +216,65 @@ export function linesList(requestId: number, lines: readonly AcceptanceLine[]): 
     : `request #${requestId}'s acceptance lines:\n${lines.map(l => `  ${l.n}. ${l.text}${l.provenBeforeMerge ? ` (${PROVEN_BEFORE_MERGE})` : l.leftToLive ? ` (${LEFT_TO_LIVE})` : ''}`).join('\n')}`;
 }
 
-export type ResolvedLines
-  = | {
-    ok: true;
-    /** The flows, each check flow's `criterion` written from the line it cites. */
-    flows: LiveFlow[];
-    beforeMerge: BeforeMergeLine[];
-    /** Lines no check flow cited and QA did not name as ones production cannot show (only ever non-empty while exploring). */
-    uncovered: Array<{ requestId: number; line: AcceptanceLine }>;
-  }
-  | { ok: false; refusal: string };
+export type ResolvedRecording
+  = | { ok: true; lines: ResolvedLine[]; beforeMerge: BeforeMergeLine[] }
+    | { ok: false; refusal: string };
 
 /**
- * Tie each check flow to the acceptance line it cites, and each line QA says production cannot show
- * to its record. A reference the record does not have is refused with the request's lines, numbered,
- * so QA corrects itself; nothing is run or written on a refusal. A recording run must account for
- * every line (cited by a check flow, or named in not_observable). An exploring run may leave its
- * check flows uncited and lines unaccounted (it is learning the page), but never cite a line that is not there.
- * @param flows - QA's flows.
- * @param notObservable - The lines QA says the live product cannot show.
+ * Tie each recorded line to the acceptance line it names, and refuse what does not hold: a line the
+ * record does not have, a line recorded twice, a seen or not-seen line that cites no evidence, and a
+ * recording that leaves a line of a shipped request unaccounted for (Walk 7, 2026-10-02: release
+ * #363 read "1 of 6 states reached" because QA named one line and no other). Every refusal lists
+ * the request's lines, numbered, so QA corrects itself in the same turn; nothing is written on one.
+ * Whether the evidence ids came from this run's browser session is the service's to check.
+ * @param recorded - What QA recorded.
  * @param linesByRequest - Each request the release shipped, and its lines.
- * @param opts - `explore`: an exploring run.
- * @param opts.explore - Whether this run only explores.
  */
-export function resolveLines(flows: readonly LiveFlow[], notObservable: readonly NotObservable[], linesByRequest: ReadonlyMap<number, AcceptanceLine[]>, opts: { explore?: boolean } = {}): ResolvedLines {
+export function resolveRecordedLines(recorded: readonly RecordedLine[], linesByRequest: ReadonlyMap<number, AcceptanceLine[]>): ResolvedRecording {
   const shipped = [...linesByRequest.keys()];
   const only = shipped.length === 1 ? shipped[0]! : null;
   const all = () => shipped.map(id => linesList(id, linesByRequest.get(id) ?? [])).join('\n');
-  const fix = 'Cite a line by its number (line: n, with request_id when the release shipped more than one request), and name the lines the live product cannot show in not_observable.';
-  const whose = (what: string, requestId: number | undefined): { id: number; lines: AcceptanceLine[] } | string => {
-    const id = requestId ?? only;
+  const fix = 'Record each line by its number (line: n, with request_id when the release shipped more than one request): seen or not_seen citing what you captured, or not_observable with why production cannot show it.';
+  const out: ResolvedLine[] = [];
+  for (const r of recorded) {
+    const what = `line ${r.line}`;
+    const id = r.request_id ?? only;
     if (id === null) {
-      return `${what} names no request_id, and this release shipped ${shipped.length === 0 ? 'no request' : `requests ${shipped.map(n => `#${n}`).join(', ')}`}`;
+      return { ok: false, refusal: `${what} names no request_id, and this release shipped ${shipped.length === 0 ? 'no request' : `requests ${shipped.map(n => `#${n}`).join(', ')}`}.\n${all()}\n${fix}` };
     }
     const lines = linesByRequest.get(id);
-    return lines ? { id, lines } : `${what} names request #${id}, which this release did not ship (it shipped ${shipped.map(n => `#${n}`).join(', ') || 'none'})`;
-  };
-  const cited = new Set<string>();
-  const out: LiveFlow[] = [];
-  for (const flow of flows) {
-    if (flow.phase !== 'check') {
-      out.push(flow);
-      continue;
+    if (!lines) {
+      return { ok: false, refusal: `${what} names request #${id}, which this release did not ship (it shipped ${shipped.map(n => `#${n}`).join(', ') || 'none'}).\n${all()}\n${fix}` };
     }
-    const what = `check flow "${flow.name}"`;
-    const { criterion: _ignored, ...rest } = flow;
-    if (flow.line === undefined) {
-      const w = flow.request_id !== undefined || only !== null ? whose(what, flow.request_id) : null;
-      if (typeof w === 'string') {
-        return { ok: false, refusal: `${w}.\n${all()}\n${fix}` };
-      }
-      if (!opts.explore && w && w.lines.length > 0) {
-        return { ok: false, refusal: `${what} cites no acceptance line.\n${linesList(w.id, w.lines)}\n${fix}` };
-      }
-      out.push(rest);
-      continue;
-    }
-    const w = whose(what, flow.request_id);
-    if (typeof w === 'string') {
-      return { ok: false, refusal: `${w}.\n${all()}\n${fix}` };
-    }
-    const line = w.lines.find(l => l.n === flow.line);
+    const line = lines.find(l => l.n === r.line);
     if (!line) {
-      return { ok: false, refusal: `${what} cites line ${flow.line} of request #${w.id}, which ${w.lines.length === 0 ? 'has no acceptance lines' : `has ${w.lines.length}`}.\n${linesList(w.id, w.lines)}\n${fix}` };
+      return { ok: false, refusal: `${what} of request #${id} is not there: it ${lines.length === 0 ? 'has no acceptance lines' : `has ${lines.length}`}.\n${linesList(id, lines)}\n${fix}` };
     }
-    cited.add(`${w.id}:${line.n}`);
-    out.push({ ...rest, request_id: w.id, criterion: line.text.slice(0, 300) });
+    if (out.some(o => o.requestId === id && o.line.n === line.n)) {
+      return { ok: false, refusal: `${what} of request #${id} is recorded twice: record each line once, with everything that shows it in its evidence.\n${linesList(id, lines)}` };
+    }
+    const evidence = [...new Set(r.evidence)];
+    if (r.result !== 'not_observable' && evidence.length === 0) {
+      return { ok: false, refusal: `${what} of request #${id} is recorded ${r.result} and cites no evidence. Cite what you captured in this run's browser that shows it (a snapshot, screenshot, response or action id), or record it not_observable with why production cannot show it.` };
+    }
+    out.push({ requestId: id, line, result: r.result, evidence, why: r.why });
   }
-  const beforeMerge: BeforeMergeLine[] = [];
-  for (const n of notObservable) {
-    const what = `not_observable line ${n.line}`;
-    const w = whose(what, n.request_id);
-    if (typeof w === 'string') {
-      return { ok: false, refusal: `${w}.\n${all()}\n${fix}` };
-    }
-    const line = w.lines.find(l => l.n === n.line);
-    if (!line) {
-      return { ok: false, refusal: `${what} of request #${w.id} is not there: it ${w.lines.length === 0 ? 'has no acceptance lines' : `has ${w.lines.length}`}.\n${linesList(w.id, w.lines)}\n${fix}` };
-    }
-    // A line a check flow proves on production is checked there, whatever else was said of it.
-    if (!cited.has(`${w.id}:${line.n}`) && !beforeMerge.some(b => b.requestId === w.id && b.line === line.n)) {
-      beforeMerge.push({ requestId: w.id, line: line.n, text: line.text, why: n.why, proven: line.provenBeforeMerge });
-    }
+  const missing = shipped.flatMap(id => (linesByRequest.get(id) ?? []).filter(l => !out.some(o => o.requestId === id && o.line.n === l.n)).map(line => ({ id, line })));
+  if (missing.length > 0) {
+    const byRequest = shipped.filter(id => missing.some(m => m.id === id));
+    const list = byRequest.map(id => `request #${id}: ${missing.filter(m => m.id === id).map(m => `line ${m.line.n} (${m.line.text.slice(0, 160)})`).join('; ')}`).join('\n');
+    return { ok: false, refusal: `${missing.length === 1 ? 'An acceptance line is' : `${missing.length} acceptance lines are`} not recorded:\n${list}\nEvery line is recorded: seen or not_seen with the evidence you captured, or not_observable with why production cannot show it.\n${byRequest.map(id => linesList(id, linesByRequest.get(id) ?? [])).join('\n')}` };
   }
-  const uncovered = shipped.flatMap(id => (linesByRequest.get(id) ?? [])
-    .filter(l => !cited.has(`${id}:${l.n}`) && !beforeMerge.some(b => b.requestId === id && b.line === l.n))
-    .map(line => ({ requestId: id, line })));
-  // EVERY LINE IS ACCOUNTED FOR (Walk 7, 2026-10-02: release #363 read "1 of 6 states reached"
-  // because QA cited one line and named no other). A recording call that leaves a line neither
-  // cited by a check flow nor named in not_observable is refused, listing those lines, so the run
-  // fixes it in the same turn. Exploring stays free: it is how QA learns the lines.
-  if (!opts.explore && uncovered.length > 0) {
-    const byRequest = shipped.filter(id => uncovered.some(u => u.requestId === id));
-    const missing = byRequest.map(id => `request #${id}: ${uncovered.filter(u => u.requestId === id).map(u => `line ${u.line.n} (${u.line.text.slice(0, 160)})`).join('; ')}`).join('\n');
-    return { ok: false, refusal: `${uncovered.length === 1 ? 'An acceptance line is' : `${uncovered.length} acceptance lines are`} neither cited by a check flow nor named in not_observable:\n${missing}\nEvery line is one or the other: add a check flow citing it (line: n), or name it in not_observable with why production cannot show it, and call check_live again.\n${byRequest.map(id => linesList(id, linesByRequest.get(id) ?? [])).join('\n')}` };
-  }
-  return { ok: true, flows: out, beforeMerge, uncovered };
+  const beforeMerge: BeforeMergeLine[] = out
+    .filter(o => o.result === 'not_observable')
+    .map(o => ({ requestId: o.requestId, line: o.line.n, text: o.line.text, why: o.why.slice(0, 300), proven: o.line.provenBeforeMerge }));
+  return { ok: true, lines: out, beforeMerge };
 }
 
 /**
- * The row a line no check reached on production stands as: one QA never cited, or one production
- * cannot show that QA's verdict did not prove before merge. Either way it is unproven, said why.
+ * The row a line no check reached on production stands as: one production cannot show that QA's
+ * verdict did not prove before merge (or, in a record written before every line had to be
+ * recorded, one QA never named). Either way it is unproven, said why.
  * @param requestId - The request.
  * @param line - The line.
  * @param cannotShow - QA said production cannot show it (and the verdict did not prove it).
@@ -420,65 +286,15 @@ export function uncheckedRow(requestId: number, line: AcceptanceLine, cannotShow
   return { requestId, flow: `line ${line.n}`, line: line.n, criterion: line.text, viewport: 'desktop', artifactId: null, status: 'not_reached', reason: detail, why: { kind: 'not_checked', detail }, url: null };
 }
 
-/** One shot as the runner's `shootFlow` returns it. */
-export type RunnerShot = { file: string; label: string; at: string; errorState?: boolean; shortOf?: string; text?: string };
-
 /**
  * True when a path is a sign-in page — the runner's own test (`isSignInPath`).
- * @param pathname
+ * @param pathname - The page's path.
  */
 export function isSignInPath(pathname: string): boolean {
   return /sign-?in|login/.test(pathname);
 }
 
-/**
- * Reached or not, for one shot of one flow on production, with the reason
- * when not: a step that failed, a page that bounced to sign-in, a page that
- * shows an app error.
- *
- * A BOUNCE TO SIGN-IN IS NOT ALWAYS A FAILED SIGN-IN (Walk 10, 2026-10-02,
- * release #386): "Partly seen live: 4 of 5. Not reached: QA could not sign in
- * to the live product as its QA account", while every signed-in flow had
- * reached its page. The fifth was a visitor flow (`signed_in: false`) that
- * opened the signed-in library; nothing tried to sign in. A signed-out flow
- * sent to sign-in opened a page behind sign-in, and says so.
- * @param flowPath - The flow's own path (a flow written for the sign-in page may land there).
- * @param shot - The shot.
- * @param signedIn - Whether the flow ran signed in as the QA account.
- */
-export function shotStatus(flowPath: string, shot: RunnerShot, signedIn = true): { status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind; path?: string } {
-  if (shot.shortOf) {
-    return { status: 'not_reached', reason: shot.shortOf, kind: 'not_visible' };
-  }
-  const at = String(shot.at || '').split(/[?#]/)[0] ?? '';
-  if (at && isSignInPath(at) && !isSignInPath(flowPath)) {
-    return signedIn
-      ? { status: 'not_reached', reason: `production sent the page to sign-in (${at}) after QA signed in`, kind: 'sign_in_failed' }
-      : { status: 'not_reached', reason: `the flow ran signed out and production sent ${flowPath} to sign-in (${at})`, kind: 'visitor_sent_to_sign_in', path: flowPath };
-  }
-  if (shot.errorState) {
-    return { status: 'not_reached', reason: 'the page shows an app error', kind: 'app_error' };
-  }
-  return { status: 'reached' };
-}
-
-/**
- * The shots worth keeping from one check run: every `shoot`, plus the final
- * picture when the flow shot nothing of its own or a step failed (it shows
- * where the page got).
- * @param flowPath - The flow's path.
- * @param result - What `shootFlow` returned.
- * @param result.shots - Its shots.
- * @param result.stepFailures - The steps that failed.
- * @param signedIn - Whether the flow ran signed in.
- */
-export function keptShots(flowPath: string, result: { shots: RunnerShot[]; stepFailures: unknown[] }, signedIn = true): Array<{ shot: RunnerShot; status: 'reached' | 'not_reached'; reason?: string; kind?: LiveReasonKind; path?: string }> {
-  const failed = result.stepFailures.length > 0;
-  const labeled = result.shots.some(s => s.label);
-  return result.shots.filter(s => s.label || failed || !labeled).map(shot => ({ shot, ...shotStatus(flowPath, shot, signedIn) }));
-}
-
-/** One state of a check flow on production, as the release keeps it (`liveEvidence`). */
+/** One acceptance line as the live check found it on production, as the release keeps it (`liveEvidence`). `flow` names the line (`line 3`) on records written since the browser tools. */
 export type LiveRow = {
   requestId: number | null;
   flow: string;
@@ -492,10 +308,12 @@ export type LiveRow = {
   /** The reason, typed where it happened. */
   why?: LiveReason;
   url: string | null;
-  /** The shot's own label, when the flow named it. */
+  /** The caption of the screenshot it cites. */
   label?: string;
-  /** What the flow's `expect_response` steps saw answer as promised: "GET /v1/documents returned 200". */
+  /** The responses it cites, as a person reads them: "GET /v1/documents returned 200 signed in". */
   proved?: string[];
+  /** The evidence ids it cites, from the run's browser session. */
+  evidence?: string[];
 };
 
 export type LiveState = 'seen' | 'partial' | 'not_seen';
@@ -517,8 +335,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 /**
  * Seen, partly seen, or not seen — from the check rows and what stopped the
  * check. Nothing reached is a failure said with its reason, never a pass.
- * @param rows - The check flows' states.
- * @param problems - What stopped a flow from running at all (setup, sign-in, the browser).
+ * @param rows - The lines' states.
+ * @param problems - What stopped the check from looking at all (sign-in, the browser, no environment).
  * @param beforeMerge - The lines production cannot show, and whether QA's verdict proved them.
  */
 export function liveVerdict(rows: readonly LiveRow[], problems: readonly (string | LiveReason)[] = [], beforeMerge: readonly BeforeMergeLine[] = []): LiveVerdict {
@@ -538,7 +356,7 @@ export function liveVerdict(rows: readonly LiveRow[], problems: readonly (string
   }
   // Typed where it happened, said as a sentence; a reason only in words (recorded before it was
   // typed) is said in its own words, as it was.
-  const first: string | LiveReason = problems[0] ?? miss?.why ?? miss?.reason ?? (total === 0 ? 'no check flow was run' : 'no state was reached');
+  const first: string | LiveReason = problems[0] ?? miss?.why ?? miss?.reason ?? (total === 0 ? 'no line was checked on the live product' : 'no state was reached');
   const why = typeof first === 'string' ? null : { ...first, detail: first.detail.slice(0, 400) };
   const reason = (why?.detail ?? (first as string)).slice(0, 400);
   if (reached === 0) {
@@ -619,8 +437,6 @@ export type RequestLiveMark = {
   releaseId: number;
   checkedAt: string;
   attempt: number;
-  /** The flows that checked it — the feature's live QA flow, reused and amended next time. */
-  flows: LiveFlow[];
   /** Why it was not seen, typed; its `detail` is the check's own words. */
   why?: LiveReason | null;
   /** The lines production cannot show, and whether QA's verdict proved them before the merge. */
@@ -707,7 +523,7 @@ export type LiveAfterRun
  * @param fire.startedAt - When the fire started; a check written before it is an older one.
  * @param fire.reason - Why it saw nothing, when the fire knows (its error, the tool's last answer).
  * @param fire.attempt - Which fire this was (1, then 2 on the retry): a QA run that never called
- *   `check_live` spends an attempt too, so a seat that never checks cannot loop.
+ *   its required tool spends an attempt too, so a seat that never checks cannot loop.
  * @param attempts - Attempts in all.
  */
 export function liveAfterRun(meta: Meta, fire: { startedAt: Date; reason: string | null; attempt?: number }, attempts: number = LIVE_ATTEMPTS): LiveAfterRun {

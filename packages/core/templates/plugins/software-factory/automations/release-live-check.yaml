@@ -4,14 +4,20 @@
 #
 # Release #280 (2026-09-30) is why: the product's deploy script replayed QA's
 # pre-merge flows on production, waited for the mock build's records, reached
-# 0 of 6 states, and the release still read healthy. Here QA writes the live
-# flow from the acceptance criteria and the live app, prepares its own state
-# as the QA account, removes it after, and `check_live` writes the result —
-# seen, partly seen, or "Live check could not reach the change: <reason>".
+# 0 of 6 states, and the release still read healthy. Here QA looks at the live
+# app itself in this run's browser (the `browser_*` tools: a page's
+# accessibility snapshot, acting by ref, screenshots and responses with ids),
+# and `record_live_check` writes what it saw of every acceptance line, each
+# citing that evidence — seen, partly seen, or not seen with its reason.
+#
+# 3.5.0 (2026-10-03, FE-402 line 6): the step language this replaced had QA
+# write `click: "Save"` for "a blank name is not saved"; Save was correctly
+# disabled, the click waited 15 s, and a correct feature read broken. In a
+# snapshot QA sees `button "Save" [disabled]` and judges it in one move.
 #
 # Core raises `release.linked` (`services/factory/releasePack.ts`) and the
 # retry `release.live_check.requested` (`release-live-check-ended`); the
-# browser runs where the agents' tools run (`services/factory/liveCheck.ts`).
+# browser runs where the agents' tools run (`services/factory/liveBrowser.ts`).
 slug: release-live-check
 name: Check the release on the live product
 label: Checked it live
@@ -19,14 +25,14 @@ doing: Checking it live
 description: >-
   Fires when a release that changed something people use is linked, and once
   more when the first check did not see the change. QA reads each shipped
-  feature's acceptance lines and the product's production access, looks at
-  the live app, and runs check_live with a check flow per line the live
-  product can show (cited by its number, with a shoot, and expect_response for
-  an API), the lines it cannot show named as proven before merge, and setup and
-  cleanup flows only when a line needs state made as the QA account. The release gets its live shots,
-  liveEvidence, liveState and the announcement image; each feature its
-  liveCheck and its Live pictures. Never touches the product's code or data
-  beyond what setup made.
+  feature's acceptance lines, opens the live product in its browser as the
+  product's QA account, looks and acts the way a person would, screenshots
+  what proves each line, and records every line with record_live_check: seen
+  or not seen citing what it captured, or not observable (proven before merge
+  by QA's verdict when it was). The release gets its live shots, liveEvidence,
+  liveState and the announcement image; each feature its liveCheck and its
+  Live pictures. Never touches the product's code, and leaves no data behind
+  that it made.
 status: active
 agent: change-reviewer
 when:
@@ -35,36 +41,20 @@ when:
     userFacing: true
 do:
   checkMission: prove-the-contract
-  requireTool: check_live
+  requireTool: record_live_check
   prompt: >-
     Release #{{releaseId}} of {{product}} just went out, carrying requests
     {{requestIds}}. Check it on the live product, as the product's QA
-    account, and record what you saw with check_live. Follow
+    account, and record what you saw with record_live_check. Follow
     check-the-live-release.
     Attempt {{attempt}} (blank is the first). On a retry, the last attempt
     did not see the change because: {{lastFailure}}
-    Read the release (lookup_objects, id {{releaseId}}): its requestIds,
-    taskIds and what it shipped. Read each request: its acceptance criteria
-    and its liveCheck.flows (the flow that checked it before, when there is
-    one). Read the shipped tasks' qaFlows only as hints: they ran against
-    the mock build, whose records do not exist on production. Call
-    product_access for {{product}}: the URLs, the QA sign-in's email, and
-    each environment's liveSetup (how its state is prepared).
-    Write the live flows. One check flow per acceptance line the live
-    product can show, citing it by its number (line: n, with request_id when
-    the release shipped more than one request); check_live writes the
-    line's words from the record and refuses a number that is not there,
-    listing the lines. A line about an API is proven with expect_response
-    (goto the page that calls it, expect_response {path, status}, shoot).
-    Name the lines production cannot show (a CI run, an image's contents, a
-    pre-merge guarantee) in not_observable with why; QA's pre-merge verdict
-    covers them. Setup flows only when a line needs state made as the QA
-    account (upload a small test record, open its link as a visitor with
-    signed_in false, remember the addresses you need), and then cleanup
-    flows that remove everything setup made; a check flow may run alone.
-    When you do not know the live page or the lines yet, run check_live
-    with explore true first and read pageText and acceptance.
-    Then run check_live without explore. If it did not see the change, read
-    what each page showed and the first failure, fix the flows, and run it
-    once more. Do not change any record yourself: check_live writes the
-    release and the features. Report in one line what was seen live.
+    Open the live product with browser_open (release_id {{releaseId}}): its
+    answer lists each shipped request's acceptance lines, numbered. Look at
+    each line on the live product: read the snapshot, act by ref, screenshot
+    what proves it, and use browser_responses for a line about an API. If you
+    make anything to check a line, remove it after.
+    Then call record_live_check once with every line: seen or not_seen citing
+    the ids your browser calls returned, or not_observable with why production
+    cannot show it. Do not change any record yourself: record_live_check
+    writes the release and the features. Report in one line what was seen live.
