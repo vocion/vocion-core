@@ -307,11 +307,15 @@ describe('the plan stage', () => {
     expect(report.contradictions.join(' ')).toContain('required a plan for this work and none is on the record');
   });
 
-  it('shows the contradiction when the plan was approved after the work already ran', () => {
+  // FE-392, 2026-10-03: this used to raise a contradiction ("A plan approved
+  // after the work is a record, not a gate") on a plan that is, in fact,
+  // approved — agent-voice noise with nothing for the reader to do. It no
+  // longer does; the approval still lands on the timeline (next test).
+  it('raises no contradiction for a plan approved after the work already ran', () => {
     const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z' } };
     const report = assembleFeatureReport(input({ plans: [late] }));
 
-    expect(report.contradictions.join(' ')).toContain('A plan approved after the work is a record, not a gate.');
+    expect(report.contradictions.join(' ')).not.toContain('A plan approved after the work is a record, not a gate.');
   });
 
   it('puts the plan on the timeline, written then approved, and the skip too', () => {
@@ -1354,17 +1358,18 @@ describe('the status sentence and its one action', () => {
 });
 
 describe('record problems, said plainly', () => {
-  it('turns each disagreement into what is known, whether it blocks, and one move, keeping the raw sentence as evidence', () => {
-    const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z' } };
-    const notice = assembleFeatureReport(input({ plans: [late] })).notices.find(n => n.key === `plan-late-${plan.id}`)!;
+  // FE-392, 2026-10-03: a plan approved after the first run started never
+  // blocks anything, so it is not a page notice — it read as agent-voice
+  // noise ("It does not block … Review approval history") for a reader with
+  // nothing to do about it. The fact is not lost: it stays on the Timeline
+  // as "Plan approved by …", at the real approval time.
+  it('does not raise a notice for a plan approved after building had already begun, and keeps the approval on the timeline instead', () => {
+    const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z', approvedBy: 'dana@northwind.example' } };
+    const r = assembleFeatureReport(input({ plans: [late] }));
 
-    expect(notice).toMatchObject({
-      severity: 'inconsistency',
-      known: 'The plan was approved after building had already begun.',
-      action: { label: 'Review approval history', drawer: 'plan' },
-    });
-    expect(notice.blocks).toMatch(/^It does not block/);
-    expect(notice.evidence).toContain('A plan approved after the work is a record, not a gate.');
+    expect(r.notices.some(n => n.key === `plan-late-${plan.id}`)).toBe(false);
+    expect(r.notices.some(n => n.key.startsWith('plan-late'))).toBe(false);
+    expect(r.history.some(h => h.key === `plan-approved-${plan.id}` && h.at === '2026-09-09T09:00:00Z')).toBe(true);
   });
 
   it('does not count a refused attempt as work that ran before the plan was approved', () => {

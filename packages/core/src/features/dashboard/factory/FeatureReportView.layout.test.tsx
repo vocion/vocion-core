@@ -186,6 +186,32 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(document.querySelector('[data-testid="feature-timeline"] [data-testid="timeline-cost"]')!.textContent).toBe('$8.30');
   });
 
+  // FE-392, 2026-10-03: "Live since" in Current state read a fixed-UTC
+  // stamp ("03 Oct 2026, 01:27 UTC") while "Did it work?" and the Timeline
+  // read the reader's own calendar off the same instant ("2 Oct") — three
+  // clocks disagreeing on one page across a day boundary. Both now render
+  // the live date through the same `LocalDate` component off the same
+  // `report.release.at`, so they can never read a different calendar day.
+  it('reads the same live date in Current state and in "Did it work?" (FE-392)', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture({
+      releases: [{
+        id: 9,
+        title: 'northwind-portal 2.4.0',
+        status: 'shipped',
+        createdAt: T('2026-10-03T01:00:00Z'),
+        meta: { product: 'northwind-portal', version: '2.4.0', releasedAt: '2026-10-03T01:27:00Z', taskIds: [77], requestIds: [41] },
+      }],
+    }));
+
+    const stateTime = document.querySelector('[data-testid="report-status-sentence"] time')!;
+    const outcomeTime = document.querySelector('[data-testid="report-outcome-line"] time')!;
+
+    expect(stateTime.textContent).not.toBe('');
+    expect(stateTime.textContent).toBe(outcomeTime.textContent);
+    expect(stateTime.getAttribute('dateTime')).toBe(outcomeTime.getAttribute('dateTime'));
+  });
+
   it('shows acceptance as N of M verified with no pass that has no evidence', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());

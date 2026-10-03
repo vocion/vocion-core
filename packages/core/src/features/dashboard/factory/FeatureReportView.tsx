@@ -314,6 +314,22 @@ function StatusBlock({ report, status }: { report: FeatureReport; status: Record
         )
     : null;
   const yours = report.state.needsYou && actions !== null;
+  // LIVE'S DATE IS NOT BAKED SERVER-SIDE (2026-10-03, FE-392). `release.sentence`
+  // carries no date of its own; here it is spliced onto `LocalDate` — the same
+  // component the Timeline uses for its own dates — so this line and the
+  // Timeline always read the same calendar day for the same instant, instead
+  // of this line's old fixed-UTC stamp disagreeing with the Timeline's
+  // reader-zone one across a day boundary.
+  const sentence = s.headline === 'Live' && report.release.state === 'live' && report.release.at
+    ? (
+        <>
+          {'Live since '}
+          <LocalDate at={report.release.at} />
+          {', '}
+          {s.sentence}
+        </>
+      )
+    : s.sentence;
   return (
     <section id="report-state" data-testid="report-status" aria-label="Current state" className="space-y-3">
       <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Current state</div>
@@ -321,7 +337,7 @@ function StatusBlock({ report, status }: { report: FeatureReport; status: Record
           sentence would repeat it. After the merge the run is GitHub's, and
           the sentence is the part the Now line cannot say: who merged it,
           when, and who is watching until the release lands (#269). */}
-      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live && report.live.kind !== 'deploying' ? '' : s.sentence} />
+      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live && report.live.kind !== 'deploying' ? '' : sentence} />
       <WorkStatus status={status} hideStage youAction={yours ? <span className="flex flex-wrap items-center gap-2">{actions}</span> : undefined} className="max-w-prose" />
       {!yours && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       {report.notices.length > 0 && <Notices notices={report.notices} requestId={report.requestId} />}

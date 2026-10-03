@@ -2328,21 +2328,14 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>): ReportN
       `The plan rule required a plan for this work and none is on the record${skipped > 0 ? `, and ${skipped} task${skipped === 1 ? '' : 's'} recorded the plan as skipped` : ''}. ${executed.length} run${executed.length === 1 ? '' : 's'} ran anyway.`,
     );
   }
-  // Only a run that DID something can come before an approval. A refusal is
-  // the worker declining to start without one.
-  const firstRunAt = executed.map(r => r.claimedAt ?? runAt(r)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-  for (const plan of input.plans) {
-    const approvedAt = asDate(plan.meta.approvedAt);
-    if (approvedAt && firstRunAt && approvedAt.getTime() > firstRunAt.getTime()) {
-      quiet(
-        `plan-late-${plan.id}`,
-        'The plan was approved after building had already begun.',
-        'It does not block: the plan is approved now. It did not gate the first attempt.',
-        { label: 'Review approval history', drawer: 'plan' },
-        `Plan ${plan.id} was approved at ${formatStamp(approvedAt)}, after the first run started at ${formatStamp(firstRunAt)}. A plan approved after the work is a record, not a gate.`,
-      );
-    }
-  }
+  // A plan approved after the first run started is NOT a page notice
+  // (2026-10-03, FE-392, Chris: "a note that says it does not block and
+  // needs nothing from the person should not be shown"). It never blocks —
+  // the plan is approved, full stop — so it was agent-voice noise read by
+  // the person for nothing. The fact itself is not lost: the Timeline
+  // already carries "Plan written" and "Plan approved by …" as their own
+  // rows (see the plan loop below), and the plan drawer shows the approval
+  // date, so the record survives without a quiet() entry here.
   for (const task of input.tasks) {
     if (task.status === 'accepted' && !str(task.meta, 'prUrl')) {
       quiet(
@@ -3522,7 +3515,13 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
       state: 'live',
       code: input.codes?.get(shipped.r.id) ?? null,
       label: 'Live',
-      sentence: `Live since ${formatStamp(shipped.at)}, in ${name}. ${seen.line}${/[.!?]$/.test(seen.line) ? '' : '.'}`,
+      // No baked date here: the page renders "Live since" itself, in the
+      // reader's own calendar via `LocalDate` — the same component the
+      // Timeline uses — off `at` below. A formatted-here date would be UTC
+      // (`formatStamp`'s job) and could read a different calendar day than
+      // the Timeline for the same instant (2026-10-03, FE-392: "Live since
+      // 03 Oct 2026, 01:27 UTC" beside a Timeline reading "2 Oct").
+      sentence: `in ${name}. ${seen.line}${/[.!?]$/.test(seen.line) ? '' : '.'}`,
       seen,
       releaseId: shipped.r.id,
       at: shipped.at,
