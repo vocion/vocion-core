@@ -38,6 +38,17 @@ describe('reading a name', () => {
 
     expect(await readRecordName({ orgId: 'org_northwind', text: ASK }, broken)).toBeNull();
   });
+
+  it('reads once more when the first name is over the limit, told its length', async () => {
+    const invoke = vi.fn()
+      .mockResolvedValueOnce({ tool_calls: [{ name: 'name_record', args: { name: 'Sort the library by name, upload date or last opened, remembered' } }] })
+      .mockResolvedValueOnce({ tool_calls: [{ name: 'name_record', args: { name: 'Sort the library by name, date or last opened' } }] });
+    const model = { bindTools: vi.fn(() => ({ invoke })) } as never;
+
+    expect(await readRecordName({ orgId: 'org_northwind', text: ASK }, model)).toBe('Sort the library by name, date or last opened');
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify((invoke.mock.calls[1] as unknown[])[0])).toContain('characters');
+  });
 });
 
 describe('the name a surface shows', () => {

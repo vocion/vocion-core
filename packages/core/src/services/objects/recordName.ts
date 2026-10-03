@@ -50,18 +50,33 @@ export async function readRecordName(input: { orgId: string; text: string; kind?
       return buildChatModelForOrg('classifier', input.orgId, { temperature: 0, streaming: false, maxTokens: 120 }) as Promise<Model>;
     })();
     const report = tool(async () => 'recorded', { name: 'name_record', description: 'Name the work.', schema: RecordNameSchema as never });
-    const res = await m.bindTools!([report], { tool_choice: 'name_record' } as never).invoke([
+    const bound = m.bindTools!([report], { tool_choice: 'name_record' } as never);
+    const messages: unknown[] = [
       new SystemMessage(SYSTEM),
       new HumanMessage(`${input.kind ? `A ${input.kind}. ` : ''}The ask:\n${text.slice(0, 4_000)}`),
-    ]) as { tool_calls?: Array<{ name: string; args: unknown }> };
-    if (!model) {
-      const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
-      const { FEATURES } = await import('@/libs/Langfuse/features');
-      await chargeModelCall({ orgId: input.orgId, feature: FEATURES.RECORD_NAME, role: 'classifier', response: res as never }).catch(() => undefined);
+    ];
+    // One more read when the first answer is not a name (most often one a few
+    // characters over the limit), told what was wrong with it; then the reason
+    // is logged and the surface shows the title.
+    let reason = 'no name_record call';
+    for (let pass = 0; pass < 2; pass++) {
+      const res = await bound.invoke(messages as never) as { tool_calls?: Array<{ name: string; args: unknown }> };
+      if (!model) {
+        const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+        const { FEATURES } = await import('@/libs/Langfuse/features');
+        await chargeModelCall({ orgId: input.orgId, feature: FEATURES.RECORD_NAME, role: 'classifier', response: res as never }).catch(() => undefined);
+      }
+      const call = (res.tool_calls ?? []).find(c => c.name === 'name_record');
+      const parsed = call ? RecordNameSchema.safeParse(call.args) : null;
+      if (parsed?.success) {
+        return parsed.data.name.replace(/\s+/g, ' ').trim();
+      }
+      const given = call && typeof (call.args as { name?: unknown }).name === 'string' ? (call.args as { name: string }).name : null;
+      reason = given === null ? 'no name_record call' : `"${given}" is ${given.length} characters`;
+      messages.push(new HumanMessage(`${given === null ? 'Answer through name_record.' : `"${given}" is ${given.length} characters.`} The name must be 2 to 9 words and at most ${NAME_MAX} characters. Try again, shorter.`));
     }
-    const call = (res.tool_calls ?? []).find(c => c.name === 'name_record');
-    const parsed = call ? RecordNameSchema.safeParse(call.args) : null;
-    return parsed?.success ? parsed.data.name.replace(/\s+/g, ' ').trim() : null;
+    console.warn('record name: no usable name', { orgId: input.orgId, reason });
+    return null;
   } catch (err) {
     console.warn('record name: the read failed', { orgId: input.orgId, message: (err as Error).message });
     return null;
