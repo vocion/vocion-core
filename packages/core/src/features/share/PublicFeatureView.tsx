@@ -18,7 +18,7 @@ import { PublicTimeline } from './PublicTimeline';
 export function slidesOf(media: readonly PublicSlide[]): MediaSlide[] {
   return media.map((m, i) => (m.kind === 'image'
     ? { id: i + 1, src: m.src, label: m.label, title: m.alt, caption: m.caption }
-    : { id: i + 1, src: m.src, label: m.label, title: m.caption, caption: m.caption, kind: m.kind, type: m.type }));
+    : { id: i + 1, src: m.src, label: m.label, title: m.caption, caption: m.caption, kind: m.kind, type: m.type, ...(m.posterAt !== undefined ? { posterAt: m.posterAt } : {}) }));
 }
 
 /**

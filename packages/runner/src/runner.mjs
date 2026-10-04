@@ -33,7 +33,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor, taskShotsDir } from './contract.mjs';
-import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown } from './events.mjs';
+import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown, usageFromMessages } from './events.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
@@ -991,6 +991,17 @@ function runClaude(task, runId, opts = {}) {
           cacheReadTokens: usage.cache_read_input_tokens || 0,
           cents: Math.round(costUsd * 100),
         });
+      } else if (!result) {
+        // KILLED BEFORE ITS RESULT LINE (walk 20, FE-436): the wall clock or a stop ended the
+        // process and no cost was ever printed, so the run read $0 after forty minutes of Opus.
+        // Every assistant message carried its own usage; that sum is reported, and Vocion prices
+        // it (the runner holds no price list), so the spend is on the run and the feature.
+        const seen = usageFromMessages(messages);
+        if (seen && seen.model) {
+          state.model = state.model || seen.model;
+          state.pendingUsage = withUsage(state.pendingUsage, { model: seen.model, inputTokens: seen.inputTokens, outputTokens: seen.outputTokens, cacheReadTokens: seen.cacheReadTokens });
+          log('claude.usage_from_stream', { model: seen.model, input_tokens: seen.inputTokens, output_tokens: seen.outputTokens, note: 'no result line; usage summed from the assistant messages, priced by Vocion' });
+        }
       }
       log(label === 'engineer' ? 'claude.finished' : 'repair.claude.finished', {
         pass: label === 'engineer' ? undefined : label,

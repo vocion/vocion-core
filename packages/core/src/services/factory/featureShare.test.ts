@@ -3,7 +3,7 @@ import type { PublicFeatureInput, SharedArtifact } from './featureShare';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BUILDER } from '@/libs/factory/featureGlance';
 import { assembleFeatureReport } from './featureReport';
-import { publicFeaturePage, publicSteps, scrub, serveVia, shareCard, sharedPictures, shippedEvidence, shortSpan, STEP_SENTENCE, walkthroughOf } from './featureShare';
+import { posterAt, publicFeaturePage, publicSteps, scrub, serveVia, shareCard, sharedPictures, shippedEvidence, shortSpan, STEP_SENTENCE, walkthroughOf } from './featureShare';
 
 /**
  * A FEATURE'S PUBLIC PAGE (Chris, 2026-10-03): the ask and who asked, what it
@@ -332,6 +332,23 @@ describe('the words that leave the workspace', () => {
     expect(steps[3]!.sentence).toBe('Could not check live: the QA environment cannot show it (the QA account has no team library); 6 lines could not be seen. Fix the environment\'s live setup, then Check live again.');
     // Far apart, the clock rules; a live row without its own words keeps the fixed sentence.
     expect(publicSteps([row('merge', '2026-10-04T15:40:00Z'), row('review', '2026-10-04T15:50:00Z'), row('live', '2026-10-04T16:00:00Z', { title: '' })], null).map(s => [s.step, s.sentence])).toEqual([['Merged', STEP_SENTENCE.Merged], ['QA approved', STEP_SENTENCE['QA approved']], ['Seen live', STEP_SENTENCE['Seen live']]]);
+  });
+
+  it('lets a failed attempt speak in its own words, not the fixed sentence (walk 20)', () => {
+    const row = (kind: HistoryRow['kind'], at: string, over: Partial<HistoryRow> = {}): HistoryRow => ({ key: `${kind}-${at}`, kind, title: kind, code: null, at, tone: 'ok', cents: null, open: null, href: null, live: false, ...over });
+    const steps = publicSteps([row('build', '2026-10-04T17:30:00Z', { tone: 'bad', title: 'Attempt 1 of 2 · ran out of time; its work was kept for the next attempt' }), row('build', '2026-10-04T17:50:00Z', { title: 'Attempt 2 of 2 · built' })], null);
+
+    expect(steps.map(s => [s.step, s.sentence])).toEqual([['A build attempt failed', 'Attempt 1 of 2 · ran out of time; its work was kept for the next attempt.'], ['Built', STEP_SENTENCE.Built]]);
+  });
+
+  it('takes the preview frame at the first spoken line, never the blank first frame (walk 20)', () => {
+    expect(posterAt({ script: [{ atMs: 15146, text: 'later' }, { atMs: 4443, text: 'first' }] })).toBe(4.443);
+    expect(posterAt({})).toBeNull();
+
+    const demo = video(9, 'feature-demo-narrated', '2026-10-04T18:09:00Z', { spec: { contentType: 'video/mp4', caption: 'demo', script: [{ atMs: 4443, text: 'I open my library.' }] } });
+    const page = publicFeaturePage(input({ recordings: [demo] }));
+
+    expect(page.media[0]).toMatchObject({ kind: 'video', posterAt: 4.443 });
   });
 
   it('starts the timeline at the ask even when nothing else happened', () => {
