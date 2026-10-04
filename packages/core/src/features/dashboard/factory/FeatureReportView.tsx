@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { MediaSlide } from './MediaCarousel';
 import type { DotTone } from '@/components/patterns';
 import type { RecordStatus } from '@/libs/factory/liveStatus';
 import type { RelatedItem } from '@/libs/workspace/related';
@@ -8,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { Related, Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { heroPictures } from '@/libs/factory/heroPictures';
 import { showsAnError } from '@/libs/factory/mockup';
 import { prNumberLabel } from '@/libs/factory/runTitle';
 import { liveTopic } from '@/libs/live/topics';
@@ -19,7 +21,6 @@ import { FeatureDrawerLink } from './FeatureDrawerLink';
 import { FeatureTimeline } from './FeatureTimeline';
 import { LocalDate } from './LocalDate';
 import { MediaCarousel } from './MediaCarousel';
-import { RecordingPlayer } from './RecordingPlayer';
 import { WorkStatus } from './WorkStatus';
 
 /**
@@ -111,8 +112,27 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
  * @param props.pictures - The pictures, ranked.
  * @param props.docs - Mockups that are documents rather than pictures.
  * @param props.mockupStatus
+ * @param props.recordings
+ * @param props.acceptance
  */
-function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[]; docs: ReportEvidence[]; mockupStatus?: FeatureReport['mockupStatus'] }) {
+function HeroMedia({ pictures, docs, mockupStatus, recordings, acceptance }: { pictures: ReportEvidence[]; docs: ReportEvidence[]; mockupStatus?: FeatureReport['mockupStatus']; recordings?: FeatureReport['recordings']; acceptance?: FeatureReport['acceptance'] }) {
+  // THE RECORDINGS LEAD (Chris, 2026-10-04: "missing the video on this
+  // feature page carousel"): the feature demo, then the demo recorded from
+  // the branch before merge, then QA's live check — each the narrated
+  // version when QA narrated it — as video slides at the front of the one
+  // carousel. Then the pictures that show the feature works: the ones QA
+  // cited for each acceptance line (`heroPictures`); a swipe through twenty
+  // near-identical QA shots buried the demo under them (FE-441, 21 slides).
+  // Every other shot stays with the criteria below.
+  const videos: MediaSlide[] = ([
+    recordings?.demo ? { key: 'demo', label: 'Feature demo', r: recordings.demo } : null,
+    recordings?.preview ? { key: 'preview', label: 'Feature demo, before merge', r: recordings.preview } : null,
+    recordings?.live ? { key: 'live', label: 'Live check', r: recordings.live } : null,
+  ].filter(x => x !== null)).map(({ label, r }) => {
+    const v = r.narrated ?? r;
+    return { id: v.artifactId, kind: 'video' as const, src: v.url, type: v.contentType, label, title: v.caption, caption: null, ...(v.posterAt !== null ? { posterAt: v.posterAt } : {}) };
+  });
+  const shown = heroPictures(pictures, [...(acceptance?.items ?? []), ...(acceptance?.risks ?? [])]);
   // Where the default mockup stands, said where it would be: drawing, or why
   // it drew nothing (`visuals.mockupDraw`).
   // A failure line never stands over pictures of the change: the page is not
@@ -124,7 +144,7 @@ function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[
         </p>
       )
     : null;
-  if (pictures.length === 0) {
+  if (pictures.length === 0 && videos.length === 0) {
     return (
       <div id="report-visuals" data-section="visuals" className="space-y-4">
         {docs.length > 0
@@ -141,7 +161,7 @@ function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[
   const word = (e: ReportEvidence) => e.section ?? (e.role === 'today' ? 'Today' : ROLE_WORD[e.role] ?? e.role);
   return (
     <div id="report-visuals" data-section="visuals" className="space-y-4">
-      <MediaCarousel slides={pictures.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption, source: p.source ?? null }))} />
+      <MediaCarousel slides={[...videos, ...shown.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption, source: p.source ?? null }))]} />
       {status}
       {docs.length > 0 && <Gallery items={docs} />}
     </div>
@@ -493,8 +513,6 @@ function OutcomeBlock({ report }: { report: FeatureReport }) {
             )}
       </div>
 
-      <RecordingsRow recordings={report.recordings} />
-
       {attempt?.prUrl && (
         <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground" data-testid="report-shipped-pr">
           <a href={attempt.prUrl} target="_blank" rel="noreferrer" className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground">
@@ -506,48 +524,6 @@ function OutcomeBlock({ report }: { report: FeatureReport }) {
         </p>
       )}
     </Section>
-  );
-}
-
-/**
- * RECORDINGS (Chris, 2026-10-03): the newest recording of QA on the live
- * product and the newest of the engineer's own browser tests before merge,
- * each a native player that loads only its first frame until pressed, with a
- * Recording | Narrated switch when the seat narrated it (`RecordingPlayer`).
- * A phone-sized recording keeps its shape inside the column; nothing is drawn
- * when neither was kept. The player is Vocion's own, always (Chris,
- * 2026-10-03: one player on every page).
- * @param props
- * @param props.recordings - The report's recordings.
- */
-function RecordingsRow({ recordings }: { recordings: FeatureReport['recordings'] }) {
-  // The demo first (Chris, 2026-10-03: the happy path, end to end, for a product manager), then QA's check, then the tests.
-  const items = [
-    recordings?.demo ? { key: 'demo', label: 'Feature demo', r: recordings.demo } : null,
-    // The demo recorded from the branch before merge (backlog 058): what the merge was approved on.
-    recordings?.preview ? { key: 'preview', label: 'Feature demo, before merge', r: recordings.preview } : null,
-    recordings?.live ? { key: 'live', label: 'Live check', r: recordings.live } : null,
-    recordings?.qa ? { key: 'qa', label: 'Before merge', r: recordings.qa } : null,
-  ].filter(x => x !== null);
-  if (items.length === 0) {
-    return null;
-  }
-  return (
-    <div className="mt-4 min-w-0" data-testid="report-recordings">
-      <p className="text-[12px] text-muted-foreground">Recordings</p>
-      <div className="mt-1 grid min-w-0 gap-3 sm:grid-cols-2">
-        {items.map(({ key, label, r }) => (
-          <figure key={key} className="m-0 min-w-0" data-testid={`report-recording-${key}`}>
-            <RecordingPlayer label={label} recording={r} />
-            <figcaption className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">
-              <span className="text-foreground">{label}</span>
-              {` · ${r.caption} · `}
-              <LocalDate at={r.at} />
-            </figcaption>
-          </figure>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -659,7 +635,7 @@ export function FeatureReportView({ report, status, related = [] }: { report: Fe
       </div>
 
       {/* 3. WHAT IT LOOKS LIKE — the gallery, as it was. */}
-      <HeroMedia pictures={pictures} docs={docs} mockupStatus={report.mockupStatus} />
+      <HeroMedia pictures={pictures} docs={docs} mockupStatus={report.mockupStatus} recordings={report.recordings} acceptance={report.acceptance} />
 
       {/* 3. DID IT WORK? 4. TIMELINE — one question each. */}
       <div>

@@ -224,9 +224,13 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
               }}
               aria-label={`${s.kind === 'video' ? 'Play' : 'Open'} ${s.caption ?? s.title} full screen`}
               data-testid="report-slide"
-              className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
+              className="relative flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
             >
               <SlidePreview slide={s} eager={i === 0} />
+              {/* WHAT KIND OF PICTURE (Chris, 2026-10-04: "chips for QA, demo or
+                  mock on the overlays"): the slide's section, in its corner,
+                  so a swipe through twenty pictures never loses what each is. */}
+              <span data-testid="report-slide-chip" className="pointer-events-none absolute top-3 left-3 rounded-full bg-[#09090b]/75 px-2 py-0.5 text-[11px] font-semibold tracking-[0.06em] text-white uppercase backdrop-blur-sm">{s.label}</span>
             </button>
           ))}
         </div>
@@ -352,6 +356,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
     <div role="dialog" aria-modal="true" aria-label={current.caption ?? current.title} data-testid="report-lightbox" className="fixed inset-0 z-[100] flex flex-col bg-[#09090b] text-white">
       <div className="flex h-14 shrink-0 items-center gap-3 px-3 pt-[env(safe-area-inset-top)]">
         <span className="font-mono text-xs tabular-nums opacity-70">{`${idx + 1} / ${slides.length}`}</span>
+        <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold tracking-[0.06em] uppercase" data-testid="report-lightbox-chip">{current.label}</span>
         <span className="min-w-0 flex-1 truncate text-sm">{current.title}</span>
         <Tooltip>
           <TooltipTrigger asChild>

@@ -931,13 +931,26 @@ export type ReportRecording = {
   contentType: string;
   caption: string;
   at: Date;
+  /** The second the first line is said, for the frame shown before play; null when it carries no script. */
+  posterAt: number | null;
   /**
    * Its second pass with the seat's avatar and voiceover, when one was made
    * (`services/artifacts/narrate.ts`, role `<role>-narrated`, `spec.narratedFrom`
-   * naming this recording). The page offers Recording | Narrated then.
+   * naming this recording). The page plays it in the recording's place.
    */
-  narrated: { artifactId: number; url: string; contentType: string; caption: string; at: Date } | null;
+  narrated: { artifactId: number; url: string; contentType: string; caption: string; at: Date; posterAt: number | null } | null;
 };
+
+/**
+ * When a recording's first said line starts, in seconds (`spec.script` as the
+ * narration placed it), or null when there is no script.
+ * @param spec - The recording's spec.
+ */
+export function firstLineAt(spec: Record<string, unknown> | null | undefined): number | null {
+  const script = Array.isArray(spec?.script) ? spec.script as Array<{ atMs?: unknown }> : [];
+  const first = script.map(l => Number(l.atMs)).filter(n => Number.isFinite(n) && n >= 0).sort((a, b) => a - b)[0];
+  return first === undefined ? null : Math.round(first) / 1000;
+}
 export type ReportRecordings = { demo: ReportRecording | null; preview: ReportRecording | null; live: ReportRecording | null; qa: ReportRecording | null };
 
 /** The roles a recording is filed under: the feature demo's (live), the demo from the branch before merge, the live check's, and the engineer's own tests'. */
@@ -975,8 +988,9 @@ export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecord
       contentType: str(top.a.spec, 'contentType') ?? 'video/webm',
       caption: str(top.a.spec, 'caption') ?? top.a.title,
       at: top.a.createdAt,
+      posterAt: firstLineAt(top.a.spec as Record<string, unknown> | null),
       narrated: narration
-        ? { artifactId: narration.a.id, url: narration.url, contentType: str(narration.a.spec, 'contentType') ?? 'video/mp4', caption: str(narration.a.spec, 'caption') ?? narration.a.title, at: narration.a.createdAt }
+        ? { artifactId: narration.a.id, url: narration.url, contentType: str(narration.a.spec, 'contentType') ?? 'video/mp4', caption: str(narration.a.spec, 'caption') ?? narration.a.title, at: narration.a.createdAt, posterAt: firstLineAt(narration.a.spec as Record<string, unknown> | null) }
         : null,
     };
   };

@@ -283,60 +283,46 @@ describe('the feature page, in the order a product owner reads it', () => {
   });
 
   // Chris, 2026-10-03: the recordings of QA's runs live on the feature.
-  it('draws no Recordings row when nothing was recorded', async () => {
+  // Chris, 2026-10-04: "missing the video on this feature page carousel" — they lead it.
+  it('draws no video when nothing was recorded', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
-    expect(document.querySelector('[data-testid="report-recordings"]')).toBeNull();
     expect(document.querySelector('video')).toBeNull();
   });
 
-  it('plays the newest live-check and pre-merge recordings under "Did it work?", phone-wide without scrolling sideways', async () => {
+  it('leads the carousel with the live check as a video slide, phone-wide without scrolling sideways', async () => {
     await page.viewport(390, 844);
     const recording = (id: number, role: string, recordId: string, caption: string, at: string) => ({ id, kind: 'file', title: caption, recordType: 'object', recordId, recordRole: role, spec: { url: `/api/media/${recordId}/rec-${id}000000000000000.webm`, contentType: 'video/webm', caption }, url: `/api/media/${recordId}/rec-${id}000000000000000.webm`, createdAt: T(at) });
     await draw(fixture({ artifacts: [
       recording(1, 'qa-live-video', '41', 'Live check of REL-9, 2026-09-20', '2026-09-20T09:00:00Z'),
       recording(2, 'qa-video', '77', 'share menu offers pdf · desktop · before merge', '2026-09-04T11:00:00Z'),
-      recording(3, 'qa-video', '41', 'share menu offers pdf · desktop · before merge', '2026-09-04T11:00:00Z'),
     ] }));
 
-    const row = document.querySelector('#report-outcome [data-testid="report-recordings"]')!;
+    const slides = [...document.querySelectorAll('[data-testid="report-slide"]')];
 
-    expect(row).not.toBeNull();
-
-    const players = [...row.querySelectorAll('video')];
-
-    expect(players).toHaveLength(2);
-    expect(players.every(v => v.controls && v.preload === 'metadata')).toBe(true);
-    expect(row.querySelector('[data-testid="report-recording-live"]')!.textContent).toContain('Live check of REL-9, 2026-09-20');
-    expect(row.querySelector('[data-testid="report-recording-live"] time')).not.toBeNull();
-    expect(row.querySelector('[data-testid="report-recording-qa"]')!.textContent).toContain('Before merge');
+    expect(slides.length).toBeGreaterThan(0);
+    // The recording is the first slide, drawn as its first frame under a play mark, with its chip.
+    expect(slides[0]!.querySelector('[data-testid="report-slide-video"] video')).not.toBeNull();
+    expect(slides[0]!.querySelector('[data-testid="report-slide-chip"]')!.textContent).toBe('Live check');
+    expect(document.querySelector('[data-testid="report-slide-caption"]')!.textContent).toContain('Live check of REL-9, 2026-09-20');
+    // The tests' own per-flow recordings are not hero material.
+    expect(slides.filter(s => s.querySelector('video'))).toHaveLength(1);
+    // Nothing else on the page plays it a second time.
+    expect(document.querySelector('[data-testid="report-recordings"]')).toBeNull();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
-    // No narration was made: no switch.
-    expect(row.querySelector('[data-testid="recording-switch"]')).toBeNull();
   });
 
-  // Chris, 2026-10-03: QA's narrated second pass, beside the recording it narrates.
-  it('offers Recording | Narrated when the recording was narrated, playing one at a time, phone-wide', async () => {
+  it('plays the narrated version in the recording\'s place when QA narrated it', async () => {
     await page.viewport(390, 844);
     const live = { id: 1, kind: 'file', title: 'Live check of REL-9, 2026-09-20', recordType: 'object', recordId: '41', recordRole: 'qa-live-video', spec: { url: '/api/media/9/live-check-desktop-1-0000000000000001.webm', contentType: 'video/webm', caption: 'Live check of REL-9, 2026-09-20' }, url: '/api/media/9/live-check-desktop-1-0000000000000001.webm', createdAt: T('2026-09-20T09:00:00Z') };
-    const narrated = { id: 2, kind: 'file', title: 'Narrated: Live check of REL-9, 2026-09-20', recordType: 'object', recordId: '41', recordRole: 'qa-live-video-narrated', spec: { url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', contentType: 'video/mp4', caption: 'Live check of REL-9, 2026-09-20 · narrated by QA', narratedFrom: 1 }, url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', createdAt: T('2026-09-20T09:05:00Z') };
+    const narrated = { id: 2, kind: 'file', title: 'Narrated: Live check of REL-9, 2026-09-20', recordType: 'object', recordId: '41', recordRole: 'qa-live-video-narrated', spec: { url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', contentType: 'video/mp4', caption: 'Live check of REL-9, 2026-09-20 · narrated by QA', narratedFrom: 1, script: [{ atMs: 1_800, text: 'I open the room.' }] }, url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', createdAt: T('2026-09-20T09:05:00Z') };
     await draw(fixture({ artifacts: [live, narrated] }));
 
-    const figure = document.querySelector('[data-testid="report-recording-live"]')!;
-    const tabs = [...figure.querySelectorAll('[role="tab"]')];
+    const first = document.querySelector('[data-testid="report-slide"] [data-testid="report-slide-video"] video')!;
 
-    expect(tabs.map(t => t.textContent)).toEqual(['Recording', 'Narrated']);
-    expect(figure.querySelectorAll('video')).toHaveLength(1);
-    expect(figure.querySelector('video source')!.getAttribute('src')).toBe(live.url);
-
-    await page.getByRole('tab', { name: 'Narrated' }).click();
-
-    await expect.element(page.getByTestId('recording-player-narrated')).toBeInTheDocument();
-
-    expect(figure.querySelectorAll('video')).toHaveLength(1);
-    expect(figure.querySelector('video source')!.getAttribute('src')).toBe(narrated.url);
-    expect(figure.querySelector('video source')!.getAttribute('type')).toBe('video/mp4');
+    expect(first.getAttribute('src')).toBe(`${narrated.url}#t=1.8`);
+    expect(document.querySelector('[data-testid="report-slide-caption"]')!.textContent).toContain('narrated by QA');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 });
