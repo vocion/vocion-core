@@ -27,6 +27,7 @@
  * until the new path is verified end-to-end against existing flows.
  */
 
+import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { SubAgent } from 'deepagents';
 import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
@@ -246,6 +247,8 @@ type AgentBlueprint = {
   filingTypes?: FilingType[];
   /** The agent's `rest` sources with their declared endpoints (`tools/restDirect.ts`). */
   restSources?: RestSourceSpec[];
+  /** The tools this agent keeps loaded; the rest are found by tool search (`toolTiers.ts`). Null defers nothing. */
+  hotTools?: string[] | null;
 };
 
 /**
@@ -480,14 +483,18 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   // whether a Turbopack production build tolerates it too, so the gate stays.
   // With nothing mounted the middleware buys nothing; bodies still mount via
   // initialFiles for the file tools.
-  const [playbookCount] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(playbookSchema)
-    .where(eq(playbookSchema.orgId, orgId));
+  const { hotToolNames } = await import('./toolTiers');
+  const [[playbookCount], hotTools] = await Promise.all([
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(playbookSchema)
+      .where(eq(playbookSchema.orgId, orgId)),
+    hotToolNames(orgId, agentSlug),
+  ]);
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
-  return { ...definition, model, hasMounts };
+  return { ...definition, model, hasMounts, hotTools };
 }
 
 /**
@@ -575,7 +582,12 @@ export async function compileAgentForRequest(
   // reaches the model's catalog, so the agent can't even offer it (vs.
   // `interrupts`, which keeps the tool but gates execution).
   const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
-  const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
+  const domainTools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
+  const tools = await tieredTools(blueprint, ctx, domainTools);
+  // Deferred tools are invisible until searched for: without this line the
+  // model told a person it could not make an image while generate_image sat
+  // behind the search (live test, 2026-10-04). Stable per agent, so cached.
+  const deferring = tools.length > domainTools.length;
   // Specialists answer with the SAME tool surface as the lead, on this
   // request's context — a delegate must not read more than the person who
   // asked.
@@ -591,7 +603,7 @@ export async function compileAgentForRequest(
     // it a SECOND system message once the middleware prepends its own, which
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
-    systemPrompt: blueprint.systemPrompt,
+    systemPrompt: deferring ? `${blueprint.systemPrompt ?? ''}\n\nYou have more tools than the ones listed: search for one with tool_search_tool_bm25 before saying you cannot do something.` : blueprint.systemPrompt,
     // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
     // Store over Postgres, so an agent's file reads there see the org's full
     // approved memory across threads. Writes under /memories/ are refused —
@@ -612,6 +624,35 @@ export async function compileAgentForRequest(
   });
 
   return { graph, agentRow: blueprint.agentRow, ctx };
+}
+
+/**
+ * The turn's tools as the model will read them (`toolTiers.ts`): on the
+ * direct Anthropic API, the ones this agent uses stay loaded — with whatever
+ * it was granted by name — and the rest wait behind tool search. Any other
+ * provider, an agent with no history yet, or `harness.toolSearch: false`
+ * carries every tool in full, as before.
+ * @param blueprint - The agent's cached parts.
+ * @param ctx - This request's context.
+ * @param tools - The turn's tools.
+ */
+async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBlueprint, ctx: RuntimeContext, tools: T[]): Promise<T[]> {
+  const harness = ctx.harnessConfig as { toolSearch?: boolean; grantTools?: string[] };
+  if (!blueprint.hotTools?.length || harness.toolSearch === false) {
+    return tools;
+  }
+  const { ChatAnthropic } = await import('@langchain/anthropic');
+  if (!(blueprint.model instanceof ChatAnthropic)) {
+    return tools;
+  }
+  const { TOOL_SEARCH, deferColdTools } = await import('./toolTiers');
+  const keep = new Set([...blueprint.hotTools, ...(harness.grantTools ?? [])]);
+  if (tools.every(t => keep.has(t.name))) {
+    return tools;
+  }
+  // Anthropic runs the search itself; this entry only puts it in the request.
+  const search = makeTool(async () => '', { name: TOOL_SEARCH.name, description: 'Server-side tool search.', schema: z.object({}), extras: { providerToolDefinition: TOOL_SEARCH } }) as unknown as T;
+  return deferColdTools(tools, keep, search);
 }
 
 /**
