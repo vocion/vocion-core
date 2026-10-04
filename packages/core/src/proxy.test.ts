@@ -107,14 +107,14 @@ describe('a canonical /w/<slug>/… URL', () => {
     });
 
     it('opens the one on the account a cross-account switch named, and makes it last active', async () => {
-      const res = await proxy(request('/w/vocion-workforce/dashboard?account=contoso', { cookie: 'proj-revenue' }));
+      const res = await proxy(request('/w/vocion-workforce/dashboard/inbox?account=contoso', { cookie: 'proj-revenue' }));
 
       expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
       expect(res.cookies.get('vocion_active_project')?.value).toBe('proj-contoso-workforce');
     });
 
     it('stays on the account the person is already in when the link names none', async () => {
-      const res = await proxy(request('/w/vocion-workforce/dashboard', { cookie: 'proj-contoso-revenue' }));
+      const res = await proxy(request('/w/vocion-workforce/dashboard/inbox', { cookie: 'proj-contoso-revenue' }));
 
       expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
     });
@@ -135,6 +135,46 @@ describe('a canonical /w/<slug>/… URL', () => {
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('https://agents.example.com/sign-in?callbackUrl=https%3A%2F%2Fagents.example.com%2Fw%2Fvocion-workforce%2Fdashboard%2Finbox');
     expect(mockResolve).not.toHaveBeenCalled();
+  });
+});
+
+describe('the front door', () => {
+  it('sends a signed-in reader from / to the workspace home in one redirect', async () => {
+    for (const start of ['/', '/dashboard', '/dashboard/', '/w/vocion-workforce', '/w/vocion-workforce/dashboard']) {
+      const res = await proxy(request(start));
+
+      expect(res.status, start).toBe(307);
+      expect(res.headers.get('location'), start).toBe('https://agents.example.com/w/vocion-workforce/dashboard/chat');
+    }
+  });
+
+  it('keeps a non-default locale and a cross-account switch on the way in', async () => {
+    await expect(proxy(request('/fr')).then(r => r.headers.get('location')))
+      .resolves
+      .toBe('https://agents.example.com/fr/w/vocion-workforce/dashboard/chat');
+    await expect(proxy(request('/fr/w/vocion-workforce/dashboard')).then(r => r.headers.get('location')))
+      .resolves
+      .toBe('https://agents.example.com/fr/w/vocion-workforce/dashboard/chat');
+    await expect(proxy(request('/w/vocion-workforce/dashboard?account=metacto')).then(r => r.headers.get('location')))
+      .resolves
+      .toBe('https://agents.example.com/w/vocion-workforce/dashboard/chat?account=metacto');
+  });
+
+  it('sends a signed-out reader at / straight to sign-in', async () => {
+    mockAuth.mockResolvedValue(null as never);
+
+    const res = await proxy(request('/'));
+
+    expect(res.headers.get('location')).toBe('https://agents.example.com/sign-in?callbackUrl=https%3A%2F%2Fagents.example.com%2F');
+  });
+
+  it('leaves / to the page when the person has no workspace yet', async () => {
+    mockActive.mockResolvedValue(null);
+
+    const res = await proxy(request('/'));
+
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.headers.get('x-i18n')).toBe('handled');
   });
 });
 
@@ -239,6 +279,8 @@ describe('the chain a signed-in reader actually walks', () => {
 
   it('settles every other shape a reader can arrive by, and settles it quickly', async () => {
     for (const start of [
+      '/',
+      '/w/vocion-workforce/dashboard',
       '/w/vocion-workforce/dashboard/inbox',
       '/dashboard/p/factory?tab=runs',
       '/en/dashboard/p/factory',

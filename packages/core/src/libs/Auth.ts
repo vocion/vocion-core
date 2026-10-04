@@ -5,10 +5,21 @@ import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
+import { cache } from 'react';
 import { z } from 'zod';
 import { authAccountSchema, sessionSchema, userSchema, verificationTokenSchema } from '@/models/Schema';
 import { db } from './DB';
 import { resolveTenancyForUser } from './tenancy';
+
+/**
+ * The session read's tenancy, resolved once per server render. A dashboard
+ * page reads the session in the proxy, the layouts, the shell and the page,
+ * and each read resolved the workspace again against the database. Within one
+ * render the URL header, Referer and cookie it decides from cannot change.
+ * Outside a render (route handlers, scripts) `cache` memoises nothing and
+ * this is the plain call.
+ */
+const tenancyForRender = cache(resolveTenancyForUser);
 
 /**
  * auth.js (next-auth v5) configuration. This is the default auth backend
@@ -136,7 +147,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       // Resolve tenancy on every session read so the vocion_active_project
       // cookie is authoritative — no JWT rotation dance needed on switch.
       if (typeof token.id === 'string') {
-        const tenancy = await resolveTenancyForUser(token.id);
+        const tenancy = await tenancyForRender(token.id);
         session.user.accountId = tenancy.accountId;
         session.user.projectId = tenancy.projectId;
         session.user.role = tenancy.role;

@@ -27,6 +27,13 @@ import { routing } from '@/libs/I18nRouting';
 /** Top-level segments a `/w/<slug>/…` path may name directly. Anything else is taken as a page under `/dashboard`. */
 export const WORKSPACE_ROOT_SEGMENTS: readonly string[] = ['dashboard', ...SURFACE_PATH_SEGMENTS];
 
+/**
+ * The page a workspace opens on. `/dashboard` itself has nothing to show and
+ * redirects here; the proxy sends `/`, `/dashboard` and `/w/<slug>/dashboard`
+ * straight to it, so opening the app costs one redirect, not four.
+ */
+export const DASHBOARD_HOME = '/dashboard/chat';
+
 /** The segment the workspace entry route lives under. Reserved: no project slug may be `w`. */
 export const WORKSPACE_ENTRY_SEGMENT = 'w';
 
