@@ -132,10 +132,13 @@ describe('the agent proposing a candidate', () => {
 
   it('offers objects.propose_candidate among the actions it can propose', async () => {
     const tool = proposeActionTool(runtimeContext());
+    const { actionCatalog } = await import('@/libs/actions/registry');
 
-    // The description is what the model reads to pick an action, so the
-    // action being registered is not enough — it has to be listed here.
-    expect(tool.description).toContain('objects.propose_candidate');
+    // The model picks an action from the ACTIONS list in its instructions
+    // (stated once, not in each tool), so registering it is not enough: it
+    // has to be listed there, and the tool has to point at it.
+    expect(actionCatalog()).toContain('objects.propose_candidate');
+    expect(tool.description).toContain('listed under ACTIONS in your instructions');
   });
 
   it('lands one pending queue item and one candidate row, attributed to the agent', async () => {

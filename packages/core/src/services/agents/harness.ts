@@ -439,7 +439,15 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     voiceSection,
     'CITATIONS: tool output that carries a bracketed number — search_knowledge hits rendered as "[3] **title** [source]", and a briefing returned as "[4] Latest … briefing" — is a citable source. When a sentence states a fact you took from one, cite it inline with that number immediately after the claim, e.g. "He owns healthcare-IT at Kestrel [3]." Use the exact numbers you were given (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Not every sentence needs a marker — your own synthesis, judgement and sequencing do not. But ANY concrete claim about the reader\'s world does: a meeting and its time, a dollar amount, a deal stage, a date, a person\'s name, how long something has been waiting. Those are the claims a reader needs to check, and an uncited one is indistinguishable from an invented one.',
   ].join(' ');
-  systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
+  // THE ACTIONS, ONCE (2026-10-04): recommend_action and propose_action each
+  // carried the whole registry — every id, description and input field,
+  // ~13k characters — in their own descriptions, so every model call paid
+  // for it twice. It is stated here once, cached with the prompt, and both
+  // tools point at it. An agent that holds neither tool carries none of it.
+  const heldTools = new Set(row.harnessConfig?.excludeTools ?? []);
+  const { actionCatalog } = await import('@/libs/actions/registry');
+  const ACTIONS = heldTools.has('recommend_action') && heldTools.has('propose_action') ? '' : actionCatalog();
+  systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE, ACTIONS].filter(Boolean).join('\n\n');
 
   // deepagents auto-injects a built-in `general-purpose` subagent whose prompt
   // is generic (DEFAULT_SUBAGENT_PROMPT — no answer-style rules). So when the
