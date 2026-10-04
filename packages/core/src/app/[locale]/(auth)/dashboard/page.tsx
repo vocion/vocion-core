@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
+import { DASHBOARD_HOME } from '@/libs/links';
 
 export default function DashboardPage() {
-  redirect('/dashboard/chat');
+  redirect(DASHBOARD_HOME);
 }

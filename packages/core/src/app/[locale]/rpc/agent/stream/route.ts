@@ -48,12 +48,28 @@ export async function POST(request: Request): Promise<Response> {
   if (!userId || !orgId) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
+  const body = await request.json();
+  // The reads that do not depend on who answers start now, together, and are
+  // awaited where they are used: before they ran one after another, and the
+  // first turn's routing read (a model call) waited behind all of them.
+  // `started` keeps a read that an early return never awaits from surfacing
+  // as an unhandled rejection; the await below still throws.
+  const started = <T>(promise: Promise<T>): Promise<T> => {
+    promise.catch(() => {});
+    return promise;
+  };
+  const conversationIdAsked = typeof body.conversation_id === 'number' ? body.conversation_id as number : null;
   // Per-user connection ACL: everything this member's chat retrieves is
   // constrained to their granted sources (restricted connections drop out).
-  const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
-  const allowedSourceSlugs = await allowedSourceSlugsForUser(orgId, userId);
-
-  const body = await request.json();
+  const allowedSourceSlugsRead = started(import('@/services/SourceAccessService').then(m => m.allowedSourceSlugsForUser(orgId, userId)));
+  const rosterRead = started(listAgents(orgId));
+  const leadRead = started(import('@/services/TeamService').then(m => m.getWorkspaceLead(orgId)));
+  const existingRead = started(conversationIdAsked !== null ? getConversation({ orgId, id: conversationIdAsked }) : Promise.resolve(null));
+  // The thread's log is read before this turn's message is appended below,
+  // so it is the history up to, not including, this turn.
+  const historyRead = started(conversationIdAsked !== null
+    ? Promise.all([listMessages({ orgId, conversationId: conversationIdAsked }), listAttachmentsByMessage({ orgId, conversationId: conversationIdAsked })])
+    : Promise.resolve(null));
   const message = body.message as string;
   // Where the person is when they ask (058): the everything-scoped dock off a
   // record page sends it; the model reads it under the message, the log
@@ -81,8 +97,7 @@ export async function POST(request: Request): Promise<Response> {
   // "there's no brief or proposal to review here" beside a page rendering one.
   // Grounding, not rendering: #378's rule that the rail never re-draws the
   // page is untouched.
-  const { buildGrounding } = await import('@/services/chat/grounding');
-  const grounding = await buildGrounding(orgId, pageContext);
+  const groundingRead = started(import('@/services/chat/grounding').then(m => m.buildGrounding(orgId, pageContext)));
   // What the turn OWES (0102): the composer's `@artifact` tag, sent as a typed
   // field so "did this turn produce an artifact" is a contract the harness
   // enforces rather than something the model decided while it was busy.
@@ -102,7 +117,7 @@ export async function POST(request: Request): Promise<Response> {
   // agent; absent, the lead answers as before.
   let agentSlug = body.agent_slug as string | undefined;
   let routing: import('@/services/agents/router').RoutingDecision | null = null;
-  const roster = await listAgents(orgId);
+  const roster = await rosterRead;
   if (!agentSlug || body.route === true) {
     const agents = roster;
     if (agents.length === 0) {
@@ -111,8 +126,7 @@ export async function POST(request: Request): Promise<Response> {
         { status: 404 },
       );
     }
-    const { getWorkspaceLead } = await import('@/services/TeamService');
-    const lead = await getWorkspaceLead(orgId);
+    const lead = await leadRead;
     if (body.route === true && typeof message === 'string' && message.trim()) {
       const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router
@@ -157,7 +171,7 @@ export async function POST(request: Request): Promise<Response> {
   const { readModelPrefs } = await import('@/libs/llm/modelPrefs');
   let modelPrefs = readModelPrefs(body);
   if (typeof conversationIdRaw === 'number') {
-    const existing = await getConversation({ orgId, id: conversationIdRaw });
+    const existing = await existingRead;
     conversationId = existing ? existing.id : null;
     if (existing && 'autonomy' in existing) {
       autonomy = readAutonomy((existing as { autonomy?: unknown }).autonomy);
@@ -209,10 +223,10 @@ export async function POST(request: Request): Promise<Response> {
   // its own UI ornaments echoed back.
   let conversationHistory = clientHistory;
   if (conversationId !== null) {
-    const [msgs, uploads] = await Promise.all([
-      listMessages({ orgId, conversationId }),
-      listAttachmentsByMessage({ orgId, conversationId }),
-    ]);
+    // A conversation created just above for this turn has no log yet.
+    const [msgs, uploads] = conversationId === conversationIdAsked && (await historyRead)
+      ? (await historyRead)!
+      : await Promise.all([listMessages({ orgId, conversationId }), listAttachmentsByMessage({ orgId, conversationId })]);
     // A past message that carried files says so in the replay — the names,
     // not the contents — so the agent asks rather than guesses.
     // Stamped with when each turn was sent, so the model can tell yesterday's
@@ -248,6 +262,8 @@ export async function POST(request: Request): Promise<Response> {
       void reflectOnCorrection({ orgId, agentSlug, userId, correction }).catch(() => {});
     }
   }
+
+  const [allowedSourceSlugs, grounding] = await Promise.all([allowedSourceSlugsRead, groundingRead]);
 
   const collector = conversationId !== null ? new RunCollector() : null;
   const encoder = new TextEncoder();

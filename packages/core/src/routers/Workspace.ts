@@ -349,26 +349,57 @@ export { workspaceFolderForProject, workspacePathForProject };
 let applying: Promise<unknown> | null = null;
 
 /**
+ * How long the drift banner reuses a reading of the folder. Reading it parses
+ * every file in the workspace and runs `git`, all synchronously, and the
+ * banner asks on every dashboard load — 200 ms on agents.metacto.com, during
+ * which the process served nothing else, so the page's other first calls
+ * waited behind it. The folder only moves on a deploy or an edit, and a banner
+ * that appears 15 seconds after the edit is still the banner.
+ */
+const FOLDER_READ_TTL_MS = 15_000;
+const folderReads = new Map<string, { at: number; loaded: ReturnType<typeof loadWorkspace>; writable: boolean; changedAt: Date | null }>();
+
+/**
+ * The folder half of a drift reading, reused for {@link FOLDER_READ_TTL_MS}.
+ * The diff and the apply pass `fresh`: they act on the files, so they read
+ * them as they are now.
+ * @param path - The workspace folder.
+ * @param fresh - Skip the cached reading.
+ */
+function readFolder(path: string, fresh: boolean) {
+  const cached = folderReads.get(path);
+  if (!fresh && cached && Date.now() - cached.at < FOLDER_READ_TTL_MS) {
+    return cached;
+  }
+  const loaded = loadWorkspace(path);
+  const reading = { at: Date.now(), loaded, writable: folderWritable(loaded.sourcePath), changedAt: folderChangedAt(loaded.sourcePath, loaded.sha) };
+  folderReads.set(path, reading);
+  return reading;
+}
+
+/**
  * What the drift banner needs to know before it says anything. Read once
  * per dashboard load; every branch of the banner is decided here, on the
  * server, from what the applier recorded — the client only renders.
  * @param projectId - The project asking.
+ * @param opts - How to read the folder.
+ * @param opts.fresh - Read the files now rather than reuse the banner's recent reading.
  */
-async function driftReading(projectId: string) {
+async function driftReading(projectId: string, opts: { fresh?: boolean } = {}) {
   const folder = await workspaceFolderForProject(projectId);
   if (!folder || !existsSync(fromRepoRoot(folder.path))) {
     return null;
   }
-  const loaded = loadWorkspace(folder.path);
+  const { loaded, writable, changedAt } = readFolder(folder.path, opts.fresh === true);
   const applied = await getCurrentWorkspaceVersion(projectId);
   // The folder is compared only against the project it was applied to.
   // Under a shared mount another project's sha never matches the folder's,
   // and that is not drift — it is somebody else's workspace.
   const verdict = judgeMountedFolder({ projectId, folder: { path: loaded.sourcePath, manifestOrgId: loaded.manifest.orgId, explicit: folder.explicit }, applied });
-  const deployManaged = isDeployManaged({ writable: folderWritable(loaded.sourcePath), appliedBy: applied?.appliedBy ?? null });
+  const deployManaged = isDeployManaged({ writable, appliedBy: applied?.appliedBy ?? null });
   // A deploy applies the database first and the mount catches up: while the
   // applied version is newer than the folder, nothing here is stale.
-  const inFlight = applying !== null || (applied !== null && applyNewerThanFolder(applied.appliedAt, folderChangedAt(loaded.sourcePath, loaded.sha)));
+  const inFlight = applying !== null || (applied !== null && applyNewerThanFolder(applied.appliedAt, changedAt));
   return { folder, loaded, applied, verdict, deployManaged, inFlight };
 }
 
@@ -417,7 +448,7 @@ export const driftStatus = os.handler(async () => {
  */
 export const driftDiff = os.handler(async () => {
   const { orgId, projectId } = await guardAuth();
-  const reading = await driftReading(projectId!);
+  const reading = await driftReading(projectId!, { fresh: true });
   if (!reading) {
     throw new ORPCError('NOT_FOUND', { message: 'no workspace directory for this project on this host' });
   }
@@ -443,7 +474,7 @@ export const applyNow = os
   }))
   .handler(async ({ input }) => {
     const { orgId, projectId } = await guardRole('org:admin');
-    const reading = await driftReading(projectId!);
+    const reading = await driftReading(projectId!, { fresh: true });
     if (!reading) {
       throw new ORPCError('NOT_FOUND', { message: 'no workspace directory for this project on this host' });
     }
