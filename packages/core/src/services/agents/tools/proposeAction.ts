@@ -17,7 +17,6 @@ import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { explainProposeActionMiss, normalizeProposeActionArgs, proposeActionArgsSchema } from '@/libs/actions/proposeActionArgs';
-import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { nounCode } from '@/libs/codes';
 import { ActionError, proposeAction, willExecuteOnItsOwn } from '@/services/ActionService';
@@ -296,7 +295,6 @@ function filingToolFor(ctx: RuntimeContext, actionId: string, input: Record<stri
 }
 
 export function proposeActionTool(ctx: RuntimeContext) {
-  const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
   const filing = (ctx.filingTypes ?? []).filter(t => ctx.objectTypeSlugs.includes(t.slug));
   const filingNote = filing.length > 0
     ? `\n\nTo FILE a record of a type with its own tool — ${filing.map(t => `${t.slug} → ${t.toolName}`).join(', ')} — call that tool, not objects.propose_candidate here: its arguments are the type's own fields, and nothing is left to guess.`
@@ -341,7 +339,7 @@ export function proposeActionTool(ctx: RuntimeContext) {
     },
     {
       name: 'propose_action',
-      description: `Propose a connector-write action (CRM update, email send). Use when your analysis concludes a record should be created/updated or a message sent. Done for you by default: a REVERSIBLE, low-risk action (a HubSpot property update) executes at once when your confidence is 0.8 or higher, and a person can undo it in one click; anything else — an email send, a low-confidence call, a kind a person has held — lands in the review queue with your confidence + rationale for approval. Give an honest confidence: it decides whether this runs now or waits. A HAND-OFF action (git.merge, deploy.release, aws.mutate, credentials.write and the other factory ids — performed by a person after approval, never here) takes the structured hand-off input: title, headline (one sentence, ≤140 chars, what approving does), summary (why), steps [{say, run?, url?}] in order (the card renders each command with a copy button), cost {amount, currency: 'USD', period?: once|month|year} when it costs anything, target (the account or environment it touches — "AWS account acme-prod (123456789012)"), sources [{label, url}] the person can check, and externalRef {system, id, url?} for the record it acts on. recipe (one text block) is the fallback when you cannot write steps. Available actions:\n${available}${filingNote}`,
+      description: `Propose a connector-write action (CRM update, email send). Use when your analysis concludes a record should be created/updated or a message sent. Done for you by default: a REVERSIBLE, low-risk action (a HubSpot property update) executes at once when your confidence is 0.8 or higher, and a person can undo it in one click; anything else — an email send, a low-confidence call, a kind a person has held — lands in the review queue with your confidence + rationale for approval. Give an honest confidence: it decides whether this runs now or waits. A HAND-OFF action (git.merge, deploy.release, aws.mutate, credentials.write and the other factory ids — performed by a person after approval, never here) takes the structured hand-off input: title, headline (one sentence, ≤140 chars, what approving does), summary (why), steps [{say, run?, url?}] in order (the card renders each command with a copy button), cost {amount, currency: 'USD', period?: once|month|year} when it costs anything, target (the account or environment it touches — "AWS account acme-prod (123456789012)"), sources [{label, url}] the person can check, and externalRef {system, id, url?} for the record it acts on. recipe (one text block) is the fallback when you cannot write steps. Action ids and their input fields are listed under ACTIONS in your instructions.${filingNote}`,
       schema: proposeActionArgsSchema,
     },
   );
