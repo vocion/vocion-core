@@ -59,7 +59,7 @@ describe('production access lives with the product (2026-09-30)', () => {
 
   it('grants the live check\'s browser and its recording only to a seat that names them', () => {
     expect([...liveBrowserTools({ orgId: ORG, harnessConfig: {} } as never), ...recordLiveCheckTools({ orgId: ORG, harnessConfig: {} } as never)]).toEqual([]);
-    expect(liveBrowserTools({ orgId: ORG, harnessConfig: { grantTools: ['browser'] } } as never).map(t => t.name)).toEqual(['browser_open', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_press', 'browser_screenshot', 'browser_responses']);
+    expect(liveBrowserTools({ orgId: ORG, harnessConfig: { grantTools: ['browser'] } } as never).map(t => t.name)).toEqual(['browser_open', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_press', 'browser_say', 'browser_screenshot', 'browser_responses']);
     expect(recordLiveCheckTools({ orgId: ORG, harnessConfig: { grantTools: ['record_live_check'] } } as never).map(t => t.name)).toEqual(['record_live_check']);
   });
 });
