@@ -30,3 +30,24 @@ describe('whether the person started another turn', () => {
     expect(newerTurnIn('org_n', 91, Date.now() + 1)).toBe(false);
   });
 });
+
+describe('a stream the recovery opened after a restart (backlog 056)', () => {
+  it('replays every event whatever the client already counted, and the drain wait ends when the turns do', async () => {
+    const { activeStreamCount, attachStream, openStream, whenStreamsDrained } = await import('./buffer');
+    const owner = { orgId: 'org_buf_recovered', userId: 'u1' };
+    const s = openStream('recovered-1', owner, 5, { recovered: true });
+    s.append('{"type":"turn_restarted"}');
+    s.append('{"type":"response_delta","delta":"all of it"}');
+    const seen: string[] = [];
+    attachStream('recovered-1', owner, 2, d => seen.push(d), () => seen.push('done'));
+
+    expect(seen).toEqual(['{"type":"turn_restarted"}', '{"type":"response_delta","delta":"all of it"}']);
+    expect(activeStreamCount()).toBeGreaterThanOrEqual(1);
+
+    const drain = whenStreamsDrained(300, 10);
+    s.close();
+
+    expect(await drain).toBe(activeStreamCount());
+    expect(seen.at(-1)).toBe('done');
+  });
+});

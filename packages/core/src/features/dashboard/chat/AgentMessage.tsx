@@ -180,6 +180,10 @@ function turnEndingNotice(status: ChatMessage['status'], saidSomething: boolean)
     // above are real and the person should not re-run them blind.
     return 'The work above ran, and this turn ended without saying what it found. Ask again — it does not need to start over.';
   }
+  if (status === 'interrupted') {
+    // Restarted under twice (backlog 056): the one re-run did not finish either.
+    return 'The app restarted while answering, twice, so this answer did not finish. Ask again.';
+  }
   return 'This answer stopped partway through, so what you see above is unfinished. Ask again for a complete one.';
 }
 
@@ -201,6 +205,11 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   }
   if (status === 'continued') {
     return 'This is the rest of the answer above.';
+  }
+  if (status === 'running') {
+    // Being answered by the server now (backlog 056): a reload mid-turn shows
+    // the turn, and the answer lands when it is done.
+    return 'Still answering…';
   }
   return null;
 }

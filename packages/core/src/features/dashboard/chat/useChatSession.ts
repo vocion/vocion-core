@@ -575,6 +575,19 @@ export function useChatSession({
         setActivity(`${nameOfAgent(spoken.agent.slug, spoken.agent.name)} is thinking…`);
         return;
       }
+      case 'turn_restarted': {
+        // The app restarted while this turn was being answered, and it is
+        // being answered again from where it stood (backlog 056). What was on
+        // screen was the first attempt; what follows is the whole answer.
+        pendingTraceRef.current = new Map();
+        traceDirtyRef.current = false;
+        textRunsRef.current = 0;
+        lastRunIsTextRef.current = false;
+        appendToLatestAgent(m => ({ ...m, content: '', runs: [], trace: undefined, status: undefined, statusReason: undefined }));
+        setPhase('thinking');
+        setActivity('The app restarted — picking the answer back up…');
+        return;
+      }
       case 'run_meta': {
         // Which model answers this turn — the footer's fact, never a guess.
         const meta = evt as unknown as TurnModel & { type: 'run_meta' };

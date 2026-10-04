@@ -13,6 +13,9 @@ describe('isDroppedFromHistory', () => {
     expect(isDroppedFromHistory('incomplete')).toBe(true);
     expect(isDroppedFromHistory('failed')).toBe(true);
     expect(isDroppedFromHistory('refused')).toBe(true);
+    // A turn being answered, or one a restart cut off twice, has no text the model should see (backlog 056).
+    expect(isDroppedFromHistory('running')).toBe(true);
+    expect(isDroppedFromHistory('interrupted')).toBe(true);
   });
 
   it('keeps a turn the person stopped, because they read it and decided that was enough', () => {
@@ -72,11 +75,13 @@ describe('isTurnStatus', () => {
       expect(typeof isFailure(status)).toBe('boolean');
       expect(typeof isDroppedFromHistory(status)).toBe('boolean');
     }
-    // Every failure is kept out of history, and nothing else is.
+    // Every failure is kept out of history, and so is a turn still being
+    // answered (backlog 056) — it has no text yet, and is no failure.
     const failures = TURN_STATUSES.filter(s => isFailure(s));
     const dropped = TURN_STATUSES.filter(s => isDroppedFromHistory(s));
 
-    expect(dropped).toEqual(failures);
+    expect(dropped.filter(s => s !== 'running')).toEqual(failures);
+    expect(isFailure('running')).toBe(false);
   });
 });
 

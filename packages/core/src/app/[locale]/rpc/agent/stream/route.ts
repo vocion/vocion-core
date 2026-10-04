@@ -31,6 +31,7 @@ import { cardAsRecommendation, surfaceCard } from '@/services/cards/surface';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
+import { beginTurn, finishTurn, recordTurnProgress } from '@/services/chat/turnLedger';
 import { stoppedShort } from '@/services/chat/turnStatus';
 import {
   appendMessage,
@@ -269,12 +270,13 @@ export async function POST(request: Request): Promise<Response> {
   const onEvent = (event: AgentEvent) => (sink ? sink(event) : early.push(event));
   // What the turn spent, counted while it runs (`budget/runCost.ts`).
   const turnCost: { cost: RunCostScope | null } = { cost: null };
+  const modelMessage = withPageContext(messageForModel, pageContext, contextRefs, grounding.text);
   const runTurn = (slug: string, hold?: Promise<boolean>) => {
     const turn = () => runAgentDeep({
       allowedSourceSlugs,
       orgId,
       agentSlug: slug,
-      message: withPageContext(messageForModel, pageContext, contextRefs, grounding.text),
+      message: modelMessage,
       userId,
       conversationId: conversationId ?? undefined,
       conversationHistory,
@@ -332,6 +334,7 @@ export async function POST(request: Request): Promise<Response> {
 
   // The person's message is on the log, with who was picked and why, before
   // any tool of the turn may read the thread.
+  let userMessageId: number | null = null;
   if (conversationId !== null) {
     try {
       const userMsg = await appendMessage({
@@ -342,6 +345,7 @@ export async function POST(request: Request): Promise<Response> {
         userId,
         ...(routing ? { routing } : {}),
       });
+      userMessageId = userMsg.id;
       if (attachments.length > 0) {
         await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
       }
@@ -360,6 +364,13 @@ export async function POST(request: Request): Promise<Response> {
   // /rpc/agent/stream/resume. stream_meta tells the client its stream id.
   const streamId = crypto.randomUUID();
   const buffered = openStream(streamId, { orgId, userId }, conversationId);
+  // THE TURN IS A RECORD FROM ITS FIRST TOKEN (backlog 056): written now as
+  // `running`, with what a restart needs to answer it again, and finished in
+  // place below. A ledger that cannot be written changes nothing: the row is
+  // then written at the end, as before.
+  const turnRow = conversationId !== null
+    ? await beginTurn({ orgId, conversationId, agentSlug, turn: { streamId, userMessageId, request: { message, messageForModel: modelMessage, agentSlug, userId, allowedSourceSlugs, timeZone, ...(deliverable ? { deliverable } : {}), attachmentIds, ...(modelPrefs ? { modelPrefs } : {}), ...(pageContext ? { pageContext } : {}), autonomy, ...(clientHistory.length > 0 ? { clientHistory } : {}) } } })
+    : null;
 
   // Multiplex the agent event stream + a 15s keepalive timer into one
   // ReadableStream. Whichever fires first gets written; on disconnect
@@ -398,6 +409,11 @@ export async function POST(request: Request): Promise<Response> {
             collector.onToolEnd(event.tool, event.output);
           } else if (event.type === 'tool_error') {
             collector.onToolError(event.tool, event.message);
+          }
+          // A finished step goes to the ledger at once, so a re-run after a
+          // restart knows what already happened and never does it twice.
+          if (turnRow && (event.type === 'tool_end' || event.type === 'tool_error')) {
+            void recordTurnProgress(turnRow.id, collector.finalise().runs);
           } else if (event.type === 'documents') {
             collector.onDocuments(event.documents as CollectedDoc[]);
           } else if (event.type === 'trace_node') {
@@ -577,21 +593,24 @@ export async function POST(request: Request): Promise<Response> {
           // happened: without a row the whole turn disappears on reload and the
           // person is left looking at their own question with no answer and no
           // explanation. So a failed turn is always written, empty or not.
-          if (text || runs.length > 0 || ending !== 'complete') {
+          if (turnRow || text || runs.length > 0 || ending !== 'complete') {
             try {
-              const msg = await appendMessage({
-                orgId,
-                conversationId,
-                role: 'assistant',
-                content: text,
-                runs,
-                documents,
-                trace,
-                status: ending,
-                ...(endingReason ? { statusReason: endingReason } : {}),
-                agentSlug,
-                ...(counted.cost ? { cost: { tokens: counted.cost.tokens, microCents: counted.cost.microCents } } : {}),
-              });
+              const cost = counted.cost ? { tokens: counted.cost.tokens, microCents: counted.cost.microCents } : null;
+              const msg = turnRow
+                ? await finishTurn({ id: turnRow.id, conversationId, content: text, runs, documents, trace, status: ending, statusReason: endingReason, agentSlug, cost })
+                : await appendMessage({
+                    orgId,
+                    conversationId,
+                    role: 'assistant',
+                    content: text,
+                    runs,
+                    documents,
+                    trace,
+                    status: ending,
+                    ...(endingReason ? { statusReason: endingReason } : {}),
+                    agentSlug,
+                    ...(cost ? { cost } : {}),
+                  });
               // The features this turn was about are re-totalled with it.
               if (counted.cost && counted.cost.microCents > 0) {
                 void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(orgId)).catch(() => {});
