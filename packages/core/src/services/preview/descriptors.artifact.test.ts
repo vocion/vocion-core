@@ -32,3 +32,26 @@ describe('an artifact preview finds its body', () => {
     expect(bodyOf({ md: '   ', markdown: 'the real one' })).toBe('the real one');
   });
 });
+
+describe('a record card a turn drew', () => {
+  it('previews its type, status and fields instead of "No text was synced"', async () => {
+    const { specSummary } = await import('./descriptors');
+    const text = specSummary('record', {
+      type: 'Feature idea',
+      id: 'idea-request-link-ui',
+      label: 'Request link creator UI',
+      status: 'proposed',
+      fields: [{ k: 'Why', v: 'The site markets request links; there is no way to make one.' }, { k: 'Size', v: 'S' }, { k: 'Owner', v: null }],
+    });
+
+    expect(text).toContain('**Feature idea · proposed**');
+    expect(text).toContain('- **Why:** The site markets request links; there is no way to make one.');
+    expect(text).toContain('- **Owner:** —');
+  });
+
+  it('says nothing rather than an empty heading when the card carries nothing', async () => {
+    const { specSummary } = await import('./descriptors');
+
+    expect(specSummary('record', { label: 'Bare' })).toBeNull();
+  });
+});
