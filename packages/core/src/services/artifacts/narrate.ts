@@ -25,7 +25,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ffmpegBin, ffmpegCapabilities, probeAudioMs, probeVideo, run } from '@/libs/media/ffmpeg';
-import { accentHex, bubbleGeometry, circleMaskSvg, haloSvg, initialsBubbleSvg, narrationCommand, placeLines, rimSvg } from '@/libs/media/narration';
+import { accentHex, addressBarSvg, addressSpans, bubbleGeometry, circleMaskSvg, demoCut, haloSvg, initialsBubbleSvg, narrationCommand, placeLines, rimSvg, URL_BAR } from '@/libs/media/narration';
 import { MEDIA_ROUTE_BASE } from '@/libs/tools/artifacts/media';
 import { fileRecording, NARRATED_SUFFIX, narratedRole } from './recordings';
 
@@ -50,7 +50,7 @@ export type NarrateResult
     | { ok: false; reason: string };
 
 /** The source recording, as narration reads it. */
-type SourceRecording = { id: number; title: string; url: string; caption: string; contentType: string; filename: string; keptUnder: string; role: string; records: Array<{ id: number; role: string }> };
+type SourceRecording = { id: number; title: string; url: string; caption: string; contentType: string; filename: string; keptUnder: string; role: string; records: Array<{ id: number; role: string }>; /** The moments the recording logged (`spec.timeline`), source times. */ timeline: Array<{ atMs: number; what?: string; url?: string | null }> };
 
 export type NarrateDeps = MediaDeps & {
   voice?: VoiceProvider | null;
@@ -101,6 +101,7 @@ async function loadSourceFromDb(orgId: string, artifactId: number): Promise<Sour
     keptUnder: m[1]!,
     role: row.recordRole ?? 'recording',
     records,
+    timeline: Array.isArray(spec.timeline) ? (spec.timeline as Array<{ atMs?: unknown; what?: unknown; url?: unknown }>).filter(m => Number.isFinite(Number(m.atMs))).map(m => ({ atMs: Number(m.atMs), ...(typeof m.what === 'string' ? { what: m.what } : {}), ...(typeof m.url === 'string' ? { url: m.url } : {}) })) : [],
   };
 }
 
@@ -204,6 +205,8 @@ async function drawBubble(avatar: NarrationAvatar, size: number, halo: number, f
  * @param input.script - The walkthrough: when each line starts, what it says — or a writer
  *   given the recording's size and length, called once the file is read.
  * @param input.voiceId - The voice to speak in.
+ * @param input.voiceSpeed - The speaking pace handed to the voice, 1 = its own.
+ * @param input.demo - A demo: cut the idle stretches and draw the address bar.
  * @param input.avatar - The speaker's bubble.
  * @param input.speaker - Who speaks, for the spec and the caption (the agent's name and slug).
  * @param input.speaker.name - The agent's name.
@@ -216,6 +219,13 @@ export async function narrateRecording(input: {
   recordingArtifactId: number;
   script: ScriptLine[] | ((recording: ProbedVideo) => Promise<ScriptLine[] | { error: string }>);
   voiceId: string;
+  /** The speaking pace handed to the voice, 1 = its own (Chris, 2026-10-04: "pace of the demo could be a touch faster"). */
+  voiceSpeed?: number;
+  /**
+   * A demo's cut and chrome (Chris, 2026-10-04): the idle stretches between steps are shortened
+   * (`demoCut`) and an address bar is drawn above the picture from the moments the recording logged.
+   */
+  demo?: boolean;
   avatar: NarrationAvatar;
   speaker?: { name: string; slug?: string };
   author?: Author;
@@ -267,7 +277,7 @@ export async function narrateRecording(input: {
     // Each line spoken, in order; the first refusal stops the narration with its reason.
     const spokenFiles: Array<ScriptLine & { file: string; durationMs: number }> = [];
     for (const [i, line] of script.entries()) {
-      const said = await voice.speak({ voiceId: input.voiceId, text: line.text });
+      const said = await voice.speak({ voiceId: input.voiceId, text: line.text, ...(input.voiceSpeed ? { speed: input.voiceSpeed } : {}) });
       if (!said.ok) {
         return { ok: false, reason: `${voice.label} did not speak line ${i + 1}: ${said.reason}` };
       }
@@ -279,12 +289,37 @@ export async function narrateRecording(input: {
       }
       spokenFiles.push({ ...line, file, durationMs });
     }
-    const { placed, dropped } = placeLines(spokenFiles, probed.durationMs);
-    if (placed.length === 0) {
+    const { placed: placedOnSource, dropped } = placeLines(spokenFiles, probed.durationMs);
+    if (placedOnSource.length === 0) {
       return { ok: false, reason: `the recording is ${(probed.durationMs / 1000).toFixed(1)}s long, too short for any line of the walkthrough.` };
     }
+    // THE DEMO CUT: the idle stretches go, and every time from here on is the cut video's.
+    const cut = input.demo ? demoCut(src.timeline, placedOnSource, probed.durationMs) : null;
+    const remap = cut ? cut.remap : (ms: number) => ms;
+    const placed: PlacedLine[] = cut
+      ? placedOnSource.map(l => ({ ...l, startMs: remap(l.startMs), endMs: remap(l.startMs) + l.durationMs }))
+      : placedOnSource;
+    const durationMs = cut ? Math.max(cut.durationMs, placed.at(-1)?.endMs ?? 0) : probed.durationMs;
+    // THE ADDRESS BAR above the picture, one strip per stretch at one address.
+    const spans = input.demo ? addressSpans(src.timeline, remap, durationMs).slice(0, 12) : [];
+    const barFiles = new Map<string, string>();
+    const bars: Array<{ file: string; fromMs: number; toMs: number }> = [];
+    if (spans.length > 0) {
+      const sharp = (await import('sharp')).default;
+      const { Buffer: Bytes } = await import('node:buffer');
+      for (const span of spans) {
+        let file = barFiles.get(span.address);
+        if (!file) {
+          file = path.join(dir, `bar-${barFiles.size}.png`);
+          await writeFile(file, await sharp(Bytes.from(addressBarSvg(probed.width, span.address))).png().toBuffer());
+          barFiles.set(span.address, file);
+        }
+        bars.push({ file, fromMs: span.fromMs, toMs: span.toMs });
+      }
+    }
+    const barHeight = bars.length > 0 ? URL_BAR.height : 0;
 
-    const geometry = bubbleGeometry(probed.width, probed.height);
+    const geometry = bubbleGeometry(probed.width, probed.height + barHeight);
     const art = await drawBubble(input.avatar, geometry.size, geometry.halo, deps.fetchImage ?? fetchImageBytes);
     const bubbleFile = path.join(dir, 'bubble.png');
     const haloFile = path.join(dir, 'halo.png');
@@ -303,10 +338,13 @@ export async function narrateRecording(input: {
       clips: placed.map(p => spokenFiles[p.index]!.file),
       placed,
       geometry,
-      durationMs: probed.durationMs,
+      durationMs,
       out,
       mp4,
       pulse: caps.filters.has('geq'),
+      cut: cut?.selectExpr ?? null,
+      bars,
+      barHeight,
     });
     const encoded = await run(ffmpegBin(), cmd.args, Math.max(180_000, probed.durationMs * 6));
     if (encoded.code !== 0) {

@@ -17,7 +17,7 @@ import { narrateRecording } from './narrate';
 
 const HAS_FFMPEG = spawnSync('ffmpeg', ['-hide_banner', '-version']).status === 0 && spawnSync('ffprobe', ['-hide_banner', '-version']).status === 0;
 
-const source = { id: 41, title: 'Live check of REL-9, 2026-09-20', url: '/api/media/77/live-check-desktop-1-0123456789abcdef.webm', caption: 'Live check of REL-9, 2026-09-20', contentType: 'video/webm', filename: 'live-check-desktop-1-0123456789abcdef.webm', keptUnder: '77', role: 'qa-live-video', records: [{ id: 12, role: 'qa-live-video' }, { id: 77, role: 'qa-live-video' }] };
+const source = { id: 41, title: 'Live check of REL-9, 2026-09-20', url: '/api/media/77/live-check-desktop-1-0123456789abcdef.webm', caption: 'Live check of REL-9, 2026-09-20', contentType: 'video/webm', filename: 'live-check-desktop-1-0123456789abcdef.webm', keptUnder: '77', role: 'qa-live-video', records: [{ id: 12, role: 'qa-live-video' }, { id: 77, role: 'qa-live-video' }], timeline: [] };
 
 let dir = '';
 let video = '';

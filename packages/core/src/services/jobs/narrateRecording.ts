@@ -67,7 +67,7 @@ export async function runNarrateRecordingJob(orgId: string, input: Record<string
 }
 
 /** The seat that narrates, as narration reads it. */
-export type Narrator = { slug: string; name: string; description: string | null; voiceId: string | null; avatar: NarrationAvatar };
+export type Narrator = { slug: string; name: string; description: string | null; voiceId: string | null; /** The seat's speaking pace (`harness.voiceSpeed`), 1 = the voice's own. */ voiceSpeed: number | null; avatar: NarrationAvatar };
 
 /**
  * An agent row as the narrator: its name (or persona display name), its
@@ -93,11 +93,14 @@ async function loadNarrator(orgId: string, slug: string): Promise<Narrator | nul
   }
   const name = row.persona?.displayName?.trim() || row.name;
   const voiceId = typeof (row.harness as { voiceId?: unknown } | null)?.voiceId === 'string' ? (row.harness as { voiceId: string }).voiceId : null;
+  const speedRaw = Number((row.harness as { voiceSpeed?: unknown } | null)?.voiceSpeed);
+  const voiceSpeed = Number.isFinite(speedRaw) && speedRaw > 0 ? speedRaw : null;
   return {
     slug: row.slug,
     name,
     description: row.description,
     voiceId,
+    voiceSpeed,
     avatar: { imageUrl: row.persona?.iconUrl ?? null, initials: initialsOf(name), color: row.accent ?? 'amber' },
   };
 }
@@ -218,6 +221,9 @@ export async function narrateRecordingActivity(input: { orgId: string; artifactI
     orgId,
     recordingArtifactId: artifactId,
     voiceId,
+    ...(narrator.voiceSpeed ? { voiceSpeed: narrator.voiceSpeed } : {}),
+    // A recording with said lines is a demo: cut to its moments, with the address bar.
+    demo: recording.script.length > 0,
     avatar: narrator.avatar,
     speaker: { name: narrator.name, slug: narrator.slug },
     author: { kind: 'agent', id: narrator.slug },
