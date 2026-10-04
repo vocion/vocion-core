@@ -249,7 +249,7 @@ registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveObject });
  * @param kind - The artifact kind.
  * @param spec - Its spec.
  */
-function specSummary(kind: string, spec: Record<string, unknown>): string | null {
+export function specSummary(kind: string, spec: Record<string, unknown>): string | null {
   if (kind === 'sequence' && Array.isArray(spec.sends)) {
     const sends = spec.sends as Array<{ day?: number; step?: number; subject?: string; body?: string }>;
     const head = typeof spec.sequenceName === 'string' ? `**${spec.sequenceName}**\n\n` : '';
@@ -272,6 +272,17 @@ function specSummary(kind: string, spec: Record<string, unknown>): string | null
       outline.sheets.map(sh => `${sh.n}. ${sh.label || '(no label)'}`).join('\n'),
       v && v.issues.length > 0 ? v.issues.map(i => `- ${i}`).join('\n') : null,
     ].filter(Boolean).join('\n\n');
+  }
+  if (kind === 'record') {
+    // A card a turn drew (`render_record`): its type and status, then its
+    // fields. Conversation 470 (2026-10-04): three feature-idea cards opened
+    // to "No text was synced for this reference" over their own facts.
+    const head = [typeof spec.type === 'string' ? spec.type : null, typeof spec.status === 'string' ? spec.status : null].filter(Boolean).join(' · ');
+    const fields = (Array.isArray(spec.fields) ? spec.fields : [])
+      .filter((f): f is { k: string; v: unknown } => Boolean(f) && typeof (f as { k?: unknown }).k === 'string')
+      .map(f => `- **${f.k}:** ${f.v === null || f.v === undefined ? '—' : String(f.v)}`);
+    const text = [head ? `**${head}**` : null, fields.join('\n') || null].filter(Boolean).join('\n\n');
+    return text || null;
   }
   if (kind === 'table' && Array.isArray(spec.columns)) {
     const caption = typeof spec.caption === 'string' ? `**${spec.caption}**\n\n` : '';
