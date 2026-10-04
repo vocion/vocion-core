@@ -379,7 +379,12 @@ name: Software factory
 #   not checked with the fix named, never seen. A live check that ends seen
 #   with no Feature Demo on a shipped request raises `release.demo.requested`
 #   and `release-feature-demo` has QA record the demo alone.
-version: 3.13.0
+# 3.14.0 — Build it from any chat card (Chris, 2026-10-04: "I should have a
+#   path to just push the idea into the software factory from chat"). `request`
+#   declares `x-intake: true`; a card a turn drew offers Build it, and the tap
+#   hands the card to the request's owner as the person's word: file it, start
+#   the build.
+version: 3.14.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

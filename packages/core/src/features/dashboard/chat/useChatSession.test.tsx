@@ -5,7 +5,8 @@ vi.mock('@/libs/Orpc', () => ({
   client: {
     chatWidget: { getState: vi.fn(), setState: vi.fn(), setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })) },
     chat: { suggestions: vi.fn() },
-    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(async () => ({})), feedback: vi.fn(async () => ({})) },
+    artifacts: { get: vi.fn() },
+    conversations: { intake: vi.fn(), get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(async () => ({})), feedback: vi.fn(async () => ({})) },
   },
 }));
 
@@ -223,6 +224,29 @@ describe('useChatSession', () => {
     // The conversation stays with the workspace agent.
     expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentSlug: '__search__', agentName: 'Search only' });
+  });
+
+  it('Build it hands a card to the intake\'s owner as the person\'s words, with the card\'s facts', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+    vi.mocked(client.conversations.intake).mockResolvedValue({ typeSlug: 'request', label: 'Request', ownerSlug: 'specialist' });
+    vi.mocked(client.artifacts.get).mockResolvedValue({ id: 41, spec: { type: 'Feature idea', fields: [{ k: 'Why', v: 'The site markets request links; none can be made.' }, { k: 'Owner', v: null }] } } as never);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+
+    await act(async () => {
+      await result.current.buildFromCard({ id: 41, title: 'Request link creator UI' });
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+
+    // The owner answers this one turn; the thread stays with its agent.
+    expect(body.agent_slug).toBe('specialist');
+    expect(body.message).toBe('Build it: **Request link creator UI**. File it as a request and start the build.\n\n- Why: The site markets request links; none can be made.');
+    expect(result.current.agent.slug).toBe('orchestrator');
   });
 
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {

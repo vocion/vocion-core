@@ -29,6 +29,7 @@ import { decideResume, readSessionConversation, writeSessionConversation } from 
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
+import { loadWorkspaceIntake } from './useWorkspaceIntake';
 import { describeToolCall } from './WorkTimeline';
 
 /* ----------------------------------------------------------------- */
@@ -1760,6 +1761,44 @@ export function useChatSession({
     }
   }, [sendMessage, agent.slug, agents, bootTarget]);
 
+  /**
+   * BUILD IT (Chris, 2026-10-04: "I should have a path to just push the idea
+   * into the software factory from chat … Simple. Magical. Fast."). A card a
+   * turn drew is handed to the workspace's intake owner as the person's own
+   * word — "build it", with the card — so it runs as their action: the owner
+   * files it through the intake's own gates and starts the build, and the
+   * transcript shows exactly what was asked. No intake, no button.
+   * @param card - The card's chip.
+   * @param card.id - Its artifact id.
+   * @param card.title - Its name.
+   */
+  const buildFromCard = useCallback(async (card: { id: number; title: string }) => {
+    const intake = await loadWorkspaceIntake();
+    if (!intake) {
+      return;
+    }
+    // The card's own facts travel with it, so nothing depends on the owner
+    // finding it in the thread.
+    let facts = '';
+    try {
+      const art = await client.artifacts.get({ id: card.id });
+      const spec = (art as { spec?: { type?: unknown; status?: unknown; fields?: unknown } }).spec ?? {};
+      const fields = Array.isArray(spec.fields) ? spec.fields as Array<{ k?: unknown; v?: unknown }> : [];
+      facts = fields
+        .filter(f => typeof f.k === 'string' && f.v !== null && f.v !== undefined && String(f.v).trim())
+        .map(f => `- ${String(f.k)}: ${String(f.v)}`)
+        .join('\n');
+    } catch (error) {
+      console.warn('useChatSession: could not read the card to build; sending its name', error);
+    }
+    const noun = intake.label.toLowerCase();
+    const text = `Build it: **${card.title}**. File it as a ${noun} and start the build.${facts ? `\n\n${facts}` : ''}`;
+    if (intake.ownerSlug && intake.ownerSlug !== agent.slug && agents.some(a => a.slug === intake.ownerSlug)) {
+      routeOnceRef.current = intake.ownerSlug;
+    }
+    void sendMessage(text);
+  }, [agent.slug, agents, sendMessage]);
+
   const handleApproveHitl = useCallback(() => {
     setPendingHitl(null);
     void sendMessage('approve');
@@ -1999,6 +2038,8 @@ export function useChatSession({
   }, [sendQueue]);
 
   return {
+    /** Build it on a card a turn drew (`ArtifactChips`). */
+    buildFromCard,
     /** The agent this chat is talking to right now. */
     agent,
     /** Chips for the empty state — the picked agent's own, else the workspace set. */

@@ -29,13 +29,15 @@ import type { ChatMessageArtifact } from './types';
 import type { DotTone } from '@/components/patterns';
 import type { TurnFollowup } from '@/libs/chat/turnFollowups';
 import type { FollowState } from '@/services/preview/followStatus';
-import { CircleDot, Inbox, Play } from 'lucide-react';
+import { CircleDot, Hammer, Inbox, Play } from 'lucide-react';
+import { useState } from 'react';
 import { StatusDot } from '@/components/patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/artifacts/kinds';
 import { openPreview } from '@/features/preview/previewState';
 import { Link } from '@/libs/I18nNavigation';
 import { useFollowStatus } from './useFollowStatus';
+import { useWorkspaceIntake } from './useWorkspaceIntake';
 
 const CHIP = 'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[12px] font-medium text-foreground/85 transition hover:border-brand-amber/40 hover:text-foreground';
 
@@ -53,13 +55,22 @@ const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Refs the preview pane can open; anything else opens its page. */
 const PREVIEWABLE = new Set(['worker_run', 'object', 'artifact', 'mission_run']);
 
-export function ArtifactChips({ artifacts, follow = [], onOpen }: {
+export function ArtifactChips({ artifacts, follow = [], onOpen, onBuild }: {
   artifacts: ChatMessageArtifact[];
   /** What the turn set moving, each followed live. */
   follow?: TurnFollowup[];
   onOpen?: (id: number) => void;
+  /**
+   * Build it: hand a card the turn drew to the workspace's intake
+   * (`services/chat/intake.ts`). Offered on record cards only, and only when
+   * the workspace has an intake to push them through.
+   */
+  onBuild?: (card: ChatMessageArtifact) => void;
 }) {
   const statuses = useFollowStatus(follow);
+  const intake = useWorkspaceIntake(Boolean(onBuild) && artifacts.some(a => a.kind === 'record'));
+  // A card handed over once says so, rather than inviting a second filing.
+  const [built, setBuilt] = useState<ReadonlySet<number>>(() => new Set());
   if (artifacts.length === 0 && follow.length === 0) {
     return null;
   }
@@ -74,7 +85,7 @@ export function ArtifactChips({ artifacts, follow = [], onOpen }: {
           // title — which the `li` then reported to the wrapping row and the
           // row reported to the transcript. A document title is long by
           // nature, so the chip has to be the thing that gives.
-          <li key={`${a.id}-${a.version}`} className="max-w-full min-w-0">
+          <li key={`${a.id}-${a.version}`} className="flex max-w-full min-w-0 items-center">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -96,6 +107,22 @@ export function ArtifactChips({ artifacts, follow = [], onOpen }: {
               </TooltipTrigger>
               <TooltipContent>{`${ARTIFACT_KIND_LABEL[a.kind]} · ${label}`}</TooltipContent>
             </Tooltip>
+            {intake && onBuild && a.kind === 'record' && (
+              <button
+                type="button"
+                disabled={built.has(a.id)}
+                onClick={() => {
+                  setBuilt(prev => new Set(prev).add(a.id));
+                  onBuild(a);
+                }}
+                data-build-card={a.id}
+                aria-label={`Build ${a.title}`}
+                className={`${CHIP} ml-1 border-brand-amber/40 text-foreground disabled:cursor-default disabled:opacity-60`}
+              >
+                <Hammer className="size-3 shrink-0" aria-hidden />
+                {built.has(a.id) ? 'Sent to build' : 'Build it'}
+              </button>
+            )}
           </li>
         );
       })}

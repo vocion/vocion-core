@@ -61,6 +61,8 @@ export type MessageListProps = {
   autonomy?: ConversationAutonomy;
   /** Opens an artifact a turn produced in the pane beside the conversation (0101). */
   onOpenArtifact?: (id: number) => void;
+  /** Build it on a card a turn drew. */
+  onBuildCard?: (card: import('./types').ChatMessageArtifact) => void;
   /** The thread — stamped into a failed step's Copy details block. */
   conversationId?: number | null;
 };
@@ -68,7 +70,7 @@ export type MessageListProps = {
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId, pageRecord }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, conversationId, pageRecord }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -206,6 +208,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                     onFeedback={onFeedback}
                     autonomy={autonomy}
                     onOpenArtifact={onOpenArtifact}
+                    onBuildCard={onBuildCard}
                     conversationId={conversationId}
                     pageRecord={pageRecord}
                     latest={i === lastIdx}
