@@ -111,8 +111,11 @@ export function videoArtifact({ recordId, flowName, viewport, url, seconds, byte
 // Decision (2026-10-03, FE-398): pre-merge visual proof comes from the product repo's own
 // browser tests, not from the runner building and serving a signed-in app it has no contract to
 // build. A repo test that proves a line a person sees saves its screenshot under the contract's
-// shots directory (default qa-shots/ at the repo root); the worker uploads whatever it finds
-// there the same way it uploads its own shots, so QA can cite them from the task record.
+// shots directory (default qa-shots/ at the repo root), in this task's own folder
+// (contract.mjs taskShotsDir); the worker uploads whatever it finds there the same way it uploads
+// its own shots, so QA can cite them from the task record. Tests committed by earlier tasks run on
+// every build too and keep writing their pictures: whatever is in the shots directory outside this
+// task's folder is theirs, and is reported as such, never uploaded (2026-10-04, walks 17-18).
 
 const SHOT_FILE_RE = /\.(?:png|jpe?g)$/i;
 const SHOT_CONTENT_TYPE = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
@@ -179,6 +182,22 @@ export function excludeShotsDir(repoDir, shotsDir) {
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${existing && !existing.endsWith('\n') ? '\n' : ''}${line}\n`);
+}
+
+/**
+ * Pictures and recordings in the shots directory that are not this task's: every match under
+ * `rootDir` that is not under `taskDir`, as paths relative to `rootDir`. They were written by a
+ * test an earlier task committed (or saved outside the briefed folder) and are named in the
+ * report so a missing picture is explained, not silent.
+ */
+export function otherTasksShots(rootDir, taskDir) {
+  if (!rootDir || !fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) {
+    return [];
+  }
+  const own = path.resolve(taskDir) + path.sep;
+  return listShotFiles(rootDir, /\.(?:png|jpe?g|webm|mp4)$/i)
+    .filter(f => !(path.resolve(f.full) + path.sep).startsWith(own) && path.resolve(f.full) !== path.resolve(taskDir))
+    .map(f => f.rel);
 }
 
 export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, post, artifactUrl: _artifactUrl, limit = REPO_SHOT_LIMITS.files, maxBytes = REPO_SHOT_LIMITS.bytes }) {
