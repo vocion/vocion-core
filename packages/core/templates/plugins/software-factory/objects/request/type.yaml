@@ -55,6 +55,12 @@ schema:
   # (conversation 362: "Three changes to this request…" went to
   # change-reviewer on "changes", and nothing was written).
   x-owner: product-manager
+  # THE FRONT DOOR (core: services/chat/intake.ts). A card in chat offers
+  # Build it when a type declares itself the intake; the tap hands the idea to
+  # the type's `x-owner` as the person's word, who files it here and starts
+  # the build (Chris, 2026-10-04: "a path to just push the idea into the
+  # software factory from chat … universal. Simple. Magical. Fast.").
+  x-intake: true
   # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts).
   # An agent that works with requests gets `file_request`, whose arguments ARE
   # these fields: the proposal-ready bar below marked required, `product` as

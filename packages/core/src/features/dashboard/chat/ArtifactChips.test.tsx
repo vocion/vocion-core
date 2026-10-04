@@ -10,6 +10,8 @@ import { page, userEvent } from 'vitest/browser';
 
 const status = vi.fn(async (): Promise<Record<string, unknown>> => ({}));
 vi.mock('@/libs/Orpc', () => ({ client: { preview: { status } } }));
+const workspaceIntake = vi.fn((): { typeSlug: string; label: string; ownerSlug: string | null } | null => null);
+vi.mock('./useWorkspaceIntake', () => ({ useWorkspaceIntake: () => workspaceIntake(), loadWorkspaceIntake: async () => workspaceIntake() }));
 vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
@@ -83,5 +85,34 @@ describe('what a turn set moving, in the artifact row', () => {
     );
 
     await expect.poll(() => document.querySelector('[data-follow-chip="worker_run:419"]')?.getAttribute('data-follow-state')).toBe('queued');
+  });
+});
+
+describe('Build it on a card a turn drew', () => {
+  const CARDS = [
+    { id: 41, title: 'Request link creator UI', kind: 'record' as const, version: 1 },
+    { id: 42, title: 'Send history', kind: 'table' as const, version: 1 },
+  ];
+
+  it('is offered on a record card when the workspace has an intake, and sends the card once', async () => {
+    workspaceIntake.mockReturnValue({ typeSlug: 'request', label: 'Request', ownerSlug: 'product-manager' });
+    const onBuild = vi.fn();
+    await render(<TooltipProvider><ArtifactChips artifacts={CARDS} onBuild={onBuild} /></TooltipProvider>);
+
+    const build = page.getByRole('button', { name: 'Build Request link creator UI' });
+    await build.click();
+
+    expect(onBuild).toHaveBeenCalledWith(CARDS[0]);
+    await expect.element(page.getByText('Sent to build')).toBeInTheDocument();
+    await expect.element(build).toBeDisabled();
+    // A table is not an idea to build.
+    await expect.element(page.getByRole('button', { name: 'Build Send history' })).not.toBeInTheDocument();
+  });
+
+  it('is absent when the workspace has no intake', async () => {
+    workspaceIntake.mockReturnValue(null);
+    await render(<TooltipProvider><ArtifactChips artifacts={CARDS} onBuild={vi.fn()} /></TooltipProvider>);
+
+    await expect.element(page.getByText('Build it')).not.toBeInTheDocument();
   });
 });

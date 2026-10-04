@@ -53,6 +53,7 @@ import { suggestions as chatSuggestions } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
 import {
   append as appendConvMessage,
+  intake as conversationIntake,
   create as createConv,
   feedback as feedbackConvMessage,
   get as getConv,
@@ -300,6 +301,7 @@ export const router = {
     setFeatureShare: setArtifactFeatureShareRoute,
   },
   conversations: {
+    intake: conversationIntake,
     list: listConvs,
     get: getConv,
     create: createConv,

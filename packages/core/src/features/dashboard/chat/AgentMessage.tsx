@@ -94,6 +94,8 @@ export type AgentMessageProps = {
   viaReason?: string;
   /** Opens an artifact this turn produced in the pane beside the conversation. */
   onOpenArtifact?: (id: number) => void;
+  /** Build it on a card the turn drew (`ArtifactChips`). */
+  onBuildCard?: (card: import('./types').ChatMessageArtifact) => void;
   /** The thread this turn belongs to — stamped into a failed step's Copy details. */
   conversationId?: number | null;
   /** The page's own record: never a follow chip (it refreshes itself). */
@@ -214,7 +216,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -528,7 +530,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             </div>
           )}
           {((message.artifacts?.length ?? 0) > 0 || (!streaming && follow.length > 0)) && (
-            <ArtifactChips artifacts={message.artifacts ?? []} follow={streaming ? [] : follow} onOpen={onOpenArtifact} />
+            <ArtifactChips artifacts={message.artifacts ?? []} follow={streaming ? [] : follow} onOpen={onOpenArtifact} onBuild={streaming ? undefined : onBuildCard} />
           )}
           {(message.selfUpdates?.length ?? 0) > 0 && (
             <SelfUpdateChips updates={message.selfUpdates!} />
