@@ -44,7 +44,7 @@ describe('narrate-recording — the gate', () => {
 describe('recording.narrate — the work', () => {
   const qa: Narrator = { slug: 'change-reviewer', name: 'QA', description: 'Reviews a finished task against its contract.', voiceId: null, avatar: { imageUrl: null, initials: 'QA', color: 'emerald' } };
   const voice: VoiceProvider = { connector: 'voice-fixture', label: 'Fixture Voice', listVoices: async () => ({ ok: true, voices: [{ id: 'voice_aria_01', name: 'Aria' }, { id: 'voice_kestrel_02', name: 'Kestrel' }] }), speak: vi.fn() };
-  const recording = { url: filed.url, caption: 'Live check of REL-9, 2026-09-20', timeline: [{ atMs: 1_200, what: 'open https://northwind.example/rooms (desktop)', ok: true }] };
+  const recording = { url: filed.url, caption: 'Live check of REL-9, 2026-09-20', timeline: [{ atMs: 1_200, what: 'open https://northwind.example/rooms (desktop)', ok: true }], script: [] };
   const records = [{ id: 12, title: 'Export a room as a PDF', isRequest: true }, { id: 77, title: 'REL-9', isRequest: false }];
 
   it('narrates as the seat, in the provider\'s first voice, timed by a walkthrough written for the recording\'s length', async () => {
@@ -69,6 +69,28 @@ describe('recording.narrate — the work', () => {
     expect(res).toEqual({ ok: true, url: '/api/media/77/narrated.mp4' });
     expect(narrate).toHaveBeenCalledWith(expect.objectContaining({ recordingArtifactId: 501, voiceId: 'voice_aria_01', avatar: qa.avatar, speaker: { name: 'QA', slug: 'change-reviewer' }, author: { kind: 'agent', id: 'change-reviewer' } }), { voice });
     expect(write).toHaveBeenCalledWith(expect.objectContaining({ speaker: expect.objectContaining({ name: 'QA' }), recording: expect.objectContaining({ durationMs: 9_000, timeline: recording.timeline, context: '- Export a room as a PDF\n- REL-9' }) }));
+  });
+
+  it('speaks a feature demo\'s said lines as written, at their moments, and writes no walkthrough (2026-10-04)', async () => {
+    const said = [{ atMs: 800, text: 'I open the library.' }, { atMs: 6_400, text: 'I pick Share and set the address to q3-board-deck.' }];
+    const write = vi.fn();
+    const narrate = vi.fn(async (input: { script: unknown }) => {
+      expect(input.script).toEqual(said);
+
+      return { ok: true as const, url: '/api/media/12/narrated.mp4', artifactIds: [701], spoken: [], dropped: 0, characters: 60 };
+    });
+    const res = await narrateRecordingActivity({ orgId: 'org_n', artifactId: 502, narrator: 'change-reviewer' }, {
+      loadRecording: async () => ({ ...recording, caption: 'Feature demo of FE-12, 2026-10-04', script: said }),
+      recordsOf: async () => records,
+      loadNarrator: async () => qa,
+      voice,
+      writeWalkthrough: write as never,
+      narrate: narrate as never,
+      note: vi.fn(),
+    });
+
+    expect(res).toEqual({ ok: true, url: '/api/media/12/narrated.mp4' });
+    expect(write).not.toHaveBeenCalled();
   });
 
   it('speaks in the seat\'s own voice when its harness names one', async () => {

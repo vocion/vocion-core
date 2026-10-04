@@ -17,6 +17,23 @@
 /** One line of the walkthrough as written: when it should start, what is said. */
 export type ScriptLine = { atMs: number; text: string };
 
+/** How fast a line is spoken (characters per second): the budget a writer is given, and how long a demo holds the screen for a line. */
+export const SPOKEN_CHARS_PER_SECOND = 14;
+
+/** The least a demo holds the screen for one spoken line, and the most, whatever its length. */
+export const DWELL_MS = { min: 1_800, max: 12_000, lead: 700 } as const;
+
+/**
+ * How long a line takes to say, with a short lead so the viewer sees the state before the voice
+ * starts — the time a demo recording holds the screen on the state the line describes
+ * (Chris, 2026-10-03: "1.5 seconds of page loading; that I have to guess is a vanity url").
+ * @param text - The line.
+ */
+export function spokenMs(text: string): number {
+  const chars = text.trim().length;
+  return Math.min(DWELL_MS.max, Math.max(DWELL_MS.min, DWELL_MS.lead + Math.round((chars / SPOKEN_CHARS_PER_SECOND) * 1000)));
+}
+
 /** A spoken line, placed on the video. */
 export type PlacedLine = { index: number; text: string; startMs: number; endMs: number; durationMs: number };
 

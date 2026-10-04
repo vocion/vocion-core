@@ -29,6 +29,13 @@ export const LIVE_ROLE = 'live-screenshot';
 /** The role the live check's recording carries on each request the release shipped, and on the release. */
 export const LIVE_VIDEO_ROLE = 'qa-live-video';
 
+/**
+ * The role a feature's demo recording carries on its request: the happy path, end to end, shown
+ * the way a user would use it and narrated as it is shown (Chris, 2026-10-03: "This Feature Demo
+ * video should be the happy path, end to end" — for a product manager, not QA's line-by-line check).
+ */
+export const DEMO_VIDEO_ROLE = 'feature-demo';
+
 /** Attempts a release gets: the first, and the one retry carrying what the first learned. */
 export const LIVE_ATTEMPTS = 2;
 

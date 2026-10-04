@@ -235,6 +235,16 @@ describe('which files a public page may show', () => {
     expect(serveVia(art(4, { url: 'data:image/svg+xml;base64,PHN2Zz4=' }))).toBeNull();
   });
 
+  it('plays the feature demo before anything else, narrated before silent (2026-10-04)', () => {
+    const demo = video(5, 'feature-demo', '2026-10-01T07:00:00Z');
+    const narratedDemo = video(6, 'feature-demo-narrated', '2026-10-01T07:05:00Z');
+    const rest = [video(1, 'qa-video', '2026-10-02T08:00:00Z'), video(2, 'qa-live-video', '2026-10-02T09:00:00Z'), video(3, 'qa-live-video-narrated', '2026-10-02T09:05:00Z')];
+
+    expect(walkthroughOf([...rest, demo, narratedDemo])?.id).toBe(6);
+    expect(walkthroughOf([...rest, demo])?.id).toBe(5);
+    expect(walkthroughOf(rest)?.id).toBe(3);
+  });
+
   it('prefers a narrated walkthrough, then the live check, then the tests', () => {
     const narrated = video(3, 'qa-video-narrated', '2026-10-01T08:00:00Z');
 

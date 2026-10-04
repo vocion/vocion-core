@@ -365,7 +365,15 @@ name: Software factory
 #   request. A request filed before this is named the first time its public
 #   page is read, or by `npm run objects:backfill-names -- --project <id>`;
 #   Work rows read the name (`from: name`) and the feature page leads with it.
-version: 3.11.0
+# 3.12.0 — the feature demo (Chris, 2026-10-03: "the demo video should be
+#   designed to demonstrate functionality to a PM/PO … the happy path, end to
+#   end"). After the live check records its lines, QA records each seen
+#   feature's demo in its own tab, saying each step as it does it; the screen
+#   holds while a line is said, the video is filed on the request as
+#   `feature-demo` with the said lines as its script, and the narration
+#   (`narrateRecordings`) speaks them as written. The feature page and the
+#   public share page play the demo first.
+version: 3.12.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

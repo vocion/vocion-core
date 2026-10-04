@@ -254,6 +254,9 @@ export function sharedPictures(meta: Record<string, unknown>, byId: ReadonlyMap<
 
 /** The roles a walkthrough is read from, best first: narrated, then the live check's, then the tests'. */
 export const WALKTHROUGH_ROLES = [
+  // The feature demo first (Chris, 2026-10-03: "the happy path, end to end" for a product manager), narrated before silent.
+  `${RECORDING_ROLES.demo}${NARRATED_SUFFIX}`,
+  RECORDING_ROLES.demo,
   `${RECORDING_ROLES.live}${NARRATED_SUFFIX}`,
   `${RECORDING_ROLES.qa}${NARRATED_SUFFIX}`,
   RECORDING_ROLES.live,
@@ -261,6 +264,8 @@ export const WALKTHROUGH_ROLES = [
 ] as const;
 
 const WALKTHROUGH_LABEL: Record<string, string> = {
+  [`${RECORDING_ROLES.demo}${NARRATED_SUFFIX}`]: 'Feature demo',
+  [RECORDING_ROLES.demo]: 'Feature demo',
   [`${RECORDING_ROLES.live}${NARRATED_SUFFIX}`]: 'Walkthrough',
   [`${RECORDING_ROLES.qa}${NARRATED_SUFFIX}`]: 'Walkthrough',
   [RECORDING_ROLES.live]: 'On the live product',

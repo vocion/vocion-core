@@ -415,6 +415,72 @@ describe('the browser tools, in a real browser against a fictional product', asy
     await browserSvc.closeBrowserSession(key);
   });
 
+  it('records a feature demo in its own tab: each said line holds the screen, and the video is filed on that request alone with the lines as its script (2026-10-04)', { skip: !chromium, timeout: 120_000 }, async () => {
+    const org = `${ORG}_browser_demo`;
+    const { requestId, releaseId } = await seed(org);
+    access.environments = env('fictional-secret');
+    const key = browserSvc.browserSessionKey({ orgId: org, missionRunId: 511 });
+    const store = await mkdtemp(path.join(tmpdir(), 'vocion-live-store-'));
+    const videos = await mkdtemp(path.join(tmpdir(), 'vocion-live-video-'));
+    const before = process.env.VOCION_ARTIFACTS_DIR;
+    process.env.VOCION_ARTIFACTS_DIR = store;
+    const held: number[] = [];
+    const d = { ...deps(videos), dwell: async (ms: number) => {
+      held.push(ms);
+    } };
+    try {
+      // The check tab first: a line said here is not the demo's, and holds nothing.
+      const checked = await browserSvc.browserOpen(key, org, { releaseId, target: '/library' }, d);
+
+      expect(checked.ok).toBe(true);
+      expect(await browserSvc.browserSay(key, 'This is said in the check tab.', d)).toMatchObject({ ok: true, result: expect.stringContaining('not held') });
+      expect(held).toEqual([]);
+
+      // A demo of a request the release did not ship is refused with the ones it did.
+      expect(await browserSvc.browserOpen(key, org, { releaseId, target: '/rename', demoForRequest: requestId + 9_999 }, d)).toMatchObject({ ok: false, refused: expect.stringContaining(`not one this release shipped (#${requestId})`) });
+
+      const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/rename', demoForRequest: requestId, say: 'I open the document to rename it.' }, d);
+
+      expect(opened.ok).toBe(true);
+      expect(held).toHaveLength(1);
+
+      await browserSvc.browserType(key, { ref: /textbox "Name" \[ref=(e\d+)\]/.exec(opened.snapshot ?? '')?.[1] ?? '', text: 'Q3 board deck', say: 'I type the new name, Q3 board deck.' }, d);
+      const closing = await browserSvc.browserSay(key, 'Save is ready, and the document keeps its new name.', d);
+
+      expect(closing).toMatchObject({ ok: true, result: expect.stringMatching(/^said, and held the screen \d+(\.\d)?s$/) });
+      expect(held).toHaveLength(3);
+      expect(held.every(ms => ms >= 1_800 && ms <= 12_000)).toBe(true);
+
+      await browserSvc.closeBrowserSession(key);
+
+      const demos = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, org), eq(artifactSchema.recordRole, 'feature-demo')));
+
+      // Filed on the request only, never the release, captioned as its demo.
+      expect(demos.map(r => r.recordId)).toEqual([String(requestId)]);
+      expect(demos[0]!.spec).toMatchObject({ contentType: 'video/webm', caption: expect.stringMatching(/^Feature demo of \S+, \d{4}-\d{2}-\d{2}$/) });
+
+      // The script is what was said in the demo tab, in order, each with the time it takes to say.
+      const script = (demos[0]!.spec as { script?: Array<{ atMs: number; endMs: number; text: string }> }).script ?? [];
+
+      expect(script.map(l => l.text)).toEqual(['I open the document to rename it.', 'I type the new name, Q3 board deck.', 'Save is ready, and the document keeps its new name.']);
+      expect(script.every((l, i) => l.atMs >= 0 && l.endMs > l.atMs && (i === 0 || l.atMs >= script[i - 1]!.atMs))).toBe(true);
+
+      // The check tab's own recording is still the check's: on the request and the release, with no script.
+      const checks = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, org), eq(artifactSchema.recordRole, 'qa-live-video')));
+
+      expect(checks.map(r => r.recordId).sort()).toEqual([String(requestId), String(releaseId)].sort());
+      expect((checks[0]!.spec as { script?: unknown }).script).toBeUndefined();
+    } finally {
+      if (before === undefined) {
+        delete process.env.VOCION_ARTIFACTS_DIR;
+      } else {
+        process.env.VOCION_ARTIFACTS_DIR = before;
+      }
+      await rm(store, { recursive: true, force: true });
+      await rm(videos, { recursive: true, force: true });
+    }
+  });
+
   it('records the pages QA drove and, when the run\'s browser closes, keeps the recording on the feature request and the release (2026-10-03)', { skip: !chromium, timeout: 120_000 }, async () => {
     const org = `${ORG}_browser_video`;
     const { requestId, releaseId } = await seed(org);

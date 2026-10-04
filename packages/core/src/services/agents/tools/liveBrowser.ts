@@ -26,17 +26,20 @@ export function liveBrowserTools(ctx: RuntimeContext): StructuredToolInterface[]
   const answer = (v: unknown) => JSON.stringify(v);
   return [
     tool(
-      async args => answer(await (await svc()).browserOpen(await key(), ctx.orgId, { releaseId: args.release_id, target: args.url_or_path, signedIn: args.signed_in, viewport: args.viewport })),
+      async args => answer(await (await svc()).browserOpen(await key(), ctx.orgId, { releaseId: args.release_id, target: args.url_or_path, signedIn: args.signed_in, viewport: args.viewport, demoForRequest: args.demo_for_request, say: args.say })),
       {
         name: 'browser_open',
         description: 'Open a page of the release\'s live product in this run\'s browser and return its accessibility snapshot: each element with its role, name, state ([disabled], [checked], [expanded]) and a ref (e5) to act on. '
           + 'Signed in as the product\'s QA account by default (its stored sign-in; you never see the password), or as a visitor with signed_in false. Only the product\'s own addresses open. '
-          + 'The first open also lists each shipped request\'s acceptance lines, numbered: the lines record_live_check records. Every answer carries an id to cite as evidence.',
+          + 'The first open also lists each shipped request\'s acceptance lines, numbered: the lines record_live_check records. Every answer carries an id to cite as evidence. '
+          + 'With demo_for_request, it opens that request\'s demo tab instead: a separate recording, filed on that request as its feature demo, in which every say is spoken and holds the screen.',
         schema: z.object({
           release_id: z.number().int().positive().describe('The release being checked (the event\'s releaseId).'),
           url_or_path: z.string().trim().min(1).max(2000).describe('A path on the product (/documents/new) or a full address on one of its own origins.'),
           signed_in: z.boolean().optional().describe('Default true: as the product\'s QA account. false: a visitor with no session.'),
           viewport: z.enum(['desktop', 'phone']).optional().describe('Default desktop.'),
+          demo_for_request: z.number().int().positive().optional().describe('Record this shipped request\'s feature demo in its own tab: the happy path, end to end, as a user would use it. Leave out for the check.'),
+          say: z.string().trim().max(300).optional().describe('What you tell the viewer as the page opens, in one plain sentence. In a demo tab the screen holds while it is said.'),
         }),
       },
     ),
@@ -49,15 +52,18 @@ export function liveBrowserTools(ctx: RuntimeContext): StructuredToolInterface[]
       },
     ),
     tool(
-      async args => answer(await (await svc()).browserClick(await key(), args.ref)),
+      async args => answer(await (await svc()).browserClick(await key(), args.ref, {}, args.say)),
       {
         name: 'browser_click',
         description: 'Click an element by its ref from the last snapshot. A disabled element is not clicked: the answer says "disabled" at once. Returns the new snapshot and an id to cite.',
-        schema: z.object({ ref: z.string().trim().min(1).max(20).describe('The element\'s ref, e.g. e5.') }),
+        schema: z.object({
+          ref: z.string().trim().min(1).max(20).describe('The element\'s ref, e.g. e5.'),
+          say: z.string().trim().max(300).optional().describe('In a demo: what you tell the viewer once it is clicked, one plain sentence; the screen holds while it is said.'),
+        }),
       },
     ),
     tool(
-      async args => answer(await (await svc()).browserType(await key(), { ref: args.ref, text: args.text, submit: args.submit })),
+      async args => answer(await (await svc()).browserType(await key(), { ref: args.ref, text: args.text, submit: args.submit, say: args.say })),
       {
         name: 'browser_type',
         description: 'Type into a field by its ref, replacing what it held (an empty text clears it); submit presses Enter after. A disabled or read-only field is reported, not typed into. Returns the new snapshot and an id.',
@@ -65,15 +71,27 @@ export function liveBrowserTools(ctx: RuntimeContext): StructuredToolInterface[]
           ref: z.string().trim().min(1).max(20),
           text: z.string().max(2000),
           submit: z.boolean().optional(),
+          say: z.string().trim().max(300).optional().describe('In a demo: what you tell the viewer once it is typed, one plain sentence; the screen holds while it is said.'),
         }),
       },
     ),
     tool(
-      async args => answer(await (await svc()).browserPress(await key(), args.key)),
+      async args => answer(await (await svc()).browserPress(await key(), args.key, {}, args.say)),
       {
         name: 'browser_press',
         description: 'Press a key on the open page (Enter, Escape, Tab, ArrowDown…). Returns the new snapshot and an id.',
-        schema: z.object({ key: z.string().trim().min(1).max(40) }),
+        schema: z.object({
+          key: z.string().trim().min(1).max(40),
+          say: z.string().trim().max(300).optional().describe('In a demo: what you tell the viewer once it is pressed, one plain sentence; the screen holds while it is said.'),
+        }),
+      },
+    ),
+    tool(
+      async args => answer(await (await svc()).browserSay(await key(), args.text)),
+      {
+        name: 'browser_say',
+        description: 'Say one line to the viewer of the demo with nothing done on the page: the opening words, the closing words, or what is already on screen. In a demo tab the screen holds while it is said; the line is spoken in the recording at this moment.',
+        schema: z.object({ text: z.string().trim().min(2).max(300).describe('One plain sentence, present tense, for someone who has never seen the feature.') }),
       },
     ),
     tool(

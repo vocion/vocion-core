@@ -4,8 +4,9 @@ name: Check the live release
 description: >-
   How QA checks a shipped release on the live product as the product's QA
   account: open it in the run's browser, look, act, screenshot what proves
-  each acceptance line, and record every line with record_live_check.
-version: 3
+  each acceptance line, record every line with record_live_check, then show
+  each feature seen as a demo a product manager can watch.
+version: 4
 ---
 
 # Check the live release
@@ -38,5 +39,24 @@ as the product's QA account.
    verdict" when the verdict proved it. A refusal lists what to fix; fix it
    and record again.
 
-Report in one line what was seen live. `record_live_check` writes the release
-and the features; do not write them yourself.
+6. **Show it.** For each request you recorded as seen, record its feature
+   demo: a video a product manager or product owner watches to see what the
+   feature does, not QA's check. Open the demo with `browser_open` carrying
+   `demo_for_request` (its own tab and its own recording, filed on that
+   request). Then walk the happy path end to end the way a user would: start
+   where the user starts, do the one thing the feature is for, and end on the
+   result. A vanity address is set on a document, shared, and then opened at
+   that address; a sort is picked and the list is seen in that order. Six to
+   twelve steps. Say what you do as you do it: `say` on each `browser_open`,
+   `browser_click`, `browser_type` and `browser_press`, and `browser_say` for
+   the opening line and the closing line. One plain sentence each, present
+   tense, first person, for someone who has never seen the feature ("I open
+   the document and pick Share"). The screen holds while each line is said,
+   so a viewer sees the state you describe; you never need to wait. No edge
+   cases, no error states, no second viewport: the happy path. Anything you
+   make for the demo, remove after it in a check tab (`browser_open` without
+   `demo_for_request`), so the removal is not in the video.
+
+Report in one line what was seen live, and that the demo was recorded.
+`record_live_check` writes the release and the features; do not write them
+yourself.
