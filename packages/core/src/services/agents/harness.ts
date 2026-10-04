@@ -434,6 +434,10 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     'You may lay out raw data to reason over — record JSON, and ESPECIALLY search results and email contents (From/Subject/body, message lists) — but ONLY inside a single <scratch>…</scratch> block at the very START of your reply.',
     'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — erinb@northwind.example"), never the search results you read to find it.',
     'If you have no raw data to lay out, skip the scratch block and just answer.',
+    // Conversation 470 (2026-10-04): a 6,000-character planning essay in
+    // scratch kept the person looking at nothing for over a minute before the
+    // first word of a 2,500-character answer. Scratch is read by no one.
+    'The person sees nothing while you write scratch, so keep it to the few facts you must line up — about ten short lines. Never plan, outline or draft the answer there; start the answer.',
     // Codes (`libs/codes.ts`): every tool names records and runs by one, so the answer can too.
     'RECORD REFERENCES: name a record, run, ask or conversation by its code exactly as tool output gives it — FE-294, PL-295, RUN-439, ACT-5590, ASK-267, CHAT-405 — the one reference a person may read in your answer. Never a bare number or "#294"; a pull request stays repo#number (squatch-core#147). Tools take the code as input too (read_object FE-294).',
     // How this agent talks: its `voice:` (YAML, then a person's override), composed once here (`libs/agents/voice.ts`).
