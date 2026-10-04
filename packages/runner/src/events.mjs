@@ -345,3 +345,34 @@ export function renderTranscriptMarkdown(messages, { taskId, runId } = {}) {
   }
   return lines.join('\n');
 }
+
+/**
+ * WHAT A RUN SPENT BEFORE IT WAS CUT OFF (walk 20, FE-436, 2026-10-04). A run killed at the wall
+ * clock never prints its `result` line, and its cost read $0 while forty minutes of Opus had run.
+ * Every `assistant` message in the stream carries that call's usage and model, so the spend is
+ * summed from them: not what the session would have reported, but never nothing. Null when no
+ * assistant message carried usage.
+ * @param messages - The parsed stream-json messages.
+ */
+export function usageFromMessages(messages) {
+  let model = null;
+  const sum = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  let any = false;
+  for (const m of messages || []) {
+    const msg = m && m.type === 'assistant' && m.message && typeof m.message === 'object' ? m.message : null;
+    const u = msg && msg.usage && typeof msg.usage === 'object' ? msg.usage : null;
+    if (!u) {
+      continue;
+    }
+    any = true;
+    model = model || (typeof msg.model === 'string' && msg.model ? msg.model : null);
+    sum.inputTokens += Number(u.input_tokens) || 0;
+    sum.cacheWriteTokens += Number(u.cache_creation_input_tokens) || 0;
+    sum.cacheReadTokens += Number(u.cache_read_input_tokens) || 0;
+    sum.outputTokens += Number(u.output_tokens) || 0;
+  }
+  if (!any) {
+    return null;
+  }
+  return { model, inputTokens: sum.inputTokens + sum.cacheWriteTokens + sum.cacheReadTokens, outputTokens: sum.outputTokens, cacheReadTokens: sum.cacheReadTokens, cacheWriteTokens: sum.cacheWriteTokens };
+}

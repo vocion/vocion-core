@@ -27,6 +27,8 @@ export type MediaSlide = {
   kind?: 'image' | 'video';
   /** The recording's content type, for `kind: 'video'`. */
   type?: string;
+  /** For a recording: the second its still frame is taken at (its first spoken line), else just past the start. */
+  posterAt?: number;
 };
 
 /**
@@ -43,7 +45,7 @@ function SlidePreview({ slide, eager }: { slide: MediaSlide; eager: boolean }) {
       <span className="relative flex size-full items-center justify-center overflow-hidden rounded-md bg-[#09090b]" data-testid="report-slide-video">
         {/* The first frame stands for the recording; it plays full screen. */}
         { }
-        <video src={`${slide.src}#t=0.1`} muted playsInline preload="metadata" aria-hidden className="max-h-full max-w-full object-contain" />
+        <video src={`${slide.src}#t=${slide.posterAt ?? 0.1}`} muted playsInline preload="metadata" aria-hidden className="max-h-full max-w-full object-contain" />
         <span className="absolute inset-0 flex items-center justify-center">
           <span className="flex size-14 items-center justify-center rounded-full bg-white/90 text-[#09090b] shadow-md">
             <Play className="size-6 translate-x-0.5 fill-current" aria-hidden />

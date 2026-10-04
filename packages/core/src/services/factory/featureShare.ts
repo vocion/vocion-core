@@ -65,7 +65,18 @@ const MAX_QA_SHOTS = 8;
 /** One slide in the page's carousel, in the order it is shown. */
 export type PublicSlide
   = | { kind: 'image'; src: string; label: 'Mockup' | 'Before' | 'After' | 'QA after' | 'QA before'; alt: string; caption: string | null; width?: number; height?: number }
-    | { kind: 'video'; src: string; type: string; label: string; caption: string };
+    | {
+      kind: 'video';
+      src: string;
+      type: string;
+      label: string;
+      caption: string;
+      /**
+       * The second the still frame is taken at (walk 20): a recording's first frame is a blank
+       * page before anything loaded, so the preview shows the moment its first spoken line starts.
+       */
+      posterAt?: number;
+    };
 
 /** What a visitor sees. Every field is listed here; nothing else reaches the page. */
 export type PublicFeaturePage = {
@@ -273,6 +284,17 @@ const WALKTHROUGH_LABEL: Record<string, string> = {
 };
 
 /**
+ * When the recording's first spoken line starts, in seconds — the moment the preview frame is
+ * taken at — or null when the recording carries no script.
+ * @param spec - The recording's spec (`script` as the narration placed it).
+ */
+export function posterAt(spec: Record<string, unknown>): number | null {
+  const script = Array.isArray(spec.script) ? spec.script as Array<{ atMs?: unknown }> : [];
+  const first = script.map(l => Number(l.atMs)).filter(n => Number.isFinite(n) && n >= 0).sort((a, b) => a - b)[0];
+  return first === undefined ? null : Math.round(first) / 1000;
+}
+
+/**
  * The one recording the page plays: the newest of the best role there is,
  * and only one the page can actually play to a stranger — Vocion's own copy,
  * served through the link (Chris, 2026-10-03: one player, the page's own).
@@ -402,13 +424,22 @@ const STEP_RANK: Readonly<Record<string, number>> = {
 };
 
 /**
- * The live check's own words, as the row carries them ("Live check · Seen live: 6 of 6 states
- * reached" or the check's line), with workspace details taken out. Null when the row has none.
- * @param title - The live row's title.
+ * A step's own words where the fixed sentence would mislead: the live check's line ("Live check ·
+ * Seen live: 6 of 6 states reached", or why it could not look), and a build attempt or deploy that
+ * failed, in the words the row carries (an attempt that ran out of time is not one that "did not
+ * pass its checks"; walk 20, FE-436). Workspace details are taken out. Null for every other step.
+ * @param row - The history row.
  */
-function liveWords(title: string): string | null {
-  const words = title.replace(/^Live check\s*·\s*/, '').trim();
-  return words ? `${scrub(words).replace(/[.\s]+$/, '')}.` : null;
+function ownWords(row: HistoryRow): string | null {
+  if (row.kind === 'live') {
+    const words = row.title.replace(/^Live check\s*·\s*/, '').trim();
+    return words ? `${scrub(words).replace(/[.\s]+$/, '')}.` : null;
+  }
+  if ((row.kind === 'build' && row.tone === 'bad' && !row.live) || (row.kind === 'deploy' && !row.live && row.tone !== 'ok')) {
+    const words = row.title.trim();
+    return words ? `${scrub(words).replace(/[.\s]+$/, '')}.` : null;
+  }
+  return null;
 }
 
 /**
@@ -422,7 +453,7 @@ function liveWords(title: string): string | null {
 export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null): PublicStep[] {
   const rows = history.flatMap(r => (r.kind === 'attempt' ? r.children ?? [] : [r]));
   const steps = rows
-    .map(r => ({ step: stepOf(r), at: r.at, said: r.kind === 'live' ? liveWords(r.title) : null }))
+    .map(r => ({ step: stepOf(r), at: r.at, said: ownWords(r) }))
     .filter((s): s is { step: string; at: string; said: string | null } => s.step !== null && s.at !== null && !Number.isNaN(Date.parse(s.at)));
   if (askedAt) {
     steps.push({ step: 'Asked', at: askedAt.toISOString(), said: null });
@@ -573,7 +604,7 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
   const media: PublicSlide[] = [
     ...(recording === null
       ? []
-      : [{ kind: 'video' as const, src: input.mediaSrc(recording.id), type: str(recording.spec, 'contentType') ?? 'video/webm', label, caption: caption(recording) }]),
+      : [{ kind: 'video' as const, src: input.mediaSrc(recording.id), type: str(recording.spec, 'contentType') ?? 'video/webm', label, caption: caption(recording), ...(posterAt(recording.spec) !== null ? { posterAt: posterAt(recording.spec)! } : {}) }]),
     ...pictures.map(({ artifact, label: l }) => image(artifact, l)),
     ...shippedEvidence(input.evidence ?? [], report.acceptance?.attempt).filter(e => !shown.has(e.artifact.id)).map(({ artifact, label: l }) => image(artifact, l)),
   ];

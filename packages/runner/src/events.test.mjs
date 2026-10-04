@@ -20,6 +20,7 @@ import {
   renderTranscriptMarkdown,
   toolDiff,
   truncate,
+  usageFromMessages,
 } from './events.mjs';
 
 describe('truncate', () => {
@@ -367,5 +368,20 @@ describe('the run log reads like a Claude Code terminal', () => {
     assert.match(write, /… 10 more lines$/);
     assert.match(outputHead(Array.from({ length: 20 }, (_, i) => `row ${i}`).join('\n')), /… 8 more lines$/);
     assert.equal(toolDiff('Read', { file_path: 'x' }), null);
+  });
+});
+
+describe('what a run spent before it was cut off (walk 20)', () => {
+  it('sums the usage of every assistant message, names the model, and is null when none carried usage', () => {
+    const messages = [
+      { type: 'system', subtype: 'init' },
+      { type: 'assistant', message: { model: 'claude-opus-5-5', usage: { input_tokens: 1000, cache_creation_input_tokens: 200, cache_read_input_tokens: 5000, output_tokens: 300 } } },
+      { type: 'user', message: { content: [] } },
+      { type: 'assistant', message: { model: 'claude-opus-5-5', usage: { input_tokens: 10, cache_read_input_tokens: 6000, output_tokens: 90 } } },
+    ];
+
+    assert.deepEqual(usageFromMessages(messages), { model: 'claude-opus-5-5', inputTokens: 12210, outputTokens: 390, cacheReadTokens: 11000, cacheWriteTokens: 200 });
+    assert.equal(usageFromMessages([{ type: 'system' }]), null);
+    assert.equal(usageFromMessages(undefined), null);
   });
 });

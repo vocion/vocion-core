@@ -2,6 +2,7 @@ import type { TokenUsage } from '@/libs/pricing';
 import type { WORKER_RUN_COMPLETED, WORKER_RUN_FAILED, WorkerRunEndedPayload } from '@/services/EventService';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { tokenCostCents } from '@/libs/pricing';
 import { boundProgress } from '@/libs/worker/progress';
 import { reportedRunCents } from '@/libs/worker/runCost';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
@@ -257,6 +258,22 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
   return { run: updated, toolClaim: toolClaimFor(updated) };
 }
 
+/**
+ * What a heartbeat adds to the run's spend, in whole cents (the column is an integer). The runner's
+ * own figure when it has one; else priced here from the tokens it saw (walk 20, FE-436: a run
+ * killed at the wall clock never printed its cost and read $0 after forty minutes of Opus). The
+ * ledger's charge prices the same tokens the same way, in micro-cents, so the exact figure is there.
+ * @param usage - The beat's usage, if any.
+ * @param tokens - The beat's token count, already summed.
+ */
+function heartbeatCents(usage: { model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; cents?: number } | undefined, tokens: number): number {
+  if (!usage) {
+    return 0;
+  }
+  const cents = usage.cents ?? (tokens > 0 ? tokenCostCents(usage.model, { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens }) : 0);
+  return Number.isFinite(cents) ? Math.round(cents) : 0;
+}
+
 export type HeartbeatInput = {
   orgId: string;
   id: number;
@@ -356,7 +373,10 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     // Added in the statement, not from the row read above: a heartbeat that
     // read the run before another one landed must not overwrite it.
     tokens: sql`${workerRunSchema.tokens} + ${tokens}`,
-    cents: sql`${workerRunSchema.cents} + ${input.usage?.cents ?? 0}`,
+    // The runner's own figure when it has one; else priced here from the tokens it saw (walk 20,
+    // FE-436: a run killed at the wall clock never printed its cost, and read $0 after forty minutes
+    // of Opus). The ledger's charge below prices the same tokens the same way.
+    cents: sql`${workerRunSchema.cents} + ${heartbeatCents(input.usage, tokens)}`,
     // The model that actually did the work wins over whatever create guessed.
     model: input.usage?.model ?? run.model,
     langfuseTraceId: input.langfuseTraceId ?? run.langfuseTraceId,

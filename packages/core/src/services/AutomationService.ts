@@ -497,8 +497,12 @@ async function dispatchDo(
   return withRunCost({ missionRunId: checked.id }, () => afterCheck(orgId, slug, doCfg, template, checked, triggerInput, invokedBy, before, startedAt))
     .finally(() => {
       void import('@/services/factory/featureSpend').then(m => m.scheduleFeatureSpendRefresh(orgId)).catch(() => {});
-      // The run's browser (the live check's `browser_*` tools) closes with its check, after the recording pass.
-      void import('@/services/factory/liveBrowser').then(m => Promise.all(runIds.map(id => m.closeBrowserSession(m.browserSessionKey({ orgId, missionRunId: id }))))).catch(() => {});
+      // The run's browser (the live check's `browser_*` tools) closes with its check, after the
+      // recording pass — and the check is not over until it has: closing keeps the recordings, and
+      // `automation_run.completed` (announced by the caller once this settles) is what decides
+      // whether a demo is still owed. Walk 20 (FE-436, 2026-10-04): the close was fire-and-forget,
+      // the completed event ran first, found no demo yet, and a second demo was recorded.
+      return import('@/services/factory/liveBrowser').then(m => Promise.all(runIds.map(id => m.closeBrowserSession(m.browserSessionKey({ orgId, missionRunId: id }))))).catch(() => {});
     });
 }
 
