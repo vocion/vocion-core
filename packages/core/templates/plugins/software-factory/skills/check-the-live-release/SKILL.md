@@ -6,7 +6,7 @@ description: >-
   account: open it in the run's browser, look, act, screenshot what proves
   each acceptance line, record every line with record_live_check, then show
   each feature seen as a demo a product manager can watch.
-version: 5
+version: 6
 ---
 
 # Check the live release
@@ -22,7 +22,10 @@ as the product's QA account.
 2. **Look.** Every answer is the page's accessibility snapshot: each element's
    role, name and state (`[disabled]`, `[checked]`, `[expanded]`) and a ref.
    Judge what it shows. A Save that is `[disabled]` for a blank name is the
-   line "a blank name is not saved", seen.
+   line "a blank name is not saved", seen. A long page is cut at 12,000
+   characters from the top and says so; a section past the cut is not
+   "cannot show": call `browser_snapshot` with `find` set to words written on
+   it (its heading, a label) and the snapshot shows the page around them.
 3. **Act.** `browser_click`, `browser_type`, `browser_press` by ref, the way a
    person would. A click on a disabled control answers "disabled" at once. If
    a line needs something made (a record, a share link), make it as the QA

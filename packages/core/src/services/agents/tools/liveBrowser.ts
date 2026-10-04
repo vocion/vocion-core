@@ -44,11 +44,13 @@ export function liveBrowserTools(ctx: RuntimeContext): StructuredToolInterface[]
       },
     ),
     tool(
-      async () => answer(await (await svc()).browserSnapshot(await key())),
+      async args => answer(await (await svc()).browserSnapshot(await key(), {}, { find: args.find ?? null })),
       {
         name: 'browser_snapshot',
-        description: 'The open page\'s accessibility snapshot again (address, title, each element with its state and ref), with an id to cite. Use it after the page changes by itself.',
-        schema: z.object({}),
+        description: 'The open page\'s accessibility snapshot again (address, title, each element with its state and ref), with an id to cite. Use it after the page changes by itself. A long page is cut at 12,000 characters from the top; pass find with words written on the section you need (a heading, a label) and the snapshot shows the page around them, so its refs can be acted on.',
+        schema: z.object({
+          find: z.string().trim().min(2).max(120).optional().describe('Words on the part of a long page to show, e.g. "Expiry". Case does not matter.'),
+        }),
       },
     ),
     tool(

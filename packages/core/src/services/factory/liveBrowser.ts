@@ -59,6 +59,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { LIVE_ROLE } from '@/libs/factory/liveCheck';
+import { snapshotWindow } from '@/libs/factory/snapshotWindow';
 import { spokenMs } from '@/libs/media/narration';
 import { allowedOrigins, environmentFor, releaseLines, signIn, signInProblem } from './liveCheck';
 
@@ -453,8 +454,9 @@ function refuse(why: string, id: string | null = null): BrowserAnswer {
  * tree, capped. Playwright's own snapshot for an AI (`_snapshotForAI`, what Playwright MCP serves):
  * each element carries its role, name, state (`[disabled]`, `[checked]`, `[expanded]`) and a ref.
  * @param page - The page.
+ * @param find
  */
-async function ariaSnapshot(page: Page): Promise<{ url: string; title: string; text: string }> {
+async function ariaSnapshot(page: Page, find?: string | null): Promise<{ url: string; title: string; text: string }> {
   const url = page.url();
   const title = await page.title().catch(() => '');
   const p = page as Page & { _snapshotForAI?: (o?: { timeout?: number }) => Promise<{ full: string } | string> };
@@ -467,8 +469,8 @@ async function ariaSnapshot(page: Page): Promise<{ url: string; title: string; t
     tree = `${await page.locator('body').ariaSnapshot({ timeout: 10_000 })}\n[this browser gives no refs: act on nothing, read only]`;
   }
   const head = `URL: ${url}\nTitle: ${title}\n`;
-  const room = BROWSER_LIMITS.snapshotChars - head.length;
-  const text = tree.length > room ? `${tree.slice(0, room)}\n[truncated: ${tree.length - room} more characters of the page were not shown]` : tree;
+  // A page longer than the cap shows its top, or the part around the words asked for (`snapshotWindow`).
+  const { text } = snapshotWindow(tree, BROWSER_LIMITS.snapshotChars - head.length, find);
   return { url, title, text: head + text };
 }
 
@@ -483,11 +485,12 @@ async function settle(page: Page): Promise<void> {
  * @param tab - The tab.
  * @param d - The clock.
  * @param base - What the call did.
+ * @param find - Words on the part of a long page to show, else its top.
  */
-async function withSnapshot(s: Session, tab: Tab, d: LiveBrowserDeps, base: BrowserAnswer): Promise<BrowserAnswer> {
+async function withSnapshot(s: Session, tab: Tab, d: LiveBrowserDeps, base: BrowserAnswer, find?: string | null): Promise<BrowserAnswer> {
   const page = tab.page!;
   try {
-    const snap = await ariaSnapshot(page);
+    const snap = await ariaSnapshot(page, find);
     const entry = log(s, 'snapshot', { url: snap.url, title: snap.title, viewport: tab.viewport, signedIn: tab.signedIn }, d.now());
     const blocked = s.blocked.splice(0);
     const note = blocked.length > 0 ? ` The page tried to open ${blocked.slice(0, 3).join(', ')}, which is not one of the product's own addresses; it was not opened.` : '';
@@ -691,17 +694,21 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
 }
 
 /**
- * The open page's snapshot, logged.
+ * The open page's snapshot, logged. With `find`, a long page is shown around
+ * the first element carrying those words rather than from its top (walk 22,
+ * FE-226: the Expiry section fell past the cap and could not be reached).
  * @param key - The session.
  * @param deps - The clock.
+ * @param input - `find`: words on the section wanted.
+ * @param input.find - Words on the section wanted, case-insensitive.
  */
-export async function browserSnapshot(key: string | null, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+export async function browserSnapshot(key: string | null, deps: Partial<LiveBrowserDeps> = {}, input: { find?: string | null } = {}): Promise<BrowserAnswer> {
   const d = { ...defaultDeps, ...deps };
   const a = active(key);
   if (!('s' in a)) {
     return a;
   }
-  const out = await withSnapshot(a.s, a.tab, d, { ok: true, id: null });
+  const out = await withSnapshot(a.s, a.tab, d, { ok: true, id: null }, input.find ?? null);
   return { ...out, id: out.snapshotId ?? null };
 }
 

@@ -390,7 +390,7 @@ name: Software factory
 #   own build in one take, saying each acceptance line, and files it as
 #   `feature-demo-preview`; QA narrates it like the live demo; the merge card
 #   and the feature page lead with it until the live demo exists.
-version: 3.15.0
+version: 3.15.1
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
