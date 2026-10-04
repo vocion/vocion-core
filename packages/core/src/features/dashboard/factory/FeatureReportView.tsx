@@ -515,12 +515,8 @@ function OutcomeBlock({ report }: { report: FeatureReport }) {
  * each a native player that loads only its first frame until pressed, with a
  * Recording | Narrated switch when the seat narrated it (`RecordingPlayer`).
  * A phone-sized recording keeps its shape inside the column; nothing is drawn
- * when neither was kept.
- *
- * When the recording is on the workspace's video host (it has a share), the
- * host's own player is framed instead — 16:9, the column's width — with a
- * link to open it there; a recording that could not be published says why
- * in one muted line under the native player.
+ * when neither was kept. The player is Vocion's own, always (Chris,
+ * 2026-10-03: one player on every page).
  * @param props
  * @param props.recordings - The report's recordings.
  */
@@ -538,20 +534,11 @@ function RecordingsRow({ recordings }: { recordings: FeatureReport['recordings']
       <div className="mt-1 grid min-w-0 gap-3 sm:grid-cols-2">
         {items.map(({ key, label, r }) => (
           <figure key={key} className="m-0 min-w-0" data-testid={`report-recording-${key}`}>
-            <RecordingPlayer label={label} recording={r} testKey={key} />
+            <RecordingPlayer label={label} recording={r} />
             <figcaption className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">
               <span className="text-foreground">{label}</span>
               {` · ${r.caption} · `}
               <LocalDate at={r.at} />
-              {r.slateShareId && r.hosted && (
-                <>
-                  {' · '}
-                  <a href={r.hosted.watchUrl} target="_blank" rel="noopener noreferrer" className="underline-offset-2 hover:underline" data-testid={`report-recording-${key}-open`}>
-                    {`Open in ${r.hosted.label}`}
-                  </a>
-                </>
-              )}
-              {!r.hosted && r.hostNote && <span className="block" data-testid={`report-recording-${key}-host-note`}>{r.hostNote}</span>}
             </figcaption>
           </figure>
         ))}

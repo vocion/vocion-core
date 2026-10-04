@@ -1,5 +1,4 @@
 import { defineJob } from '@/libs/durable/jobs';
-import { VIDEO_HOST_PUBLISH_JOB } from '@/services/videoHost/queue';
 
 /**
  * EVERY BACKGROUND JOB THIS BUILD RUNS (v0.6.0): what the durable executor used
@@ -19,7 +18,6 @@ export const JOB = {
   evalRefresh: 'eval.refresh',
   bulkBriefRegenerate: 'brief.bulk-regenerate',
   durablePrune: 'durable.prune',
-  videoHostPublish: VIDEO_HOST_PUBLISH_JOB,
   recordingNarrate: 'recording.narrate',
 } as const;
 
@@ -106,18 +104,6 @@ defineJob<{ orgId: string; jobId: number; leadIds: number[]; note: string; by: s
   await ctx.step('finish', () => finishBulkJobActivity({ orgId: input.orgId, jobId: input.jobId }));
   return { landed, failed };
 }, { whole: true });
-
-// A filed recording, published to the workspace's video host
-// (`services/videoHost/`). The outcome is kept on the artifact whatever it is;
-// a refusal that trying again could cure is thrown so the run retries it.
-defineJob<{ orgId: string; artifactId: number }>(JOB.videoHostPublish, async (input) => {
-  const { publishRecording } = await import('@/services/videoHost/publish');
-  const outcome = await publishRecording(input);
-  if (outcome.status === 'failed' && outcome.retryable) {
-    throw new Error(outcome.reason);
-  }
-  return outcome;
-}, { retry: { attempts: 3, intervalSeconds: 60, backoff: 3 } });
 
 /** Finished background runs older than this are pruned from the durable tables. */
 const PRUNE_AFTER_DAYS = 7;

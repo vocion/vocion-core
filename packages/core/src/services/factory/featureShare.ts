@@ -30,11 +30,9 @@ import type { Phase } from '@/libs/factory/featureGlance';
 import { cardDescription, cardTitle, compactSpan, DEFAULT_BUILDER, DEFAULT_SITE_NAME, timeSplit } from '@/libs/factory/featureGlance';
 import { readRequestLive } from '@/libs/factory/liveCheck';
 import { showsAnError } from '@/libs/factory/mockup';
-import { slatePlayerUrl } from '@/libs/slate/client';
 import { API_ARTIFACTS_BASE } from '@/libs/tools/artifacts/url';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { firstSentence } from '@/libs/workspace/releaseFeed';
-import { isPubliclyHosted } from '@/services/videoHost/audience';
 import { money, RECORDING_ROLES } from './featureReport';
 
 /** The role the public link is filed under on its request. */
@@ -67,9 +65,7 @@ const MAX_QA_SHOTS = 8;
 /** One slide in the page's carousel, in the order it is shown. */
 export type PublicSlide
   = | { kind: 'image'; src: string; label: 'Mockup' | 'Before' | 'After' | 'QA after' | 'QA before'; alt: string; caption: string | null; width?: number; height?: number }
-    | { kind: 'video'; src: string; type: string; label: string; caption: string }
-  /** The video host's player; `title` labels the frame for a screen reader ("FE-402 · Sort the library"). */
-    | { kind: 'embed'; src: string; label: string; caption: string; title: string };
+    | { kind: 'video'; src: string; type: string; label: string; caption: string };
 
 /** What a visitor sees. Every field is listed here; nothing else reaches the page. */
 export type PublicFeaturePage = {
@@ -272,29 +268,15 @@ const WALKTHROUGH_LABEL: Record<string, string> = {
 };
 
 /**
- * THE RECORDING'S PLAYER (Chris, 2026-10-03: "Carousel video = the Slate
- * embedded player whenever the recording artifact has a Slate share id").
- * The share id the upload kept on the artifact (`slateShareId`) names the
- * player — but only while the host lets anyone watch it
- * (`hostedVideo.visibility` is public, which sharing the feature sets). A
- * stranger shown a team-only player sees "not available", so otherwise the
- * page plays Vocion's own copy through the link: the page is never broken.
- * @param a - The recording.
- */
-export function playerEmbed(a: Pick<SharedArtifact, 'spec'>): string | null {
-  const shareId = str(a.spec, 'slateShareId');
-  return shareId && isPubliclyHosted(a.spec) ? slatePlayerUrl(shareId) : null;
-}
-
-/**
  * The one recording the page plays: the newest of the best role there is,
- * and only one the page can actually play to a stranger.
+ * and only one the page can actually play to a stranger — Vocion's own copy,
+ * served through the link (Chris, 2026-10-03: one player, the page's own).
  * @param candidates - Recordings on the request and its tasks.
  */
 export function walkthroughOf(candidates: readonly SharedArtifact[]): SharedArtifact | null {
   for (const role of WALKTHROUGH_ROLES) {
     const playable = candidates
-      .filter(a => a.recordRole === role && a.shareAudience !== 'me' && (playerEmbed(a) !== null || serveVia(a) === 'media' || serveVia(a) === 'file' || serveVia(a) === 'stored'))
+      .filter(a => a.recordRole === role && a.shareAudience !== 'me' && (serveVia(a) === 'media' || serveVia(a) === 'file' || serveVia(a) === 'stored'))
       .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime() || y.id - x.id);
     if (playable[0]) {
       return playable[0];
@@ -525,7 +507,6 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
   const builtFrom = str(meta, 'outcome') ?? str(meta, 'summary') ?? report.title;
   const byId = new Map(input.pictures.map(a => [a.id, a]));
   const recording = walkthroughOf(input.recordings);
-  const embed = recording ? playerEmbed(recording) : null;
   const caption = (a: SharedArtifact) => scrub(str(a.spec, 'caption') ?? a.title);
   const cost = report.historyCost;
   const label = recording ? WALKTHROUGH_LABEL[recording.recordRole ?? ''] ?? 'Walkthrough' : '';
@@ -546,9 +527,7 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
   const media: PublicSlide[] = [
     ...(recording === null
       ? []
-      : [embed
-          ? { kind: 'embed' as const, src: embed, label, caption: caption(recording), title: input.code ? `${input.code} · ${title}` : title }
-          : { kind: 'video' as const, src: input.mediaSrc(recording.id), type: str(recording.spec, 'contentType') ?? 'video/webm', label, caption: caption(recording) }]),
+      : [{ kind: 'video' as const, src: input.mediaSrc(recording.id), type: str(recording.spec, 'contentType') ?? 'video/webm', label, caption: caption(recording) }]),
     ...pictures.map(({ artifact, label: l }) => image(artifact, l)),
     ...shippedEvidence(input.evidence ?? [], report.acceptance?.attempt).filter(e => !shown.has(e.artifact.id)).map(({ artifact, label: l }) => image(artifact, l)),
   ];

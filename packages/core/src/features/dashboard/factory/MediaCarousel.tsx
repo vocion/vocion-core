@@ -20,36 +20,14 @@ export type MediaSlide = {
   /** Who or what made it and when, linked to where it came from. */
   source?: EvidenceSource | null;
   /**
-   * A picture (the default), a recording Vocion serves (`type` is its content
-   * type), or a video host's player. A recording or a player opens full
-   * screen and plays there; a picture opens zoomable.
+   * A picture (the default) or a recording Vocion serves (`type` is its
+   * content type). A recording opens full screen and plays there; a picture
+   * opens zoomable.
    */
-  kind?: 'image' | 'video' | 'embed';
+  kind?: 'image' | 'video';
   /** The recording's content type, for `kind: 'video'`. */
   type?: string;
 };
-
-/**
- * A video host's player, in the host's own responsive 16:9 frame (Chris,
- * 2026-10-03: the Slate embed, exactly). It plays where it is, and its own
- * control takes it full screen.
- * @param props
- * @param props.slide - The slide (`kind: 'embed'`); its title labels the frame.
- */
-function EmbedPlayer({ slide }: { slide: MediaSlide }) {
-  return (
-    <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }} className="w-full" data-testid="report-embed">
-      <iframe
-        src={slide.src}
-        frameBorder="0"
-        allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
-        allowFullScreen
-        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-        title={slide.title}
-      />
-    </div>
-  );
-}
 
 /**
  * What a slide shows in the strip before it is opened: the picture, or the
@@ -88,9 +66,6 @@ function SlidePlayer({ slide, inView }: { slide: MediaSlide; inView: boolean }) 
   const label = `${slide.label}: ${slide.caption ?? slide.title}`;
   if (!inView) {
     return <span className="size-full" aria-hidden />;
-  }
-  if (slide.kind === 'embed') {
-    return <div className="w-full max-w-4xl"><EmbedPlayer slide={slide} /></div>;
   }
   return (
     // A browser recording has no sound to caption; what it shows is the caption below.
@@ -233,33 +208,25 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
           onScroll={onScroll}
           className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-muted [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {slides.map((s, i) => (s.kind === 'embed'
-            // A player is not a picture to open: it plays in place, and its
-            // own control takes it full screen.
-            ? (
-                <div key={s.id} data-testid="report-slide" className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]">
-                  <EmbedPlayer slide={s} />
-                </div>
-              )
-            : (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setOpen(i)}
-                  // The page itself never zooms (layout.tsx), so a pinch here opens
-                  // the picture full screen, where it pinches.
-                  onTouchStart={(e) => {
-                    if (e.touches.length >= 2) {
-                      setOpen(i);
-                    }
-                  }}
-                  aria-label={`${s.kind === 'video' ? 'Play' : 'Open'} ${s.caption ?? s.title} full screen`}
-                  data-testid="report-slide"
-                  className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
-                >
-                  <SlidePreview slide={s} eager={i === 0} />
-                </button>
-              )))}
+          {slides.map((s, i) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setOpen(i)}
+              // The page itself never zooms (layout.tsx), so a pinch here opens
+              // the picture full screen, where it pinches.
+              onTouchStart={(e) => {
+                if (e.touches.length >= 2) {
+                  setOpen(i);
+                }
+              }}
+              aria-label={`${s.kind === 'video' ? 'Play' : 'Open'} ${s.caption ?? s.title} full screen`}
+              data-testid="report-slide"
+              className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
+            >
+              <SlidePreview slide={s} eager={i === 0} />
+            </button>
+          ))}
         </div>
         {many && (
           <>
@@ -287,7 +254,7 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
               onClick={() => go(i)}
               className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border bg-muted transition sm:h-16 sm:w-24 ${i === idx ? 'border-foreground ring-1 ring-foreground' : 'border-border opacity-70 hover:opacity-100'}`}
             >
-              {s.kind === 'video' || s.kind === 'embed'
+              {s.kind === 'video'
                 ? <span className="flex size-full items-center justify-center bg-[#09090b] text-white"><Play className="size-4 fill-current" aria-hidden /></span>
                 : <img src={s.src} alt="" loading="lazy" className="size-full object-cover object-top" />}
             </button>
@@ -409,7 +376,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
       >
         {slides.map((s, i) => (
           <div key={s.id} className="flex h-full w-full shrink-0 snap-center items-center justify-center overflow-hidden p-2">
-            {s.kind === 'video' || s.kind === 'embed'
+            {s.kind === 'video'
               ? <SlidePlayer slide={s} inView={i === idx} />
               : (
                   <ZoomableImage
@@ -430,7 +397,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
           {current.caption ?? current.title}
         </span>
         {current.source && <SourceLine source={current.source} tone="dark" onOpen={() => onClose(idx)} />}
-        <span className="mt-1 block text-[11px] opacity-50">{current.kind === 'video' || current.kind === 'embed' ? (slides.length > 1 ? 'Swipe for the next' : '') : zoomed ? 'Pinch or tap to fit · drag to look around' : 'Pinch or tap to zoom · swipe for the next'}</span>
+        <span className="mt-1 block text-[11px] opacity-50">{current.kind === 'video' ? (slides.length > 1 ? 'Swipe for the next' : '') : zoomed ? 'Pinch or tap to fit · drag to look around' : 'Pinch or tap to zoom · swipe for the next'}</span>
       </div>
     </div>,
     document.body,

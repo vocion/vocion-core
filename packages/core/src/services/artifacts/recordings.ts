@@ -15,9 +15,6 @@
  * it when the workspace turned that on. A recording carries the moments it
  * shows when its maker logged them (`spec.timeline`: what was done, when, in
  * milliseconds from the recording's start), so a narration is timed to them.
- *
- * When the workspace has a video host connected, each filing is also queued
- * for it (`services/videoHost/queue.ts`); without one, nothing more happens.
  */
 
 import type { Buffer } from 'node:buffer';
@@ -77,7 +74,7 @@ export type FiledRecording
  * @param input.author - Who it is filed as.
  * @param input.timeline - The moments it shows, when logged.
  * @param input.extraSpec - More fields for the spec.
- * @param deps - Seams for tests; `publish` queues the filing for the video host (null: never), `announce` raises `recording.filed`.
+ * @param deps - Seams for tests; `announce` raises `recording.filed`.
  */
 export async function fileRecording(input: {
   orgId: string;
@@ -96,7 +93,6 @@ export async function fileRecording(input: {
   /** More fields for each artifact's spec (a narration's source and script). */
   extraSpec?: Record<string, unknown>;
 }, deps: MediaDeps & {
-  publish?: ((input: { orgId: string; artifactIds: number[]; role: string | null }) => Promise<unknown>) | null;
   announce?: (orgId: string, payload: RecordingFiledPayload) => Promise<void>;
 } = {}): Promise<FiledRecording> {
   const kept = await keepMedia({ orgId: input.orgId, recordId: input.keptUnder, name: input.name, data: input.data, contentType: input.contentType }, deps);
@@ -145,12 +141,6 @@ export async function fileRecording(input: {
       const { logger } = await import('@/libs/Logger');
       logger.warn('recording artifact not written', { orgId: input.orgId, recordId: r.id, role: r.role, error: err instanceof Error ? err.message : String(err) });
     }
-  }
-  if (artifactIds.length > 0 && deps.publish !== null) {
-    // Never throws, and returns as soon as the publish is queued (or there is
-    // no host): the recording is filed whatever happens next.
-    const publish = deps.publish ?? (await import('@/services/videoHost/queue')).queueRecordingPublish;
-    await publish({ orgId: input.orgId, artifactIds, role: input.records[0]?.role ?? null }).catch(() => undefined);
   }
   const first = input.records.find(r => artifactIds.length > 0 && r);
   if (artifactIds.length > 0 && first) {

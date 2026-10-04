@@ -1,17 +1,13 @@
 /**
- * Slate connector — the capability carrier for Slate as a video host, and
- * nothing else.
+ * Slate connector — Slate (MetaCTO's screen-recording product) as a
+ * connection a workspace holds, and nothing more (Chris, 2026-10-03: "leave
+ * it as a connector now").
  *
- * Slate (MetaCTO's screen-recording product) ingests nothing into Vocion; it
- * is where the factory's QA and live-check recordings go to be watched, with
- * Slate's own player, transcript and sharing. What registering it buys is
- * everything around the token: a Slate tile on Connections, a place in the
- * encrypted vault, and — through `inspect` — a Test connection that says whose
- * account the token is and whether that account may upload.
- *
- * Optional: with no Slate connected, recordings stay in Vocion's media store
- * and play in the native player, exactly as before. See
- * `services/videoHost/` for how a filed recording is published.
+ * Slate ingests nothing into Vocion. What registering it buys is everything
+ * around the token: a Slate tile on Connections, a place in the encrypted
+ * vault, and — through `inspect` — a Test connection that says whose account
+ * the token is. The factory's recordings stay in Vocion's media store and
+ * play in Vocion's own player, with or without Slate connected.
  */
 
 import type { ConnectorCheck, ConnectorInspection } from './inspect';
@@ -19,16 +15,12 @@ import type { SourceConnector, SourceContext } from './types';
 import type { SlateFetch } from '@/libs/slate/client';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
-import { readSlateMe, SLATE_API_BASE, SLATE_DEFAULT_VISIBILITY, SLATE_VISIBILITIES, SLATE_WEB_ORIGIN, slateCredentialsFrom } from '@/libs/slate/client';
+import { readSlateMe, SLATE_API_BASE, slateCredentialsFrom } from '@/libs/slate/client';
 import { InspectInputError } from './inspect';
 
 const slateConfigSchema = z.object({
-  /** Who may watch an uploaded recording. `team` is the uploader's Slate organization. */
-  visibility: z.enum(SLATE_VISIBILITIES).default(SLATE_DEFAULT_VISIBILITY),
   /** API origin override, for a non-production Slate or a test double. */
   apiBase: z.string().url().default(SLATE_API_BASE),
-  /** Web origin the player and watch page are served from. */
-  webOrigin: z.string().url().default(SLATE_WEB_ORIGIN),
 });
 
 function check(key: string, label: string, ok: boolean, detail: string | null): ConnectorCheck {
@@ -36,8 +28,7 @@ function check(key: string, label: string, ok: boolean, detail: string | null): 
 }
 
 /**
- * Test connection: who the token is, and whether the account may upload.
- * Read-only and free. Nothing is saved.
+ * Test connection: who the token is. Read-only and free. Nothing is saved.
  * @param input - Config and credential, as typed or as vaulted.
  * @param input.config - The source config.
  * @param input.credentials - The credential values.
@@ -53,26 +44,19 @@ export async function inspectSlate(input: { config: Record<string, unknown>; cre
     return { reachable: me.status !== null, authorized: false, checks: [check('account', 'Token accepted', false, me.message)], note: null, error: me.message };
   }
   const who = me.data.name ? `${me.data.name} (${me.data.email ?? 'no email'})` : (me.data.email ?? 'an account with no email');
-  const checks = [
-    check('account', 'Token accepted', true, `Signed in as ${who}.`),
-    check('uploads', 'May upload recordings (paid seat)', me.data.paidSeat === true, me.data.paidSeat === true
-      ? 'Recordings the factory files will be uploaded here.'
-      : 'This account has no paid seat, and Slate keeps uploading a file for paid seats. Recordings stay in Vocion until it has one.'),
-  ];
-  const visibility = typeof input.config.visibility === 'string' ? input.config.visibility : SLATE_DEFAULT_VISIBILITY;
   return {
     reachable: true,
     authorized: true,
-    checks,
-    note: `Uploads are visible to: ${visibility}${visibility === 'team' ? ' (this account\'s Slate organization)' : ''}. Nothing was saved by this test.`,
-    error: checks.some(c => !c.ok) ? checks.filter(c => !c.ok).map(c => c.detail).join(' ') : null,
+    checks: [check('account', 'Token accepted', true, `Signed in as ${who}.`)],
+    note: 'Nothing was saved by this test.',
+    error: null,
   };
 }
 
 export const slateConnector: SourceConnector<typeof slateConfigSchema> = {
   slug: 'slate',
   name: 'Slate',
-  description: 'Screen recordings with a player, transcript and sharing. When connected, the factory\'s QA and live-check recordings are uploaded and play on the feature page in Slate\'s player.',
+  description: 'Screen recordings with a player, transcript and sharing. Connecting keeps the account\'s session token in the workspace vault and verifies it; nothing is synced.',
   icon: 'Video',
   authKind: 'apikey',
   syncless: true,
@@ -84,6 +68,6 @@ export const slateConnector: SourceConnector<typeof slateConfigSchema> = {
   },
 
   async* sync(_ctx: SourceContext): AsyncIterable<IngestDoc> {
-    // Slate is a destination, never mirrored into retrieval.
+    // Slate is a connection, never mirrored into retrieval.
   },
 };

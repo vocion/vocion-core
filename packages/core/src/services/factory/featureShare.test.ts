@@ -2,9 +2,8 @@ import type { FeatureReportInput, ReportActivity } from './featureReport';
 import type { PublicFeatureInput, SharedArtifact } from './featureShare';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BUILDER } from '@/libs/factory/featureGlance';
-import { SLATE_PLAYER_ORIGIN } from '@/libs/slate/client';
 import { assembleFeatureReport } from './featureReport';
-import { playerEmbed, publicFeaturePage, publicSteps, scrub, serveVia, shareCard, sharedPictures, shippedEvidence, shortSpan, STEP_SENTENCE, walkthroughOf } from './featureShare';
+import { publicFeaturePage, publicSteps, scrub, serveVia, shareCard, sharedPictures, shippedEvidence, shortSpan, STEP_SENTENCE, walkthroughOf } from './featureShare';
 
 /**
  * A FEATURE'S PUBLIC PAGE (Chris, 2026-10-03): the ask and who asked, what it
@@ -135,14 +134,14 @@ describe('the public page of a feature', () => {
     const all = JSON.stringify({ ...page, openUrl: null });
 
     expect(all).not.toMatch(/@northwind\.example|dana@/);
-    expect(all).not.toMatch(/https?:\/\/(?!video-host)/);
+    expect(all).not.toMatch(/https?:\/\//);
     expect(all).not.toMatch(/\/dashboard|\/api\/media|\/api\/artifacts|github|pull\/|PR #|RUN-|ET-37|PL-37|REL-37/);
     expect(all).not.toMatch(/northwind-engineer|qa-review|Requested in chat/);
     expect(page.ask.text).toContain('[email hidden]');
     expect(page.ask.text).toContain('[link hidden]');
 
     // Every picture, QA shot and the recording load through the share route only.
-    for (const m of page.media.filter(m => m.kind !== 'embed')) {
+    for (const m of page.media) {
       expect(m.src).toMatch(/^\/api\/share\/feature\/TOKEN\/media\/\d+\?k=/);
     }
   });
@@ -243,26 +242,6 @@ describe('which files a public page may show', () => {
     expect(walkthroughOf([video(1, 'qa-video', '2026-10-02T08:00:00Z'), video(2, 'qa-live-video', '2026-10-02T09:00:00Z')])?.id).toBe(2);
     expect(walkthroughOf([video(1, 'qa-video', '2026-10-02T08:00:00Z', { shareAudience: 'me' })])).toBeNull();
     expect(walkthroughOf([video(1, 'qa-video', '2026-10-02T08:00:00Z', { url: 'https://bucket.example/x.webm' })])).toBeNull();
-  });
-
-  it('plays a recording in its video host\'s player only while the host lets anyone watch; else Vocion\'s own copy', () => {
-    const onHost = (visibility: string) => video(5, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { contentType: 'video/webm', caption: 'c', slateShareId: 'share-fictional-1', hostedVideo: { state: 'published', visibility } } });
-
-    expect(playerEmbed(onHost('public'))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`);
-    // Team-only (or a change that failed): a stranger would see "not available", so not the player.
-    expect(playerEmbed(onHost('team'))).toBeNull();
-    expect(playerEmbed(video(6, 'qa-live-video', '2026-10-02T09:00:00Z'))).toBeNull();
-    expect(playerEmbed(video(8, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { slateShareId: 'share-fictional-1' } }))).toBeNull();
-    // A share id is a path segment, never markup or a second URL.
-    expect(playerEmbed(video(7, 'qa-live-video', '2026-10-02T09:00:00Z', { spec: { slateShareId: '../x?y=<z>', hostedVideo: { state: 'published', visibility: 'public' } } }))).toBe(`${SLATE_PLAYER_ORIGIN}/embed/..%2Fx%3Fy%3D%3Cz%3E`);
-
-    const page = publicFeaturePage(input({ recordings: [onHost('public')], code: 'FE-370', name: 'Upload date on library rows' }));
-
-    expect(page.media[0]).toEqual({ kind: 'embed', src: `${SLATE_PLAYER_ORIGIN}/embed/share-fictional-1`, label: 'On the live product', caption: 'c', title: 'FE-370 · Upload date on library rows' });
-    // No share id: the native recording through the link.
-    expect(publicFeaturePage(input()).media[0]).toMatchObject({ kind: 'video', src: '/api/share/feature/TOKEN/media/951?k=sig-951' });
-    // On the host but not public: the native recording through the link too.
-    expect(publicFeaturePage(input({ recordings: [onHost('team')] })).media[0]).toMatchObject({ kind: 'video', src: '/api/share/feature/TOKEN/media/5?k=sig-5' });
   });
 });
 
