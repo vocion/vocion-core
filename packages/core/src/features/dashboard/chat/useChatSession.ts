@@ -572,6 +572,7 @@ export function useChatSession({
         // stamped with, so live and reloaded transcripts agree (backlog 009).
         const spoken = evt as unknown as { agent: { slug: string; name: string } };
         appendToLatestAgent(m => ({ ...m, agentSlug: spoken.agent.slug, agentName: nameOfAgent(spoken.agent.slug, spoken.agent.name) }));
+        setActivity(`${nameOfAgent(spoken.agent.slug, spoken.agent.name)} is thinking…`);
         return;
       }
       case 'run_meta': {
@@ -582,7 +583,8 @@ export function useChatSession({
       }
       case 'thinking':
         setPhase('thinking');
-        setActivity('Thinking…');
+        // Keep "<agent> is thinking…" when the turn already named its speaker.
+        setActivity(prev => (prev?.endsWith(' is thinking…') ? prev : 'Thinking…'));
         return;
       case 'thinking_delta': {
         // Chain-of-thought token (Anthropic extended thinking).
@@ -1398,6 +1400,11 @@ export function useChatSession({
     routeOnceRef.current = null;
     const routed = searchAgent ?? routeTurn(recordRefs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
     const turnAgent = routed ?? agent;
+    // A new thread nobody named an agent for is routed first: say so, rather
+    // than a bare spinner, until the runtime says who answers.
+    if (!routed && !isSearchOnly && conversationIdRef.current === null) {
+      setActivity('Choosing who answers…');
+    }
     // The reply is NOT attributed here from the tags: the runtime says who
     // speaks (`turn_agent`, the first frame) and the row records it. A label
     // stamped from a guess read "via QA" on a turn the product manager
