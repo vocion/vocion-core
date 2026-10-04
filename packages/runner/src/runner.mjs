@@ -32,12 +32,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
-import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor } from './contract.mjs';
+import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor, taskShotsDir } from './contract.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown } from './events.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
-import { captureEvidence, collectRepoTestShots, collectRepoTestVideos, containerCredentials, excludeShotsDir, productionBase, publishArtifact, qaReportMarkdown, reportArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
+import { captureEvidence, collectRepoTestShots, collectRepoTestVideos, containerCredentials, excludeShotsDir, otherTasksShots, productionBase, publishArtifact, qaReportMarkdown, reportArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
 import { repairBrief, repairDecision, repairRecord, repairsLine } from './repair.mjs';
 import { resumeConflictNote } from './resume.mjs';
@@ -578,7 +578,7 @@ function renderTaskMarkdown(t, runId) {
     t.plan && t.plan.skipped ? `## Plan\n\nA plan was offered and declined: ${t.plan.skip_reason}\n` : '',
     t.notes ? `## Notes\n\n${t.notes}\n` : '',
     t.qa?.flows?.length ? `## QA evidence\n\nAfter the checks pass, the worker screenshots these paths on production and on your branch, at the viewports named, and posts them on the task: ${t.qa.flows.map(f => `${f.name} (${f.path}, ${(f.viewports || ['desktop']).join(' and ')})`).join('; ')}. Keep those paths loading.\n\nQA judges every acceptance criterion against a picture of THAT state, and one picture of a page at rest proves nothing about typing, filtering or an empty result. So for each criterion a person can see, write a flow into \`${QA_FLOWS_FILE}\` (outside the repo; it is not a change) that reaches the state and shoots it:\n\n\`\`\`json\n{ "flows": [ { "name": "<the criterion, short>", "criterion": "<the acceptance line, as written>", "path": "/", "viewports": ["desktop"], "steps": [ { "wait_for": "<text or selector>" }, { "fill": { "selector": "input[type=search]", "value": "kes" } }, { "shoot": "<what this shows>" } ] } ] }\n\`\`\`\n\nSteps name exactly one of wait_for, click, fill, upload ({ selector, megabytes }: a generated file into a file input), offline (true drops the network, false restores it), shoot. To show a bad-connection state: upload, wait for progress, offline: true, wait_for the message, shoot. Up to ${ENGINEER_FLOW_LIMITS.flows} flows of ${ENGINEER_FLOW_LIMITS.steps} steps.\n\nThe worker holds each flow to what it claims:\n- A criterion that is reached by doing something (a dialog that opens, a click, a toggle turned on, a row that shows after a send) needs the steps that do it: at least one click, fill, upload or offline before the shoot. A flow that names one and only looks at the page is refused.\n- A step that fails (a selector that matched nothing) makes every shot after it NOT EVIDENCE, and the report says which step. Targets are the visible text or accessible name (\`"Remind"\`), a CSS selector, or a Playwright selector (\`text=Remind\`, \`button:has-text('Send reminder')\`, \`[role=switch]\`).\n- A shot byte-for-byte the same as another flow's is marked a duplicate and proves nothing for its criterion. Two criteria are two different pictures.\n\nCheck your flows before you finish: \`node ${path.join(WORKER_HOME, 'contract.mjs')} check-flows ${QA_FLOWS_FILE}\` prints every refusal.\n\nThe after build is built from YOUR branch${t.qa.flows.some(f => f.sign_in) ? ' in the repository\'s preview mode, signed in with its sample account' : ''}. ${surfaceOf(t.qa).preview_note ? `${surfaceOf(t.qa).preview_note} ` : ''}When your change adds a state a criterion needs (a row in a new state, an error), put that state in the preview's data in this change and point the flow at it. A criterion a screenshot cannot show is covered below.\n` : '',
-    `## Pictures from your own browser tests\n\nFor each criterion a person can see (a layout, a control's state, text on a page), prove it with a browser test in the repository, run signed in the way the repository's own tests sign in, that saves a screenshot at the moment that shows it: \`await page.screenshot({ path: '${shotsDirFor(t.qa)}/<criterion-in-a-few-words>-<desktop|phone>.png' })\`. Name that test in \`${CRITERIA_TESTS_FILE}\` too. After the checks pass, the worker uploads every image in \`${shotsDirFor(t.qa)}/\` as this task's screenshots (it is excluded from the commit), and QA judges the criterion on that picture.\n\nRecord those browser tests too, so a person can watch the run: turn video on for them (\`test.use({ video: 'on' })\`, or \`recordVideo\` on the context) and save each test's recording beside its screenshots, \`const video = page.video(); await page.close(); await video?.saveAs('${shotsDirFor(t.qa)}/<criterion-in-a-few-words>-<desktop|phone>.webm')\`. The worker sends every \`.webm\` or \`.mp4\` in \`${shotsDirFor(t.qa)}/\` to Vocion as this task's recording; it lands on the feature request's page.\n`,
+    `## Pictures from your own browser tests\n\nFor each criterion a person can see (a layout, a control's state, text on a page), prove it with a browser test in the repository, run signed in the way the repository's own tests sign in, that saves a screenshot at the moment that shows it: \`await page.screenshot({ path: '${taskShotsDir(t)}/<criterion-in-a-few-words>-<desktop|phone>.png' })\`. Name that test in \`${CRITERIA_TESTS_FILE}\` too. After the checks pass, the worker uploads every image in \`${taskShotsDir(t)}/\` as this task's screenshots (the whole \`${shotsDirFor(t.qa)}/\` directory is excluded from the commit), and QA judges the criterion on that picture. That folder is this task's alone: tests from earlier tasks keep saving into their own folders on every run, and a picture outside yours is not counted as yours.\n\nRecord those browser tests too, so a person can watch the run: turn video on for them (\`test.use({ video: 'on' })\`, or \`recordVideo\` on the context) and save each test's recording beside its screenshots, \`const video = page.video(); await page.close(); await video?.saveAs('${taskShotsDir(t)}/<criterion-in-a-few-words>-<desktop|phone>.webm')\`. The worker sends every \`.webm\` or \`.mp4\` in \`${taskShotsDir(t)}/\` to Vocion as this task's recording; it lands on the feature request's page.\n`,
     `## Criteria a screenshot cannot show\n\nA query scope, a URL, a plan limit, a migration: prove each with a test, and name it in \`${CRITERIA_TESTS_FILE}\` (outside the repo) so the pull request lists it and QA can open it:\n\n\`\`\`json\n{ "tests": [ { "criterion": "<the acceptance line, as written>", "file": "<path/to/x.test.ts>", "name": "<the it() or test() name, exactly>" } ] }\n\`\`\`\n\nThe worker keeps an entry only when that file is in your branch and contains that test name. A criterion with neither a shot nor a named test is recorded as unproven.\n`,
     state.services.length ? `## Services\n\nRunning for this task: ${state.services.join(', ')}. ${Object.keys(state.serviceEnv).join(' and ')} ${Object.keys(state.serviceEnv).length === 1 ? 'is' : 'are'} set in your environment, and each service's setup (its migrations) has run, so the suites that need it run.\n` : '',
     t.engineer_rules?.length ? `## This repository's rules\n\n${t.engineer_rules.map(r => `- ${r}`).join('\n')}\n` : '',
@@ -2021,14 +2021,16 @@ async function main() {
   }
 
   // Repo-test screenshots (2026-10-03 decision, FE-398): the repo's own browser tests prove a line
-  // a person sees and save it under qa.shots_dir; the worker uploads them the same way it uploads
-  // its own shots. Independent of qa.flows, because a repo can carry this proof with no worker-shot
-  // flow configured at all.
+  // a person sees and save it under this task's folder in qa.shots_dir (taskShotsDir); the worker
+  // uploads them the same way it uploads its own shots. Independent of qa.flows, because a repo can
+  // carry this proof with no worker-shot flow configured at all. Only this task's folder counts:
+  // tests committed by earlier tasks run on every build and keep writing their own pictures
+  // (2026-10-04, walks 17-18: every task since carried the archive and sort tests' screenshots).
   let repoShots = { uploaded: [], skipped: [], evidence: [] };
   if (cfg.qaEnabled) {
     try {
       repoShots = await collectRepoTestShots({
-        dir: path.join(REPO_DIR, shotsDirFor(task.qa)),
+        dir: path.join(REPO_DIR, taskShotsDir(task)),
         taskId: task.task_id,
         runId,
         recordId: state.record?.id || null,
@@ -2046,7 +2048,7 @@ async function main() {
     // its request (2026-10-03). Counted with the shots, so the report and the summary say them.
     try {
       const videos = await collectRepoTestVideos({
-        dir: path.join(REPO_DIR, shotsDirFor(task.qa)),
+        dir: path.join(REPO_DIR, taskShotsDir(task)),
         recordId: state.record?.id || null,
         upload: vocion.enabled ? (p, bytes, type) => vocion.upload(p, bytes, type) : null,
       });
@@ -2056,6 +2058,18 @@ async function main() {
       }
     } catch (e) {
       log('qa.repo_videos.crashed', { error: String(e.message || e).slice(0, 300) });
+    }
+    // Whatever else the tests wrote into the shots directory belongs to another task (or was saved
+    // outside the briefed folder): named in the report with its reason, so a picture QA expected
+    // and did not get is explained, and never shown on another feature's page.
+    try {
+      const others = otherTasksShots(path.join(REPO_DIR, shotsDirFor(task.qa)), path.join(REPO_DIR, taskShotsDir(task)));
+      if (others.length) {
+        log('qa.repo_shots.other_tasks', { count: others.length, folder: taskShotsDir(task), files: others.slice(0, 8) });
+        repoShots = { ...repoShots, skipped: [...repoShots.skipped, ...others.map(file => ({ file, reason: `outside this task's folder ${taskShotsDir(task)}/: written by another task's test, not uploaded` }))] };
+      }
+    } catch (e) {
+      log('qa.repo_shots.other_tasks.crashed', { error: String(e.message || e).slice(0, 300) });
     }
   }
   if (repoShots.uploaded.length || repoShots.skipped.length) {

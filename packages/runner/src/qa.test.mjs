@@ -28,6 +28,7 @@ import {
   isSelector,
   LIST_ROUTE_FALLBACKS,
   listRoutesFor,
+  otherTasksShots,
   pageAt,
   PLACEHOLDER_SEGMENT_RE,
   presignGet,
@@ -869,5 +870,29 @@ describe('keeping the repo\'s own shots out of the branch', () => {
     assert.match(exclude, /\*\.local/);
     assert.match(exclude, /\/screens\//);
     fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+});
+
+describe('pictures in the shots directory that are another task\'s (2026-10-04, walks 17-18)', () => {
+  it('names every image or recording outside this task\'s folder, and none inside it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-root-'));
+    const mine = path.join(root, 'FE-9');
+    fs.mkdirSync(path.join(mine, 'nested'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'FE-8'), { recursive: true });
+    fs.writeFileSync(path.join(mine, 'sort-by-name-desktop.png'), 'mine');
+    fs.writeFileSync(path.join(mine, 'nested', 'sort-by-name-phone.webm'), 'mine too');
+    fs.writeFileSync(path.join(root, 'archive-action-desktop.png'), 'an earlier task, saved at the root');
+    fs.writeFileSync(path.join(root, 'FE-8', 'archived-link-desktop.png'), 'an earlier task, in its folder');
+    fs.writeFileSync(path.join(root, 'notes.txt'), 'not a picture');
+    try {
+      assert.deepEqual(otherTasksShots(root, mine), ['FE-8/archived-link-desktop.png', 'archive-action-desktop.png']);
+      assert.deepEqual(otherTasksShots(root, path.join(root, 'FE-8')), ['FE-9/nested/sort-by-name-phone.webm', 'FE-9/sort-by-name-desktop.png', 'archive-action-desktop.png']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('with no shots directory, names nothing', () => {
+    assert.deepEqual(otherTasksShots(path.join(os.tmpdir(), 'no-such-qa-shots-dir'), path.join(os.tmpdir(), 'no-such-qa-shots-dir', 'x')), []);
   });
 });

@@ -124,7 +124,7 @@
           "type": "string",
           "pattern": "^[^/][^\\n]*[^/]$|^[^/]$",
           "default": "qa-shots",
-          "description": "Optional. The directory, relative to the repo root, where the repo's own browser tests save PNG/JPEG screenshots that prove a line a person sees (layout, a control's state, text on a page). The worker uploads every image it finds there as a qa-screenshot artifact after the checks and named tests run, captioned from the file name, then makes sure the directory never reaches the commit."
+          "description": "Optional. The directory, relative to the repo root, where the repo's own browser tests save PNG/JPEG screenshots that prove a line a person sees (layout, a control's state, text on a page). Each task saves into its own folder inside it, named by the request it serves (else the task id); the worker uploads every image in that folder as a qa-screenshot artifact after the checks and named tests run, captioned from the file name, reports any picture elsewhere in the directory as another task's, then makes sure the directory never reaches the commit."
         },
         "flows": {
           "type": "array",
