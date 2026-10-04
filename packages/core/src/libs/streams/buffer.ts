@@ -32,6 +32,12 @@ type BufferedStream = {
    */
   stopped: boolean;
   /**
+   * Opened by the turn recovery after a restart (backlog 056): the events are
+   * a fresh attempt, so a client's `after` count from the first attempt means
+   * nothing here and every event is replayed.
+   */
+  recovered: boolean;
+  /**
    * Whose turn this is — the org and person the SSE route authenticated.
    *
    * A stream id is a v4 UUID and hard to guess, but "hard to guess" is not a
@@ -65,10 +71,12 @@ function sweep(): void {
  * @param owner.orgId
  * @param owner.userId
  * @param conversationId
+ * @param opts
+ * @param opts.recovered
  */
-export function openStream(id: string, owner: { orgId: string; userId: string }, conversationId: number | null = null): { append: (data: string) => void; close: () => void } {
+export function openStream(id: string, owner: { orgId: string; userId: string }, conversationId: number | null = null, opts: { recovered?: boolean } = {}): { append: (data: string) => void; close: () => void } {
   sweep();
-  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner, conversationId, openedAt: Date.now() };
+  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, recovered: opts.recovered === true, owner, conversationId, openedAt: Date.now() };
   streams.set(id, s);
   return {
     append: (data: string) => {
@@ -121,7 +129,8 @@ export function attachStream(
   if (!s || s.owner.orgId !== by.orgId || s.owner.userId !== by.userId) {
     return null;
   }
-  for (let i = Math.max(0, after); i < s.events.length; i++) {
+  // A recovered stream is a new attempt: the client's count from the first one does not apply.
+  for (let i = s.recovered ? 0 : Math.max(0, after); i < s.events.length; i++) {
     onEvent(s.events[i]!);
   }
   if (s.done) {
@@ -228,4 +237,30 @@ export function newerTurnIn(orgId: string, conversationId: number, since: number
     }
   }
   return false;
+}
+
+/** How many turns are being answered in this process right now. */
+export function activeStreamCount(): number {
+  let n = 0;
+  for (const s of streams.values()) {
+    if (!s.done) {
+      n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * Wait for the turns in flight to end, up to `maxMs` (backlog 056: the app is
+ * told to stop and lets what it is saying finish first). Resolves with how
+ * many were still running when the wait ran out.
+ * @param maxMs - The most to wait.
+ * @param stepMs - How often to look.
+ */
+export async function whenStreamsDrained(maxMs: number, stepMs = 250): Promise<number> {
+  const until = Date.now() + maxMs;
+  while (activeStreamCount() > 0 && Date.now() < until) {
+    await new Promise(r => setTimeout(r, stepMs));
+  }
+  return activeStreamCount();
 }

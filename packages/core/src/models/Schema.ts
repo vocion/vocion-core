@@ -1697,6 +1697,12 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * runs interleaved with tool breadcrumbs. Tool entries are dropped
    * when this row is replayed as history to the agent.
    */
+  /**
+   * The turn as a record from its first token (backlog 056): its stream id,
+   * the process answering it, the attempt, and the request needed to answer
+   * it again after a restart. Written when the turn begins, finished with it.
+   */
+  turnJson: jsonb('turn_json').$type<import('@/services/chat/turnLedger').TurnJson>(),
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }

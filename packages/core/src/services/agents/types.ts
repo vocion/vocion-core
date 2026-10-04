@@ -367,6 +367,13 @@ export type AgentEvent
      * one attribute the turn from the same fact (backlog 009).
      */
     | { type: 'turn_agent'; agent: { slug: string; name: string } }
+    /**
+     * The app restarted while this turn was being answered, and the turn is
+     * being answered again from where it stood (backlog 056). A client that
+     * re-attaches clears what it had of the first attempt: what follows is
+     * the whole answer.
+     */
+    | { type: 'turn_restarted'; reason: string }
     | { type: 'done'; response: string; traceId?: string }
     /**
      * The turn ended badly. `ending` says HOW, in the same words the row will
