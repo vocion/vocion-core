@@ -1,4 +1,4 @@
-import type { FeatureReportInput, ReportActivity } from './featureReport';
+import type { FeatureReportInput, HistoryRow, ReportActivity } from './featureReport';
 import type { PublicFeatureInput, SharedArtifact } from './featureShare';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BUILDER } from '@/libs/factory/featureGlance';
@@ -318,6 +318,20 @@ describe('the link\'s preview card', () => {
 describe('the words that leave the workspace', () => {
   it('takes out emails and links and keeps the rest', () => {
     expect(scrub('Ping ops@kestrel.example or see https://kestrel.example/a?b=1 today')).toBe('Ping [email hidden] or see [link hidden] today');
+  });
+
+  it('says what the live check said, and keeps the loop\'s order for steps stamped in the same minute (walk 19)', () => {
+    const row = (kind: HistoryRow['kind'], at: string, over: Partial<HistoryRow> = {}): HistoryRow => ({ key: `${kind}-${at}`, kind, title: kind, code: null, at, tone: 'ok', cents: null, open: null, href: null, live: false, ...over });
+    const steps = publicSteps([
+      row('merge', '2026-10-04T15:43:30Z'),
+      row('review', '2026-10-04T15:44:10Z'),
+      row('live', '2026-10-04T16:00:00Z', { title: 'Live check · Could not check live: the QA environment cannot show it (the QA account has no team library); 6 lines could not be seen. Fix the environment\'s live setup, then Check live again', tone: 'warn' }),
+    ], T('2026-10-04T14:59:00Z'));
+
+    expect(steps.map(s => s.step)).toEqual(['Asked', 'QA approved', 'Merged', 'Checked live']);
+    expect(steps[3]!.sentence).toBe('Could not check live: the QA environment cannot show it (the QA account has no team library); 6 lines could not be seen. Fix the environment\'s live setup, then Check live again.');
+    // Far apart, the clock rules; a live row without its own words keeps the fixed sentence.
+    expect(publicSteps([row('merge', '2026-10-04T15:40:00Z'), row('review', '2026-10-04T15:50:00Z'), row('live', '2026-10-04T16:00:00Z', { title: '' })], null).map(s => [s.step, s.sentence])).toEqual([['Merged', STEP_SENTENCE.Merged], ['QA approved', STEP_SENTENCE['QA approved']], ['Seen live', STEP_SENTENCE['Seen live']]]);
   });
 
   it('starts the timeline at the ask even when nothing else happened', () => {

@@ -390,16 +390,57 @@ export function shortSpan(ms: number): string {
 export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null): PublicStep[] {
   const rows = history.flatMap(r => (r.kind === 'attempt' ? r.children ?? [] : [r]));
   const steps = rows
-    .map(r => ({ step: stepOf(r), at: r.at }))
-    .filter((s): s is { step: string; at: string } => s.step !== null && s.at !== null && !Number.isNaN(Date.parse(s.at)));
+    .map(r => ({ step: stepOf(r), at: r.at, said: r.kind === 'live' ? liveWords(r.title) : null }))
+    .filter((s): s is { step: string; at: string; said: string | null } => s.step !== null && s.at !== null && !Number.isNaN(Date.parse(s.at)));
   if (askedAt) {
-    steps.push({ step: 'Asked', at: askedAt.toISOString() });
+    steps.push({ step: 'Asked', at: askedAt.toISOString(), said: null });
   }
-  const sorted = steps.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  // By time; two steps written within the same few minutes keep the loop's order (QA approves, then
+  // the merge, then the deploy), because a verdict's row is stamped when its run ends, which can be
+  // a minute after the merge it caused (walk 19, FE-432: "Merged 8:43, QA approved 8:44").
+  const sorted = steps.sort((a, b) => {
+    const dt = Date.parse(a.at) - Date.parse(b.at);
+    return Math.abs(dt) < SAME_MOMENT_MS ? (STEP_RANK[a.step] ?? 50) - (STEP_RANK[b.step] ?? 50) || dt : dt;
+  });
   return sorted.map((s, i) => {
     const next = sorted[i + 1];
-    return { ...s, took: next ? shortSpan(Date.parse(next.at) - Date.parse(s.at)) : null, sentence: STEP_SENTENCE[s.step] ?? '' };
+    // THE LIVE STEP SAYS WHAT THE CHECK SAID (walk 19): "QA opened the live product and saw it
+    // working" was fixed copy, and stood under a check that could not see the feature. The live
+    // check's own line is the sentence; the fixed copy is only for a record written without one.
+    return { step: s.step, at: s.at, took: next ? shortSpan(Date.parse(next.at) - Date.parse(s.at)) : null, sentence: s.said ?? STEP_SENTENCE[s.step] ?? '' };
   });
+}
+
+/** Steps written this close together are ordered by the loop, not the clock. */
+export const SAME_MOMENT_MS = 3 * 60_000;
+
+/** The loop's order, for steps stamped within the same moment. */
+const STEP_RANK: Readonly<Record<string, number>> = {
+  'Asked': 0,
+  'Planned': 10,
+  'Plan approved': 11,
+  'Building': 20,
+  'A build attempt failed': 21,
+  'Built': 22,
+  'QA asked for changes': 30,
+  'QA approved': 31,
+  'Merged': 40,
+  'Deploying': 50,
+  'A deploy failed': 51,
+  'Deployed': 52,
+  'Released': 60,
+  'Checked live': 70,
+  'Seen live': 71,
+};
+
+/**
+ * The live check's own words, as the row carries them ("Live check · Seen live: 6 of 6 states
+ * reached" or the check's line), with workspace details taken out. Null when the row has none.
+ * @param title - The live row's title.
+ */
+function liveWords(title: string): string | null {
+  const words = title.replace(/^Live check\s*·\s*/, '').trim();
+  return words ? `${scrub(words).replace(/[.\s]+$/, '')}.` : null;
 }
 
 /** The attempt whose judgement counts, as the report reads it. */
