@@ -1471,7 +1471,7 @@ describe('the release, read honestly', () => {
 
     const seen = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).release;
 
-    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', detail: null });
+    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', detail: null, reasonKind: null });
   });
 
   it('offers Check live again while QA has not seen it live, and not once it has (FE-314, 2026-10-02)', () => {

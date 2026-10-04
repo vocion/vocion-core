@@ -373,7 +373,13 @@ name: Software factory
 #   `feature-demo` with the said lines as its script, and the narration
 #   (`narrateRecordings`) speaks them as written. The feature page and the
 #   public share page play the demo first.
-version: 3.12.0
+# 3.13.0 — the live check is honest about an environment it cannot reach, and
+#   the demo is owed (walk 19, FE-432, 2026-10-04). QA records why a line cannot
+#   be seen live (`cause`); `environment_cannot_show` makes the release read
+#   not checked with the fix named, never seen. A live check that ends seen
+#   with no Feature Demo on a shipped request raises `release.demo.requested`
+#   and `release-feature-demo` has QA record the demo alone.
+version: 3.13.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

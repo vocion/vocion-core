@@ -363,6 +363,27 @@ export type ReleaseLiveCheckRequestedPayload = {
   taskIds: number[];
 };
 
+/**
+ * A shipped, user-facing feature has no Feature Demo recording after its live
+ * check saw it (`services/factory/liveCheck.ts` `liveCheckEnded`): the plugin's
+ * QA records the demo on its own, once per release. Chris, 2026-10-04: the demo
+ * is what a product owner watches; it is owed whether or not QA needed the
+ * browser to prove the lines.
+ */
+export const RELEASE_DEMO_REQUESTED = 'release.demo.requested';
+
+/** Payload of `release.demo.requested`. Scalars and id lists only. */
+export type ReleaseDemoRequestedPayload = {
+  releaseId: number;
+  product: string | null;
+  /** Always true: a demo is only owed for a feature people use. */
+  userFacing: true;
+  /** The shipped requests with no demo recording yet. */
+  requestIds: number[];
+  /** Why now, in a sentence. */
+  reason: string;
+};
+
 export const LEAD_REPLIED = 'lead.replied';
 export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
 

@@ -25,6 +25,7 @@ import type { EnvironmentAccess } from '@/services/factory/productAccess';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { acceptanceLines, isSignInPath, lineResults, LIVE_ROLE, liveVerdict, pickAnnouncementImage, resolveRecordedLines, uncheckedRow } from '@/libs/factory/liveCheck';
+import { logger } from '@/libs/Logger';
 import { artifactSchema, businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
@@ -389,6 +390,27 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
 }
 
 /**
+ * The shipped requests that have no Feature Demo recording yet (role `feature-demo` or its
+ * narrated twin, filed on the request).
+ * @param orgId - The workspace.
+ * @param requestIds - The requests the release shipped.
+ */
+export async function requestsOwingDemo(orgId: string, requestIds: number[]): Promise<number[]> {
+  if (requestIds.length === 0) {
+    return [];
+  }
+  const { DEMO_VIDEO_ROLE } = await import('@/libs/factory/liveCheck');
+  const { artifactSchema } = await import('@/models/Schema');
+  const { inArray, like, or } = await import('drizzle-orm');
+  const rows = await db
+    .select({ recordId: artifactSchema.recordId })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.recordId, requestIds.map(String)), or(eq(artifactSchema.recordRole, DEMO_VIDEO_ROLE), like(artifactSchema.recordRole, `${DEMO_VIDEO_ROLE}-%`))));
+  const have = new Set(rows.map(r => Number(r.recordId)));
+  return requestIds.filter(id => !have.has(id));
+}
+
+/**
  * The live check's last word, when the attempts are spent and QA never saw
  * the change: written on the release and each feature, so nothing reads
  * healthy or simply shipped on the strength of a deploy alone.
@@ -609,6 +631,23 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
   const { liveAfterRun } = await import('@/libs/factory/liveCheck');
   const next = liveAfterRun(release.meta, { startedAt: run.createdAt ?? now, reason: reason || null, attempt: Number(fired.attempt) || 1 }, attempts);
   if (next.do === 'done') {
+    // THE DEMO IS OWED (Chris, 2026-10-04): a feature seen live with no Feature Demo recording gets
+    // one from QA on its own, once per release, through `release.demo.requested`.
+    const owing = await requestsOwingDemo(orgId, ids(release.meta.requestIds));
+    if (owing.length > 0) {
+      const { emitEvent, RELEASE_DEMO_REQUESTED } = await import('@/services/EventService');
+      const payload: import('@/services/EventService').ReleaseDemoRequestedPayload = {
+        releaseId,
+        product: typeof release.meta.product === 'string' ? release.meta.product : null,
+        userFacing: true,
+        requestIds: owing,
+        reason: `the live check saw ${owing.length === 1 ? 'the feature' : `${owing.length} features`} and no feature demo was recorded`,
+      };
+      await emitEvent({ orgId, type: RELEASE_DEMO_REQUESTED, payload, dedupeKey: `${RELEASE_DEMO_REQUESTED}:${releaseId}`, invokedBy: 'job:live-check-ended', dispatchMode: 'auto' }).catch((err) => {
+        logger.warn('live check: the feature demo could not be asked for', { orgId, releaseId, error: short(err) });
+      });
+      return { releaseId, did: 'done', line: `${next.why}; demo requested for ${owing.map(id => `#${id}`).join(', ')}` };
+    }
     return { releaseId, did: 'done', line: next.why };
   }
   if (next.do === 'retry') {
