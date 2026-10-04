@@ -524,6 +524,8 @@ function RecordingsRow({ recordings }: { recordings: FeatureReport['recordings']
   // The demo first (Chris, 2026-10-03: the happy path, end to end, for a product manager), then QA's check, then the tests.
   const items = [
     recordings?.demo ? { key: 'demo', label: 'Feature demo', r: recordings.demo } : null,
+    // The demo recorded from the branch before merge (backlog 058): what the merge was approved on.
+    recordings?.preview ? { key: 'preview', label: 'Feature demo, before merge', r: recordings.preview } : null,
     recordings?.live ? { key: 'live', label: 'Live check', r: recordings.live } : null,
     recordings?.qa ? { key: 'qa', label: 'Before merge', r: recordings.qa } : null,
   ].filter(x => x !== null);

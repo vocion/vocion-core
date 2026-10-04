@@ -353,7 +353,7 @@ export function reportArtifact({ recordId, taskId, markdown, summary }) {
  * The one markdown artifact that says what happened, including when nothing did. Absence is a row
  * in the table with a reason, never a missing row.
  */
-export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures = [], elapsedS = 0, bytes = 0, videoSeconds = 0, repoShots = null }) {
+export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures = [], elapsedS = 0, bytes = 0, videoSeconds = 0, repoShots = null, demo = null }) {
   const cell = v => String(v ?? '').replace(/\|/g, '\\|').slice(0, 200);
   const lines = [
     `# QA evidence for ${taskId}`,
@@ -367,6 +367,9 @@ export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures 
   ];
   if (!rows.length) {
     lines.push('| (none) | | | no flow produced a shot |');
+  }
+  if (demo) {
+    lines.push('', `Feature demo, built from the branch: ${demo.seconds}s, ${demo.lines} line${demo.lines === 1 ? '' : 's'} said over ${demo.flows} flow${demo.flows === 1 ? '' : 's'}${demo.url ? ` ${MIDDOT} ${demo.url}` : ''}. It plays on the merge card and the feature page until the live demo replaces it.`);
   }
   if (videoSeconds) {
     lines.push('', `Video added ${videoSeconds}s to the pass.`);
@@ -1222,6 +1225,143 @@ export async function publishArtifact(post, body) {
 
 // ---------- the pass ----------
 
+// ---------- the preview demo (backlog 058) ----------
+//
+// Chris, 2026-10-04: "the demo video to share with the requester at merge approval time, so they
+// would have more context and trust to approve." The flows already reach every state a criterion
+// names, on the branch's own build. So after the after-run, one desktop context with video on
+// walks every flow in order, SAYING each acceptance line as it reaches its state and each shoot
+// label as it shoots it, and holding the screen the time the line takes to say. The video and the
+// lines go to Vocion as `feature-demo-preview` on the task (and so on its request); QA's narration
+// job cuts it to its moments, draws the address bar and speaks the lines, the same as the live demo.
+
+/** The speaking rate and the hold per line — the same figures as core's `libs/media/narration.ts`. */
+export const DEMO_DWELL = { min: 1400, max: 12000, lead: 400, charsPerSecond: 14 };
+/** The role the preview demo is filed under (core: `DEMO_PREVIEW_VIDEO_ROLE`). */
+export const DEMO_PREVIEW_ROLE = 'feature-demo-preview';
+/** Flows and lines a demo takes at most, so a contract of forty flows does not make a ten-minute film. */
+export const DEMO_LIMITS = { flows: 10, lines: 40, seconds: 240 };
+
+/**
+ * How long the screen holds on a state while its line is said: a short lead so the viewer sees the
+ * state before the voice starts, then the words at speaking pace, within bounds.
+ */
+export function dwellMs(text) {
+  const chars = String(text || '').trim().length;
+  return Math.min(DEMO_DWELL.max, Math.max(DEMO_DWELL.min, DEMO_DWELL.lead + Math.round((chars / DEMO_DWELL.charsPerSecond) * 1000)));
+}
+
+/**
+ * The line said when a flow starts: the acceptance line it was written for, else its name. One
+ * plain sentence; a trailing full stop is added so the voice closes it.
+ */
+export function demoLine(flow) {
+  const text = String(flow?.criterion || flow?.name || '').trim().replace(/\s+/g, ' ');
+  if (!text) {
+    return '';
+  }
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
+}
+
+/** The address bar's text for a page on the branch build: the path, never the container's host and port. */
+export function demoAddress(url) {
+  try {
+    const u = new URL(url);
+    return `${u.pathname}${u.search}` || '/';
+  } catch {
+    return String(url || '');
+  }
+}
+
+/**
+ * The header the upload carries: what the demo shows (moments) and says (lines), as core's
+ * `readRecordingSpec` reads it. Bounded so a header never grows past what a server accepts.
+ */
+export function demoSpecHeader(moments, lines) {
+  const timeline = moments.slice(0, 120).map(m => ({ atMs: Math.round(m.atMs), what: String(m.what).slice(0, 200), ...(m.url ? { url: String(m.url).slice(0, 2000) } : {}), ...(typeof m.ok === 'boolean' ? { ok: m.ok } : {}) }));
+  const script = lines.slice(0, DEMO_LIMITS.lines).map(l => ({ atMs: Math.round(l.atMs), text: String(l.text).slice(0, 400) }));
+  return JSON.stringify({ timeline, script });
+}
+
+/**
+ * Walk the flows on the branch build in one recorded desktop context, saying the lines. Returns
+ * the webm path with its moments and lines, or `{ error }`. Never throws.
+ */
+export async function recordPreviewDemo({ browser, base, flows, outDir, log = () => {}, errorPatterns = ERROR_STATE_PATTERNS, vars = {}, now = () => Date.now(), waitMs = null }) {
+  const demoDir = path.join(outDir, 'demo');
+  fs.mkdirSync(demoDir, { recursive: true });
+  const vp = VIEWPORTS.desktop;
+  const taken = flows.filter(f => f && f.path).slice(0, DEMO_LIMITS.flows);
+  if (taken.length === 0) {
+    return { error: 'no flow to demo' };
+  }
+  const context = await browser.newContext({ ...viewportContextOptions('desktop'), recordVideo: { dir: demoDir, size: { width: vp.width, height: vp.height } } });
+  const page = await context.newPage();
+  const started = now();
+  const moments = [];
+  const lines = [];
+  const hold = waitMs || (ms => page.waitForTimeout(ms));
+  const at = () => now() - started;
+  const say = async (text) => {
+    const line = String(text || '').trim();
+    if (!line || lines.length >= DEMO_LIMITS.lines) {
+      return;
+    }
+    lines.push({ atMs: at(), text: line });
+    await hold(dwellMs(line));
+  };
+  let video = null;
+  try {
+    for (const flow of taken) {
+      if (at() > DEMO_LIMITS.seconds * 1000) {
+        break;
+      }
+      const target = addressOf(base, fillVars(flow.path, vars));
+      moments.push({ atMs: at(), what: `open ${demoAddress(target)}`, url: demoAddress(target), ok: true });
+      try {
+        await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      } catch (e) {
+        moments.push({ atMs: at(), what: `could not open ${demoAddress(target)}: ${String(e.message || e).slice(0, 120)}`, ok: false });
+        continue;
+      }
+      await say(demoLine(flow));
+      const flowCtx = { vars, base, startUrl: page.url(), acted: false, responses: [], proofs: [] };
+      const shoot = async (label) => {
+        moments.push({ atMs: at(), what: String(label || 'shown').slice(0, 200), url: demoAddress(page.url()), ok: true });
+        await say(label);
+      };
+      for (const step of flow.steps || []) {
+        if (step.shoot) {
+          await shoot(step.shoot);
+          continue;
+        }
+        const verb = Object.keys(step)[0];
+        try {
+          await runStep(page, step, shoot, flowCtx);
+          if (step.click || step.fill || step.upload || step.goto) {
+            moments.push({ atMs: at(), what: `${verb} ${stepTarget(step)}`.slice(0, 200), url: demoAddress(page.url()), ok: true });
+          }
+        } catch (e) {
+          moments.push({ atMs: at(), what: `${verb} ${stepTarget(step)} failed: ${String(e.message || e).split('\n')[0].slice(0, 120)}`.slice(0, 200), ok: false });
+          log('qa.demo.step.failed', { flow: flow.name, step: verb, target: stepTarget(step), error: String(e.message || e).slice(0, 200) });
+          break;
+        }
+      }
+    }
+    // The last state stays on screen a moment before the recording ends.
+    await hold(DEMO_DWELL.min);
+  } finally {
+    video = page.video();
+    await context.close().catch(() => {});
+  }
+  const videoPath = video ? await video.path().catch(() => null) : null;
+  if (!videoPath || !fs.existsSync(videoPath)) {
+    return { error: 'the recording never materialized' };
+  }
+  return { videoPath, moments, lines, seconds: Math.round(at() / 1000) };
+}
+
 /**
  * The whole capture: build, serve, shoot before and after for every flow and viewport, upload,
  * publish. Never throws. Returns what was captured, what was not and why, and the report markdown.
@@ -1244,6 +1384,8 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
   let seq = 0;
   let bytes = 0;
   let videoSeconds = 0;
+  // The preview demo, when one was recorded and kept (backlog 058).
+  let demo = null;
   const base = productionBase(qa);
   const surface = surfaceOf(qa);
   const errorPatterns = errorPatternsFor(surface);
@@ -1364,6 +1506,35 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
           }
         } else {
           await record(flow, viewport, 'after', null, 'the branch could not be built and served in this container');
+        }
+      }
+    }
+    // THE PREVIEW DEMO (backlog 058): the flows once more, in one take, said aloud, on the branch.
+    if (afterBase && upload && recordId) {
+      const flowsToDemo = qa.flows.filter(f => !unresolvable.has(f));
+      if (flowsToDemo.length > 0) {
+        const t0 = Date.now();
+        try {
+          const d = await recordPreviewDemo({ browser, base: afterBase, flows: flowsToDemo, outDir, log, errorPatterns });
+          if (d.error) {
+            failures.push({ scope: 'demo', message: `no preview demo: ${d.error}` });
+          } else {
+            const body = fs.readFileSync(d.videoPath);
+            const text = `Feature demo, built from the branch ${MIDDOT} ${d.seconds}s, ${d.lines.length} lines`;
+            const query = new URLSearchParams({ recordId: String(recordId), role: DEMO_PREVIEW_ROLE, title: 'Feature demo, before merge', caption: text, name: 'feature-demo-preview' });
+            const r = await upload(`/artifacts/video?${query}`, body, 'video/webm', { 'x-recording-spec': demoSpecHeader(d.moments, d.lines) });
+            if (!r?.ok) {
+              throw new Error(`Vocion refused the demo: ${String(r?.json?.error?.message || r?.status || 'no answer').slice(0, 200)}`);
+            }
+            demo = { url: r.json?.url || '', seconds: d.seconds, lines: d.lines.length, flows: flowsToDemo.length };
+            rows.push({ flow: 'feature demo', viewport: 'desktop', side: 'before merge', url: demo.url, note: `${d.seconds}s, ${d.lines.length} lines said, ${Math.round(body.length / 1024)} KB, stored in Vocion` });
+            evidence.push({ role: DEMO_PREVIEW_ROLE, flow: 'feature demo', viewport: 'desktop', side: 'after', url: demo.url, caption: text });
+            videoSeconds += Math.round((Date.now() - t0) / 1000);
+          }
+          log('qa.demo', { ok: !d.error, seconds: d.seconds || 0, lines: d.lines?.length || 0, elapsed_s: Math.round((Date.now() - t0) / 1000), error: d.error || undefined });
+        } catch (e) {
+          failures.push({ scope: 'demo', message: `the preview demo was not kept: ${String(e.message || e).slice(0, 250)}` });
+          log('qa.demo.failed', { error: String(e.message || e).slice(0, 300) });
         }
       }
     }
@@ -1499,7 +1670,7 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
 
   async function finish() {
     const elapsedS = Math.round((Date.now() - started) / 1000);
-    const markdown = qaReportMarkdown({ taskId, runId, base, qa, rows, failures, elapsedS, bytes, videoSeconds });
+    const markdown = qaReportMarkdown({ taskId, runId, base, qa, rows, failures, elapsedS, bytes, videoSeconds, demo });
     const shots = rows.filter(r => r.url).length;
     const notEvidence = rows.filter(r => r.not_evidence).length;
     const summary = `${shots} of ${rows.length} shots stored, ${failures.length} problem${failures.length === 1 ? '' : 's'}${notEvidence ? `, ${notEvidence} shot${notEvidence === 1 ? '' : 's'} not evidence (a failed step or a duplicate)` : ''}`;
@@ -1512,6 +1683,6 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
       }
     }
     fs.writeFileSync(path.join(outDir, 'qa-report.md'), markdown);
-    return { captured: shots > 0, shots, rows, failures, evidence, markdown, summary, elapsedS, bytes, videoSeconds, reportPublished, base };
+    return { captured: shots > 0, shots, rows, failures, evidence, markdown, summary, elapsedS, bytes, videoSeconds, reportPublished, base, demo };
   }
 }

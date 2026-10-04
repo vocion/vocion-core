@@ -1,5 +1,6 @@
-# A recording was filed on a feature — QA's live check of a release, or the
-# engineer's own browser tests before merge — and the workspace turned on
+# A recording was filed on a feature — QA's live check of a release, the
+# feature demo recorded from the branch before merge (backlog 058), or the
+# engineer's own browser tests — and the workspace turned on
 # `narrateRecordings` (plugin.yaml `settings`). QA narrates it: a short
 # walkthrough timed to what its browser logged, in its voice, under its avatar,
 # filed beside the original as `<role>-narrated` (core: `narrate-recording`,

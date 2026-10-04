@@ -1,13 +1,52 @@
+import type { TimelineMoment } from '@/services/artifacts/recordings';
 import { Buffer } from 'node:buffer';
 import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/libs/DB';
 import { mediaMaxBytes, videoExt } from '@/libs/tools/artifacts/media';
 import { businessObjectSchema } from '@/models/Schema';
-import { fileRecording, QA_VIDEO_ROLE } from '@/services/artifacts/recordings';
+import { fileRecording, MAX_TIMELINE, QA_VIDEO_ROLE } from '@/services/artifacts/recordings';
+import { demoScript } from '@/services/factory/liveRecording';
 import { authApi, isErrorResponse, jsonError } from '../../_shared';
 
 const ROLE = /^[a-z][\w-]{0,39}$/;
+/** The most bytes the `x-recording-spec` header may carry. */
+const SPEC_MAX_BYTES = 16 * 1024;
+
+type RecordingSpecHeader = { timeline: TimelineMoment[]; script: Array<{ atMs: number; text: string }> };
+
+/**
+ * The moments and the said lines a recording's maker logged, from the
+ * `x-recording-spec` header (JSON `{ timeline, script }`): a demo recorded
+ * from the branch (backlog 058) arrives with what it shows and says, so the
+ * narration job cuts and voices it the way it does the live demo. Absent or
+ * unreadable → nothing; the recording is still kept. Each list is bounded.
+ * @param raw - The header's value.
+ */
+export function readRecordingSpec(raw: string | null): RecordingSpecHeader | { error: string } | null {
+  if (!raw) {
+    return null;
+  }
+  if (Buffer.byteLength(raw) > SPEC_MAX_BYTES) {
+    return { error: `x-recording-spec may be ${SPEC_MAX_BYTES / 1024} KB at most.` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { error: 'x-recording-spec must be JSON: { timeline: [{ atMs, what, url? }], script: [{ atMs, text }] }.' };
+  }
+  const o = (parsed && typeof parsed === 'object' ? parsed : {}) as { timeline?: unknown; script?: unknown };
+  const timeline: TimelineMoment[] = (Array.isArray(o.timeline) ? o.timeline : [])
+    .filter((m): m is { atMs: number; what: string; url?: unknown; ok?: unknown } => !!m && typeof m === 'object' && Number.isFinite(Number((m as { atMs?: unknown }).atMs)) && typeof (m as { what?: unknown }).what === 'string')
+    .slice(0, MAX_TIMELINE)
+    .map(m => ({ atMs: Math.max(0, Number(m.atMs)), what: String(m.what).slice(0, 200), ...(typeof m.url === 'string' ? { url: m.url.slice(0, 2000) } : {}), ...(typeof m.ok === 'boolean' ? { ok: m.ok } : {}) }));
+  const script = (Array.isArray(o.script) ? o.script : [])
+    .filter((l): l is { atMs: number; text: string } => !!l && typeof l === 'object' && Number.isFinite(Number((l as { atMs?: unknown }).atMs)) && typeof (l as { text?: unknown }).text === 'string' && (l as { text: string }).text.trim().length > 0)
+    .slice(0, 64)
+    .map(l => ({ atMs: Math.max(0, Number(l.atMs)), text: l.text.trim().slice(0, 400) }));
+  return { timeline, script };
+}
 
 /**
  * Read a request body up to `max` bytes, or say it was over.
@@ -38,6 +77,9 @@ async function readCapped(req: Request, max: number): Promise<Buffer | 'too_larg
 
 /**
  * POST /api/v1/artifacts/video?recordId=<id>&title=…&caption=…&name=…&role=qa-video
+ *
+ * With an `x-recording-spec` header (`readRecordingSpec`), the recording
+ * carries the moments it shows and the lines it says, as a demo does.
  *
  * A recording, as the raw body (`Content-Type: video/webm` or `video/mp4`),
  * kept by Vocion's media store — on disk, or in `VOCION_MEDIA_BUCKET` when it
@@ -86,6 +128,10 @@ export async function POST(req: Request) {
   if (!record) {
     return jsonError('NOT_FOUND', `No record #${recordId} in this workspace.`, 404);
   }
+  const spec = readRecordingSpec(req.headers.get('x-recording-spec'));
+  if (spec && 'error' in spec) {
+    return jsonError('VALIDATION_FAILED', spec.error, 400);
+  }
   const body = await readCapped(req, max);
   if (body === 'too_large') {
     return jsonError('PAYLOAD_TOO_LARGE', `${capLine}; this one is larger.`, 413);
@@ -116,6 +162,8 @@ export async function POST(req: Request) {
     title,
     caption: caption || title,
     provenance: { by: caller.actorId, recordId, ...(requestId ? { requestId } : {}) },
+    ...(spec && spec.timeline.length > 0 ? { timeline: spec.timeline } : {}),
+    ...(spec && spec.script.length > 0 ? { extraSpec: { script: demoScript(spec.script) } } : {}),
     author: { kind: 'agent', id: caller.actorId },
   });
   if (!filed.ok) {

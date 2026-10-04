@@ -391,7 +391,7 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
 
 /**
  * The shipped requests that have no Feature Demo recording yet (role `feature-demo` or its
- * narrated twin, filed on the request).
+ * narrated twin, filed on the request). A preview demo from before the merge does not count.
  * @param orgId - The workspace.
  * @param requestIds - The requests the release shipped.
  */
@@ -400,12 +400,16 @@ export async function requestsOwingDemo(orgId: string, requestIds: number[]): Pr
     return [];
   }
   const { DEMO_VIDEO_ROLE } = await import('@/libs/factory/liveCheck');
+  const { narratedRole } = await import('@/libs/media/roles');
   const { artifactSchema } = await import('@/models/Schema');
-  const { inArray, like, or } = await import('drizzle-orm');
+  const { inArray } = await import('drizzle-orm');
+  // The live demo and its narration, by name: the preview demo recorded from
+  // the branch before merge (`feature-demo-preview`, backlog 058) is not the
+  // live one and must not settle the debt.
   const rows = await db
     .select({ recordId: artifactSchema.recordId })
     .from(artifactSchema)
-    .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.recordId, requestIds.map(String)), or(eq(artifactSchema.recordRole, DEMO_VIDEO_ROLE), like(artifactSchema.recordRole, `${DEMO_VIDEO_ROLE}-%`))));
+    .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.recordId, requestIds.map(String)), inArray(artifactSchema.recordRole, [DEMO_VIDEO_ROLE, narratedRole(DEMO_VIDEO_ROLE)])));
   const have = new Set(rows.map(r => Number(r.recordId)));
   return requestIds.filter(id => !have.has(id));
 }
