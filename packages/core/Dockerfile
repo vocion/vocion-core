@@ -44,8 +44,6 @@ WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
-# The app handles SIGTERM itself (src/instrumentation.ts): a turn in flight finishes before the process exits (backlog 056).
-ENV NEXT_MANUAL_SIG_HANDLE=true
 # Disable Sentry source-map upload at build time — production deploys
 # can re-enable by passing NEXT_PUBLIC_SENTRY_DISABLED='' at build.
 ENV NEXT_PUBLIC_SENTRY_DISABLED=1
@@ -179,6 +177,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# The app handles SIGTERM itself (src/instrumentation.ts): a turn in flight finishes before the process exits (backlog 056).
+# Set here, in the stage that runs, not in the builder: the first attempt put it there and the container never saw it (2026-10-04).
+ENV NEXT_MANUAL_SIG_HANDLE=true
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
