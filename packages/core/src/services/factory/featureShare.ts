@@ -379,38 +379,6 @@ export function shortSpan(ms: number): string {
   return h % 24 === 0 ? `${d} d` : `${d} d ${h % 24} h`;
 }
 
-/**
- * The steps, oldest first, each with its time, how long until the next one
- * and what it means: the person's ask, then the feature page's Timeline rows
- * said as fixed words. A row's own title can name a person or a pull
- * request; these words cannot.
- * @param history - The report's Timeline, newest first.
- * @param askedAt - When they asked.
- */
-export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null): PublicStep[] {
-  const rows = history.flatMap(r => (r.kind === 'attempt' ? r.children ?? [] : [r]));
-  const steps = rows
-    .map(r => ({ step: stepOf(r), at: r.at, said: r.kind === 'live' ? liveWords(r.title) : null }))
-    .filter((s): s is { step: string; at: string; said: string | null } => s.step !== null && s.at !== null && !Number.isNaN(Date.parse(s.at)));
-  if (askedAt) {
-    steps.push({ step: 'Asked', at: askedAt.toISOString(), said: null });
-  }
-  // By time; two steps written within the same few minutes keep the loop's order (QA approves, then
-  // the merge, then the deploy), because a verdict's row is stamped when its run ends, which can be
-  // a minute after the merge it caused (walk 19, FE-432: "Merged 8:43, QA approved 8:44").
-  const sorted = steps.sort((a, b) => {
-    const dt = Date.parse(a.at) - Date.parse(b.at);
-    return Math.abs(dt) < SAME_MOMENT_MS ? (STEP_RANK[a.step] ?? 50) - (STEP_RANK[b.step] ?? 50) || dt : dt;
-  });
-  return sorted.map((s, i) => {
-    const next = sorted[i + 1];
-    // THE LIVE STEP SAYS WHAT THE CHECK SAID (walk 19): "QA opened the live product and saw it
-    // working" was fixed copy, and stood under a check that could not see the feature. The live
-    // check's own line is the sentence; the fixed copy is only for a record written without one.
-    return { step: s.step, at: s.at, took: next ? shortSpan(Date.parse(next.at) - Date.parse(s.at)) : null, sentence: s.said ?? STEP_SENTENCE[s.step] ?? '' };
-  });
-}
-
 /** Steps written this close together are ordered by the loop, not the clock. */
 export const SAME_MOMENT_MS = 3 * 60_000;
 
@@ -441,6 +409,38 @@ const STEP_RANK: Readonly<Record<string, number>> = {
 function liveWords(title: string): string | null {
   const words = title.replace(/^Live check\s*·\s*/, '').trim();
   return words ? `${scrub(words).replace(/[.\s]+$/, '')}.` : null;
+}
+
+/**
+ * The steps, oldest first, each with its time, how long until the next one
+ * and what it means: the person's ask, then the feature page's Timeline rows
+ * said as fixed words. A row's own title can name a person or a pull
+ * request; these words cannot.
+ * @param history - The report's Timeline, newest first.
+ * @param askedAt - When they asked.
+ */
+export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null): PublicStep[] {
+  const rows = history.flatMap(r => (r.kind === 'attempt' ? r.children ?? [] : [r]));
+  const steps = rows
+    .map(r => ({ step: stepOf(r), at: r.at, said: r.kind === 'live' ? liveWords(r.title) : null }))
+    .filter((s): s is { step: string; at: string; said: string | null } => s.step !== null && s.at !== null && !Number.isNaN(Date.parse(s.at)));
+  if (askedAt) {
+    steps.push({ step: 'Asked', at: askedAt.toISOString(), said: null });
+  }
+  // By time; two steps written within the same few minutes keep the loop's order (QA approves, then
+  // the merge, then the deploy), because a verdict's row is stamped when its run ends, which can be
+  // a minute after the merge it caused (walk 19, FE-432: "Merged 8:43, QA approved 8:44").
+  const sorted = steps.sort((a, b) => {
+    const dt = Date.parse(a.at) - Date.parse(b.at);
+    return Math.abs(dt) < SAME_MOMENT_MS ? (STEP_RANK[a.step] ?? 50) - (STEP_RANK[b.step] ?? 50) || dt : dt;
+  });
+  return sorted.map((s, i) => {
+    const next = sorted[i + 1];
+    // THE LIVE STEP SAYS WHAT THE CHECK SAID (walk 19): "QA opened the live product and saw it
+    // working" was fixed copy, and stood under a check that could not see the feature. The live
+    // check's own line is the sentence; the fixed copy is only for a record written without one.
+    return { step: s.step, at: s.at, took: next ? shortSpan(Date.parse(next.at) - Date.parse(s.at)) : null, sentence: s.said ?? STEP_SENTENCE[s.step] ?? '' };
+  });
 }
 
 /** The attempt whose judgement counts, as the report reads it. */
