@@ -197,7 +197,7 @@ steps:
         # this wait opens, so it catches up from the run's end.
         - set:
             prUrl: {from: vars.read.result.prUrl}
-        - status: {stage: review, line: 'QA is reviewing {{vars.prUrl}}.', with: {prUrl: '{{vars.prUrl}}'}}
+        - status: {stage: review, line: 'QA is reviewing the pull request.', with: {prUrl: '{{vars.prUrl}}'}}
         - set:
             reviewFrom: {now: true}
         - wait_event:
@@ -219,7 +219,7 @@ steps:
         - when:
             - if: {path: vars.reviewed.type, equals: factory.review_failed}
               then:
-                - status: {stage: review, line: 'QA could not finish its review of {{vars.prUrl}}; the factory starts it again, up to twice.', with: {prUrl: '{{vars.prUrl}}'}}
+                - status: {stage: review, line: 'QA could not finish its review of the pull request; the factory starts it again, up to twice.', with: {prUrl: '{{vars.prUrl}}'}}
                 - wait_event:
                     any:
                       - types: [factory.build_requested]
@@ -255,7 +255,7 @@ steps:
 
         # Merged: the deploy records a release, and the live check is done
         # only when a result is recorded on the release (release #369).
-        - status: {stage: deploying, line: 'Merged {{vars.prUrl}}; deploying.', with: {prUrl: '{{vars.prUrl}}'}}
+        - status: {stage: deploying, line: 'Merged the pull request; deploying.', with: {prUrl: '{{vars.prUrl}}'}}
         - wait_event:
             any:
               - types: [release.linked]
