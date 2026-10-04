@@ -133,7 +133,7 @@ describe('the software-factory request flow owns a request from Build to live (b
     await emit('worker_run.completed', { workerRunId: 611 });
     await until(id, 'review');
     await emit('factory.review_failed', { requestId: 70, url: 'pr/71' });
-    await vi.waitFor(() => expect(h.marks.map(([, line]) => line)).toContain('QA could not finish its review of pr/71; the factory starts it again, up to twice.'));
+    await vi.waitFor(() => expect(h.marks.map(([, line]) => line)).toContain('QA could not finish its review of the pull request; the factory starts it again, up to twice.'));
     await emit('pr.merged', { url: 'pr/71' });
 
     await until(id, 'deploying');
