@@ -15,6 +15,14 @@
 # disabled, the click waited 15 s, and a correct feature read broken. In a
 # snapshot QA sees `button "Save" [disabled]` and judges it in one move.
 #
+# 3.12.0 (2026-10-04, Chris on the walk 17-18 videos: "the demo video should
+# be designed to demonstrate functionality to a PM/PO … the happy path, end to
+# end"): after recording the lines, QA records each seen feature's demo in its
+# own tab (`browser_open` with `demo_for_request`), saying each step as it
+# does it (`say`, `browser_say`); the screen holds while a line is said, the
+# video is filed on the request as `feature-demo` with the said lines as its
+# script, and the narration speaks them as written.
+#
 # Core raises `release.linked` (`services/factory/releasePack.ts`) and the
 # retry `release.live_check.requested` (`release-live-check-ended`); the
 # browser runs where the agents' tools run (`services/factory/liveBrowser.ts`).
@@ -57,4 +65,13 @@ do:
     Then call record_live_check once with every line: seen or not_seen citing
     the ids your browser calls returned, or not_observable with why production
     cannot show it. Do not change any record yourself: record_live_check
-    writes the release and the features. Report in one line what was seen live.
+    writes the release and the features.
+    Then, for each request you recorded as seen, record its feature demo:
+    browser_open with demo_for_request and the page where a user starts, and
+    walk the happy path end to end as a user would, six to twelve steps,
+    saying each step as you do it (say on each action, browser_say for the
+    opening and closing lines) in one plain present-tense sentence a product
+    manager who has never seen the feature follows. The screen holds while a
+    line is said. The happy path only: no edge cases, no error states.
+    Remove anything you made in a check tab afterwards.
+    Report in one line what was seen live and that the demo was recorded.

@@ -34,6 +34,18 @@
  * page is never kept: only pages QA opened after signing in are. A recording
  * that cannot be kept is logged and said on the request; it never fails or
  * holds up the check. `VOCION_LIVE_CHECK_VIDEO=0` turns recording off.
+ *
+ * The feature demo (Chris, 2026-10-03: "the demo video should be designed to
+ * demonstrate functionality to a PM/PO … the happy path, end to end"): a tab
+ * opened with `demoForRequest` records that one request's demo. Each action in
+ * it may carry `say` — what QA tells the viewer at that moment — and
+ * `browser_say` speaks a line on its own. A said line is logged at the moment
+ * the state it describes is on screen, and the tab then holds that state for
+ * as long as the line takes to say (`spokenMs`), so the picture never moves on
+ * before the words do. When the session closes, the demo tab's video is filed
+ * on its request alone as `feature-demo`, carrying the said lines as its
+ * script, timed from the video's start; the narration speaks that script as
+ * written instead of guessing one from the timeline.
  */
 
 import type { Buffer } from 'node:buffer';
@@ -47,6 +59,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { LIVE_ROLE } from '@/libs/factory/liveCheck';
+import { spokenMs } from '@/libs/media/narration';
 import { allowedOrigins, environmentFor, releaseLines, signIn, signInProblem } from './liveCheck';
 
 /** The two viewports QA may open a page at — the runner's own sizes (`packages/runner/src/qa.mjs` VIEWPORTS). */
@@ -87,22 +100,42 @@ export type BrowserEvidence
   = | { id: string; kind: 'snapshot'; at: string; url: string; title: string; viewport: BrowserViewport; signedIn: boolean }
     | { id: string; kind: 'screenshot'; at: string; artifactId: number; url: string; pageUrl: string; caption: string; viewport: BrowserViewport; signedIn: boolean }
     | { id: string; kind: 'response'; at: string; method: string; url: string; status: number; signedIn: boolean }
-    | { id: string; kind: 'action'; at: string; what: string; ok: boolean; detail: string | null; url: string | null };
+    | { id: string; kind: 'action'; at: string; what: string; ok: boolean; detail: string | null; url: string | null }
+    | { id: string; kind: 'said'; at: string; text: string; tab: string };
 
-type Tab = { key: string; env: EnvironmentAccess; viewport: BrowserViewport; signedIn: boolean; context: BrowserContext; page: Page | null; videos: Array<{ video: Video; startedAt: string }>; openedAt: string };
+/** What a tab is for: QA's check of the acceptance lines, or one request's demo. */
+export type TabPurpose = 'check' | 'demo';
+
+type Tab = { key: string; env: EnvironmentAccess; viewport: BrowserViewport; signedIn: boolean; purpose: TabPurpose; requestId: number | null; context: BrowserContext; page: Page | null; videos: Array<{ video: Video; startedAt: string }>; openedAt: string };
 
 /**
  * A tab's recording, set aside when its context closed, kept when the session
  * closes — with what QA did while it ran (`timeline`, ms from the video's
  * start), so a narration is timed to the moments it describes.
  */
-export type SessionRecording = { path: string; viewport: BrowserViewport; signedIn: boolean; env: string; startedAt: string; endedAt: string; timeline: TimelineMoment[] };
+export type SessionRecording = {
+  path: string;
+  viewport: BrowserViewport;
+  signedIn: boolean;
+  env: string;
+  startedAt: string;
+  endedAt: string;
+  timeline: TimelineMoment[];
+  /** QA's check (filed on every shipped request and the release), or one request's demo (filed on that request). */
+  purpose: TabPurpose;
+  /** The request a demo shows; null for the check. */
+  requestId: number | null;
+  /** What QA said while a demo ran, each line at its moment from the video's start: the narration's script. */
+  script: Array<{ atMs: number; text: string }>;
+};
 
 type Session = {
   key: string;
   orgId: string;
   releaseId: number;
   product: string;
+  /** The requests the release shipped: the ones a demo may be recorded for. */
+  requestIds: number[];
   envs: EnvironmentAccess[];
   origins: Set<string>;
   tabs: Map<string, Tab>;
@@ -132,6 +165,8 @@ export type LiveBrowserDeps = {
   videoDir: (key: string) => string | null;
   /** Keep a closed session's recordings (the media store, filed on the requests and the release). */
   keepRecordings: (orgId: string, releaseId: number, recordings: SessionRecording[], now: Date) => Promise<void>;
+  /** Hold a demo's screen for this long while a said line is spoken. */
+  dwell: (ms: number) => Promise<void>;
 };
 
 const defaultDeps: LiveBrowserDeps = {
@@ -144,6 +179,7 @@ const defaultDeps: LiveBrowserDeps = {
   now: () => new Date(),
   videoDir: key => process.env.VOCION_LIVE_CHECK_VIDEO === '0' ? null : path.join(tmpdir(), 'vocion-live-video', key.replace(/[^\w-]+/g, '_')),
   keepRecordings: async (orgId, releaseId, recordings, now) => (await import('./liveRecording')).keepLiveRecordings(orgId, releaseId, recordings, now),
+  dwell: ms => new Promise(r => setTimeout(r, ms)),
 };
 
 const sessions = new Map<string, Session>();
@@ -223,6 +259,45 @@ export function timelineOf(evidence: readonly BrowserEvidence[], viewport: Brows
   return out.sort((a, b) => a.atMs - b.atMs);
 }
 
+/**
+ * What QA said while one tab's video ran, as the narration's script: each line at its moment from
+ * the video's start, in order. Lines said in another tab, or outside the video's span, are not its.
+ * @param evidence - The session's captures.
+ * @param tabKey - The tab whose video it is.
+ * @param startedAt - When the video started.
+ * @param endedAt - When it ended.
+ */
+export function scriptOf(evidence: readonly BrowserEvidence[], tabKey: string, startedAt: string, endedAt: string): Array<{ atMs: number; text: string }> {
+  const t0 = Date.parse(startedAt);
+  const t1 = Date.parse(endedAt);
+  return evidence
+    .filter((e): e is Extract<BrowserEvidence, { kind: 'said' }> => e.kind === 'said' && e.tab === tabKey)
+    .map(e => ({ atMs: Date.parse(e.at) - t0, text: e.text, at: Date.parse(e.at) }))
+    .filter(l => Number.isFinite(l.atMs) && l.atMs >= 0 && l.at <= t1)
+    .sort((a, b) => a.atMs - b.atMs)
+    .map(({ atMs, text }) => ({ atMs, text }));
+}
+
+/**
+ * Say a line to the viewer at this moment: logged as evidence, and in a demo tab the screen is
+ * held for as long as the line takes to say, so the state it describes stays in view.
+ * @param s - The session.
+ * @param tab - The tab the line belongs to.
+ * @param d - The clock and the hold.
+ * @param text - The line, or nothing.
+ */
+async function sayLine(s: Session, tab: Tab, d: LiveBrowserDeps, text: string | undefined): Promise<string | null> {
+  const line = text?.trim().slice(0, 300);
+  if (!line) {
+    return null;
+  }
+  const entry = log(s, 'said', { text: line, tab: tab.key }, d.now());
+  if (tab.purpose === 'demo') {
+    await d.dwell(spokenMs(line));
+  }
+  return entry.id;
+}
+
 async function closeTabs(s: Session): Promise<void> {
   const tabs = [...s.tabs.values()];
   s.tabs.clear();
@@ -234,7 +309,8 @@ async function closeTabs(s: Session): Promise<void> {
       const file = await v.video.path().catch(() => null);
       if (file) {
         const endedAt = s.deps.now().toISOString();
-        s.recordings.push({ path: file, viewport: t.viewport, signedIn: t.signedIn, env: t.env.slug, startedAt: v.startedAt, endedAt, timeline: timelineOf([...s.evidence.values()], t.viewport, v.startedAt, endedAt) });
+        const evidence = [...s.evidence.values()];
+        s.recordings.push({ path: file, viewport: t.viewport, signedIn: t.signedIn, env: t.env.slug, startedAt: v.startedAt, endedAt, timeline: timelineOf(evidence, t.viewport, v.startedAt, endedAt), purpose: t.purpose, requestId: t.requestId, script: t.purpose === 'demo' ? scriptOf(evidence, t.key, v.startedAt, endedAt) : [] });
       }
     }
   }
@@ -346,9 +422,12 @@ function active(key: string | null): { s: Session; tab: Tab } | BrowserAnswer {
  * @param input.target - A path on the product (`/documents`) or a full address on one of its origins.
  * @param input.signedIn - As the product's QA account (default) or a visitor with no session.
  * @param input.viewport - desktop (default) or phone.
+ * @param input.demoForRequest - Open (or return to) the demo tab of this shipped request: its own
+ *   recording, filed on that request as its feature demo.
+ * @param input.say - What QA tells the viewer as the page opens.
  * @param deps - The browser and the clock.
  */
-export async function browserOpen(key: string | null, orgId: string, input: { releaseId: number; target: string; signedIn?: boolean; viewport?: BrowserViewport }, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+export async function browserOpen(key: string | null, orgId: string, input: { releaseId: number; target: string; signedIn?: boolean; viewport?: BrowserViewport; demoForRequest?: number; say?: string }, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
   const d = { ...defaultDeps, ...deps };
   if (!key) {
     return refuse('the browser runs inside a run or a conversation, and this call has neither.');
@@ -366,7 +445,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
     }
     const { productAccess } = await import('@/services/factory/productAccess');
     const access = await productAccess(orgId, release.product, { reveal: true });
-    s = { key, orgId, releaseId: input.releaseId, product: release.product, envs: access.environments, origins: allowedOrigins(access.environments), tabs: new Map(), current: null, seq: 0, evidence: new Map(), responses: [], problems: [], blocked: [], actions: 0, lastUsed: Date.now(), idle: null, videoDir: d.videoDir(key), recordings: [], deps: d };
+    s = { key, orgId, releaseId: input.releaseId, product: release.product, requestIds: release.requestIds, envs: access.environments, origins: allowedOrigins(access.environments), tabs: new Map(), current: null, seq: 0, evidence: new Map(), responses: [], problems: [], blocked: [], actions: 0, lastUsed: Date.now(), idle: null, videoDir: d.videoDir(key), recordings: [], deps: d };
     sessions.set(key, s);
     acceptance = release.acceptance;
     if (s.envs.length === 0) {
@@ -380,6 +459,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
   touch(s);
   const signedIn = input.signedIn !== false;
   const viewport: BrowserViewport = input.viewport === 'phone' ? 'phone' : 'desktop';
+  const demoFor = input.demoForRequest ?? null;
   const fail = (why: string, problem?: LiveReason): BrowserAnswer => {
     if (problem) {
       s.problems.push(problem);
@@ -389,6 +469,9 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
   };
   if (s.envs.length === 0) {
     return fail(s.problems[0]?.detail ?? `no production environment is recorded for ${s.product}`);
+  }
+  if (demoFor !== null && !s.requestIds.includes(demoFor)) {
+    return fail(`request #${demoFor} is not one this release shipped (${s.requestIds.map(id => `#${id}`).join(', ') || 'none'}), so there is no feature of it to demo`);
   }
   // WHERE: a path opens on the environment that carries the QA sign-in; an address must be one of the product's own.
   let target: string;
@@ -410,7 +493,8 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
   if (!env) {
     return fail(`no environment of ${s.product} has an address`);
   }
-  const tabKey = `${env.slug}|${viewport}|${signedIn ? 'in' : 'out'}`;
+  // A demo is its own tab (so its own video), one per request and viewport.
+  const tabKey = `${demoFor !== null ? `demo:${demoFor}|` : ''}${env.slug}|${viewport}|${signedIn ? 'in' : 'out'}`;
   let tab = s.tabs.get(tabKey);
   if (!tab) {
     if (s.tabs.size >= BROWSER_LIMITS.contexts) {
@@ -466,7 +550,7 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
         session.evidence.delete(session.responses.shift()!);
       }
     });
-    tab = { key: tabKey, env, viewport, signedIn, context, page: primed, videos: primed?.video() ? [{ video: primed.video()!, startedAt: d.now().toISOString() }] : [], openedAt: d.now().toISOString() };
+    tab = { key: tabKey, env, viewport, signedIn, purpose: demoFor !== null ? 'demo' : 'check', requestId: demoFor, context, page: primed, videos: primed?.video() ? [{ video: primed.video()!, startedAt: d.now().toISOString() }] : [], openedAt: d.now().toISOString() };
     if (signedIn) {
       const problem = signInProblem(env) || await signIn(context, env);
       if (problem) {
@@ -496,7 +580,8 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
     const blocked = s.blocked.splice(0);
     return fail(blocked.length > 0 ? `${blocked[0]} is not one of the product's own addresses; it was not opened` : `the page did not open: ${short(e)}`);
   }
-  const entry = log(s, 'action', { what: `open ${input.target.slice(0, 200)}${signedIn ? '' : ' as a visitor'} (${viewport})`, ok: true, detail: status ? `HTTP ${status}` : null, url: tab.page.url() }, d.now());
+  const entry = log(s, 'action', { what: `open ${input.target.slice(0, 200)}${signedIn ? '' : ' as a visitor'} (${viewport}${demoFor !== null ? `, demo of #${demoFor}` : ''})`, ok: true, detail: status ? `HTTP ${status}` : null, url: tab.page.url() }, d.now());
+  await sayLine(s, tab, d, input.say);
   return withSnapshot(s, tab, d, { ok: true, id: entry.id, result: `opened${status ? ` (HTTP ${status})` : ''}`, ...(acceptance ? { acceptance } : {}) });
 }
 
@@ -525,7 +610,7 @@ function byRef(page: Page, ref: string) {
   return /^[a-z]?\d+$|^f\d+e\d+$/i.test(r) ? page.locator(`aria-ref=${r}`) : null;
 }
 
-async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: string | null, run: (page: Page) => Promise<{ ok: boolean; result: string }>): Promise<BrowserAnswer> {
+async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: string | null, run: (page: Page) => Promise<{ ok: boolean; result: string }>, say?: string): Promise<BrowserAnswer> {
   const a = active(key);
   if (!('s' in a)) {
     return a;
@@ -542,6 +627,9 @@ async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: st
     await settle(page);
   }
   const entry = log(s, 'action', { what, ok: out.ok, detail: out.result, url: page.url() }, d.now());
+  if (out.ok) {
+    await sayLine(s, tab, d, say);
+  }
   return withSnapshot(s, tab, d, { ok: out.ok, id: entry.id, result: out.result });
 }
 
@@ -550,8 +638,9 @@ async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: st
  * @param key - The session.
  * @param ref - The ref from the last snapshot.
  * @param deps - The clock.
+ * @param say - What QA tells the viewer once it is clicked.
  */
-export async function browserClick(key: string | null, ref: string, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+export async function browserClick(key: string | null, ref: string, deps: Partial<LiveBrowserDeps> = {}, say?: string): Promise<BrowserAnswer> {
   const d = { ...defaultDeps, ...deps };
   return act(key, d, `click ${ref}`, ref, async (page) => {
     const loc = byRef(page, ref);
@@ -563,7 +652,7 @@ export async function browserClick(key: string | null, ref: string, deps: Partia
     }
     await loc.click({ timeout: BROWSER_LIMITS.actMs });
     return { ok: true, result: 'clicked' };
-  });
+  }, say);
 }
 
 /**
@@ -573,9 +662,10 @@ export async function browserClick(key: string | null, ref: string, deps: Partia
  * @param input.ref - The ref from the last snapshot.
  * @param input.text - The text.
  * @param input.submit - Press Enter after.
+ * @param input.say - What QA tells the viewer once it is typed.
  * @param deps - The clock.
  */
-export async function browserType(key: string | null, input: { ref: string; text: string; submit?: boolean }, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+export async function browserType(key: string | null, input: { ref: string; text: string; submit?: boolean; say?: string }, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
   const d = { ...defaultDeps, ...deps };
   return act(key, d, `type into ${input.ref}${input.submit ? ' and submit' : ''}`, input.ref, async (page) => {
     const loc = byRef(page, input.ref);
@@ -590,7 +680,7 @@ export async function browserType(key: string | null, input: { ref: string; text
       await loc.press('Enter', { timeout: BROWSER_LIMITS.actMs });
     }
     return { ok: true, result: input.submit ? 'typed and submitted' : 'typed' };
-  });
+  }, input.say);
 }
 
 /**
@@ -598,13 +688,35 @@ export async function browserType(key: string | null, input: { ref: string; text
  * @param key - The session.
  * @param keyName - The key, in Playwright's names.
  * @param deps - The clock.
+ * @param say - What QA tells the viewer once it is pressed.
  */
-export async function browserPress(key: string | null, keyName: string, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+export async function browserPress(key: string | null, keyName: string, deps: Partial<LiveBrowserDeps> = {}, say?: string): Promise<BrowserAnswer> {
   const d = { ...defaultDeps, ...deps };
   return act(key, d, `press ${keyName}`, null, async (page) => {
     await page.keyboard.press(keyName);
     return { ok: true, result: `pressed ${keyName}` };
-  });
+  }, say);
+}
+
+/**
+ * Say a line to the viewer with nothing done on the page: the demo's opening and closing words, or
+ * a sentence about what is already on screen. In a demo tab the screen holds while it is said.
+ * @param key - The session.
+ * @param text - The line.
+ * @param deps - The clock and the hold.
+ */
+export async function browserSay(key: string | null, text: string, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+  const d = { ...defaultDeps, ...deps };
+  const a = active(key);
+  if (!('s' in a)) {
+    return a;
+  }
+  const line = text.trim();
+  if (!line) {
+    return refuse('nothing to say: give the line in a person\'s words.');
+  }
+  const id = await sayLine(a.s, a.tab, d, line);
+  return { ok: true, id, result: a.tab.purpose === 'demo' ? `said, and held the screen ${Math.round(spokenMs(line) / 100) / 10}s` : 'said (no demo tab is open, so the screen was not held)', url: a.tab.page!.url() };
 }
 
 /**

@@ -134,7 +134,16 @@ export type NarrateActivityDeps = {
   voice?: import('@/libs/voice/provider').VoiceProvider | null;
   writeWalkthrough?: typeof import('@/services/artifacts/walkthrough').writeWalkthrough;
   narrate?: typeof import('@/services/artifacts/narrate').narrateRecording;
-  loadRecording?: (orgId: string, artifactId: number) => Promise<{ url: string; caption: string; timeline: TimelineMoment[] } | null>;
+  loadRecording?: (orgId: string, artifactId: number) => Promise<LoadedRecording | null>;
+};
+
+/** The source recording as the narration reads it: where it is served, what it shows, and — for a demo — the words said while it ran. */
+export type LoadedRecording = {
+  url: string;
+  caption: string;
+  timeline: TimelineMoment[];
+  /** Lines said at their moments while the recording ran (a feature demo); spoken as written. Empty when nothing was said. */
+  script: Array<{ atMs: number; text: string }>;
 };
 
 /**
@@ -142,7 +151,7 @@ export type NarrateActivityDeps = {
  * @param orgId - The workspace.
  * @param artifactId - The recording.
  */
-async function loadRecording(orgId: string, artifactId: number): Promise<{ url: string; caption: string; timeline: TimelineMoment[] } | null> {
+async function loadRecording(orgId: string, artifactId: number): Promise<LoadedRecording | null> {
   const { getArtifact } = await import('@/services/ArtifactService');
   const row = await getArtifact({ orgId, id: artifactId });
   if (!row) {
@@ -150,7 +159,10 @@ async function loadRecording(orgId: string, artifactId: number): Promise<{ url: 
   }
   const spec = (row.spec ?? {}) as Record<string, unknown>;
   const url = typeof spec.url === 'string' ? spec.url : row.url ?? '';
-  return { url, caption: typeof spec.caption === 'string' ? spec.caption : row.title, timeline: Array.isArray(spec.timeline) ? spec.timeline as TimelineMoment[] : [] };
+  const script = Array.isArray(spec.script)
+    ? (spec.script as Array<Record<string, unknown>>).filter(l => typeof l.text === 'string' && l.text.trim() && Number.isFinite(Number(l.atMs))).map(l => ({ atMs: Number(l.atMs), text: String(l.text) }))
+    : [];
+  return { url, caption: typeof spec.caption === 'string' ? spec.caption : row.title, timeline: Array.isArray(spec.timeline) ? spec.timeline as TimelineMoment[] : [], script };
 }
 
 /**
@@ -209,10 +221,14 @@ export async function narrateRecordingActivity(input: { orgId: string; artifactI
     avatar: narrator.avatar,
     speaker: { name: narrator.name, slug: narrator.slug },
     author: { kind: 'agent', id: narrator.slug },
-    script: async (probed) => {
-      const w = await write({ orgId, speaker: { name: narrator.name, slug: narrator.slug, description: narrator.description }, recording: { caption: recording.caption, durationMs: probed.durationMs, timeline: recording.timeline, context } });
-      return w.ok ? w.lines : { error: w.reason };
-    },
+    // A demo's words were said at their moments as it was recorded: spoken as written. Anything
+    // else gets a walkthrough written from what the recording logged.
+    script: recording.script.length > 0
+      ? recording.script
+      : async (probed) => {
+        const w = await write({ orgId, speaker: { name: narrator.name, slug: narrator.slug, description: narrator.description }, recording: { caption: recording.caption, durationMs: probed.durationMs, timeline: recording.timeline, context } });
+        return w.ok ? w.lines : { error: w.reason };
+      },
   }, { voice });
   if (!res.ok) {
     return fail(res.reason);

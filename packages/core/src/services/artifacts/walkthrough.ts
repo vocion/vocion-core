@@ -13,10 +13,11 @@ import type { TimelineMoment } from './recordings';
 import type { ScriptLine } from '@/libs/media/narration';
 import { z } from 'zod';
 
+import { SPOKEN_CHARS_PER_SECOND } from '@/libs/media/narration';
+
 type Model = Pick<BaseChatModel, 'bindTools'>;
 
-/** How fast a line is spoken, for the budget the writer is given (characters per second). */
-export const SPOKEN_CHARS_PER_SECOND = 14;
+export { SPOKEN_CHARS_PER_SECOND };
 
 export const WalkthroughSchema = z.object({
   lines: z.array(z.object({
