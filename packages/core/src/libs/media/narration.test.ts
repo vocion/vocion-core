@@ -131,3 +131,58 @@ describe('narrationCommand — the one ffmpeg pass', () => {
     expect(args).toContain('libvpx');
   });
 });
+
+describe('the demo cut (Chris, 2026-10-04: "pace of the demo could be a touch faster")', () => {
+  it('keeps each spoken line and each action with a little room, shortens long idle stretches, and remaps times', async () => {
+    const { CUT, demoCut } = await import('./narration');
+    // Two lines ten seconds apart; the page sat still between them.
+    const cut = demoCut([{ atMs: 4_000 }, { atMs: 15_000 }], [{ startMs: 4_400, endMs: 8_400 }, { startMs: 15_200, endMs: 19_000 }], 30_000);
+
+    expect(cut.segments).toEqual([
+      { fromMs: 3_800, toMs: 8_800, startMs: 0 },
+      // The second window starts at the action (15,000 − 200); 500 ms before it is kept.
+      { fromMs: 14_300, toMs: 19_400, startMs: 5_000 },
+    ]);
+    expect(cut.durationMs).toBe(10_100);
+    expect(cut.remap(4_400)).toBe(600);
+    expect(cut.remap(12_000)).toBe(5_000);
+    expect(cut.remap(15_200)).toBe(5_900);
+    expect(cut.remap(29_000)).toBe(10_100);
+    expect(cut.selectExpr).toBe('between(t,3.800,8.800)+between(t,14.300,19.400)');
+    expect(CUT.maxGapMs).toBeLessThan(5_000);
+  });
+
+  it('leaves a short idle stretch in, and keeps a video with nothing logged whole', async () => {
+    const { demoCut } = await import('./narration');
+
+    expect(demoCut([{ atMs: 1_000 }, { atMs: 2_500 }], [], 10_000).segments).toEqual([{ fromMs: 800, toMs: 3_400, startMs: 0 }]);
+    expect(demoCut([], [], 10_000)).toMatchObject({ durationMs: 10_000, selectExpr: 'between(t,0.000,10.000)' });
+  });
+
+  it('shows one address per stretch the page sat at it, in the cut clock, and spells an address plainly', async () => {
+    const { addressBarSvg, addressOf, addressSpans } = await import('./narration');
+    const moments = [
+      { atMs: 1_000, url: 'https://app.northwind.example/' },
+      { atMs: 1_500, url: 'https://app.northwind.example/' },
+      { atMs: 9_000, url: 'https://app.northwind.example/documents/42?tab=views' },
+    ];
+
+    expect(addressSpans(moments, ms => ms / 2, 6_000)).toEqual([
+      { address: 'app.northwind.example', fromMs: 0, toMs: 4_500 },
+      { address: 'app.northwind.example/documents/42?tab=views', fromMs: 4_500, toMs: 6_000 },
+    ]);
+    expect(addressOf('not a url')).toBe('not a url');
+    expect(addressBarSvg(1440, 'app.northwind.example/<x>')).toContain('app.northwind.example/&lt;x&gt;');
+  });
+
+  it('puts the cut and the bars into the command: select before the overlays, a padded frame, each bar on its stretch', async () => {
+    const { bubbleGeometry, narrationCommand } = await import('./narration');
+    const cmd = narrationCommand({ video: 'v.webm', bubble: 'b.png', halo: 'h.png', clips: ['l0.mp3'], placed: [{ index: 0, text: 'hi', startMs: 600, endMs: 2_000, durationMs: 1_400 }], geometry: bubbleGeometry(1440, 940), durationMs: 10_100, out: 'o.mp4', mp4: true, pulse: false, cut: 'between(t,3.800,8.800)+between(t,14.300,19.400)', bars: [{ file: 'bar-0.png', fromMs: 0, toMs: 4_500 }, { file: 'bar-1.png', fromMs: 4_500, toMs: 10_100 }], barHeight: 40 });
+
+    expect(cmd.filter).toContain(`[0:v]select='between(t,3.800,8.800)+between(t,14.300,19.400)',setpts=N/FRAME_RATE/TB,pad=iw:ih+40:0:40:color=0x1b1b1f[vbase]`);
+    expect(cmd.filter).toContain(`[vbase][4:v]overlay=x=0:y=0:enable='between(t,0.000,4.500)'[vb0]`);
+    expect(cmd.filter).toContain(`[vb0][5:v]overlay=x=0:y=0:enable='between(t,4.500,10.100)'[vb1]`);
+    expect(cmd.filter).toContain('[vb1][halo]overlay');
+    expect(cmd.args.join(' ')).toContain('-i l0.mp3 -loop 1 -i bar-0.png -loop 1 -i bar-1.png');
+  });
+});

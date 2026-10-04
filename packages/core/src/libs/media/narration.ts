@@ -17,11 +17,18 @@
 /** One line of the walkthrough as written: when it should start, what is said. */
 export type ScriptLine = { atMs: number; text: string };
 
+/**
+ * Milliseconds as ffmpeg's seconds.
+ * @param ms - The time.
+ */
+const sec = (ms: number) => (ms / 1000).toFixed(3);
+
 /** How fast a line is spoken (characters per second): the budget a writer is given, and how long a demo holds the screen for a line. */
 export const SPOKEN_CHARS_PER_SECOND = 14;
 
 /** The least a demo holds the screen for one spoken line, and the most, whatever its length. */
-export const DWELL_MS = { min: 1_800, max: 12_000, lead: 700 } as const;
+export const DWELL_MS = { min: 1_400, max: 12_000, lead: 400 } as const;
+export const URL_BAR = { height: 40, maxChars: 96 } as const;
 
 /**
  * How long a line takes to say, with a short lead so the viewer sees the state before the voice
@@ -218,7 +225,6 @@ export function haloSvg(size: number, color: string): string {
  * Seconds, as ffmpeg reads them in an expression: three decimals.
  * @param ms - Milliseconds.
  */
-const sec = (ms: number) => (ms / 1000).toFixed(3);
 
 /**
  * ffmpeg's `enable` expression for "while any line is speaking".
@@ -254,6 +260,9 @@ export type NarrationCommand = {
  * @param input.out - The output file.
  * @param input.mp4 - Encode H.264/AAC MP4 (else VP8/Opus WebM).
  * @param input.pulse - The build has `geq`, so the ring can pulse.
+ * @param input.cut - The `select` expression keeping the demo's moments, or nothing to keep the whole video.
+ * @param input.bars - The address-bar strips and the stretch of the (cut) video each one covers.
+ * @param input.barHeight - The strip's height, added above the picture.
  */
 export function narrationCommand(input: {
   video: string;
@@ -266,19 +275,40 @@ export function narrationCommand(input: {
   out: string;
   mp4: boolean;
   pulse: boolean;
+  /** The demo cut's `select` expression (`demoCut`), or none to keep the whole video. `placed` and `durationMs` are then in the cut's clock. */
+  cut?: string | null;
+  /** Address bars to show above the picture, each for a stretch of the (cut) video; `barHeight` pads the frame for them. */
+  bars?: ReadonlyArray<{ file: string; fromMs: number; toMs: number }>;
+  barHeight?: number;
 }): NarrationCommand {
   const g = input.geometry;
   const dur = sec(input.durationMs);
   const halo = input.pulse
     ? `[2:v]format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(0.55+0.45*sin(2*PI*${PULSE_HZ}*T))'[halo]`
     : `[2:v]format=rgba[halo]`;
+  // The picture: cut to its moments when asked, then padded above for the address strip.
+  const bars = input.bars ?? [];
+  const barH = bars.length > 0 ? (input.barHeight ?? URL_BAR.height) : 0;
+  const base = [
+    input.cut ? `select='${input.cut}',setpts=N/FRAME_RATE/TB` : null,
+    barH > 0 ? `pad=iw:ih+${barH}:0:${barH}:color=0x1b1b1f` : null,
+  ].filter((f): f is string => f !== null);
   const parts: string[] = [
     `[1:v]format=rgba[bub]`,
     halo,
-    `[0:v][halo]overlay=x=${g.haloX}:y=${g.haloY}:enable='${speakingExpr(input.placed)}':shortest=1[v1]`,
-    `[v1][bub]overlay=x=${g.x}:y=${g.y}:shortest=1,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p[vout]`,
+    `[0:v]${base.length > 0 ? base.join(',') : 'null'}[vbase]`,
   ];
   const n = input.clips.length;
+  let last = '[vbase]';
+  bars.forEach((b, i) => {
+    const out = `[vb${i}]`;
+    parts.push(`${last}[${3 + n + i}:v]overlay=x=0:y=0:enable='between(t,${sec(b.fromMs)},${sec(b.toMs)})'${out}`);
+    last = out;
+  });
+  parts.push(
+    `${last}[halo]overlay=x=${g.haloX}:y=${g.haloY}:enable='${speakingExpr(input.placed)}':shortest=1[v1]`,
+    `[v1][bub]overlay=x=${g.x}:y=${g.y}:shortest=1,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p[vout]`,
+  );
   if (n === 0) {
     parts.push(`anullsrc=r=44100:cl=stereo,atrim=end=${dur}[aout]`);
   } else {
@@ -306,6 +336,7 @@ export function narrationCommand(input: {
     '-i',
     input.halo,
     ...input.clips.flatMap(c => ['-i', c]),
+    ...bars.flatMap(b => ['-loop', '1', '-i', b.file]),
     '-filter_complex',
     filter,
     '-map',
@@ -320,4 +351,152 @@ export function narrationCommand(input: {
     input.out,
   ];
   return { args, filter };
+}
+
+/**
+ * THE DEMO CUT (Chris, 2026-10-04: "pace of the demo could be a touch faster"). A demo is
+ * recorded live: between one spoken step and the next the agent is thinking, and the page sits
+ * still for ten seconds. The cut keeps the moments that carry the story — each spoken line with
+ * a little room around it, each action with the second after it — and shortens every idle
+ * stretch longer than {@link CUT.maxGapMs} to its last {@link CUT.keepBeforeMs}, so the state
+ * before the next step is still seen. Times in the result are the cut video's; `remap` carries a
+ * source time across. Pure: the ffmpeg half is `narrationCommand`.
+ */
+export const CUT = {
+  /** Room kept before a spoken line starts. */
+  leadMs: 300,
+  /** Room kept after a spoken line ends. */
+  tailMs: 400,
+  /** Room kept before an action. */
+  actionLeadMs: 200,
+  /** Room kept after an action, for the page to show what it did. */
+  actionTailMs: 900,
+  /** An idle stretch shorter than this is left alone. */
+  maxGapMs: 1_200,
+  /** Of a longer idle stretch, this much before the next moment is kept. */
+  keepBeforeMs: 500,
+} as const;
+
+export type CutSegment = { fromMs: number; toMs: number; /** Where this segment starts in the cut video. */ startMs: number };
+
+export type DemoCut = {
+  segments: CutSegment[];
+  /** The cut video's length. */
+  durationMs: number;
+  /** A source time, in the cut video's clock; a time inside a dropped stretch lands on the next segment's start. */
+  remap: (sourceMs: number) => number;
+  /** ffmpeg's `select` expression for the kept frames (seconds). */
+  selectExpr: string;
+};
+
+/**
+ * Plan the cut from what the recording shows (`timeline` moments) and the spoken lines placed on
+ * it. A video with no actions and no lines is kept whole.
+ * @param moments - The recording's logged moments (actions, page reads), source times.
+ * @param lines - The spoken lines as placed on the source video.
+ * @param videoMs - The source video's length.
+ */
+export function demoCut(moments: ReadonlyArray<{ atMs: number }>, lines: ReadonlyArray<{ startMs: number; endMs: number }>, videoMs: number): DemoCut {
+  const clamp = (n: number) => Math.max(0, Math.min(videoMs, Math.round(n)));
+  const windows = [
+    ...lines.map(l => ({ from: clamp(l.startMs - CUT.leadMs), to: clamp(l.endMs + CUT.tailMs) })),
+    ...moments.filter(m => Number.isFinite(m.atMs)).map(m => ({ from: clamp(m.atMs - CUT.actionLeadMs), to: clamp(m.atMs + CUT.actionTailMs) })),
+  ].filter(w => w.to > w.from).sort((a, b) => a.from - b.from);
+  if (windows.length === 0) {
+    return { segments: [{ fromMs: 0, toMs: videoMs, startMs: 0 }], durationMs: videoMs, remap: t => clamp(t), selectExpr: `between(t,${sec(0)},${sec(videoMs)})` };
+  }
+  // Merge what overlaps or nearly touches; a short idle stretch stays in.
+  const merged: Array<{ from: number; to: number }> = [];
+  for (const w of windows) {
+    const last = merged[merged.length - 1];
+    if (last && w.from - last.to <= CUT.maxGapMs) {
+      last.to = Math.max(last.to, w.to);
+    } else {
+      merged.push({ ...w });
+    }
+  }
+  // Of each longer stretch, keep the moment just before the next window: the state the next step acts on.
+  const kept: Array<{ from: number; to: number }> = [];
+  for (const [i, w] of merged.entries()) {
+    const from = i === 0 ? w.from : Math.max(merged[i - 1]!.to, w.from - CUT.keepBeforeMs);
+    kept.push({ from, to: w.to });
+  }
+  let cursor = 0;
+  const segments: CutSegment[] = kept.map((k) => {
+    const seg = { fromMs: k.from, toMs: k.to, startMs: cursor };
+    cursor += k.to - k.from;
+    return seg;
+  });
+  const durationMs = cursor;
+  const remap = (sourceMs: number): number => {
+    const t = clamp(sourceMs);
+    for (const s of segments) {
+      if (t < s.fromMs) {
+        return s.startMs;
+      }
+      if (t <= s.toMs) {
+        return s.startMs + (t - s.fromMs);
+      }
+    }
+    return durationMs;
+  };
+  return { segments, durationMs, remap, selectExpr: segments.map(s => `between(t,${sec(s.fromMs)},${sec(s.toMs)})`).join('+') };
+}
+
+/** The address strip above the picture: its height, and what the bar shows of a URL. */
+
+/**
+ * The address shown for a page: host and path, no scheme, no query noise beyond what fits.
+ * @param url - The page's URL.
+ */
+export function addressOf(url: string): string {
+  try {
+    const u = new URL(url);
+    const text = `${u.host}${u.pathname === '/' ? '' : u.pathname}${u.search}`;
+    return text.length > URL_BAR.maxChars ? `${text.slice(0, URL_BAR.maxChars - 1)}…` : text;
+  } catch {
+    return url.slice(0, URL_BAR.maxChars);
+  }
+}
+
+/**
+ * The address the bar shows over time: one span per stretch the page sat at one address, from
+ * the moments that carried a URL, in the cut video's clock.
+ * @param moments - The recording's logged moments with their page URL.
+ * @param remap - Source time to cut time (`DemoCut.remap`), or identity.
+ * @param durationMs - The (cut) video's length.
+ */
+export function addressSpans(moments: ReadonlyArray<{ atMs: number; url?: string | null }>, remap: (ms: number) => number, durationMs: number): Array<{ address: string; fromMs: number; toMs: number }> {
+  const withUrl = moments.filter(m => typeof m.url === 'string' && m.url && Number.isFinite(m.atMs)).sort((a, b) => a.atMs - b.atMs);
+  const spans: Array<{ address: string; fromMs: number; toMs: number }> = [];
+  for (const m of withUrl) {
+    const address = addressOf(m.url!);
+    const at = remap(m.atMs);
+    const last = spans[spans.length - 1];
+    if (last && last.address === address) {
+      continue;
+    }
+    if (last) {
+      last.toMs = at;
+    }
+    spans.push({ address, fromMs: spans.length === 0 ? 0 : at, toMs: durationMs });
+  }
+  return spans.filter(s => s.toMs > s.fromMs);
+}
+
+/**
+ * The address bar as an SVG the narration rasterises: a dark strip the width of the video,
+ * a rounded field, the address in a plain face.
+ * @param width - The video's width.
+ * @param address - What it shows.
+ */
+export function addressBarSvg(width: number, address: string): string {
+  const h = URL_BAR.height;
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${h}" viewBox="0 0 ${width} ${h}">
+  <rect width="${width}" height="${h}" fill="#1b1b1f"/>
+  <circle cx="22" cy="${h / 2}" r="5.5" fill="#fe5f57"/><circle cx="40" cy="${h / 2}" r="5.5" fill="#febc2e"/><circle cx="58" cy="${h / 2}" r="5.5" fill="#28c840"/>
+  <rect x="84" y="7" width="${width - 168}" height="${h - 14}" rx="7" fill="#2b2b31"/>
+  <text x="${width / 2}" y="${h / 2 + 5}" text-anchor="middle" font-family="DejaVu Sans, Liberation Sans, Helvetica, Arial, sans-serif" font-size="14" fill="#d7d7dc">${esc(address)}</text>
+</svg>`;
 }

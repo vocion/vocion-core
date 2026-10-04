@@ -25,7 +25,8 @@ export type VoiceProvider = {
   /** Its name, for a person reading where a narration came from. */
   label: string;
   listVoices: () => Promise<{ ok: true; voices: Voice[] } | VoiceRefusal>;
-  speak: (input: { voiceId: string; text: string }) => Promise<({ ok: true } & Speech) | VoiceRefusal>;
+  /** `speed` is the provider's pace, 1 = its default; a demo narrates a touch faster (Chris, 2026-10-04). */
+  speak: (input: { voiceId: string; text: string; speed?: number }) => Promise<({ ok: true } & Speech) | VoiceRefusal>;
 };
 
 /**

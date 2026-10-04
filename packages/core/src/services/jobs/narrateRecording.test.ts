@@ -42,7 +42,7 @@ describe('narrate-recording — the gate', () => {
 });
 
 describe('recording.narrate — the work', () => {
-  const qa: Narrator = { slug: 'change-reviewer', name: 'QA', description: 'Reviews a finished task against its contract.', voiceId: null, avatar: { imageUrl: null, initials: 'QA', color: 'emerald' } };
+  const qa: Narrator = { slug: 'change-reviewer', name: 'QA', description: 'Reviews a finished task against its contract.', voiceId: null, voiceSpeed: null, avatar: { imageUrl: null, initials: 'QA', color: 'emerald' } };
   const voice: VoiceProvider = { connector: 'voice-fixture', label: 'Fixture Voice', listVoices: async () => ({ ok: true, voices: [{ id: 'voice_aria_01', name: 'Aria' }, { id: 'voice_kestrel_02', name: 'Kestrel' }] }), speak: vi.fn() };
   const recording = { url: filed.url, caption: 'Live check of REL-9, 2026-09-20', timeline: [{ atMs: 1_200, what: 'open https://northwind.example/rooms (desktop)', ok: true }], script: [] };
   const records = [{ id: 12, title: 'Export a room as a PDF', isRequest: true }, { id: 77, title: 'REL-9', isRequest: false }];
