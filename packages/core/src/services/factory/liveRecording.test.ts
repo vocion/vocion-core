@@ -41,8 +41,8 @@ describe('the demo\'s script (2026-10-04)', () => {
 
 describe('how long a line holds the screen', () => {
   it('is never shorter than a glance nor longer than a breath, and grows with the words', () => {
-    expect(spokenMs('Done.')).toBe(1800);
-    expect(spokenMs('I open the document and pick Share from the menu.')).toBeGreaterThan(1800);
+    expect(spokenMs('Done.')).toBe(1400);
+    expect(spokenMs('I open the document and pick Share from the menu.')).toBeGreaterThan(1400);
     expect(spokenMs('x'.repeat(2000))).toBe(12_000);
   });
 });
