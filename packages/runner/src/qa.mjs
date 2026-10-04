@@ -1287,7 +1287,7 @@ export function demoSpecHeader(moments, lines) {
  * Walk the flows on the branch build in one recorded desktop context, saying the lines. Returns
  * the webm path with its moments and lines, or `{ error }`. Never throws.
  */
-export async function recordPreviewDemo({ browser, base, flows, outDir, log = () => {}, errorPatterns = ERROR_STATE_PATTERNS, vars = {}, now = () => Date.now(), waitMs = null }) {
+export async function recordPreviewDemo({ browser, base, flows, outDir, log = () => {}, vars = {}, now = () => Date.now(), waitMs = null }) {
   const demoDir = path.join(outDir, 'demo');
   fs.mkdirSync(demoDir, { recursive: true });
   const vp = VIEWPORTS.desktop;
@@ -1515,7 +1515,7 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
       if (flowsToDemo.length > 0) {
         const t0 = Date.now();
         try {
-          const d = await recordPreviewDemo({ browser, base: afterBase, flows: flowsToDemo, outDir, log, errorPatterns });
+          const d = await recordPreviewDemo({ browser, base: afterBase, flows: flowsToDemo, outDir, log });
           if (d.error) {
             failures.push({ scope: 'demo', message: `no preview demo: ${d.error}` });
           } else {

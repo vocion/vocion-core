@@ -945,25 +945,47 @@ describe('the preview demo recorded from the branch', async () => {
           calls.push(`click ${name}`);
         },
         async waitFor() {},
-        async fill(v) { calls.push(`fill ${name}=${v}`); },
+        async fill(v) {
+          calls.push(`fill ${name}=${v}`);
+        },
       }),
     });
     const page = {
-      async goto(url) { calls.push(`goto ${url}`); this._url = url; },
+      async goto(url) {
+        calls.push(`goto ${url}`); this._url = url;
+      },
       async waitForLoadState() {},
-      async waitForTimeout(ms) { clock += ms; },
-      url() { return this._url; },
-      locator(sel) { return loc(sel); },
-      getByRole(_role, { name }) { return loc(name); },
-      getByText(text) { return loc(text); },
-      video() { return { path: async () => { fs.mkdirSync(path.dirname(webm), { recursive: true }); fs.writeFileSync(webm, 'x'); return webm; } }; },
+      async waitForTimeout(ms) {
+        clock += ms;
+      },
+      url() {
+        return this._url;
+      },
+      locator(sel) {
+        return loc(sel);
+      },
+      getByRole(_role, { name }) {
+        return loc(name);
+      },
+      getByText(text) {
+        return loc(text);
+      },
+      video() {
+        return { path: async () => {
+          fs.mkdirSync(path.dirname(webm), { recursive: true }); fs.writeFileSync(webm, 'x'); return webm;
+        } };
+      },
     };
-    const browser = { async newContext(opts) { calls.push(`context ${opts.recordVideo.size.width}x${opts.recordVideo.size.height}`); return { newPage: async () => page, close: async () => {} }; } };
+    const browser = { async newContext(opts) {
+      calls.push(`context ${opts.recordVideo.size.width}x${opts.recordVideo.size.height}`); return { newPage: async () => page, close: async () => {} };
+    } };
     const flows = [
       { name: 'Star two documents', criterion: 'Two selected documents are starred in one move', path: '/library', steps: [{ click: 'Select all' }, { shoot: 'Both rows show a filled star' }] },
       { name: 'Copy links', path: '/library?tab=links', steps: [{ click: 'text=Vanish' }, { shoot: 'never reached' }] },
     ];
-    const r = await recordPreviewDemo({ browser, base: 'http://127.0.0.1:4173', flows, outDir: dir, now: () => (clock += 100), waitMs: async ms => { clock += ms; } });
+    const r = await recordPreviewDemo({ browser, base: 'http://127.0.0.1:4173', flows, outDir: dir, now: () => (clock += 100), waitMs: async (ms) => {
+      clock += ms;
+    } });
 
     assert.equal(r.error, undefined);
     assert.equal(r.videoPath, webm);

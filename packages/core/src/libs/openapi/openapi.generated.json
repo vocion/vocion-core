@@ -506,7 +506,7 @@
     "/api/v1/artifacts/video": {
       "post": {
         "operationId": "post_artifacts_video",
-        "summary": "A recording, as the raw body (`Content-Type: video/webm` or `video/mp4`), kept by Vocion's media store — on disk, or in `VOCION_MEDIA_BUCKET` when it is set —…",
+        "summary": "With an `x-recording-spec` header (`readRecordingSpec`), the recording carries the moments it shows and the lines it says, as a demo does.",
         "tags": [
           "artifacts"
         ],
@@ -577,7 +577,7 @@
             }
           }
         },
-        "description": "A recording, as the raw body (`Content-Type: video/webm` or `video/mp4`),\nkept by Vocion's media store — on disk, or in `VOCION_MEDIA_BUCKET` when it\nis set — and filed on the record AND on the feature request that record\nbelongs to (its `requestId`), so the request's page plays it. The factory\nworker sends its repo tests' recordings here: it never needs a bucket of its\nown. Capped (`VOCION_MEDIA_MAX_BYTES`, 200 MB by default); an over-cap body\nis refused with the cap in the sentence.\n\nNot behind the proxy (`proxy.ts` matcher): a request the proxy matches has\nits body cut at 10 MB.\n\nAuth: a tenant API token or run token (`Authorization: Bearer …`), or a\nsigned-in dashboard session."
+        "description": "With an `x-recording-spec` header (`readRecordingSpec`), the recording\ncarries the moments it shows and the lines it says, as a demo does.\n\nA recording, as the raw body (`Content-Type: video/webm` or `video/mp4`),\nkept by Vocion's media store — on disk, or in `VOCION_MEDIA_BUCKET` when it\nis set — and filed on the record AND on the feature request that record\nbelongs to (its `requestId`), so the request's page plays it. The factory\nworker sends its repo tests' recordings here: it never needs a bucket of its\nown. Capped (`VOCION_MEDIA_MAX_BYTES`, 200 MB by default); an over-cap body\nis refused with the cap in the sentence.\n\nNot behind the proxy (`proxy.ts` matcher): a request the proxy matches has\nits body cut at 10 MB.\n\nAuth: a tenant API token or run token (`Authorization: Bearer …`), or a\nsigned-in dashboard session."
       }
     },
     "/api/v1/asks": {
