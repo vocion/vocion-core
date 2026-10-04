@@ -55,6 +55,136 @@ function depsSatisfied(task: Task, tasks: Task[]): boolean {
   return task.dependsOn.every(d => tasks.find(t => t.id === d)?.status === 'completed');
 }
 
+/** A task in one of these has an outcome and is never picked up again in the same call. */
+const FINISHED_TASK_STATUSES = new Set<Task['status']>(['completed', 'skipped', 'failed']);
+
+/**
+ * The next task this call can run: not attempted yet in this call, not
+ * completed or skipped, and every task it depends on completed.
+ *
+ * Picking the next task from the whole plan each time, rather than walking
+ * the array once, means a task listed before the task it depends on still
+ * runs once that dependency completes. A task that failed in an earlier call
+ * is still picked up again, as it always was on a resume; `attempted` only
+ * stops the same call running it twice. It holds the task objects, not their
+ * ids, so a plan saved before ids were made unique still runs both of two
+ * tasks that share one.
+ * @param tasks - The live plan.
+ * @param attempted - Tasks this call has already run or gated.
+ * @returns The task to run next, or undefined when nothing else can run.
+ */
+function nextRunnableTask(tasks: Task[], attempted: Set<Task>): Task | undefined {
+  return tasks.find(task =>
+    !attempted.has(task)
+    && task.status !== 'completed'
+    && task.status !== 'skipped'
+    && depsSatisfied(task, tasks));
+}
+
+/**
+ * Why a task that is still waiting can never run, in words for the run page.
+ * @param task - A task still waiting on its dependencies.
+ * @param tasks - The live plan.
+ * @returns The reason, or null when a dependency may yet be skipped for its own reason.
+ */
+function unreachableReason(task: Task, tasks: Task[]): string | null {
+  for (const dependencyId of task.dependsOn ?? []) {
+    const dependency = tasks.find(t => t.id === dependencyId);
+    if (!dependency) {
+      return `Skipped: it depends on "${dependencyId}", which is not in the plan.`;
+    }
+    if (dependency.status === 'failed') {
+      return `Skipped: it depends on "${dependency.title}", which failed.`;
+    }
+    if (dependency.status === 'skipped') {
+      return `Skipped: it depends on "${dependency.title}", which was skipped.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Mark every task whose dependency failed, was skipped, or is not in the
+ * plan as `skipped`, each with its reason. Worked out in rounds, so a task
+ * two steps from the failure says which task it was waiting on.
+ * @param tasks - The live plan; skipped tasks are changed in place.
+ * @returns How many tasks were skipped.
+ */
+function skipTasksWaitingOnADeadEnd(tasks: Task[]): number {
+  let skipped = 0;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const task of tasks) {
+      if (FINISHED_TASK_STATUSES.has(task.status)) {
+        continue;
+      }
+      const reason = unreachableReason(task, tasks);
+      if (reason) {
+        task.status = 'skipped';
+        task.error = reason;
+        skipped += 1;
+        changed = true;
+      }
+    }
+  }
+  return skipped;
+}
+
+/**
+ * Whether a task waits on itself: following what it depends on, through
+ * tasks that have not finished, leads back to it.
+ * @param task - A task still waiting on its dependencies.
+ * @param tasks - The live plan.
+ * @returns True when the task is part of a dependency loop.
+ */
+function dependsOnItself(task: Task, tasks: Task[]): boolean {
+  const toVisit = [...(task.dependsOn ?? [])];
+  const visited = new Set<string>();
+  while (toVisit.length > 0) {
+    const dependencyId = toVisit.pop()!;
+    if (dependencyId === task.id) {
+      return true;
+    }
+    if (visited.has(dependencyId)) {
+      continue;
+    }
+    visited.add(dependencyId);
+    const dependency = tasks.find(t => t.id === dependencyId);
+    if (dependency && !FINISHED_TASK_STATUSES.has(dependency.status)) {
+      toVisit.push(...(dependency.dependsOn ?? []));
+    }
+  }
+  return false;
+}
+
+/**
+ * Mark every task that can no longer run as `skipped`, each with its reason.
+ *
+ * Called once nothing else is runnable. Without it, the dependents of a
+ * failed task sat at `pending` for ever, the plan never counted as done, and
+ * the run stayed at `running` with nobody told (vocion-core#121). The same
+ * holds for a planner that named a dependency that does not exist, or two
+ * tasks that depend on each other.
+ *
+ * Only the tasks inside a dependency loop get the loop reason. A task that
+ * merely waits on the loop is marked afterwards, and says which task of the
+ * loop it was waiting on, so nobody goes looking for a loop through it.
+ * @param tasks - The live plan; skipped tasks are changed in place.
+ * @returns How many tasks were skipped.
+ */
+function skipUnreachableTasks(tasks: Task[]): number {
+  let skipped = skipTasksWaitingOnADeadEnd(tasks);
+  const inALoop = tasks.filter(task => !FINISHED_TASK_STATUSES.has(task.status) && dependsOnItself(task, tasks));
+  for (const task of inALoop) {
+    task.status = 'skipped';
+    task.error = 'Skipped: the tasks it depends on also depend on it, so none of them could start.';
+    skipped += 1;
+  }
+  skipped += skipTasksWaitingOnADeadEnd(tasks);
+  return skipped;
+}
+
 function taskMessage(opts: { brief: string; goal?: string | null; task: Task; priorOutputs: string }): string {
   return [
     `You are working one task of a team mission.`,
@@ -119,13 +249,10 @@ async function executeInScope(runId: number, orgId: string): Promise<string> {
 
     await patch(runId, { status: 'running', pauseReason: null });
 
-    for (const task of tasks) {
-      if (task.status === 'completed' || task.status === 'skipped') {
-        continue;
-      }
-      if (!depsSatisfied(task, tasks)) {
-        continue;
-      }
+    const attempted = new Set<Task>();
+    let task = nextRunnableTask(tasks, attempted);
+    while (task) {
+      attempted.add(task);
       // Autonomy gate: pause for human review before a gated task runs.
       if (taskNeedsApproval(task, level)) {
         task.status = 'awaiting_approval';
@@ -176,27 +303,32 @@ async function executeInScope(runId: number, orgId: string): Promise<string> {
       }
       task.endedAt = new Date().toISOString();
       await patch(runId, { plan: { tasks }, artifacts });
+      task = nextRunnableTask(tasks, attempted);
     }
 
+    // Nothing else can run, so whatever is still waiting never will. After
+    // this every task has an outcome, so the run always settles here; the
+    // only other exit from the loop is the approval gate above.
+    const unreachable = skipUnreachableTasks(tasks);
     const anyFailed = tasks.some(t => t.status === 'failed');
-    const allDone = tasks.every(t => t.status === 'completed' || t.status === 'skipped' || t.status === 'failed');
-    if (allDone) {
-      // Remember the outcome before writing it. If the write itself throws,
-      // the catch below needs to know the work actually finished.
-      outcome = anyFailed ? 'failed' : 'completed';
-      const settled = await settleRun(runId, {
-        status: outcome,
-        completedAt: new Date(),
-        error: anyFailed ? 'one or more tasks failed' : null,
-      });
-      if (!settled) {
-        log('info', 'mission run was already settled while its tasks were running, leaving that status alone', { runId, orgId, wouldHaveWritten: outcome });
-      } else if (outcome === 'completed') {
-        await announceCompleted(run, missionSlug, tasks);
-      }
-      return outcome;
+    // Remember the outcome before writing it. If the write itself throws,
+    // the catch below needs to know the work actually finished.
+    outcome = anyFailed || unreachable > 0 ? 'failed' : 'completed';
+    const settled = await settleRun(runId, {
+      status: outcome,
+      completedAt: new Date(),
+      error: anyFailed
+        ? 'one or more tasks failed'
+        : unreachable > 0 ? 'one or more tasks could not run because a task they depend on never completed' : null,
+      // Carries the skipped tasks and their reasons onto the run page.
+      plan: { tasks },
+    });
+    if (!settled) {
+      log('info', 'mission run was already settled while its tasks were running, leaving that status alone', { runId, orgId, wouldHaveWritten: outcome });
+    } else if (outcome === 'completed') {
+      await announceCompleted(run, missionSlug, tasks);
     }
-    return run.status;
+    return outcome;
   } catch (err) {
     const message = describeTaskFailure(err);
     // If `outcome` is already set, the tasks finished and the throw came from
