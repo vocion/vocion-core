@@ -519,7 +519,7 @@ export function routableFromRow(row: Pick<AgentRow, 'slug' | 'name' | 'descripti
 }
 
 /** The model read `routeFirstTurn` routes on (`routeRead.ts`); a seam for tests. */
-export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
+export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
 
 /** Below this confidence the model is guessing, and the workspace lead answers. */
 export const ROUTE_CONFIDENCE_BAR = 0.5;
@@ -542,6 +542,7 @@ export const ROUTE_READ_TIMEOUT_MS = 2_500;
  * @param deps - Test seams.
  * @param deps.read - The model read; defaults to `readRoute`.
  * @param deps.owners - The workspace's type owners; defaults to {@link typeOwners}.
+ * @param deps.intake
  * @param deps.timeoutMs - How long to wait for the read.
  */
 export async function routeFirstTurn(
@@ -549,6 +550,8 @@ export async function routeFirstTurn(
   deps: {
     read?: RouteReader;
     owners?: (orgId: string) => Promise<Record<string, string[]>>;
+    /** The workspace's front door for new work (`services/chat/intake.ts`); defaults to reading it. */
+    intake?: (orgId: string) => Promise<{ label: string; ownerSlug: string | null } | null>;
     timeoutMs?: number;
   } = {},
 ): Promise<RoutingDecision | null> {
@@ -573,11 +576,19 @@ export async function routeFirstTurn(
   let timedOut = false;
   let read: { chosen: string; confidence: number; reason: string };
   try {
-    const owners = await (deps.owners ?? typeOwners)(opts.orgId);
+    // New work has a front door when a type declares one (x-intake): the
+    // read is told who files it. Conversation 474 (2026-10-04): "give the
+    // library keyboard shortcuts" went to the engineer on "build", though in
+    // that workspace a new ask is a request the product manager files.
+    const [owners, door] = await Promise.all([
+      (deps.owners ?? typeOwners)(opts.orgId),
+      (deps.intake ?? (async (orgId: string) => (await import('@/services/chat/intake')).workspaceIntake(orgId)))(opts.orgId).catch(() => null),
+    ]);
+    const intake = door?.ownerSlug && active.some(a => a.slug === door.ownerSlug) ? { label: door.label, ownerSlug: door.ownerSlug } : null;
     const seats = active.map(a => ({ ...a, owns: [...new Set([...(a.owns ?? []), ...(owners[a.slug] ?? [])])] }));
     const reader: RouteReader = deps.read ?? (async input => (await import('./routeRead')).readRoute(input));
     read = await Promise.race([
-      reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, signal: abort.signal }),
+      reader({ orgId: opts.orgId, message: opts.message, agents: seats, leadSlug: lead, intake, signal: abort.signal }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           timedOut = true;
