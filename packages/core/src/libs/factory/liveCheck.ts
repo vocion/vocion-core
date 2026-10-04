@@ -36,6 +36,15 @@ export const LIVE_VIDEO_ROLE = 'qa-live-video';
  */
 export const DEMO_VIDEO_ROLE = 'feature-demo';
 
+/**
+ * The role of the demo recorded from the branch BEFORE merge (backlog 058, Chris, 2026-10-04:
+ * "the demo video to share with the requester at merge approval time"): the runner's QA pass walks
+ * the contract's flows on the PR's own build, saying each acceptance line as it reaches its state.
+ * It plays on the merge card and the feature page labelled as built from the branch; the live demo
+ * (`DEMO_VIDEO_ROLE`) replaces it as the lead once the release is seen.
+ */
+export const DEMO_PREVIEW_VIDEO_ROLE = 'feature-demo-preview';
+
 /** Attempts a release gets: the first, and the one retry carrying what the first learned. */
 export const LIVE_ATTEMPTS = 2;
 

@@ -896,3 +896,115 @@ describe('pictures in the shots directory that are another task\'s (2026-10-04, 
     assert.deepEqual(otherTasksShots(path.join(os.tmpdir(), 'no-such-qa-shots-dir'), path.join(os.tmpdir(), 'no-such-qa-shots-dir', 'x')), []);
   });
 });
+
+// ---------- the preview demo (backlog 058) ----------
+describe('the preview demo recorded from the branch', async () => {
+  const { DEMO_DWELL, demoAddress, demoLine, demoSpecHeader, dwellMs, recordPreviewDemo } = await import('./qa.mjs');
+
+  it('holds the screen the time a line takes to say, within bounds, the same figures as core', () => {
+    assert.equal(dwellMs(''), DEMO_DWELL.min);
+    const line = 'Starred documents sort first.';
+    assert.equal(dwellMs(line), 400 + Math.round((line.length / 14) * 1000));
+    assert.equal(dwellMs('x'.repeat(2000)), DEMO_DWELL.max);
+  });
+
+  it('says the acceptance line a flow was written for, closed as a sentence, else its name', () => {
+    assert.equal(demoLine({ name: 'star', criterion: 'A starred document shows a filled star' }), 'A starred document shows a filled star.');
+    assert.equal(demoLine({ name: 'Archive two at once' }), 'Archive two at once.');
+    assert.equal(demoLine({ name: 'already closed?' }), 'already closed?');
+    assert.equal(demoLine({}), '');
+  });
+
+  it('shows the path in the address bar, never the container host', () => {
+    assert.equal(demoAddress('http://127.0.0.1:4173/library?sort=starred'), '/library?sort=starred');
+    assert.equal(demoAddress('http://127.0.0.1:4173'), '/');
+  });
+
+  it('writes the header core reads: moments with their address, lines with their time, bounded', () => {
+    const spec = JSON.parse(demoSpecHeader(
+      [{ atMs: 10.4, what: 'open /library', url: '/library', ok: true }, { atMs: 3000, what: 'click Star', url: '/library' }],
+      [{ atMs: 400, text: 'I open the library.' }, { atMs: 3400, text: 'Two documents are starred.' }],
+    ));
+    assert.deepEqual(spec.timeline, [{ atMs: 10, what: 'open /library', url: '/library', ok: true }, { atMs: 3000, what: 'click Star', url: '/library' }]);
+    assert.deepEqual(spec.script, [{ atMs: 400, text: 'I open the library.' }, { atMs: 3400, text: 'Two documents are starred.' }]);
+  });
+
+  it('walks the flows in one take, says each criterion and each shoot label, logs each move, and stops a flow at its first failed step', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-'));
+    const webm = path.join(dir, 'demo', 'take.webm');
+    let clock = 0;
+    const calls = [];
+    // A locator that chains `.or()` the way Playwright's does, and clicks by its target's name.
+    const loc = name => ({
+      or: () => loc(name),
+      first: () => ({
+        async click() {
+          if (name === 'text=Vanish') {
+            throw new Error('no element matches text=Vanish');
+          }
+          calls.push(`click ${name}`);
+        },
+        async waitFor() {},
+        async fill(v) {
+          calls.push(`fill ${name}=${v}`);
+        },
+      }),
+    });
+    const page = {
+      async goto(url) {
+        calls.push(`goto ${url}`); this._url = url;
+      },
+      async waitForLoadState() {},
+      async waitForTimeout(ms) {
+        clock += ms;
+      },
+      url() {
+        return this._url;
+      },
+      locator(sel) {
+        return loc(sel);
+      },
+      getByRole(_role, { name }) {
+        return loc(name);
+      },
+      getByText(text) {
+        return loc(text);
+      },
+      video() {
+        return { path: async () => {
+          fs.mkdirSync(path.dirname(webm), { recursive: true }); fs.writeFileSync(webm, 'x'); return webm;
+        } };
+      },
+    };
+    const browser = { async newContext(opts) {
+      calls.push(`context ${opts.recordVideo.size.width}x${opts.recordVideo.size.height}`); return { newPage: async () => page, close: async () => {} };
+    } };
+    const flows = [
+      { name: 'Star two documents', criterion: 'Two selected documents are starred in one move', path: '/library', steps: [{ click: 'Select all' }, { shoot: 'Both rows show a filled star' }] },
+      { name: 'Copy links', path: '/library?tab=links', steps: [{ click: 'text=Vanish' }, { shoot: 'never reached' }] },
+    ];
+    const r = await recordPreviewDemo({ browser, base: 'http://127.0.0.1:4173', flows, outDir: dir, now: () => (clock += 100), waitMs: async (ms) => {
+      clock += ms;
+    } });
+
+    assert.equal(r.error, undefined);
+    assert.equal(r.videoPath, webm);
+    assert.deepEqual(r.lines.map(l => l.text), ['Two selected documents are starred in one move.', 'Both rows show a filled star', 'Copy links.']);
+    assert.deepEqual(r.moments.map(m => m.what), [
+      'open /library',
+      'click Select all',
+      'Both rows show a filled star',
+      'open /library?tab=links',
+      'click text=Vanish failed: no element matches text=Vanish',
+    ]);
+    assert.equal(r.moments[0].url, '/library');
+    assert.ok(r.lines[1].atMs > r.lines[0].atMs);
+    assert.deepEqual(calls, ['context 1440x900', 'goto http://127.0.0.1:4173/library', 'click Select all', 'goto http://127.0.0.1:4173/library?tab=links']);
+    assert.ok(r.seconds > 0);
+  });
+
+  it('says so when there is nothing to demo', async () => {
+    const r = await recordPreviewDemo({ browser: {}, base: 'http://127.0.0.1:4173', flows: [], outDir: fs.mkdtempSync(path.join(os.tmpdir(), 'demo-')) });
+    assert.deepEqual(r, { error: 'no flow to demo' });
+  });
+});

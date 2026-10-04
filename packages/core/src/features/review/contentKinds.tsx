@@ -289,6 +289,40 @@ function ImageContent({ item }: ContentRenderProps) {
 }
 
 /**
+ * A recording the reviewer watches: the feature demo recorded from the branch
+ * before merge (backlog 058). Vocion's own player, loading only its first
+ * frame until pressed, the frame taken where the first line is said.
+ * @param root0
+ * @param root0.item
+ */
+function VideoContent({ item }: ContentRenderProps) {
+  if (item.kind !== 'video') {
+    return null;
+  }
+  const src = item.posterAt !== undefined && item.posterAt > 0 ? `${item.url}#t=${item.posterAt}` : item.url;
+  return (
+    <div className="py-3">
+      {/* A browser recording has no sound to caption; a narrated one's script
+          is on its artifact, and what it shows is the line below. */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <video
+        key={item.url}
+        controls
+        preload="metadata"
+        playsInline
+        src={src}
+        className="block max-h-[420px] w-full rounded-md bg-muted object-contain"
+        aria-label={`${item.label}${item.caption ? `: ${item.caption}` : ''}`}
+        data-testid="review-video"
+      >
+        {item.contentType && <source src={src} type={item.contentType} />}
+      </video>
+      {item.caption && <p className="mt-2 text-sm break-words text-foreground/85">{item.caption}</p>}
+    </div>
+  );
+}
+
+/**
  * A block read as written. `preformatted` keeps whitespace and sets a
  * monospace face — a recipe of commands, a YAML excerpt — so a person can
  * copy it and run it; without it, prose with its line breaks kept.
@@ -391,3 +425,4 @@ registerContentKind('text', TextContent);
 registerContentKind('steps', StepsContent);
 registerContentKind('document', DocumentContent);
 registerContentKind('image', ImageContent);
+registerContentKind('video', VideoContent);

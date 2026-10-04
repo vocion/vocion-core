@@ -10,8 +10,8 @@ function video(id: number, role: string, url: string | null, at: string, extra: 
 
 describe('the recordings a feature page plays (2026-10-03)', () => {
   it('is nothing of each kind when none was kept', () => {
-    expect(recordingsOf([])).toEqual({ demo: null, live: null, qa: null });
-    expect(recordingsOf([video(1, 'qa-screenshot', '/api/artifacts/x/x.png', '2026-10-01T09:00:00Z')])).toEqual({ demo: null, live: null, qa: null });
+    expect(recordingsOf([])).toEqual({ demo: null, preview: null, live: null, qa: null });
+    expect(recordingsOf([video(1, 'qa-screenshot', '/api/artifacts/x/x.png', '2026-10-01T09:00:00Z')])).toEqual({ demo: null, preview: null, live: null, qa: null });
   });
 
   it('picks the newest live check and the newest pre-merge recording, with caption and date', () => {
