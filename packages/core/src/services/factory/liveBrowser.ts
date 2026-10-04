@@ -184,6 +184,105 @@ const defaultDeps: LiveBrowserDeps = {
 
 const sessions = new Map<string, Session>();
 
+/**
+ * WHAT A DEMO LOOKS LIKE (Chris, 2026-10-04: "show mouse and movement, focus area when talking,
+ * and click animation or ripple"). A headless recording shows no pointer, so the demo tab draws
+ * its own: a cursor that glides to the target before each action, a ripple where it clicks, and a
+ * spotlight that dims everything but the area being spoken about while a line is said. Injected
+ * only into a demo tab's context — QA's check tab records the page as it is, nothing added.
+ */
+const DEMO_CHROME_SCRIPT = `(() => {
+  if (window.__vocionDemo) return;
+  const css = document.createElement('style');
+  css.textContent = [
+    '#vocion-demo-cursor{position:fixed;left:0;top:0;width:22px;height:30px;z-index:2147483646;pointer-events:none;transform:translate(-9999px,-9999px);transition:transform 480ms cubic-bezier(.2,.7,.2,1);filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}',
+    '.vocion-demo-ripple{position:fixed;width:12px;height:12px;border-radius:50%;z-index:2147483645;pointer-events:none;border:3px solid #2563eb;background:rgba(37,99,235,.18);transform:translate(-50%,-50%) scale(1);opacity:.95;animation:vocion-ripple 560ms ease-out forwards}',
+    '@keyframes vocion-ripple{to{transform:translate(-50%,-50%) scale(5);opacity:0}}',
+    '#vocion-demo-spot{position:fixed;z-index:2147483644;pointer-events:none;border-radius:10px;box-shadow:0 0 0 9999px rgba(15,15,20,.42);transition:all 260ms ease;opacity:0}',
+  ].join('\n');
+  const mount = () => {
+    if (!document.body) return false;
+    document.head.appendChild(css);
+    const cur = document.createElement('div');
+    cur.id = 'vocion-demo-cursor';
+    cur.innerHTML = '<svg viewBox="0 0 22 30" width="22" height="30" xmlns="http://www.w3.org/2000/svg"><path d="M2 1.5 L2 22.5 L7.4 17.6 L11.2 27.2 L15.2 25.6 L11.4 16.2 L18.6 16.2 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+    const spot = document.createElement('div');
+    spot.id = 'vocion-demo-spot';
+    document.body.appendChild(spot);
+    document.body.appendChild(cur);
+    return true;
+  };
+  if (!mount()) document.addEventListener('DOMContentLoaded', mount, { once: true });
+  let shown = false;
+  window.__vocionDemo = {
+    moveTo(x, y) {
+      const c = document.getElementById('vocion-demo-cursor');
+      if (!c) return;
+      if (!shown) { c.style.transition = 'none'; c.style.transform = 'translate(' + (x - 40) + 'px,' + (y + 40) + 'px)'; void c.offsetWidth; c.style.transition = ''; shown = true; }
+      c.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+    },
+    ripple(x, y) {
+      const r = document.createElement('div');
+      r.className = 'vocion-demo-ripple';
+      r.style.left = x + 'px'; r.style.top = y + 'px';
+      document.body.appendChild(r);
+      setTimeout(() => r.remove(), 700);
+    },
+    spotlight(rect) {
+      const s = document.getElementById('vocion-demo-spot');
+      if (!s) return;
+      if (!rect) { s.style.opacity = '0'; return; }
+      const pad = 10;
+      s.style.left = (rect.x - pad) + 'px'; s.style.top = (rect.y - pad) + 'px';
+      s.style.width = (rect.width + pad * 2) + 'px'; s.style.height = (rect.height + pad * 2) + 'px';
+      s.style.opacity = '1';
+    },
+  };
+})();`;
+
+/** How long the cursor takes to reach its target before a click, matching the CSS transition. */
+const CURSOR_GLIDE_MS = 520;
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/**
+ * Point the demo's cursor at the element and ripple on it; nothing on a check tab. Never throws:
+ * the chrome is decoration, and a page that refuses it still gets its click.
+ * @param tab - The tab.
+ * @param rect - The element's box.
+ */
+async function demoPointAt(tab: Tab, rect: Rect | null): Promise<void> {
+  if (tab.purpose !== 'demo' || !rect || !tab.page) {
+    return;
+  }
+  const x = Math.round(rect.x + rect.width / 2);
+  const y = Math.round(rect.y + rect.height / 2);
+  try {
+    await tab.page.evaluate(([px, py]) => (window as unknown as { __vocionDemo?: { moveTo: (x: number, y: number) => void } }).__vocionDemo?.moveTo(px, py), [x, y] as const);
+    await tab.page.waitForTimeout(CURSOR_GLIDE_MS);
+    await tab.page.evaluate(([px, py]) => (window as unknown as { __vocionDemo?: { ripple: (x: number, y: number) => void } }).__vocionDemo?.ripple(px, py), [x, y] as const);
+    await tab.page.waitForTimeout(120);
+  } catch {
+    // decoration only
+  }
+}
+
+/**
+ * Light the area a spoken line is about (or clear it). Nothing on a check tab. Never throws.
+ * @param tab - The tab.
+ * @param rect - The area, or null to clear.
+ */
+async function demoSpotlight(tab: Tab, rect: Rect | null): Promise<void> {
+  if (tab.purpose !== 'demo' || !tab.page) {
+    return;
+  }
+  try {
+    await tab.page.evaluate(r => (window as unknown as { __vocionDemo?: { spotlight: (r: Rect | null) => void } }).__vocionDemo?.spotlight(r), rect);
+  } catch {
+    // decoration only
+  }
+}
+
 const short = (e: unknown, n = 240) => String((e as Error)?.message ?? e ?? '').split('\n')[0]!.slice(0, n);
 
 /**
@@ -285,15 +384,18 @@ export function scriptOf(evidence: readonly BrowserEvidence[], tabKey: string, s
  * @param tab - The tab the line belongs to.
  * @param d - The clock and the hold.
  * @param text - The line, or nothing.
+ * @param focus - The box the line is about, lit while it is spoken.
  */
-async function sayLine(s: Session, tab: Tab, d: LiveBrowserDeps, text: string | undefined): Promise<string | null> {
+async function sayLine(s: Session, tab: Tab, d: LiveBrowserDeps, text: string | undefined, focus: Rect | null = null): Promise<string | null> {
   const line = text?.trim().slice(0, 300);
   if (!line) {
     return null;
   }
   const entry = log(s, 'said', { text: line, tab: tab.key }, d.now());
   if (tab.purpose === 'demo') {
+    await demoSpotlight(tab, focus);
     await d.dwell(spokenMs(line));
+    await demoSpotlight(tab, null);
   }
   return entry.id;
 }
@@ -539,6 +641,9 @@ export async function browserOpen(key: string | null, orgId: string, input: { re
       return route.continue();
     });
     context.on('page', p => p.on('dialog', dlg => void dlg.accept().catch(() => {})));
+    if (demoFor !== null) {
+      await context.addInitScript(DEMO_CHROME_SCRIPT).catch(() => {});
+    }
     context.on('response', (r) => {
       const type = r.request().resourceType();
       if (type !== 'fetch' && type !== 'xhr' && type !== 'document') {
@@ -617,6 +722,12 @@ async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: st
   }
   const { s, tab } = a;
   const page = tab.page!;
+  // In a demo the cursor glides to the target and ripples before the action lands.
+  let target: Rect | null = null;
+  if (tab.purpose === 'demo' && ref) {
+    target = await byRef(page, ref)?.boundingBox({ timeout: 2000 }).catch(() => null) ?? null;
+    await demoPointAt(tab, target);
+  }
   let out: { ok: boolean; result: string };
   try {
     out = await run(page);
@@ -628,7 +739,9 @@ async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: st
   }
   const entry = log(s, 'action', { what, ok: out.ok, detail: out.result, url: page.url() }, d.now());
   if (out.ok) {
-    await sayLine(s, tab, d, say);
+    // The area spoken about: the target as it stands after the action (it may have moved or changed).
+    const focus = tab.purpose === 'demo' && ref ? await byRef(page, ref)?.boundingBox({ timeout: 1000 }).catch(() => null) ?? target : null;
+    await sayLine(s, tab, d, say, focus);
   }
   return withSnapshot(s, tab, d, { ok: out.ok, id: entry.id, result: out.result });
 }

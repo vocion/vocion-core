@@ -969,6 +969,8 @@ export const AgentManifestSchema = z.object({
      * workspace's voice connector). Absent, the connector's first voice.
      */
     voiceId: z.string().regex(/^[\w-]{1,64}$/, 'voiceId must be a voice id').optional(),
+    /** The seat's speaking pace for narrations, 1 = the voice's own; ElevenLabs takes 0.7–1.2. */
+    voiceSpeed: z.number().min(0.7).max(1.2).optional(),
     /**
      * How hard the model thinks: low, medium, high, max. An external worker
      * passes it to its model (`seatModelPolicy` puts it on the contract's

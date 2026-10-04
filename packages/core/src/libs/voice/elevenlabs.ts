@@ -175,9 +175,10 @@ export type SpokenLine = { audio: Buffer; contentType: 'audio/mpeg'; characters:
  * @param input.voiceId - An id from `listVoices`.
  * @param input.text - The line (trimmed; refused when empty or over {@link ELEVENLABS_MAX_CHARS}).
  * @param input.modelId - The model; {@link ELEVENLABS_DEFAULT_MODEL} when unset.
+ * @param input.speed - The pace, 0.7–1.2; 1 or unset is the voice's own.
  * @param doFetch - The network, injected in tests.
  */
-export async function speak(apiKey: string, input: { voiceId: string; text: string; modelId?: string }, doFetch?: ElevenLabsFetch): Promise<ElevenLabsResult<SpokenLine>> {
+export async function speak(apiKey: string, input: { voiceId: string; text: string; modelId?: string; speed?: number }, doFetch?: ElevenLabsFetch): Promise<ElevenLabsResult<SpokenLine>> {
   const text = input.text.trim();
   if (!text) {
     return { ok: false, error: 'voice_error', status: null, message: 'There is nothing to say: the line is empty.' };
@@ -191,7 +192,8 @@ export async function speak(apiKey: string, input: { voiceId: string; text: stri
   const res = await call(apiKey, `/v1/text-to-speech/${encodeURIComponent(input.voiceId)}?output_format=${ELEVENLABS_OUTPUT_FORMAT}`, {
     method: 'POST',
     accept: 'audio/mpeg',
-    body: { text, model_id: input.modelId ?? ELEVENLABS_DEFAULT_MODEL },
+    // ElevenLabs' pace is 0.7–1.2; anything else is left at the voice's own.
+    body: { text, model_id: input.modelId ?? ELEVENLABS_DEFAULT_MODEL, ...(input.speed && input.speed !== 1 && input.speed >= 0.7 && input.speed <= 1.2 ? { voice_settings: { speed: input.speed } } : {}) },
   }, doFetch);
   if (!res.ok) {
     return res;
