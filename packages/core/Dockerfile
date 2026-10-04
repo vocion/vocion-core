@@ -128,6 +128,9 @@ ARG VOCION_BUILD_SUBJECT=
 ARG VOCION_BUILD_REF=
 ARG VOCION_BUILD_DESCRIBE=
 ARG VOCION_AGENT_RUNTIME_IMAGE=
+# 0 skips writing Turbopack's build cache (next.config.ts): a builder that is
+# thrown away after one build, like the deploy runner, never reads it again.
+ARG VOCION_BUILD_FS_CACHE=1
 RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SHA}" \
     VOCION_BUILD_SUBJECT="${VOCION_BUILD_SUBJECT}" VOCION_BUILD_REF="${VOCION_BUILD_REF}" \
     VOCION_BUILD_DESCRIBE="${VOCION_BUILD_DESCRIBE}" \
@@ -146,6 +149,7 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
 RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/app/packages/core/.next/cache \
     NODE_OPTIONS=--max-old-space-size=6144 \
     NEXT_BUILD_CPUS=1 \
+    VOCION_BUILD_FS_CACHE="${VOCION_BUILD_FS_CACHE}" \
     SKIP_ENV_VALIDATION=1 \
     VOCION_TYPES_CHECKED=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \

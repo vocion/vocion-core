@@ -84,8 +84,13 @@ const baseConfig: NextConfig = {
     // build recompile only what changed: the compile peaked at ~3.3 GB warm
     // against 6.6 GB cold (#670). A CI runner starts empty and never reuses
     // it, and writing it costs a cold build ~1.6 GB and ~3s, so CI skips it.
-    // The Docker image keeps it between builds with a cache mount.
-    turbopackFileSystemCacheForBuild: !process.env.CI,
+    // The Docker image keeps it between builds with a cache mount — on a
+    // machine that builds again, like the box's local fallback. A deploy
+    // runner is wiped after every build, so there the write is pure cost:
+    // 3.3 min of a 10 min image build, measured 2026-10-04 (and restoring it
+    // on a fresh 2-CPU runner compiled slower, 11.3 min against 4.5 cold).
+    // The deploy passes VOCION_BUILD_FS_CACHE=0 to skip it.
+    turbopackFileSystemCacheForBuild: !process.env.CI && process.env.VOCION_BUILD_FS_CACHE !== '0',
   },
   outputFileTracingIncludes: {
     // demo/**: the hosted demo sandbox's baked PGlite seed, recorded LLM
