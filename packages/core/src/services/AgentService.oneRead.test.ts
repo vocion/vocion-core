@@ -252,3 +252,20 @@ describe('a re-entry continues the real conversation (conversation 384)', () => 
     expect(JSON.stringify(next)).not.toContain('### lookup_objects');
   });
 });
+
+describe('a head start the router did not pick', () => {
+  it('writes nothing and ends dropped, even when its model reached for a write', async () => {
+    const tried: Array<string | null> = [];
+    passes(async () => {
+      const err = await proposeAction({ orgId: ORG, actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'Uploads drop on cellular' }, principal: { kind: 'user', id: PERSON, role: 'member', scope: { orgId: ORG } } as never }).then(() => null, (e: Error) => e.name);
+      tried.push(err);
+      return [say('Filed it.')];
+    });
+
+    const turn = runAgentDeep({ orgId: ORG, agentSlug: 'product-manager', message: 'File the upload bug.', userId: PERSON, hold: Promise.resolve(false), onEvent: () => {} });
+
+    await expect(turn).rejects.toThrow(/did not pick/);
+    expect(tried).toEqual(['HeadStartDropped']);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
+  });
+});

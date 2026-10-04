@@ -987,7 +987,8 @@ export async function decide(
 ): Promise<DecideResult> {
   // A decision taken from an agent's turn counts on the turn, and a turn the
   // person spent asking a question decides nothing (`agents/turnScope.ts`).
-  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  const { READ_ONLY_RECEIPT, noteWrite, settleTurn, writesRefused } = await import('@/services/agents/turnScope');
+  await settleTurn();
   if (writesRefused()) {
     throw new ReviewDecisionError(READ_ONLY_RECEIPT);
   }

@@ -465,3 +465,70 @@ describe('agent stream route — a follow-up stays in its thread (conversation 3
     expect(await routedTurn(conv.id, 'Ask the change reviewer whether it is ready.')).toBe('change-reviewer');
   });
 });
+
+describe('agent stream route — the lead starts while the router reads (head start)', () => {
+  const pm = { slug: 'product-manager', name: 'Product manager', description: 'Owns the requests and the roadmap.', handles: [], suggestions: [], initiative: 'high', active: 'true' };
+  const reviewer = { slug: 'change-reviewer', name: 'Change reviewer', description: 'Reviews a change before it ships: files a verdict, nothing ships without one.', handles: [], suggestions: [], initiative: 'normal', active: 'true' };
+
+  async function firstTurn(chosen: string): Promise<{ events: Array<Record<string, unknown>>; calls: RunOpts[]; holds: boolean[] }> {
+    const { listAgents } = await import('@/services/AgentService');
+    vi.mocked(listAgents).mockResolvedValue([pm, reviewer] as never);
+    const { readRoute } = await import('@/services/agents/routeRead');
+    vi.mocked(readRoute).mockResolvedValueOnce({ chosen, confidence: 0.9, reason: `${chosen} owns this.` });
+    const holds: boolean[] = [];
+    vi.mocked(runAgentDeep).mockImplementation(async (opts) => {
+      // Speaks before it knows whether it was picked, as a fast model would.
+      opts.onEvent?.({ type: 'response_delta', delta: `${opts.agentSlug} answering.` });
+      if (opts.hold) {
+        holds.push(await opts.hold);
+      }
+      return finishedRun;
+    });
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'product-manager', createdBy: USER });
+    const res = await POST(new Request('http://localhost/rpc/agent/stream', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'Is the upload fix ready to ship?', route: true, conversation_id: conv.id }),
+    }));
+    const body = await new Response(res.body).text();
+    const events = body.split('\n\n').map(b => b.replace(/^data: /, '').trim()).filter(l => l.startsWith('{')).map(l => JSON.parse(l) as Record<string, unknown>);
+    return { events, calls: vi.mocked(runAgentDeep).mock.calls.map(c => c[0]), holds };
+  }
+
+  it('keeps the lead\'s turn when the router picks the lead: one run, its words after who speaks', async () => {
+    const { events, calls, holds } = await firstTurn('product-manager');
+
+    expect(calls.map(c => c.agentSlug)).toEqual(['product-manager']);
+    expect(holds).toEqual([true]);
+    expect(events.findIndex(e => e.type === 'turn_agent')).toBeLessThan(events.findIndex(e => e.type === 'response_delta'));
+    expect(events.filter(e => e.type === 'response_delta')).toEqual([{ type: 'response_delta', delta: 'product-manager answering.' }]);
+  });
+
+  it('drops the lead\'s turn when the router picks someone else: nothing it said is sent', async () => {
+    const { events, calls, holds } = await firstTurn('change-reviewer');
+
+    expect(calls.map(c => c.agentSlug)).toEqual(['product-manager', 'change-reviewer']);
+    expect(holds).toEqual([false]);
+    expect(calls[1]!.hold).toBeUndefined();
+    expect(events.filter(e => e.type === 'response_delta')).toEqual([{ type: 'response_delta', delta: 'change-reviewer answering.' }]);
+  });
+});
+
+describe('agent stream route — a new thread is created with its turn', () => {
+  it('creates the conversation, names it in the first frame, and logs the turn on it', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    const res = await POST(new Request('http://localhost/rpc/agent/stream', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'what closed this week?', agent_slug: 'revenue-lead', create_conversation: true, scope_ref: 'deal:northwind-7', conversation_autonomy: 'ask' }),
+    }));
+    const body = await new Response(res.body).text();
+    const meta = JSON.parse(body.split('\n\n')[0]!.replace(/^data: /, '')) as { type: string; conversationId?: number };
+
+    expect(meta.type).toBe('stream_meta');
+    expect(typeof meta.conversationId).toBe('number');
+
+    const [row] = await db.select().from(conversationSchema);
+
+    expect(row).toMatchObject({ id: meta.conversationId, agentSlug: 'revenue-lead', scopeRef: 'deal:northwind-7', autonomy: 'ask' });
+    expect((await listMessages({ orgId: ORG, conversationId: meta.conversationId! })).map(m => m.role)).toEqual(['user', 'assistant']);
+  });
+});

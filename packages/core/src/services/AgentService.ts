@@ -32,6 +32,7 @@ import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
+import { HeadStartDropped, TurnGateCallback } from './agents/turnGate';
 import { asksForAct, NO_INTENT, readIntent } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { inTurn } from './agents/turnScope';
@@ -558,6 +559,14 @@ export async function runAgentDeep(opts: {
   attachments?: import('./chat/attachments').LoadedAttachment[];
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
   /**
+   * A head start: the turn was started before the router decided who answers
+   * (`rpc/agent/stream`). Resolves true when this agent was picked. Until it
+   * does, the model runs but no tool does (`agents/turnGate.ts`); false stops
+   * the turn with `HeadStartDropped`. Only the in-process loop starts early —
+   * the other harnesses wait for the answer before they are called.
+   */
+  hold?: Promise<boolean>;
+  /**
    * Run this ONE turn on a named model instead of the agent's own. The
    * model-upgrade test (`services/evals/modelUpgradeTest.ts`) is the caller.
    * Forces the in-process loop: the other harness targets build their model
@@ -710,6 +719,14 @@ export async function runAgentDeep(opts: {
       ?? normalizeHarnessTarget(harness?.runsOn ?? harness?.provider)
       ?? defaultHarnessTargetFor(harness?.modelProvider)
       ?? fleetDefaultHarnessTarget();
+  // A head start runs early only on the in-process loop, where its tools can
+  // be held and its model stopped. Any other harness waits for the router.
+  const outOfProcess = (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1')
+    || target === 'external-worker'
+    || (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1');
+  if (outOfProcess && opts.hold && !(await opts.hold)) {
+    throw new HeadStartDropped();
+  }
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, conversationHistory: flatHistory(conversationHistory), onEvent: run }));
@@ -781,7 +798,14 @@ export async function runAgentDeep(opts: {
   const seatMinutes = Number((harness as { turnDeadlineMinutes?: number } | undefined)?.turnDeadlineMinutes);
   const deadlineMs = Number.isFinite(seatMinutes) && seatMinutes > 0 ? Math.min(seatMinutes, 30) * 60_000 : turnDeadlineMs();
   const deadline = AbortSignal.timeout(deadlineMs);
-  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline]);
+  // A head start the router did not pick stops the model as soon as it knows.
+  const dropped = new AbortController();
+  void opts.hold?.then((keep) => {
+    if (!keep) {
+      dropped.abort(new HeadStartDropped());
+    }
+  }, () => {});
+  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline, dropped.signal]);
 
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
@@ -947,6 +971,22 @@ export async function runAgentDeep(opts: {
   boundCtx.turnIntent = intentP;
   const personTurn = Boolean(opts.userId) && !opts.missionRunId && !opts.userId!.startsWith('token:');
   const turn: TurnScope = { readOnly: false, writes: 0 };
+  // The model starts before the intent read and the router have answered;
+  // every tool waits here for both (`agents/turnGate.ts`), and so does
+  // everything after the graph — the text tool calls and the answer pass
+  // write too. Settled once; later calls are free.
+  let intentSettled = false;
+  const toolsReady = async (): Promise<void> => {
+    if (opts.hold && !(await opts.hold)) {
+      throw new HeadStartDropped();
+    }
+    if (!intentSettled) {
+      const intent = await intentP;
+      turn.readOnly = personTurn && intent.asks === 'answer' && !('unread' in intent);
+      intentSettled = true;
+    }
+  };
+  turn.ready = toolsReady;
   // A RE-ENTRY CARRIES WHAT THE TOOLS RETURNED. `runGraph` starts a fresh
   // graph from text messages, so the previous pass's tool calls and results
   // were not in the new pass's context at all: mission run 5081 (2026-09-25,
@@ -999,7 +1039,7 @@ export async function runAgentDeep(opts: {
   const runGraphPass = async (graphInput: typeof input): Promise<void> => {
     const stream = await compiled.graph.streamEvents(graphInput as never, {
       version: 'v2',
-      callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard)],
+      callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard), new TurnGateCallback(toolsReady)],
       signal: turnSignal,
       ...stepLimitStreamConfig(maxSteps),
     } as never);
@@ -1182,8 +1222,6 @@ export async function runAgentDeep(opts: {
   const runGraph = (graphInput: typeof input): Promise<void> => inTurn(turn, () => runGraphPass(graphInput));
 
   try {
-    const intent = await intentP;
-    turn.readOnly = personTurn && intent.asks === 'answer' && !('unread' in intent);
     await runGraph(input);
 
     // A REFUSAL GETS ONE OTHER MODEL (Walk 12, 2026-10-02): the product
@@ -1234,6 +1272,8 @@ export async function runAgentDeep(opts: {
       // said nothing and did nothing, or the person asked for an act and no
       // write landed (counted at the write itself, `turnScope.ts`, never read
       // off the reply's words). Everything else ends the turn as written.
+      await toolsReady();
+      const intent = await intentP;
       const soFar = normalizeAnswerHtml(finalText).trim();
       const empty = soFar.length === 0 && toolCallLog.length === 0;
       const owedAct = personTurn && !empty && textCalls.length === 0 && turn.writes === 0 && ['change', 'file', 'decide'].includes(intent.asks);
@@ -1292,6 +1332,10 @@ export async function runAgentDeep(opts: {
       await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
     }
   } catch (caught) {
+    // A head start that was not picked ends here: no recovery pass, no answer.
+    if (dropped.signal.aborted) {
+      throw new HeadStartDropped();
+    }
     let err: unknown = caught;
     let recovered = false;
     // A MALFORMED TOOL CALL IS NOT THE END OF THE TURN. deepagents' own tools
@@ -1358,6 +1402,9 @@ export async function runAgentDeep(opts: {
     }
   }
 
+  // Nothing past the graph runs for a turn whose tools could not: the text
+  // tool calls and the answer pass below both write.
+  await toolsReady();
   // Release any held-back tail (partial-tag boundary) from the streamer. A
   // block still open here was cut off by the end of the stream: it is
   // thinking to its last character, and its reasoning node closes with it.
