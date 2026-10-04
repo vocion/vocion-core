@@ -6,7 +6,7 @@ description: >-
   account: open it in the run's browser, look, act, screenshot what proves
   each acceptance line, record every line with record_live_check, then show
   each feature seen as a demo a product manager can watch.
-version: 4
+version: 5
 ---
 
 # Check the live release
@@ -34,13 +34,19 @@ as the product's QA account.
    page received, each with an id.
 5. **Record** with `record_live_check`, once, every line of every request:
    `seen` or `not_seen` citing the ids your browser calls returned, or
-   `not_observable` with why production cannot show it (a CI run, an image's
-   contents, a pre-merge guarantee) — it reads "proven before merge by QA's
-   verdict" when the verdict proved it. A refusal lists what to fix; fix it
-   and record again.
+   `not_observable` with why production cannot show it and its `cause`:
+   `proven_before_merge` (a CI run, an image's contents, a pre-merge
+   guarantee the verdict proved), `not_a_live_behaviour`, or
+   `environment_cannot_show` when your QA account or its data cannot reach
+   the feature (no team library, no plan, nothing to act on). Say exactly
+   what the environment needs in `why`: that cause makes the release read
+   not checked with your fix named, so a person can give the account what it
+   needs and check again. A refusal lists what to fix; fix it and record
+   again.
 
-6. **Show it.** For each request you recorded as seen, record its feature
-   demo: a video a product manager or product owner watches to see what the
+6. **Show it.** For each shipped request the live product can show you
+   (any line seen, or the feature reachable as the QA account), record its
+   feature demo — whether or not its lines were proven before merge: a video a product manager or product owner watches to see what the
    feature does, not QA's check. Open the demo with `browser_open` carrying
    `demo_for_request` (its own tab and its own recording, filed on that
    request). Then walk the happy path end to end the way a user would: start

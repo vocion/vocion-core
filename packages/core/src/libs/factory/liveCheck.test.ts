@@ -198,6 +198,31 @@ describe('the live state counts only what production can show', () => {
     expect(liveVerdict([], [], before)).toMatchObject({ state: 'seen', line: 'Nothing to see on the live product: 3 lines proven before merge by QA\'s verdict' });
     expect(liveVerdict([], ['the browser would not start'], before).state).toBe('not_seen');
   });
+
+  // Walk 19 (FE-432, 2026-10-04): tags live in a team library; the QA account had only a personal
+  // one; every line was recorded not_observable and the release read "seen" over nothing seen.
+  it('reads not checked, with the fix named, when the QA environment cannot reach the feature — never seen', () => {
+    const cannot = [1, 2].map(line => ({ requestId: 432, line, text: `line ${line}`, why: 'The QA account is personal-only; tags need a team library. Needs a team-org QA account.', proven: true, cause: 'environment_cannot_show' as const }));
+    const v = liveVerdict([], [], [...cannot, { requestId: 432, line: 3, text: 'line 3', why: 'CI only', proven: true, cause: 'proven_before_merge' as const }]);
+
+    expect(v.state).toBe('not_checked');
+    expect(v.why).toMatchObject({ kind: 'environment_cannot_show' });
+    expect(v.line).toBe('Could not check live: the QA environment cannot show it (The QA account is personal-only; tags need a team library. Needs a team-org QA account); 2 lines could not be seen. Fix the environment\'s live setup, then Check live again');
+    // A line the environment cannot show beside one QA did reach is still a partial look, said as such.
+    expect(liveVerdict([row('reached')], [], cannot).state).toBe('seen');
+    // Nothing checks it again by itself: the fix is a person's.
+    expect(recheckDecision({ mark: { state: 'not_checked', releaseId: 9, checkedAt: '2026-10-04T16:00:00Z', attempts: 0, why: v.why }, releaseMeta: { liveCheckedAt: '2026-10-04T16:00:00Z' }, deploy: { id: 5, at: new Date('2026-10-04T17:00:00Z') }, now: new Date('2026-10-04T18:00:00Z') })).toMatchObject({ do: 'skip', why: expect.stringContaining('a person fixes the environment') });
+    expect(readRequestLive({ liveCheck: { state: 'not_checked', line: v.line, releaseId: 9, checkedAt: '2026-10-04T16:00:00Z', attempt: 1, why: v.why } })).toMatchObject({ state: 'not_checked', reasonKind: 'environment_cannot_show' });
+    expect(liveReasonSentence(v.why!)).toContain('Fix the environment\'s live setup, then Check live again');
+  });
+
+  it('carries the cause QA gave for a line production cannot show', () => {
+    const lines = new Map([[432, [{ n: 1, text: 'Tags show as chips.', provenBeforeMerge: true }]]]);
+    const r = resolveRecordedLines([RecordedLineSchema.parse({ line: 1, result: 'not_observable', why: 'no team library on the QA account', cause: 'environment_cannot_show' })], lines);
+
+    expect(r.ok && r.beforeMerge[0]).toMatchObject({ line: 1, proven: true, cause: 'environment_cannot_show' });
+    expect(RecordedLineSchema.safeParse({ line: 1, result: 'not_observable', why: 'x', cause: 'because' }).success).toBe(false);
+  });
 });
 
 // FE-392 (2026-10-03), fictional: QA approved the acceptance lines and left one plan-risk line to the

@@ -23,7 +23,9 @@ const inputSchema = z.object({
     'One entry per acceptance line of every request the release shipped, including the lines QA left to the live check: '
     + '{request_id (when the release shipped more than one request), line (its number), result: seen | not_seen | not_observable, '
     + 'evidence: the ids this run\'s browser tools returned that show it (snapshot, screenshot, response, action ids) — required for seen and not_seen, '
-    + 'why: one sentence on what the evidence shows, or why production cannot show it}.',
+    + 'why: one sentence on what the evidence shows, or why production cannot show it, '
+    + 'cause (on not_observable): proven_before_merge when QA\'s verdict proved it and production has nothing to show (a CI run, a migration), not_a_live_behaviour when the line is not something a running product shows, '
+    + 'environment_cannot_show when the QA account or its data cannot reach the feature (no team, no plan, no record to act on) — that one makes the release read not checked with the fix named, never seen}.',
   ),
 });
 

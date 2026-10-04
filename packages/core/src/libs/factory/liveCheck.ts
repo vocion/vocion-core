@@ -48,7 +48,7 @@ export const LIVE_ATTEMPTS = 2;
  * the place it failed, never read back out of the message; the message itself
  * is the `detail`, one click away.
  */
-export const LIVE_REASON_KINDS = ['sign_in_failed', 'visitor_sent_to_sign_in', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run', 'not_checked', 'not_seen'] as const;
+export const LIVE_REASON_KINDS = ['sign_in_failed', 'visitor_sent_to_sign_in', 'setup_failed', 'page_not_found', 'not_visible', 'app_error', 'could_not_run', 'not_checked', 'not_seen', 'environment_cannot_show'] as const;
 export type LiveReasonKind = typeof LIVE_REASON_KINDS[number];
 
 /** One reason, typed: its kind, the flow and step it stopped at, and the check's own words. */
@@ -118,6 +118,11 @@ export function liveReasonSentence(r: LiveReason): string {
       return r.detail.replace(/[.\s]+$/, '');
     case 'not_seen':
       return `QA looked on the live product and did not see it: ${r.detail.replace(/[.\s]+$/, '')}`;
+    case 'environment_cannot_show':
+      // The QA account or its data cannot reach the feature (walk 19, FE-432: tags live in a team
+      // library and the QA account has only a personal one). Nothing checks it by itself; a person
+      // fixes the environment's live setup, then asks for the check again.
+      return `Could not check live: the QA environment cannot show it (${r.detail.replace(/[.\s]+$/, '')}). Fix the environment's live setup, then Check live again`;
     default:
       return `The live check could not run: ${r.detail.replace(/[.\s]+$/, '')}`;
   }
@@ -189,8 +194,20 @@ export function acceptanceLines(meta: Record<string, unknown>, shipped: { tasks:
   return [...own, ...left.map((c, i) => line(c, own.length + i + 1))];
 }
 
-/** A line QA says the live product cannot show: proven before merge, or not proven at all. */
-export type BeforeMergeLine = { requestId: number; line: number; text: string; why: string; proven: boolean };
+/**
+ * WHY A LINE CANNOT BE SEEN LIVE, typed by QA (walk 19, FE-432, 2026-10-04): every line of a
+ * visible feature was recorded not_observable because the QA account had no team library, and the
+ * release read "Nothing to see on the live product: 6 lines proven before merge" — seen, in green,
+ * over a check that saw nothing. A line production truly cannot show (a CI run, a migration) is
+ * `proven_before_merge` or `not_a_live_behaviour`; one the QA environment cannot reach is
+ * `environment_cannot_show`, and that is a not-checked release with a person's fix named, never a
+ * seen one. QA reads the meaning and sets the field; code routes on it.
+ */
+export const NOT_OBSERVABLE_CAUSES = ['proven_before_merge', 'not_a_live_behaviour', 'environment_cannot_show'] as const;
+export type NotObservableCause = typeof NOT_OBSERVABLE_CAUSES[number];
+
+/** A line QA says the live product cannot show: proven before merge, or not proven at all, and why it cannot be seen. */
+export type BeforeMergeLine = { requestId: number; line: number; text: string; why: string; proven: boolean; cause?: NotObservableCause };
 
 /** What QA found of one line: seen on the live product, looked for and not seen, or not something production can show. */
 export const LIVE_RESULTS = ['seen', 'not_seen', 'not_observable'] as const;
@@ -206,11 +223,13 @@ export const RecordedLineSchema = z.object({
   result: z.enum(LIVE_RESULTS),
   evidence: z.array(z.string().trim().min(1).max(40)).max(MAX_EVIDENCE_PER_LINE).default([]),
   why: z.string().trim().min(1).max(400),
+  /** On not_observable: why production cannot show it. `environment_cannot_show` when the QA account or its data cannot reach the feature. */
+  cause: z.enum(NOT_OBSERVABLE_CAUSES).optional(),
 });
 export type RecordedLine = z.infer<typeof RecordedLineSchema>;
 
 /** One recorded line, tied to the record's words. */
-export type ResolvedLine = { requestId: number; line: AcceptanceLine; result: LiveResult; evidence: string[]; why: string };
+export type ResolvedLine = { requestId: number; line: AcceptanceLine; result: LiveResult; evidence: string[]; why: string; cause?: NotObservableCause };
 
 /** The words a person reads for a line production cannot show that QA proved before the merge. */
 export const PROVEN_BEFORE_MERGE = 'proven before merge by QA\'s verdict';
@@ -267,7 +286,7 @@ export function resolveRecordedLines(recorded: readonly RecordedLine[], linesByR
     if (r.result !== 'not_observable' && evidence.length === 0) {
       return { ok: false, refusal: `${what} of request #${id} is recorded ${r.result} and cites no evidence. Cite what you captured in this run's browser that shows it (a snapshot, screenshot, response or action id), or record it not_observable with why production cannot show it.` };
     }
-    out.push({ requestId: id, line, result: r.result, evidence, why: r.why });
+    out.push({ requestId: id, line, result: r.result, evidence, why: r.why, ...(r.result === 'not_observable' && r.cause ? { cause: r.cause } : {}) });
   }
   const missing = shipped.flatMap(id => (linesByRequest.get(id) ?? []).filter(l => !out.some(o => o.requestId === id && o.line.n === l.n)).map(line => ({ id, line })));
   if (missing.length > 0) {
@@ -277,7 +296,7 @@ export function resolveRecordedLines(recorded: readonly RecordedLine[], linesByR
   }
   const beforeMerge: BeforeMergeLine[] = out
     .filter(o => o.result === 'not_observable')
-    .map(o => ({ requestId: o.requestId, line: o.line.n, text: o.line.text, why: o.why.slice(0, 300), proven: o.line.provenBeforeMerge }));
+    .map(o => ({ requestId: o.requestId, line: o.line.n, text: o.line.text, why: o.why.slice(0, 300), proven: o.line.provenBeforeMerge, ...(o.cause ? { cause: o.cause } : {}) }));
   return { ok: true, lines: out, beforeMerge };
 }
 
@@ -363,6 +382,15 @@ export function liveVerdict(rows: readonly LiveRow[], problems: readonly (string
   const proven = beforeMerge.filter(b => b.proven).length;
   const tail = proven > 0 ? `. ${plural(proven, 'more line')} ${PROVEN_BEFORE_MERGE}` : '';
   const proved = [...new Set(rows.filter(r => r.status === 'reached').flatMap(r => r.proved ?? []))];
+  // THE QA ENVIRONMENT COULD NOT REACH IT (walk 19, FE-432): a line QA could not see because its
+  // account or data cannot show the feature is not a line production cannot show. When nothing was
+  // reached and QA said so, the release is not checked — with the fix a person makes — never seen.
+  const cannotReach = beforeMerge.filter(b => b.cause === 'environment_cannot_show');
+  if (reached === 0 && cannotReach.length > 0) {
+    const detail = cannotReach[0]!.why.slice(0, 400);
+    const why: LiveReason = { kind: 'environment_cannot_show', detail };
+    return { state: 'not_checked', line: `Could not check live: the QA environment cannot show it (${detail.replace(/[.\s]+$/, '')}); ${plural(cannotReach.length, 'line')} could not be seen. Fix the environment's live setup, then Check live again`, reason: detail, why, reached, total };
+  }
   if (total > 0 && reached === total) {
     return { state: 'seen', line: `Seen live: ${reached} of ${plural(total, 'state')} reached${proved.length > 0 ? ` (${proved.slice(0, 3).join('; ')})` : ''}${tail}`, reason: null, why: null, reached, total };
   }
@@ -525,7 +553,7 @@ export function readReleaseLive(meta: Meta): { state: LiveState; line: string; c
  * `liveCheck`. Null when no live check has looked at it.
  * @param meta - The request's metadata.
  */
-export function readRequestLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; releaseId: number | null; detail: string | null; attempts: number } | null {
+export function readRequestLive(meta: Meta): { state: LiveState; line: string; checkedAt: string | null; releaseId: number | null; detail: string | null; attempts: number; reasonKind: LiveReasonKind | null } | null {
   const m = bag(meta.liveCheck);
   const state = isLiveState(m.state) ? m.state : null;
   if (!state) {
@@ -534,7 +562,7 @@ export function readRequestLive(meta: Meta): { state: LiveState; line: string; c
   const releaseId = Number(m.releaseId);
   const why = state === 'seen' ? null : readLiveReason(m.why);
   const fallback = state === 'seen' ? 'Seen live' : state === 'not_checked' ? 'Not checked live yet' : 'Not yet seen live';
-  return { state, line: text(m.line) ?? fallback, checkedAt: text(m.checkedAt), releaseId: Number.isSafeInteger(releaseId) && releaseId > 0 ? releaseId : null, detail: why?.detail ?? text(m.lastReason), attempts: recheckCount(m) };
+  return { state, line: text(m.line) ?? fallback, checkedAt: text(m.checkedAt), releaseId: Number.isSafeInteger(releaseId) && releaseId > 0 ? releaseId : null, detail: why?.detail ?? text(m.lastReason), attempts: recheckCount(m), reasonKind: why?.kind ?? null };
 }
 
 function isLiveState(v: unknown): v is LiveState {
@@ -626,6 +654,9 @@ export function recheckDecision(input: { mark: Meta; releaseMeta: Meta; deploy: 
   const attempts = recheckCount(mark);
   if (attempts >= limit) {
     return { do: 'skip', why: 'the rechecks are spent; a person checks it again' };
+  }
+  if (readLiveReason(mark.why)?.kind === 'environment_cannot_show') {
+    return { do: 'skip', why: 'the QA environment cannot show it; a person fixes the environment, then checks again' };
   }
   const checkedAt = Date.parse(String(mark.checkedAt ?? ''));
   const recheckedAt = Date.parse(String(mark.recheckedAt ?? ''));

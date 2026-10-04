@@ -759,7 +759,7 @@ export type ReportReleaseSummary = {
    * `liveCheck`): seen, partly, not, or `pending` while no live check has
    * looked. Null before it is live. Shipped is not the same as seen.
    */
-  seen: { state: 'seen' | 'partial' | 'not_seen' | 'not_checked' | 'pending'; line: string; detail?: string | null; reached?: number; total?: number; attempts?: number } | null;
+  seen: { state: 'seen' | 'partial' | 'not_seen' | 'not_checked' | 'pending'; line: string; detail?: string | null; reached?: number; total?: number; attempts?: number; reasonKind?: import('@/libs/factory/liveCheck').LiveReasonKind | null } | null;
   /** The release record's code (REL-375), when the codes were read. */
   code?: string | null;
   /** The release that shipped it, when one did: what "Check live again" asks QA to check. */
@@ -3602,7 +3602,7 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
     const name = [str(shipped.r.meta, 'product'), str(shipped.r.meta, 'version')].filter(Boolean).join(' ') || shipped.r.title;
     const live = readRequestLive(input.request.meta);
     const counts = liveCounts(shipped.r.meta, input.request.id);
-    const seen = live ? { state: live.state, line: live.line, detail: live.detail, ...counts, ...(live.state === 'not_checked' ? { attempts: live.attempts } : {}) } : { state: 'pending' as const, line: 'Not yet seen live' };
+    const seen = live ? { state: live.state, line: live.line, detail: live.detail, reasonKind: live.reasonKind, ...counts, ...(live.state === 'not_checked' ? { attempts: live.attempts } : {}) } : { state: 'pending' as const, line: 'Not yet seen live' };
     return {
       state: 'live',
       code: input.codes?.get(shipped.r.id) ?? null,
@@ -3782,7 +3782,9 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
             // A live check that did not see it, once its attempts are spent, is checked again
             // when a person asks (`factory.check_live_again`), not by hand. One that never looked
             // is rechecked by Vocion itself, and asks the person only once those rechecks are spent.
-            secondary: release.releaseId !== undefined && (release.seen?.state === 'not_seen' || release.seen?.state === 'partial' || (release.seen?.state === 'not_checked' && (release.seen.attempts ?? 0) >= LIVE_RECHECKS))
+            // ...and at once when the QA environment cannot reach the feature: nothing changes there
+            // by itself, so the person fixes the environment and presses it (walk 19, FE-432).
+            secondary: release.releaseId !== undefined && (release.seen?.state === 'not_seen' || release.seen?.state === 'partial' || (release.seen?.state === 'not_checked' && ((release.seen.attempts ?? 0) >= LIVE_RECHECKS || release.seen.reasonKind === 'environment_cannot_show')))
               ? { kind: 'check_live', label: 'Check live again', releaseId: release.releaseId }
               : null,
             next: state.detail.includes('helped') ? null : 'Next, whether it helped is checked.',
