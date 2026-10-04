@@ -10,8 +10,8 @@ function video(id: number, role: string, url: string | null, at: string, extra: 
 
 describe('the recordings a feature page plays (2026-10-03)', () => {
   it('is nothing of each kind when none was kept', () => {
-    expect(recordingsOf([])).toEqual({ live: null, qa: null });
-    expect(recordingsOf([video(1, 'qa-screenshot', '/api/artifacts/x/x.png', '2026-10-01T09:00:00Z')])).toEqual({ live: null, qa: null });
+    expect(recordingsOf([])).toEqual({ demo: null, live: null, qa: null });
+    expect(recordingsOf([video(1, 'qa-screenshot', '/api/artifacts/x/x.png', '2026-10-01T09:00:00Z')])).toEqual({ demo: null, live: null, qa: null });
   });
 
   it('picks the newest live check and the newest pre-merge recording, with caption and date', () => {
@@ -23,6 +23,18 @@ describe('the recordings a feature page plays (2026-10-03)', () => {
 
     expect(r.live).toMatchObject({ artifactId: 2, caption: 'caption 2', at: T('2026-10-02T09:00:00Z'), contentType: 'video/webm' });
     expect(r.qa).toMatchObject({ artifactId: 3, url: '/api/media/41/rename-cccccccccccccccc.webm' });
+  });
+
+  it('picks the feature demo apart from the check, with its narration (2026-10-04)', () => {
+    const demo = '/api/media/41/feature-demo-desktop-1-eeeeeeeeeeeeeeee.webm';
+    const r = recordingsOf([
+      video(6, 'feature-demo', demo, '2026-10-04T13:00:00Z'),
+      video(7, 'feature-demo-narrated', '/api/media/41/feature-demo-desktop-1-narrated-0000000000000007.mp4', '2026-10-04T13:05:00Z', { spec: { url: '/api/media/41/feature-demo-desktop-1-narrated-0000000000000007.mp4', contentType: 'video/mp4', caption: 'narrated 7', narratedFrom: 6 } }),
+      video(8, 'qa-live-video', '/api/media/9/live-check-desktop-1-aaaaaaaaaaaaaaaa.webm', '2026-10-04T12:50:00Z'),
+    ]);
+
+    expect(r.demo).toMatchObject({ artifactId: 6, url: demo, narrated: expect.objectContaining({ artifactId: 7, contentType: 'video/mp4' }) });
+    expect(r.live?.artifactId).toBe(8);
   });
 
   it('prefers a recording Vocion keeps to a newer link out, which may have expired', () => {

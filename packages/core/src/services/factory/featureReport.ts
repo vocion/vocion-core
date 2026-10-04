@@ -75,7 +75,7 @@ import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { nounCode } from '@/libs/codes';
 import { deliveryStage, failedRun, pausedAnswerLine, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
-import { LIVE_RECHECKS, readRequestLive } from '@/libs/factory/liveCheck';
+import { DEMO_VIDEO_ROLE, LIVE_RECHECKS, readRequestLive } from '@/libs/factory/liveCheck';
 import { blockedYou, pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
@@ -938,10 +938,10 @@ export type ReportRecording = {
    */
   narrated: { artifactId: number; url: string; contentType: string; caption: string; at: Date } | null;
 };
-export type ReportRecordings = { live: ReportRecording | null; qa: ReportRecording | null };
+export type ReportRecordings = { demo: ReportRecording | null; live: ReportRecording | null; qa: ReportRecording | null };
 
-/** The roles a recording is filed under: the live check's, and the engineer's own tests'. */
-export const RECORDING_ROLES = { live: 'qa-live-video', qa: 'qa-video' } as const;
+/** The roles a recording is filed under: the feature demo's, the live check's, and the engineer's own tests'. */
+export const RECORDING_ROLES = { demo: DEMO_VIDEO_ROLE, live: 'qa-live-video', qa: 'qa-video' } as const;
 
 /**
  * The newest playable recording of each kind among a feature's artifacts. A
@@ -980,7 +980,7 @@ export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecord
         : null,
     };
   };
-  return { live: pick(RECORDING_ROLES.live), qa: pick(RECORDING_ROLES.qa) };
+  return { demo: pick(RECORDING_ROLES.demo), live: pick(RECORDING_ROLES.live), qa: pick(RECORDING_ROLES.qa) };
 }
 
 /**

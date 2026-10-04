@@ -521,7 +521,9 @@ function OutcomeBlock({ report }: { report: FeatureReport }) {
  * @param props.recordings - The report's recordings.
  */
 function RecordingsRow({ recordings }: { recordings: FeatureReport['recordings'] }) {
+  // The demo first (Chris, 2026-10-03: the happy path, end to end, for a product manager), then QA's check, then the tests.
   const items = [
+    recordings?.demo ? { key: 'demo', label: 'Feature demo', r: recordings.demo } : null,
     recordings?.live ? { key: 'live', label: 'Live check', r: recordings.live } : null,
     recordings?.qa ? { key: 'qa', label: 'Before merge', r: recordings.qa } : null,
   ].filter(x => x !== null);
