@@ -590,8 +590,8 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'slate',
     label: 'Slate',
     keySource: 'supplied',
-    // `one-live`, like Sentry and PostHog: the factory asks for "the org's
-    // video host" with no row id in hand, and one account uploads everything.
+    // `one-live`, like Sentry and PostHog: one Slate account per workspace,
+    // asked for with no row id in hand.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['slate'],
     credentialsShareable: true,
@@ -599,7 +599,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     toolProvider: null,
     keyPattern: null,
     keyShapeHint: 'a Slate session token (slt_…)',
-    helpText: 'A Slate session token (slt_…, about 90 days) for the account recordings are uploaded as — sign in to Slate\'s desktop or command-line app and copy its token. The account needs a paid seat to upload a file. Recordings are shared with that account\'s Slate team unless the connector says otherwise.',
+    helpText: 'A Slate session token (slt_…, about 90 days) — sign in to Slate\'s desktop or command-line app and copy its token. Test connection reads whose account it is; nothing is synced or uploaded.',
     fields: [
       {
         name: 'token',

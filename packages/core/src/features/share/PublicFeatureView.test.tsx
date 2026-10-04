@@ -167,25 +167,6 @@ describe('a feature\'s public page', () => {
     await expect.poll(() => tabs[0]!.getAttribute('aria-selected')).toBe('true');
   });
 
-  it('plays a recording with a video-host share id in the host\'s own player, in place', async () => {
-    const embed = { kind: 'embed' as const, src: 'https://player.example/embed/share-fictional-1', label: 'Walkthrough', caption: 'A walk through it', title: 'FE-370 · Upload date on each library row' };
-    await render(<PublicFeatureView page={fixture({ media: [embed, ...fixture().media.slice(1)] })} />);
-    const frame = q('public-media')!.querySelector('[data-testid="report-embed"] iframe') as HTMLIFrameElement;
-
-    expect(frame.getAttribute('src')).toBe('https://player.example/embed/share-fictional-1');
-    expect(frame.getAttribute('title')).toBe('FE-370 · Upload date on each library row');
-    expect(frame.getAttribute('allow')).toBe('autoplay; fullscreen; picture-in-picture; clipboard-write');
-    expect(frame.hasAttribute('allowfullscreen')).toBe(true);
-    expect(frame.getAttribute('frameborder')).toBe('0');
-
-    // The host's responsive 16:9 frame.
-    const wrap = frame.parentElement!;
-
-    expect(wrap.style.paddingBottom).toBe('56.25%');
-    expect(wrap.style.position).toBe('relative');
-    expect(frame.style.position).toBe('absolute');
-  });
-
   it('reads the timeline as a time of day, the date only when it changes, how long to the next step and a sentence', async () => {
     await render(<PublicFeatureView page={fixture()} />);
     const steps = [...document.querySelectorAll('[data-testid="public-step"]')];

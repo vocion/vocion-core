@@ -21,7 +21,7 @@ describe('the recordings a feature page plays (2026-10-03)', () => {
       video(3, 'qa-video', '/api/media/41/rename-cccccccccccccccc.webm', '2026-09-30T09:00:00Z'),
     ]);
 
-    expect(r.live).toMatchObject({ artifactId: 2, caption: 'caption 2', at: T('2026-10-02T09:00:00Z'), contentType: 'video/webm', slateShareId: null });
+    expect(r.live).toMatchObject({ artifactId: 2, caption: 'caption 2', at: T('2026-10-02T09:00:00Z'), contentType: 'video/webm' });
     expect(r.qa).toMatchObject({ artifactId: 3, url: '/api/media/41/rename-cccccccccccccccc.webm' });
   });
 
@@ -32,29 +32,6 @@ describe('the recordings a feature page plays (2026-10-03)', () => {
     ]);
 
     expect(r.qa?.artifactId).toBe(4);
-  });
-
-  it('carries a Slate share when one is set, for the later phase that embeds it', () => {
-    const r = recordingsOf([video(6, 'qa-live-video', '/api/media/9/x-eeeeeeeeeeeeeeee.webm', '2026-10-02T09:00:00Z', { spec: { url: '/api/media/9/x-eeeeeeeeeeeeeeee.webm', contentType: 'video/webm', caption: 'c', slateShareId: 'share-fictional-1' } })]);
-
-    expect(r.live?.slateShareId).toBe('share-fictional-1');
-  });
-
-  it('offers the video host\'s player only once published there, and says why when it failed', () => {
-    const url = '/api/media/9/x-ffffffffffffffff.webm';
-    const published = recordingsOf([video(7, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', slateShareId: 'share-fictional-2', hostedVideo: { state: 'published', host: 'slate', label: 'Slate', shareId: 'share-fictional-2', watchUrl: 'https://video-host.example/v/share-fictional-2', embedUrl: 'https://video-host.example/embed/share-fictional-2', at: '2026-10-02T09:05:00Z' } } })]);
-
-    expect(published.live).toMatchObject({ hosted: { label: 'Slate', watchUrl: 'https://video-host.example/v/share-fictional-2', embedUrl: 'https://video-host.example/embed/share-fictional-2' }, hostNote: null });
-
-    const failed = recordingsOf([video(8, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', hostedVideo: { state: 'failed', host: 'slate', label: 'Slate', reason: 'Slate answered 503 while trying to start an upload.', at: '2026-10-02T09:05:00Z' } } })]);
-
-    expect(failed.live).toMatchObject({ hosted: null, hostNote: 'Not on Slate: Slate answered 503 while trying to start an upload.' });
-
-    // Mid-upload, or a player address that is not https: nothing to frame.
-    const pending = recordingsOf([video(9, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', hostedVideo: { state: 'publishing', host: 'slate', at: '2026-10-02T09:05:00Z' } } })]);
-    const unsafe = recordingsOf([video(10, 'qa-live-video', url, '2026-10-02T09:00:00Z', { spec: { url, contentType: 'video/webm', caption: 'c', hostedVideo: { state: 'published', host: 'slate', watchUrl: 'javascript:alert(1)', embedUrl: 'javascript:alert(1)', at: '2026-10-02T09:05:00Z' } } })]);
-
-    expect([pending.live?.hosted, pending.live?.hostNote, unsafe.live?.hosted]).toEqual([null, null, null]);
   });
 
   it('pairs a recording with its narrated version, and only with its own', () => {

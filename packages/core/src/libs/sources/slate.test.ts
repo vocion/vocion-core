@@ -22,26 +22,18 @@ describe('the slate connector', () => {
     expect(() => validatePlatformCredential('slate', { token: 'sk-not-a-slate-token-000' })).toThrow(/slt_/);
   });
 
-  it('defaults to team visibility, and the form offers no visibility the schema refuses', () => {
-    expect(slateConnector.configSchema.parse({})).toMatchObject({ visibility: 'team' });
-
-    const options = CONFIG_FIELDS.slate!.find(f => f.key === 'visibility')!.options!.map(o => o.value);
-
-    expect(options.every(v => slateConnector.configSchema.safeParse({ visibility: v }).success)).toBe(true);
-    expect(slateConnector.configSchema.safeParse({ visibility: 'invited' }).success).toBe(false);
+  it('configures only where the API lives, and the form offers nothing the schema refuses', () => {
+    expect(slateConnector.configSchema.parse({})).toEqual({ apiBase: 'https://api.slatevideo.com' });
+    expect(CONFIG_FIELDS.slate!.map(f => f.key)).toEqual(['apiBase']);
+    expect(slateConnector.configSchema.safeParse({ apiBase: 'not a url' }).success).toBe(false);
   });
 
-  it('tests the connection with /v1/me, and says whether the account may upload', async () => {
-    const paid = await inspectSlate({ config: {}, credentials: CREDS }, me(200, { email: 'dana@northwind.example', name: 'Dana Okafor', paidSeat: true }));
+  it('tests the connection with /v1/me and says whose account the token is', async () => {
+    const r = await inspectSlate({ config: {}, credentials: CREDS }, me(200, { email: 'dana@northwind.example', name: 'Dana Okafor', paidSeat: true }));
 
-    expect(paid).toMatchObject({ reachable: true, authorized: true, error: null });
-    expect(paid.checks.map(c => [c.key, c.ok])).toEqual([['account', true], ['uploads', true]]);
-    expect(paid.checks[0]!.detail).toContain('Dana Okafor');
-
-    const free = await inspectSlate({ config: {}, credentials: CREDS }, me(200, { email: 'dana@northwind.example', paidSeat: false }));
-
-    expect(free.checks.map(c => [c.key, c.ok])).toEqual([['account', true], ['uploads', false]]);
-    expect(free.error).toMatch(/paid seat/);
+    expect(r).toMatchObject({ reachable: true, authorized: true, error: null });
+    expect(r.checks.map(c => [c.key, c.ok])).toEqual([['account', true]]);
+    expect(r.checks[0]!.detail).toContain('Dana Okafor');
   });
 
   it('says a refused token in words a person acts on', async () => {

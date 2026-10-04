@@ -931,18 +931,12 @@ export type ReportRecording = {
   contentType: string;
   caption: string;
   at: Date;
-  /** Its share on Slate, once uploaded there; the page prefers that player. */
-  slateShareId: string | null;
-  /** The video host's player and watch page, once published there (`services/videoHost/`). */
-  hosted: { label: string; watchUrl: string; embedUrl: string } | null;
-  /** Why it is not on the video host, when publishing it failed. */
-  hostNote: string | null;
   /**
    * Its second pass with the seat's avatar and voiceover, when one was made
    * (`services/artifacts/narrate.ts`, role `<role>-narrated`, `spec.narratedFrom`
    * naming this recording). The page offers Recording | Narrated then.
    */
-  narrated: { artifactId: number; url: string; contentType: string; caption: string; at: Date; hosted: ReportRecording['hosted'] } | null;
+  narrated: { artifactId: number; url: string; contentType: string; caption: string; at: Date } | null;
 };
 export type ReportRecordings = { live: ReportRecording | null; qa: ReportRecording | null };
 
@@ -981,37 +975,12 @@ export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecord
       contentType: str(top.a.spec, 'contentType') ?? 'video/webm',
       caption: str(top.a.spec, 'caption') ?? top.a.title,
       at: top.a.createdAt,
-      slateShareId: str(top.a.spec, 'slateShareId'),
-      ...hostedOf(top.a.spec),
       narrated: narration
-        ? { artifactId: narration.a.id, url: narration.url, contentType: str(narration.a.spec, 'contentType') ?? 'video/mp4', caption: str(narration.a.spec, 'caption') ?? narration.a.title, at: narration.a.createdAt, hosted: hostedOf(narration.a.spec).hosted }
+        ? { artifactId: narration.a.id, url: narration.url, contentType: str(narration.a.spec, 'contentType') ?? 'video/mp4', caption: str(narration.a.spec, 'caption') ?? narration.a.title, at: narration.a.createdAt }
         : null,
     };
   };
   return { live: pick(RECORDING_ROLES.live), qa: pick(RECORDING_ROLES.qa) };
-}
-
-/**
- * A recording's place on the video host, read from `spec.hostedVideo`: its
- * player when published, the reason when publishing failed, nothing otherwise.
- * Only an http(s) player is offered to the page.
- * @param spec - The artifact's spec.
- */
-function hostedOf(spec: Record<string, unknown> | null | undefined): Pick<ReportRecording, 'hosted' | 'hostNote'> {
-  const h = spec?.hostedVideo as Record<string, unknown> | undefined;
-  if (!h || typeof h !== 'object') {
-    return { hosted: null, hostNote: null };
-  }
-  const label = str(h, 'label') ?? 'the video host';
-  const watchUrl = str(h, 'watchUrl');
-  const embedUrl = str(h, 'embedUrl');
-  if (h.state === 'published' && watchUrl && embedUrl && /^https:\/\//i.test(embedUrl) && /^https:\/\//i.test(watchUrl)) {
-    return { hosted: { label, watchUrl, embedUrl }, hostNote: null };
-  }
-  if (h.state === 'failed') {
-    return { hosted: null, hostNote: `Not on ${label}: ${str(h, 'reason') ?? 'the upload failed'}` };
-  }
-  return { hosted: null, hostNote: null };
 }
 
 /**

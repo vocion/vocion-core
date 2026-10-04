@@ -10,7 +10,6 @@
 
 import type { PublicFeaturePage, SharedArtifact } from './featureShare';
 import type { ArtifactRow } from '@/services/ArtifactService';
-import type { VideoAudience, VideoHost } from '@/services/videoHost/host';
 import { factoryTypes } from '@/libs/factory/types';
 import { signArtifactShare, signShareMedia, verifyArtifactShare, verifyShareMedia } from '@/libs/share/artifactShareToken';
 import { createArtifact, getArtifact, listArtifactsByIds, listArtifactsForRecord, listArtifactsForRecords, setArtifactShare, updateArtifact } from '@/services/ArtifactService';
@@ -18,7 +17,6 @@ import { getBusinessObject } from '@/services/BusinessObjectService';
 import { codeForRecord } from '@/services/codes';
 import { recordHref } from '@/services/objects/recordHref';
 import { nameOnRead } from '@/services/objects/recordName';
-import { setRecordingsAudience } from '@/services/videoHost/audience';
 import { loadFeatureReport } from './featureReportData';
 import { FEATURE_PAGE_ROLE, HIDE_ASKER, HIDE_OPEN_LINK, publicFeaturePage, QA_SHOT_ROLE, WALKTHROUGH_ROLES } from './featureShare';
 
@@ -105,27 +103,11 @@ export async function featureShareOf(orgId: string, requestId: number): Promise<
  * @param opts.shared - On or off.
  * @param opts.hideAsker - Leave out who asked. Absent, unchanged (a new link shows them).
  * @param opts.showOpenLink - Show the "Open in <workspace>" button. Absent, unchanged (a new link shows it).
- * @param deps - Seams for tests.
- * @param deps.host - The video host, or null for none; looked up when undefined.
  *
- * The recordings the page shows follow it on their video host: `public` while
- * the link is live, the workspace's choice after ({@link followShare}).
+ * The link is all that changes: the recordings the page shows are Vocion's
+ * own, served through the link's token, and nothing about them moves.
  */
-export async function setFeatureShare(opts: SetFeatureShareInput, deps: { host?: VideoHost | null } = {}): Promise<FeatureShareState | null> {
-  const state = await writeLink(opts);
-  if (state) {
-    await followShare(opts.orgId, opts.requestId, state.shared ? 'public' : 'workspace', deps);
-  }
-  return state;
-}
-
-type SetFeatureShareInput = { orgId: string; requestId: number; userId: string | null; shared: boolean; hideAsker?: boolean; showOpenLink?: boolean };
-
-/**
- * The link half of {@link setFeatureShare}.
- * @param opts - As there.
- */
-async function writeLink(opts: SetFeatureShareInput): Promise<FeatureShareState | null> {
+export async function setFeatureShare(opts: SetFeatureShareInput): Promise<FeatureShareState | null> {
   const row = await featureRow(opts.orgId, opts.requestId);
   if (!row) {
     return null;
@@ -186,79 +168,7 @@ async function writeLink(opts: SetFeatureShareInput): Promise<FeatureShareState 
   return stateOf({ ...linked, shareAudience: 'anyone' });
 }
 
-/** How long Share waits for the video host before answering; the change carries on after. */
-export const SHARE_AUDIENCE_BUDGET_MS = 5_000;
-
-/**
- * The recordings a feature's page can show: the walkthroughs filed on the
- * request and on any record that names it as its request (its tasks).
- * @param orgId - Tenant.
- * @param requestId - The request.
- */
-async function recordingsOf(orgId: string, requestId: number): Promise<ArtifactRow[]> {
-  const { and, eq, sql } = await import('drizzle-orm');
-  const { db } = await import('@/libs/DB');
-  const { businessObjectSchema } = await import('@/models/Schema');
-  const children = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(and(
-    eq(businessObjectSchema.orgId, orgId),
-    sql`${businessObjectSchema.metadata} ->> 'requestId' = ${String(requestId)}`,
-  ));
-  const rows = await listArtifactsForRecords({ orgId, recordType: 'object', recordIds: [requestId, ...children.map(c => c.id)].map(String) });
-  return rows.filter(a => (WALKTHROUGH_ROLES as readonly string[]).includes(a.recordRole ?? ''));
-}
-
-/**
- * Bring who may watch the page's hosted recordings in line with the link.
- * Never throws and never holds Share up for longer than
- * {@link SHARE_AUDIENCE_BUDGET_MS}: a host that is down leaves its reason on
- * the recordings, and the page plays Vocion's own copy until a later Share
- * (or a recording landing) tries again.
- * @param orgId - Tenant.
- * @param requestId - The request.
- * @param audience - `public` while shared.
- * @param deps - Seams for tests.
- * @param deps.host - The video host, or null for none; looked up when undefined.
- */
-export async function followShare(orgId: string, requestId: number, audience: VideoAudience, deps: { host?: VideoHost | null } = {}): Promise<void> {
-  const work = (async () => {
-    try {
-      const recordings = await recordingsOf(orgId, requestId);
-      await setRecordingsAudience({ orgId, recordings, audience }, deps);
-    } catch (err) {
-      const { logger } = await import('@/libs/Logger');
-      logger.warn('shared feature recordings not brought in line with the link', { orgId, requestId, audience, error: err instanceof Error ? err.message : String(err) });
-    }
-  })().catch(() => {});
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([work, new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, SHARE_AUDIENCE_BUDGET_MS);
-  })]);
-  clearTimeout(timer);
-}
-
-/**
- * Whether any of these records is a feature with a live public link, or names
- * one as its request (a task): what a recording filed on them goes up as.
- * @param orgId - Tenant.
- * @param recordIds - The records a recording is filed on.
- */
-export async function publicLinkLiveFor(orgId: string, recordIds: string[]): Promise<boolean> {
-  for (const raw of recordIds) {
-    const id = Number(raw);
-    if (!Number.isInteger(id) || id <= 0) {
-      continue;
-    }
-    if (await liveLink(orgId, id)) {
-      return true;
-    }
-    const row = await getBusinessObject(id, orgId);
-    const parent = Number(((row?.metadata ?? {}) as Record<string, unknown>).requestId);
-    if (Number.isInteger(parent) && parent > 0 && parent !== id && await liveLink(orgId, parent)) {
-      return true;
-    }
-  }
-  return false;
-}
+type SetFeatureShareInput = { orgId: string; requestId: number; userId: string | null; shared: boolean; hideAsker?: boolean; showOpenLink?: boolean };
 
 /**
  * The link a token names, while it is live.
