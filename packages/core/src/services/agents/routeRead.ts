@@ -103,7 +103,12 @@ export async function readRoute(input: { orgId: string; message: string; agents:
   if (!call) {
     throw new Error('the model answered without the report tool');
   }
-  const parsed = RouteReadSchema.safeParse(call.args);
+  // A reason over the limit is still a reason: it is cut, not refused.
+  // Refusing it sent the first turn to the keyword fallback (conversation
+  // 470, 2026-10-04: "out of shape: reason", and the wiki researcher answered
+  // a product question on a keyword).
+  const args = call.args as { reason?: unknown } | null;
+  const parsed = RouteReadSchema.safeParse(args && typeof args.reason === 'string' ? { ...args, reason: args.reason.slice(0, 300) } : args);
   if (!parsed.success) {
     throw new Error(`the model's answer was out of shape: ${parsed.error.issues.map(i => i.path.join('.')).join(', ')}`);
   }
