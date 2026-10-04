@@ -321,7 +321,8 @@ async function learningEagernessFor(orgId: string): Promise<number | null> {
  * @param input - See {@link proposeActionInTurn}.
  */
 export async function proposeAction(input: Parameters<typeof proposeActionInTurn>[0]): Promise<ProposeResult> {
-  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  const { READ_ONLY_RECEIPT, noteWrite, settleTurn, writesRefused } = await import('@/services/agents/turnScope');
+  await settleTurn();
   if (writesRefused()) {
     throw new ActionError('read_only_turn', READ_ONLY_RECEIPT);
   }

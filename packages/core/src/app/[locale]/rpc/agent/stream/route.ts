@@ -37,6 +37,7 @@ import {
   createConversation,
   getConversation,
   listMessages,
+  setConversationAutonomy,
   setConversationContextIfEmpty,
   toHistoryTurns,
 } from '@/services/ConversationService';
@@ -117,6 +118,9 @@ export async function POST(request: Request): Promise<Response> {
   // agent; absent, the lead answers as before.
   let agentSlug = body.agent_slug as string | undefined;
   let routing: import('@/services/agents/router').RoutingDecision | null = null;
+  // The first turn's model read, when nothing structural decided. Not awaited
+  // here: the lead's turn starts while it reads (`headStart` below).
+  let routerRead: Promise<import('@/services/agents/router').RoutingDecision | null> | null = null;
   const roster = await rosterRead;
   if (!agentSlug || body.route === true) {
     const agents = roster;
@@ -140,21 +144,19 @@ export async function POST(request: Request): Promise<Response> {
       // page is the context, a keyword is not (conversation 362).
       const pageRecord = pageContext?.record?.objectType ? { objectType: pageContext.record.objectType, id: pageContext.record.id } : null;
       routing = followUpDecision({ agents: routable, message, threadAgent, surface: 'chat' })
-        ?? pageOwnerDecision({ agents: routable, message, record: pageRecord, ownerSlug: pageRecord ? await recordOwnerSlug(orgId, pageRecord.objectType) : null, surface: 'chat' })
-        // Otherwise the first turn is read by a model against the roster and
-        // what each seat owns (conversation 397: "file it and build it" went
-        // to the wiki researcher on a keyword score).
-        ?? await routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
+        ?? pageOwnerDecision({ agents: routable, message, record: pageRecord, ownerSlug: pageRecord ? await recordOwnerSlug(orgId, pageRecord.objectType) : null, surface: 'chat' });
+      // Otherwise the first turn is read by a model against the roster and
+      // what each seat owns (conversation 397: "file it and build it" went
+      // to the wiki researcher on a keyword score).
+      if (!routing) {
+        routerRead = started(routeFirstTurn({ orgId, agents: routable, message, leadSlug: lead.leadAgentSlug, surface: 'chat' }));
+      }
     }
     agentSlug = routing?.chosen
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
   }
-  const routedAgent = routing ? roster.find(a => a.slug === routing!.chosen) ?? null : null;
-  // Who speaks this turn, as a fact the client renders and the row records —
-  // never a guess the composer made from its tags before the turn ran
-  // (backlog 009). The name is the roster's; a slug the roster no longer
-  // knows is sent as itself and the client says so rather than inventing one.
-  const turnAgent = { slug: agentSlug, name: roster.find(a => a.slug === agentSlug)?.name ?? agentSlug };
+  // While the router reads, `agentSlug` is the lead: who answers when it is
+  // unsure, and who answers most first turns.
   const clientHistory = (body.conversation_history as HistoryTurn[]) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
@@ -183,14 +185,24 @@ export async function POST(request: Request): Promise<Response> {
       await setConversationContextIfEmpty({ orgId, id: existing.id, context: pageContext });
     }
   }
+  // A new thread is created here, with its turn, rather than by a round trip
+  // of its own before it (`useChatSession`). Its agent is the one the
+  // composer named, as that call recorded; the turn's speaker is on the rows.
   if (conversationId === null && body.create_conversation === true) {
     const conv = await createConversation({
       orgId,
-      agentSlug,
+      agentSlug: typeof body.agent_slug === 'string' && body.agent_slug ? body.agent_slug : agentSlug,
       createdBy: userId,
       context: pageContext,
+      ...(typeof body.scope_ref === 'string' && body.scope_ref ? { scopeRef: body.scope_ref.slice(0, 120) } : {}),
     });
     conversationId = conv.id;
+    // The person's standing choice, when it is not the default the row is
+    // born with (`conversations.setAutonomy`'s vocabulary).
+    if (body.conversation_autonomy === 'ask') {
+      await setConversationAutonomy({ orgId, id: conv.id, autonomy: 'ask' });
+      autonomy = readAutonomy('ask');
+    }
   }
   if (pageContext?.openedFrom && pageContext.record) {
     void track({ orgId, userId }, 'chat.opened_from_context', {
@@ -234,17 +246,6 @@ export async function POST(request: Request): Promise<Response> {
     // …and each agent turn carries its runs, replayed as the tool calls and
     // cards they were — see `services/chat/historyTools.ts`.
     conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })), { timeZone });
-    const userMsg = await appendMessage({
-      orgId,
-      conversationId,
-      role: 'user',
-      content: message,
-      userId,
-      ...(routing ? { routing } : {}),
-    });
-    if (attachments.length > 0) {
-      await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
-    }
   }
 
   // A correction: last turn the agent said something could not be found, and
@@ -252,18 +253,104 @@ export async function POST(request: Request): Promise<Response> {
   // candidate is drafted in the background (`correctionReflector.ts`).
   let messageForModel = message;
   let absenceCorrected = false;
-  {
-    const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
-    const lastAssistant = [...conversationHistory].reverse().find(t => t.role === 'assistant')?.content;
-    const correction = detectCorrection(lastAssistant, message);
-    if (correction) {
-      absenceCorrected = true;
-      messageForModel = `${message}\n\n${correctionNote(correction)}`;
-      void reflectOnCorrection({ orgId, agentSlug, userId, correction }).catch(() => {});
-    }
+  const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
+  const correction = detectCorrection([...conversationHistory].reverse().find(t => t.role === 'assistant')?.content, message);
+  if (correction) {
+    absenceCorrected = true;
+    messageForModel = `${message}\n\n${correctionNote(correction)}`;
   }
 
   const [allowedSourceSlugs, grounding] = await Promise.all([allowedSourceSlugsRead, groundingRead]);
+
+  // The turn, for whichever agent answers. Its events go to `sink` once the
+  // stream is open; until then they wait in `early`, in order.
+  const early: AgentEvent[] = [];
+  let sink: ((event: AgentEvent) => void) | null = null;
+  const onEvent = (event: AgentEvent) => (sink ? sink(event) : early.push(event));
+  // What the turn spent, counted while it runs (`budget/runCost.ts`).
+  const turnCost: { cost: RunCostScope | null } = { cost: null };
+  const runTurn = (slug: string, hold?: Promise<boolean>) => {
+    const turn = () => runAgentDeep({
+      allowedSourceSlugs,
+      orgId,
+      agentSlug: slug,
+      message: withPageContext(messageForModel, pageContext, contextRefs, grounding.text),
+      userId,
+      conversationId: conversationId ?? undefined,
+      conversationHistory,
+      pageContext: pageContext ?? undefined,
+      timeZone,
+      ...(deliverable ? { deliverable } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
+      modelPrefs,
+      onEvent,
+      ...(hold ? { hold } : {}),
+    });
+    // What this turn cost — its own model calls and every specialist it
+    // delegated to — is counted while it runs and written with the
+    // answer (`services/budget/runCost.ts`).
+    const id = conversationId;
+    return id === null
+      ? turn()
+      : withRunCost({ conversationId: id }, (scope) => {
+          turnCost.cost = scope;
+          return turn();
+        });
+  };
+
+  // A HEAD START. While the router reads (about a second on a small model),
+  // the lead's turn is already running: its model starts, no tool runs
+  // (`agents/turnGate.ts`), and nothing it says is sent. The router picks the
+  // lead on most first turns, and then the answer is that much nearer; when
+  // it picks someone else the lead's turn is stopped and dropped, costing the
+  // tokens it read. Chris, 2026-10-04: "yes on start default".
+  let headStart: ReturnType<typeof runTurn> | null = null;
+  let commit: (keep: boolean) => void = () => {};
+  if (routerRead) {
+    const lead = agentSlug;
+    headStart = runTurn(lead, new Promise<boolean>((resolve) => {
+      commit = resolve;
+    }));
+    headStart.catch(() => {});
+    routing = await routerRead;
+    agentSlug = routing?.chosen ?? lead;
+    if (agentSlug !== lead) {
+      commit(false);
+      headStart = null;
+      early.length = 0;
+    }
+  }
+  if (correction) {
+    void reflectOnCorrection({ orgId, agentSlug, userId, correction }).catch(() => {});
+  }
+  const routedAgent = routing ? roster.find(a => a.slug === routing!.chosen) ?? null : null;
+  // Who speaks this turn, as a fact the client renders and the row records —
+  // never a guess the composer made from its tags before the turn ran
+  // (backlog 009). The name is the roster's; a slug the roster no longer
+  // knows is sent as itself and the client says so rather than inventing one.
+  const turnAgent = { slug: agentSlug, name: roster.find(a => a.slug === agentSlug)?.name ?? agentSlug };
+
+  // The person's message is on the log, with who was picked and why, before
+  // any tool of the turn may read the thread.
+  if (conversationId !== null) {
+    try {
+      const userMsg = await appendMessage({
+        orgId,
+        conversationId,
+        role: 'user',
+        content: message,
+        userId,
+        ...(routing ? { routing } : {}),
+      });
+      if (attachments.length > 0) {
+        await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
+      }
+    } catch (error) {
+      commit(false);
+      throw error;
+    }
+  }
+  commit(true);
 
   const collector = conversationId !== null ? new RunCollector() : null;
   const encoder = new TextEncoder();
@@ -288,7 +375,7 @@ export async function POST(request: Request): Promise<Response> {
       // the status so a reloaded turn can still say what happened.
       let endingReason: string | null = null;
       // What the turn spent, counted while it runs (`budget/runCost.ts`).
-      const counted: { cost: RunCostScope | null } = { cost: null };
+      const counted = turnCost;
       const safeEnqueue = (chunk: Uint8Array) => {
         if (!closed) {
           try {
@@ -359,7 +446,9 @@ export async function POST(request: Request): Promise<Response> {
 
       // First frame: the resume handle (not part of the AgentEvent union —
       // the client stashes it and never reduces it into the transcript).
-      safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId })}\n\n`));
+      // A thread created with this turn names itself here, so the client never
+      // spends a round trip creating it first.
+      safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId, ...(conversationId !== null ? { conversationId } : {}) })}\n\n`));
       // Then who answers, when the workspace decided: the client renders the
       // turn under that agent's name, and the reason rides with it.
       if (routing && routedAgent) {
@@ -370,32 +459,13 @@ export async function POST(request: Request): Promise<Response> {
       writeEvent({ type: 'turn_agent', agent: turnAgent });
 
       try {
-        const turn = () => runAgentDeep({
-          allowedSourceSlugs,
-          orgId,
-          agentSlug,
-          message: withPageContext(messageForModel, pageContext, contextRefs, grounding.text),
-          userId,
-          conversationId: conversationId ?? undefined,
-          conversationHistory,
-          pageContext: pageContext ?? undefined,
-          timeZone,
-          ...(deliverable ? { deliverable } : {}),
-          ...(attachments.length > 0 ? { attachments } : {}),
-          modelPrefs,
-          onEvent: sendEvent,
-        });
-        // What this turn cost — its own model calls and every specialist it
-        // delegated to — is counted while it runs and written with the
-        // answer (`services/budget/runCost.ts`).
-        if (conversationId === null) {
-          await turn();
-        } else {
-          await withRunCost({ conversationId }, async (scope) => {
-            counted.cost = scope;
-            return turn();
-          });
+        // The head start, when the lead was picked, has been running all along;
+        // what it said while the router read goes out now, in order.
+        sink = sendEvent;
+        for (const event of early.splice(0)) {
+          sendEvent(event);
         }
+        await (headStart ?? runTurn(agentSlug));
       } catch (err) {
         const m = (err as Error).message ?? 'agent error';
         // The turn died here. Whatever text the collector holds is a fragment,

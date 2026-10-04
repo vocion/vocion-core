@@ -20,6 +20,12 @@ export type TurnScope = {
   readOnly: boolean;
   /** Writes that landed in this turn (a record, a change, a card, a decision). */
   writes: number;
+  /**
+   * Resolves when the turn knows what it may do — the intent read is in, and
+   * a head start has been picked (`agents/turnGate.ts`). The model runs
+   * before then; a write waits for it ({@link settleTurn}).
+   */
+  ready?: () => Promise<void>;
 };
 
 const storage = new AsyncLocalStorage<TurnScope>();
@@ -39,6 +45,15 @@ export function inTurn<T>(scope: TurnScope, fn: () => Promise<T>): Promise<T> {
 /** The turn this code runs in, when it runs in one. */
 export function currentTurn(): TurnScope | undefined {
   return storage.getStore();
+}
+
+/**
+ * Wait until the current turn knows whether it may write. Every write seam
+ * calls this before {@link writesRefused}: the turn's model starts before
+ * the intent read has answered, and a write must not race it.
+ */
+export async function settleTurn(): Promise<void> {
+  await storage.getStore()?.ready?.();
 }
 
 /** True when the current turn may not write. */

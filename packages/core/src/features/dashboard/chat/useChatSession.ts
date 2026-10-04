@@ -1402,25 +1402,10 @@ export function useChatSession({
     // speaks (`turn_agent`, the first frame) and the row records it. A label
     // stamped from a guess read "via QA" on a turn the product manager
     // answered (backlog 009).
-    if (conversationIdRef.current === null && agent.slug !== '__search__') {
-      try {
-        const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
-        setActiveConversation(agent.slug, conv.id);
-        // The name the server is about to give it — the first message, cut —
-        // shown now rather than after the turn lands.
-        setThreadMeta({ id: conv.id, title: firstMessageTitle(text), titleSource: 'auto' });
-        if (autonomy !== DEFAULT_AUTONOMY) {
-          // The person's standing choice applies to the thread it just created
-          // (the row is born at the default; only a different rung needs writing).
-          client.conversations.setAutonomy({ id: conv.id, autonomy }).catch((error) => {
-            console.warn('useChatSession: could not persist the autonomy setting', error);
-          });
-        }
-      } catch (error) {
-        // persistence is best-effort — chat still works ephemerally
-        console.warn('useChatSession: failed to create a persisted conversation', error);
-      }
-    }
+    // A new thread is created by the turn itself (`create_conversation`) and
+    // named in its first frame, rather than by a round trip of its own before
+    // the turn could start.
+    const createsThread = conversationIdRef.current === null && agent.slug !== '__search__';
     const activeConversationId = conversationIdRef.current;
 
     const controller = new AbortController();
@@ -1453,6 +1438,9 @@ export function useChatSession({
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),
+          ...(createsThread
+            ? { create_conversation: true, ...(autonomy !== DEFAULT_AUTONOMY ? { conversation_autonomy: autonomy } : {}) }
+            : {}),
           // How strong a model, how much it thinks (`libs/llm/modelPrefs.ts`).
           model_strength: modelPrefsRef.current.strength,
           thinking_effort: modelPrefsRef.current.effort,
@@ -1483,6 +1471,13 @@ export function useChatSession({
           try {
             const evt = JSON.parse(block.slice(6));
             if (evt.type === 'stream_meta') {
+              // The thread this turn created, when it created one.
+              if (createsThread && typeof evt.conversationId === 'number' && conversationIdRef.current === null) {
+                setActiveConversation(agent.slug, evt.conversationId);
+                // The name the server is about to give it — the first message,
+                // cut — shown now rather than after the turn lands.
+                setThreadMeta({ id: evt.conversationId, title: firstMessageTitle(text), titleSource: 'auto' });
+              }
               // Resume handle — stash it; replayed events are counted below
               // so a reconnect asks only for what it missed.
               streamStashRef.current = { streamId: String(evt.streamId), agentSlug: agent.slug, count: 0, conversationId: conversationIdRef.current };
