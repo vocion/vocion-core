@@ -34,7 +34,8 @@ COPY packages/plugins/transcript-highlights/package.json ./packages/plugins/tran
 
 # `--ignore-scripts` skips lefthook + husky hooks that aren't needed inside Docker.
 RUN apk add --no-cache libc6-compat python3 make g++ \
-  && npm ci --ignore-scripts
+  && npm ci --ignore-scripts \
+  && mkdir -p packages/core/node_modules
 
 # ----------------------------------------------------------------------
 # Stage 2 — build the app
@@ -82,6 +83,12 @@ ARG NEXT_PUBLIC_BRAND_ATTRIBUTION=
 ENV NEXT_PUBLIC_BRAND_ATTRIBUTION=${NEXT_PUBLIC_BRAND_ATTRIBUTION}
 
 COPY --from=deps /app/node_modules ./node_modules
+# A dependency the workspaces want at DIFFERENT versions is not hoisted: npm
+# nests core's copy under packages/core/node_modules (deepagents 1.14 for core
+# beside 1.10 for the agent runtime, 2026-10-04, deploy 37237947218: "Module
+# not found: Can't resolve 'deepagents'"). The deps stage makes the directory
+# exist even when nothing is nested, so this COPY never fails.
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY . .
 
 # `output: 'standalone'` in packages/core/next.config.ts produces
