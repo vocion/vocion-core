@@ -27,6 +27,7 @@
 
 import type { Initiative } from '@/services/agents/initiative';
 import type { AgentRow } from '@/services/AgentService';
+import { normalizeHarnessTarget } from '@/services/agents/harnessTarget';
 import { INITIATIVE_RANK, readInitiative } from '@/services/agents/initiative';
 import { listAgents } from '@/services/AgentService';
 import { getWorkspaceLead } from '@/services/TeamService';
@@ -51,6 +52,12 @@ export type RoutableAgent = {
   tools?: string[] | null;
   /** The skills it mounts. */
   skills?: string[] | null;
+  /**
+   * Its turns run on a worker's queue (`harness.runsOn: external-worker`),
+   * so it cannot answer a person in chat: conversation 474 sent a chat ask
+   * to such a seat, and the reply never came. Never routed to.
+   */
+  queued?: boolean;
 };
 
 /**
@@ -210,7 +217,7 @@ export function topicWords(text: string): Set<string> {
 }
 
 function isActive(agent: RoutableAgent): boolean {
-  return agent.active === undefined || agent.active === null || agent.active === true || agent.active === 'true';
+  return !agent.queued && (agent.active === undefined || agent.active === null || agent.active === true || agent.active === 'true');
 }
 
 /**
@@ -515,6 +522,7 @@ export function routableFromRow(row: Pick<AgentRow, 'slug' | 'name' | 'descripti
     objectTypes: row.objectTypeSlugs ?? null,
     tools: row.harnessConfig?.grantTools ?? null,
     skills: row.skillSlugs ?? null,
+    queued: normalizeHarnessTarget((row.harnessConfig as { runsOn?: unknown; provider?: unknown } | null | undefined)?.runsOn as string | undefined ?? (row.harnessConfig as { provider?: unknown } | null | undefined)?.provider as string | undefined) === 'external-worker',
   };
 }
 

@@ -49,3 +49,17 @@ describe('the front door for new work', () => {
     expect(said).not.toContain('New work');
   });
 });
+
+describe('a seat that cannot answer in chat', () => {
+  it('is never routed to, even when the read names it (conversation 474: the engineer runs on the worker queue)', async () => {
+    const { routeFirstTurn, routableFromRow } = await import('./router');
+    const seat = (slug: string, runsOn?: string) => routableFromRow({ slug, name: slug, description: `${slug} seat`, handles: [], suggestions: [], initiative: 'normal', active: 'true', harnessConfig: runsOn ? { runsOn } : {} } as never);
+    const decision = await routeFirstTurn(
+      { orgId: 'org_route_read', agents: [seat('product-manager'), seat('send-engineer', 'external-worker')], message: 'On Northwind Share, give the library keyboard shortcuts.', leadSlug: 'product-manager', surface: 'chat' },
+      { owners: async () => ({}), intake: async () => null, read: async () => ({ chosen: 'send-engineer', confidence: 0.9, reason: 'build work' }) },
+    );
+
+    expect(seat('send-engineer', 'external-worker').queued).toBe(true);
+    expect(decision?.chosen).toBe('product-manager');
+  });
+});
