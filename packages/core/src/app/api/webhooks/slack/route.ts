@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { logger } from '@/libs/Logger';
 import { getSurface } from '@/libs/surfaces/registry';
 import { handleInbound, handleJoined, slackEventsEnabled } from '@/services/ChatSurfaceService';
 
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
   const raw = await request.text();
   const verified = adapter.verify(raw, request.headers);
   if (!verified.ok) {
+    logger.warn('slack event refused', { reason: verified.reason });
     const status = verified.reason === 'missing_secret' ? 501 : 401;
     return NextResponse.json({ error: `signature check failed: ${verified.reason}` }, { status });
   }
@@ -38,6 +40,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ challenge: parsed.challenge });
   }
   if (parsed.kind === 'ignore') {
+    // Nothing is dropped in silence (Chris, 2026-10-05: a bare "@Vocion" vanished with no line).
+    logger.info('slack event ignored', { reason: parsed.reason });
     return NextResponse.json({ ok: true, ignored: parsed.reason });
   }
   if (request.headers.get('x-slack-retry-num')) {
@@ -46,10 +50,14 @@ export async function POST(request: Request) {
   if (parsed.kind === 'joined') {
     // The bot was invited somewhere. One introduction, posted the same
     // fire-and-forget way as a reply; no agent runs.
-    void handleJoined(adapter, parsed.join).catch(() => {});
+    void handleJoined(adapter, parsed.join)
+      .then(r => r.outcome === 'introduced' ? undefined : logger.warn('slack join not introduced', { ...r }))
+      .catch(error => logger.error('slack join failed', { error: error instanceof Error ? error.message : String(error) }));
     return NextResponse.json({ ok: true });
   }
   // Ack now; reply from the agent lands in the thread when it is ready.
-  void handleInbound(adapter, parsed.inbound).catch(() => {});
+  void handleInbound(adapter, parsed.inbound)
+    .then(r => r.outcome === 'replied' ? logger.info('slack mention answered', { orgId: r.orgId, agentSlug: r.agentSlug, conversationId: r.conversationId }) : logger.warn('slack mention not answered', { ...r }))
+    .catch(error => logger.error('slack mention failed', { channelId: parsed.inbound.channelId, error: error instanceof Error ? error.message : String(error) }));
   return NextResponse.json({ ok: true });
 }

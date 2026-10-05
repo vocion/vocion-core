@@ -64,12 +64,15 @@ export type WorkspaceRouteDeps = {
   /** The channel's name, when the platform says. */
   channelName: (binding: RouteBinding) => Promise<string | null>;
   /** The model read. */
-  read: (orgId: string, prompt: string) => Promise<WorkspaceRoute | null>;
+  read: (orgId: string, prompt: string, pictures?: readonly RoutePicture[]) => Promise<WorkspaceRoute | null>;
   /** The agent that answers in a workspace, by its own first-turn router. */
   agentIn: (orgId: string, message: string) => Promise<string | null>;
   /** Remember the workspace on the channel: a new binding for a catch-all channel, or one more id. */
   remember: (binding: RouteBinding, orgId: string, agentSlug: string) => Promise<void>;
 };
+
+/** A picture on the ask, as bytes the model reads: a screenshot often names the product before any word does. */
+export type RoutePicture = { contentType: string; base64: string };
 
 export type RoutedWorkspace = { orgId: string; agentSlug: string; routed: 'binding' | 'thread' | 'model'; reason: string; added?: boolean };
 
@@ -88,9 +91,10 @@ function isChannel(channelId: string): boolean {
  * @param inbound.text - What they wrote.
  * @param inbound.scopeRef - `slack:<channel>:<thread>`.
  * @param inbound.channelId - The channel it was said in.
+ * @param inbound.pictures - The pictures on the ask, read with the words.
  * @param seams - Seams for tests.
  */
-export async function routeToWorkspace(binding: RouteBinding, inbound: { text: string; scopeRef: string; channelId?: string }, seams?: WorkspaceRouteDeps): Promise<RoutedWorkspace> {
+export async function routeToWorkspace(binding: RouteBinding, inbound: { text: string; scopeRef: string; channelId?: string; pictures?: readonly RoutePicture[] }, seams?: WorkspaceRouteDeps): Promise<RoutedWorkspace> {
   // eslint-disable-next-line ts/no-use-before-define -- read at call time, after the module has loaded
   const deps = seams ?? defaultDeps;
   const asBound: RoutedWorkspace = { orgId: binding.orgId, agentSlug: binding.agentSlug, routed: 'binding', reason: binding.channelId === '*' ? 'the team catch-all' : 'the channel is bound' };
@@ -105,7 +109,7 @@ export async function routeToWorkspace(binding: RouteBinding, inbound: { text: s
     }
     const own = binding.channelId === '*' ? [] : [binding.orgId, ...(binding.workspaceIds ?? [])].filter((id, i, a) => a.indexOf(id) === i);
     const ordered = [...candidates.filter(c => own.includes(c.orgId)), ...candidates.filter(c => !own.includes(c.orgId))];
-    const read = await deps.read(binding.orgId, routePrompt(inbound.text, ordered, { channel: await deps.channelName(binding).catch(() => null), own }));
+    const read = await deps.read(binding.orgId, routePrompt(inbound.text, ordered, { channel: await deps.channelName({ ...binding, channelId: inbound.channelId ?? binding.channelId }).catch(() => null), own }), inbound.pictures);
     const picked = read ? candidates.find(c => c.orgId === read.workspace.trim()) : null;
     if (!read || !picked) {
       return asBound;
@@ -173,7 +177,7 @@ const defaultDeps: WorkspaceRouteDeps = {
     const res = await slackApi<{ channel?: { name?: string } }>('conversations.info', { channel: binding.channelId }, process.env.SLACK_BOT_TOKEN);
     return res.ok ? res.body.channel?.name ?? null : null;
   },
-  async read(orgId, prompt) {
+  async read(orgId, prompt, pictures) {
     const { buildChatModelForOrg } = await import('@/libs/llm');
     const { tool } = await import('@langchain/core/tools');
     const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
@@ -181,7 +185,9 @@ const defaultDeps: WorkspaceRouteDeps = {
     const report = tool(async () => 'recorded', { name: 'report_workspace', description: 'Report which workspace the message is for.', schema: WorkspaceRouteSchema as never });
     const res = await model.bindTools([report], { tool_choice: 'report_workspace' }).invoke([
       new SystemMessage('A person mentioned Vocion in their company\'s Slack. The company has several Vocion workspaces, each for different products or teams. Decide which one the message is for, from what it is about — the product, the work, the people or the agents it names — and from the channel it was said in. Workspaces marked as this channel\'s are the usual ones here; choose another only when the message is clearly about it. If nothing points to one, say so with a low confidence. Answer only through the tool.'),
-      new HumanMessage(prompt),
+      new HumanMessage(pictures && pictures.length > 0
+        ? { content: [{ type: 'text', text: `${prompt}\n\nThe pictures on the message follow.` }, ...pictures.slice(0, 2).map(p => ({ type: 'image_url', image_url: { url: `data:${p.contentType};base64,${p.base64}` } }))] }
+        : prompt),
     ]);
     const call = (res.tool_calls ?? []).find(c => c.name === 'report_workspace');
     const parsed = call ? WorkspaceRouteSchema.safeParse(call.args) : null;
