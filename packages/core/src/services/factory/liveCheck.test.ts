@@ -17,6 +17,14 @@ vi.mock('@/libs/DB');
 // The product's production access, as the vault would reveal it to the browser
 // (and never to the agent): set per test.
 const access: { environments: EnvironmentAccess[] } = { environments: [] };
+const proposed: Array<Record<string, unknown>> = [];
+vi.mock('@/services/ActionService', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/services/ActionService')>()),
+  proposeAction: async (input: Record<string, unknown>) => {
+    proposed.push(input);
+    return { runId: 9001, status: 'executed' };
+  },
+}));
 vi.mock('@/services/factory/productAccess', () => ({
   productAccess: async (_org: string, product: string) => ({ product, environments: access.environments }),
 }));
@@ -548,6 +556,37 @@ describe('when QA\'s fire ends', () => {
     expect(second).toEqual({ releaseId, did: 'gave-up', line: 'the agent stopped' });
     expect(await meta(releaseId)).toMatchObject({ liveState: 'not_checked', liveSummary: 'Couldn\'t check live yet: the agent stopped. Vocion will check again.', liveWhy: { kind: 'not_checked', detail: 'the agent stopped' } });
     expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'not_checked', line: 'Couldn\'t check live yet: the agent stopped. Vocion will check again.', releaseId, attempts: 0, lastReason: 'the agent stopped', why: { kind: 'not_checked', detail: 'the agent stopped' } });
+  });
+
+  it('a line the check reached and found wrong sends the feature back through its loop, once per release (FE-457, 2026-10-05)', async () => {
+    const org = `${ORG}_sent_back`;
+    const { requestId, releaseId } = await seed(org, [{ statement: 'A blank name is not saved.' }, { statement: 'The owner is never asked for the passcode.' }]);
+    await db.update(businessObjectSchema).set({ metadata: { state: 'shipped', shippedAt: '2026-10-05T04:07:00Z', acceptance: [{ statement: 'A blank name is not saved.' }, { statement: 'The owner is never asked for the passcode.' }] } }).where(eq(businessObjectSchema.id, requestId));
+    const [run] = await db.insert(automationRunSchema).values({ orgId: org, slug: 'release-live-check', kind: 'mission', status: 'completed', input: { releaseId, attempt: 2 } }).returning();
+    await recordLiveCheck(org, { releaseId, lines: lines([
+      { line: 1, result: 'seen', evidence: ['shot-7'], why: 'Save stayed disabled while the name was blank.' },
+      { line: 2, result: 'not_seen', evidence: ['shot-7'], why: 'The owner, signed in, got the passcode prompt on their own link.' },
+    ]) }, { session: new Map([['shot-7', shotEvidence(7)]]) });
+    proposed.length = 0;
+
+    const out = await liveCheckEnded(org, { automationRunId: run!.id, attempts: 2 });
+
+    expect(out.did).toBe('done');
+    expect(out.line).toContain(`sent back #${requestId}`);
+
+    const m = await meta(requestId);
+
+    expect(m.liveCheck).toMatchObject({ state: 'partial', sentBackFor: releaseId });
+    expect(m.reopenedBy).toBe('live-check');
+    expect(m.reopenReason).toMatch(/^Seen live and sent back: The owner is never asked for the passcode\. — The owner, signed in/);
+    expect(proposed).toHaveLength(1);
+    expect(proposed[0]).toMatchObject({ actionId: 'factory.dispatch_task', invokedBy: 'factory:live-check', internal: true });
+    expect(proposed[0]!.input).toMatchObject({ requestId, trigger: 'recovery', recoveryClass: 'not_seen_live' });
+    expect(String((proposed[0]!.input as Record<string, unknown>).note)).toContain('line 2: "The owner is never asked for the passcode." — The owner, signed in, got the passcode prompt on their own link.');
+
+    // The same release's end heard again starts nothing twice.
+    expect(await liveCheckEnded(org, { automationRunId: run!.id, attempts: 2 })).toMatchObject({ did: 'done' });
+    expect(proposed).toHaveLength(1);
   });
 
   it('a check that ran and recorded what failed stays "not seen" when its fire ends', async () => {
