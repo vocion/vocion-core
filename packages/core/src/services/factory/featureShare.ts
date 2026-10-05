@@ -30,6 +30,7 @@ import type { Phase } from '@/libs/factory/featureGlance';
 import { cardDescription, cardTitle, compactSpan, DEFAULT_BUILDER, DEFAULT_SITE_NAME, timeSplit } from '@/libs/factory/featureGlance';
 import { readRequestLive } from '@/libs/factory/liveCheck';
 import { showsAnError } from '@/libs/factory/mockup';
+import { posterSecond } from '@/libs/media/narration';
 import { API_ARTIFACTS_BASE } from '@/libs/tools/artifacts/url';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { firstSentence } from '@/libs/workspace/releaseFeed';
@@ -294,9 +295,7 @@ const WALKTHROUGH_LABEL: Record<string, string> = {
  * @param spec - The recording's spec (`script` as the narration placed it).
  */
 export function posterAt(spec: Record<string, unknown>): number | null {
-  const script = Array.isArray(spec.script) ? spec.script as Array<{ atMs?: unknown }> : [];
-  const first = script.map(l => Number(l.atMs)).filter(n => Number.isFinite(n) && n >= 0).sort((a, b) => a - b)[0];
-  return first === undefined ? null : Math.round(first) / 1000;
+  return posterSecond(spec);
 }
 
 /**

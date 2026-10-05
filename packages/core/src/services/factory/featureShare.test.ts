@@ -342,13 +342,14 @@ describe('the words that leave the workspace', () => {
   });
 
   it('takes the preview frame at the first spoken line, never the blank first frame (walk 20)', () => {
-    expect(posterAt({ script: [{ atMs: 15146, text: 'later' }, { atMs: 4443, text: 'first' }] })).toBe(4.443);
+    expect(posterAt({ script: [{ atMs: 15146, text: 'later' }, { atMs: 4443, endMs: 7900, text: 'first' }] })).toBe(7.9);
+    expect(posterAt({ script: [{ atMs: 4443, text: 'first' }] })).toBe(5.943);
     expect(posterAt({})).toBeNull();
 
     const demo = video(9, 'feature-demo-narrated', '2026-10-04T18:09:00Z', { spec: { contentType: 'video/mp4', caption: 'demo', script: [{ atMs: 4443, text: 'I open my library.' }] } });
     const page = publicFeaturePage(input({ recordings: [demo] }));
 
-    expect(page.media[0]).toMatchObject({ kind: 'video', posterAt: 4.443 });
+    expect(page.media[0]).toMatchObject({ kind: 'video', posterAt: 5.943 });
   });
 
   it('starts the timeline at the ask even when nothing else happened', () => {

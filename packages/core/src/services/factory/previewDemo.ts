@@ -9,6 +9,7 @@
  */
 import type { ReviewContent } from '@/libs/actions/types';
 import { DEMO_PREVIEW_VIDEO_ROLE } from '@/libs/factory/liveCheck';
+import { posterSecond } from '@/libs/media/narration';
 import { narratedRole } from '@/libs/media/roles';
 
 /** What the picker reads off an artifact row. */
@@ -27,9 +28,7 @@ function str(spec: unknown, key: string): string | null {
  * @param spec - The recording's spec.
  */
 function firstLineAt(spec: unknown): number | null {
-  const script = spec && typeof spec === 'object' && Array.isArray((spec as { script?: unknown }).script) ? (spec as { script: Array<{ atMs?: unknown }> }).script : [];
-  const first = script.map(l => Number(l.atMs)).filter(n => Number.isFinite(n) && n >= 0).sort((a, b) => a - b)[0];
-  return first === undefined ? null : Math.round(first) / 1000;
+  return posterSecond(spec && typeof spec === 'object' ? spec as Record<string, unknown> : null);
 }
 
 /**
