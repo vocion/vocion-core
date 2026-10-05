@@ -6,7 +6,7 @@ description: >-
   account: open it in the run's browser, look, act, screenshot what proves
   each acceptance line, record every line with record_live_check, then show
   each feature seen as a demo a product manager can watch.
-version: 6
+version: 7
 ---
 
 # Check the live release
@@ -52,19 +52,33 @@ as the product's QA account.
    feature demo — whether or not its lines were proven before merge: a video a product manager or product owner watches to see what the
    feature does, not QA's check. Open the demo with `browser_open` carrying
    `demo_for_request` (its own tab and its own recording, filed on that
-   request). Then walk the happy path end to end the way a user would: start
-   where the user starts, do the one thing the feature is for, and end on the
-   result. A vanity address is set on a document, shared, and then opened at
-   that address; a sort is picked and the list is seen in that order. Six to
-   twelve steps. Say what you do as you do it: `say` on each `browser_open`,
-   `browser_click`, `browser_type` and `browser_press`, and `browser_say` for
-   the opening line and the closing line. One plain sentence each, present
-   tense, first person, for someone who has never seen the feature ("I open
-   the document and pick Share"). The screen holds while each line is said,
-   so a viewer sees the state you describe; you never need to wait. No edge
-   cases, no error states, no second viewport: the happy path. Anything you
-   make for the demo, remove after it in a check tab (`browser_open` without
-   `demo_for_request`), so the removal is not in the video.
+   request). Then ENACT the whole story the way a user would, start to
+   payoff, on screen (Chris, 2026-10-04, on the expiry demo: "the demo video
+   doesn't quite show it all happening. Like there's no pdf upload and no
+   view of user trying to open an expired link"):
+   - Start where the user starts and MAKE what the feature needs in the
+     demo tab itself: a feature about files begins with `browser_upload`
+     (a sample PDF, named like a real one); a feature about a setting sets
+     it there and then; a feature about a link copies or opens that link.
+     Nothing is assumed to exist already, and nothing is described that is
+     not on screen.
+   - Do the one thing the feature is for, then show its payoff from the
+     side it lands on: open the link as the recipient (`browser_open` with
+     `signed_in: false` in the same demo), count the opens down, see the
+     expired page; read the reminder; find the row where the feature put it.
+     The payoff is the part a product owner is waiting for.
+   - Six to twelve steps. Say what you do as you do it: `say` on each
+     `browser_open`, `browser_click`, `browser_type`, `browser_upload` and
+     `browser_press`, and `browser_say` for the opening line and the closing
+     line. One plain sentence each, present tense, first person, for someone
+     who has never seen the feature ("I upload the board deck and set it to
+     stop after two opens"). The screen holds while each line is said, so a
+     viewer sees the state you describe; you never need to wait.
+   - A visible change per line: a line said over a screen that did not
+     change for it is cut from the demo. No edge cases, no second viewport.
+     Anything you made for the demo, remove after it in a check tab
+     (`browser_open` without `demo_for_request`), so the removal is not in
+     the video.
 
 Report in one line what was seen live, and that the demo was recorded.
 `record_live_check` writes the release and the features; do not write them

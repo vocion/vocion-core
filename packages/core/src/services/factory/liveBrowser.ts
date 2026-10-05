@@ -60,7 +60,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { LIVE_ROLE } from '@/libs/factory/liveCheck';
 import { snapshotWindow } from '@/libs/factory/snapshotWindow';
-import { spokenMs } from '@/libs/media/narration';
+import { accentRgba, DEMO_ACCENT, spokenMs } from '@/libs/media/narration';
 import { allowedOrigins, environmentFor, releaseLines, signIn, signInProblem } from './liveCheck';
 
 /** The two viewports QA may open a page at — the runner's own sizes (`packages/runner/src/qa.mjs` VIEWPORTS). */
@@ -192,16 +192,22 @@ const sessions = new Map<string, Session>();
  * spotlight that dims everything but the area being spoken about while a line is said. Injected
  * only into a demo tab's context — QA's check tab records the page as it is, nothing added.
  */
+// WHERE TO LOOK, subtly (Chris, 2026-10-04: "I just want to know where I should be
+// looking on the page while the agent is talking … same color as our avatar overlay.
+// Be subtle."): the area a line is about gets a thin outline in the one accent and a
+// faint glow — no page dim, and nothing is ever given focus. The ripple on a click and
+// the ring round the bubble share the accent (`DEMO_ACCENT`).
 const DEMO_CHROME_SCRIPT = `(() => {
   if (window.__vocionDemo) return;
   const css = document.createElement('style');
   css.textContent = [
     '#vocion-demo-cursor{position:fixed;left:0;top:0;width:22px;height:30px;z-index:2147483646;pointer-events:none;transform:translate(-9999px,-9999px);transition:transform 480ms cubic-bezier(.2,.7,.2,1);filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}',
-    '.vocion-demo-ripple{position:fixed;width:12px;height:12px;border-radius:50%;z-index:2147483645;pointer-events:none;border:3px solid #2563eb;background:rgba(37,99,235,.18);transform:translate(-50%,-50%) scale(1);opacity:.95;animation:vocion-ripple 560ms ease-out forwards}',
+    '.vocion-demo-ripple{position:fixed;width:12px;height:12px;border-radius:50%;z-index:2147483645;pointer-events:none;border:3px solid ${DEMO_ACCENT};background:${accentRgba(0.18)};transform:translate(-50%,-50%) scale(1);opacity:.95;animation:vocion-ripple 560ms ease-out forwards}',
     '@keyframes vocion-ripple{to{transform:translate(-50%,-50%) scale(5);opacity:0}}',
-    '#vocion-demo-spot{position:fixed;z-index:2147483644;pointer-events:none;border-radius:10px;box-shadow:0 0 0 9999px rgba(15,15,20,.42);transition:all 260ms ease;opacity:0}',
+    '#vocion-demo-spot{position:fixed;z-index:2147483644;pointer-events:none;border-radius:10px;border:2px solid ${accentRgba(0.85)};box-shadow:0 0 0 4px ${accentRgba(0.16)},0 0 22px ${accentRgba(0.28)};transition:all 260ms ease;opacity:0}',
     '#vocion-demo-key{position:fixed;left:50%;bottom:28px;z-index:2147483647;pointer-events:none;transform:translateX(-50%) scale(.9);opacity:0;transition:opacity 160ms ease,transform 160ms ease;font:600 22px/1 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#111;background:#fff;border:1px solid #cfd3da;border-bottom-width:4px;border-radius:10px;padding:12px 18px;min-width:22px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,.22)}',
     '#vocion-demo-key.on{opacity:1;transform:translateX(-50%) scale(1)}',
+    '#vocion-demo-key{border-bottom-color:${accentRgba(0.75)}}',
   ].join('\n');
   const mount = () => {
     if (!document.body) return false;
@@ -902,6 +908,48 @@ export async function browserType(key: string | null, input: { ref: string; text
       await loc.press('Enter', { timeout: BROWSER_LIMITS.actMs });
     }
     return { ok: true, result: input.submit ? 'typed and submitted' : 'typed' };
+  }, input.say);
+}
+
+/**
+ * Put a file into the page: a generated sample PDF of about `megabytes`, named
+ * `name`. The ref is a file input, or a control that opens the file chooser (an
+ * Upload button, a drop zone's button). Chris, 2026-10-04: the expiry demo
+ * "doesn't quite show it all happening. Like there's no pdf upload" — a demo
+ * of a product that takes files has to put one in.
+ * @param key - The session.
+ * @param input - Where and what.
+ * @param input.ref - The ref from the last snapshot: a file input, or what opens the chooser.
+ * @param input.name - The file's name as the product sees it.
+ * @param input.megabytes - About how big; 1 when unsaid, 64 at most.
+ * @param input.say - What QA tells the viewer once the file is in.
+ * @param deps - The clock.
+ */
+export async function browserUpload(key: string | null, input: { ref: string; name?: string; megabytes?: number; say?: string }, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+  const d = { ...defaultDeps, ...deps };
+  const mb = Math.min(64, Math.max(0.001, Number(input.megabytes) || 1));
+  const name = (input.name?.trim() || `sample-${mb}mb.pdf`).replace(/[^\w.-]+/g, '-').slice(0, 120);
+  return act(key, d, `upload ${name} via ${input.ref}`, input.ref, async (page) => {
+    const loc = byRef(page, input.ref);
+    if (!loc) {
+      return { ok: false, result: `"${input.ref}" is not a ref: use one from the snapshot, like e5` };
+    }
+    const { samplePdf } = await import('@/libs/factory/samplePdf');
+    const file = { name, mimeType: name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream', buffer: samplePdf(Math.round(mb * 1024 * 1024)) };
+    const isFileInput = await loc.evaluate(el => el instanceof HTMLInputElement && el.type === 'file').catch(() => false);
+    if (isFileInput) {
+      await loc.setInputFiles(file, { timeout: BROWSER_LIMITS.actMs });
+      return { ok: true, result: `uploaded ${name} (${mb} MB)` };
+    }
+    // A button or a drop zone: it opens the chooser; the file goes in there.
+    const chooser = page.waitForEvent('filechooser', { timeout: BROWSER_LIMITS.actMs });
+    await loc.click({ timeout: BROWSER_LIMITS.actMs });
+    try {
+      await (await chooser).setFiles(file);
+    } catch (e) {
+      return { ok: false, result: `${input.ref} opened no file chooser (${short(e)}); use the file input's own ref, or a control that opens one` };
+    }
+    return { ok: true, result: `uploaded ${name} (${mb} MB) through the chooser` };
   }, input.say);
 }
 

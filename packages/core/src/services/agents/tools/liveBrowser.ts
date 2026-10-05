@@ -78,6 +78,19 @@ export function liveBrowserTools(ctx: RuntimeContext): StructuredToolInterface[]
       },
     ),
     tool(
+      async args => answer(await (await svc()).browserUpload(await key(), { ref: args.ref, name: args.name, megabytes: args.megabytes, say: args.say })),
+      {
+        name: 'browser_upload',
+        description: 'Put a file into the page: a generated one-page sample PDF of about `megabytes`, named `name`. The ref is a file input, or the control that opens the file chooser (an Upload button, a drop zone\'s button). Use it wherever the feature starts with a file — a demo of a product that takes files has to put one in. Returns the new snapshot and an id to cite.',
+        schema: z.object({
+          ref: z.string().trim().min(1).max(20).describe('The file input, or what opens the chooser, by its ref from the last snapshot.'),
+          name: z.string().trim().min(1).max(120).optional().describe('The file name the product will show, e.g. "Northwind board deck.pdf".'),
+          megabytes: z.number().min(0.001).max(64).optional().describe('About how big; 1 when left out.'),
+          say: z.string().trim().max(300).optional().describe('In a demo: what you tell the viewer once the file is in, one plain sentence; the screen holds while it is said.'),
+        }),
+      },
+    ),
+    tool(
       async args => answer(await (await svc()).browserPress(await key(), args.key, {}, args.say)),
       {
         name: 'browser_press',
