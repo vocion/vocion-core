@@ -1163,6 +1163,13 @@
       "when": 1790903000000,
       "tag": "0165_conversation_message_turn",
       "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1790990000000,
+      "tag": "0166_chat_channel_workspaces",
+      "breakpoints": true
     }
   ]
 }

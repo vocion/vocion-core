@@ -4448,6 +4448,13 @@ export const chatChannelBindingSchema = pgTable(
     displayName: text('display_name'),
     /** Public https URL of the persona avatar; Slack fetches it per message. */
     iconUrl: text('icon_url'),
+    /**
+     * The other workspaces this channel is for (Chris, 2026-10-05: "specific channels should get
+     * (n) workspace associations … but allow addition if context is appropriate"). `orgId` is the
+     * channel's first; a thread's first mention is routed among these, and a confident route to
+     * another workspace of the account adds it here (`services/chat/workspaceRoute.ts`).
+     */
+    workspaceIds: text('workspace_ids').array().notNull().default(sql`'{}'::text[]`),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
