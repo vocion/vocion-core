@@ -761,6 +761,13 @@ async function ladderVerdict(
   if (proposal?.suggestedDecision === 'reject' || proposal?.suggestedDecision === 'snooze') {
     return { mode: 'ask', reason: `the agent itself advised "${proposal.suggestedDecision}"`, threshold: null, source: 'advice' };
   }
+  // The record's own hard stop: no trust rule, rung or confidence releases it. Fails safe.
+  if (action.holdForPerson) {
+    const held = await action.holdForPerson({ orgId }, parsed).catch(() => 'its hold could not be read, so it waits for a person');
+    if (held) {
+      return { mode: 'ask', reason: held, threshold: null, source: 'held' };
+    }
+  }
   // Done for you, by default (`libs/actions/autoAccept.ts`): a reversible,
   // low-risk kind runs on its own above its bar; an automating rung runs at
   // its trust rule's floor; everything else waits for a person. The ladder's

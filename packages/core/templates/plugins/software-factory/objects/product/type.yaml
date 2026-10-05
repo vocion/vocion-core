@@ -170,6 +170,15 @@ schema:
       type: array
       description: Slugs of the `repo` records that make this product. DERIVED from the repository records that name this product (`x-derived`); write the repository, not this.
       items: {type: string}
+    mergeApproval:
+      x-display: {label: Merge approval, group: Product}
+      type: string
+      enum: [person]
+      description: >-
+        "person" when every merge of a change to this product waits for a person to approve it,
+        whatever the workspace's trust rules say: nothing reaches main or production without one.
+        QA still reviews, the merge card carries the demo, and the factory follows the deploy into
+        production after the approval. Empty means the trust rules decide.
     accountableUser:
       x-display: {label: Accountable, group: Product}
       type: string

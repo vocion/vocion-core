@@ -136,6 +136,13 @@ export const gitMergeAction: Action = {
   ...gitMergeHandoff,
   manual: undefined,
   external: true,
+  // A PRODUCT WHOSE MERGES A PERSON APPROVES (Chris, 2026-10-05, on Slate: nothing reaches main or
+  // production without a person). Read off the request's product record (`mergeApproval`), so
+  // the rule is the record's, not core's.
+  async holdForPerson(ctx, raw) {
+    const { productMergeHold } = await import('@/services/factory/mergeHold');
+    return productMergeHold(ctx.orgId, raw as Record<string, unknown>);
+  },
   async reviewCard(ctx, raw) {
     const card = await gitMergeHandoff.reviewCard!(ctx, raw);
     // THE DEMO FIRST (backlog 058): the feature recorded from the branch

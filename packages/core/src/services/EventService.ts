@@ -678,6 +678,13 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     }
   }
 
+  // A person's approving review in Git approves the merge card waiting for it (Chris, 2026-10-05).
+  if (input.type === 'pr.review_submitted') {
+    const { approveMergeCardsOnReview } = await import('@/services/factory/mergeCards');
+    await approveMergeCardsOnReview(input.orgId, payload).catch((err) => {
+      console.warn('[events] could not approve merge cards from a review', { error: (err as Error).message });
+    });
+  }
   // A merge on GitHub is the decision its merge card asked for: close it
   // before anything subscribed to the merge reads the card as still open.
   if (input.type === 'pr.merged') {
