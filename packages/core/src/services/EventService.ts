@@ -372,6 +372,32 @@ export type ReleaseLiveCheckRequestedPayload = {
  */
 export const RELEASE_DEMO_REQUESTED = 'release.demo.requested';
 
+/**
+ * A record's status moved (`services/objects/statusField.ts` `markStatus`):
+ * one event for every step a record takes, so whatever follows a record —
+ * the Slack thread it was asked in (backlog 057), a notification — hears each
+ * move once, with the sentence the step was written with. Scalars only.
+ */
+export const RECORD_STATUS_MARKED = 'record.status_marked';
+
+/** Payload of `record.status_marked`. */
+export type RecordStatusMarkedPayload = {
+  recordId: number;
+  /** The record's type slug, as the workspace declares it. */
+  typeSlug: string;
+  /** The status field's name on the record (`status`). */
+  field: string;
+  /** The value written. */
+  value: string;
+  /** The group the value belongs to, by its role: proposed, progress, done, archived. */
+  groupRole: string;
+  /** The transition that named it. */
+  transition: string;
+  /** The sentence that went with it, or empty. */
+  line: string;
+  at: string;
+};
+
 /** Payload of `release.demo.requested`. Scalars and id lists only. */
 export type ReleaseDemoRequestedPayload = {
   releaseId: number;

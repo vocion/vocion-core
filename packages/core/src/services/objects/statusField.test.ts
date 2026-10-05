@@ -7,7 +7,7 @@ import { markStatus, statusSnapshot } from './statusField';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+const { businessObjectSchema, businessObjectTypeSchema, eventLogSchema } = await import('@/models/Schema');
 const { eq } = await import('drizzle-orm');
 
 /**
@@ -30,11 +30,26 @@ async function metaOf(id: number): Promise<Record<string, unknown>> {
 }
 
 afterEach(async () => {
+  await db.delete(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
   await db.delete(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG));
   await db.delete(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, ORG));
 });
 
 describe('markStatus', () => {
+  it('raises record.status_marked once per write, with the type, the value, the group and the sentence (backlog 057)', async () => {
+    const id = await record({ status: 'in_qa' });
+
+    await markStatus(ORG, id, 'merge_waits', { line: 'QA approved 8 of 8; the merge waits on a person.', at: '2026-10-04T23:00:00.000Z' });
+    await markStatus(ORG, id, 'merge_waits', { line: 'QA approved 8 of 8; the merge waits on a person.', at: '2026-10-04T23:00:00.000Z' });
+
+    const events = await db.select({ type: eventLogSchema.type, payload: eventLogSchema.payload }).from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
+    const marked = events.filter(e => e.type === 'record.status_marked');
+
+    expect(marked).toHaveLength(1);
+    expect(marked[0]!.payload).toMatchObject({ recordId: id, field: 'status', value: 'awaiting_merge', groupRole: 'progress', transition: 'merge_waits', line: 'QA approved 8 of 8; the merge waits on a person.', at: '2026-10-04T23:00:00.000Z' });
+    expect(typeof (marked[0]!.payload as { typeSlug?: unknown }).typeSlug).toBe('string');
+  });
+
   it('writes the value the type gives the transition, with its line and time', async () => {
     const id = await record({ state: 'building', status: 'in_qa' });
 
