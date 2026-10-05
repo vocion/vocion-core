@@ -316,6 +316,23 @@ describe('Show reveals the stored value for an admin', () => {
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith(expect.objectContaining({ credential: { keepStored: true } })));
   });
 
+  it('a revealed value saved while still shown, unedited, keeps the stored credential rather than pasting a copy of it', async () => {
+    // Sending the shown token as typed values would store a frozen copy: a login
+    // loses its refresh, and a one-key platform revokes the login it came from.
+    revealStoredCredential.mockResolvedValue({ status: 'ok', values: { token: 'ghs_the_real_value_abcd' } });
+    addConnector.mockResolvedValue({ ok: true, sourceId: 5 });
+    window.history.replaceState(null, '', '/?add=github');
+    await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
+    await page.getByRole('button', { name: 'Show' }).click();
+
+    await expect.element(page.getByLabelText('Personal access token', { exact: true })).toHaveValue('ghs_the_real_value_abcd');
+
+    await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith(expect.objectContaining({ credential: { keepStored: true } })));
+  });
+
   it('a refused reveal says so on the line and leaves the credential masked', async () => {
     revealStoredCredential.mockRejectedValue(new Error('Forbidden'));
     window.history.replaceState(null, '', '/?add=github');

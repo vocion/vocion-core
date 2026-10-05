@@ -77,6 +77,21 @@ describe('revealStoredCredential', () => {
     expect(await audits()).toHaveLength(0);
   });
 
+  it('a reveal that cannot be audited fails and hands back no value', async () => {
+    await storePlatformKey({ orgId: ORG, platform: 'hubspot', name: 'HubSpot key', apiKey: SECRET, createdBy: ADMIN });
+    const insert = vi.spyOn(db, 'insert').mockImplementationOnce(() => {
+      throw new Error('source_audit is unavailable');
+    });
+
+    try {
+      await expect(revealStoredCredential({ orgId: ORG, userId: ADMIN, connector: 'hubspot' })).rejects.toThrow('source_audit is unavailable');
+    } finally {
+      insert.mockRestore();
+    }
+
+    expect(await audits()).toHaveLength(0);
+  });
+
   it('never opens another workspace\'s key', async () => {
     await storePlatformKey({ orgId: ORG, platform: 'hubspot', name: 'HubSpot key', apiKey: SECRET, createdBy: ADMIN });
     const result = await revealStoredCredential({ orgId: 'org_somewhere_else', userId: ADMIN, connector: 'hubspot' });

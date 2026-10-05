@@ -115,11 +115,23 @@ export function missingCredentialLabels(inputs: CredentialInput[], draft: Creden
 }
 
 /**
- * What to send as the credential: the stored one, or the typed values.
+ * Whether the revealed values were left as the server sent them.
+ * @param draft - The form's state.
+ */
+function untouched(draft: CredentialDraft): boolean {
+  const snapshot = draft.snapshot;
+  return snapshot !== null && Object.keys({ ...snapshot, ...draft.values }).every(name => (snapshot[name] ?? '') === (draft.values[name] ?? ''));
+}
+
+/**
+ * What to send as the credential: the stored one, or the typed values. A value
+ * revealed and left as it was still means the stored one, shown or not:
+ * sending it back as typed values would save a frozen copy, so a login would
+ * lose its refresh and a one-key platform would revoke the login it came from.
  * @param draft - The form's state.
  */
 export function credentialChoiceOf(draft: CredentialDraft): { keepStored: true } | { values: Record<string, string> } {
-  return draft.keepStored ? { keepStored: true } : { values: draft.values };
+  return draft.keepStored || untouched(draft) ? { keepStored: true } : { values: draft.values };
 }
 
 /**
@@ -128,15 +140,6 @@ export function credentialChoiceOf(draft: CredentialDraft): { keepStored: true }
  */
 function maskedTail(hint: string): string {
   return `••••${hint.replace(/^…/, '').replace(/^login$/, '')}`;
-}
-
-/**
- * Whether the revealed values were left as the server sent them.
- * @param draft - The form's state.
- */
-function untouched(draft: CredentialDraft): boolean {
-  const snapshot = draft.snapshot;
-  return snapshot !== null && Object.keys({ ...snapshot, ...draft.values }).every(name => (snapshot[name] ?? '') === (draft.values[name] ?? ''));
 }
 
 /**

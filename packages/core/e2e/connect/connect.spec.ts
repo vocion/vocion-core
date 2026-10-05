@@ -87,6 +87,9 @@ async function listedConnectors(page: Page): Promise<string[]> {
 /** A made-up key: the test types it in and nothing ever sends it anywhere. */
 const HUBSPOT_KEY = 'pat-na1-e2e-not-a-real-key-0001';
 
+/** A made-up Granola key, saved on the Developers page and then shown on the Connectors form. */
+const GRANOLA_KEY = 'grn-e2e-not-a-real-key-0002';
+
 /**
  * Whether the workspace's HubSpot source reads as connected, the way the
  * Connectors page reads it.
@@ -96,6 +99,20 @@ async function hubspotConnected(page: Page): Promise<boolean> {
   const response = await page.request.get('/rpc/sources');
   const body = await response.json() as { sources: Array<{ slug: string; credentialConnected: boolean }> };
   return body.sources.some(source => source.slug.startsWith('hubspot') && source.credentialConnected);
+}
+
+/**
+ * Press "Add credential" on the Developers page unless its form is already up,
+ * and say whether it is up now. Polled, because on a cold dev server the first
+ * click can land before React has wired the button.
+ * @param page - A signed-in page on the Developers page.
+ */
+async function credentialFormOpened(page: Page): Promise<boolean> {
+  const platformSelect = page.getByLabel('Platform', { exact: true });
+  if (!await platformSelect.isVisible()) {
+    await page.getByRole('button', { name: 'Add credential' }).click();
+  }
+  return platformSelect.isVisible();
 }
 
 /**
@@ -160,6 +177,39 @@ test('HubSpot, paste only: one key in the add box and one Save make the connecte
   await page.goto('/dashboard/developers');
 
   await expect(page.getByRole('row').filter({ hasText: 'HubSpot' }).first()).toBeVisible();
+});
+
+test('a key saved on Developers: the Connectors form shows only its tail until Show, and Hide takes the value off the page', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/dashboard/developers');
+
+  await expect.poll(() => credentialFormOpened(page), { timeout: 30_000 }).toBe(true);
+
+  await page.getByLabel('Platform', { exact: true }).selectOption('granola');
+  await page.getByLabel('Name').fill('Granola key');
+  await page.getByLabel('API key', { exact: true }).fill(GRANOLA_KEY);
+  await page.getByRole('button', { name: 'Save key' }).click();
+
+  await expect(page.getByRole('row').filter({ hasText: 'Granola key' })).toBeVisible();
+
+  await page.goto('/dashboard/connectors');
+  await page.getByRole('button', { name: 'Connect Granola' }).click();
+  const stored = page.getByTestId('connect-stored-text');
+
+  // The page carries the masked tail, never the key.
+  await expect(stored).toHaveText(`Saved key · ••••${GRANOLA_KEY.slice(-4)}`);
+  expect(await page.content()).not.toContain(GRANOLA_KEY);
+
+  // Show asks the server (admin-only, audited) and fills an editable input.
+  await page.getByRole('button', { name: 'Show', exact: true }).click();
+
+  await expect(page.getByLabel('API key', { exact: true })).toHaveValue(GRANOLA_KEY);
+
+  // Hide on an untouched value drops it from the page and the masked line returns.
+  await page.getByRole('button', { name: 'Hide API key' }).click();
+
+  await expect(stored).toHaveText(`Saved key · ••••${GRANOLA_KEY.slice(-4)}`);
+  expect(await page.content()).not.toContain(GRANOLA_KEY);
 });
 
 test('Slack from the Connectors page: the login makes the source itself and the add form does not reopen', async ({ page }) => {
