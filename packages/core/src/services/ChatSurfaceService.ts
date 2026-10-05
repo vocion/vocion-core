@@ -218,7 +218,7 @@ export async function handleJoined(adapter: ChatSurfaceAdapter, join: ChatJoin):
 /** Dependency seam so the handler is testable without a model or a network. */
 export type ChatHandlerDeps = {
   /** Which workspace a catch-all mention is for (`chat/workspaceRoute.ts`). */
-  route: (binding: ChatChannelBinding, inbound: { text: string; scopeRef: string }) => Promise<import('./chat/workspaceRoute').RoutedWorkspace>;
+  route: (binding: ChatChannelBinding, inbound: { text: string; scopeRef: string; channelId?: string }) => Promise<import('./chat/workspaceRoute').RoutedWorkspace>;
   runAgent: typeof runAgentDeep;
   preflight: typeof preflightCheck;
   /** Builds the thread context. Injected so the tests need no Slack. */
@@ -316,7 +316,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   }
   // WHICH WORKSPACE (Chris, 2026-10-05): a mention that only matched the team's catch-all goes to
   // the workspace it is about, and the rest of its thread follows (`chat/workspaceRoute.ts`).
-  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}` });
+  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId });
   const binding = route.routed === 'model' || route.routed === 'thread'
     ? { ...bound, orgId: route.orgId, agentSlug: route.agentSlug, displayName: null, iconUrl: null }
     : bound;
