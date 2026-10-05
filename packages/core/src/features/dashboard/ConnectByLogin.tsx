@@ -274,7 +274,8 @@ function CredentialBox({ input, draft, setDraft, focusWhenShown }: {
           ref={box}
           value={draft.values[input.name] ?? ''}
           onChange={event => setDraft(current => ({ ...current, values: { ...current.values, [input.name]: event.target.value } }))}
-          placeholder={masked ? '••••••••••••••••' : ''}
+          // Not a row of dots: an empty masked box would read as a key already typed, next to "Still needed".
+          placeholder={input.secret ? 'Paste the value' : ''}
           className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
         />
         {input.secret

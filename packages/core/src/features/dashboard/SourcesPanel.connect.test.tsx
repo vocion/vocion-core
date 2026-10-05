@@ -184,6 +184,13 @@ describe('the add form puts the credential inside it', () => {
     await expect.element(page.getByLabelText('Private-app token', { exact: true })).toHaveAttribute('type', 'password');
   });
 
+  it('an empty secret input asks for a value rather than showing dots that read as one already typed', async () => {
+    await render(<SourcesPanel connectInfo={{}} />);
+    await page.getByRole('button', { name: 'Connect HubSpot' }).click();
+
+    await expect.element(page.getByLabelText('Private-app token', { exact: true })).toHaveAttribute('placeholder', 'Paste the value');
+  });
+
   it('save waits for the credential and names it, and for the settings and names them', async () => {
     window.history.replaceState(null, '', '/?add=github');
     await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
