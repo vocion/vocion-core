@@ -1,5 +1,6 @@
 import type { ChatImageFetcher, ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { LoadedAttachment } from '@/services/chat/attachments';
+import type { ThreadApproval } from '@/services/chat/slackApproval';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
@@ -16,7 +17,8 @@ import { preflightCheck } from '@/services/BudgetService';
 import { acceptUpload, loadedFromArtifact, MAX_IMAGE_BYTES, uploadSpec } from '@/services/chat/attachments';
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
 import { withPageContext } from '@/services/chat/pageContext';
-import { recordSlackPost, threadAlreadyNoticed } from '@/services/chat/slackPosts';
+import { approvalFromThread, defaultThreadApprovalDeps } from '@/services/chat/slackApproval';
+import { recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
 import { buildSlackThreadContext, scopeGapSentence, threadPageContext } from '@/services/chat/slackThread';
 import { appendMessage, createConversation, latestConversationForScope, listMessages, toHistoryTurns } from '@/services/ConversationService';
 
@@ -223,6 +225,8 @@ export type ChatHandlerDeps = {
   permalink: (opts: { channelId: string; messageTs: string }) => Promise<string | null>;
   /** The bytes of a picture on the message, behind the bot's token. Null when it cannot be read. */
   fetchFile: (url: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
+  /** A reply that decides a card waiting in this thread (`slackApproval.ts`), or null to answer as a turn. */
+  approval: (orgId: string, inbound: ChatInbound, conversationId: number) => Promise<ThreadApproval>;
 };
 
 const defaultDeps: ChatHandlerDeps = {
@@ -231,6 +235,7 @@ const defaultDeps: ChatHandlerDeps = {
   buildThreadContext: buildSlackThreadContext,
   permalink: opts => chatPermalink(opts, process.env.SLACK_BOT_TOKEN),
   fetchFile: url => fetchSlackFile(url, process.env.SLACK_BOT_TOKEN),
+  approval: (orgId, inbound, conversationId) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps),
 };
 
 /**
@@ -329,6 +334,17 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const userMsg = await appendMessage({ orgId, conversationId, role: 'user', content: inbound.text, userId: createdBy });
   if (pictures.attachments.length > 0 && userMsg?.id) {
     await claimAttachments({ orgId, artifactIds: pictures.attachments.map(a => a.id), conversationId, messageId: userMsg.id }).catch(() => {});
+  }
+
+  // A REPLY THAT DECIDES (backlog 057): a card waiting on this thread, and
+  // words a model reads as the decision, from a Slack user Vocion knows as a
+  // member — decided here, said back, no agent turn. Anything else is a turn.
+  const approval = await deps.approval(orgId, inbound, conversationId).catch(() => null);
+  if (approval) {
+    await appendMessage({ orgId, conversationId, role: 'assistant', content: approval.reply, status: 'complete' });
+    const posted = await adapter.reply(target, approval.reply);
+    await recordSlackPost({ orgId, teamId: inbound.teamId, channelId: inbound.channelId, ts: tsOf(posted), threadTs: inbound.threadRef, kind: 'reply', agentSlug, text: approval.reply, createdBy: approval.decided ? `decision:${approval.verb}:${approval.runId}` : 'system:slack-approval' }).catch(() => {});
+    return { outcome: 'replied', orgId, agentSlug, conversationId, text: approval.reply };
   }
 
   // Where the person is, on this surface: the channel, the post they replied
