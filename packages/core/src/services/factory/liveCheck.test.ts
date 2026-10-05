@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { HUMAN_BEATS } from '@/libs/factory/demoNavigation';
 import { RecordedLineSchema } from '@/libs/factory/liveCheck';
 
 vi.mock('@/libs/DB');
@@ -424,9 +425,12 @@ describe('the browser tools, in a real browser against a fictional product', asy
     const videos = await mkdtemp(path.join(tmpdir(), 'vocion-live-video-'));
     const before = process.env.VOCION_ARTIFACTS_DIR;
     process.env.VOCION_ARTIFACTS_DIR = store;
-    const held: number[] = [];
+    const dwelt: number[] = [];
+    // The beats a person takes (after a page, after an action) are not a line's hold.
+    const beats = new Set<number>(Object.values(HUMAN_BEATS));
+    const held = () => dwelt.filter(ms => !beats.has(ms));
     const d = { ...deps(videos), dwell: async (ms: number) => {
-      held.push(ms);
+      dwelt.push(ms);
     } };
     try {
       // The check tab first: a line said here is not the demo's, and holds nothing.
@@ -434,7 +438,7 @@ describe('the browser tools, in a real browser against a fictional product', asy
 
       expect(checked.ok).toBe(true);
       expect(await browserSvc.browserSay(key, 'This is said in the check tab.', d)).toMatchObject({ ok: true, result: expect.stringContaining('not held') });
-      expect(held).toEqual([]);
+      expect(held()).toEqual([]);
 
       // A demo of a request the release did not ship is refused with the ones it did.
       expect(await browserSvc.browserOpen(key, org, { releaseId, target: '/rename', demoForRequest: requestId + 9_999 }, d)).toMatchObject({ ok: false, refused: expect.stringContaining(`not one this release shipped (#${requestId})`) });
@@ -442,14 +446,14 @@ describe('the browser tools, in a real browser against a fictional product', asy
       const opened = await browserSvc.browserOpen(key, org, { releaseId, target: '/rename', demoForRequest: requestId, say: 'I open the document to rename it.' }, d);
 
       expect(opened.ok).toBe(true);
-      expect(held).toHaveLength(1);
+      expect(held()).toHaveLength(1);
 
       await browserSvc.browserType(key, { ref: /textbox "Name" \[ref=(e\d+)\]/.exec(opened.snapshot ?? '')?.[1] ?? '', text: 'Q3 board deck', say: 'I type the new name, Q3 board deck.' }, d);
       const closing = await browserSvc.browserSay(key, 'Save is ready, and the document keeps its new name.', d);
 
       expect(closing).toMatchObject({ ok: true, result: expect.stringMatching(/^said, and held the screen \d+(\.\d)?s$/) });
-      expect(held).toHaveLength(3);
-      expect(held.every(ms => ms >= 1_800 && ms <= 12_000)).toBe(true);
+      expect(held()).toHaveLength(3);
+      expect(held().every(ms => ms >= 1_800 && ms <= 12_000)).toBe(true);
 
       await browserSvc.closeBrowserSession(key);
 

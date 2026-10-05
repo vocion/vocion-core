@@ -2006,6 +2006,12 @@ async function main() {
     try {
       evidence = await captureEvidence({
         qa,
+        // The demo's chrome, from the deployment this run reports to: one look for every demo.
+        demoChrome: cfg.vocionUrl
+          ? async () => {
+            const r = await fetch(`${cfg.vocionUrl}/api/demo-chrome`, { signal: AbortSignal.timeout(10000) }); return r.ok ? await r.text() : null;
+          }
+          : null,
         taskId: task.task_id,
         runId,
         recordId: state.record?.id || null,
