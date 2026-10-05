@@ -25,7 +25,19 @@ import { ADMIN, seedConnectWorkspace } from './support/seed';
  */
 
 /** Hosts a real login would reach. A request to any of these is a failure. */
-const VENDOR_HOSTS = ['github.com', 'api.github.com', 'slack.com', 'atlassian.com', 'auth.atlassian.com', 'hubapi.com', 'api.hubapi.com'];
+const VENDOR_HOSTS = [
+  'github.com',
+  'slack.com',
+  'atlassian.com',
+  'hubspot.com',
+  'hubapi.com',
+  'google.com',
+  'googleapis.com',
+  'notion.com',
+  'zoom.us',
+  'apollo.io',
+  'posthog.com',
+];
 
 /** Every URL the browser asked for, across all cases. */
 const requestedUrls: string[] = [];
@@ -153,7 +165,7 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   await expect(page.getByText(/Login · northwind/)).toBeVisible();
 });
 
-test('HubSpot, paste only: one key in the add box and one Save make the connected source and list the key', async ({ page }) => {
+test('HubSpot, with no HubSpot app set up on this server: paste only, one key in the add box and one Save make the connected source and list the key', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
   await page.getByRole('button', { name: 'Connect HubSpot' }).click();
@@ -232,6 +244,32 @@ test('Slack from the Connectors page: the login makes the source itself and the 
   await expect(page.locator('form').getByRole('button', { name: 'Add connector' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Connect Slack' })).toHaveCount(0);
 });
+
+/** Connectors whose login alone makes the source, each logging in with its vendor's own button. */
+const LOGIN_IS_ENOUGH = [
+  { connector: 'gmail', name: 'Gmail', provider: 'google', providerLabel: 'Google' },
+  { connector: 'notion', name: 'Notion', provider: 'notion', providerLabel: 'Notion' },
+  { connector: 'zoom', name: 'Zoom', provider: 'zoom', providerLabel: 'Zoom' },
+  { connector: 'apollo', name: 'Apollo', provider: 'apollo', providerLabel: 'Apollo' },
+] as const;
+
+for (const login of LOGIN_IS_ENOUGH) {
+  test(`${login.name} from the Connectors page: the ${login.providerLabel} login wears its brand and makes the source itself`, async ({ page }) => {
+    await signIn(page);
+    await page.goto('/dashboard/connectors');
+    await page.getByRole('button', { name: `Connect ${login.name}` }).click();
+
+    const button = page.getByRole('link', { name: `Log in with ${login.providerLabel}` });
+
+    await expect(button).toHaveAttribute('data-brand', login.provider);
+
+    await button.click();
+
+    await expect.poll(() => requested(new RegExp(`/api/connect/${login.provider}/callback`))).toBe(true);
+    await expect.poll(() => listedConnectors(page)).toContain(login.connector);
+    await expect(page.getByRole('button', { name: `Connect ${login.name}` })).toHaveCount(0);
+  });
+}
 
 test('in chat: a refused login keeps the card, now saying Try again with the dated attempt, even when the card is pressed while its reply is still being written', async ({ page }) => {
   await signIn(page);

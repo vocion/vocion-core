@@ -8,9 +8,21 @@
  * from the `hubspot` source's vault entry (private-app token).
  */
 
-import type { Action } from './types';
+import type { Action, ActionContext } from './types';
 import { z } from 'zod';
-import { createHubspotClient, tokenFromCredentials } from '@/libs/hubspot/client';
+import { createHubspotClient } from '@/libs/hubspot/client';
+
+/**
+ * The HubSpot token for this run: a pasted private-app token as stored, or a
+ * login refreshed first (HubSpot's access token lasts 30 minutes) and saved to
+ * the `hubspot` source's row. Imported on use: the tool module is heavy.
+ * @param ctx - The action context carrying the vault credentials.
+ * @throws {Error} When the login cannot be refreshed.
+ */
+async function freshHubspotToken(ctx: ActionContext): Promise<string | undefined> {
+  const { hubspotTokenForActionSlug } = await import('@/services/agents/tools/hubspotDirect');
+  return hubspotTokenForActionSlug(ctx.orgId, 'hubspot', ctx.credentials);
+}
 
 const hubspotUpdateInput = z.object({
   objectType: z.enum(['contacts', 'deals', 'companies']),
@@ -50,7 +62,7 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
     };
   },
   async execute(ctx, input) {
-    const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
+    const token = await freshHubspotToken(ctx);
     if (!token) {
       throw new Error('hubspot.update requires connected HubSpot credentials (credentials.token)');
     }
@@ -88,7 +100,7 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
   // update run on its own (`libs/actions/autoAccept.ts`) — done for you, and
   // one click puts it back.
   async undo(ctx, input, result) {
-    const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
+    const token = await freshHubspotToken(ctx);
     if (!token) {
       throw new Error('hubspot.update undo requires connected HubSpot credentials (credentials.token)');
     }

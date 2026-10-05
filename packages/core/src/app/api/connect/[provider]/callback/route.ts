@@ -25,7 +25,7 @@ import { providerFor } from '@/libs/connect/registry';
 import { returnUrl, withoutAddParam } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
-import { stateIssuedAt, verifyState } from '@/libs/connect/state';
+import { pkceVerifierFor, stateIssuedAt, verifyState } from '@/libs/connect/state';
 import { approveLoginCard, completeLogin, recordFailedLogin } from '@/services/connect/completeLogin';
 import { createSourceWhenNoConfigNeeded, loginMakesItsSource } from '@/services/connect/createSourceOnLogin';
 
@@ -139,9 +139,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   if (!provider) {
     return landAt(req, origin, { ok: false, reason: 'unknown_provider' });
   }
+  const rawState = req.nextUrl.searchParams.get('state');
   let verified: ReturnType<typeof verifyState>;
   try {
-    verified = verifyState(req.nextUrl.searchParams.get('state'));
+    verified = verifyState(rawState);
   } catch {
     // AUTH_SECRET is unset: nothing signed this and nothing can check it.
     return landAt(req, origin, { ok: false, reason: 'server_unconfigured' });
@@ -195,7 +196,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   });
   let exchanged: Awaited<ReturnType<typeof provider.exchange>>;
   try {
-    exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id) });
+    // The state verified above, so it is the string the start derived the PKCE challenge from.
+    const codeVerifier = provider.pkce && rawState ? pkceVerifierFor(rawState) : undefined;
+    exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id), ...(codeVerifier ? { codeVerifier } : {}) });
   } catch (error) {
     // The vendor timed out, refused the connection or sent something unreadable. Nothing was stored.
     console.error('[connect] vendor exchange threw', {

@@ -16,12 +16,13 @@ import type { StoredCredential } from './createSourceOnLogin';
 import type { DbTransaction } from '@/libs/DbTransaction';
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { providerForConnector } from '@/libs/connect/registry';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { CredentialValidationError, holdsManyCredentials, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { apiTokenSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { insertSealedPlatformKey, sealPlatformKey } from '@/services/ApiTokenService';
-import { ConnectorCredentialError, CredentialInUseError } from '@/services/SourceCredentialService';
+import { ConnectorCredentialError, CredentialInUseError, getCredentialsForConnector } from '@/services/SourceCredentialService';
 import { adminCheck, configProblem, connectorLabel, newestLiveCredential, resolveTarget, saveWithin } from './createSourceOnLogin';
 
 /** Where the new source's credential comes from: the workspace's stored login or key, or values typed into the form. */
@@ -111,6 +112,30 @@ async function refuseIfSavedKeyIsInUse(tx: DbTransaction, orgId: string, platfor
 }
 
 /**
+ * Why a saved login cannot serve this connector, or null when it can. Only a
+ * provider serving several connectors with different access (Google) says no:
+ * a Google login made for Drive has no Gmail scope, and a Gmail source kept on
+ * it would fail every sync. A login that cannot be read is left to the save,
+ * which reports it the usual way.
+ * @param orgId - The workspace.
+ * @param stored - The saved credential the person chose to keep.
+ * @param connector - The connector being added.
+ */
+export async function loginCannotServe(orgId: string, stored: StoredCredential, connector: string): Promise<string | null> {
+  const provider = providerForConnector(connector);
+  if (stored.obtainedVia !== 'login' || !provider?.missingAccessFor) {
+    return null;
+  }
+  try {
+    const values = await getCredentialsForConnector({ orgId, connectorSlug: connector, apiTokenId: stored.id });
+    return values ? provider.missingAccessFor(values, connector) : null;
+  } catch (error) {
+    logger.warn('createSourceWithCredential could not read the saved login to check its access', { orgId, connector, errorName: error instanceof Error ? error.name : 'unknown' });
+    return null;
+  }
+}
+
+/**
  * Save a new source and settle its credential in one transaction. Always a new
  * source: "Add" on the Connectors page never merges into an existing one.
  * @param input - Who, which connector, its settings and the credential choice.
@@ -133,6 +158,10 @@ export async function createSourceWithCredential(input: CreateSourceWithCredenti
     stored = await newestLiveCredential(input.orgId, platform.id);
     if (!stored) {
       return { ok: false, reason: `This workspace has no saved ${connectorLabel(input.connector)} login or key yet. Paste one.` };
+    }
+    const cannotServe = await loginCannotServe(input.orgId, stored, input.connector);
+    if (cannotServe) {
+      return { ok: false, reason: cannotServe };
     }
   }
   const target = await resolveTarget({ orgId: input.orgId, actorUserId: input.actorUserId, connector: input.connector, config: input.config, createNew: true });

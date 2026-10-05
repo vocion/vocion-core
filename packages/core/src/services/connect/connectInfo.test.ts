@@ -1,9 +1,31 @@
+import type { connectOptionFor } from '@/libs/connect/registry';
+import type * as RealRegistry from '@/libs/connect/registry';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * What the page is told per connector. Wrong here means the form claims a
  * login nobody made (a pasted key read as "logged in"), or hides a failure.
  */
+
+/**
+ * Which login apps this test's server has: every provider is set up unless a
+ * test takes it away, whatever the developer's .env holds, so the tests read
+ * the same on a laptop and in CI.
+ */
+const providerSetup = vi.hoisted(() => ({ unconfigured: new Set<string>() }));
+
+/**
+ * The connect option as this test's server has it.
+ * @param option - The real option.
+ */
+function setUpForTest(option: ReturnType<typeof connectOptionFor>): ReturnType<typeof connectOptionFor> {
+  return option && { ...option, configured: !providerSetup.unconfigured.has(option.provider) };
+}
+
+vi.mock('@/libs/connect/registry', async (importOriginal) => {
+  const real = await importOriginal<typeof RealRegistry>();
+  return { ...real, connectOptionFor: (slug: string) => setUpForTest(real.connectOptionFor(slug)) };
+});
 
 vi.mock('@/libs/connect/attempts', () => ({ lastConnectAttempts: vi.fn() }));
 vi.mock('./createSourceOnLogin', () => ({ newestLiveCredential: vi.fn() }));
@@ -25,6 +47,18 @@ describe('connectInfoForOrg', () => {
     const info = await connectInfoForOrg('org_a');
 
     expect(info.github).toMatchObject({ providerLabel: 'GitHub', loggedInAs: 'northwind' });
+  });
+
+  it('names no login provider when this server has no app for it, so the form offers paste alone', async () => {
+    providerSetup.unconfigured.add('hubspot');
+    try {
+      const info = await connectInfoForOrg('org_a');
+
+      expect(info.hubspot).toMatchObject({ providerLabel: null });
+      expect(info.notion).toMatchObject({ providerLabel: 'Notion' });
+    } finally {
+      providerSetup.unconfigured.delete('hubspot');
+    }
   });
 
   it('does not call a pasted key a login', async () => {

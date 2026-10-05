@@ -4,10 +4,12 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
+import { connectOptionFor } from '@/libs/connect/registry';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { connectorHasLiveSource, newestLiveCredential } from '@/services/connect/createSourceOnLogin';
+import { loginCannotServe } from '@/services/connect/createSourceWithCredential';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 
 /**
@@ -77,7 +79,9 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     return `${name} is already connected; nothing to offer.`;
   }
   const how = howToConnectFor(connector.slug);
-  const login = how?.login;
+  // A login this server has no app for would be a card that only errors, so
+  // it is offered as paste instead.
+  const login = connectOptionFor(connector.slug)?.configured ? how?.login : undefined;
   const source = { agentSlug: ctx.agentSlug, tool: 'offer_connection' };
   if (!login) {
     // No login for this connector: the button opens its token form. A connector
@@ -89,10 +93,11 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     return connectedWording(name, href, null);
   }
   // A live login with no source yet: the next step is picking what to sync,
-  // not another login.
+  // not another login. Unless the login lacks this connector's access (a
+  // Google login made for Drive, asked for Gmail): then offer the login again.
   const platform = platformForConnectorSlug(connector.slug);
   const live = platform ? await newestLiveCredential(ctx.orgId, platform.id) : null;
-  if (live?.obtainedVia === 'login') {
+  if (live?.obtainedVia === 'login' && !(await loginCannotServe(ctx.orgId, live, connector.slug))) {
     const account = live.account ?? 'the connected account';
     return login.settingsAfterLogin.length === 0
       ? `Already logged in to ${name} as ${account}, but it has no source yet. Send them to Connectors to add it.`

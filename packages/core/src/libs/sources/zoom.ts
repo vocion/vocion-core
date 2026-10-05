@@ -2,9 +2,13 @@
  * Zoom connector — ingest cloud recordings (meeting metadata + transcript)
  * as retrievable documents, company-wide.
  *
- * Auth: Server-to-Server OAuth (account-level, no per-user consent).
- * Credentials: { accountId, clientId, clientSecret } — mint an access token
- * per run (cached ~55 min; Zoom tokens live 1h).
+ * Auth, either of:
+ *  - Server-to-Server OAuth (account-level, no per-user consent). Credentials
+ *    { accountId, clientId, clientSecret }: mint an access token per run
+ *    (cached ~55 min; Zoom tokens live 1h).
+ *  - "Connect with Zoom" (a person's own login). Credentials
+ *    { accessToken, refreshToken, expiresAt, ... }: `resolveZoomAccess`
+ *    refreshes an expiring token and saves Zoom's rotated refresh token.
  *
  * Walks active users, then each user's cloud recordings over a rolling
  * window (Zoom caps each list call at a 30-day span, so the window is
@@ -13,9 +17,13 @@
  */
 
 import type { SourceConnector, SourceContext } from './types';
+import type { GrantPersistence } from '@/libs/connect/loginGrant';
 import type { IngestDoc } from '@/services/IngestionService';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
+import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
+import { refreshZoomGrant } from '@/libs/connect/providers/zoom';
+import { logger } from '@/libs/Logger';
 
 const zoomConfigSchema = z.object({
   /** How far back to index recordings. */
@@ -81,6 +89,121 @@ export async function mintToken(authBaseUrl: string, credentials: Record<string,
   return data.access_token;
 }
 
+const USER_REQUEST_TIMEOUT_MS = 15_000;
+
+/** What a Zoom call is made with, and whether it came from a person's login. */
+export type ZoomAccess = { token: string; viaLogin: boolean };
+
+/**
+ * The access token for a Zoom call. A login grant (Connect with Zoom) is used
+ * as stored while good and refreshed once expiring (a sync saves the rotated
+ * refresh token; Test connection never refreshes). A pasted Server-to-Server
+ * bag mints a token as before. The one place all Zoom reads get their token.
+ * @param input - The call's inputs.
+ * @param input.authBaseUrl - Zoom's OAuth host, for the Server-to-Server mint.
+ * @param input.credentials - The decrypted credential bag.
+ * @param input.persistence - Save a rotated login (a sync) or never refresh.
+ */
+export async function resolveZoomAccess(input: {
+  authBaseUrl: string;
+  credentials: Record<string, unknown> | undefined;
+  persistence: GrantPersistence;
+}): Promise<ZoomAccess> {
+  if (isLoginGrant(input.credentials)) {
+    const grant = await usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'zoom',
+      grant: input.credentials,
+      persistence: input.persistence,
+      refresh: refreshZoomGrant,
+    });
+    return { token: grant.accessToken, viaLogin: true };
+  }
+  return { token: await mintToken(input.authBaseUrl, input.credentials), viaLogin: false };
+}
+
+type ZoomUserRef = { id: string; email: string };
+
+/** The users to read, or Zoom's refusal (status and body) when the list could not be had. */
+type ZoomUserListResult
+  = | { ok: true; users: ZoomUserRef[]; fellBackToSelf: boolean }
+    | { ok: false; status: number; body: string };
+
+/**
+ * Fetch one Zoom JSON page of users with a bounded wait.
+ * @param url - The full URL.
+ * @param headers - Bearer header.
+ */
+async function fetchZoomUsersUrl(url: string, headers: Record<string, string>): Promise<Response> {
+  return fetch(url, { headers, signal: AbortSignal.timeout(USER_REQUEST_TIMEOUT_MS) });
+}
+
+/**
+ * The logged-in user alone, for a login that may not list users.
+ * @param apiBaseUrl - Zoom's API base.
+ * @param headers - Bearer header.
+ */
+async function fetchLoggedInUser(apiBaseUrl: string, headers: Record<string, string>): Promise<ZoomUserListResult> {
+  const res = await fetchZoomUsersUrl(`${apiBaseUrl}/users/me`, headers);
+  if (!res.ok) {
+    return { ok: false, status: res.status, body: await res.text().catch(() => '') };
+  }
+  const me = (await res.json()) as { id?: string; email?: string };
+  if (!me.id) {
+    return { ok: false, status: res.status, body: 'Zoom returned no user id for the logged-in user.' };
+  }
+  return { ok: true, users: [{ id: me.id, email: me.email ?? me.id }], fellBackToSelf: true };
+}
+
+/**
+ * The Zoom users whose recordings to read: every active user (a Server-to-Server
+ * app, or an admin login with the `:admin` scopes), narrowed to `onlyEmails`
+ * when given. A login that Zoom refuses the user list (4xx: a non-admin, or
+ * the app lacks the admin scope) falls back to the logged-in user alone; the
+ * caller says so. Other refusals come back as `ok: false` for the caller.
+ * @param input - The call's inputs.
+ * @param input.apiBaseUrl - Zoom's API base.
+ * @param input.headers - Bearer header.
+ * @param input.viaLogin - Whether the token is a person's login.
+ * @param input.onlyEmails - Restrict to these emails; empty = everyone listed.
+ */
+async function listZoomUsers(input: {
+  apiBaseUrl: string;
+  headers: Record<string, string>;
+  viaLogin: boolean;
+  onlyEmails: string[];
+}): Promise<ZoomUserListResult> {
+  const users: ZoomUserRef[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ status: 'active', page_size: '300' });
+    if (pageToken) {
+      params.set('next_page_token', pageToken);
+    }
+    const res = await fetchZoomUsersUrl(`${input.apiBaseUrl}/users?${params.toString()}`, input.headers);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      if (input.viaLogin && res.status >= 400 && res.status < 500) {
+        logger.info('zoom login may not list users; reading the logged-in user only', { status: res.status });
+        const self = await fetchLoggedInUser(input.apiBaseUrl, input.headers);
+        return self.ok ? { ...self, users: self.users.filter(u => input.onlyEmails.length === 0 || input.onlyEmails.includes(u.email)) } : self;
+      }
+      return { ok: false, status: res.status, body };
+    }
+    const list = (await res.json()) as ZoomUserList;
+    for (const u of list.users ?? []) {
+      if (input.onlyEmails.length === 0 || input.onlyEmails.includes(u.email)) {
+        users.push({ id: u.id, email: u.email });
+      }
+    }
+    pageToken = list.next_page_token || undefined;
+  } while (pageToken);
+  return { ok: true, users, fellBackToSelf: false };
+}
+
+/** The sentence a sync reports when a login could only read its own recordings. */
+const SELF_ONLY_NOTICE = 'Zoom would not list the account\'s users for this login (it needs a Zoom admin with the :admin scopes), so only the logged-in user\'s recordings are synced.';
+
 /**
  * Flatten a Zoom VTT transcript into "SPEAKER: text" lines.
  * @param vtt
@@ -135,6 +258,7 @@ export function recordingToDoc(mtg: ZoomMeeting, transcript: string, fallbackHos
  * @param opts.meetingId
  * @param opts.apiBaseUrl
  * @param opts.authBaseUrl
+ * @param opts.persistence - Where a refreshed login is saved; omitted, an expiring login is not refreshed.
  */
 export async function fetchZoomMeetingTranscript(opts: {
   credentials: Record<string, unknown> | undefined;
@@ -142,9 +266,11 @@ export async function fetchZoomMeetingTranscript(opts: {
   meetingId: string;
   apiBaseUrl?: string;
   authBaseUrl?: string;
+  /** Where a refreshed login is saved; omitted: an expiring login is not refreshed. */
+  persistence?: GrantPersistence;
 }): Promise<{ doc: IngestDoc; hasTranscript: boolean } | null> {
   const api = opts.apiBaseUrl ?? 'https://api.zoom.us/v2';
-  const token = await mintToken(opts.authBaseUrl ?? 'https://zoom.us', opts.credentials);
+  const { token } = await resolveZoomAccess({ authBaseUrl: opts.authBaseUrl ?? 'https://zoom.us', credentials: opts.credentials, persistence: opts.persistence ?? { kind: 'never' } });
   const headers = { authorization: `Bearer ${token}` };
 
   // Zoom API rule: a UUID that begins with '/' or contains '//' must be
@@ -189,7 +315,7 @@ function* dayWindows(fromMs: number, toMs: number): Generator<{ from: string; to
 export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
   slug: 'zoom',
   name: 'Zoom',
-  description: 'Ingest cloud-recording meetings + transcripts, company-wide (Server-to-Server OAuth).',
+  description: 'Ingest cloud-recording meetings + transcripts, company-wide (Server-to-Server OAuth) or for the person who logged in with Zoom.',
   icon: 'Video',
   authKind: 'oauth',
   configSchema: zoomConfigSchema,
@@ -199,7 +325,11 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
   requiredScopes: ZOOM_REQUIRED_SCOPES,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = zoomConfigSchema.parse(ctx.config);
-    const token = await mintToken(cfg.authBaseUrl, ctx.credentials);
+    const { token, viaLogin } = await resolveZoomAccess({
+      authBaseUrl: cfg.authBaseUrl,
+      credentials: ctx.credentials,
+      persistence: { kind: 'persist', orgId: ctx.orgId, sourceId: ctx.sourceId, warn: message => ctx.onProgress?.({ kind: 'error', message }) },
+    });
     const headers = { authorization: `Bearer ${token}` };
 
     // Incremental: only fetch from the watermark forward (bounded below by
@@ -209,25 +339,14 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
     const fromMs = ctx.since ? Math.max(ctx.since.getTime(), windowStart) : windowStart;
 
     // Resolve the user set: explicit list, or every active user.
-    const userIds: Array<{ id: string; email: string }> = [];
-    let pageToken: string | undefined;
-    do {
-      const params = new URLSearchParams({ status: 'active', page_size: '300' });
-      if (pageToken) {
-        params.set('next_page_token', pageToken);
-      }
-      const res = await fetch(`${cfg.apiBaseUrl}/users?${params.toString()}`, { headers });
-      if (!res.ok) {
-        throw new Error(`Zoom user list failed: ${res.status} ${await res.text().catch(() => '')}`);
-      }
-      const list = (await res.json()) as ZoomUserList;
-      for (const u of list.users ?? []) {
-        if (cfg.users.length === 0 || cfg.users.includes(u.email)) {
-          userIds.push(u);
-        }
-      }
-      pageToken = list.next_page_token || undefined;
-    } while (pageToken);
+    const listed = await listZoomUsers({ apiBaseUrl: cfg.apiBaseUrl, headers, viaLogin, onlyEmails: cfg.users });
+    if (!listed.ok) {
+      throw new Error(`Zoom user list failed: ${listed.status} ${listed.body}`);
+    }
+    if (listed.fellBackToSelf) {
+      ctx.onProgress?.({ kind: 'error', message: SELF_ONLY_NOTICE });
+    }
+    const userIds = listed.users;
 
     for (const user of userIds) {
       for (const window of dayWindows(fromMs, now)) {
@@ -287,6 +406,7 @@ export type ZoomRecordingHit = {
  * @param opts.apiBaseUrl
  * @param opts.authBaseUrl
  * @param opts.users - Restrict to these host emails; empty = every user.
+ * @param opts.persistence - Where a refreshed login is saved; omitted, an expiring login is not refreshed.
  */
 export async function listZoomRecordings(opts: {
   credentials: Record<string, unknown> | undefined;
@@ -295,38 +415,25 @@ export async function listZoomRecordings(opts: {
   apiBaseUrl?: string;
   authBaseUrl?: string;
   users?: string[];
+  /** Where a refreshed login is saved; omitted: an expiring login is not refreshed. */
+  persistence?: GrantPersistence;
 }): Promise<{ hits: ZoomRecordingHit[]; missingScopes: string[] }> {
   const api = opts.apiBaseUrl ?? 'https://api.zoom.us/v2';
-  const token = await mintToken(opts.authBaseUrl ?? 'https://zoom.us', opts.credentials);
+  const { token, viaLogin } = await resolveZoomAccess({ authBaseUrl: opts.authBaseUrl ?? 'https://zoom.us', credentials: opts.credentials, persistence: opts.persistence ?? { kind: 'never' } });
   const headers = { authorization: `Bearer ${token}` };
   const missing = (body: string): string[] => {
     const m = /scopes:\[([^\]]+)\]/.exec(body);
     return m ? m[1]!.split(',').map(x => x.trim()).filter(Boolean) : [];
   };
-  const users: Array<{ id: string; email: string }> = [];
-  let pageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({ status: 'active', page_size: '300' });
-    if (pageToken) {
-      params.set('next_page_token', pageToken);
+  const listed = await listZoomUsers({ apiBaseUrl: api, headers, viaLogin, onlyEmails: opts.users ?? [] });
+  if (!listed.ok) {
+    const scopes = missing(listed.body);
+    if (scopes.length > 0) {
+      return { hits: [], missingScopes: scopes };
     }
-    const res = await fetch(`${api}/users?${params.toString()}`, { headers });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const scopes = missing(body);
-      if (scopes.length > 0) {
-        return { hits: [], missingScopes: scopes };
-      }
-      throw new Error(`Zoom user list failed: ${res.status} ${body}`);
-    }
-    const list = (await res.json()) as ZoomUserList;
-    for (const u of list.users ?? []) {
-      if (!opts.users || opts.users.length === 0 || opts.users.includes(u.email)) {
-        users.push({ id: u.id, email: u.email });
-      }
-    }
-    pageToken = list.next_page_token || undefined;
-  } while (pageToken);
+    throw new Error(`Zoom user list failed: ${listed.status} ${listed.body}`);
+  }
+  const users = listed.users;
 
   const hits: ZoomRecordingHit[] = [];
   for (const user of users) {

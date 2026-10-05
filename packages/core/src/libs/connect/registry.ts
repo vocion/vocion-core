@@ -5,12 +5,28 @@
  */
 
 import type { ConnectProvider } from './provider';
+import { apolloProvider } from './providers/apollo';
 import { atlassianProvider } from './providers/atlassian';
 import { githubProvider } from './providers/github';
+import { googleProvider } from './providers/google';
+import { hubspotProvider } from './providers/hubspot';
+import { notionProvider } from './providers/notion';
+import { posthogProvider } from './providers/posthog';
 import { slackProvider } from './providers/slack';
+import { zoomProvider } from './providers/zoom';
 import { connectScriptEnabled, scriptedProviders } from './scripted';
 
-const realProviders: readonly ConnectProvider[] = [slackProvider, atlassianProvider, githubProvider];
+const realProviders: readonly ConnectProvider[] = [
+  slackProvider,
+  atlassianProvider,
+  githubProvider,
+  googleProvider,
+  hubspotProvider,
+  notionProvider,
+  zoomProvider,
+  posthogProvider,
+  apolloProvider,
+];
 
 /**
  * Every provider, the real ones, or their scripted stand-ins when

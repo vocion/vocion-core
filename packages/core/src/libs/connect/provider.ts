@@ -20,10 +20,13 @@ export type GrantSummary = {
   };
 };
 
+/** Every vendor a person can log in to. The id is the URL segment of the start and callback routes. */
+export type ConnectProviderId = 'slack' | 'atlassian' | 'github' | 'google' | 'hubspot' | 'notion' | 'zoom' | 'posthog' | 'apollo';
+
 /** Where a person is sent, and what comes back, for one vendor. */
 export type ConnectProvider = {
   /** Provider id: the URL segment and the connector slug(s) it serves. */
-  id: 'slack' | 'atlassian' | 'github';
+  id: ConnectProviderId;
   /** Connector slugs this provider connects (`jira` for atlassian; `slack`; `github`). */
   connectorSlugs: readonly string[];
   /** Human label for the button: "Connect with Slack". */
@@ -33,17 +36,27 @@ export type ConnectProvider = {
   /** Whether the deployment has what it needs. Never throws. */
   configured: () => boolean;
   /**
+   * When true, the login uses PKCE: the start sends an S256 `codeChallenge`
+   * and the callback sends the matching `codeVerifier`. Both are derived from
+   * the signed state (`pkceVerifierFor`), so nothing is stored in between.
+   * PostHog requires it; a provider with a client secret may skip it.
+   */
+  pkce?: boolean;
+  /**
    * The vendor URL to send the person to. `state` is the opaque signed state
    * (already base64url); `redirectUri` is this deployment's callback for the
-   * provider. Never logs either.
+   * provider; `connector` is the connector the login is for, so a provider
+   * serving several (Google) asks only for that connector's access. Never
+   * logs any of them.
    */
-  authorizeUrl: (input: { state: string; redirectUri: string }) => string;
+  authorizeUrl: (input: { state: string; redirectUri: string; connector: string; codeChallenge?: string }) => string;
   /**
    * Turn the callback's query into the credential bag to store, or a refusal.
    * `query` is every query param of the callback request. Vendors differ:
-   * Slack/Atlassian carry `code`; GitHub carries `installation_id` + `setup_action`.
+   * Slack/Atlassian carry `code`; GitHub carries `installation_id` + `setup_action`;
+   * Sentry carries `code` + `installationId`. `codeVerifier` is set when `pkce` is.
    */
-  exchange: (input: { query: Record<string, string>; redirectUri: string }) => Promise<
+  exchange: (input: { query: Record<string, string>; redirectUri: string; codeVerifier?: string }) => Promise<
     | { ok: true; credentials: RawCredentials; displayName: string }
     | { ok: false; reason: string }
   >;
@@ -53,4 +66,12 @@ export type ConnectProvider = {
    * one this provider stored (a pasted token, an older grant). Never throws.
    */
   summarize: (credentials: RawCredentials) => GrantSummary | null;
+  /**
+   * For a provider serving several connectors with different access (Google):
+   * why a stored login of this provider cannot serve `connectorSlug`, in a
+   * sentence for the person, or null when it can. Saving a source that keeps
+   * the stored login is refused with that sentence, rather than syncing into a
+   * "missing scope" error. Absent: every stored login serves every connector.
+   */
+  missingAccessFor?: (credentials: RawCredentials, connectorSlug: string) => string | null;
 };

@@ -52,6 +52,17 @@ async function seedGithubLogin() {
   return stored.id;
 }
 
+/**
+ * A Google login holding these scopes, as the Google provider stores it.
+ * @param scope - The space-separated scopes Google granted.
+ */
+async function seedGoogleLogin(scope: string) {
+  const values = { accessToken: 'ya29.not-a-real-token', refreshToken: '1//not-a-real-refresh', expiresAt: '2026-10-05T18:00:00.000Z', scope, email: 'ops@northwind.example' };
+  const sealed = await sealLoginValues(ORG, values);
+  const stored = await storeLoginCredential({ orgId: ORG, platform: 'google', name: 'Google — ops@northwind.example', account: 'ops@northwind.example', values, sealed, createdBy: ADMIN });
+  return stored.id;
+}
+
 async function sources() {
   return db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, ORG));
 }
@@ -105,6 +116,22 @@ describe('createSourceWithCredential', () => {
     expect(result).toMatchObject({ ok: true });
     expect(await tokens()).toHaveLength(1);
     expect((await sources())[0]).toMatchObject({ apiTokenId: loginId, apiTokenExclusive: false });
+  });
+
+  it('a Google login made for Drive is not kept for Gmail: it is refused with a way to add Gmail, and nothing is created', async () => {
+    await seedGoogleLogin('openid email https://www.googleapis.com/auth/drive.readonly');
+    const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'gmail', config: {}, credential: { keepStored: true } });
+
+    expect(result).toEqual({ ok: false, reason: expect.stringMatching(/doesn't include Gmail.*log in with Google again/) });
+    expect(await sources()).toHaveLength(0);
+  });
+
+  it('a Google login that already holds Gmail\'s scope is kept for Gmail', async () => {
+    const loginId = await seedGoogleLogin('openid email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.readonly');
+    const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'gmail', config: {}, credential: { keepStored: true } });
+
+    expect(result).toMatchObject({ ok: true });
+    expect((await sources())[0]).toMatchObject({ apiTokenId: loginId });
   });
 
   it('keeping a stored credential when the workspace holds none is refused, and nothing is created', async () => {

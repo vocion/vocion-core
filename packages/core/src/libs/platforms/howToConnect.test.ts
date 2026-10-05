@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { JIRA_READ_SCOPES } from '@/libs/atlassian/oauth';
+import { APOLLO_LOGIN_SCOPES } from '@/libs/connect/providers/apollo';
+import { GOOGLE_LOGIN_SCOPES } from '@/libs/connect/providers/google';
+import { HUBSPOT_LOGIN_SCOPES } from '@/libs/connect/providers/hubspot';
+import { POSTHOG_LOGIN_SCOPES } from '@/libs/connect/providers/posthog';
 import { SLACK_SOURCE_SCOPES } from '@/libs/connect/providers/slack';
+import { ZOOM_LOGIN_SCOPES } from '@/libs/connect/providers/zoom';
 import { providerForConnector } from '@/libs/connect/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { howToConnectFor, listPlatforms, loginIsEnough, platformForConnectorSlug } from './registry';
@@ -41,11 +46,30 @@ describe('howToConnect declarations', () => {
     }
   });
 
-  it('login alone is enough for Slack and not for GitHub or Jira', () => {
-    expect(loginIsEnough('slack')).toBe(true);
-    expect(loginIsEnough('github')).toBe(false);
-    expect(loginIsEnough('jira')).toBe(false);
-    expect(loginIsEnough('notion')).toBe(false);
+  it('login alone is enough where every setting has a default, and not where the source must be pointed somewhere', () => {
+    for (const slug of ['slack', 'notion', 'hubspot', 'zoom', 'apollo', 'gmail', 'drive', 'google-calendar']) {
+      expect(loginIsEnough(slug), slug).toBe(true);
+    }
+    for (const slug of ['github', 'jira', 'ga4', 'posthog']) {
+      expect(loginIsEnough(slug), slug).toBe(false);
+    }
+  });
+
+  it('where login alone is enough, the source the login makes on its own has every setting it needs', () => {
+    for (const slug of connectorSlugs.filter(loginIsEnough)) {
+      const parsed = (getConnector(slug)?.configSchema as unknown as { safeParse: (value: unknown) => { success: boolean } }).safeParse({});
+
+      expect(parsed.success, slug).toBe(true);
+    }
+  });
+
+  it('each Google connector logs in for its own scope only, and Google Ads, which also needs a developer token, has no login', () => {
+    for (const slug of ['gmail', 'drive', 'google-calendar', 'ga4']) {
+      expect(howToConnectFor(slug)?.login?.access, slug).toEqual([...GOOGLE_LOGIN_SCOPES[slug]!]);
+    }
+
+    expect(howToConnectFor('google-ads')?.login).toBeUndefined();
+    expect(howToConnectFor('google-ads')?.paste.credential).toBe('OAuth client and refresh token');
   });
 
   it('only documented https URLs are offered for making a credential by hand', () => {
@@ -60,6 +84,10 @@ describe('howToConnect declarations', () => {
   it('login access matches the scopes the provider really asks for', () => {
     expect(howToConnectFor('jira')?.login?.access).toEqual([...JIRA_READ_SCOPES]);
     expect(howToConnectFor('slack')?.login?.access).toEqual([...SLACK_SOURCE_SCOPES]);
+    expect(howToConnectFor('hubspot')?.login?.access).toEqual([...HUBSPOT_LOGIN_SCOPES]);
+    expect(howToConnectFor('posthog')?.login?.access).toEqual([...POSTHOG_LOGIN_SCOPES]);
+    expect(howToConnectFor('apollo')?.login?.access).toEqual([...APOLLO_LOGIN_SCOPES]);
+    expect(howToConnectFor('zoom')?.login?.access).toEqual([...ZOOM_LOGIN_SCOPES]);
   });
 
   it('an unknown connector has no declaration', () => {

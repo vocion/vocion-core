@@ -1,8 +1,30 @@
 import type { RuntimeContext } from '../types';
+import type { connectOptionFor } from '@/libs/connect/registry';
+import type * as RealRegistry from '@/libs/connect/registry';
 import { eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+
+/**
+ * Which login apps this test's server has: every provider is set up unless a
+ * test takes it away, whatever the developer's .env holds, so the tests read
+ * the same on a laptop and in CI.
+ */
+const providerSetup = vi.hoisted(() => ({ unconfigured: new Set<string>() }));
+
+/**
+ * The connect option as this test's server has it.
+ * @param option - The real option.
+ */
+function setUpForTest(option: ReturnType<typeof connectOptionFor>): ReturnType<typeof connectOptionFor> {
+  return option && { ...option, configured: !providerSetup.unconfigured.has(option.provider) };
+}
+
+vi.mock('@/libs/connect/registry', async (importOriginal) => {
+  const real = await importOriginal<typeof RealRegistry>();
+  return { ...real, connectOptionFor: (slug: string) => setUpForTest(real.connectOptionFor(slug)) };
+});
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { storeLoginCredential } = await import('@/services/ApiTokenService');
@@ -77,17 +99,36 @@ describe('offer_connection', () => {
     expect(Number.isNaN(Date.parse(card.lastAttempt.at))).toBe(false);
   });
 
-  it('a connector with no login provider opens its token form and says what to paste and where to get it', async () => {
+  it('a login this server has no app for is offered as paste, never as a login button that can only fail', async () => {
+    providerSetup.unconfigured.add('github');
+    try {
+      const emit = vi.fn();
+      await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'github', why: 'x' });
+
+      expect(emit.mock.calls[0]![0].card.href).toBe(pasteHref('github', 7));
+    } finally {
+      providerSetup.unconfigured.delete('github');
+    }
+  });
+
+  it('a connector with no login provider opens its token form and says what to paste and the access it needs', async () => {
     const emit = vi.fn();
-    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'notion', why: 'x' });
+    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'sentry', why: 'x' });
 
     const card = emit.mock.calls[0]![0].card;
 
-    expect(card).toMatchObject({ href: pasteHref('notion', 7), hrefLabel: 'Connect Notion' });
-    expect(card.href).toBe('/dashboard/connectors?add=notion&paste=1&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7');
+    expect(card).toMatchObject({ href: pasteHref('sentry', 7), hrefLabel: 'Connect Sentry' });
+    expect(card.href).toBe('/dashboard/connectors?add=sentry&paste=1&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7');
     expect(card.secondaryHref).toBeUndefined();
-    expect(card.body).toContain('Internal integration token');
-    expect(card.body).toContain('https://notion.so/my-integrations');
+    expect(card.body).toContain('Auth token');
+    expect(card.body).toContain('org:read');
+  });
+
+  it('Google Ads, on the same platform as Gmail, gets the token form, because its API also needs a developer token no login can issue', async () => {
+    const emit = vi.fn();
+    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'google-ads', why: 'x' });
+
+    expect(emit.mock.calls[0]![0].card.href).toBe(pasteHref('google-ads', 7));
   });
 
   it('a connector with no connect declaration falls back to the plain Connectors link', async () => {
@@ -134,6 +175,15 @@ describe('offer_connection', () => {
 
     expect(emit).not.toHaveBeenCalled();
     expect(out).toBe('Already logged in to GitHub as northwind. Ask which repositories they want, then save the source with source.connect.');
+  });
+
+  it('a Google login made for Drive does not count as logged in for Gmail: the card offers the Google login again', async () => {
+    await storeLoginCredential({ orgId: ORG, platform: 'google', name: 'Google - ops', account: 'ops@northwind.example', values: { accessToken: 'ya29.not-real', refreshToken: '1//not-real', expiresAt: '2026-10-05T18:00:00.000Z', scope: 'openid email https://www.googleapis.com/auth/drive.readonly' }, createdBy: 'usr-admin' });
+    const emit = vi.fn();
+    const out = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'gmail', why: 'x' }));
+
+    expect(out).not.toContain('Already logged in');
+    expect(emit.mock.calls[0]![0].card.href).toMatch(/^\/api\/connect\/google\/start\?connector=gmail/);
   });
 
   it('refuses an unknown connector and shows no card', async () => {

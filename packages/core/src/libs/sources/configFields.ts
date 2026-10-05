@@ -579,6 +579,14 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
 
   'posthog': [
     {
+      key: 'projectId',
+      label: 'Project id',
+      type: 'number',
+      min: 1,
+      placeholder: '12345',
+      help: 'The number in the PostHog URL after /project/. Only needed when you logged in with PostHog and gave it more than one project; a pasted key names its own.',
+    },
+    {
       key: 'projectName',
       label: 'Name in document titles',
       type: 'text',

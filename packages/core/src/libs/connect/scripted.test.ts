@@ -77,7 +77,7 @@ describe('scripted connect providers', () => {
     const [github] = scriptedProviders([githubProvider]);
 
     expect(github!.configured()).toBe(true);
-    expect(github!.authorizeUrl({ state: 'a.b', redirectUri: 'http://localhost:3008/api/connect/github/callback' }))
+    expect(github!.authorizeUrl({ state: 'a.b', redirectUri: 'http://localhost:3008/api/connect/github/callback', connector: 'github' }))
       .toBe('http://localhost:3008/api/connect/github/callback?state=a.b&code=scripted');
   });
 

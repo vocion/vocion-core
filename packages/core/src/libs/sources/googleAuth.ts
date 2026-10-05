@@ -22,6 +22,7 @@
  */
 
 import type { RawCredentials } from '@/services/SourceCredentialService';
+import { Env } from '@/libs/Env';
 
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
@@ -36,8 +37,17 @@ const cache = new Map<string, { token: string; expiresAt: number }>();
  */
 export async function resolveGoogleAccessToken(credentials: RawCredentials | undefined): Promise<string> {
   const refreshToken = credentials?.refreshToken as string | undefined;
-  const clientId = credentials?.clientId as string | undefined;
-  const clientSecret = credentials?.clientSecret as string | undefined;
+  const pastedClientId = credentials?.clientId as string | undefined;
+  const pastedClientSecret = credentials?.clientSecret as string | undefined;
+  const hasPastedClient = Boolean(pastedClientId && pastedClientSecret);
+  // A "Log in with Google" bag stores no client: it was issued to this
+  // deployment's OAuth client, so refresh with that one.
+  const clientId = hasPastedClient ? pastedClientId : Env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = hasPastedClient ? pastedClientSecret : Env.GOOGLE_OAUTH_CLIENT_SECRET;
+
+  if (refreshToken && !hasPastedClient && !(clientId && clientSecret)) {
+    throw new Error('This Google login needs GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET set on the server to refresh. Set them, or paste a client id, secret and refresh token instead.');
+  }
 
   if (refreshToken && clientId && clientSecret) {
     const cached = cache.get(refreshToken);

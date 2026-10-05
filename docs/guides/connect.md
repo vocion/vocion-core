@@ -66,13 +66,30 @@ person clicks Connect with Slack
 - **Exchange** is the provider's. It gets every query parameter but `state`
   and this deployment's callback URL, and returns either a credential bag
   with a display name, or a refusal reason.
-- **Storage** is `storeCredentialForSource`: the bag is AES-256-GCM encrypted
-  under the workspace's key and attached to the workspace's install of the
-  **connector** (`config._connector`), the same row a pasted token lands in
-  and the row sync resolves. One grant serves every source of that kind in
-  the workspace: connect Slack once and every `slack` source reads with it.
-  If the source that started the connect had been pointed at a pasted
-  workspace credential, that link is cleared so the grant is what resolves.
+- **Storage.** The bag is a row in the workspace credential store
+  (`api_token`, `obtained_via = login`), encrypted under the workspace's key,
+  with its account and a masked hint, so it shows on Developers and can be
+  revoked there like a pasted key. The source points at it through
+  `api_token_id`. One login serves every source of that connector.
+- **PKCE.** A provider that asks for it (`pkce: true`, PostHog) gets a code
+  challenge at start and the verifier at the callback. The verifier is
+  derived from the signed state (`HMAC(AUTH_SECRET, 'pkce:' + state)`), so
+  nothing is stored between the two.
+- **Refresh.** A login whose tokens expire (`accessToken`, `refreshToken`,
+  `expiresAt`) is refreshed by the sync that reads it, through
+  `libs/connect/loginGrant.ts`. It refreshes from the refresh token stored
+  now, not the one the run loaded, and saves compare-and-swap, so two syncs
+  never fight over a rotated refresh token: the loser uses the winner's
+  grant. Test connection never refreshes; an expired login there says to run
+  a sync.
+- **Only when set up.** The Connectors form and the chat card offer a login
+  only when the server holds that provider's app (its client ID). Otherwise
+  they offer paste alone, rather than a button that can only fail.
+- **A login that lacks a connector's access is not reused for it.** One
+  Google login can serve Gmail, Drive, Calendar and Analytics, but only for
+  the scopes it was granted. Keeping a Drive login for Gmail is refused with a
+  way to log in again, and the new login adds Gmail's scope to the old ones
+  (`include_granted_scopes`).
 - **After the login**, a connector that needs nothing more (Slack) gets its
   source from the callback (`createSourceWhenNoConfigNeeded`). One that needs
   picks (GitHub repos, a Jira site and project keys) lands back where the
@@ -97,13 +114,37 @@ forwarded host of the request.
 
 | Provider | Connects | Env vars | Callback to register |
 |---|---|---|---|
-| `slack` | the `slack` source | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `/api/connect/slack/callback` |
-| `atlassian` | the `jira` source | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | `/api/connect/atlassian/callback` |
-| `github` | the `github` source | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64` (plus `GITHUB_WEBHOOK_SECRET` for the app's webhook) | `/api/connect/github/callback` (the GitHub App's Setup URL) |
+| `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `/api/connect/slack/callback` |
+| `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | `/api/connect/atlassian/callback` |
+| `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64` (plus `GITHUB_WEBHOOK_SECRET` for the app's webhook) | `/api/connect/github/callback` (the GitHub App's Setup URL) |
+| `google` | `gmail`, `drive`, `google-calendar`, `ga4` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/api/connect/google/callback` |
+| `hubspot` | `hubspot` | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` | `/api/connect/hubspot/callback` |
+| `notion` | `notion` | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | `/api/connect/notion/callback` |
+| `zoom` | `zoom` | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (a user-managed app; the server-to-server paste keeps working) | `/api/connect/zoom/callback` |
+| `posthog` | `posthog` | None. `NEXT_PUBLIC_APP_URL` must be public `https`, because PostHog reads our client from `/api/connect-client/posthog` (CIMD). | `/api/connect/posthog/callback` |
+| `apollo` | `apollo` | `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET` | `/api/connect/apollo/callback` |
 
-All of them are optional. A deployment that sets none keeps the paste forms
-it had. The Atlassian and GitHub providers land in their own pull requests;
-until then their entries answer "not configured".
+All of them are optional. A provider with no env set is not offered, and its
+connector keeps its paste form.
+
+Before going live with each vendor:
+
+- **Google.** Gmail and Drive read scopes are restricted: Google verifies the
+  app, with a security assessment, before workspaces outside the app's own
+  Google Workspace can use them.
+- **Zoom.** Add the scopes listed on the Zoom connector to the Marketplace
+  app, plus their `:admin` variants so admins can read every user's
+  recordings. Zoom sends no scope in the login URL.
+- **Apollo.** Apollo approves partner OAuth apps before issuing a client ID.
+  Confirm the scopes (`read_user_profile`, `app_scopes`) against the app
+  Apollo registers.
+- **PostHog.** Local dev needs a public `https` tunnel set as
+  `NEXT_PUBLIC_APP_URL`.
+- **Notion.** Register a public integration with read content only.
+
+Sentry has no login: its install redirect does not carry our signed `state`,
+so the callback cannot tell which workspace and admin started it. Paste a
+Sentry auth token instead.
 
 ## Adding a provider
 
@@ -118,12 +159,7 @@ refusal reasons are short codes a person can be shown.
 
 ## What it does not do, yet
 
-- **Refresh.** A provider whose access tokens expire (Atlassian) stores what it
-  needs to refresh; the connector reading it is what refreshes. Slack bot
-  tokens do not expire unless token rotation is switched on for the app, which
-  this flow does not request.
 - **Revoke at the vendor.** Revoking a credential in Vocion stops Vocion using
   it; it does not uninstall the app at the vendor.
-- **Workspace-level grants.** The credential lands on the connector's install,
-  as Google's grant does today, not on the workspace credential list, so it
-  is not rotated or revoked from API credentials.
+- **Several accounts of one connector**, told apart by the vendor's username
+  or email (#1173).

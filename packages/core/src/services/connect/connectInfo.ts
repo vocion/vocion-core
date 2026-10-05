@@ -86,7 +86,10 @@ export async function connectInfoForOrg(orgId: string): Promise<Record<string, C
     if (!loggedInAs && !failed && !stored && !howToConnectFor(slug)?.login) {
       continue;
     }
-    info[slug] = { providerLabel: connectOptionFor(slug)?.label ?? null, loggedInAs, stored, lastAttempt: failed };
+    // A login this server has no app for (no client ID set) would be a button
+    // that only errors, so the page is told there is none and offers paste.
+    const option = connectOptionFor(slug);
+    info[slug] = { providerLabel: option?.configured ? option.label : null, loggedInAs, stored, lastAttempt: failed };
   }
   return info;
 }

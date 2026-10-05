@@ -63,6 +63,8 @@ export const POSTHOG_EU_HOST = 'https://eu.posthog.com';
 /** Personal API keys carry this prefix; the public project token carries `phc_`. */
 const PERSONAL_KEY = /^phx_[\w-]{8,}$/i;
 const PROJECT_TOKEN = /^phc_/i;
+/** OAuth access tokens from Log in with PostHog carry this prefix. Accepted only inside a login grant. */
+const LOGIN_ACCESS_TOKEN = /^pha_[\w-]{8,}$/i;
 
 /**
  * Why a pasted key cannot be used, in a sentence for the person who pasted it,
@@ -99,7 +101,10 @@ export function normalizeHost(host: string): string | null {
 export function credentialsFrom(
   credentials?: Record<string, unknown>,
 ): { ok: true; credentials: PosthogCredentials } | { ok: false; message: string } {
-  const apiKey = typeof credentials?.apiKey === 'string' ? credentials.apiKey.trim() : '';
+  const grantToken = typeof credentials?.accessToken === 'string' && typeof credentials.refreshToken === 'string' && typeof credentials.expiresAt === 'string'
+    ? credentials.accessToken.trim()
+    : '';
+  const apiKey = grantToken || (typeof credentials?.apiKey === 'string' ? credentials.apiKey.trim() : '');
   const rawHost = typeof credentials?.host === 'string' ? credentials.host : '';
   const projectId = typeof credentials?.projectId === 'string' || typeof credentials?.projectId === 'number'
     ? String(credentials.projectId).trim()
@@ -107,7 +112,9 @@ export function credentialsFrom(
   if (!apiKey) {
     return { ok: false, message: 'No PostHog personal API key is stored for this source. Connect it on the Connectors page (PostHog → Connect) with a personal API key, the host and the project id.' };
   }
-  const keyProblem = describeKeyProblem(apiKey);
+  const keyProblem = grantToken
+    ? (LOGIN_ACCESS_TOKEN.test(grantToken) ? null : 'The stored PostHog login does not hold a valid access token. Log in with PostHog again on the Connectors page.')
+    : describeKeyProblem(apiKey);
   if (keyProblem) {
     return { ok: false, message: keyProblem };
   }
@@ -116,7 +123,9 @@ export function credentialsFrom(
     return { ok: false, message: `The PostHog host must be a URL such as ${POSTHOG_US_HOST} or ${POSTHOG_EU_HOST}, or your own install's origin.` };
   }
   if (!/^\d+$/.test(projectId)) {
-    return { ok: false, message: 'The PostHog project id must be the numeric id from Settings → Project (the number in the URL after /project/).' };
+    return { ok: false, message: grantToken
+      ? 'This PostHog login covers several projects (or all of them), so pick one: set the PostHog project id (the number in the URL after /project/) in the source settings.'
+      : 'The PostHog project id must be the numeric id from Settings → Project (the number in the URL after /project/).' };
   }
   return { ok: true, credentials: { apiKey, host, projectId } };
 }

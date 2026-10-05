@@ -43,11 +43,11 @@ describe('atlassianProvider', () => {
   it('refuses to build an authorize URL when the client is not configured', () => {
     vi.stubEnv('ATLASSIAN_CLIENT_ID', '');
 
-    expect(() => atlassianProvider.authorizeUrl({ state: 's', redirectUri: 'https://v.example/cb' })).toThrow(/ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET/);
+    expect(() => atlassianProvider.authorizeUrl({ state: 's', redirectUri: 'https://v.example/cb', connector: 'jira' })).toThrow(/ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET/);
   });
 
   it('builds the 3LO authorize URL with every parameter auth.atlassian.com requires', () => {
-    const url = new URL(atlassianProvider.authorizeUrl({ state: 'st.sig', redirectUri: 'https://v.example/api/connect/atlassian/callback' }));
+    const url = new URL(atlassianProvider.authorizeUrl({ state: 'st.sig', redirectUri: 'https://v.example/api/connect/atlassian/callback', connector: 'jira' }));
 
     expect(url.origin + url.pathname).toBe('https://auth.atlassian.com/authorize');
     expect(url.searchParams.get('audience')).toBe('api.atlassian.com');

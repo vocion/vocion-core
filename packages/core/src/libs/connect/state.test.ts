@@ -5,12 +5,12 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Env', () => ({ Env: { AUTH_SECRET: 'test-secret-0123456789abcdef' } }));
 
-const { signState, verifyState } = await import('./state');
+const { pkceChallengeFor, pkceVerifierFor, signState, verifyState } = await import('./state');
 
 const input = { provider: 'slack', orgId: 'org_1', sourceSlug: 'slack', userId: 'user_1' };
 
@@ -97,5 +97,24 @@ describe('state without a source row', () => {
   it('refuses a card id or conversation id of the wrong type', () => {
     expect(verifyState(sign({ ...base, connectorSlug: 'github', conversationId: '7' }))).toEqual({ ok: false, reason: 'malformed' });
     expect(verifyState(sign({ ...base, connectorSlug: 'github', cardId: 5 }))).toEqual({ ok: false, reason: 'malformed' });
+  });
+});
+
+describe('PKCE from the signed state', () => {
+  it('the callback reaches the same verifier as the start from the state alone, and another login never shares it', () => {
+    const first = signState(input);
+    const second = signState(input);
+
+    expect(pkceVerifierFor(first)).toBe(pkceVerifierFor(first));
+    expect(pkceVerifierFor(first)).not.toBe(pkceVerifierFor(second));
+  });
+
+  it('the verifier is a valid PKCE verifier, and the challenge sent out is its S256 hash, never the verifier itself', () => {
+    const verifier = pkceVerifierFor(signState(input));
+    const challenge = pkceChallengeFor(verifier);
+
+    expect(verifier).toMatch(/^[\w-]{43}$/);
+    expect(challenge).toBe(createHash('sha256').update(verifier).digest('base64url'));
+    expect(challenge).not.toBe(verifier);
   });
 });

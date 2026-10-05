@@ -24,7 +24,11 @@ export type StoredCredentialInfo = {
 };
 
 export type ConnectInfo = {
-  /** The login provider's name for a button, e.g. "GitHub". Null when the connector has no login. */
+  /**
+   * The login provider's name for a button, e.g. "GitHub". Null when the
+   * connector has no login, or this server has no app for it (no client ID
+   * set), so the form offers paste alone.
+   */
   providerLabel: string | null;
   /** The account a live login in this workspace is for. Null when nobody has logged in. */
   loggedInAs: string | null;
@@ -40,14 +44,14 @@ export type ConnectInfo = {
 
 /**
  * The connector's declared login, when this page can offer it. The server
- * sends a `ConnectInfo` for every connector with a login; without one the
+ * names the login's provider only when it is set up for it; without that the
  * page has no provider to send the person to, so it offers paste alone. A
  * connector that declares no login never gets a login button.
  * @param connector - Connector slug.
  * @param info - What the server said about this connector.
  */
 function offeredLogin(connector: string, info: ConnectInfo | undefined) {
-  return info ? howToConnectFor(connector)?.login : undefined;
+  return info?.providerLabel ? howToConnectFor(connector)?.login : undefined;
 }
 
 /** One input of the credential: its key in the saved document, what to call it, and whether it is secret. */
@@ -368,7 +372,7 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
         ? (
             <div className="space-y-2">
               <ProviderLoginButton provider={login.provider} href={href}>
-                {`Log in with ${info?.providerLabel ?? login.provider}`}
+                {`Log in with ${info?.providerLabel}`}
               </ProviderLoginButton>
               {login.access.length > 0 && (
                 <p className="text-xs text-muted-foreground">{`Asks for: ${login.access.join(', ')}`}</p>

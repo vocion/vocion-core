@@ -77,7 +77,7 @@ describe('githubProvider', () => {
   });
 
   it('sends the person to the app install page carrying the state', () => {
-    expect(githubProvider.authorizeUrl({ state: 'st.ate', redirectUri: REDIRECT }))
+    expect(githubProvider.authorizeUrl({ state: 'st.ate', redirectUri: REDIRECT, connector: 'github' }))
       .toBe('https://github.com/apps/vocion-agents/installations/new?state=st.ate');
   });
 

@@ -18,7 +18,7 @@ import { providerFor, providerForConnector } from '@/libs/connect/registry';
 import { safeReturnPath } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
-import { signState } from '@/libs/connect/state';
+import { pkceChallengeFor, pkceVerifierFor, signState } from '@/libs/connect/state';
 import { Env } from '@/libs/Env';
 
 type StartTarget
@@ -113,5 +113,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     ...(returnTo ? { returnTo } : {}),
     ...card,
   });
-  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id) }), 302);
+  const codeChallenge = provider.pkce ? pkceChallengeFor(pkceVerifierFor(state)) : undefined;
+  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id), connector: target.connectorSlug, ...(codeChallenge ? { codeChallenge } : {}) }), 302);
 }

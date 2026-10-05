@@ -22,9 +22,13 @@
 
 import type { ConnectorCheck, ConnectorInspection } from './inspect';
 import type { SourceConnector, SourceContext } from './types';
+import type { ApolloAuth } from '@/libs/apollo/client';
+import type { GrantPersistence } from '@/libs/connect/loginGrant';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { APOLLO_BASE_URL, createApolloClient, keyFromCredentials } from '@/libs/apollo/client';
+import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
+import { refreshApolloGrant } from '@/libs/connect/providers/apollo';
 import { InspectInputError } from './inspect';
 
 const apolloConfigSchema = z.object({
@@ -51,17 +55,36 @@ function check(key: string, label: string, ok: boolean, detail: string | null): 
 }
 
 /**
- * Run the five-check entitlement probe against one Apollo key.
+ * How to call Apollo with what is stored: a login grant's access token
+ * (refreshed first when expiring; a sync saves the refreshed grant, Test
+ * connection refuses to refresh and says so) or a pasted API key. Null when
+ * the bag holds neither.
+ * @param credentials - The decrypted credential bag.
+ * @param persistence - Where a refreshed grant is saved, or `never`.
+ * @throws {Error} Error when a login cannot be refreshed.
+ */
+export async function resolveApolloAuth(credentials: Record<string, unknown> | undefined, persistence: GrantPersistence): Promise<ApolloAuth | null> {
+  if (isLoginGrant(credentials)) {
+    const grant = await usableLoginGrant({ vendor: 'Apollo', connectorSlug: 'apollo', grant: credentials, persistence, refresh: refreshApolloGrant });
+    return { accessToken: grant.accessToken };
+  }
+  const apiKey = keyFromCredentials(credentials);
+  return apiKey ? { apiKey } : null;
+}
+
+/**
+ * Run the entitlement probe against one Apollo credential: five checks for a
+ * pasted key, four for a login (see the usage-stats note below).
  *
  * Deliberately NOT probed: enrichment. A match call spends a credit to reveal
  * a real person's contact details, and a synthetic payload proves nothing
  * about entitlement that the auth check has not already proven.
- * @param input - The key to probe with, and the API host to probe against.
- * @param input.apiKey - The Apollo API key, as typed or as vaulted.
+ * @param input - The credential to probe with (`apiKey` or a login's `accessToken`), and the API host to probe against.
  * @param input.baseUrl - API host override.
  */
-export async function inspectApolloKey(input: { apiKey: string; baseUrl?: string }): Promise<ConnectorInspection> {
-  const client = createApolloClient({ apiKey: input.apiKey, baseUrl: input.baseUrl });
+export async function inspectApolloKey(input: ApolloAuth & { baseUrl?: string }): Promise<ConnectorInspection> {
+  const client = createApolloClient(input);
+  const isLogin = input.accessToken !== undefined;
   const checks: ConnectorCheck[] = [];
 
   // One call answers the first two checks: whether Apollo knows the key, and
@@ -76,10 +99,10 @@ export async function inspectApolloKey(input: { apiKey: string; baseUrl?: string
 
   checks.push(check(
     'auth',
-    'API key accepted',
+    isLogin ? 'Login accepted' : 'API key accepted',
     !keyRejected && !unreachable,
     people.ok
-      ? 'Apollo accepted the key.'
+      ? (isLogin ? 'Apollo accepted the login.' : 'Apollo accepted the key.')
       : (people as { message: string }).message,
   ));
   checks.push(check(
@@ -105,16 +128,21 @@ export async function inspectApolloKey(input: { apiKey: string; baseUrl?: string
   ));
 
   // 200 means a master key and apollo_usage runs live; 403 means it reports
-  // from the rate-limit headers instead, and says so.
-  const usage = await client.get('/api/v1/usage_stats/api_usage_stats');
-  checks.push(check(
-    'usage_stats',
-    'Usage stats (master key only)',
-    usage.ok,
-    usage.ok
-      ? 'This is a master key, so apollo_usage reports live per-endpoint quota.'
-      : `${(usage as { message: string }).message} apollo_usage will report from the rate-limit headers observed on the last call instead.`,
-  ));
+  // from the rate-limit headers instead, and says so. Skipped for a login:
+  // "master" is a property of an API key, and an OAuth grant has none, so a
+  // 403 here would read as a plan fault when the question does not apply.
+  // apollo_usage on a login reports from the observed headers.
+  if (!isLogin) {
+    const usage = await client.get('/api/v1/usage_stats/api_usage_stats');
+    checks.push(check(
+      'usage_stats',
+      'Usage stats (master key only)',
+      usage.ok,
+      usage.ok
+        ? 'This is a master key, so apollo_usage reports live per-endpoint quota.'
+        : `${(usage as { message: string }).message} apollo_usage will report from the rate-limit headers observed on the last call instead.`,
+    ));
+  }
 
   // The header names Apollo actually returned, echoed verbatim: the client
   // reads them leniently until a live response confirms which ones exist.
@@ -135,7 +163,7 @@ export async function inspectApolloKey(input: { apiKey: string; baseUrl?: string
     authorized,
     checks,
     note: authorized
-      ? 'Nothing was saved by this test: no source row, no credential, no vault write. The key was used for these calls and dropped.'
+      ? 'Nothing was saved by this test: no source row, no credential, no vault write. The credential was used for these calls and dropped.'
       : null,
     error: unreachable ? (people as { message: string }).message : null,
   };
@@ -152,17 +180,35 @@ export const apolloConnector: SourceConnector<typeof apolloConfigSchema> = {
   inspectNote: `Runs five checks against Apollo and reports what this key opens. It spends ${APOLLO_PROBE_CREDIT_COST} Apollo credit, on the company-search check; the other four are free. Nothing is saved.`,
 
   async inspect({ config, credentials }) {
-    const apiKey = keyFromCredentials(credentials);
-    if (!apiKey) {
-      throw new InspectInputError('An Apollo API key is required. Find it in Apollo under Settings → Integrations → API.');
+    let auth: ApolloAuth | null;
+    try {
+      // Test connection never refreshes: it has no source row to save a rotated token to.
+      auth = await resolveApolloAuth(credentials, { kind: 'never' });
+    } catch (error) {
+      throw new InspectInputError(error instanceof Error ? error.message : 'The Apollo login could not be used.');
+    }
+    if (!auth) {
+      throw new InspectInputError('An Apollo login or API key is required. Log in with Apollo, or paste a key from Apollo under Settings → Integrations → API.');
     }
     const baseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim() !== ''
       ? config.baseUrl.trim()
       : undefined;
-    return inspectApolloKey({ apiKey, baseUrl });
+    return inspectApolloKey({ ...auth, baseUrl });
   },
 
-  async* sync(_ctx: SourceContext): AsyncIterable<IngestDoc> {
+  async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
+    // A login's 30 day token is renewed here, and only here, so a sync keeps the
+    // saved login alive. Apollo rotates the refresh token on every refresh, so
+    // the save is compare-and-swap in `usableLoginGrant`. A pasted key has
+    // nothing to renew.
+    if (isLoginGrant(ctx.credentials)) {
+      await resolveApolloAuth(ctx.credentials, {
+        kind: 'persist',
+        orgId: ctx.orgId,
+        sourceId: ctx.sourceId,
+        warn: message => ctx.onProgress?.({ kind: 'error', message }),
+      });
+    }
     // Apollo is read live by the agent tools, never mirrored. Yielding nothing
     // keeps the connector contract intact without a document store that would
     // go stale the moment it was written.

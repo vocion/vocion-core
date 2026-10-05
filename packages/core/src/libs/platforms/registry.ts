@@ -33,6 +33,7 @@
  */
 
 import type { LLMProviderName } from '@vocion/sdk';
+import type { ConnectProviderId } from '@/libs/connect/provider';
 
 /** Every platform id this build understands. */
 export type CredentialPlatformId
@@ -141,6 +142,21 @@ export type CredentialField = {
   optional?: boolean;
 };
 
+/** How one connector logs in: see `CredentialPlatform['howToConnect']`. */
+export type LoginDeclaration = {
+  /** The connect provider that runs it (`libs/connect/registry.ts`). */
+  provider: ConnectProviderId;
+  /** The access the login asks for, one line each, in the vendor's words. */
+  access: readonly string[];
+  /**
+   * The settings the source still needs after the login, by config key, each with the
+   * name a person knows it by. Empty means login alone is enough and the login makes the
+   * source itself. This is the one answer: the callback, the form, the chat card and the
+   * agent's next step all read it.
+   */
+  settingsAfterLogin: readonly { key: string; label: string }[];
+};
+
 export type CredentialPlatform = {
   id: CredentialPlatformId;
   /** Name shown in the platform selector. */
@@ -213,19 +229,15 @@ export type CredentialPlatform = {
    */
   howToConnect?: {
     /** Present when a provider login can fetch the credential itself. */
-    login?: {
-      /** The connect provider that runs it (`libs/connect/registry.ts`). */
-      provider: 'github' | 'atlassian' | 'slack';
-      /** The access the login asks for, one line each, in the vendor's words. */
-      access: readonly string[];
-      /**
-       * The settings the source still needs after the login, by config key, each with the
-       * name a person knows it by. Empty means login alone is enough and the login makes the
-       * source itself. This is the one answer: the callback, the form, the chat card and the
-       * agent's next step all read it.
-       */
-      settingsAfterLogin: readonly { key: string; label: string }[];
-    };
+    login?: LoginDeclaration;
+    /**
+     * For a platform whose connectors log in differently, each connector's own
+     * login, in place of `login`. Google needs it: Gmail, Drive, Calendar and
+     * Analytics each ask for their own scope, and Google Ads cannot log in at
+     * all. A connector left out of it has no login. `howToConnectFor` folds
+     * the connector's entry into `login`, so callers never read this.
+     */
+    loginByConnector?: Readonly<Record<string, LoginDeclaration>>;
     /** Pasting is always possible. What to paste, and where to get one by hand. */
     paste: {
       /** The kind of credential, named the way the vendor names it: "Personal access token", "API token", "Bot token". */
@@ -397,6 +409,11 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['apollo'],
     howToConnect: {
+      login: {
+        provider: 'apollo',
+        access: ['read_user_profile', 'app_scopes'],
+        settingsAfterLogin: [],
+      },
       paste: {
         credential: 'API key',
         access: [],
@@ -475,6 +492,11 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'many',
     connectorSlugs: ['hubspot'],
     howToConnect: {
+      login: {
+        provider: 'hubspot',
+        access: ['oauth', 'crm.objects.contacts.read', 'crm.objects.companies.read', 'crm.objects.deals.read'],
+        settingsAfterLogin: [],
+      },
       paste: {
         credential: 'Private-app token',
         access: ['CRM object read access'],
@@ -545,6 +567,13 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['notion'],
     howToConnect: {
+      // Notion has no scopes: the person picks the pages on Notion's consent
+      // screen, and the integration's registered capabilities say what it may do.
+      login: {
+        provider: 'notion',
+        access: ['The pages and databases you pick on Notion\'s consent screen'],
+        settingsAfterLogin: [],
+      },
       paste: {
         credential: 'Internal integration token',
         access: ['Pages and databases shared with the integration, from the page\'s Connections menu'],
@@ -578,6 +607,13 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['posthog'],
     howToConnect: {
+      // A login that covers one project stores its id; one that covers
+      // several needs it picked, so the form always offers the field.
+      login: {
+        provider: 'posthog',
+        access: ['query:read', 'event_definition:read', 'project:read'],
+        settingsAfterLogin: [{ key: 'projectId', label: 'project id' }],
+      },
       paste: {
         credential: 'Personal API key',
         access: ['query:read', 'event_definition:read'],
@@ -765,6 +801,15 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'many',
     connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
     howToConnect: {
+      // Each connector asks Google for its own read scope, so a Drive login
+      // never carries Gmail access. Google Ads has no login: its API also
+      // needs a developer token, which no login can issue.
+      loginByConnector: {
+        'gmail': { provider: 'google', access: ['https://www.googleapis.com/auth/gmail.readonly'], settingsAfterLogin: [] },
+        'drive': { provider: 'google', access: ['https://www.googleapis.com/auth/drive.readonly'], settingsAfterLogin: [] },
+        'google-calendar': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.readonly'], settingsAfterLogin: [] },
+        'ga4': { provider: 'google', access: ['https://www.googleapis.com/auth/analytics.readonly'], settingsAfterLogin: [{ key: 'propertyId', label: 'Analytics property' }] },
+      },
       paste: {
         credential: 'OAuth client and refresh token',
         access: [],
@@ -848,6 +893,13 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'many',
     connectorSlugs: ['zoom'],
     howToConnect: {
+      // Zoom sends no scope in the login URL: the scopes are the ones the
+      // Marketplace app is registered with, listed here as Zoom names them.
+      login: {
+        provider: 'zoom',
+        access: ['user:read:user', 'cloud_recording:read:list_user_recordings', 'cloud_recording:read:list_recording_files', 'cloud_recording:read:meeting_transcript'],
+        settingsAfterLogin: [],
+      },
       paste: {
         credential: 'Server-to-server OAuth app credentials',
         access: ['user:read:admin', 'cloud_recording:read:admin'],
@@ -1259,10 +1311,23 @@ export function keyHint(key: string): string {
  * How to connect the platform behind a connector, or null when no platform
  * claims the connector. The Connectors form and the chat connect card read
  * this rather than special-casing providers (#1080).
+ *
+ * On a platform that declares `loginByConnector`, the connector's own entry
+ * comes back as `login`, and a connector with no entry comes back with no
+ * login, so Gmail gets Gmail's scope and Google Ads gets paste only.
  * @param connectorSlug - A source's connector slug, e.g. `jira`.
  */
-export function howToConnectFor(connectorSlug: string): CredentialPlatform['howToConnect'] | null {
-  return platformForConnectorSlug(connectorSlug)?.howToConnect ?? null;
+export function howToConnectFor(connectorSlug: string): Omit<NonNullable<CredentialPlatform['howToConnect']>, 'loginByConnector'> | null {
+  const howToConnect = platformForConnectorSlug(connectorSlug)?.howToConnect;
+  if (!howToConnect) {
+    return null;
+  }
+  const { loginByConnector, ...declaration } = howToConnect;
+  if (!loginByConnector) {
+    return declaration;
+  }
+  const login = Object.hasOwn(loginByConnector, connectorSlug) ? loginByConnector[connectorSlug] : undefined;
+  return { paste: declaration.paste, ...(login ? { login } : {}) };
 }
 
 /**

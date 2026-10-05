@@ -11,7 +11,7 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Env } from '@/libs/Env';
 import { safeReturnPath } from './returnTo';
 
@@ -160,4 +160,26 @@ export function verifyState(
     return { ok: false, reason: 'expired' };
   }
   return { ok: true, payload };
+}
+
+/**
+ * The PKCE code verifier for one login, derived from its signed state: an
+ * HMAC of the state under AUTH_SECRET, base64url (43 characters, within
+ * PKCE's 43 to 128). The start and the callback both hold the state, so both
+ * reach the same verifier without storing it anywhere. Only the S256
+ * challenge leaves the server; the verifier goes to the vendor's token
+ * endpoint, server to server, and someone holding the state and the code
+ * still cannot compute it without AUTH_SECRET.
+ * @param state - The signed state, exactly as signed and as the vendor returned it.
+ */
+export function pkceVerifierFor(state: string): string {
+  return createHmac('sha256', secret()).update(`pkce:${state}`).digest('base64url');
+}
+
+/**
+ * The S256 code challenge for a verifier: base64url(SHA-256(verifier)).
+ * @param verifier - From `pkceVerifierFor`.
+ */
+export function pkceChallengeFor(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url');
 }
