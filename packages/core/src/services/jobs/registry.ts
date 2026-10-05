@@ -48,6 +48,7 @@
  * agent-driven — an hourly `checkMission` automation.)
  */
 
+import { CONVERSATION_FOLLOW_JOB, runConversationFollowJob } from './conversationFollow';
 import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
 import { ERROR_WATCH_JOB, runErrorWatch } from './errorWatch';
 import { factoryCarryJobs } from './factoryCarry';
@@ -75,6 +76,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [NARRATE_RECORDING_JOB]: (orgId, input) => runNarrateRecordingJob(orgId, input),
   [SLACK_THREAD_FOLLOW_JOB]: (orgId, input) => runSlackThreadFollowJob(orgId, input),
   [SLACK_THREAD_RECORDING_JOB]: (orgId, input) => runSlackThreadRecordingJob(orgId, input),
+  [CONVERSATION_FOLLOW_JOB]: (orgId, input) => runConversationFollowJob(orgId, input),
 };
 
 export function builtInJobNames(): string[] {
