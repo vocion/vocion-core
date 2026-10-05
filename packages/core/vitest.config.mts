@@ -1,6 +1,5 @@
 import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
-import { loadEnv } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
@@ -78,8 +77,17 @@ export default defineConfig({
       // conditional reporter
       process.env.CI ? 'github-actions' : {},
     ],
+    // Tests see the same environment on every machine: these fixed values,
+    // never the developer's own env files. Loading `.env.local` here let a
+    // personal setting decide results: a local app URL turned chat links
+    // absolute, and local model settings changed the model the registry and
+    // budget tests built, so tests that pass in CI failed on a laptop. A value
+    // exported in the shell still reaches the tests, for a run that means it.
     env: {
-      ...loadEnv('', process.cwd(), ''), // Expose .env variables to Node.js
+      // T3 env validation needs these present; tests mock the database and
+      // never dial it. The same placeholders CI sets.
+      DATABASE_URL: process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/vocion_test',
+      AUTH_SECRET: process.env.AUTH_SECRET ?? 'test-only-secret-not-used-by-unit-tests',
       BILLING_PLAN_ENV: 'test',
       // Default fake LLM keys so getLLMClient() can construct mocked SDK
       // instances without aborting on missing env. Tests that want to assert
@@ -88,7 +96,9 @@ export default defineConfig({
       ANTHROPIC_API_KEY: 'sk-ant-test-fixture',
     },
   },
+  // Browser tests get no env file either, for the same reason as `env` above:
+  // `process.env` is defined so code that reads it finds nothing, as in CI.
   define: {
-    'process.env': JSON.stringify(loadEnv('', process.cwd(), 'NEXT_PUBLIC_')), // Expose .env variables to browser
+    'process.env': JSON.stringify({}),
   },
 });
