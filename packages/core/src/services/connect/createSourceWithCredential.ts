@@ -13,9 +13,13 @@
  */
 
 import type { StoredCredential } from './createSourceOnLogin';
+import type { DbTransaction } from '@/libs/DbTransaction';
+import type { CredentialPlatformId } from '@/libs/platforms/registry';
+import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
-import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { CredentialValidationError, holdsManyCredentials, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { apiTokenSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { insertSealedPlatformKey, sealPlatformKey } from '@/services/ApiTokenService';
 import { ConnectorCredentialError, CredentialInUseError } from '@/services/SourceCredentialService';
 import { adminCheck, configProblem, connectorLabel, newestLiveCredential, resolveTarget, saveWithin } from './createSourceOnLogin';
@@ -71,6 +75,42 @@ function reasonFor(error: unknown, connector: string): string {
 }
 
 /**
+ * Refuse a pasted key that would strand another source. A platform that keeps
+ * one live key per workspace (GitHub, Sentry, Notion, PostHog, Apollo) revokes
+ * the saved one when a new key is stored, and nothing moves the sources still
+ * reading it, so they would fail their next sync as "revoked". Until a
+ * workspace can hold several accounts of one platform, the paste is refused
+ * while a source reads a saved key that still works. An expired one does not
+ * count: its sources are already broken, and a fresh key is the way out.
+ *
+ * Runs inside the save's transaction, so the check and the write see the same rows.
+ * @param tx - The save's transaction.
+ * @param orgId - The workspace.
+ * @param platform - The platform the pasted key is for.
+ * @param platform.id - Its id, which decides whether it keeps one key or many.
+ * @param platform.label - Its name, for the sentence.
+ */
+async function refuseIfSavedKeyIsInUse(tx: DbTransaction, orgId: string, platform: { id: CredentialPlatformId; label: string }): Promise<void> {
+  if (holdsManyCredentials(platform.id)) {
+    return;
+  }
+  const [holder] = await tx
+    .select({ slug: knowledgeSourceSchema.slug })
+    .from(knowledgeSourceSchema)
+    .innerJoin(apiTokenSchema, eq(apiTokenSchema.id, knowledgeSourceSchema.apiTokenId))
+    .where(and(
+      eq(apiTokenSchema.orgId, orgId),
+      eq(apiTokenSchema.platform, platform.id),
+      isNull(apiTokenSchema.revokedAt),
+      or(isNull(apiTokenSchema.expiresAt), gt(apiTokenSchema.expiresAt, new Date())),
+    ))
+    .limit(1);
+  if (holder) {
+    throw new CredentialInUseError(`${platform.label} holds one key per workspace, and the ${holder.slug} connector already uses the saved one. Keep the saved one for this connector. A second ${platform.label} account isn't supported yet.`);
+  }
+}
+
+/**
  * Save a new source and settle its credential in one transaction. Always a new
  * source: "Add" on the Connectors page never merges into an existing one.
  * @param input - Who, which connector, its settings and the credential choice.
@@ -107,6 +147,7 @@ export async function createSourceWithCredential(input: CreateSourceWithCredenti
     const saved = await db.transaction(async (tx) => {
       let credential = stored;
       if (sealed) {
+        await refuseIfSavedKeyIsInUse(tx, input.orgId, platform);
         const key = await insertSealedPlatformKey(tx, {
           orgId: input.orgId,
           name: `${platform.label} — ${target.slug}`,

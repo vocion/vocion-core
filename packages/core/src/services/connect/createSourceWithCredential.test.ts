@@ -23,6 +23,7 @@ const ORG = 'org_one_step';
 const ADMIN = 'user_one_step_admin';
 const MEMBER = 'user_one_step_member';
 const PASTED_TOKEN = 'pat-na1-not-a-real-token-0001';
+const GITHUB_PAT = 'ghp_notarealtokennotarealtokennotareal01';
 
 beforeAll(async () => {
   await db.insert(tenantAccountSchema).values({ id: 'acct-one-step', name: 'Northwind', slug: 'northwind-one-step' });
@@ -126,6 +127,30 @@ describe('createSourceWithCredential', () => {
 
     expect(await sources()).toHaveLength(2);
     expect(await tokens()).toHaveLength(2);
+  });
+
+  it('a pasted key on a one-key platform is refused while another source uses the saved login, and nothing changes', async () => {
+    // GitHub keeps one live key per workspace, so storing the paste would revoke
+    // the login, and the source on it would fail its next sync as "revoked".
+    const loginId = await seedGithubLogin();
+    await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'github', config: { repos: ['northwind/portal'] }, credential: { keepStored: true } });
+    const [portal] = await sources();
+    const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'github', config: { repos: ['northwind/billing'] }, credential: { values: { token: GITHUB_PAT } } });
+
+    expect(result).toEqual({ ok: false, reason: expect.stringContaining(portal!.slug) });
+    expect(await sources()).toHaveLength(1);
+    expect(await tokens()).toEqual([expect.objectContaining({ id: loginId, revokedAt: null })]);
+  });
+
+  it('a pasted key on a one-key platform replaces the saved one when no source uses it', async () => {
+    const loginId = await seedGithubLogin();
+    const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'github', config: { repos: ['northwind/billing'] }, credential: { values: { token: GITHUB_PAT } } });
+    const rows = await tokens();
+    const pasted = rows.find(row => row.obtainedVia === 'paste');
+
+    expect(result).toMatchObject({ ok: true });
+    expect(rows.find(row => row.id === loginId)?.revokedAt).not.toBeNull();
+    expect((await sources())[0]).toMatchObject({ apiTokenId: pasted!.id });
   });
 
   it('an edited value of a stored key is saved as a new pasted credential; the stored one stays live and unlinked', async () => {
