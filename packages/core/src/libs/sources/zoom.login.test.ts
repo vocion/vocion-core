@@ -56,7 +56,7 @@ async function runSync(bag: Record<string, unknown>, orgId = 'org_none', sourceI
     orgId,
     config: SOURCE_CONFIG,
     credentials: bag,
-    onProgress: event => messages.push('message' in event && event.message ? event.message : ''),
+    onProgress: event => messages.push(`${event.kind}: ${event.message ?? ''}`),
   });
   for await (const _doc of iterator) {
     // Documents are not the subject here; the calls made are.
@@ -143,7 +143,8 @@ describe('zoom sync on a login', () => {
     const messages = await runSync({ accessToken: 'login-at', refreshToken: 'rt', expiresAt: GOOD_UNTIL });
 
     expect(calls.some(call => call.url.includes('/users/me-id/recordings'))).toBe(true);
-    expect(messages.some(message => /only the logged-in user/.test(message))).toBe(true);
+    expect(messages.some(message => /^skipped: .*only the logged-in user/.test(message))).toBe(true);
+    expect(messages.filter(message => message.startsWith('error:'))).toEqual([]);
   });
 });
 

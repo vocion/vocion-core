@@ -344,7 +344,10 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
       throw new Error(`Zoom user list failed: ${listed.status} ${listed.body}`);
     }
     if (listed.fellBackToSelf) {
-      ctx.onProgress?.({ kind: 'error', message: SELF_ONLY_NOTICE });
+      // Not an error: a non-admin login is expected to see only its own
+      // recordings, and an error report would stop the run retiring deleted
+      // recordings, on every sync.
+      ctx.onProgress?.({ kind: 'skipped', message: SELF_ONLY_NOTICE });
     }
     const userIds = listed.users;
 

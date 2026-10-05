@@ -8,7 +8,7 @@ import { SLACK_SOURCE_SCOPES } from '@/libs/connect/providers/slack';
 import { ZOOM_LOGIN_SCOPES } from '@/libs/connect/providers/zoom';
 import { providerForConnector } from '@/libs/connect/registry';
 import { getConnector } from '@/libs/sources/registry';
-import { howToConnectFor, listPlatforms, loginIsEnough, platformForConnectorSlug } from './registry';
+import { accessForDisplay, howToConnectFor, listPlatforms, loginIsEnough, platformForConnectorSlug } from './registry';
 
 const connectorPlatforms = listPlatforms().filter(platform => platform.connectorSlugs.length > 0);
 const connectorSlugs = connectorPlatforms.flatMap(platform => platform.connectorSlugs);
@@ -88,6 +88,11 @@ describe('howToConnect declarations', () => {
     expect(howToConnectFor('posthog')?.login?.access).toEqual([...POSTHOG_LOGIN_SCOPES]);
     expect(howToConnectFor('apollo')?.login?.access).toEqual([...APOLLO_LOGIN_SCOPES]);
     expect(howToConnectFor('zoom')?.login?.access).toEqual([...ZOOM_LOGIN_SCOPES]);
+  });
+
+  it('a Google login shows its scope by name, not as a URL, and other vendors\' scopes show as they are', () => {
+    expect(accessForDisplay(howToConnectFor('gmail')!.login!.access)).toBe('gmail.readonly');
+    expect(accessForDisplay(howToConnectFor('slack')!.login!.access)).toBe(SLACK_SOURCE_SCOPES.join(', '));
   });
 
   it('an unknown connector has no declaration', () => {

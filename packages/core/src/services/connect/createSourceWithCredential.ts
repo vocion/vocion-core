@@ -16,14 +16,14 @@ import type { StoredCredential } from './createSourceOnLogin';
 import type { DbTransaction } from '@/libs/DbTransaction';
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
-import { providerForConnector } from '@/libs/connect/registry';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { CredentialValidationError, holdsManyCredentials, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { apiTokenSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { insertSealedPlatformKey, sealPlatformKey } from '@/services/ApiTokenService';
-import { ConnectorCredentialError, CredentialInUseError, getCredentialsForConnector } from '@/services/SourceCredentialService';
+import { ConnectorCredentialError, CredentialInUseError } from '@/services/SourceCredentialService';
 import { adminCheck, configProblem, connectorLabel, newestLiveCredential, resolveTarget, saveWithin } from './createSourceOnLogin';
+import { loginCannotServe } from './loginCannotServe';
 
 /** Where the new source's credential comes from: the workspace's stored login or key, or values typed into the form. */
 export type CredentialChoice
@@ -108,30 +108,6 @@ async function refuseIfSavedKeyIsInUse(tx: DbTransaction, orgId: string, platfor
     .limit(1);
   if (holder) {
     throw new CredentialInUseError(`${platform.label} holds one key per workspace, and the ${holder.slug} connector already uses the saved one. Keep the saved one for this connector. A second ${platform.label} account isn't supported yet.`);
-  }
-}
-
-/**
- * Why a saved login cannot serve this connector, or null when it can. Only a
- * provider serving several connectors with different access (Google) says no:
- * a Google login made for Drive has no Gmail scope, and a Gmail source kept on
- * it would fail every sync. A login that cannot be read is left to the save,
- * which reports it the usual way.
- * @param orgId - The workspace.
- * @param stored - The saved credential the person chose to keep.
- * @param connector - The connector being added.
- */
-export async function loginCannotServe(orgId: string, stored: StoredCredential, connector: string): Promise<string | null> {
-  const provider = providerForConnector(connector);
-  if (stored.obtainedVia !== 'login' || !provider?.missingAccessFor) {
-    return null;
-  }
-  try {
-    const values = await getCredentialsForConnector({ orgId, connectorSlug: connector, apiTokenId: stored.id });
-    return values ? provider.missingAccessFor(values, connector) : null;
-  } catch (error) {
-    logger.warn('createSourceWithCredential could not read the saved login to check its access', { orgId, connector, errorName: error instanceof Error ? error.name : 'unknown' });
-    return null;
   }
 }
 

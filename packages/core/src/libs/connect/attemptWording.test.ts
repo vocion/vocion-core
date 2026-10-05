@@ -9,6 +9,7 @@ import { connectFailureSummary, describeLastAttempt } from './attemptWording';
 describe('connectFailureSummary', () => {
   it.each([
     ['access_denied', 'GitHub denied access'],
+    ['missing_access', 'The GitHub login left out the access this connector reads. Try again and allow it'],
     ['cancelled', 'The GitHub login was cancelled'],
     ['state_expired', 'The login took longer than 10 minutes'],
     ['not_admin', 'Only a workspace admin can connect GitHub'],

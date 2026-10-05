@@ -114,6 +114,64 @@ describe('a sync on an expiring login', () => {
     expect(warnings).toEqual([]);
   });
 
+  it('when another sync already refreshed, this run uses the saved grant and never spends a refresh token', async () => {
+    const { orgId, sourceId } = await seedSourceOnLogin({ accessToken: 'a5', refreshToken: 'r5', expiresAt: LATER });
+    const refreshedFrom: string[] = [];
+
+    const usable = await usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'hubspot',
+      grant: { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED },
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async (refreshToken) => {
+        refreshedFrom.push(refreshToken);
+        return { accessToken: 'a2', refreshToken: 'r2', expiresAt: LATER };
+      },
+      now: NOW,
+    });
+
+    expect(refreshedFrom).toEqual([]);
+    expect(usable).toMatchObject({ accessToken: 'a5', refreshToken: 'r5' });
+  });
+
+  it('a rotating vendor that refuses the refresh token another sync just rotated: this run uses that sync\'s grant, not "log in again"', async () => {
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin({ accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED });
+
+    const usable = await usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'hubspot',
+      grant: { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED },
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async () => {
+        // The other sync spends r1 first; the vendor then refuses it here.
+        await updateLoginCredentialValues({ orgId, tokenId, values: { accessToken: 'a9', refreshToken: 'r9', expiresAt: LATER }, expectedRefreshToken: 'r1' });
+        throw new TokenRequestError('Zoom', 'invalid_grant', 400);
+      },
+      now: NOW,
+    });
+
+    expect(usable).toMatchObject({ accessToken: 'a9', refreshToken: 'r9' });
+  });
+
+  it('a vendor that does not answer says the next sync retries, not to log in again, and the saved login is untouched', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+
+    const failure = await usableLoginGrant({
+      vendor: 'HubSpot',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async () => {
+        throw new TokenRequestError('HubSpot', 'http_503', 503);
+      },
+      now: NOW,
+    }).catch((error: unknown) => error as Error);
+
+    expect(failure.message).toBe('HubSpot did not answer the token refresh (http_503). The saved login is unchanged, and the next sync tries again.');
+    expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
+  });
+
   it('Test connection never refreshes an expired token: it says to run a sync, and the saved login is untouched', async () => {
     const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
     const { orgId, tokenId } = await seedSourceOnLogin(grant);

@@ -801,9 +801,11 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'many',
     connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
     howToConnect: {
-      // Each connector asks Google for its own read scope, so a Drive login
-      // never carries Gmail access. Google Ads has no login: its API also
-      // needs a developer token, which no login can issue.
+      // Each connector asks Google for its own read scope. A login also
+      // carries the scopes the person granted this app before
+      // (`include_granted_scopes`), so logging in for Gmail after Drive adds
+      // Gmail rather than replacing Drive. Google Ads has no login: its API
+      // also needs a developer token, which no login can issue.
       loginByConnector: {
         'gmail': { provider: 'google', access: ['https://www.googleapis.com/auth/gmail.readonly'], settingsAfterLogin: [] },
         'drive': { provider: 'google', access: ['https://www.googleapis.com/auth/drive.readonly'], settingsAfterLogin: [] },
@@ -1328,6 +1330,19 @@ export function howToConnectFor(connectorSlug: string): Omit<NonNullable<Credent
   }
   const login = Object.hasOwn(loginByConnector, connectorSlug) ? loginByConnector[connectorSlug] : undefined;
   return { paste: declaration.paste, ...(login ? { login } : {}) };
+}
+
+/** Google writes its scopes as URLs; people know them by the part after this. */
+const GOOGLE_SCOPE_PREFIX = 'https://www.googleapis.com/auth/';
+
+/**
+ * A login's access as the form and the chat card show it: Google's scope URLs
+ * shrink to their names (`gmail.readonly`), and every other vendor's scopes
+ * are short already.
+ * @param access - The login's `access` lines.
+ */
+export function accessForDisplay(access: readonly string[]): string {
+  return access.map(line => (line.startsWith(GOOGLE_SCOPE_PREFIX) ? line.slice(GOOGLE_SCOPE_PREFIX.length) : line)).join(', ');
 }
 
 /**

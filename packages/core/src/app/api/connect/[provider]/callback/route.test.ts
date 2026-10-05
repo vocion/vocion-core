@@ -10,6 +10,7 @@ const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
 
 const exchange = vi.fn();
+const missingAccessFor = vi.fn((): string | null => null);
 vi.mock('@/libs/connect/registry', () => {
   const slack = {
     id: 'slack',
@@ -19,6 +20,7 @@ vi.mock('@/libs/connect/registry', () => {
     configured: () => true,
     authorizeUrl: () => 'https://slack.example',
     exchange: (input: unknown) => exchange(input),
+    missingAccessFor: () => missingAccessFor(),
   };
   return {
     providerFor: (id: string) => (id === 'slack' ? slack : null),
@@ -100,6 +102,17 @@ describe('GET /api/connect/[provider]/callback', () => {
     expect(landing(res)).toEqual({ path: '/dashboard/sources', connect: 'error', reason: 'invalid_code', connector: 'slack', source: 'slack-1727000000' });
     expect(completeLogin).not.toHaveBeenCalled();
     expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack', reason: 'invalid_code', stateIssuedAt: new Date(payload.exp - 600000) }));
+  });
+
+  it('a login the person narrowed on the consent screen, so it cannot read the connector, is a failed attempt and is never stored', async () => {
+    exchange.mockResolvedValue({ ok: true, credentials: { accessToken: 'a', scope: 'openid email' }, displayName: 'Google — ops' });
+    missingAccessFor.mockReturnValueOnce('This Google login doesn\'t include Gmail.');
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'missing_access' });
+    expect(completeLogin).not.toHaveBeenCalled();
+    expect(recordFailedLogin).toHaveBeenCalledWith(expect.objectContaining({ reason: 'missing_access' }));
   });
 
   it('records a vendor exchange that throws as a dated failed attempt on the card, and lands with an error', async () => {

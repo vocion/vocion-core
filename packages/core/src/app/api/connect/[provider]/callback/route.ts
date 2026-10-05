@@ -212,6 +212,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     console.error('[connect] vendor exchange refused', { provider: provider.id, connector: connectorSlug, reason: exchanged.reason });
     return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: exchanged.reason, card, stateIssuedAt: issuedAt }, landing);
   }
+  // A consent screen that lets the person untick a scope (Google's does) can
+  // hand back a login that cannot read this connector. Stored, it would make a
+  // source that fails every sync, so it is a failed attempt to retry instead.
+  if (provider.missingAccessFor?.(exchanged.credentials, connectorSlug)) {
+    console.error('[connect] login lacks the connector\'s access', { provider: provider.id, connector: connectorSlug });
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'missing_access', card, stateIssuedAt: issuedAt }, landing);
+  }
   return storeAndLand(
     req,
     origin,

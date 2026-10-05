@@ -105,6 +105,16 @@ describe('posthog connect provider', () => {
     expect(result.ok && result.credentials.host).toBe('https://us.posthog.com');
   });
 
+  it('a login for all projects, when the account has only one, stores that project so nothing is left to pick', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'pha_fixture_token_1', refresh_token: 'phr_fixture_token_1', scoped_teams: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [{ id: 4242, name: 'Acme prod' }] })));
+
+    const result = await posthogProvider.exchange({ query: { code: 'c0de' }, redirectUri: CALLBACK, codeVerifier: 'verifier_1' });
+
+    expect(result.ok && result.credentials.projectId).toBe('4242');
+  });
+
   it('refuses with the sanitized error PostHog returned, or missing_code when there is no code', async () => {
     expect(await posthogProvider.exchange({ query: { error: 'access_denied' }, redirectUri: CALLBACK, codeVerifier: 'v' })).toEqual({ ok: false, reason: 'access_denied' });
     expect(await posthogProvider.exchange({ query: { error: 'bad <script>alert(1)</script>' }, redirectUri: CALLBACK, codeVerifier: 'v' })).toEqual({ ok: false, reason: 'login_refused' });

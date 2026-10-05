@@ -126,6 +126,14 @@ describe('createSourceWithCredential', () => {
     expect(await sources()).toHaveLength(0);
   });
 
+  it('Google Ads never keeps a Google login, whose token cannot call the Ads API, and nothing is created', async () => {
+    await seedGoogleLogin('openid email https://www.googleapis.com/auth/drive.readonly');
+    const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'google-ads', config: { customerId: '1234567890' }, credential: { keepStored: true } });
+
+    expect(result).toEqual({ ok: false, reason: 'Google Ads can\'t use a Google login. Press Replace and paste its key.' });
+    expect(await sources()).toHaveLength(0);
+  });
+
   it('a Google login that already holds Gmail\'s scope is kept for Gmail', async () => {
     const loginId = await seedGoogleLogin('openid email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.readonly');
     const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'gmail', config: {}, credential: { keepStored: true } });

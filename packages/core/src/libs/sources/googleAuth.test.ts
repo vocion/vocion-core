@@ -45,6 +45,13 @@ describe('resolveGoogleAccessToken', () => {
     expect(new URLSearchParams(String(fetchMock.mock.calls[0]![1]?.body)).get('client_id')).toBe('own_client');
   });
 
+  it('a pasted client missing its secret is refused, never refreshed with the deployment\'s client it was not minted for', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    await expect(resolveGoogleAccessToken({ refreshToken: 'pasted-refresh-3', clientId: 'own_client' })).rejects.toThrow(/only half of its OAuth client/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('says the server client is unset instead of calling Google with an empty one', async () => {
     env.GOOGLE_OAUTH_CLIENT_SECRET = undefined;
     const fetchMock = vi.spyOn(globalThis, 'fetch');

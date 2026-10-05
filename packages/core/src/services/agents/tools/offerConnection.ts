@@ -6,10 +6,10 @@ import { newCardId } from '@/libs/cards/card';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
 import { connectOptionFor } from '@/libs/connect/registry';
 import { connectStartHref } from '@/libs/connect/returnTo';
-import { afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { accessForDisplay, afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { connectorHasLiveSource, newestLiveCredential } from '@/services/connect/createSourceOnLogin';
-import { loginCannotServe } from '@/services/connect/createSourceWithCredential';
+import { loginCannotServe } from '@/services/connect/loginCannotServe';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 
 /**
@@ -113,7 +113,7 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     kind: 'link',
     title: `Connect ${name}`,
     rationale: input.why,
-    body: `${login.access.length > 0 ? `Asks for: ${login.access.join(', ')}. ` : ''}${afterLoginText(login.settingsAfterLogin)}`,
+    body: `${login.access.length > 0 ? `Asks for: ${accessForDisplay(login.access)}. ` : ''}${afterLoginText(login.settingsAfterLogin)}`,
     actions: [],
     source,
     href,

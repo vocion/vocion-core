@@ -14,6 +14,7 @@ import { listConnectors } from '@/libs/sources/registry';
 import { LOGIN_WITHOUT_TOKEN_HINT } from '@/services/ApiTokenService';
 import { connectorHoldingCredential } from '@/services/SourceCredentialService';
 import { newestLiveCredential } from './createSourceOnLogin';
+import { loginCannotServe } from './loginCannotServe';
 
 /**
  * The newest live credential of the connector's platform, or null when the
@@ -74,7 +75,10 @@ export async function connectInfoForOrg(orgId: string): Promise<Record<string, C
   const info: Record<string, ConnectInfo> = {};
   for (const connector of listConnectors()) {
     const slug = connector.slug;
-    const credential = await liveCredentialOf(orgId, slug);
+    const newest = await liveCredentialOf(orgId, slug);
+    // A login this connector cannot use (a Drive login, on Gmail's row) is
+    // not shown as "logged in" or offered to keep: the form offers a new login.
+    const credential = newest && await loginCannotServe(orgId, newest, slug) ? null : newest;
     const loggedInAs = loginAccount(slug, credential);
     const attempt = attempts.get(slug);
     // A credential saved after the failure (a paste, a later login) supersedes it: the line would only mislead.

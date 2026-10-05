@@ -29,10 +29,11 @@ vi.mock('@/libs/connect/registry', async (importOriginal) => {
 
 vi.mock('@/libs/connect/attempts', () => ({ lastConnectAttempts: vi.fn() }));
 vi.mock('./createSourceOnLogin', () => ({ newestLiveCredential: vi.fn() }));
-vi.mock('@/services/SourceCredentialService', () => ({ connectorHoldingCredential: vi.fn(async () => null) }));
+vi.mock('@/services/SourceCredentialService', () => ({ connectorHoldingCredential: vi.fn(async () => null), getCredentialsForConnector: vi.fn(async () => null) }));
 
 const { lastConnectAttempts } = await import('@/libs/connect/attempts');
 const { newestLiveCredential } = await import('./createSourceOnLogin');
+const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
 const { connectInfoForOrg } = await import('./connectInfo');
 
 beforeEach(() => {
@@ -59,6 +60,16 @@ describe('connectInfoForOrg', () => {
     } finally {
       providerSetup.unconfigured.delete('hubspot');
     }
+  });
+
+  it('a Google login made for Drive reads as logged in on Drive, but not on Gmail or Google Ads, which get a fresh login or paste', async () => {
+    vi.mocked(newestLiveCredential).mockResolvedValue({ id: 'g1', obtainedVia: 'login', account: 'ops@northwind.example', createdAt: new Date('2026-10-01T10:00:00.000Z'), keyHint: '…abcd' });
+    vi.mocked(getCredentialsForConnector).mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: '2099-01-01T00:00:00.000Z', scope: 'openid email https://www.googleapis.com/auth/drive.readonly' });
+    const info = await connectInfoForOrg('org_a');
+
+    expect(info.drive).toMatchObject({ loggedInAs: 'ops@northwind.example', stored: { kind: 'login' } });
+    expect(info.gmail).toMatchObject({ loggedInAs: null, stored: null });
+    expect(info['google-ads']).toBeUndefined();
   });
 
   it('does not call a pasted key a login', async () => {

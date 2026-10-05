@@ -5,7 +5,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { client, noStoreClient } from '@/libs/Orpc';
-import { afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { accessForDisplay, afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { ProviderLoginButton } from './ProviderLoginButton';
 
 /**
@@ -375,7 +375,7 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
                 {`Log in with ${info?.providerLabel}`}
               </ProviderLoginButton>
               {login.access.length > 0 && (
-                <p className="text-xs text-muted-foreground">{`Asks for: ${login.access.join(', ')}`}</p>
+                <p className="text-xs text-muted-foreground">{`Asks for: ${accessForDisplay(login.access)}`}</p>
               )}
               <p className="text-xs text-muted-foreground" data-testid="connect-after-login">{afterLoginText(login.settingsAfterLogin)}</p>
               <p className="pt-1 text-sm font-medium text-foreground/80">{`or paste a ${how.paste.credential}`}</p>

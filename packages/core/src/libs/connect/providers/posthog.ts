@@ -217,7 +217,9 @@ export const posthogProvider: ConnectProvider = {
     }
     const scoped = scopedProjectIds(body.scoped_teams);
     const named = region.projects.filter(project => scoped.length === 0 || (project.id !== undefined && scoped.includes(project.id)));
-    const projectId = scoped.length === 1 ? String(scoped[0]) : null;
+    // One project chosen at consent, or one project in reach at all: either way there is nothing to pick.
+    const onlyProjectInReach = named.length === 1 && named[0]?.id !== undefined ? String(named[0].id) : null;
+    const projectId = scoped.length === 1 ? String(scoped[0]) : onlyProjectInReach;
     const hostname = new URL(region.host).hostname;
     const account = named.length === 1 && named[0]?.name ? `${named[0].name} (${hostname})` : hostname;
     return {

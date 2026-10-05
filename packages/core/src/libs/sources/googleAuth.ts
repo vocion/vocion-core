@@ -40,6 +40,11 @@ export async function resolveGoogleAccessToken(credentials: RawCredentials | und
   const pastedClientId = credentials?.clientId as string | undefined;
   const pastedClientSecret = credentials?.clientSecret as string | undefined;
   const hasPastedClient = Boolean(pastedClientId && pastedClientSecret);
+  // Half a pasted client is a paste gone wrong, not a login: its refresh token
+  // was minted for that client, and this deployment's would be refused.
+  if (Boolean(pastedClientId) !== Boolean(pastedClientSecret)) {
+    throw new Error('This Google credential has only half of its OAuth client. Paste both the client ID and the client secret with the refresh token.');
+  }
   // A "Log in with Google" bag stores no client: it was issued to this
   // deployment's OAuth client, so refresh with that one.
   const clientId = hasPastedClient ? pastedClientId : Env.GOOGLE_OAUTH_CLIENT_ID;

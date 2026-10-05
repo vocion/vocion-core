@@ -212,15 +212,18 @@ async function saveRefreshedGrant(input: { orgId: string; connectorSlug: string;
 
 /**
  * Refresh a source's login grant and save it. Refreshes from the stored
- * refresh token; when another sync saved first, returns that sync's grant.
- * A save that fails keeps this run going on the fresh token and warns that
- * the next run needs a new login.
+ * refresh token, and only when the stored grant is itself expiring: when
+ * another sync already refreshed, or saved first, or rotated the refresh
+ * token this run then had refused, this run uses that sync's grant. A save
+ * that fails keeps this run going on the fresh token and warns that the next
+ * run needs a new login.
  * @param input - The grant, the vendor and where to save.
  * @param input.vendor - The vendor's name, for messages: "HubSpot".
  * @param input.connectorSlug - The source's connector.
  * @param input.grant - The grant this run loaded.
  * @param input.persistence - The sync's org, source and warning channel.
  * @param input.refresh - The vendor's refresh.
+ * @param input.now - Injected for tests.
  */
 export async function refreshLoginGrant(input: {
   vendor: string;
@@ -228,17 +231,26 @@ export async function refreshLoginGrant(input: {
   grant: LoginGrant;
   persistence: Extract<GrantPersistence, { kind: 'persist' }>;
   refresh: GrantRefresher;
+  now?: number;
 }): Promise<LoginGrant> {
   const { orgId, sourceId, warn } = input.persistence;
   const stored = await readStoredGrant(orgId, sourceId, input.connectorSlug);
+  // Another sync refreshed while this one was loading: use its grant, and
+  // never spend a refresh token that may already be rotated away.
+  if (stored && !grantIsExpiring(stored.grant.expiresAt, input.now)) {
+    return stored.grant;
+  }
   const base = stored?.grant ?? input.grant;
   const parentRefreshToken = base.refreshToken;
   let fresh: RefreshedTokens;
   try {
     fresh = await input.refresh(parentRefreshToken);
   } catch (error) {
-    const code = error instanceof TokenRequestError ? error.code : 'unknown';
-    throw new Error(`${input.vendor} would not refresh the login (${code}). Log in with ${input.vendor} again on the Connectors page.`);
+    const winner = await grantSavedByAnotherRun({ orgId, sourceId, connectorSlug: input.connectorSlug, parentRefreshToken, now: input.now });
+    if (winner) {
+      return winner;
+    }
+    throw refreshFailure(input.vendor, input.connectorSlug, orgId, error);
   }
   const next: LoginGrant = {
     ...base,
@@ -251,8 +263,10 @@ export async function refreshLoginGrant(input: {
   try {
     saved = await saveRefreshedGrant({ orgId, connectorSlug: input.connectorSlug, apiTokenId: stored?.apiTokenId ?? null, grant: next, parentRefreshToken });
     if (!saved) {
+      // Another run saved first. Its grant is the one on file, whether or not
+      // the vendor rotated the refresh token, so this run uses it too.
       const winner = await readStoredGrant(orgId, sourceId, input.connectorSlug);
-      if (winner && winner.grant.refreshToken !== parentRefreshToken) {
+      if (winner && !grantIsExpiring(winner.grant.expiresAt, input.now)) {
         return winner.grant;
       }
     }
@@ -264,6 +278,49 @@ export async function refreshLoginGrant(input: {
     warn(`${input.vendor} issued a new token but the saved login could not be updated. Log in with ${input.vendor} again before the next sync.`);
   }
   return next;
+}
+
+/**
+ * The grant another run saved while this one's refresh failed, or null. A
+ * vendor that rotates refresh tokens refuses the old one once a parallel
+ * sync has used it; that sync's saved grant is good, so this run uses it
+ * instead of telling the person to log in again.
+ * @param input - Where the grant is stored, and the refresh token this run tried.
+ * @param input.orgId - The workspace.
+ * @param input.sourceId - The source being synced.
+ * @param input.connectorSlug - The source's connector.
+ * @param input.parentRefreshToken - The refresh token this run sent.
+ * @param input.now - Injected for tests.
+ */
+async function grantSavedByAnotherRun(input: { orgId: string; sourceId: number; connectorSlug: string; parentRefreshToken: string; now?: number }): Promise<LoginGrant | null> {
+  try {
+    const stored = await readStoredGrant(input.orgId, input.sourceId, input.connectorSlug);
+    const rotatedByAnotherRun = stored && stored.grant.refreshToken !== input.parentRefreshToken && !grantIsExpiring(stored.grant.expiresAt, input.now);
+    return rotatedByAnotherRun ? stored.grant : null;
+  } catch (error) {
+    logger.warn('refreshLoginGrant could not re-read the login after a refused refresh', { orgId: input.orgId, sourceId: input.sourceId, connectorSlug: input.connectorSlug, errorName: error instanceof Error ? error.name : 'unknown' });
+    return null;
+  }
+}
+
+/** Vendor answers that mean the login itself is gone, so only logging in again fixes it. */
+const LOGIN_IS_GONE = new Set(['invalid_grant', 'invalid_client', 'unauthorized_client', 'access_denied', 'http_400', 'http_401', 'http_403']);
+
+/**
+ * The error a failed refresh ends the run with. A refused login says to log
+ * in again; a vendor that did not answer (a timeout, a 5xx) says the next
+ * sync retries, so nobody re-authorizes a good login over an outage.
+ * @param vendor - The vendor's name, for the sentence.
+ * @param connectorSlug - The source's connector, for the log line.
+ * @param orgId - The workspace, for the log line.
+ * @param error - What the refresh threw.
+ */
+function refreshFailure(vendor: string, connectorSlug: string, orgId: string, error: unknown): Error {
+  const code = error instanceof TokenRequestError ? error.code : 'unknown';
+  logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, errorName: error instanceof Error ? error.name : 'unknown' });
+  return LOGIN_IS_GONE.has(code)
+    ? new Error(`${vendor} would not refresh the login (${code}). Log in with ${vendor} again on the Connectors page.`)
+    : new Error(`${vendor} did not answer the token refresh (${code}). The saved login is unchanged, and the next sync tries again.`);
 }
 
 /**
@@ -292,5 +349,5 @@ export async function usableLoginGrant(input: {
   if (input.persistence.kind === 'never') {
     throw new Error(`The ${input.vendor} access token has expired, and Test connection does not refresh it because it cannot save the new one. Run Sync now, which refreshes and saves it, then test again.`);
   }
-  return refreshLoginGrant({ vendor: input.vendor, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh });
+  return refreshLoginGrant({ vendor: input.vendor, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh, now: input.now });
 }

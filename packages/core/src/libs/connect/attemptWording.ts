@@ -33,6 +33,8 @@ export function connectFailureSummary(providerLabel: string, reason: string | nu
       return `${providerLabel} could not be reached, so nothing was connected`;
     case 'source_not_created':
       return `${providerLabel} logged in, but its source could not be created. Add it from Connectors`;
+    case 'missing_access':
+      return `The ${providerLabel} login left out the access this connector reads. Try again and allow it`;
     case 'store_failed':
       return `${providerLabel} logged in, but the credential couldn't be saved`;
     default:
