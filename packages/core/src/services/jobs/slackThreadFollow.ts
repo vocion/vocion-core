@@ -80,6 +80,26 @@ export function recordHref(recordId: number): string | null {
   return base ? `${base}/dashboard/objects/${recordId}` : null;
 }
 
+/** The record as the done message reads it. */
+export type DoneFacts = { title: string; live: 'seen' | 'partial' | 'not_seen' | 'not_checked' | null; reached: number; total: number; shareUrl: string | null };
+
+/**
+ * ONE FRIENDLY MESSAGE WHEN IT IS DONE (Chris, 2026-10-05: "send one friendly message into Slack
+ * (where the conversation happened) letting the user know it's done in prod and tested"). Fixed
+ * words over the record's facts — nobody's sentence is rewritten. Null when it is not yet done
+ * in the way a person wants to hear: shipped but not yet checked live waits for the check.
+ * @param facts - The record.
+ * @param href - Its page, absolute, or null.
+ */
+export function doneText(facts: DoneFacts, href: string | null): string | null {
+  if (facts.live !== 'seen') {
+    return null;
+  }
+  const all = facts.reached === facts.total;
+  const checked = facts.total > 0 ? ` and tested: ${all ? 'everything you asked for was' : `${facts.reached} of ${facts.total} things you asked for were`} seen working on production` : ' and checked on production';
+  return [`Done ✅ "${facts.title}" is live in production${checked}.`, href ? `Feature page: ${href}` : null, facts.shareUrl ? `Share it: ${facts.shareUrl}` : null].filter(Boolean).join('\n');
+}
+
 export type SlackThreadFollowResult
   = | { posted: true; channelId: string; threadTs: string; text: string; attached: boolean }
     | { posted: false; reason: string };
@@ -103,6 +123,8 @@ export type SlackThreadFollowDeps = {
   captionOf: (orgId: string, artifactId: number) => Promise<string | null>;
   /** Whether this thread already carries a post for this URL (a recording filed on two records, or re-fired). */
   alreadyAttached: (channelId: string, threadTs: string, url: string) => Promise<boolean>;
+  /** What the done message reads: the record's name, how much the live check saw, the share link when on. */
+  doneFacts: (orgId: string, recordId: number) => Promise<DoneFacts | null>;
   /** Remember the post. */
   remember: (input: { orgId: string; channelId: string; ts: string; threadTs: string; text: string; announcedLabel: string; announcedUrl: string | null }) => Promise<void>;
 };
@@ -188,6 +210,22 @@ const defaultDeps: SlackThreadFollowDeps = {
     const { ourPostsInThread } = await import('@/services/chat/slackPosts');
     return (await ourPostsInThread(channelId, threadTs)).some(p => p.announcedUrl === url);
   },
+  async doneFacts(orgId, recordId) {
+    const { db } = await import('@/libs/DB');
+    const { and, eq } = await import('drizzle-orm');
+    const { businessObjectSchema } = await import('@/models/Schema');
+    const [row] = await db.select({ title: businessObjectSchema.title, meta: businessObjectSchema.metadata }).from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, recordId))).limit(1);
+    if (!row) {
+      return null;
+    }
+    const mark = ((row.meta ?? {}) as Record<string, unknown>).liveCheck as { state?: string; lines?: Array<{ result?: string }> } | undefined;
+    const lines = Array.isArray(mark?.lines) ? mark!.lines : [];
+    const base = appBaseUrl();
+    const { featureShareOf } = await import('@/services/factory/featureShareData');
+    const share = base ? await featureShareOf(orgId, recordId).catch(() => null) : null;
+    const live = mark?.state === 'seen' || mark?.state === 'partial' || mark?.state === 'not_seen' || mark?.state === 'not_checked' ? mark.state : null;
+    return { title: row.title, live, reached: lines.filter(l => l.result === 'reached').length, total: lines.length, shareUrl: share?.shared && share.path ? `${base}${share.path}` : null };
+  },
   async remember(input) {
     const { recordSlackPost } = await import('@/services/chat/slackPosts');
     await recordSlackPost({ orgId: input.orgId, channelId: input.channelId, ts: input.ts, threadTs: input.threadTs, kind: 'reply', text: input.text, announcedLabel: input.announcedLabel, announcedUrl: input.announcedUrl, createdBy: 'system:slack-thread-follow' });
@@ -216,10 +254,26 @@ export async function slackThreadFollow(orgId: string, input: Record<string, unk
   if (!ref) {
     return { posted: false, reason: 'the conversation is not a Slack thread' };
   }
+  // THE THREAD HEARS WHAT MATTERS (Chris, 2026-10-05): what waits on a person — a question, the
+  // merge card with its demo — and the end. The Work page carries every other move.
+  const done = input.groupRole === 'done';
+  if (input.needsYou !== true && !done) {
+    return { posted: false, reason: 'a move the Work page carries, not the thread' };
+  }
   const typeSlug = typeof input.typeSlug === 'string' && input.typeSlug ? input.typeSlug : null;
   const href = await deps.pageHref(orgId, typeSlug, recordId);
   const waiting = input.needsYou === true ? await deps.waitingCard(orgId, conversationId).catch(() => null) : null;
-  const text = followText({ line: typeof input.line === 'string' ? input.line : '', value }, href, waiting);
+  let text: string;
+  if (done) {
+    const facts = await deps.doneFacts(orgId, recordId).catch(() => null);
+    const line = facts ? doneText(facts, href) : null;
+    if (!line) {
+      return { posted: false, reason: 'done, but not yet seen on production' };
+    }
+    text = line;
+  } else {
+    text = followText({ line: typeof input.line === 'string' ? input.line : '', value }, href, waiting);
+  }
   if (await deps.alreadyPosted(ref.channelId, ref.threadTs, text)) {
     return { posted: false, reason: 'already said in the thread' };
   }

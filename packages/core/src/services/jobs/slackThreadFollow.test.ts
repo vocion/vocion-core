@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { followText, slackThreadFollow, slackThreadOfScope, slackThreadRecording } from './slackThreadFollow';
+import { doneText, followText, slackThreadFollow, slackThreadOfScope, slackThreadRecording } from './slackThreadFollow';
 
 describe('the Slack thread follows the request (backlog 057)', () => {
   it('reads the thread off the conversation scope, and nothing else', () => {
@@ -28,19 +28,19 @@ describe('the Slack thread follows the request (backlog 057)', () => {
     attach: vi.fn(async () => true),
     captionOf: vi.fn(async () => 'Feature demo · narrated by Bella'),
     alreadyAttached: vi.fn(async () => false),
+    doneFacts: vi.fn(async () => ({ title: 'Passcode switch beside access', live: 'seen' as const, reached: 5, total: 5, shareUrl: 'https://vocion.example/share/feature/abc' })),
     remember: vi.fn(async () => undefined),
     ...over,
   });
 
   it('posts each move once into the thread the request was asked in, with the page its workspace declares, and remembers it', async () => {
     const d = deps();
-    const out = await slackThreadFollow('org_n', { recordId: 449, typeSlug: 'request', value: 'in_qa', line: 'QA is reviewing the pull request.' }, d);
+    const out = await slackThreadFollow('org_n', { recordId: 449, typeSlug: 'request', value: 'changes_asked', needsYou: true, line: 'QA is reviewing the pull request.' }, d);
 
     expect(out).toMatchObject({ posted: true, channelId: 'C7', threadTs: '1700000000.000100', attached: false });
     expect(d.pageHref).toHaveBeenCalledWith('org_n', 'request', 449);
     expect(d.post).toHaveBeenCalledWith({ channelId: 'C7', threadTs: '1700000000.000100' }, 'QA is reviewing the pull request.\nhttps://vocion.example/w/acme/dashboard/p/request/449');
-    expect(d.remember).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_n', channelId: 'C7', ts: '1700000000.000200', announcedLabel: 'in_qa', announcedUrl: 'https://vocion.example/w/acme/dashboard/p/request/449' }));
-    expect(d.waitingCard).not.toHaveBeenCalled();
+    expect(d.remember).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_n', channelId: 'C7', ts: '1700000000.000200', announcedLabel: 'changes_asked', announcedUrl: 'https://vocion.example/w/acme/dashboard/p/request/449' }));
     expect(d.attach).not.toHaveBeenCalled();
   });
 
@@ -69,13 +69,35 @@ describe('the Slack thread follows the request (backlog 057)', () => {
   });
 
   it('stays quiet for a record that was not asked in Slack, and for a line already said', async () => {
-    expect(await slackThreadFollow('org_n', { recordId: 449, value: 'in_qa', line: 'x' }, deps({ originConversation: vi.fn(async () => null) }))).toEqual({ posted: false, reason: 'the record was not asked for in a conversation' });
-    expect(await slackThreadFollow('org_n', { recordId: 449, value: 'in_qa', line: 'x' }, deps({ scopeOf: vi.fn(async () => 'web:page') }))).toEqual({ posted: false, reason: 'the conversation is not a Slack thread' });
+    expect(await slackThreadFollow('org_n', { recordId: 449, value: 'in_qa', needsYou: true, line: 'x' }, deps({ originConversation: vi.fn(async () => null) }))).toEqual({ posted: false, reason: 'the record was not asked for in a conversation' });
+    expect(await slackThreadFollow('org_n', { recordId: 449, value: 'in_qa', needsYou: true, line: 'x' }, deps({ scopeOf: vi.fn(async () => 'web:page') }))).toEqual({ posted: false, reason: 'the conversation is not a Slack thread' });
 
     const d = deps({ alreadyPosted: vi.fn(async () => true) });
 
-    expect(await slackThreadFollow('org_n', { recordId: 449, value: 'in_qa', line: 'x' }, d)).toEqual({ posted: false, reason: 'already said in the thread' });
+    expect(await slackThreadFollow('org_n', { recordId: 449, value: 'in_qa', needsYou: true, line: 'x' }, d)).toEqual({ posted: false, reason: 'already said in the thread' });
     expect(d.post).not.toHaveBeenCalled();
+  });
+
+  it('says nothing for a move the Work page carries (building, in QA, deploying)', async () => {
+    const d = deps();
+
+    expect(await slackThreadFollow('org_n', { recordId: 449, value: 'building', groupRole: 'progress', line: 'RUN-9 is building.' }, d)).toEqual({ posted: false, reason: 'a move the Work page carries, not the thread' });
+    expect(d.post).not.toHaveBeenCalled();
+  });
+
+  it('when it is done and seen on production, posts one friendly message with the page and the share link', async () => {
+    const d = deps();
+    const out = await slackThreadFollow('org_n', { recordId: 457, typeSlug: 'request', value: 'seen_live', groupRole: 'done', line: 'Seen live: 5 of 5 states reached (GET /v1/share … 200)' }, d);
+
+    expect(out).toMatchObject({ posted: true });
+    expect(d.post).toHaveBeenCalledWith(expect.anything(), 'Done ✅ "Passcode switch beside access" is live in production and tested: everything you asked for was seen working on production.\nFeature page: https://vocion.example/w/acme/dashboard/p/request/457\nShare it: https://vocion.example/share/feature/abc');
+  });
+
+  it('done but not yet seen on production waits for the check', async () => {
+    const d = deps({ doneFacts: vi.fn(async () => ({ title: 't', live: null, reached: 0, total: 0, shareUrl: null })) });
+
+    expect(await slackThreadFollow('org_n', { recordId: 457, value: 'shipped', groupRole: 'done', line: 'Shipped in release #463.' }, d)).toEqual({ posted: false, reason: 'done, but not yet seen on production' });
+    expect(doneText({ title: 'Stars', live: 'seen', reached: 4, total: 5, shareUrl: null }, null)).toBe('Done ✅ "Stars" is live in production and tested: 4 of 5 things you asked for were seen working on production.');
   });
 
   describe('a filed recording reaches the thread (gap 6)', () => {
