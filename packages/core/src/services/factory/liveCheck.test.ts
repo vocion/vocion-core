@@ -578,6 +578,8 @@ describe('when QA\'s fire ends', () => {
 
     expect(m.liveCheck).toMatchObject({ state: 'partial', sentBackFor: releaseId });
     expect(m.reopenedBy).toBe('live-check');
+    // Open as a person's Build leaves it: the type's settled field no longer reads shipped, so the dispatch starts.
+    expect(m).toMatchObject({ state: 'in_scope', recommendationState: 'approved' });
     expect(m.reopenReason).toMatch(/^Seen live and sent back: The owner is never asked for the passcode\. — The owner, signed in/);
     expect(proposed).toHaveLength(1);
     expect(proposed[0]).toMatchObject({ actionId: 'factory.dispatch_task', invokedBy: 'factory:live-check', internal: true });

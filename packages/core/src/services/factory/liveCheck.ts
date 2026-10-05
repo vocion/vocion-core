@@ -722,7 +722,8 @@ export async function sendBackNotReached(orgId: string, releaseId: number, now: 
       const why = `The live check reached ${broken.length === 1 ? 'a line' : `${broken.length} lines`} and found ${broken.length === 1 ? 'it' : 'them'} wrong on production, so the feature goes back for another attempt.`;
       const line = `Seen live and sent back: ${broken.length === 1 ? broken[0]!.text!.trim() : `${broken.length} lines not as asked`} — ${(broken[0]!.reason ?? 'not reached').trim()}`.slice(0, 600);
       // Reopened by the live check: an automatic start after the ship is refused unless the request was reopened after it.
-      await mergeMeta(orgId, requestId, { reopenedAt: at, reopenedBy: 'live-check', reopenReason: line, liveCheck: { ...mark, sentBackFor: releaseId, sentBackAt: at } });
+      const { reopenedFields } = await import('@/libs/factory/requestStates');
+      await mergeMeta(orgId, requestId, { ...reopenedFields('live-check', at), reopenReason: line, liveCheck: { ...mark, sentBackFor: releaseId, sentBackAt: at } });
       const { markStatus } = await import('@/services/objects/statusField');
       await markStatus(orgId, requestId, 'live_changes', { line, reopen: true, at });
       const { proposeAction } = await import('@/services/ActionService');
