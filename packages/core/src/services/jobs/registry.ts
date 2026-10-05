@@ -57,7 +57,7 @@ import { mockupDefaultJobs } from './mockupDefault';
 import { NARRATE_RECORDING_JOB, runNarrateRecordingJob } from './narrateRecording';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
 import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
-import { runSlackThreadFollowJob, SLACK_THREAD_FOLLOW_JOB } from './slackThreadFollow';
+import { runSlackThreadFollowJob, runSlackThreadRecordingJob, SLACK_THREAD_FOLLOW_JOB, SLACK_THREAD_RECORDING_JOB } from './slackThreadFollow';
 import { runSweepIdleConversationsJob, SWEEP_IDLE_CONVERSATIONS_JOB } from './sweepIdleConversations';
 
 type BuiltInJob = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
@@ -74,6 +74,7 @@ const JOBS: Record<string, BuiltInJob> = {
   ...liveCheckJobs,
   [NARRATE_RECORDING_JOB]: (orgId, input) => runNarrateRecordingJob(orgId, input),
   [SLACK_THREAD_FOLLOW_JOB]: (orgId, input) => runSlackThreadFollowJob(orgId, input),
+  [SLACK_THREAD_RECORDING_JOB]: (orgId, input) => runSlackThreadRecordingJob(orgId, input),
 };
 
 export function builtInJobNames(): string[] {
