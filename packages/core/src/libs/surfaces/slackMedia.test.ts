@@ -128,7 +128,7 @@ describe('postSlackReply media ladder', () => {
     const body = calls[0]!.body as Record<string, unknown>;
 
     // No image block pointing at a URL Slack cannot fetch — that renders grey.
-    expect(body.blocks).toBeUndefined();
+    expect(body.blocks).toEqual([{ type: 'markdown', text: body.text }]);
     // And the text says why, rather than pasting a link that looks like a picture.
     expect(String(body.text)).toContain('sign-in required');
     expect(String(body.text)).toContain('Slack cannot show it inline');
@@ -149,13 +149,13 @@ describe('postSlackReply media ladder', () => {
     expect(calls.at(-1)!.url).toBe(`${BASE}/chat.postMessage`);
   });
 
-  it('is byte-identical to the pre-images payload when a message carries none', async () => {
+  it('renders a message with no images as one markdown block, its text unchanged as the fallback', async () => {
     const { calls, impl } = slackMock();
 
     const ref = await postSlackReply({ channelId: 'C1', threadRef: '100.1' }, 'plain reply', 'xoxb-test', BASE, { scopes: new Set(['chat:write']), fetchImpl: impl });
 
     expect(ref?.media).toBe('none');
-    expect(calls[0]!.body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'plain reply' });
+    expect(calls[0]!.body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'plain reply', blocks: [{ type: 'markdown', text: 'plain reply' }] });
   });
 });
 

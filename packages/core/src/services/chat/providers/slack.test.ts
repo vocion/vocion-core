@@ -23,7 +23,9 @@ function fakeSlack(answers: Record<string, Answer>, files: Record<string, { byte
     const url = String(input);
     if (url.startsWith(BASE)) {
       const method = url.slice(BASE.length + 1);
-      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      const raw = String(init?.body ?? '{}');
+      // Reads go to Slack as a form (it refuses JSON there); writes as JSON.
+      const body = (raw.startsWith('{') ? JSON.parse(raw) : Object.fromEntries(new URLSearchParams(raw))) as Record<string, unknown>;
       calls.push({ method, body });
       const answer = answers[method];
       const json = typeof answer === 'function' ? answer(body) : (answer ?? { ok: false, error: 'unknown_method' });
@@ -88,7 +90,7 @@ describe('slackChatProvider', () => {
     const read = await slackChatProvider('xoxb', BASE, slack.fetchImpl).readThread({ channelId: 'C0REQ', threadTs: '1727700000.000100' });
 
     expect(read).toMatchObject({ ok: true, value: { channel: { id: 'C0REQ', name: null }, messages: [{ text: 'Just a message', author: { name: 'dana' } }] } });
-    expect(slack.calls.find(c => c.method === 'conversations.history')?.body).toMatchObject({ channel: 'C0REQ', latest: '1727700000.000100', oldest: '1727700000.000100', inclusive: true });
+    expect(slack.calls.find(c => c.method === 'conversations.history')?.body).toMatchObject({ channel: 'C0REQ', latest: '1727700000.000100', oldest: '1727700000.000100', inclusive: 'true' });
   });
 
   it('downloads a file with the token', async () => {

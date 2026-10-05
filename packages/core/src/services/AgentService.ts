@@ -11,6 +11,7 @@ import type { HistoryTurn } from '@/services/chat/historyTools';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
+import { lastAnswerOf } from '@/libs/chat/lastAnswer';
 import { appendRecordLinks } from '@/libs/chat/recordLinks';
 import { stripScratch } from '@/libs/chat/scratch';
 import { db } from '@/libs/DB';
@@ -583,6 +584,8 @@ export async function runAgentDeep(opts: {
   modelPrefs?: import('@/libs/llm/modelPrefs').ModelPrefs;
 }): Promise<{
   response: string;
+  /** The words after the last tool call, for a surface with no trace (`lastAnswerOf`); the harnesses that cannot tell leave it out. */
+  lastAnswer?: string;
   traceId: string;
   /**
    * Every tool call, with its whole output. The agent already holds that
@@ -942,6 +945,9 @@ export async function runAgentDeep(opts: {
   // (production turn 579, 2026-09-24: six lookups after a self-correction,
   // then silence) owes an answer whatever its length says.
   let answeredSinceTool = true;
+  // The words written before the last tool call: in the app they read as steps on the trace; a
+  // surface with no trace (Slack) posts only what came after them (`lastAnswer`).
+  let beforeLastTool = '';
   // A malformed tool call is retried once, not fatal — see the catch below.
   let toolErrorRetried = false;
   let thoughtOnlyRetried = false;
@@ -1186,6 +1192,7 @@ export async function runAgentDeep(opts: {
             emit({ type: 'tool_end', tool, input, output: outputStr });
             toolCallLog.push({ tool, input, output: outputFull });
             answeredSinceTool = false;
+            beforeLastTool = finalText;
           }
           break;
         }
@@ -1625,6 +1632,7 @@ export async function runAgentDeep(opts: {
 
   return {
     response: finalText,
+    lastAnswer: lastAnswerOf(finalText, beforeLastTool),
     traceId: trace.id,
     toolCalls: toolCallLog,
     usage,

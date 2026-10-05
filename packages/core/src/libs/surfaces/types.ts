@@ -137,4 +137,6 @@ export type ChatSurfaceAdapter = {
    * platform did not say.
    */
   reply: (target: ChatReplyTarget, message: string | ChatMessage, opts?: { fetchImage?: ChatImageFetcher }) => Promise<ChatPostRef | null>;
+  /** Take a post back, such as the line that said Vocion was working once the answer is in. */
+  retract?: (post: ChatPostRef) => Promise<void>;
 };

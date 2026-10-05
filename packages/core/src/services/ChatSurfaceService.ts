@@ -215,6 +215,9 @@ export async function handleJoined(adapter: ChatSurfaceAdapter, join: ChatJoin):
   }
 }
 
+/** What Vocion says the moment a mention is heard, taken back when the answer lands. */
+export const WORKING_LINE = 'Looking into it…';
+
 /** Dependency seam so the handler is testable without a model or a network. */
 export type ChatHandlerDeps = {
   /** Which workspace a catch-all mention is for (`chat/workspaceRoute.ts`). */
@@ -366,8 +369,18 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const { orgId, agentSlug } = binding;
   const target = replyTargetFor(binding, inbound, await agentPersona(orgId, agentSlug));
 
+  // Something shows straight away that the mention was heard (Chris, 2026-10-05: "there was no
+  // thinking indicator"); it is taken back when the answer is posted.
+  const working = await adapter.reply(target, WORKING_LINE).catch(() => null);
+  const doneWorking = async () => {
+    if (working && adapter.retract) {
+      await adapter.retract(working).catch(() => undefined);
+    }
+  };
+
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
+    await doneWorking();
     await adapter.reply(target, `This agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`).catch(() => {});
     return { outcome: 'over_budget', agentSlug };
   }
@@ -396,6 +409,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const approval = await deps.approval(orgId, inbound, conversationId).catch(() => null);
   if (approval) {
     await appendMessage({ orgId, conversationId, role: 'assistant', content: approval.reply, status: 'complete' });
+    await doneWorking();
     const posted = await adapter.reply(target, approval.reply);
     await recordSlackPost({ orgId, teamId: inbound.teamId, channelId: inbound.channelId, ts: tsOf(posted), threadTs: inbound.threadRef, kind: 'reply', agentSlug, text: approval.reply, createdBy: approval.decided ? `decision:${approval.verb}:${approval.runId}` : 'system:slack-approval' }).catch(() => {});
     return { outcome: 'replied', orgId, agentSlug, conversationId, text: approval.reply };
@@ -437,7 +451,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       ...(pageContext ? { pageContext } : {}),
       ...(pictures.attachments.length > 0 ? { attachments: pictures.attachments } : {}),
     }) }));
-    let text = result.response.trim() || '(no reply)';
+    // Slack shows no trace, so it gets the answer after the turn's last tool call; the steps
+    // before it ("I'll check the rollup first") stay on the run in Vocion (`lastAnswerOf`).
+    let text = (result.lastAnswer ?? result.response).trim() || '(no reply)';
 
     // Something was missing, and the channel has not been told yet. The
     // sentence names the scope and what it would have bought — the whole
@@ -454,6 +470,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     // The reply went out, so the turn finished: say so rather than leaving a
     // NULL that a reader has to guess at (#114).
     await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete', cost: { tokens: cost.tokens, microCents: cost.microCents } });
+    await doneWorking();
     const posted = await adapter.reply(target, text);
     await recordSlackPost({
       orgId,
@@ -471,6 +488,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     return { outcome: 'replied', orgId, agentSlug, conversationId, text, ...(thread ? { thread } : {}) };
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
+    await doneWorking();
     await adapter.reply(target, 'Something went wrong on my side; a person can see the details in Vocion.').catch(() => {});
     return { outcome: 'failed', orgId, agentSlug, error: failure };
   }
