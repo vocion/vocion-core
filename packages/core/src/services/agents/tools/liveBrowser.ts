@@ -102,11 +102,11 @@ export function liveBrowserTools(ctx: RuntimeContext): StructuredToolInterface[]
       },
     ),
     tool(
-      async args => answer(await (await svc()).browserSay(await key(), args.text)),
+      async args => answer(await (await svc()).browserSay(await key(), args.text, {}, args.ref ?? null)),
       {
         name: 'browser_say',
-        description: 'Say one line to the viewer of the demo with nothing done on the page: the opening words, the closing words, or what is already on screen. In a demo tab the screen holds while it is said; the line is spoken in the recording at this moment.',
-        schema: z.object({ text: z.string().trim().min(2).max(300).describe('One plain sentence, present tense, for someone who has never seen the feature.') }),
+        description: 'Say one line to the viewer of the demo with nothing done on the page: the opening words, the closing words, or what is already on screen. In a demo tab the screen holds while it is said; the line is spoken in the recording at this moment. When the line is about something on screen (a mark, a row, a message), give its ref: the cursor rests on it and it is outlined while the line is said, so the viewer knows where to look.',
+        schema: z.object({ text: z.string().trim().min(2).max(300).describe('One plain sentence, present tense, for someone who has never seen the feature.'), ref: z.string().trim().max(20).optional().describe('The ref (from the last snapshot) of what the line is about, so it is pointed at and outlined while said.') }),
       },
     ),
     tool(

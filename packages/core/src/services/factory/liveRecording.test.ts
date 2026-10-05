@@ -66,7 +66,9 @@ describe('one story, one video (Chris, 2026-10-05)', () => {
     expect(stitched).toEqual(['2 takes, 3 segments -> /tmp/sender-story.webm']);
     expect(out.refused).toEqual([]);
     expect(out.takes).toHaveLength(1);
-    expect(out.takes[0]).toMatchObject({ path: '/tmp/sender-story.webm', tabs: 2, requestId: 453, startedAt: iso(0), endedAt: iso(60_000) });
+    // The story ends a breath after its last line (45 s), not when the tabs closed (60 s).
+    expect(out.takes[0]).toMatchObject({ path: '/tmp/sender-story.webm', tabs: 2, requestId: 453, startedAt: iso(0) });
+    expect(Date.parse(out.takes[0]!.endedAt)).toBeLessThan(Date.parse(iso(60_000)));
     expect(out.takes[0]!.script.map(l => l.text)).toEqual(['I set the switch.', 'As the client, signed out.', 'Back in my library.']);
   });
 

@@ -397,7 +397,7 @@ name: Software factory
 # 3.17.0 — the Slack thread follows the request (backlog 057). One event per
 #   status write (`record.status_marked`); `slack-thread-follow` says each move
 #   in the thread the request was asked in, once, with the record's page.
-version: 3.24.0
+version: 3.25.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

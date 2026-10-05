@@ -34,7 +34,7 @@ export const DEMO_CHROME_SCRIPT = `(() => {
     '#vocion-demo-key{position:fixed;left:50%;bottom:28px;z-index:2147483647;pointer-events:none;transform:translateX(-50%) scale(.9);opacity:0;transition:opacity 160ms ease,transform 160ms ease;font:600 22px/1 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#111;background:#fff;border:1px solid #cfd3da;border-bottom-width:4px;border-radius:10px;padding:12px 18px;min-width:22px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,.22)}',
     '#vocion-demo-key.on{opacity:1;transform:translateX(-50%) scale(1)}',
     '#vocion-demo-key{border-bottom-color:${accentRgba(0.75)}}',
-  ].join('\n');
+  ].join(' ');
   const mount = () => {
     if (!document.body) return false;
     document.head.appendChild(css);

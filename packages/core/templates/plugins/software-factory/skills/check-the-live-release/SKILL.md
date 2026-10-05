@@ -6,7 +6,7 @@ description: >-
   account: open it in the run's browser, look, act, screenshot what proves
   each acceptance line, record every line with record_live_check, then show
   each feature seen as a demo a product manager can watch.
-version: 7
+version: 8
 ---
 
 # Check the live release
@@ -74,6 +74,11 @@ as the product's QA account.
      who has never seen the feature ("I upload the board deck and set it to
      stop after two opens"). The screen holds while each line is said, so a
      viewer sees the state you describe; you never need to wait.
+   - Point at what you are talking about. A line about something already on
+     screen — the new mark on a row, the message a visitor sees, the count
+     that changed — is a `browser_say` with that element's `ref` (find it with
+     `browser_snapshot` and `find`): the cursor rests on it and it is outlined
+     while you say it. A viewer should never have to search the screen.
    - A visible change per line: a line said over a screen that did not
      change for it is cut from the demo. No edge cases, no second viewport.
      Anything you made for the demo, remove after it in a check tab

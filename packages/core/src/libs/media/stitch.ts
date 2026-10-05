@@ -11,6 +11,10 @@
  * are placed on the stitched clock. The plan is pure; the cut is one ffmpeg run.
  */
 import { ffmpegBin, ffmpegCapabilities, run } from './ffmpeg';
+import { spokenMs } from './narration';
+
+/** How long the last state stays on screen after the last line ends. */
+export const STITCH_TAIL_MS = 2500;
 
 /** One tab's recording, as the session set it aside. */
 export type Take = {
@@ -94,7 +98,11 @@ export function planStitch(takes: readonly Take[], leadMs: number = STITCH_LEAD_
   let clock = 0;
   for (const [k, r] of runs.entries()) {
     const fromAbs = switchAbs[k]!;
-    const toAbs = Math.min(k + 1 < runs.length ? switchAbs[k + 1]! : ends[r.take]!, ends[r.take]!);
+    // The last stretch ends a breath after the last line, not when its tab closed: a take runs
+    // on until the session goes idle, and that tail was 25 s of a spinner on FE-457's demo.
+    const last = lines.at(-1)!;
+    const storyEnd = last.abs + spokenMs(last.text) + STITCH_TAIL_MS;
+    const toAbs = Math.min(k + 1 < runs.length ? switchAbs[k + 1]! : Math.min(ends[r.take]!, storyEnd), ends[r.take]!);
     const fromMs = Math.max(0, fromAbs - starts[r.take]!);
     const toMs = Math.max(fromMs, toAbs - starts[r.take]!);
     offsets.push(clock);

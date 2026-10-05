@@ -239,8 +239,10 @@ type Rect = { x: number; y: number; width: number; height: number };
  * the chrome is decoration, and a page that refuses it still gets its click.
  * @param tab - The tab.
  * @param rect - The element's box.
+ * @param opts
+ * @param opts.ripple
  */
-async function demoPointAt(tab: Tab, rect: Rect | null): Promise<void> {
+async function demoPointAt(tab: Tab, rect: Rect | null, opts: { ripple?: boolean } = {}): Promise<void> {
   if (tab.purpose !== 'demo' || !rect || !tab.page) {
     return;
   }
@@ -249,8 +251,10 @@ async function demoPointAt(tab: Tab, rect: Rect | null): Promise<void> {
   try {
     await tab.page.evaluate(([px, py]) => (window as unknown as { __vocionDemo?: { moveTo: (x: number, y: number) => void } }).__vocionDemo?.moveTo(px, py), [x, y] as const);
     await tab.page.waitForTimeout(CURSOR_GLIDE_MS);
-    await tab.page.evaluate(([px, py]) => (window as unknown as { __vocionDemo?: { ripple: (x: number, y: number) => void } }).__vocionDemo?.ripple(px, py), [x, y] as const);
-    await tab.page.waitForTimeout(120);
+    if (opts.ripple !== false) {
+      await tab.page.evaluate(([px, py]) => (window as unknown as { __vocionDemo?: { ripple: (x: number, y: number) => void } }).__vocionDemo?.ripple(px, py), [x, y] as const);
+      await tab.page.waitForTimeout(120);
+    }
   } catch {
     // decoration only
   }
@@ -972,12 +976,13 @@ export async function browserPress(key: string | null, keyName: string, deps: Pa
  * @param key - The session.
  * @param text - The line.
  * @param deps - The clock and the hold.
+ * @param ref
  */
-export function browserSay(key: string | null, text: string, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
-  return inOrder(key, () => sayNow(key, text, deps));
+export function browserSay(key: string | null, text: string, deps: Partial<LiveBrowserDeps> = {}, ref?: string | null): Promise<BrowserAnswer> {
+  return inOrder(key, () => sayNow(key, text, deps, ref ?? null));
 }
 
-async function sayNow(key: string | null, text: string, deps: Partial<LiveBrowserDeps>): Promise<BrowserAnswer> {
+async function sayNow(key: string | null, text: string, deps: Partial<LiveBrowserDeps>, ref: string | null = null): Promise<BrowserAnswer> {
   const d = { ...defaultDeps, ...deps };
   const a = active(key);
   if (!('s' in a)) {
@@ -987,7 +992,17 @@ async function sayNow(key: string | null, text: string, deps: Partial<LiveBrowse
   if (!line) {
     return refuse('nothing to say: give the line in a person\'s words.');
   }
-  const id = await sayLine(a.s, a.tab, d, line);
+  // WHERE TO LOOK WHILE IT IS SAID (Chris, 2026-10-05: "there's a lot on the screen and I have
+  // no idea what the narrator wants me looking at"): a line about something on screen names its
+  // ref; the page scrolls to it, the cursor rests on it (no click) and it is outlined while said.
+  let focus: Rect | null = null;
+  if (ref && a.tab.purpose === 'demo' && a.tab.page) {
+    const loc = byRef(a.tab.page, ref);
+    await loc?.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+    focus = await loc?.boundingBox({ timeout: 2000 }).catch(() => null) ?? null;
+    await demoPointAt(a.tab, focus, { ripple: false });
+  }
+  const id = await sayLine(a.s, a.tab, d, line, focus);
   return { ok: true, id, result: a.tab.purpose === 'demo' ? `said, and held the screen ${Math.round(spokenMs(line) / 100) / 10}s` : 'said (no demo tab is open, so the screen was not held)', url: a.tab.page!.url() };
 }
 
