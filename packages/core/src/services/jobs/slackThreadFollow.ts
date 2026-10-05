@@ -7,12 +7,19 @@
  * shipped, seen live — in the sentence the step was written with, so the
  * people who asked never have to open Vocion to know where it stands.
  *
+ * When the move WAITS ON A PERSON (the type's `x-needs-you`: a merge card is
+ * up), the thread gets the evidence the card shows — the feature demo
+ * recorded from the branch (backlog 058) — and is told that a reply here
+ * decides it (`services/chat/slackApproval.ts`). Approval in Slack is of
+ * something seen working, as it is in the app.
+ *
  * Driven by `record.status_marked` (one event per status write) through a
  * plugin automation that names the type it follows; nothing here names one.
  * The thread is found from the record's origin conversation, whose scope is
  * the Slack thread it was created for (`ChatSurfaceService.handleInbound`).
- * A record that did not come from Slack posts nothing. Each line is posted
- * once: the outbound record (`slack_post`) remembers it.
+ * The record's page is the one its workspace declares for the type. A record
+ * that did not come from Slack posts nothing. Each line is posted once: the
+ * outbound record (`slack_post`) remembers it.
  */
 import type { RecordStatusMarkedPayload } from '@/services/EventService';
 import process from 'node:process';
@@ -22,6 +29,19 @@ export const SLACK_THREAD_FOLLOW_JOB = 'slack-thread-follow';
 
 /** A Slack thread named by a conversation's scope: `slack:<channel>:<thread ts>`. */
 export type SlackThreadRef = { channelId: string; threadTs: string };
+
+/** The card waiting on a person for this record, as the thread shows it. */
+export type WaitingCard = {
+  runId: number;
+  title: string;
+  /** The card's own verbs ("Merge" / "Hold"), else approve / reject. */
+  verbs: { approve: string; reject: string };
+  /** The recording the card plays, when it has one. */
+  video: { url: string; caption: string } | null;
+};
+
+/** A file the thread post carries, read from the media store and uploaded. */
+export type ThreadAttachment = { url: string; caption: string };
 
 /**
  * The Slack thread a conversation was created for, from its scope ref, or
@@ -34,19 +54,23 @@ export function slackThreadOfScope(scopeRef: string | null | undefined): SlackTh
 }
 
 /**
- * What the thread reads for one move: the step's own sentence, then the
- * record's page. No agent voice, no restating what the person asked.
+ * What the thread reads for one move: the step's own sentence; when a card
+ * waits, how to decide it from here; then the record's page. No agent voice,
+ * no restating what the person asked.
  * @param payload - The move.
  * @param href - The record's page, absolute, or null when the app has no public address.
+ * @param waiting - The card waiting on a person, when the move waits on one.
  */
-export function followText(payload: Pick<RecordStatusMarkedPayload, 'line' | 'value'>, href: string | null): string {
+export function followText(payload: Pick<RecordStatusMarkedPayload, 'line' | 'value'>, href: string | null, waiting: Pick<WaitingCard, 'verbs'> | null = null): string {
   const line = payload.line.trim() || `Now ${payload.value.replace(/_/g, ' ')}.`;
   const sentence = /[.!?…]$/.test(line) ? line : `${line}.`;
-  return href ? `${sentence}\n${href}` : sentence;
+  const decide = waiting ? `${waiting.verbs.approve} or ${waiting.verbs.reject}: reply here, or decide it in Vocion.` : null;
+  return [sentence, decide, href].filter((s): s is string => Boolean(s)).join('\n');
 }
 
 /**
- * The record's page, absolute, when the app knows its own address.
+ * The generic record page, absolute, when the app knows its own address.
+ * The default `pageHref` dep prefers the page the workspace declares.
  * @param recordId
  */
 export function recordHref(recordId: number): string | null {
@@ -55,7 +79,7 @@ export function recordHref(recordId: number): string | null {
 }
 
 export type SlackThreadFollowResult
-  = | { posted: true; channelId: string; threadTs: string; text: string }
+  = | { posted: true; channelId: string; threadTs: string; text: string; attached: boolean }
     | { posted: false; reason: string };
 
 export type SlackThreadFollowDeps = {
@@ -63,10 +87,16 @@ export type SlackThreadFollowDeps = {
   originConversation: (orgId: string, recordId: number) => Promise<number | null>;
   /** The conversation's scope ref. */
   scopeOf: (orgId: string, conversationId: number) => Promise<string | null>;
+  /** The record's page, absolute, or null when the app has no public address. */
+  pageHref: (orgId: string, typeSlug: string | null, recordId: number) => Promise<string | null>;
+  /** The newest card still waiting on a person whose origin is this conversation. */
+  waitingCard: (orgId: string, conversationId: number) => Promise<WaitingCard | null>;
   /** Our earlier posts in the thread, for the once-only rule. */
   alreadyPosted: (channelId: string, threadTs: string, text: string) => Promise<boolean>;
   /** Post into the thread; returns the message ts, or null when Slack gave none. */
   post: (ref: SlackThreadRef, text: string) => Promise<string | null>;
+  /** Upload a file from the media store into the thread, under the post. True when Slack took it. */
+  attach: (orgId: string, ref: SlackThreadRef, file: ThreadAttachment) => Promise<boolean>;
   /** Remember the post. */
   remember: (input: { orgId: string; channelId: string; ts: string; threadTs: string; text: string; announcedLabel: string; announcedUrl: string | null }) => Promise<void>;
 };
@@ -89,6 +119,35 @@ const defaultDeps: SlackThreadFollowDeps = {
     const c = await getConversation({ orgId, id: conversationId });
     return c?.scopeRef ?? null;
   },
+  async pageHref(orgId, typeSlug, recordId) {
+    const base = appBaseUrl();
+    if (!base) {
+      return null;
+    }
+    try {
+      const { recordHref: pageOf } = await import('@/services/objects/recordHref');
+      return `${base}${await pageOf(orgId, { objectType: typeSlug, id: recordId })}`;
+    } catch {
+      return recordHref(recordId);
+    }
+  },
+  async waitingCard(orgId, conversationId) {
+    const { defaultThreadApprovalDeps } = await import('@/services/chat/slackApproval');
+    const [card] = await defaultThreadApprovalDeps.pending(orgId, conversationId);
+    if (!card) {
+      return null;
+    }
+    const { getReviewDetail } = await import('@/services/ReviewService');
+    const detail = await getReviewDetail(orgId, 'action', card.runId).catch(() => null);
+    const shown = (detail?.card ?? null) as import('@/libs/actions/types').ReviewCard | null;
+    const video = shown?.content?.find((c): c is Extract<import('@/libs/actions/types').ReviewContent, { kind: 'video' }> => c.kind === 'video') ?? null;
+    return {
+      runId: card.runId,
+      title: shown?.title ?? card.title,
+      verbs: { approve: shown?.verbs?.approve ?? 'Approve', reject: shown?.verbs?.reject ?? 'Reject' },
+      video: video ? { url: video.url, caption: video.caption ?? video.label } : null,
+    };
+  },
   async alreadyPosted(channelId, threadTs, text) {
     const { ourPostsInThread } = await import('@/services/chat/slackPosts');
     return (await ourPostsInThread(channelId, threadTs)).some(p => p.text === text);
@@ -98,6 +157,19 @@ const defaultDeps: SlackThreadFollowDeps = {
     const { tsOf } = await import('@/services/chat/slackPosts');
     const posted = await postSlackReply({ channelId: ref.channelId, threadRef: ref.threadTs }, text, process.env.SLACK_BOT_TOKEN);
     return posted ? tsOf(posted) || null : null;
+  },
+  async attach(orgId, ref, file) {
+    const { readMediaBytes } = await import('@/libs/tools/artifacts/media');
+    const media = await readMediaBytes(orgId, file.url);
+    if (!media) {
+      return false;
+    }
+    const { uploadSlackImages } = await import('@/libs/surfaces/slack');
+    const up = await uploadSlackImages({ channelId: ref.channelId, threadRef: ref.threadTs, files: [{ filename: media.filename, title: file.caption, bytes: media.bytes }] }, process.env.SLACK_BOT_TOKEN);
+    if (!up.ok) {
+      console.warn('[slack-thread-follow] the demo was not uploaded', { channelId: ref.channelId, error: up.error });
+    }
+    return up.ok;
   },
   async remember(input) {
     const { recordSlackPost } = await import('@/services/chat/slackPosts');
@@ -127,14 +199,19 @@ export async function slackThreadFollow(orgId: string, input: Record<string, unk
   if (!ref) {
     return { posted: false, reason: 'the conversation is not a Slack thread' };
   }
-  const href = recordHref(recordId);
-  const text = followText({ line: typeof input.line === 'string' ? input.line : '', value }, href);
+  const typeSlug = typeof input.typeSlug === 'string' && input.typeSlug ? input.typeSlug : null;
+  const href = await deps.pageHref(orgId, typeSlug, recordId);
+  const waiting = input.needsYou === true ? await deps.waitingCard(orgId, conversationId).catch(() => null) : null;
+  const text = followText({ line: typeof input.line === 'string' ? input.line : '', value }, href, waiting);
   if (await deps.alreadyPosted(ref.channelId, ref.threadTs, text)) {
     return { posted: false, reason: 'already said in the thread' };
   }
   const ts = await deps.post(ref, text);
   await deps.remember({ orgId, channelId: ref.channelId, ts: ts ?? '', threadTs: ref.threadTs, text, announcedLabel: value, announcedUrl: href });
-  return { posted: true, channelId: ref.channelId, threadTs: ref.threadTs, text };
+  // The evidence under the words: the card's demo, so the thread approves
+  // something seen working. A failed upload leaves the words standing.
+  const attached = waiting?.video ? await deps.attach(orgId, ref, waiting.video).catch(() => false) : false;
+  return { posted: true, channelId: ref.channelId, threadTs: ref.threadTs, text, attached };
 }
 
 /**

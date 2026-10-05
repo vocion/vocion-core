@@ -46,7 +46,7 @@ describe('markStatus', () => {
     const marked = events.filter(e => e.type === 'record.status_marked');
 
     expect(marked).toHaveLength(1);
-    expect(marked[0]!.payload).toMatchObject({ recordId: id, field: 'status', value: 'awaiting_merge', groupRole: 'progress', transition: 'merge_waits', line: 'QA approved 8 of 8; the merge waits on a person.', at: '2026-10-04T23:00:00.000Z' });
+    expect(marked[0]!.payload).toMatchObject({ recordId: id, field: 'status', value: 'awaiting_merge', groupRole: 'progress', needsYou: true, transition: 'merge_waits', line: 'QA approved 8 of 8; the merge waits on a person.', at: '2026-10-04T23:00:00.000Z' });
     expect(typeof (marked[0]!.payload as { typeSlug?: unknown }).typeSlug).toBe('string');
   });
 

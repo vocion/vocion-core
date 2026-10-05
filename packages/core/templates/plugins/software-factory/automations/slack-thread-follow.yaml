@@ -2,7 +2,10 @@
 # Vocion in Slack, and the fix comes back in the thread with evidence). Every
 # status a request takes (`record.status_marked`, one event per write) is said
 # in the Slack thread the request was asked in, in the step's own sentence,
-# with the record's page: filed, building, in QA, merged, shipped, seen live.
+# with the request's own page: filed, building, in QA, merged, shipped, seen
+# live. When the status waits on a person (`x-needs-you`), the thread also gets
+# what the waiting card shows — the feature demo recorded from the branch —
+# and is told that a reply here decides it (approval by reply, gap 5).
 # A request not asked in Slack posts nothing; a line already said is not said
 # again. Core job: `slack-thread-follow`.
 slug: slack-thread-follow
@@ -11,7 +14,9 @@ label: Told the Slack thread
 doing: Telling the Slack thread
 description: >-
   When a request moves, the Slack thread it was asked in hears the step in
-  one sentence with a link to the record. Only requests that came from Slack.
+  one sentence with a link to the request's page; when it waits on a person,
+  the thread gets the demo the card shows and can decide it by replying.
+  Only requests that came from Slack.
 status: active
 when:
   event: record.status_marked

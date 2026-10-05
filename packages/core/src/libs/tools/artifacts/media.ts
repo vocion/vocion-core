@@ -28,7 +28,7 @@
 
 import type { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { artifactsDir } from './store';
@@ -249,4 +249,44 @@ export function parseRange(header: string | null, size: number): { start: number
     return 'unsatisfiable';
   }
   return { start, end };
+}
+
+/** A recording read back for another channel (a Slack upload) is capped here; a demo is a few megabytes. */
+export const MEDIA_READ_MAX_BYTES = 60 * 1024 * 1024;
+
+/**
+ * The bytes behind a media URL this store wrote (`/api/media/<record>/<file>`),
+ * for a caller that hands the file to another channel rather than streaming
+ * it — a Slack upload. Null for a URL that is not this store's, a file that is
+ * not there, or one over the cap; never throws.
+ * @param orgId - The owning org: the key is built from it.
+ * @param url - The artifact's `url` / `spec.url`.
+ * @param deps - Seams for tests.
+ * @param deps.maxBytes - The cap.
+ */
+export async function readMediaBytes(orgId: string, url: string, deps: Pick<MediaDeps, 'dir' | 'bucket'> & { maxBytes?: number } = {}): Promise<{ bytes: Uint8Array; contentType: string; filename: string } | null> {
+  const m = new RegExp(`^${MEDIA_ROUTE_BASE}/([^/?#]+)/([^/?#]+)$`).exec(url.trim());
+  if (!m) {
+    return null;
+  }
+  const recordId = decodeURIComponent(m[1]!);
+  const filename = decodeURIComponent(m[2]!);
+  const max = deps.maxBytes ?? MEDIA_READ_MAX_BYTES;
+  try {
+    const found = await locateMedia(orgId, recordId, filename, deps);
+    if (!found) {
+      return null;
+    }
+    if (found.store === 'disk') {
+      if (found.size > max) {
+        return null;
+      }
+      return { bytes: new Uint8Array(await readFile(found.abs)), contentType: found.contentType, filename };
+    }
+    const { getObjectBytes } = await import('@/libs/aws/s3');
+    const got = await getObjectBytes({ bucket: found.bucket, key: found.key, region: found.region });
+    return got.bytes.byteLength > max ? null : { bytes: new Uint8Array(got.bytes), contentType: got.contentType ?? found.contentType, filename };
+  } catch {
+    return null;
+  }
 }
