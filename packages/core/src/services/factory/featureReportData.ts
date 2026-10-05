@@ -400,6 +400,27 @@ async function authorNames(orgId: string, refs: Array<{ kind: string | null; id:
  * @param origin - The conversation it was requested in, when it was (`recordOrigin`).
  * @param spend - What its agent runs and chats cost (`featureSpend.ts`); each one it counts is listed with its share.
  */
+/**
+ * The Slack thread a conversation was created for, as an address, or null.
+ * @param orgId - The workspace.
+ * @param conversationId - The conversation.
+ */
+async function slackOriginOf(orgId: string, conversationId: number): Promise<string | null> {
+  const [conv] = await db.select({ scopeRef: conversationSchema.scopeRef }).from(conversationSchema).where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId))).limit(1);
+  const scope = conv?.scopeRef ?? null;
+  if (!scope?.startsWith('slack:')) {
+    return null;
+  }
+  const channel = scope.split(':')[1] ?? '';
+  const { chatChannelBindingSchema } = await import('@/models/Schema');
+  const { isNotNull } = await import('drizzle-orm');
+  // The channel's own binding names its team; else any Slack binding the workspace has.
+  const [bound] = await db.select({ teamId: chatChannelBindingSchema.teamId }).from(chatChannelBindingSchema).where(and(eq(chatChannelBindingSchema.surface, 'slack'), eq(chatChannelBindingSchema.channelId, channel), isNotNull(chatChannelBindingSchema.teamId))).limit(1);
+  const [any] = bound ? [bound] : await db.select({ teamId: chatChannelBindingSchema.teamId }).from(chatChannelBindingSchema).where(and(eq(chatChannelBindingSchema.surface, 'slack'), eq(chatChannelBindingSchema.orgId, orgId), isNotNull(chatChannelBindingSchema.teamId))).limit(1);
+  const { slackThreadUrl } = await import('@/libs/surfaces/slackLink');
+  return slackThreadUrl(scope, any?.teamId ?? null);
+}
+
 async function loadActivity(orgId: string, requestId: number, taskIds: Set<number>, workerRuns: ReportWorkerRun[], origin: RecordOrigin | null = null, spend: FeatureSpend | null = null): Promise<ReportActivity[]> {
   const ids = [String(requestId), ...[...taskIds].map(String)];
   const calls = await db
@@ -559,10 +580,15 @@ async function loadActivity(orgId: string, requestId: number, taskIds: Set<numbe
   // WHERE IT STARTED (Chris, 2026-09-30, #269): the conversation it was
   // requested in, from the record's own origin, in its place in time — the
   // oldest entry, so it closes the list.
+  // ASKED IN SLACK (Chris, 2026-10-05: "I should see this Slack thread the same way I do a Chat in
+  // activity … and click to open Slack to that thread"): the thread is the conversation, so it
+  // previews like one; its address opens it where it was asked.
+  const slack = await slackOriginOf(orgId, origin.conversationId).catch(() => null);
   const asked: ReportActivity = {
     kind: 'conversation',
     id: origin.conversationId,
-    title: `Requested in chat${origin.by ? ` by ${origin.by}` : ''}`,
+    title: `Requested in ${slack ? 'Slack' : 'chat'}${origin.by ? ` by ${origin.by}` : ''}`,
+    external: slack ? { url: slack, label: 'Open in Slack' } : null,
     at: origin.at ? new Date(origin.at) : out.find(a => a.kind === 'conversation' && a.id === origin.conversationId)?.at ?? new Date(0),
     status: null,
     detail: origin.title,
