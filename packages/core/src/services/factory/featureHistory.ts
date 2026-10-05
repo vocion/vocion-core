@@ -313,6 +313,7 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
       cents: c.cents ?? null,
       open: { type: 'conversation', id: String(c.id) },
       href: null,
+      ...(c.external ? { external: c.external } : {}),
       live: false,
     });
   }

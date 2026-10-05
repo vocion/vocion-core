@@ -437,6 +437,8 @@ export type ReportActivity = {
   detail: string | null;
   /** The conversation the feature was requested in: the oldest entry, closing its Activity. */
   origin?: boolean;
+  /** Where the conversation lives outside Vocion — the Slack thread it was asked in — and what the link says. */
+  external?: { url: string; label: string } | null;
   /** How many agent runs of the same title this row stands for. */
   count?: number;
   /**
@@ -486,6 +488,8 @@ export type HistoryRow = {
   open: { type: 'worker_run' | 'mission_run' | 'conversation' | 'object'; id: string } | null;
   /** Where a tap goes when it is not a preview: a pull request, a deploy run. */
   href: string | null;
+  /** Beside a preview, where the same thing lives outside Vocion: the Slack thread a chat came from. */
+  external?: { url: string; label: string } | null;
   /** Still going. */
   live: boolean;
   /** An attempt's own rows — its build and QA's reviews of it — newest first. */
