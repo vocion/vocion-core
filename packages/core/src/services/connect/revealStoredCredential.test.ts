@@ -8,10 +8,14 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+vi.mock('@/services/ApiTokenService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/ApiTokenService')>();
+  return { ...original, revealPlatformCredential: vi.fn(original.revealPlatformCredential) };
+});
 
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, projectSchema, sourceAuditSchema, sourceDekSchema, tenantAccountSchema } = await import('@/models/Schema');
-const { sealLoginValues, storeLoginCredential, storePlatformKey } = await import('@/services/ApiTokenService');
+const { revealPlatformCredential, sealLoginValues, storeLoginCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const { revealStoredCredential, CREDENTIAL_REVEALED_EVENT } = await import('./revealStoredCredential');
 
 const ORG = 'org_reveal_stored';
@@ -71,6 +75,15 @@ describe('revealStoredCredential', () => {
   });
 
   it('says there is nothing to show when the workspace holds no credential, and audits nothing', async () => {
+    const result = await revealStoredCredential({ orgId: ORG, userId: ADMIN, connector: 'hubspot' });
+
+    expect(result).toEqual({ status: 'none' });
+    expect(await audits()).toHaveLength(0);
+  });
+
+  it('a credential that goes away between the pick and the read shows nothing and audits nothing', async () => {
+    await storePlatformKey({ orgId: ORG, platform: 'hubspot', name: 'HubSpot key', apiKey: SECRET, createdBy: ADMIN });
+    vi.mocked(revealPlatformCredential).mockResolvedValueOnce({ status: 'not-found' });
     const result = await revealStoredCredential({ orgId: ORG, userId: ADMIN, connector: 'hubspot' });
 
     expect(result).toEqual({ status: 'none' });

@@ -9,6 +9,7 @@
  */
 
 import { db } from '@/libs/DB';
+import { logger } from '@/libs/Logger';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { sourceAuditSchema } from '@/models/Schema';
 import { loginTokenOf, revealPlatformCredential } from '@/services/ApiTokenService';
@@ -43,6 +44,14 @@ export async function revealStoredCredential(input: { orgId: string; userId: str
   }
   const revealed = await revealPlatformCredential(input.orgId, stored.id, { includeLogin: true });
   if (revealed.status !== 'ok') {
+    // The row was picked a moment ago, so it was deleted in between or cannot
+    // be opened as a key. The page says there is nothing to show; the log says which row.
+    logger.warn('revealStoredCredential found nothing to open', {
+      orgId: input.orgId,
+      connector: input.connector,
+      credentialId: stored.id,
+      status: revealed.status,
+    });
     return { status: 'none' };
   }
   let values: Record<string, string>;

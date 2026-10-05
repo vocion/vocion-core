@@ -8,6 +8,7 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
+import { logger } from '@/libs/Logger';
 import { createSourceOnLogin } from '@/services/connect/createSourceOnLogin';
 import { createSourceWithCredential } from '@/services/connect/createSourceWithCredential';
 import { revealStoredCredential } from '@/services/connect/revealStoredCredential';
@@ -70,6 +71,9 @@ export const addConnectorRoute = os
     return { ok: true as const, sourceId: saved.sourceId };
   });
 
+/** What an admin reads when Show fails for any reason other than the vault's own. */
+const COULD_NOT_SHOW_STORED = 'Could not show the saved login or key, so nothing was revealed. Try again, or press Replace and paste a new one.';
+
 /**
  * Show an admin the stored login or key the add form is keeping, on a
  * deliberate "Show" click. The page payload carries only the account and a
@@ -87,11 +91,16 @@ export const revealStoredCredentialRoute = os
     try {
       return await revealStoredCredential({ orgId: ctx.orgId, userId: ctx.userId, connector: input.connector });
     } catch (error) {
-      // Only the vault's own sentence is safe to show; it names a cause and a fix and holds no secret.
-      console.error('[connect.revealStoredCredential] could not reveal', {
+      // The log keeps the cause (a vault or KMS error, a failed audit write) for
+      // whoever investigates. The admin gets the vault's own sentence, which
+      // names a cause and a fix and holds no secret, or else what to do next.
+      logger.error('connect.revealStoredCredential could not reveal a stored credential', {
+        orgId: ctx.orgId,
+        userId: ctx.userId,
         connector: input.connector,
-        message: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : typeof error,
+        reason: error instanceof Error ? error.message : String(error),
       });
-      throw ApiError.badRequest(error instanceof VaultDecryptionError ? error.message : 'Could not read the stored credential.');
+      throw ApiError.badRequest(error instanceof VaultDecryptionError ? error.message : COULD_NOT_SHOW_STORED);
     }
   });

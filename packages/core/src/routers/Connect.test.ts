@@ -134,9 +134,9 @@ describe('connect.revealStoredCredential', () => {
     expect(revealStoredCredential).toHaveBeenCalledWith({ orgId: ORG, userId: 'usr-9', connector: 'hubspot' });
   });
 
-  it('a failure to open the credential says nothing about why, beyond a sentence', async () => {
+  it('a failure to open the credential tells the admin what to do next, and nothing about why', async () => {
     vi.mocked(revealStoredCredential).mockRejectedValue(new Error('kms: arn:aws:kms:secret-detail'));
 
-    await expect(call({ connector: 'hubspot' }, revealStoredCredentialRoute)).rejects.toMatchObject({ message: 'Could not read the stored credential.' });
+    await expect(call({ connector: 'hubspot' }, revealStoredCredentialRoute)).rejects.toMatchObject({ message: 'Could not show the saved login or key, so nothing was revealed. Try again, or press Replace and paste a new one.' });
   });
 });
