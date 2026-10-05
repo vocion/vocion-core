@@ -339,6 +339,13 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   manual?: { reversible?: boolean };
   /**
+   * A HARD STOP THE RECORD DECLARES (Chris, 2026-10-05, on Slate: "a HARD STOP waiting for human
+   * approval before anything goes to main or production"). The reason this input waits for a
+   * person whatever the trust rules say, or null. Read before every rung of the ladder; a hold that
+   * cannot be read holds. A person's own word still runs: this stops only what an agent proposes.
+   */
+  holdForPerson?: (ctx: { orgId: string }, input: Record<string, unknown>) => Promise<string | null>;
+  /**
    * The id the trust ladder keys on for THIS input, when one action id serves
    * several ledgers. A merge is one action with a `riskClass`, and merging
    * docs is not the decision merging a schema is — so the rule, the risk tier

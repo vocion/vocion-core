@@ -184,6 +184,28 @@ describe('the factory trust rules bind to the registered ids', () => {
     expect(held.status).toBe('pending');
   });
 
+  it('a product whose merges a person approves holds every merge, whatever the trust rule (Chris, 2026-10-05)', async () => {
+    await rule('git.merge.docs', { rung: 'execute-within-bounds', risk: 'medium', above: 0.5, enabled: true });
+    const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+    const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: `product-${Date.now()}`, label: 'Product', schema: {} }).returning({ id: businessObjectTypeSchema.id });
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Kestrel Video', metadata: { slug: 'kestrel', name: 'Kestrel Video', mergeApproval: 'person' } });
+    const [request] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Controls cut off on mobile', metadata: { product: 'kestrel' } }).returning({ id: businessObjectSchema.id });
+    const [task] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'kv-t1', metadata: { requestId: request!.id } }).returning({ id: businessObjectSchema.id });
+    const merge = { ...recipe, commitSha: 'a1b2c3d4e5f6', rollback: 'revert the merge commit and redeploy; no data written', title: 'Merge docs', riskClass: 'docs' };
+
+    const held = await propose('git.merge', 0.99, { ...merge, taskId: task!.id });
+    const free = await propose('git.merge', 0.99, merge);
+
+    expect(held.status).toBe('pending');
+    expect((await readRun(held.runId)).proposal).not.toMatchObject({ autoApprovedBy: expect.anything() });
+    expect(free.status).not.toBe('pending');
+
+    const { mergeRunsItself } = await import('@/services/factory/pullSignals');
+
+    expect(await mergeRunsItself(ORG, 'docs', task!.id)).toBe(false);
+    expect(await mergeRunsItself(ORG, 'docs')).toBe(true);
+  });
+
   it('one git.merge id, ten ledgers: docs can be promoted while schema never releases', async () => {
     await rule('git.merge.docs', { rung: 'execute-within-bounds', risk: 'medium', above: 0.95, enabled: true });
     await rule('git.merge.schema', { rung: 'execute-with-approval', risk: 'high', above: 1, enabled: false });

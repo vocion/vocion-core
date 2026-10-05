@@ -313,7 +313,7 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     recordLinkerForOrg(orgId),
     loadPullSignals(orgId, pullUrls).catch(() => undefined),
     current
-      ? mergeRiskClassOf(orgId, current.meta).then(async riskClass => ({ riskClass, runsItself: await mergeRunsItself(orgId, riskClass) })).catch(() => undefined)
+      ? mergeRiskClassOf(orgId, current.meta).then(async riskClass => ({ riskClass, runsItself: await mergeRunsItself(orgId, riskClass, current.id) })).catch(() => undefined)
       : Promise.resolve(undefined),
     // Where the product runs (its production environments), so a live link
     // never carries a host an agent guessed (`libs/factory/liveUrl.ts`). The
