@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { keepMedia, locateMedia, mediaKey, parseRange, videoExt } from './media';
+import { keepMedia, locateMedia, mediaKey, parseRange, readMediaBytes, videoExt } from './media';
 
 const ORG = 'org_media_northwind';
 const WEBM = Buffer.from('\x1A\x45\xDF\xA3 fictional webm bytes');
@@ -78,6 +78,17 @@ describe('finding it again', () => {
     // Another org asking the same path reaches its own prefix, where nothing is.
     expect(await locateMedia('org_media_kestrel', '52', filename, { dir, bucket: null })).toBeNull();
     expect(await locateMedia('org_media_kestrel', '52', filename, { dir, bucket: { bucket: 'b', region: undefined } })).toMatchObject({ store: 's3', key: mediaKey('org_media_kestrel', '52', filename) });
+  });
+
+  it('reads a kept recording back by its URL, for its own org only, and refuses one over the cap', async () => {
+    const kept = await keepMedia({ orgId: ORG, recordId: 53, name: 'demo', data: WEBM, contentType: 'video/webm' }, { dir, bucket: null });
+    const url = (kept as { url: string }).url;
+
+    expect(await readMediaBytes(ORG, url, { dir, bucket: null })).toMatchObject({ contentType: 'video/webm', filename: (kept as { filename: string }).filename });
+    expect((await readMediaBytes(ORG, url, { dir, bucket: null }))!.bytes.byteLength).toBe(WEBM.byteLength);
+    expect(await readMediaBytes('org_media_kestrel', url, { dir, bucket: null })).toBeNull();
+    expect(await readMediaBytes(ORG, url, { dir, bucket: null, maxBytes: 4 })).toBeNull();
+    expect(await readMediaBytes(ORG, 'https://cdn.example/demo.mp4', { dir, bucket: null })).toBeNull();
   });
 
   it('refuses a path this store could not have written', async () => {

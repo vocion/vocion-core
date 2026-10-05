@@ -391,6 +391,8 @@ export type RecordStatusMarkedPayload = {
   value: string;
   /** The group the value belongs to, by its role: proposed, progress, done, archived. */
   groupRole: string;
+  /** Whether this status waits on a person (the type's `x-needs-you`): a card is up, or the work stopped. */
+  needsYou: boolean;
   /** The transition that named it. */
   transition: string;
   /** The sentence that went with it, or empty. */

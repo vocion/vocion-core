@@ -82,7 +82,7 @@ export async function markStatus(orgId: string, recordId: number, transition: st
       .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, recordId)));
     // ONE EVENT PER MOVE (backlog 057): whatever follows the record hears it.
     // Never on the write's path: a bus that fails leaves the status written.
-    await announceStatusMarked(orgId, { recordId, typeSlug: row.typeSlug, field: model.field, value, groupRole: groupOf(model, value).role, transition, line: line ?? '', at });
+    await announceStatusMarked(orgId, { recordId, typeSlug: row.typeSlug, field: model.field, value, groupRole: groupOf(model, value).role, needsYou: model.needsYou.has(value), transition, line: line ?? '', at });
     return value;
   } catch (err) {
     console.warn('status was not written', { orgId, recordId, transition, message: (err as Error).message });
