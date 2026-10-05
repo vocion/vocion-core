@@ -639,6 +639,30 @@ async function referenceToCorrect(ctx: RuntimeContext, spec: FilingType, fields:
 }
 
 /**
+ * THE ASKER IS THE PERSON ON THE TURN (Chris, 2026-10-05: three share cards read "Chris · 4 Oct"
+ * for asks the QA account had made; the model had written the workspace's owner). When the type
+ * keeps who asked and a person is on this turn, it is their name and email as the account holds
+ * them, never the model's guess; what the model knew that the account does not (their id on a
+ * channel) is kept. A turn with nobody on it — a schedule, a mission, a relayed message — files
+ * what the model read.
+ * @param ctx - The turn.
+ * @param spec - The filing type.
+ * @param fields - The fields as the model gave them.
+ */
+async function askedByPerson(ctx: RuntimeContext, spec: FilingType, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (!('askedBy' in spec.properties) || !ctx.userId || ctx.missionRunId) {
+    return fields;
+  }
+  const { getProfile } = await import('@/services/UserProfileService');
+  const who = await getProfile(ctx.userId).catch(() => null);
+  if (!who?.email) {
+    return fields;
+  }
+  const given = fields.askedBy && typeof fields.askedBy === 'object' && !Array.isArray(fields.askedBy) ? fields.askedBy as Record<string, unknown> : {};
+  return { ...fields, askedBy: { ...given, name: who.name?.trim() || who.email, email: who.email, userId: ctx.userId } };
+}
+
+/**
  * The typed filing tool for one type.
  * @param ctx - The turn.
  * @param spec - The filing type.
@@ -653,7 +677,8 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       if (offJob) {
         return offJob;
       }
-      const { title, fields } = await nameLongTitle(ctx.orgId, spec, filingInputOf(spec, args));
+      const { title, fields: named } = await nameLongTitle(ctx.orgId, spec, filingInputOf(spec, args));
+      const fields = await askedByPerson(ctx, spec, named);
       const meant = await referenceToCorrect(ctx, spec, fields);
       if (meant) {
         return meant;

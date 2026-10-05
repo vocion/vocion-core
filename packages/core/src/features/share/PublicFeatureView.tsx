@@ -227,6 +227,13 @@ export function PublicFeatureView({ page }: { page: PublicFeaturePage }) {
             <LocalDate at={status.at} />
           </>
         )}
+        {status.live && (
+          <span data-testid="public-live">
+            {' · '}
+            {status.live.word}
+            {status.live.detail ? `, ${status.live.detail}` : ''}
+          </span>
+        )}
       </p>
 
       {page.media.length > 0 && (

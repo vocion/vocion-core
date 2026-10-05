@@ -20,7 +20,7 @@ import { loadWorkspace } from '@/libs/workspace/loader';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { businessObjectSchema, businessObjectTypeSchema, trustRuleSchema } = await import('@/models/Schema');
+const { businessObjectSchema, businessObjectTypeSchema, trustRuleSchema, userSchema } = await import('@/models/Schema');
 const { and, eq } = await import('drizzle-orm');
 const { filingTypeOf, loadFilingTypes, filingSchema } = await import('./fileRecord');
 const { buildDomainTools } = await import('./registry');
@@ -173,6 +173,9 @@ describe('filing a request from chat, end to end', () => {
 
     expect(fileRequest).toBeDefined();
 
+    // The person on the turn is the asker, whatever the model wrote (2026-10-05).
+    await db.insert(userSchema).values({ id: 'user_owner', name: 'QA Documents', email: 'qa-documents@northwind.example' } as never).onConflictDoNothing();
+
     const { ScriptedChatModel, ScriptSchema } = await import('@/libs/llm/scripted');
     const { createDeepAgent } = await import('deepagents');
     const script = ScriptSchema.parse({
@@ -194,6 +197,7 @@ describe('filing a request from chat, end to end', () => {
     expect(row!.business_object.title).toBe(ASK_353.title);
     expect(row!.business_object.metadata).toMatchObject({ product: 'send', title: ASK_353.title, story: ASK_353.story, acceptance: ASK_353.acceptance });
     expect(row!.business_object.metadata).not.toHaveProperty('confidence');
+    expect(row!.business_object.metadata).toMatchObject({ askedBy: { name: 'QA Documents', email: 'qa-documents@northwind.example', userId: 'user_owner' } });
     expect(toolAnswer).toMatch(new RegExp(`[A-Z]{2,5}-${row!.business_object.id}\\b`));
     expect(events.find(e => e.type === 'record_created')?.record?.href).toContain(String(row!.business_object.id));
   });

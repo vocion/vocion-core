@@ -3,7 +3,7 @@ import type { PublicFeatureInput, SharedArtifact } from './featureShare';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BUILDER } from '@/libs/factory/featureGlance';
 import { assembleFeatureReport } from './featureReport';
-import { posterAt, publicFeaturePage, publicSteps, scrub, serveVia, shareCard, sharedPictures, shippedEvidence, shortSpan, STEP_SENTENCE, walkthroughOf } from './featureShare';
+import { liveStatus, posterAt, publicFeaturePage, publicSteps, scrub, serveVia, shareCard, sharedPictures, shippedEvidence, shortSpan, STEP_SENTENCE, walkthroughOf } from './featureShare';
 
 /**
  * A FEATURE'S PUBLIC PAGE (Chris, 2026-10-03): the ask and who asked, what it
@@ -117,7 +117,7 @@ describe('the public page of a feature', () => {
 
   it('carries exactly its parts and nothing else', () => {
     expect(Object.keys(page).sort()).toEqual(['ask', 'built', 'builtBy', 'effort', 'media', 'openUrl', 'productName', 'status', 'timeline', 'title', 'workspaceName']);
-    expect(page.status).toEqual({ word: 'Shipped', at: page.status.at });
+    expect(page.status).toEqual({ word: 'Shipped', at: page.status.at, live: { word: 'seen live', detail: null } });
     expect(page.status.at).not.toBeNull();
     expect(Object.keys(page.ask).sort()).toEqual(['at', 'by', 'kind', 'text']);
     expect(page.title).toBe('Show the upload date on each library row');
@@ -217,6 +217,16 @@ describe('the public page of a feature', () => {
     expect(page.effort).toMatchObject({ from: 'go-ahead', until: 'seen live', duration: '1h 19m' });
     expect(page.timeline.slice(0, 2).map(t => [t.step, t.at])).toEqual([['Proposed', '2026-09-27T07:12:00.000Z'], ['Approved', '2026-10-02T07:12:00.000Z']]);
     expect(page.timeline[0]!.took).toBe('5 d');
+  });
+
+  it('says under the name what the live check saw — partly seen with the count, and that the fix is on its way (FE-457)', () => {
+    const r = reportInput();
+    const meta = { ...r.request.meta, liveCheck: { state: 'partial', line: 'Partly seen live: 4 of 5 states reached.', releaseId: 9, checkedAt: '2026-10-02T08:32:00Z', attempt: 2, sentBackFor: 9, lines: [{ result: 'reached' }, { result: 'reached' }, { result: 'reached' }, { result: 'reached' }, { result: 'not_reached', reason: 'the owner was asked' }] } };
+    const page = publicFeaturePage(input({ report: assembleFeatureReport({ ...r, request: { ...r.request, meta } }), request: { title: r.request.title, createdAt: r.request.createdAt, meta } }));
+
+    expect(page.status.live).toEqual({ word: 'partly seen live', detail: '4 of 5; the fix is being built' });
+    expect(liveStatus({})).toBeNull();
+    expect(liveStatus({ liveCheck: { state: 'not_seen', line: 'x', releaseId: 9, checkedAt: '2026-10-02T08:32:00Z', attempt: 2 } })).toEqual({ word: 'not seen live', detail: null });
   });
 
   it('leads with the name it was given, never the whole ask', () => {

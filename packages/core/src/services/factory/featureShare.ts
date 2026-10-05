@@ -84,8 +84,12 @@ export type PublicSlide
 export type PublicFeaturePage = {
   /** The feature's ticket-sized name (`recordName`), never the whole ask. */
   title: string;
-  /** The line under the name: "Shipped · 2 Oct 2026", or still being built. */
-  status: { word: 'Shipped' | 'In progress'; at: string | null };
+  /**
+   * The line under the name: "Shipped · 2 Oct 2026", or still being built — and what the live
+   * check saw, when it looked (Chris, 2026-10-05, FE-457's card read "Shipped" over a line the
+   * check had found wrong on production): "seen live", "partly seen live, 4 of 5", "not seen live".
+   */
+  status: { word: 'Shipped' | 'In progress'; at: string | null; live: { word: string; detail: string | null } | null };
   /** Who built it: the workspace's own name, else {@link DEFAULT_BUILDER}. */
   builtBy: string;
   /** The workspace's display name (never its id or slug), or null when it cannot be read. */
@@ -544,6 +548,35 @@ function durationOf(report: PublicFeatureReport, meta: Record<string, unknown>):
 }
 
 /**
+ * What the live check saw, for the line under the name: seen, partly seen with the count, not
+ * seen, or not yet checked; and whether the fix is on its way (sent back by the check). Null when
+ * nothing has looked. Fixed words, never the check's own sentence (which can name a person or a
+ * pull request).
+ * @param meta - The request's metadata.
+ */
+export function liveStatus(meta: Record<string, unknown>): { word: string; detail: string | null } | null {
+  const live = readRequestLive(meta);
+  if (!live) {
+    return null;
+  }
+  const mark = (meta.liveCheck && typeof meta.liveCheck === 'object' ? meta.liveCheck : {}) as Record<string, unknown>;
+  const lines = Array.isArray(mark.lines) ? mark.lines as Array<{ result?: unknown }> : [];
+  const reached = lines.filter(l => l.result === 'reached').length;
+  const counted = lines.length > 0 ? `${reached} of ${lines.length}` : null;
+  const fixing = mark.sentBackFor !== undefined && mark.sentBackFor !== null ? 'the fix is being built' : null;
+  switch (live.state) {
+    case 'seen':
+      return { word: 'seen live', detail: null };
+    case 'partial':
+      return { word: 'partly seen live', detail: [counted, fixing].filter(Boolean).join('; ') || null };
+    case 'not_seen':
+      return { word: 'not seen live', detail: fixing };
+    default:
+      return { word: 'not yet checked live', detail: null };
+  }
+}
+
+/**
  * A picture's pixel size, when the file says it (`spec.width`, `spec.height`).
  * @param spec - The artifact's spec.
  */
@@ -641,7 +674,7 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
     productName: input.productName?.trim() ? scrub(input.productName.trim()) : null,
     // A workspace path and nothing else: never a link out, never a query.
     openUrl: input.openUrl && /^\/w\/[\w-]+\/[\w/-]+$/.test(input.openUrl) ? input.openUrl : null,
-    status: shippedAt ? { word: 'Shipped', at: shippedAt.toISOString() } : { word: 'In progress', at: null },
+    status: { ...(shippedAt ? { word: 'Shipped' as const, at: shippedAt.toISOString() } : { word: 'In progress' as const, at: null }), live: liveStatus(meta) },
     media,
     ask: { kind: theAsk.kind, text: scrub(text), by, at: report.summary.askedAt?.toISOString() ?? null },
     built: scrub(firstSentence(builtFrom) ?? builtFrom),
