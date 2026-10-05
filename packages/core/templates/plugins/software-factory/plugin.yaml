@@ -394,7 +394,10 @@ name: Software factory
 #   and no view of user trying to open an expired link"): browser_upload puts a
 #   sample PDF in, the skill makes what the feature needs on screen and shows
 #   the payoff from the recipient's side; a line over an unchanged screen is cut.
-version: 3.16.0
+# 3.17.0 — the Slack thread follows the request (backlog 057). One event per
+#   status write (`record.status_marked`); `slack-thread-follow` says each move
+#   in the thread the request was asked in, once, with the record's page.
+version: 3.17.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
