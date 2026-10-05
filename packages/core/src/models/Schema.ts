@@ -3257,6 +3257,13 @@ export const apiTokenSchema = pgTable(
      * a pasted key.
      */
     account: text('account'),
+    /**
+     * Set while one caller refreshes this login, so a second caller waits for
+     * the new token instead of spending the same refresh token, which vendors
+     * that rotate refresh tokens refuse. Runs out on its own; null when no
+     * refresh is underway. See `claimLoginRefresh`.
+     */
+    refreshingUntil: timestamp('refreshing_until', { mode: 'date' }),
   },
   table => [
     index('api_token_org_idx').on(table.orgId),

@@ -1,10 +1,11 @@
 import { Buffer } from 'node:buffer';
+import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { knowledgeSourceSchema } = await import('@/models/Schema');
+const { apiTokenSchema, knowledgeSourceSchema } = await import('@/models/Schema');
 const { storeLoginCredential, updateLoginCredentialValues } = await import('@/services/ApiTokenService');
 const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
 const { postTokenRequest, TokenRequestError, usableLoginGrant } = await import('./loginGrant');
@@ -41,6 +42,64 @@ async function seedSourceOnLogin(grant: Record<string, unknown>) {
  */
 async function storedValues(orgId: string, tokenId: string) {
   return getCredentialsForConnector({ orgId, connectorSlug: 'hubspot', apiTokenId: tokenId });
+}
+
+/**
+ * When the login's refresh claim runs out, or null when nobody holds it.
+ * @param tokenId - The login row.
+ */
+async function refreshClaimOn(tokenId: string) {
+  const [row] = await db.select({ refreshingUntil: apiTokenSchema.refreshingUntil }).from(apiTokenSchema).where(eq(apiTokenSchema.id, tokenId));
+  return row!.refreshingUntil;
+}
+
+/**
+ * Mark the login as being refreshed by a caller this test plays.
+ * @param tokenId - The login row.
+ * @param until - When that caller's claim runs out.
+ */
+async function holdRefreshClaim(tokenId: string, until: Date) {
+  await db.update(apiTokenSchema).set({ refreshingUntil: until }).where(eq(apiTokenSchema.id, tokenId));
+}
+
+/**
+ * A vendor refresh that takes `vendor.ms` to answer and records each refresh
+ * token it is handed.
+ * @param vendor - How long it takes, and where it records.
+ * @param vendor.ms - How long the vendor takes.
+ * @param vendor.refreshedFrom - The refresh tokens it was handed, in order.
+ * @param refreshToken - The refresh token sent.
+ */
+async function answerSlowly(vendor: { ms: number; refreshedFrom: string[] }, refreshToken: string) {
+  vendor.refreshedFrom.push(refreshToken);
+  await new Promise(resolve => setTimeout(resolve, vendor.ms));
+  return { accessToken: `a-from-${refreshToken}`, refreshToken: `${refreshToken}-next`, expiresAt: LATER };
+}
+
+const QUICK_WAIT = { pollMs: 5, limitMs: 2_000 };
+
+type ExpiringGrant = { accessToken: string; refreshToken: string; expiresAt: string };
+
+/**
+ * One caller asking for a usable Zoom-style grant on a seeded login.
+ * @param seeded - The seeded workspace, login and source.
+ * @param seeded.orgId - The workspace.
+ * @param seeded.sourceId - The source.
+ * @param grant - The grant this caller loaded.
+ * @param vendor - The slow vendor both callers share.
+ * @param vendor.ms - How long the vendor takes.
+ * @param vendor.refreshedFrom - The refresh tokens it was handed.
+ */
+function callerOn(seeded: { orgId: string; sourceId: number }, grant: ExpiringGrant, vendor: { ms: number; refreshedFrom: string[] }) {
+  return usableLoginGrant({
+    vendor: 'Zoom',
+    connectorSlug: 'hubspot',
+    grant,
+    persistence: { kind: 'persist', orgId: seeded.orgId, sourceId: seeded.sourceId, warn: () => {} },
+    refresh: refreshToken => answerSlowly(vendor, refreshToken),
+    now: NOW,
+    wait: QUICK_WAIT,
+  });
 }
 
 afterEach(() => {
@@ -209,6 +268,123 @@ describe('a sync on an expiring login', () => {
     })).rejects.toThrow('HubSpot would not refresh the login (invalid_grant). Log in with HubSpot again on the Connectors page.');
 
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
+  });
+});
+
+describe('two callers on one expired login (a sync and an agent tool at once)', () => {
+  it('only one calls the vendor; the other waits and uses the same new token, so a rotating refresh token is never spent twice', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const seeded = await seedSourceOnLogin(grant);
+    const { orgId, tokenId } = seeded;
+    const vendor = { ms: 50, refreshedFrom: [] as string[] };
+
+    const [sync, agentTool] = await Promise.all([callerOn(seeded, grant, vendor), callerOn(seeded, grant, vendor)]);
+
+    expect(vendor.refreshedFrom).toEqual(['r1']);
+    expect(sync.accessToken).toBe('a-from-r1');
+    expect(agentTool.accessToken).toBe('a-from-r1');
+    expect(await storedValues(orgId, tokenId)).toMatchObject({ accessToken: 'a-from-r1', refreshToken: 'r1-next' });
+    expect(await refreshClaimOn(tokenId)).toBeNull();
+  });
+
+  it('a caller that crashed mid-refresh blocks the login only until its claim runs out; then the next caller refreshes', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+    await holdRefreshClaim(tokenId, new Date(Date.now() + 100));
+    const vendor = { ms: 0, refreshedFrom: [] as string[] };
+
+    const usable = await callerOn({ orgId, sourceId }, grant, vendor);
+
+    expect(vendor.refreshedFrom).toEqual(['r1']);
+    expect(usable.accessToken).toBe('a-from-r1');
+    expect(await refreshClaimOn(tokenId)).toBeNull();
+  });
+
+  it('a refresh still running past the wait says the next sync retries, and never calls the vendor itself', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+    const othersClaim = new Date(Date.now() + 30_000);
+    await holdRefreshClaim(tokenId, othersClaim);
+    const refreshedFrom: string[] = [];
+
+    await expect(usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: refreshToken => answerSlowly({ ms: 0, refreshedFrom }, refreshToken),
+      now: NOW,
+      wait: { pollMs: 5, limitMs: 50 },
+    })).rejects.toThrow('Another Zoom refresh of this login is still running. Try again in a minute.');
+
+    expect(refreshedFrom).toEqual([]);
+    expect(await refreshClaimOn(tokenId)).toEqual(othersClaim);
+  });
+
+  it('a login revoked while waiting ends the wait at once with "log in again", instead of waiting out a claim that never comes', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+    await holdRefreshClaim(tokenId, new Date(Date.now() + 30_000));
+    const refreshedFrom: string[] = [];
+
+    const pending = usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: refreshToken => answerSlowly({ ms: 0, refreshedFrom }, refreshToken),
+      now: NOW,
+      wait: QUICK_WAIT,
+    }).catch((error: unknown) => error as Error);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await db.update(apiTokenSchema).set({ revokedAt: new Date() }).where(eq(apiTokenSchema.id, tokenId));
+    const failure = await pending;
+
+    expect(failure.message).toBe('The Zoom login was revoked or removed. Log in with Zoom again on the Connectors page.');
+    expect(refreshedFrom).toEqual([]);
+  });
+
+  it('a source moved off the login while waiting is not refreshed from the stale token it first read, and the claim is let go', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+    await holdRefreshClaim(tokenId, new Date(Date.now() + 60));
+    const refreshedFrom: string[] = [];
+
+    const pending = usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: refreshToken => answerSlowly({ ms: 0, refreshedFrom }, refreshToken),
+      now: NOW,
+      wait: QUICK_WAIT,
+    }).catch((error: unknown) => error as Error);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await db.update(knowledgeSourceSchema).set({ apiTokenId: null }).where(eq(knowledgeSourceSchema.id, sourceId));
+    const failure = await pending;
+
+    expect(failure.message).toBe('The saved Zoom login could not be read. Try again in a minute.');
+    expect(refreshedFrom).toEqual([]);
+    expect(await refreshClaimOn(tokenId)).toBeNull();
+  });
+
+  it('a refused refresh lets go of the claim, so the next sync can try without waiting', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+
+    await expect(usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async () => {
+        throw new TokenRequestError('Zoom', 'http_503', 503);
+      },
+      now: NOW,
+      wait: QUICK_WAIT,
+    })).rejects.toThrow('Zoom did not answer the token refresh (http_503).');
+
+    expect(await refreshClaimOn(tokenId)).toBeNull();
   });
 });
 

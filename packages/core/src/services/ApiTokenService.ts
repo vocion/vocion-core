@@ -628,7 +628,8 @@ export async function updateLoginCredentialValues(input: {
   const encrypted = await vault.encrypt(input.orgId, Buffer.from(JSON.stringify(input.values), 'utf8'));
   const written = await db
     .update(apiTokenSchema)
-    .set({ ...encrypted, keyHint: loginKeyHint(input.values) })
+    // Saving the new token ends the refresh, so it also lifts the claim.
+    .set({ ...encrypted, keyHint: loginKeyHint(input.values), refreshingUntil: null })
     .where(and(
       eq(apiTokenSchema.id, input.tokenId),
       eq(apiTokenSchema.ciphertext, row.ciphertext),
@@ -636,6 +637,75 @@ export async function updateLoginCredentialValues(input: {
     ))
     .returning({ id: apiTokenSchema.id });
   return written.length === 1;
+}
+
+/** What `claimLoginRefresh` found: this caller's claim, someone else's, or no live login. */
+export type LoginRefreshClaim = { kind: 'claimed'; until: Date } | { kind: 'held' } | { kind: 'gone' };
+
+/**
+ * Claim the right to refresh a login, so a second caller waits for the new
+ * token instead of spending the same refresh token. One conditional UPDATE:
+ * it marks the row only when no unexpired claim is on it, so of two callers
+ * arriving together exactly one gets the row back.
+ *
+ * The claim runs out after `holdMs` on its own, so a caller that crashes
+ * mid-refresh never blocks the login for longer than that. Saving the
+ * refreshed token (`updateLoginCredentialValues`) lifts it; a refresh that
+ * fails lifts it with `releaseLoginRefresh`.
+ *
+ * Returns `claimed` with the claim's end time, the handle for releasing it;
+ * `held` when another caller holds an unexpired claim; or `gone` when the
+ * login was revoked or removed, so a waiting caller stops at once instead of
+ * waiting out a claim that will never come.
+ * @param input - Which login, and how long the claim may last.
+ * @param input.orgId - The workspace.
+ * @param input.tokenId - The login's `api_token` row.
+ * @param input.holdMs - How long before the claim runs out by itself.
+ */
+export async function claimLoginRefresh(input: { orgId: string; tokenId: string; holdMs: number }): Promise<LoginRefreshClaim> {
+  const now = new Date();
+  const until = new Date(now.getTime() + input.holdMs);
+  const claimed = await db
+    .update(apiTokenSchema)
+    .set({ refreshingUntil: until })
+    .where(and(
+      eq(apiTokenSchema.orgId, input.orgId),
+      eq(apiTokenSchema.id, input.tokenId),
+      eq(apiTokenSchema.obtainedVia, 'login'),
+      isNull(apiTokenSchema.revokedAt),
+      or(isNull(apiTokenSchema.refreshingUntil), lt(apiTokenSchema.refreshingUntil, now)),
+    ))
+    .returning({ id: apiTokenSchema.id });
+  if (claimed.length === 1) {
+    return { kind: 'claimed', until };
+  }
+  const [row] = await db
+    .select({ revokedAt: apiTokenSchema.revokedAt, obtainedVia: apiTokenSchema.obtainedVia })
+    .from(apiTokenSchema)
+    .where(and(eq(apiTokenSchema.orgId, input.orgId), eq(apiTokenSchema.id, input.tokenId)))
+    .limit(1);
+  return row && !row.revokedAt && row.obtainedVia === 'login' ? { kind: 'held' } : { kind: 'gone' };
+}
+
+/**
+ * Lift a refresh claim after a refresh that saved nothing (the vendor refused
+ * or did not answer), so the next caller can try at once. Matches on the
+ * claim's own end time, so a caller whose claim already ran out never lifts
+ * the claim someone else took since.
+ * @param input - Which login, and the end time `claimLoginRefresh` returned.
+ * @param input.orgId - The workspace.
+ * @param input.tokenId - The login's `api_token` row.
+ * @param input.claimedUntil - The claim's end time.
+ */
+export async function releaseLoginRefresh(input: { orgId: string; tokenId: string; claimedUntil: Date }): Promise<void> {
+  await db
+    .update(apiTokenSchema)
+    .set({ refreshingUntil: null })
+    .where(and(
+      eq(apiTokenSchema.orgId, input.orgId),
+      eq(apiTokenSchema.id, input.tokenId),
+      eq(apiTokenSchema.refreshingUntil, input.claimedUntil),
+    ));
 }
 
 /**

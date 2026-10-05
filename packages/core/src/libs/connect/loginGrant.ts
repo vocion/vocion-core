@@ -20,7 +20,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { knowledgeSourceSchema } from '@/models/Schema';
-import { updateLoginCredentialValues } from '@/services/ApiTokenService';
+import { claimLoginRefresh, releaseLoginRefresh, updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
 
 export type LoginGrant = Record<string, unknown> & { accessToken: string; refreshToken: string; expiresAt: string };
@@ -210,20 +210,115 @@ async function saveRefreshedGrant(input: { orgId: string; connectorSlug: string;
   return updateCredentialValuesForConnector({ orgId: input.orgId, connectorSlug: input.connectorSlug, raw: input.grant, expectedRefreshToken: input.parentRefreshToken });
 }
 
+/** How long a refresh claim lasts: the vendor's 15-second timeout, the save, and room to spare. */
+const REFRESH_CLAIM_MS = 30_000;
+
 /**
- * Refresh a source's login grant and save it. Refreshes from the stored
- * refresh token, and only when the stored grant is itself expiring: when
- * another sync already refreshed, or saved first, or rotated the refresh
- * token this run then had refused, this run uses that sync's grant. A save
- * that fails keeps this run going on the fresh token and warns that the next
- * run needs a new login.
+ * How a caller waits out another caller's refresh: how often it looks for the
+ * new token, and how long before it gives up.
+ */
+export type RefreshWait = { pollMs: number; limitMs: number };
+
+/**
+ * Look twice a second. By the limit the holder has saved, failed and let go,
+ * or run out its claim, so one more try then always lands.
+ */
+const REFRESH_WAIT: RefreshWait = { pollMs: 500, limitMs: REFRESH_CLAIM_MS + 500 };
+
+/**
+ * Pause between looks at the saved login while another caller refreshes it.
+ * @param ms - How long to wait.
+ */
+function pause(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** This caller's claim on a login row, to lift once the refresh is over. */
+type HeldClaim = { tokenId: string; until: Date };
+
+type RefreshTurn
+  = | { kind: 'ours'; claim: HeldClaim | null; stored: StoredGrant | null }
+    | { kind: 'refreshedByAnother'; grant: LoginGrant };
+
+/**
+ * Take the turn to refresh a login, or wait out the caller who has it. A
+ * sync and an agent tool can find the same login expired at the same moment;
+ * only the one whose claim lands calls the vendor. The other re-reads the
+ * saved login until the new token is there and uses it, so a refresh token
+ * is never spent twice. A claim runs out after `REFRESH_CLAIM_MS`, so if its
+ * holder crashed, the waiter takes the turn instead. A login revoked or
+ * removed while waiting ends the wait at once with "log in again".
+ *
+ * A login saved on the install's `source_credential` (no `api_token` row,
+ * from before #1080's move) has nowhere to hold a claim, and refreshes
+ * unclaimed with the compare-and-swap save alone.
+ * @param input - The login and how to wait.
+ * @param input.vendor - The vendor's name, for messages.
+ * @param input.orgId - The workspace.
+ * @param input.sourceId - The source being synced.
+ * @param input.connectorSlug - The source's connector.
+ * @param input.stored - The saved login as first read.
+ * @param input.wait - How often to look while waiting, and for how long.
+ * @param input.now - Injected for tests: the time token expiry is judged at.
+ */
+async function takeRefreshTurn(input: { vendor: string; orgId: string; sourceId: number; connectorSlug: string; stored: StoredGrant | null; wait: RefreshWait; now?: number }): Promise<RefreshTurn> {
+  const tokenId = input.stored?.apiTokenId;
+  if (!tokenId) {
+    return { kind: 'ours', claim: null, stored: input.stored };
+  }
+  const deadline = Date.now() + input.wait.limitMs;
+  while (Date.now() < deadline) {
+    const claim = await claimLoginRefresh({ orgId: input.orgId, tokenId, holdMs: REFRESH_CLAIM_MS });
+    if (claim.kind === 'gone') {
+      throw new Error(`The ${input.vendor} login was revoked or removed. Log in with ${input.vendor} again on the Connectors page.`);
+    }
+    if (claim.kind === 'claimed') {
+      // Read again under the claim: the last holder may have saved since the
+      // first read, and refreshing from that first read would spend a refresh
+      // token the vendor already rotated away.
+      const latest = await readStoredGrant(input.orgId, input.sourceId, input.connectorSlug);
+      return { kind: 'ours', claim: { tokenId, until: claim.until }, stored: latest };
+    }
+    await pause(input.wait.pollMs);
+    const latest = await readStoredGrant(input.orgId, input.sourceId, input.connectorSlug);
+    if (latest && !grantIsExpiring(latest.grant.expiresAt, input.now)) {
+      return { kind: 'refreshedByAnother', grant: latest.grant };
+    }
+  }
+  throw new Error(`Another ${input.vendor} refresh of this login is still running. Try again in a minute.`);
+}
+
+/**
+ * Lift this caller's refresh claim. A save already lifted it, so this only
+ * matters after a refresh that saved nothing; failing here costs nothing but
+ * the wait until the claim runs out, so it is logged and not thrown.
+ * @param orgId - The workspace.
+ * @param tokenId - The login's `api_token` row.
+ * @param claimedUntil - The claim's end time.
+ */
+async function letGoOfRefresh(orgId: string, tokenId: string, claimedUntil: Date): Promise<void> {
+  try {
+    await releaseLoginRefresh({ orgId, tokenId, claimedUntil });
+  } catch (error) {
+    logger.warn('refreshLoginGrant could not lift its refresh claim; it runs out on its own', { orgId, tokenId, errorName: error instanceof Error ? error.name : 'unknown' });
+  }
+}
+
+/**
+ * Refresh a source's login grant and save it. Only one caller refreshes a
+ * login at a time (`takeRefreshTurn`); a caller that finds the login being
+ * refreshed waits and uses the new token. Refreshes from the stored refresh
+ * token, and only when the stored grant is itself expiring. A save that
+ * fails keeps this run going on the fresh token and warns that the next run
+ * needs a new login.
  * @param input - The grant, the vendor and where to save.
  * @param input.vendor - The vendor's name, for messages: "HubSpot".
  * @param input.connectorSlug - The source's connector.
  * @param input.grant - The grant this run loaded.
  * @param input.persistence - The sync's org, source and warning channel.
  * @param input.refresh - The vendor's refresh.
- * @param input.now - Injected for tests.
+ * @param input.now - Injected for tests: the time token expiry is judged at.
+ * @param input.wait - Injected for tests: how a caller waits out another's refresh.
  */
 export async function refreshLoginGrant(input: {
   vendor: string;
@@ -232,15 +327,61 @@ export async function refreshLoginGrant(input: {
   persistence: Extract<GrantPersistence, { kind: 'persist' }>;
   refresh: GrantRefresher;
   now?: number;
+  wait?: RefreshWait;
+}): Promise<LoginGrant> {
+  const { orgId, sourceId } = input.persistence;
+  const firstRead = await readStoredGrant(orgId, sourceId, input.connectorSlug);
+  // Another caller refreshed while this one was loading: use its grant.
+  if (firstRead && !grantIsExpiring(firstRead.grant.expiresAt, input.now)) {
+    return firstRead.grant;
+  }
+  const turn = await takeRefreshTurn({ vendor: input.vendor, orgId, sourceId, connectorSlug: input.connectorSlug, stored: firstRead, wait: input.wait ?? REFRESH_WAIT, now: input.now });
+  if (turn.kind === 'refreshedByAnother') {
+    return turn.grant;
+  }
+  try {
+    if (turn.claim && !turn.stored) {
+      // The login row is live (the claim landed) but the source no longer
+      // reads a grant from it: its credential was replaced or is unreadable.
+      throw new Error(`The saved ${input.vendor} login could not be read. Try again in a minute.`);
+    }
+    if (turn.stored && !grantIsExpiring(turn.stored.grant.expiresAt, input.now)) {
+      return turn.stored.grant;
+    }
+    return await refreshAndSave({ ...input, stored: turn.stored });
+  } finally {
+    if (turn.claim) {
+      await letGoOfRefresh(orgId, turn.claim.tokenId, turn.claim.until);
+    }
+  }
+}
+
+/**
+ * Call the vendor's refresh and save the result, once this caller holds the
+ * turn. The fallbacks here cover the logins that refresh unclaimed (saved on
+ * `source_credential`) and a claim that ran out mid-refresh: a refused
+ * refresh first looks for a grant another caller saved, and a save that
+ * loses uses the winner's grant.
+ * @param input - As `refreshLoginGrant`, with the saved login read under the turn.
+ * @param input.vendor - The vendor's name, for messages.
+ * @param input.connectorSlug - The source's connector.
+ * @param input.grant - The grant this run loaded.
+ * @param input.persistence - The sync's org, source and warning channel.
+ * @param input.refresh - The vendor's refresh.
+ * @param input.stored - The saved login, read under the turn.
+ * @param input.now - Injected for tests.
+ */
+async function refreshAndSave(input: {
+  vendor: string;
+  connectorSlug: string;
+  grant: LoginGrant;
+  persistence: Extract<GrantPersistence, { kind: 'persist' }>;
+  refresh: GrantRefresher;
+  stored: StoredGrant | null;
+  now?: number;
 }): Promise<LoginGrant> {
   const { orgId, sourceId, warn } = input.persistence;
-  const stored = await readStoredGrant(orgId, sourceId, input.connectorSlug);
-  // Another sync refreshed while this one was loading: use its grant, and
-  // never spend a refresh token that may already be rotated away.
-  if (stored && !grantIsExpiring(stored.grant.expiresAt, input.now)) {
-    return stored.grant;
-  }
-  const base = stored?.grant ?? input.grant;
+  const base = input.stored?.grant ?? input.grant;
   const parentRefreshToken = base.refreshToken;
   let fresh: RefreshedTokens;
   try {
@@ -261,7 +402,7 @@ export async function refreshLoginGrant(input: {
   };
   let saved = false;
   try {
-    saved = await saveRefreshedGrant({ orgId, connectorSlug: input.connectorSlug, apiTokenId: stored?.apiTokenId ?? null, grant: next, parentRefreshToken });
+    saved = await saveRefreshedGrant({ orgId, connectorSlug: input.connectorSlug, apiTokenId: input.stored?.apiTokenId ?? null, grant: next, parentRefreshToken });
     if (!saved) {
       // Another run saved first. Its grant is the one on file, whether or not
       // the vendor rotated the refresh token, so this run uses it too.
@@ -334,6 +475,7 @@ function refreshFailure(vendor: string, connectorSlug: string, orgId: string, er
  * @param input.persistence - Save (a sync) or never refresh (Test connection).
  * @param input.refresh - The vendor's refresh.
  * @param input.now - Injected for tests.
+ * @param input.wait - Injected for tests: how a caller waits out another's refresh.
  */
 export async function usableLoginGrant(input: {
   vendor: string;
@@ -342,6 +484,7 @@ export async function usableLoginGrant(input: {
   persistence: GrantPersistence;
   refresh: GrantRefresher;
   now?: number;
+  wait?: RefreshWait;
 }): Promise<LoginGrant> {
   if (!grantIsExpiring(input.grant.expiresAt, input.now)) {
     return input.grant;
@@ -349,5 +492,5 @@ export async function usableLoginGrant(input: {
   if (input.persistence.kind === 'never') {
     throw new Error(`The ${input.vendor} access token has expired, and Test connection does not refresh it because it cannot save the new one. Run Sync now, which refreshes and saves it, then test again.`);
   }
-  return refreshLoginGrant({ vendor: input.vendor, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh, now: input.now });
+  return refreshLoginGrant({ vendor: input.vendor, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh, now: input.now, wait: input.wait });
 }
