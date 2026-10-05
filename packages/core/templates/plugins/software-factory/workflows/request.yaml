@@ -100,10 +100,15 @@ steps:
           as: dispatched
         - set: {intent: null}
         - when:
+            # A REFUSED START IS NOT AN ATTEMPT (FE-457, 2026-10-05): two dispatches
+            # that started nothing counted toward the three automatic attempts, and
+            # the live check's send-back — the first real fix attempt — was stopped
+            # for a person. Only a start that built counts.
             - if: {path: vars.dispatched.status, notEquals: done}
               then:
                 - set:
                     attempt: {add: [{from: vars.attempt}, -1]}
+                    automatic: {add: [{from: vars.automatic}, -1]}
                     why: {first: [{from: vars.dispatched.error}, {value: 'The build did not start ({{vars.dispatched.status}}).'}]}
                 - do: factory.stop_request
                   input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
@@ -114,6 +119,7 @@ steps:
               then:
                 - set:
                     attempt: {add: [{from: vars.attempt}, -1]}
+                    automatic: {add: [{from: vars.automatic}, -1]}
                 - status: {stage: planning, line: 'Planning first: {{vars.dispatched.result.why}}.'}
                 - wait_event:
                     any:
@@ -137,6 +143,7 @@ steps:
               then:
                 - set:
                     attempt: {add: [{from: vars.attempt}, -1]}
+                    automatic: {add: [{from: vars.automatic}, -1]}
                     why: The build started no worker run.
                 - do: factory.stop_request
                   input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
