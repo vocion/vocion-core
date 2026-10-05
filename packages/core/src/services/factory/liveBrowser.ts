@@ -200,6 +200,8 @@ const DEMO_CHROME_SCRIPT = `(() => {
     '.vocion-demo-ripple{position:fixed;width:12px;height:12px;border-radius:50%;z-index:2147483645;pointer-events:none;border:3px solid #2563eb;background:rgba(37,99,235,.18);transform:translate(-50%,-50%) scale(1);opacity:.95;animation:vocion-ripple 560ms ease-out forwards}',
     '@keyframes vocion-ripple{to{transform:translate(-50%,-50%) scale(5);opacity:0}}',
     '#vocion-demo-spot{position:fixed;z-index:2147483644;pointer-events:none;border-radius:10px;box-shadow:0 0 0 9999px rgba(15,15,20,.42);transition:all 260ms ease;opacity:0}',
+    '#vocion-demo-key{position:fixed;left:50%;bottom:28px;z-index:2147483647;pointer-events:none;transform:translateX(-50%) scale(.9);opacity:0;transition:opacity 160ms ease,transform 160ms ease;font:600 22px/1 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#111;background:#fff;border:1px solid #cfd3da;border-bottom-width:4px;border-radius:10px;padding:12px 18px;min-width:22px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,.22)}',
+    '#vocion-demo-key.on{opacity:1;transform:translateX(-50%) scale(1)}',
   ].join('\n');
   const mount = () => {
     if (!document.body) return false;
@@ -210,6 +212,9 @@ const DEMO_CHROME_SCRIPT = `(() => {
     const spot = document.createElement('div');
     spot.id = 'vocion-demo-spot';
     document.body.appendChild(spot);
+    const key = document.createElement('div');
+    key.id = 'vocion-demo-key';
+    document.body.appendChild(key);
     document.body.appendChild(cur);
     return true;
   };
@@ -229,6 +234,24 @@ const DEMO_CHROME_SCRIPT = `(() => {
       document.body.appendChild(r);
       setTimeout(() => r.remove(), 700);
     },
+    keycap(label) {
+      const k = document.getElementById('vocion-demo-key');
+      if (!k) return;
+      if (!label) { k.classList.remove('on'); return; }
+      k.textContent = label;
+      k.classList.add('on');
+    },
+    focusRect() {
+      const pick = () => {
+        const a = document.activeElement;
+        if (a && a !== document.body && a !== document.documentElement) return a;
+        return document.querySelector('[aria-selected="true"],[data-selected="true"],[data-highlighted="true"],[aria-current="true"]');
+      };
+      const el = pick();
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return r.width && r.height ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
+    },
     spotlight(rect) {
       const s = document.getElementById('vocion-demo-spot');
       if (!s) return;
@@ -240,6 +263,41 @@ const DEMO_CHROME_SCRIPT = `(() => {
     },
   };
 })();`;
+
+/**
+ * The key as a viewer reads it on a keycap: arrows as arrows, Escape as Esc, a letter as itself.
+ * @param keyName - Playwright's key name ("ArrowDown", "Escape", "s", "Shift+?", "Meta+K").
+ */
+export function keycapLabel(keyName: string): string {
+  const one: Record<string, string> = { 'ArrowDown': '↓', 'ArrowUp': '↑', 'ArrowLeft': '←', 'ArrowRight': '→', 'Escape': 'Esc', 'Enter': 'Enter ↵', 'Backspace': '⌫', 'Delete': 'Del', 'Tab': 'Tab', ' ': 'Space', 'Space': 'Space', 'Meta': '⌘', 'Control': 'Ctrl', 'Alt': '⌥', 'Shift': '⇧' };
+  return keyName.split('+').map(k => one[k] ?? (k.length === 1 ? k.toUpperCase() : k)).join(' ');
+}
+
+/**
+ * ONE ACTION AT A TIME, IN THE ORDER ASKED, per browser session. A model may send several browser
+ * calls at once (FE-449's Feature Demo, 2026-10-04: four key presses landed within 7 ms, so the
+ * shortcut sheet was open for one millisecond and every line described a screen already gone).
+ * Each call waits here for the one before it — its action, its settle and its spoken hold.
+ */
+const lanes = new Map<string, Promise<unknown>>();
+
+/**
+ * Run `fn` after every earlier call on this session has finished.
+ * @param key - The session.
+ * @param fn - The call.
+ */
+export function inOrder<T>(key: string | null, fn: () => Promise<T>): Promise<T> {
+  const lane = key ?? '';
+  const next = (lanes.get(lane) ?? Promise.resolve()).then(fn, fn);
+  const settled = next.then(() => {}, () => {});
+  lanes.set(lane, settled);
+  void settled.then(() => {
+    if (lanes.get(lane) === settled) {
+      lanes.delete(lane);
+    }
+  });
+  return next;
+}
 
 /** How long the cursor takes to reach its target before a click, matching the CSS transition. */
 const CURSOR_GLIDE_MS = 520;
@@ -282,6 +340,32 @@ async function demoSpotlight(tab: Tab, rect: Rect | null): Promise<void> {
   } catch {
     // decoration only
   }
+}
+
+/** How long a keycap stays up for a press nobody narrates: long enough to read. */
+const KEYCAP_MS = 900;
+
+/**
+ * Show a key on the demo's keycap, or hide it with null. Decoration only: never throws.
+ * @param tab - The tab.
+ * @param label - The key as read ("↓", "Esc", "S"), or null to hide it.
+ */
+async function demoKeycap(tab: Tab, label: string | null): Promise<void> {
+  if (tab.purpose !== 'demo' || !tab.page) {
+    return;
+  }
+  await tab.page.evaluate(l => (window as unknown as { __vocionDemo?: { keycap: (l: string | null) => void } }).__vocionDemo?.keycap(l), label).catch(() => {});
+}
+
+/**
+ * The box a key press moved: the focused element, else the selected row. Null when neither.
+ * @param tab - The tab.
+ */
+async function demoFocusRect(tab: Tab): Promise<Rect | null> {
+  if (!tab.page) {
+    return null;
+  }
+  return tab.page.evaluate(() => (window as unknown as { __vocionDemo?: { focusRect: () => Rect | null } }).__vocionDemo?.focusRect() ?? null).catch(() => null);
 }
 
 const short = (e: unknown, n = 240) => String((e as Error)?.message ?? e ?? '').split('\n')[0]!.slice(0, n);
@@ -722,7 +806,11 @@ function byRef(page: Page, ref: string) {
   return /^[a-z]?\d+$|^f\d+e\d+$/i.test(r) ? page.locator(`aria-ref=${r}`) : null;
 }
 
-async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: string | null, run: (page: Page) => Promise<{ ok: boolean; result: string }>, say?: string): Promise<BrowserAnswer> {
+function act(key: string | null, d: LiveBrowserDeps, what: string, ref: string | null, run: (page: Page) => Promise<{ ok: boolean; result: string }>, say?: string, keyName?: string): Promise<BrowserAnswer> {
+  return inOrder(key, () => actNow(key, d, what, ref, run, say, keyName));
+}
+
+async function actNow(key: string | null, d: LiveBrowserDeps, what: string, ref: string | null, run: (page: Page) => Promise<{ ok: boolean; result: string }>, say?: string, keyName?: string): Promise<BrowserAnswer> {
   const a = active(key);
   if (!('s' in a)) {
     return a;
@@ -734,6 +822,11 @@ async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: st
   if (tab.purpose === 'demo' && ref) {
     target = await byRef(page, ref)?.boundingBox({ timeout: 2000 }).catch(() => null) ?? null;
     await demoPointAt(tab, target);
+  }
+  // A key press has no target to point at: the key itself is shown, as a keycap, as it lands.
+  const demoKey = tab.purpose === 'demo' && keyName ? keycapLabel(keyName) : null;
+  if (demoKey) {
+    await demoKeycap(tab, demoKey);
   }
   let out: { ok: boolean; result: string };
   try {
@@ -747,8 +840,17 @@ async function act(key: string | null, d: LiveBrowserDeps, what: string, ref: st
   const entry = log(s, 'action', { what, ok: out.ok, detail: out.result, url: page.url() }, d.now());
   if (out.ok) {
     // The area spoken about: the target as it stands after the action (it may have moved or changed).
-    const focus = tab.purpose === 'demo' && ref ? await byRef(page, ref)?.boundingBox({ timeout: 1000 }).catch(() => null) ?? target : null;
+    // A press is about whatever it moved: the element with focus, or the row now selected.
+    const focus = tab.purpose === 'demo'
+      ? ref ? await byRef(page, ref)?.boundingBox({ timeout: 1000 }).catch(() => null) ?? target : demoKey ? await demoFocusRect(tab) : null
+      : null;
+    if (demoKey && !say?.trim()) {
+      await d.dwell(KEYCAP_MS);
+    }
     await sayLine(s, tab, d, say, focus);
+  }
+  if (demoKey) {
+    await demoKeycap(tab, null);
   }
   return withSnapshot(s, tab, d, { ok: out.ok, id: entry.id, result: out.result });
 }
@@ -815,7 +917,7 @@ export async function browserPress(key: string | null, keyName: string, deps: Pa
   return act(key, d, `press ${keyName}`, null, async (page) => {
     await page.keyboard.press(keyName);
     return { ok: true, result: `pressed ${keyName}` };
-  }, say);
+  }, say, keyName);
 }
 
 /**
@@ -825,7 +927,11 @@ export async function browserPress(key: string | null, keyName: string, deps: Pa
  * @param text - The line.
  * @param deps - The clock and the hold.
  */
-export async function browserSay(key: string | null, text: string, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+export function browserSay(key: string | null, text: string, deps: Partial<LiveBrowserDeps> = {}): Promise<BrowserAnswer> {
+  return inOrder(key, () => sayNow(key, text, deps));
+}
+
+async function sayNow(key: string | null, text: string, deps: Partial<LiveBrowserDeps>): Promise<BrowserAnswer> {
   const d = { ...defaultDeps, ...deps };
   const a = active(key);
   if (!('s' in a)) {
