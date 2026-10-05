@@ -589,6 +589,23 @@ describe('when QA\'s fire ends', () => {
     expect(proposed).toHaveLength(1);
   });
 
+  it('a second round (a person\'s "Check live again") gets its own retry: the retry is keyed to the fire it follows (FE-457, 2026-10-05)', async () => {
+    const org = `${ORG}_rounds`;
+    const { releaseId } = await seed(org);
+    const fire = async () => (await db.insert(automationRunSchema).values({ orgId: org, slug: 'release-live-check', kind: 'mission', status: 'completed', input: { releaseId, attempt: 1 }, error: 'the agent stopped' }).returning())[0]!.id;
+
+    expect((await liveCheckEnded(org, { automationRunId: await fire(), attempts: 2 })).did).toBe('retry:2');
+
+    await db.update(businessObjectSchema).set({ metadata: { product: 'relay', releasedAt: '2026-10-01T09:00:00Z', requestIds: [], taskIds: [] } }).where(eq(businessObjectSchema.id, releaseId));
+
+    expect((await liveCheckEnded(org, { automationRunId: await fire(), attempts: 2 })).did).toBe('retry:2');
+
+    const retries = await db.select({ key: eventLogSchema.dedupeKey }).from(eventLogSchema).where(and(eq(eventLogSchema.orgId, org), eq(eventLogSchema.type, 'release.live_check.requested')));
+
+    expect(retries).toHaveLength(2);
+    expect(new Set(retries.map(r => r.key)).size).toBe(2);
+  });
+
   it('a check that ran and recorded what failed stays "not seen" when its fire ends', async () => {
     const org = `${ORG}_ended_recorded`;
     const { requestId, releaseId } = await seed(org);
