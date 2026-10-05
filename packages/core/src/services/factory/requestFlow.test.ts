@@ -252,6 +252,25 @@ describe('the software-factory request flow owns a request from Build to live (b
     expect(h.stops[0]).toMatch(/3 automatic attempts/);
   });
 
+  it('a start that was refused is not an attempt: three refusals do not spend the three (FE-457, 2026-10-05)', async () => {
+    const h = harness(
+      [{ kind: 'refused', why: 'nothing started: the request has settled' }, { kind: 'refused', why: 'nothing started: a build is underway' }, { kind: 'refused', why: 'nothing started: the plan is stale' }, { kind: 'building', workerRunId: 901, taskId: 901 }],
+      { 901: failed('d1') },
+    );
+    await ask(45, { by: 'factory:live-check', byPerson: false, from: 'the live check', trigger: 'recovery' });
+    const id = await start(h.name, 45);
+    for (const n of [1, 2, 3]) {
+      await vi.waitFor(() => expect(h.dispatches).toHaveLength(n));
+      await until(id, 'stopped');
+      await emit(BUILD_REQUESTED, { requestId: 45, by: 'factory:live-check', byPerson: false, from: 'the live check', trigger: 'recovery' });
+    }
+    await vi.waitFor(() => expect(h.dispatches).toHaveLength(4));
+    await until(id, 'building');
+
+    expect(h.stops).toHaveLength(3);
+    expect(h.stops.join('\n')).not.toMatch(/automatic attempts/);
+  });
+
   it('a deploy since the stop gets exactly one more attempt, then stops again (Walk 12, FE-376)', async () => {
     const h = harness(
       [601, 602, 603, 604, 605].map(w => ({ kind: 'building', workerRunId: w, taskId: w }) as Outcome),
