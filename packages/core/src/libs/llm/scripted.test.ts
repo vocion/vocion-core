@@ -1,6 +1,6 @@
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { matchTurn, personLine, positionInTurn, resolveFileRefs, ScriptedChatModel, ScriptSchema } from './scripted';
 
@@ -31,6 +31,36 @@ describe('ScriptedChatModel', () => {
 
     expect(third.content).toBe('The proposal is open beside you.');
     expect((third as AIMessage).tool_calls ?? []).toHaveLength(0);
+  });
+
+  it('holds the reply, never a tool step, for pauseBeforeReplyMs: the window in which a card is on screen but its turn is not saved', async () => {
+    vi.useFakeTimers();
+    try {
+      const paused = ScriptSchema.parse({ turns: [{ match: 'connect jira', steps: [{ tool: 'read_data_room' }], reply: 'The Connect Jira card is above.', pauseBeforeReplyMs: 3000 }] });
+      const model = new ScriptedChatModel({ script: paused }).bindTools(fakeTools);
+      const human = new HumanMessage('connect jira');
+
+      const step = await model.invoke([human]);
+
+      expect((step as AIMessage).tool_calls?.[0]?.name).toBe('read_data_room');
+
+      let spoken: string | null = null;
+      const answer = model.invoke([human, step, new ToolMessage({ content: 'ok', tool_call_id: 'x' })]).then(message => (spoken = String(message.content)));
+      await vi.advanceTimersByTimeAsync(2999);
+
+      expect(spoken).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await answer;
+
+      expect(spoken).toBe('The Connect Jira card is above.');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses a pause long enough to hang a suite', () => {
+    expect(() => ScriptSchema.parse({ turns: [{ match: 'x', pauseBeforeReplyMs: 60_000 }] })).toThrow();
   });
 
   it('matches the most recent human line, case-insensitively, first listed wins', () => {

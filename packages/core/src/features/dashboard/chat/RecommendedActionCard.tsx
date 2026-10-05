@@ -59,6 +59,8 @@ type CardProps = {
   canApprove?: boolean;
   /** Fired once the run exists (tap or server-filed) so a stack can count it. */
   onProposed?: (runId: number) => void;
+  /** True while the reply holding the card is still streaming; the connect card's login waits for it. */
+  replyInProgress?: boolean;
 };
 
 /**
@@ -68,7 +70,7 @@ type CardProps = {
  * @param props - The card and how it behaves.
  */
 export function RecommendedActionCard(props: CardProps) {
-  return isConnectLinkCard(props.rec) ? <ConnectLinkCard rec={props.rec} /> : <ActionCard {...props} />;
+  return isConnectLinkCard(props.rec) ? <ConnectLinkCard rec={props.rec} replyInProgress={props.replyInProgress} /> : <ActionCard {...props} />;
 }
 
 function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {

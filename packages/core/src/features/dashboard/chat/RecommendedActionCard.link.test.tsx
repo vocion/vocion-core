@@ -67,6 +67,18 @@ describe('a link card (offer_connection) starts the login and never says Approve
     expect(container.textContent ?? '').not.toMatch(/Try again|Connected/);
   });
 
+  it('while the reply that drew it is still being written, the login waits: the card is not saved yet, so a finished login could not find it', async () => {
+    const { container, rerender } = await render(<TooltipProvider><RecommendedActionCard rec={connect} replyInProgress /></TooltipProvider>);
+
+    await expect.element(page.getByRole('button', { name: 'Connect GitHub' })).toBeDisabled();
+    expect(container.querySelector(`a[href="${START}"]`)).toBeNull();
+    await expect.element(page.getByRole('link', { name: 'Paste a token' })).toHaveAttribute('href', PASTE);
+
+    await rerender(<TooltipProvider><RecommendedActionCard rec={connect} /></TooltipProvider>);
+
+    await expect.element(page.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute('href', START);
+  });
+
   it('shows what the login asks for', async () => {
     await render(<TooltipProvider><ConnectLinkCard rec={{ ...connect, body: 'Asks for: The repositories you choose during install' }} timeZone="UTC" /></TooltipProvider>);
 

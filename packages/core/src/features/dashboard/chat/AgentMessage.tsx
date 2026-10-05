@@ -507,7 +507,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {/* One card renders directly; several become the in-chat triage
               stepper (skip / save-for-later / queue-all). */}
           {(message.recommendations?.length ?? 0) > 0 && (
-            <RecommendedActionStack recs={message.recommendations!} />
+            <RecommendedActionStack recs={message.recommendations!} replyInProgress={streaming} />
           )}
           {/* What the turn made and what it set moving, in one row: the
               artifacts, then each run, record or ask its steps started,

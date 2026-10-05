@@ -227,6 +227,33 @@ test('Slack from the Connectors page: the login makes the source itself and the 
   await expect(page.getByRole('button', { name: 'Connect Slack' })).toHaveCount(0);
 });
 
+test('in chat: a refused login keeps the card, now saying Try again with the dated attempt, even when the card is pressed while its reply is still being written', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/dashboard/chat');
+  const box = page.locator('textarea').last();
+  await box.click();
+  await box.fill('connect jira');
+  await page.getByRole('button', { name: 'Send message' }).last().click();
+
+  // Before the Connectors-page refusal below, so the card is born with no
+  // attempt on it and Try again can only come from this login.
+  const card = page.getByTestId('recommended-action-card').filter({ hasText: 'Connect Jira' });
+
+  // The script holds the reply 3 seconds after the card appears. Pressed as
+  // soon as it can be: the button waits for the reply to be saved, or the
+  // login would come back before the card exists to note the attempt on.
+  await card.getByRole('link', { name: 'Connect Jira' }).click({ timeout: 120_000 });
+
+  await expect.poll(() => requested(/\/dashboard\/chat\?conversation=\d+&connect=error&reason=access_denied/)).toBe(true);
+
+  await page.reload();
+
+  await expect(card.getByRole('link', { name: 'Try again' })).toBeVisible({ timeout: 60_000 });
+  await expect(card.getByTestId('connect-last-attempt')).toHaveText(
+    /^Last attempt [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2}\s[AP]M: .+ denied access$/,
+  );
+});
+
 test('a refused login lands with connect=error and says when and why under Jira', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');

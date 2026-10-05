@@ -30,11 +30,18 @@ function connectedName(label: string): string {
  * plain link, because the start route is an API redirect and not a page),
  * "Paste a token" sits beside it, and a failed last attempt is stated with
  * its date under the buttons. Decided: one line, no buttons.
+ *
+ * While the reply that drew the card is still being written, the login button
+ * waits. The card is saved with the reply, at its end, and a login that came
+ * back before then could not find the card to mark it connected or to write
+ * the failed attempt on it. "Paste a token" never touches the card, so it
+ * stays live.
  * @param props - The card and, for tests, the zone to format dates in.
  * @param props.rec - The card.
+ * @param props.replyInProgress - True while the reply holding the card is still streaming.
  * @param props.timeZone - IANA zone for the last-attempt date; the browser's by default.
  */
-export function ConnectLinkCard({ rec, timeZone }: { rec: RecommendedAction; timeZone?: string }) {
+export function ConnectLinkCard({ rec, replyInProgress = false, timeZone }: { rec: RecommendedAction; replyInProgress?: boolean; timeZone?: string }) {
   if (rec.state === 'decided') {
     return (
       <div data-testid="recommended-action-card" data-run-status="done" className="mt-2.5 flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/5 px-3 py-2.5 text-sm font-semibold">
@@ -57,9 +64,17 @@ export function ConnectLinkCard({ rec, timeZone }: { rec: RecommendedAction; tim
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <a href={rec.href} data-testid="recommended-action-open" className={PRIMARY_BUTTON}>
-          {failed ? 'Try again' : (rec.hrefLabel ?? 'Connect')}
-        </a>
+        {replyInProgress
+          ? (
+              <button type="button" disabled title="Ready once the reply finishes" data-testid="recommended-action-open" className={`${PRIMARY_BUTTON} disabled:opacity-60`}>
+                {failed ? 'Try again' : (rec.hrefLabel ?? 'Connect')}
+              </button>
+            )
+          : (
+              <a href={rec.href} data-testid="recommended-action-open" className={PRIMARY_BUTTON}>
+                {failed ? 'Try again' : (rec.hrefLabel ?? 'Connect')}
+              </a>
+            )}
         {rec.secondaryHref && (
           <Link href={rec.secondaryHref} data-testid="recommended-action-secondary" className="text-sm font-medium text-brand-amber-deep hover:underline">
             {rec.secondaryHrefLabel ?? 'Other options'}
