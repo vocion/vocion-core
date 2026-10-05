@@ -229,12 +229,12 @@ describe('buildChatModel', () => {
     restore('OPENAI_API_KEY', originalOpenAI);
   });
 
-  it('defaults main role to ChatAnthropic with claude-sonnet-4-6', () => {
+  it('defaults main role to ChatAnthropic with claude-sonnet-5-5', () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
     const model = buildChatModel('main');
 
     expect(model).toBeInstanceOf(ChatAnthropic);
-    expect((model as unknown as { model: string }).model).toBe('claude-sonnet-4-6');
+    expect((model as unknown as { model: string }).model).toBe('claude-sonnet-5-5');
   });
 
   it('defaults classifier role to claude-haiku', () => {

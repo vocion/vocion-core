@@ -92,6 +92,18 @@ export function anthropicAdaptiveOnly(model: string): boolean {
   return /claude-(?:fable-5|mythos-5|(?:sonnet|opus)-5-\d)/.test(model);
 }
 
+/**
+ * Whether this Anthropic model turns thinking off as `between_tools`: it
+ * answers `disabled` with a 400, and `between_tools` keeps it from thinking
+ * before it writes (it still notes progress between tool calls). Claude
+ * Sonnet 5.5. Measured 2026-10-04 on a real chat turn's final step: 17 s to
+ * write what Sonnet 4.6 took 34 s for.
+ * @param model - The model id, bare or Bedrock-decorated.
+ */
+export function anthropicOffIsBetweenTools(model: string): boolean {
+  return /claude-sonnet-5-5/.test(model);
+}
+
 export function anthropicThinksUnlessDisabled(model: string): boolean {
   return /claude-(?:sonnet|opus)-5(?!-\d)/.test(model);
 }
@@ -118,7 +130,10 @@ const PROVIDERS: readonly LangChainProvider[] = ['anthropic', 'openai', 'bedrock
 /** Defaults if the per-role / per-provider env vars are not set. */
 const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
   anthropic: {
-    main: 'claude-sonnet-4-6',
+    // Sonnet 5.5 since 2026-10-05 (Chris: "Go."): on a real chat turn's final
+    // step it wrote in 17 s what Sonnet 4.6 took 34 s for, and the answer was
+    // the shorter and the more honest one. $2/$10 against $3/$15.
+    main: 'claude-sonnet-5-5',
     classifier: 'claude-haiku-4-5-20251001',
     // No first-party embedding model from Anthropic today. Embedder
     // calls should resolve to a different provider via env override
@@ -441,9 +456,11 @@ export function buildChatModel(
         // 349, 2026-09-28: the propose_action that stopped mid-payload was on
         // this branch, `max_tokens: 4096`).
         maxTokens: opts.maxTokens ?? defaultAnthropicMaxTokens(model),
-        ...(anthropicAdaptiveOnly(model)
-          ? { thinking: { type: 'adaptive' as const } }
-          : opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
+        ...(anthropicOffIsBetweenTools(model)
+          ? { thinking: { type: 'between_tools' } as unknown as { type: 'adaptive' } }
+          : anthropicAdaptiveOnly(model)
+            ? { thinking: { type: 'adaptive' as const } }
+            : opts.thinking === 'off' && anthropicThinksUnlessDisabled(model) ? { thinking: { type: 'disabled' as const } } : {}),
       }));
     }
     case 'openai': {
