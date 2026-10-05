@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ffmpegBin, run } from './ffmpeg';
-import { planStitch, stitchEncoder, stitchTakes } from './stitch';
+import { spokenMs } from './narration';
+import { planStitch, STITCH_TAIL_MS, stitchEncoder, stitchTakes } from './stitch';
 
 /**
  * ONE STORY, ONE VIDEO (Chris, 2026-10-05): a sender's tab and a visitor's tab, told in turns,
@@ -23,9 +24,10 @@ describe('the plan: which take shows when', () => {
     expect(plan.segments).toEqual([
       { take: 0, fromMs: 0, toMs: 23_500 }, // the sender until 1.5 s before the visitor's line (said at 25 s)
       { take: 1, fromMs: 3_500, toMs: 23_500 }, // the visitor until 1.5 s before the sender's next line (said at 45 s)
-      { take: 0, fromMs: 43_500, toMs: 60_000 },
+      // The story ends a breath after its last line, not when the tab closed.
+      { take: 0, fromMs: 43_500, toMs: 45_000 + spokenMs('Back in my library it reads No download.') + STITCH_TAIL_MS },
     ]);
-    expect(plan.durationMs).toBe(60_000);
+    expect(plan.durationMs).toBe(45_000 + spokenMs('Back in my library it reads No download.') + STITCH_TAIL_MS);
     expect(plan.script).toEqual([
       { atMs: 2_000, text: 'I set the switch.' },
       { atMs: 25_000, text: 'As the client, signed out, there is no Download button.' },
@@ -92,5 +94,19 @@ describe('the cut', async () => {
 
     expect(await stitchTakes(takes, plan, '/nowhere/out.webm', { encoder: 'libvpx', run: async () => ({ code: 1, stdout: '', stderr: 'No such file', error: null }) })).toEqual({ ok: false, reason: 'the takes could not be stitched (No such file)' });
     expect(await stitchTakes([], plan, '/nowhere/out.webm')).toMatchObject({ ok: false });
+  });
+});
+
+describe('the end of a stitched story', () => {
+  it('ends a breath after the last line, not when the tab closed', async () => {
+    const { planStitch, STITCH_TAIL_MS } = await import('./stitch');
+    const { spokenMs } = await import('./narration');
+    const iso2 = (ms: number) => new Date(Date.parse('2026-10-05T03:09:00.000Z') + ms).toISOString();
+    const plan = planStitch([
+      { path: 'a.webm', startedAt: iso2(0), endedAt: iso2(600_000), script: [{ atMs: 1_000, text: 'One.' }, { atMs: 30_000, text: 'Three.' }] },
+      { path: 'b.webm', startedAt: iso2(10_000), endedAt: iso2(600_000), script: [{ atMs: 5_000, text: 'Two.' }] },
+    ], 1_500)!;
+
+    expect(plan.segments.at(-1)).toEqual({ take: 0, fromMs: 28_500, toMs: 30_000 + spokenMs('Three.') + STITCH_TAIL_MS });
   });
 });
