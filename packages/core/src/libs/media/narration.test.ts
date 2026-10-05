@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accentHex, bubbleGeometry, initialsBubbleSvg, initialsOf, MIN_TAIL_MS, narrationCommand, placeLines, speakingExpr } from './narration';
+import { accentHex, accentRgba, bubbleGeometry, CAPTION_BAND, captionLeft, captionSvg, DEMO_ACCENT, initialsBubbleSvg, initialsOf, MIN_TAIL_MS, narrationCommand, placeLines, speakingExpr, vocionMarkBubbleSvg } from './narration';
 
 describe('placeLines — where each line is spoken', () => {
   it('starts each line at its moment, after the one before when they would overlap', () => {
@@ -184,5 +184,60 @@ describe('the demo cut (Chris, 2026-10-04: "pace of the demo could be a touch fa
     expect(cmd.filter).toContain(`[vb0][5:v]overlay=x=0:y=0:enable='between(t,4.500,10.100)'[vb1]`);
     expect(cmd.filter).toContain('[vb1][halo]overlay');
     expect(cmd.args.join(' ')).toContain('-i l0.mp3 -loop 1 -i bar-0.png -loop 1 -i bar-1.png');
+  });
+});
+
+describe('the band below the picture (Chris, 2026-10-04: the bubble covered a row title)', () => {
+  it('puts the bubble in the band, at the left, never over the picture', () => {
+    const g = bubbleGeometry(1440, 940, CAPTION_BAND.height);
+
+    expect(g.y).toBeGreaterThanOrEqual(940);
+    expect(g.y + g.size).toBeLessThanOrEqual(940 + CAPTION_BAND.height);
+    expect(g.haloY).toBeGreaterThanOrEqual(940);
+    expect(g.haloY + g.halo).toBeLessThanOrEqual(940 + CAPTION_BAND.height);
+    expect(captionLeft(g)).toBeGreaterThan(g.haloX + g.halo);
+    // Without a band the old bottom-left placement stands.
+    expect(bubbleGeometry(1440, 900)).toEqual(bubbleGeometry(1440, 900, 0));
+  });
+
+  it('draws the spoken line in the band, wrapped to two lines and cut with an ellipsis past that', () => {
+    const svg = captionSvg(1440, 'I upload the board deck and set it to stop after two opens.', 200);
+
+    expect(svg).toContain(`height="${CAPTION_BAND.height}"`);
+    expect(svg).toContain('x="200"');
+    expect(svg).toContain('I upload the board deck and set it to stop after two opens.');
+
+    const long = captionSvg(600, Array.from({ length: 40 }, (_, i) => `word${i}`).join(' '), 150);
+
+    expect((long.match(/<text/g) ?? []).length).toBe(2);
+    expect(long).toContain('…');
+  });
+
+  it('pads the frame for the band and shows each caption while its line is said', () => {
+    const placed = [{ index: 0, text: 'hi', startMs: 600, endMs: 2_000, durationMs: 1_400 }, { index: 1, text: 'two', startMs: 2_400, endMs: 4_000, durationMs: 1_600 }];
+    const cmd = narrationCommand({ video: 'v.webm', bubble: 'b.png', halo: 'h.png', clips: ['l0.mp3', 'l1.mp3'], placed, geometry: bubbleGeometry(1440, 900, CAPTION_BAND.height), durationMs: 5_000, out: 'o.mp4', mp4: true, pulse: false, captions: [{ file: 'c0.png', fromMs: 600, toMs: 2_000 }, { file: 'c1.png', fromMs: 2_400, toMs: 4_000 }], bandHeight: CAPTION_BAND.height });
+
+    expect(cmd.filter).toContain(`pad=iw:ih+${CAPTION_BAND.height}:0:0:color=0x1b1b1f[vbase]`);
+    expect(cmd.filter).toContain(`[vbase][5:v]overlay=x=0:y=main_h-overlay_h:enable='between(t,0.600,2.000)'[vc0]`);
+    expect(cmd.filter).toContain(`[vc0][6:v]overlay=x=0:y=main_h-overlay_h:enable='between(t,2.400,4.000)'[vc1]`);
+    expect(cmd.filter).toContain('[vc1][halo]overlay');
+    expect(cmd.args.join(' ')).toContain('-i l1.mp3 -loop 1 -i c0.png -loop 1 -i c1.png');
+  });
+});
+
+describe('the Vocion mark and the one accent (Chris, 2026-10-04)', () => {
+  it('draws the mark on Vocion Ink with the two gradient rails and a white rim', () => {
+    const svg = vocionMarkBubbleSvg(120);
+
+    expect(svg).toContain('fill="#0B1020"');
+    expect(svg).toContain('stroke="url(#l)"');
+    expect(svg).toContain('stroke="url(#r)"');
+    expect(svg).toContain('stroke="#FFFFFF"');
+    expect(svg).not.toMatch(/QA/);
+  });
+
+  it('spells the accent as rgba for CSS', () => {
+    expect(DEMO_ACCENT).toBe('#4D63FF');
+    expect(accentRgba(0.18)).toBe('rgba(77,99,255,0.18)');
   });
 });

@@ -29,6 +29,12 @@ export const SPOKEN_CHARS_PER_SECOND = 14;
 /** The least a demo holds the screen for one spoken line, and the most, whatever its length. */
 export const DWELL_MS = { min: 1_400, max: 12_000, lead: 400 } as const;
 export const URL_BAR = { height: 40, maxChars: 96 } as const;
+/**
+ * The band below the picture that carries the speaker's bubble and the spoken
+ * line as a subtitle (Chris, 2026-10-04, via the peer's frame-by-frame read of
+ * FE-449: the bubble sat over a row title). Nothing is drawn over the picture.
+ */
+export const CAPTION_BAND = { height: 104, fontSize: 22, maxChars: 150 } as const;
 
 /**
  * How long a line takes to say, with a short lead so the viewer sees the state before the voice
@@ -105,8 +111,18 @@ const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
  * of the shorter side, bottom-left, its margin wide enough for the ring.
  * @param width - Video width.
  * @param height - Video height.
+ * @param band
  */
-export function bubbleGeometry(width: number, height: number): BubbleGeometry {
+export function bubbleGeometry(width: number, height: number, band = 0): BubbleGeometry {
+  if (band > 0) {
+    // In the band below the picture: as tall as the band allows, at the left.
+    const size = even(Math.min(band * 0.72, Math.min(width, height) * BUBBLE_SHARE));
+    const halo = even(Math.min(band - 2, size * HALO_SCALE));
+    const x = Math.round(band * 0.14) + Math.round((halo - size) / 2);
+    const y = height + Math.round((band - size) / 2);
+    const inset = (halo - size) / 2;
+    return { size, halo, x, y, haloX: Math.round(x - inset), haloY: Math.round(y - inset) };
+  }
   const size = even(Math.min(width, height) * BUBBLE_SHARE);
   const halo = even(size * HALO_SCALE);
   const margin = Math.round(size * 0.3);
@@ -114,6 +130,52 @@ export function bubbleGeometry(width: number, height: number): BubbleGeometry {
   const y = Math.max(0, height - size - margin);
   const inset = (halo - size) / 2;
   return { size, halo, x, y, haloX: Math.round(x - inset), haloY: Math.round(y - inset) };
+}
+
+/**
+ * Where the subtitle starts in the band: right of the bubble and its ring.
+ * @param g - The bubble's geometry in the band.
+ */
+export function captionLeft(g: BubbleGeometry): number {
+  return g.haloX + g.halo + Math.round(CAPTION_BAND.height * 0.2);
+}
+
+/**
+ * One spoken line as the band's subtitle, wrapped to two lines at most.
+ * @param width - The video's width.
+ * @param text - The line.
+ * @param left - Where the text starts (right of the bubble).
+ */
+export function captionSvg(width: number, text: string, left: number): string {
+  const h = CAPTION_BAND.height;
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const room = Math.max(10, Math.floor((width - left - 24) / (CAPTION_BAND.fontSize * 0.52)));
+  const words = text.trim().slice(0, CAPTION_BAND.maxChars).split(/\s+/);
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    if (cur && (`${cur} ${w}`).length > room) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = cur ? `${cur} ${w}` : w;
+    }
+    if (lines.length === 2) {
+      break;
+    }
+  }
+  if (lines.length < 2 && cur) {
+    lines.push(cur);
+  }
+  if (lines.length === 2 && words.join(' ').length > lines.join(' ').length) {
+    lines[1] = `${lines[1]!.replace(/\s+\S*$/, '')}…`;
+  }
+  const lh = CAPTION_BAND.fontSize * 1.3;
+  const top = h / 2 - ((lines.length - 1) * lh) / 2 + CAPTION_BAND.fontSize * 0.35;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${h}" viewBox="0 0 ${width} ${h}">
+  <rect width="${width}" height="${h}" fill="#1b1b1f"/>
+  ${lines.map((l, i) => `<text x="${left}" y="${(top + i * lh).toFixed(1)}" font-family="DejaVu Sans, Liberation Sans, Helvetica, Arial, sans-serif" font-size="${CAPTION_BAND.fontSize}" fill="#f2f2f5">${esc(l)}</text>`).join('\n  ')}
+</svg>`;
 }
 
 /**
@@ -177,6 +239,51 @@ const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').
  * @param initials - One or two characters.
  * @param color - `#RRGGBB`.
  */
+/**
+ * THE ONE ACCENT every demo overlay shares (Chris, 2026-10-04: "the focus area or
+ * overlay should use the same color as our avatar overlay. Be subtle."): the
+ * mark's own blue. The ring round the bubble, the ripple on a click and the
+ * outline on the area being spoken about are all drawn in it.
+ */
+export const DEMO_ACCENT = '#4D63FF';
+
+/**
+ * The accent as `rgba(r,g,b,a)`, for CSS that needs an alpha.
+ * @param alpha
+ * @param hex
+ */
+export function accentRgba(alpha: number, hex: string = DEMO_ACCENT): string {
+  const n = Number.parseInt(hex.replace('#', ''), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/**
+ * The speaker's bubble: the Vocion mark on Vocion Ink, as the app's own icon
+ * draws it (`app/apple-icon.tsx`), with a white rim (Chris, 2026-10-04: "Use
+ * the Vocion avatar not 'QA' in the avatar. Use Vocion colors").
+ * @param size - The bubble's diameter.
+ */
+export function vocionMarkBubbleSvg(size: number): string {
+  const r = size / 2;
+  // The mark's own box is 180 by 130; it sits in the disc at 58% of the width.
+  const w = size * 0.58;
+  const k = w / 180;
+  const x = (size - w) / 2;
+  const y = (size - 130 * k) / 2;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <defs>
+    <linearGradient id="l" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#7C3CFF"/><stop offset="52%" stop-color="#4D63FF"/><stop offset="100%" stop-color="#168BFF"/></linearGradient>
+    <linearGradient id="r" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#168BFF"/><stop offset="58%" stop-color="#16D6D2"/><stop offset="100%" stop-color="#55F58A"/></linearGradient>
+  </defs>
+  <circle cx="${r}" cy="${r}" r="${r}" fill="#0B1020"/>
+  <g transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${k.toFixed(4)})" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 22 L74 106 L136 16" stroke="url(#l)" stroke-width="17"/>
+    <path d="M56 24 L77 60 L98 30" stroke="url(#r)" stroke-width="17"/>
+  </g>
+  <circle cx="${r}" cy="${r}" r="${r - 1.5}" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+</svg>`;
+}
+
 export function initialsBubbleSvg(size: number, initials: string, color: string): string {
   const r = size / 2;
   const rim = Math.max(2, Math.round(size * 0.035));
@@ -263,6 +370,8 @@ export type NarrationCommand = {
  * @param input.cut - The `select` expression keeping the demo's moments, or nothing to keep the whole video.
  * @param input.bars - The address-bar strips and the stretch of the (cut) video each one covers.
  * @param input.barHeight - The strip's height, added above the picture.
+ * @param input.captions
+ * @param input.bandHeight
  */
 export function narrationCommand(input: {
   video: string;
@@ -280,6 +389,9 @@ export function narrationCommand(input: {
   /** Address bars to show above the picture, each for a stretch of the (cut) video; `barHeight` pads the frame for them. */
   bars?: ReadonlyArray<{ file: string; fromMs: number; toMs: number }>;
   barHeight?: number;
+  /** Subtitles in the band below the picture, one per spoken line while it is said; `bandHeight` pads the frame for them. */
+  captions?: ReadonlyArray<{ file: string; fromMs: number; toMs: number }>;
+  bandHeight?: number;
 }): NarrationCommand {
   const g = input.geometry;
   const dur = sec(input.durationMs);
@@ -289,9 +401,11 @@ export function narrationCommand(input: {
   // The picture: cut to its moments when asked, then padded above for the address strip.
   const bars = input.bars ?? [];
   const barH = bars.length > 0 ? (input.barHeight ?? URL_BAR.height) : 0;
+  const captions = input.captions ?? [];
+  const bandH = input.bandHeight ?? (captions.length > 0 ? CAPTION_BAND.height : 0);
   const base = [
     input.cut ? `select='${input.cut}',setpts=N/FRAME_RATE/TB` : null,
-    barH > 0 ? `pad=iw:ih+${barH}:0:${barH}:color=0x1b1b1f` : null,
+    barH + bandH > 0 ? `pad=iw:ih+${barH + bandH}:0:${barH}:color=0x1b1b1f` : null,
   ].filter((f): f is string => f !== null);
   const parts: string[] = [
     `[1:v]format=rgba[bub]`,
@@ -303,6 +417,12 @@ export function narrationCommand(input: {
   bars.forEach((b, i) => {
     const out = `[vb${i}]`;
     parts.push(`${last}[${3 + n + i}:v]overlay=x=0:y=0:enable='between(t,${sec(b.fromMs)},${sec(b.toMs)})'${out}`);
+    last = out;
+  });
+  // The subtitles sit in the band, below the (padded) picture: y = bar + picture height, read from the frame itself.
+  captions.forEach((c, i) => {
+    const out = `[vc${i}]`;
+    parts.push(`${last}[${3 + n + bars.length + i}:v]overlay=x=0:y=main_h-overlay_h:enable='between(t,${sec(c.fromMs)},${sec(c.toMs)})'${out}`);
     last = out;
   });
   parts.push(
@@ -337,6 +457,7 @@ export function narrationCommand(input: {
     input.halo,
     ...input.clips.flatMap(c => ['-i', c]),
     ...bars.flatMap(b => ['-loop', '1', '-i', b.file]),
+    ...captions.flatMap(c => ['-loop', '1', '-i', c.file]),
     '-filter_complex',
     filter,
     '-map',

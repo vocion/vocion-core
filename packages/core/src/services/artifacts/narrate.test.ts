@@ -7,6 +7,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ffmpegCapabilities, probeVideo } from '@/libs/media/ffmpeg';
+import { bubbleGeometry, CAPTION_BAND } from '@/libs/media/narration';
 import { narrateRecording } from './narrate';
 
 /**
@@ -143,21 +144,26 @@ describe.runIf(HAS_FFMPEG)('narrateRecording with ffmpeg', () => {
     await writeFile(out, kept!.data);
     const probed = await probeVideo(out);
 
-    expect(probed).toMatchObject({ width: 640, height: 400 });
+    expect(probed).toMatchObject({ width: 640, height: 400 + CAPTION_BAND.height });
     expect('durationMs' in probed ? Math.abs(probed.durationMs - 6_000) : Infinity).toBeLessThan(300);
 
     const streams = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', out]).stdout.toString().trim().split('\n');
 
     expect(streams).toEqual(expect.arrayContaining(['video', 'audio']));
 
-    // The bubble is drawn: the bottom-left corner differs from the source's, the top-right does not.
+    // The bubble is drawn in the band below the picture (Chris, 2026-10-04: it covered a row
+    // title): its centre differs from the band's plain ground, and the picture's old bottom-left
+    // spot now matches the source, because nothing is drawn over the page any more.
     const frame = (file: string, x: number, y: number) => spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', '3', '-i', file, '-frames:v', '1', '-vf', `crop=8:8:${x}:${y},scale=1:1`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']).stdout;
-    const bubbleCentre = { x: 22 + 36 - 4, y: 400 - 72 - 22 + 36 - 4 };
-    const srcCorner = frame(video, bubbleCentre.x, bubbleCentre.y);
-    const outCorner = frame(out, bubbleCentre.x, bubbleCentre.y);
     const diff = (a: Buffer, b: Buffer) => [0, 1, 2].reduce((n, i) => n + Math.abs((a[i] ?? 0) - (b[i] ?? 0)), 0);
+    const g = bubbleGeometry(640, 400, CAPTION_BAND.height);
+    const bubbleCentre = { x: g.x + g.size / 2 - 4, y: g.y + g.size / 2 - 4 };
 
-    expect(diff(srcCorner, outCorner)).toBeGreaterThan(40);
+    expect(diff(frame(out, bubbleCentre.x, bubbleCentre.y), frame(out, 620, bubbleCentre.y))).toBeGreaterThan(40);
+
+    const oldSpot = { x: 22 + 36 - 4, y: 400 - 72 - 22 + 36 - 4 };
+
+    expect(diff(frame(video, oldSpot.x, oldSpot.y), frame(out, oldSpot.x, oldSpot.y))).toBeLessThan(40);
     expect(diff(frame(video, 600, 20), frame(out, 600, 20))).toBeLessThan(40);
   }, 60_000);
 });

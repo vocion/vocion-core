@@ -25,7 +25,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ffmpegBin, ffmpegCapabilities, probeAudioMs, probeVideo, run } from '@/libs/media/ffmpeg';
-import { accentHex, addressBarSvg, addressSpans, bubbleGeometry, circleMaskSvg, demoCut, haloSvg, initialsBubbleSvg, narrationCommand, placeLines, rimSvg, URL_BAR } from '@/libs/media/narration';
+import { addressBarSvg, addressSpans, bubbleGeometry, CAPTION_BAND, captionLeft, captionSvg, DEMO_ACCENT, demoCut, haloSvg, narrationCommand, placeLines, URL_BAR, vocionMarkBubbleSvg } from '@/libs/media/narration';
 import { MEDIA_ROUTE_BASE } from '@/libs/tools/artifacts/media';
 import { fileRecording, NARRATED_SUFFIX, narratedRole } from './recordings';
 
@@ -34,7 +34,6 @@ export const MAX_SCRIPT_LINES = 12;
 /** The most characters one narration spends on the voice. */
 export const MAX_SCRIPT_CHARS = 2_000;
 /** The largest avatar image fetched. */
-const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
 
 export type NarrationAvatar = {
   /** The agent's own image (https or data:), when it has one. */
@@ -129,72 +128,22 @@ async function fetchSourceFromStore(orgId: string, src: SourceRecording, dest: s
 }
 
 /**
- * An avatar image from an https or data: URL, capped. Null when it cannot be read.
- * @param url - The image's address.
- */
-async function fetchImageBytes(url: string): Promise<Buffer | null> {
-  const { Buffer } = await import('node:buffer');
-  const data = /^data:image\/[\w.+-]+;base64,([A-Za-z0-9+/=]+)$/.exec(url);
-  if (data) {
-    const bytes = Buffer.from(data[1]!, 'base64');
-    return bytes.byteLength > 0 && bytes.byteLength <= MAX_AVATAR_BYTES ? bytes : null;
-  }
-  if (!/^https:\/\//i.test(url)) {
-    return null;
-  }
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8_000);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow' });
-    if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) {
-      return null;
-    }
-    const bytes = Buffer.from(await res.arrayBuffer());
-    return bytes.byteLength > 0 && bytes.byteLength <= MAX_AVATAR_BYTES ? bytes : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
  * The bubble and ring PNGs: the avatar image cut round with a white rim, or
  * the initials on the accent color; the ring a soft disc in the accent color.
  * @param avatar - Who is speaking.
+ * @param _avatar
  * @param size - The bubble's diameter.
  * @param halo - The ring's diameter.
  * @param fetchImage - How an image is fetched.
  */
-async function drawBubble(avatar: NarrationAvatar, size: number, halo: number, fetchImage: (url: string) => Promise<Buffer | null>): Promise<{ bubble: Buffer; halo: Buffer; usedImage: boolean }> {
+async function drawBubble(_avatar: NarrationAvatar, size: number, halo: number): Promise<{ bubble: Buffer; halo: Buffer; usedImage: boolean }> {
   const { Buffer } = await import('node:buffer');
   const sharp = (await import('sharp')).default;
-  const color = accentHex(avatar.color);
-  let bubble: Buffer | null = null;
-  if (avatar.imageUrl) {
-    const image = await fetchImage(avatar.imageUrl).catch(() => null);
-    if (image) {
-      try {
-        bubble = await sharp(image)
-          .resize(size, size, { fit: 'cover' })
-          .ensureAlpha()
-          .composite([
-            { input: Buffer.from(circleMaskSvg(size)), blend: 'dest-in' },
-            { input: Buffer.from(rimSvg(size)), blend: 'over' },
-          ])
-          .png()
-          .toBuffer();
-      } catch {
-        bubble = null;
-      }
-    }
-  }
-  const usedImage = bubble !== null;
-  if (!bubble) {
-    bubble = await sharp(Buffer.from(initialsBubbleSvg(size, (avatar.initials || '?').slice(0, 2), color))).png().toBuffer();
-  }
-  const ring = await sharp(Buffer.from(haloSvg(halo, color))).png().toBuffer();
-  return { bubble, halo: ring, usedImage };
+  // THE VOCION MARK, ALWAYS (Chris, 2026-10-04: "Use the Vocion avatar not 'QA'
+  // in the avatar. Use Vocion colors"): the seat speaks, Vocion is the face.
+  const bubble = await sharp(Buffer.from(vocionMarkBubbleSvg(size))).png().toBuffer();
+  const ring = await sharp(Buffer.from(haloSvg(halo, DEMO_ACCENT))).png().toBuffer();
+  return { bubble, halo: ring, usedImage: false };
 }
 
 /**
@@ -318,9 +267,21 @@ export async function narrateRecording(input: {
       }
     }
     const barHeight = bars.length > 0 ? URL_BAR.height : 0;
-
-    const geometry = bubbleGeometry(probed.width, probed.height + barHeight);
-    const art = await drawBubble(input.avatar, geometry.size, geometry.halo, deps.fetchImage ?? fetchImageBytes);
+    // THE CAPTION BAND below the picture: the bubble lives there, and each spoken line is read there too.
+    const bandHeight = CAPTION_BAND.height;
+    const geometry = bubbleGeometry(probed.width, probed.height + barHeight, bandHeight);
+    const captions: Array<{ file: string; fromMs: number; toMs: number }> = [];
+    {
+      const sharp = (await import('sharp')).default;
+      const { Buffer: Bytes } = await import('node:buffer');
+      const left = captionLeft(geometry);
+      for (const [i, l] of placed.entries()) {
+        const file = path.join(dir, `caption-${i}.png`);
+        await writeFile(file, await sharp(Bytes.from(captionSvg(probed.width, l.text, left))).png().toBuffer());
+        captions.push({ file, fromMs: l.startMs, toMs: l.endMs });
+      }
+    }
+    const art = await drawBubble(input.avatar, geometry.size, geometry.halo);
     const bubbleFile = path.join(dir, 'bubble.png');
     const haloFile = path.join(dir, 'halo.png');
     await writeFile(bubbleFile, art.bubble);
@@ -345,6 +306,8 @@ export async function narrateRecording(input: {
       cut: cut?.selectExpr ?? null,
       bars,
       barHeight,
+      captions,
+      bandHeight,
     });
     const encoded = await run(ffmpegBin(), cmd.args, Math.max(180_000, probed.durationMs * 6));
     if (encoded.code !== 0) {
