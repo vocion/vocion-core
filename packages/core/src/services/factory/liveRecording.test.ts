@@ -1,3 +1,4 @@
+import type { SessionRecording } from './liveBrowser';
 import { describe, expect, it } from 'vitest';
 import { spokenMs } from '@/libs/media/narration';
 import { scriptOf } from './liveBrowser';
@@ -44,5 +45,45 @@ describe('how long a line holds the screen', () => {
     expect(spokenMs('Done.')).toBe(1400);
     expect(spokenMs('I open the document and pick Share from the menu.')).toBeGreaterThan(1400);
     expect(spokenMs('x'.repeat(2000))).toBe(12_000);
+  });
+});
+
+describe('one story, one video (Chris, 2026-10-05)', () => {
+  const T0 = Date.parse('2026-10-05T03:09:00.000Z');
+  const iso = (ms: number) => new Date(T0 + ms).toISOString();
+  const take = (over: Partial<SessionRecording>): SessionRecording => ({ path: '/tmp/a.webm', viewport: 'desktop', signedIn: true, env: 'production', startedAt: iso(0), endedAt: iso(60_000), timeline: [], purpose: 'demo', requestId: 453, script: [], ...over });
+
+  it('stitches the takes of one request and viewport into one demo in said order, and says so in the provenance', async () => {
+    const sender = take({ path: '/tmp/sender.webm', script: [{ atMs: 2_000, text: 'I set the switch.' }, { atMs: 45_000, text: 'Back in my library.' }] });
+    const visitor = take({ path: '/tmp/visitor.webm', signedIn: false, startedAt: iso(20_000), script: [{ atMs: 5_000, text: 'As the client, signed out.' }] });
+    const stitched: string[] = [];
+    const { mergeDemoTakes } = await import('./liveRecording');
+    const out = await mergeDemoTakes([visitor, sender], async (takes, plan, path) => {
+      stitched.push(`${takes.length} takes, ${plan.segments.length} segments -> ${path}`);
+      return { ok: true, path };
+    });
+
+    expect(stitched).toEqual(['2 takes, 3 segments -> /tmp/sender-story.webm']);
+    expect(out.refused).toEqual([]);
+    expect(out.takes).toHaveLength(1);
+    expect(out.takes[0]).toMatchObject({ path: '/tmp/sender-story.webm', tabs: 2, requestId: 453, startedAt: iso(0), endedAt: iso(60_000) });
+    expect(out.takes[0]!.script.map(l => l.text)).toEqual(['I set the switch.', 'As the client, signed out.', 'Back in my library.']);
+  });
+
+  it('keeps the takes as they were when there is one, when only one spoke, or when the cut failed', async () => {
+    const { mergeDemoTakes } = await import('./liveRecording');
+    const one = take({ script: [{ atMs: 1, text: 'x' }] });
+    const other = take({ path: '/tmp/b.webm', requestId: 99, script: [{ atMs: 1, text: 'y' }] });
+
+    expect((await mergeDemoTakes([one, other])).takes.map(t => [t.path, t.tabs])).toEqual([['/tmp/a.webm', 1], ['/tmp/b.webm', 1]]);
+
+    const silent = take({ path: '/tmp/quiet.webm', startedAt: iso(10_000) });
+
+    expect((await mergeDemoTakes([one, silent])).takes).toHaveLength(2);
+
+    const failed = await mergeDemoTakes([one, take({ path: '/tmp/c.webm', startedAt: iso(10_000), script: [{ atMs: 1_000, text: 'z' }] })], async () => ({ ok: false, reason: 'ffmpeg is not installed' }));
+
+    expect(failed.takes).toHaveLength(2);
+    expect(failed.refused).toEqual(['the desktop demo of request #453 was kept as 2 takes: ffmpeg is not installed']);
   });
 });
