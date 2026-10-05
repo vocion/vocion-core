@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { inboundFiles, parseSlackPayload, postSlackReply, stripMentions, verifySlackSignature } from './slack';
+import { inboundFiles, isSlackRead, parseSlackPayload, postSlackReply, stripMentions, verifySlackSignature } from './slack';
 
 const SECRET = 'shh';
 const NOW = 1_700_000_000;
@@ -9,6 +9,24 @@ function sign(body: string, ts: number = NOW, secret = SECRET): Headers {
   const sig = `v0=${createHmac('sha256', secret).update(`v0:${ts}:${body}`).digest('hex')}`;
   return new Headers({ 'x-slack-request-timestamp': String(ts), 'x-slack-signature': sig });
 }
+
+/**
+ * A Slack call's arguments, sent as JSON (structured) or as a form (plain values).
+ * @param init - The request.
+ */
+function bodyOf(init: RequestInit): Record<string, unknown> {
+  const raw = String(init.body);
+  return raw.startsWith('{') ? JSON.parse(raw) as Record<string, unknown> : Object.fromEntries(new URLSearchParams(raw));
+}
+
+describe('isSlackRead', () => {
+  it('sends reads as a form, which is all Slack accepts there, and writes as JSON', () => {
+    expect(isSlackRead('conversations.replies')).toBe(true);
+    expect(isSlackRead('users.info')).toBe(true);
+    expect(isSlackRead('chat.postMessage')).toBe(false);
+    expect(isSlackRead('chat.delete')).toBe(false);
+  });
+});
 
 describe('verifySlackSignature', () => {
   it('accepts a correctly signed, fresh request', () => {
@@ -119,7 +137,7 @@ describe('postSlackReply', () => {
 
     expect(url).toBe('https://slack.test/api/chat.postMessage');
 
-    return JSON.parse(String(init.body)) as Record<string, unknown>;
+    return bodyOf(init);
   }
 
   it('posts as the persona when the target carries one', async () => {
@@ -129,6 +147,7 @@ describe('postSlackReply', () => {
       channel: 'C1',
       thread_ts: '100.1',
       text: 'hello',
+      blocks: [{ type: 'markdown', text: 'hello' }],
       username: 'Sterling Banks',
       icon_url: 'https://www.vocion.ai/personas/sterling.png',
     });
@@ -138,16 +157,16 @@ describe('postSlackReply', () => {
     const body = await post({ channelId: 'C1', threadRef: '100.1' });
 
     // No `username`/`icon_url` keys at all — an empty username posts blank in Slack.
-    expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello' });
+    expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }] });
   });
 
   it('posts to the channel with no thread_ts when the target has no thread', async () => {
-    expect(await post({ channelId: 'C1' })).toEqual({ channel: 'C1', text: 'hello' });
+    expect(await post({ channelId: 'C1' })).toEqual({ channel: 'C1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }] });
   });
 
   it('carries whichever half of the persona is set', async () => {
-    expect(await post({ channelId: 'C1', threadRef: '1', displayName: 'Keel Marsden' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', username: 'Keel Marsden' });
-    expect(await post({ channelId: 'C1', threadRef: '1', iconUrl: 'https://www.vocion.ai/personas/keel.png' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', icon_url: 'https://www.vocion.ai/personas/keel.png' });
+    expect(await post({ channelId: 'C1', threadRef: '1', displayName: 'Keel Marsden' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }], username: 'Keel Marsden' });
+    expect(await post({ channelId: 'C1', threadRef: '1', iconUrl: 'https://www.vocion.ai/personas/keel.png' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }], icon_url: 'https://www.vocion.ai/personas/keel.png' });
   });
 });
 

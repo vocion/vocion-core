@@ -13,10 +13,21 @@ const ORG = 'org_chat';
 
 type FakeReply = { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string; images?: { url: string; caption: string }[] };
 
-function fakeAdapter(): ChatSurfaceAdapter & { replies: FakeReply[] } {
+function fakeAdapter(): ChatSurfaceAdapter & { replies: FakeReply[]; retracted: string[] } {
   const replies: FakeReply[] = [];
+  const retracted: string[] = [];
+  const tsOf: string[] = [];
   let seq = 0;
   return {
+    retracted,
+    retract: async (post) => {
+      const i = tsOf.indexOf(post.ts);
+      if (i >= 0) {
+        retracted.push(replies[i]!.text);
+        replies.splice(i, 1);
+        tsOf.splice(i, 1);
+      }
+    },
     id: 'slack',
     replies,
     verify: () => ({ ok: true }),
@@ -25,6 +36,7 @@ function fakeAdapter(): ChatSurfaceAdapter & { replies: FakeReply[] } {
       const msg = typeof message === 'string' ? { text: message } : message;
       replies.push({ ...target, text: msg.text, ...(msg.images ? { images: msg.images } : {}) });
       seq += 1;
+      tsOf.push(`900.${seq}`);
       return { channelId: target.channelId, ts: `900.${seq}`, ...(target.threadRef ? { threadRef: target.threadRef } : {}), media: 'none' as const };
     },
   };
@@ -179,6 +191,17 @@ describe('handleInbound', () => {
     const second = (runAgent.mock.calls[1] as unknown as [{ attachments?: unknown[] }])[0];
 
     expect(second.attachments).toBeUndefined();
+  });
+
+  it('says it is working the moment it hears the mention, takes that back, and posts the answer after the last tool (Chris, 2026-10-05)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn(async () => ({ response: 'I\'ll check the rollup first.\n\nThe share page shows views by viewer.', lastAnswer: 'The share page shows views by viewer.', traceId: 't', toolCalls: [] }));
+
+    await svc.handleInbound(adapter, inbound, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect(adapter.retracted).toEqual([svc.WORKING_LINE]);
+    expect(adapter.replies.map(r => r.text)).toEqual(['The share page shows views by viewer.']);
   });
 
   it('lets a reply decide a card waiting in the thread, answering with the decision and running no turn (backlog 057)', async () => {

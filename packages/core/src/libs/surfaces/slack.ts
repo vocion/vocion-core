@@ -254,6 +254,20 @@ function asMessage(message: string | ChatMessage): ChatMessage {
   return typeof message === 'string' ? { text: message } : message;
 }
 
+/** The most text one `markdown` block carries. */
+const SLACK_MARKDOWN_MAX = 12_000;
+
+/** Slack Web API families that read, and so accept only form arguments. */
+const SLACK_READ_METHODS = ['conversations.', 'users.', 'files.info', 'chat.getPermalink', 'auth.', 'team.', 'bots.'];
+
+/**
+ * Whether a Slack method reads (form arguments only) rather than writes (JSON accepted).
+ * @param method - The Web API method, `conversations.replies`.
+ */
+export function isSlackRead(method: string): boolean {
+  return SLACK_READ_METHODS.some(prefix => method.startsWith(prefix));
+}
+
 /**
  * One Slack Web API call, with the two-layer error check (`res.ok` and
  * `body.ok`) the source connector already uses. `missing_scope` is returned
@@ -269,11 +283,20 @@ export async function slackApi<T extends Record<string, unknown>>(method: string
   if (!token) {
     return { ok: false, error: 'missing_token' };
   }
-  const res = await fetchImpl(`${baseUrl}/${method}`, {
-    method: 'POST',
-    headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
-    body: JSON.stringify(body),
-  });
+  // Slack's read methods (conversations.replies, conversations.info, users.info…) take form
+  // arguments only: a JSON body reads as "missing required field: channel" (2026-10-05, every
+  // thread read since the surface shipped). Reads go as a form; writes keep JSON, which they accept.
+  const res = await fetchImpl(`${baseUrl}/${method}`, isSlackRead(method)
+    ? {
+        method: 'POST',
+        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(Object.entries(body).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => [k, String(v)])).toString(),
+      }
+    : {
+        method: 'POST',
+        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(body),
+      });
   if (!res.ok) {
     return { ok: false, error: `http_${res.status}` };
   }
@@ -431,6 +454,11 @@ export async function postSlackReply(
   }
   if (renderable.length > 0) {
     payload.blocks = slackBlocks(text, renderable);
+  } else if (text.length <= SLACK_MARKDOWN_MAX) {
+    // Agents write standard Markdown; Slack's `markdown` block renders it as written (bold, lists,
+    // links), where plain `text` shows the asterisks. The words are not touched; `text` stays as
+    // the notification fallback.
+    payload.blocks = [{ type: 'markdown', text }];
   }
   const posted = await slackApi<{ ts?: string; channel?: string }>('chat.postMessage', payload, token, baseUrl, fetchImpl);
   if (!posted.ok) {
@@ -563,4 +591,7 @@ export const slackSurface: ChatSurfaceAdapter = {
   verify: (rawBody, headers) => verifySlackSignature(rawBody, headers, process.env.SLACK_SIGNING_SECRET),
   parse: payload => parseSlackPayload(payload, process.env.SLACK_BOT_USER_ID),
   reply: (target, message, opts) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN, SLACK_API_BASE, opts?.fetchImage ? { fetchImage: opts.fetchImage } : {}),
+  retract: async (post) => {
+    await deleteSlackPost(post, process.env.SLACK_BOT_TOKEN);
+  },
 };
