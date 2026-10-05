@@ -239,7 +239,7 @@ export function PublicFeatureView({ page }: { page: PublicFeaturePage }) {
         <Section eyebrow="The ask" data-testid="public-ask" commentField={null}>
           <blockquote className="border-l-2 border-border pl-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap text-foreground">{ask.text}</blockquote>
           <p className="mt-2 text-[13px] text-muted-foreground" data-testid="public-asker">
-            {ask.by ? `${ask.by} · ` : 'Asked '}
+            {ask.kind === 'proposed' ? `Put forward by ${page.builtBy}${ask.by ? ` · approved by ${ask.by}` : ''} · ` : ask.by ? `${ask.by} · ` : 'Asked '}
             {ask.at ? <LocalDate at={ask.at} /> : null}
           </p>
         </Section>

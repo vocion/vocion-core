@@ -23,9 +23,9 @@ function page(over: Partial<PublicFeaturePage> = {}): PublicFeaturePage {
       { kind: 'image', src: '/api/share/feature/TOKEN/media/962?k=s2', label: 'QA after', alt: 'Library · desktop · after', caption: null },
       { kind: 'image', src: '/api/share/feature/TOKEN/media/901?k=s3', label: 'Mockup', alt: 'Library rows with dates', caption: 'The proposed row', width: 1200, height: 630 },
     ],
-    ask: { text: 'Show the upload date on each row.', by: 'Dana Okafor', at: '2026-10-02T07:12:00.000Z' },
+    ask: { kind: 'asked', text: 'Show the upload date on each row.', by: 'Dana Okafor', at: '2026-10-02T07:12:00.000Z' },
     built: 'Library rows show when each file was uploaded.',
-    effort: { duration: '1h 12m', until: 'seen live', attempts: 2, total: '$4.80', split: [], timeSplit: [] },
+    effort: { duration: '1h 12m', from: 'ask', until: 'seen live', attempts: 2, total: '$4.80', split: [], timeSplit: [] },
     timeline: [],
     ...over,
   };

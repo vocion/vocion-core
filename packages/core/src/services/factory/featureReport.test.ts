@@ -680,8 +680,10 @@ describe('the summary strip', () => {
     const report = assembleFeatureReport(input({ workerRuns: [run(), run({ id: 502, attempt: 2, cents: 830 })] }));
 
     expect(report.summary.askedAt).toEqual(T('2026-09-01T09:00:00Z'));
+    // BUILT FROM THE GO-AHEAD (2026-10-05): elapsed runs from the person's decision, not the ask.
+    expect(report.summary.startedAt).toEqual(T('2026-09-02T16:30:00Z'));
     expect(report.summary.shippedAt).toEqual(T('2026-09-06T10:00:00Z'));
-    expect(report.summary.elapsed).toBe('5d 1h');
+    expect(report.summary.elapsed).toBe('3d 17h');
     expect(report.summary.elapsedOpen).toBe(false);
     expect(report.summary.totalCents).toBe(1450);
     expect(report.summary.humanDecisions).toBe(2);
@@ -692,7 +694,7 @@ describe('the summary strip', () => {
     const report = assembleFeatureReport(input({ releases: [] }));
 
     expect(report.summary.elapsedOpen).toBe(true);
-    expect(report.summary.elapsed).toBe('20d 3h');
+    expect(report.summary.elapsed).toBe('18d 19h');
   });
 });
 

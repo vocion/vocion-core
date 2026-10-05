@@ -22,6 +22,8 @@ export const CARD_TITLE_MAX = 70;
 export type GlanceEffort = {
   /** "1h 12m" (`compactSpan`), or null when nothing is dated. */
   duration: string | null;
+  /** What the duration runs from: the ask, or the go-ahead a person gave a proposal. Absent reads as the ask. */
+  from?: 'ask' | 'go-ahead';
   until: 'seen live' | 'shipped' | 'so far' | null;
   attempts: number | null;
   /** "$4.80", or null when nothing is costed. */
@@ -81,10 +83,22 @@ export function timeSplit(steps: ReadonlyArray<{ at: string; phase: Phase | null
 
 /** What the duration runs to, as the figure's label. */
 const UNTIL: Record<NonNullable<GlanceEffort['until']>, string> = {
-  'seen live': 'ask to seen live',
-  'shipped': 'ask to shipped',
+  'seen live': 'to seen live',
+  'shipped': 'to shipped',
   'so far': 'so far',
 };
+
+/**
+ * The duration's label: where it runs from and to. A proposal a person
+ * approved runs from the go-ahead, so the days it waited are not "built in".
+ * @param effort - The page's effort.
+ */
+export function durationLabel(effort: Pick<GlanceEffort, 'from' | 'until'>): string {
+  if (!effort.until) {
+    return '';
+  }
+  return effort.until === 'so far' ? 'so far' : `${effort.from === 'go-ahead' ? 'go-ahead' : 'ask'} ${UNTIL[effort.until]}`;
+}
 
 /** One figure: its value large, its label small. */
 export type GlanceStat = { key: 'duration' | 'attempts' | 'cost'; value: string; label: string };
@@ -97,7 +111,7 @@ export type GlanceStat = { key: 'duration' | 'attempts' | 'cost'; value: string;
 export function glanceStats(effort: GlanceEffort): GlanceStat[] {
   const out: GlanceStat[] = [];
   if (effort.duration && effort.until) {
-    out.push({ key: 'duration', value: effort.duration, label: UNTIL[effort.until] });
+    out.push({ key: 'duration', value: effort.duration, label: durationLabel(effort) });
   }
   if (effort.attempts !== null && effort.attempts > 0) {
     out.push({ key: 'attempts', value: String(effort.attempts), label: effort.attempts === 1 ? 'attempt' : 'attempts' });

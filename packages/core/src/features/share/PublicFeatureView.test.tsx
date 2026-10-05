@@ -32,6 +32,7 @@ function fixture(over: Partial<PublicFeaturePage> = {}): PublicFeaturePage {
       { kind: 'image', src: `${PNG}#qa`, label: 'QA after', alt: 'Library · desktop · after', caption: null },
     ],
     ask: {
+      kind: 'asked' as const,
       text: 'I cannot tell which file is newest. Show the upload date on each row.\n\nAnd please keep the list sorted newest first — averyveryveryveryveryveryveryveryverylongwordwithoutanyspacesatall.',
       by: 'Dana Okafor',
       at: '2026-10-02T07:12:00.000Z',
@@ -39,6 +40,7 @@ function fixture(over: Partial<PublicFeaturePage> = {}): PublicFeaturePage {
     built: 'Library rows show when each file was uploaded.',
     effort: {
       duration: '1h 19m',
+      from: 'ask',
       until: 'seen live',
       attempts: 2,
       total: '$2.33',

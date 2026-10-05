@@ -119,7 +119,7 @@ describe('the public page of a feature', () => {
     expect(Object.keys(page).sort()).toEqual(['ask', 'built', 'builtBy', 'effort', 'media', 'openUrl', 'productName', 'status', 'timeline', 'title', 'workspaceName']);
     expect(page.status).toEqual({ word: 'Shipped', at: page.status.at });
     expect(page.status.at).not.toBeNull();
-    expect(Object.keys(page.ask).sort()).toEqual(['at', 'by', 'text']);
+    expect(Object.keys(page.ask).sort()).toEqual(['at', 'by', 'kind', 'text']);
     expect(page.title).toBe('Show the upload date on each library row');
     expect(page.ask.by).toBe('Dana Okafor');
     expect(page.ask.at).toBe('2026-10-02T07:12:00.000Z');
@@ -201,6 +201,22 @@ describe('the public page of a feature', () => {
     expect(page.timeline.every(t => t.sentence.length > 0)).toBe(true);
     // The sentences are fixed words: no person, run, pull request or record code.
     expect(page.timeline.map(t => t.sentence).join(' ')).not.toMatch(/Dana|PR|RUN-|FE-|ET-|#\d/);
+  });
+
+  it('a proposal a person approved: the feature as put to them is the ask, and "built in" runs from the go-ahead (2026-10-05)', () => {
+    const r = reportInput();
+    const { askedBy: _askedBy, askedAt: _askedAt, ...rest } = r.request.meta as Record<string, unknown>;
+    const meta = { ...rest, body: 'What should we build next? Pick one.\\n\\n[recommendation]: dates on rows', story: 'As a sender, I want to see when each file was uploaded.', recommendedAt: '2026-09-27T07:12:00Z', decidedAt: '2026-10-02T07:12:00Z' };
+    const createdAt = new Date('2026-09-27T07:12:00Z');
+    const page = publicFeaturePage(input({ report: assembleFeatureReport({ ...r, request: { ...r.request, createdAt, meta } }), request: { title: r.request.title, createdAt, meta } }));
+
+    expect(page.ask.kind).toBe('proposed');
+    expect(page.ask.text).toBe('As a sender, I want to see when each file was uploaded.');
+    expect(page.ask.text).not.toContain('recommendation');
+    // Five days as a proposal are the timeline's, not the build's.
+    expect(page.effort).toMatchObject({ from: 'go-ahead', until: 'seen live', duration: '1h 19m' });
+    expect(page.timeline.slice(0, 2).map(t => [t.step, t.at])).toEqual([['Proposed', '2026-09-27T07:12:00.000Z'], ['Approved', '2026-10-02T07:12:00.000Z']]);
+    expect(page.timeline[0]!.took).toBe('5 d');
   });
 
   it('leads with the name it was given, never the whole ask', () => {

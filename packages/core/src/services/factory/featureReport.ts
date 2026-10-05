@@ -79,6 +79,7 @@ import { DEMO_PREVIEW_VIDEO_ROLE, DEMO_VIDEO_ROLE, LIVE_RECHECKS, readRequestLiv
 import { blockedYou, pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
+import { requestAsk } from '@/libs/factory/requestAsk';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { liveTopic } from '@/libs/live/topics';
 import { posterSecond } from '@/libs/media/narration';
@@ -392,6 +393,8 @@ export function liveOf(run: ReportWorkerRun & { heartbeatAt?: Date | null }, now
 
 export type FeatureReportSummary = {
   askedAt: Date | null;
+  /** When the work started: the person's go-ahead (`decidedAt`), else the ask. `elapsed` runs from here (`libs/factory/requestAsk.ts`). */
+  startedAt: Date | null;
   shippedAt: Date | null;
   /** "12d 4h", or null when nothing is dated. */
   elapsed: string | null;
@@ -1259,12 +1262,14 @@ function askSection(request: ReportObject): ReportSection {
   const s = blank('ask', 'The ask');
   const meta = request.meta;
   const askedBy = (meta.askedBy && typeof meta.askedBy === 'object' ? meta.askedBy : null) as Record<string, unknown> | null;
-  const body = str(meta, 'body');
+  const ask = requestAsk(meta, request.createdAt);
+  const body = ask.text;
   s.facts = [
-    { label: 'In their words', value: body, format: 'quote' },
-    { label: 'Asked by', value: askerLabel(askedBy) },
+    { label: ask.kind === 'proposed' ? 'As put to you' : 'In their words', value: body, format: 'quote' },
+    { label: ask.kind === 'proposed' ? 'Put forward by' : 'Asked by', value: ask.kind === 'proposed' ? (str(meta, 'source') ?? 'an agent') : askerLabel(askedBy) },
     { label: 'Channel', value: str(meta, 'channel') },
-    { label: 'Asked', value: formatStamp(asDate(meta.askedAt) ?? request.createdAt) },
+    { label: ask.kind === 'proposed' ? 'Proposed' : 'Asked', value: ask.at ? formatStamp(ask.at) : null },
+    { label: 'Go-ahead', value: ask.startedAt && ask.at && ask.startedAt.getTime() > ask.at.getTime() ? formatStamp(ask.startedAt) : null },
     { label: 'Product', value: str(meta, 'product'), format: 'mono' },
   ];
   if (!body) {
@@ -2154,12 +2159,13 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
   const meta = input.request.meta;
   const askedBy = (meta.askedBy && typeof meta.askedBy === 'object' ? meta.askedBy : null) as Record<string, unknown> | null;
 
+  const theAsk = requestAsk(meta, input.request.createdAt);
   out.push({
     key: 'asked',
-    at: asDate(meta.askedAt) ?? input.request.createdAt,
+    at: theAsk.at ?? input.request.createdAt,
     kind: 'asked',
-    title: `Asked by ${askerLabel(askedBy)}${str(meta, 'channel') ? ` via ${str(meta, 'channel')}` : ''}`,
-    detail: str(meta, 'body') ?? input.request.title,
+    title: theAsk.kind === 'proposed' ? `Put forward by ${str(meta, 'source') ?? 'an agent'}` : `Asked by ${askerLabel(askedBy)}${str(meta, 'channel') ? ` via ${str(meta, 'channel')}` : ''}`,
+    detail: theAsk.text ?? input.request.title,
     cents: null,
     tone: 'info',
     href: `/dashboard/objects/${input.request.id}`,
@@ -3284,7 +3290,11 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[], ctx:
  * @param line - The money line.
  */
 function buildSummary(input: FeatureReportInput, line: MoneyLine): FeatureReportSummary {
-  const askedAt = asDate(input.request.meta.askedAt) ?? input.request.createdAt;
+  const ask = requestAsk(input.request.meta, input.request.createdAt);
+  const askedAt = ask.at;
+  // BUILT FROM THE GO-AHEAD (Chris, 2026-10-05): a proposal that waited five
+  // days for a person is not a five-day build.
+  const startedAt = ask.startedAt ?? askedAt;
   const shippedAt = input.releases
     .map(r => asDate(r.meta.releasedAt))
     .filter((d): d is Date => d !== null)
@@ -3309,8 +3319,9 @@ function buildSummary(input: FeatureReportInput, line: MoneyLine): FeatureReport
   const decisionRecords = input.asks.length + input.actionRuns.length;
   return {
     askedAt,
+    startedAt,
     shippedAt,
-    elapsed: askedAt ? formatDuration(end.getTime() - askedAt.getTime()) : null,
+    elapsed: startedAt ? formatDuration(end.getTime() - startedAt.getTime()) : null,
     elapsedOpen: shippedAt === null,
     totalCents: line.actualCents ?? line.runCents,
     humanDecisions: decisionRecords === 0 && ranSomething ? null : humanDecisions,
