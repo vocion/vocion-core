@@ -249,6 +249,32 @@ describe('useChatSession', () => {
     expect(result.current.agent.slug).toBe('orchestrator');
   });
 
+  it('Build it names the owner even when the chat is already with it, so the router cannot hand it back to the thread\'s agent', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+    // The intake is read once per page and shared, so this owner matches the earlier test's.
+    vi.mocked(client.conversations.intake).mockResolvedValue({ typeSlug: 'request', label: 'Request', ownerSlug: 'specialist' });
+    vi.mocked(client.artifacts.get).mockResolvedValue({ id: 42, spec: { fields: [] } } as never);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    // The chat is already with the owner: it opens on the lead.
+    const agents = [{ ...AGENTS[1]!, role: 'lead' as const }, { ...AGENTS[0]!, role: 'specialist' as const }];
+    const { result, act } = await renderHook(() => useChatSession({ agents }));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+
+    expect(result.current.agent.slug).toBe('specialist');
+
+    await act(async () => {
+      await result.current.buildFromCard({ id: 42, title: 'Library search and filters' });
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+
+    expect(body.agent_slug).toBe('specialist');
+    expect(body.route).toBeUndefined();
+  });
+
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
     sessionStorage.setItem('vocion:chat:session:orchestrator', '5');
