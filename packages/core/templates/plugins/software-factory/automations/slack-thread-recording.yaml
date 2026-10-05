@@ -1,0 +1,21 @@
+# THE DEMO REACHES THE THREAD (backlog 057, gap 6: "follows it into
+# production … seen live with the demo"). The production demo is recorded
+# after the live check and narrated after that, long after the last status
+# line a request writes. When the narrated demo is filed on a request that was
+# asked in a Slack thread, the thread gets it: the caption as the words, the
+# video under them, once. Only requests that came from Slack. Core job:
+# `slack-thread-recording`; which recordings go is this filter's business.
+slug: slack-thread-recording
+name: Send the demo to the Slack thread
+label: Sent the demo to the Slack thread
+doing: Sending the demo to the Slack thread
+description: >-
+  When a feature's narrated production demo is filed, the Slack thread the
+  request was asked in gets the video. Only requests that came from Slack.
+status: active
+when:
+  event: recording.filed
+  filter:
+    role: feature-demo-narrated
+do:
+  job: slack-thread-recording

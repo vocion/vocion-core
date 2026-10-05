@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { followText, slackThreadFollow, slackThreadOfScope } from './slackThreadFollow';
+import { followText, slackThreadFollow, slackThreadOfScope, slackThreadRecording } from './slackThreadFollow';
 
 describe('the Slack thread follows the request (backlog 057)', () => {
   it('reads the thread off the conversation scope, and nothing else', () => {
@@ -26,6 +26,8 @@ describe('the Slack thread follows the request (backlog 057)', () => {
     alreadyPosted: vi.fn(async () => false),
     post: vi.fn(async () => '1700000000.000200'),
     attach: vi.fn(async () => true),
+    captionOf: vi.fn(async () => 'Feature demo · narrated by Bella'),
+    alreadyAttached: vi.fn(async () => false),
     remember: vi.fn(async () => undefined),
     ...over,
   });
@@ -74,5 +76,37 @@ describe('the Slack thread follows the request (backlog 057)', () => {
 
     expect(await slackThreadFollow('org_n', { recordId: 449, value: 'in_qa', line: 'x' }, d)).toEqual({ posted: false, reason: 'already said in the thread' });
     expect(d.post).not.toHaveBeenCalled();
+  });
+
+  describe('a filed recording reaches the thread (gap 6)', () => {
+    it('posts the caption and uploads the file once per thread, and remembers the URL', async () => {
+      const d = deps();
+      const out = await slackThreadRecording('org_n', { artifactId: 3587, url: '/api/media/226/feature-demo-narrated.mp4', recordIds: '226', role: 'feature-demo-narrated', narrated: true }, d);
+
+      expect(out).toEqual({ posted: 1, attached: 1, skipped: [] });
+      expect(d.captionOf).toHaveBeenCalledWith('org_n', 3587);
+      expect(d.post).toHaveBeenCalledWith({ channelId: 'C7', threadTs: '1700000000.000100' }, 'Feature demo · narrated by Bella');
+      expect(d.attach).toHaveBeenCalledWith('org_n', { channelId: 'C7', threadTs: '1700000000.000100' }, { url: '/api/media/226/feature-demo-narrated.mp4', caption: 'Feature demo · narrated by Bella' });
+      expect(d.remember).toHaveBeenCalledWith(expect.objectContaining({ announcedUrl: '/api/media/226/feature-demo-narrated.mp4', announcedLabel: 'feature-demo-narrated', text: 'Feature demo · narrated by Bella' }));
+    });
+
+    it('a recording filed on two records that share a thread, or already in it, goes once', async () => {
+      const twice = deps();
+
+      expect(await slackThreadRecording('org_n', { artifactId: 1, url: '/api/media/226/a.mp4', recordIds: '226,227' }, twice)).toMatchObject({ posted: 1, attached: 1 });
+      expect(twice.post).toHaveBeenCalledTimes(1);
+
+      const had = deps({ alreadyAttached: vi.fn(async () => true) });
+
+      expect(await slackThreadRecording('org_n', { artifactId: 1, url: '/api/media/226/a.mp4', recordIds: '226' }, had)).toEqual({ posted: 0, attached: 0, skipped: ['the thread for record 226 already has it'] });
+      expect(had.post).not.toHaveBeenCalled();
+    });
+
+    it('stays quiet for a record not asked in Slack, and for an event naming no recording', async () => {
+      const d = deps({ scopeOf: vi.fn(async () => 'web:page') });
+
+      expect(await slackThreadRecording('org_n', { artifactId: 1, url: '/api/media/226/a.mp4', recordIds: '226' }, d)).toEqual({ posted: 0, attached: 0, skipped: ['record 226 was not asked in a Slack thread'] });
+      expect(await slackThreadRecording('org_n', { artifactId: 1, recordIds: '226' }, deps())).toEqual({ posted: 0, attached: 0, skipped: ['the event names no recording or no record'] });
+    });
   });
 });

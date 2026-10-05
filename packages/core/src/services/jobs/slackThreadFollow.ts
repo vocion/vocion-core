@@ -26,6 +26,8 @@ import process from 'node:process';
 import { appBaseUrl } from '@/libs/links';
 
 export const SLACK_THREAD_FOLLOW_JOB = 'slack-thread-follow';
+/** The job that carries a filed recording into the thread (`recording.filed`, filtered by the plugin to the roles it wants there). */
+export const SLACK_THREAD_RECORDING_JOB = 'slack-thread-recording';
 
 /** A Slack thread named by a conversation's scope: `slack:<channel>:<thread ts>`. */
 export type SlackThreadRef = { channelId: string; threadTs: string };
@@ -97,6 +99,10 @@ export type SlackThreadFollowDeps = {
   post: (ref: SlackThreadRef, text: string) => Promise<string | null>;
   /** Upload a file from the media store into the thread, under the post. True when Slack took it. */
   attach: (orgId: string, ref: SlackThreadRef, file: ThreadAttachment) => Promise<boolean>;
+  /** The words a filed recording is posted with: its caption, else its title. */
+  captionOf: (orgId: string, artifactId: number) => Promise<string | null>;
+  /** Whether this thread already carries a post for this URL (a recording filed on two records, or re-fired). */
+  alreadyAttached: (channelId: string, threadTs: string, url: string) => Promise<boolean>;
   /** Remember the post. */
   remember: (input: { orgId: string; channelId: string; ts: string; threadTs: string; text: string; announcedLabel: string; announcedUrl: string | null }) => Promise<void>;
 };
@@ -171,6 +177,17 @@ const defaultDeps: SlackThreadFollowDeps = {
     }
     return up.ok;
   },
+  async captionOf(orgId, artifactId) {
+    const { getArtifact } = await import('@/services/ArtifactService');
+    const a = await getArtifact({ orgId, id: artifactId });
+    const spec = (a?.spec ?? null) as Record<string, unknown> | null;
+    const caption = typeof spec?.caption === 'string' && spec.caption.trim() ? spec.caption.trim() : null;
+    return caption ?? a?.title?.trim() ?? null;
+  },
+  async alreadyAttached(channelId, threadTs, url) {
+    const { ourPostsInThread } = await import('@/services/chat/slackPosts');
+    return (await ourPostsInThread(channelId, threadTs)).some(p => p.announcedUrl === url);
+  },
   async remember(input) {
     const { recordSlackPost } = await import('@/services/chat/slackPosts');
     await recordSlackPost({ orgId: input.orgId, channelId: input.channelId, ts: input.ts, threadTs: input.threadTs, kind: 'reply', text: input.text, announcedLabel: input.announcedLabel, announcedUrl: input.announcedUrl, createdBy: 'system:slack-thread-follow' });
@@ -224,5 +241,65 @@ export async function runSlackThreadFollowJob(orgId: string, input: Record<strin
     return await slackThreadFollow(orgId, input);
   } catch (err) {
     return { posted: false, reason: `the post failed: ${(err as Error).message}` };
+  }
+}
+
+export type SlackThreadRecordingResult = { posted: number; attached: number; skipped: string[] };
+
+/**
+ * A RECORDING FILED ON A RECORD ASKED IN SLACK GOES INTO ITS THREAD (backlog
+ * 057, gap 6: "seen live with the demo"). The production demo is recorded
+ * after the live check and narrated after that, long after the last status
+ * line; this carries it to the thread when it lands, once per thread: the
+ * caption as the words, the file under them. Which roles reach the thread is
+ * the plugin automation's filter (`when.filter.role`), never named here.
+ * @param orgId - The workspace.
+ * @param input - The `recording.filed` payload (`artifactId`, `url`, `recordIds`).
+ * @param deps - Seams for tests.
+ */
+export async function slackThreadRecording(orgId: string, input: Record<string, unknown>, deps: SlackThreadFollowDeps = defaultDeps): Promise<SlackThreadRecordingResult> {
+  const artifactId = Number(input.artifactId);
+  const url = typeof input.url === 'string' ? input.url.trim() : '';
+  const recordIds = [...new Set(String(input.recordIds ?? input.recordId ?? '').split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0))];
+  const out: SlackThreadRecordingResult = { posted: 0, attached: 0, skipped: [] };
+  if (!Number.isInteger(artifactId) || artifactId <= 0 || !url || recordIds.length === 0) {
+    out.skipped.push('the event names no recording or no record');
+    return out;
+  }
+  const seen = new Set<string>();
+  for (const recordId of recordIds) {
+    const conversationId = await deps.originConversation(orgId, recordId);
+    const ref = conversationId === null ? null : slackThreadOfScope(await deps.scopeOf(orgId, conversationId));
+    if (!ref) {
+      out.skipped.push(`record ${recordId} was not asked in a Slack thread`);
+      continue;
+    }
+    const key = `${ref.channelId}:${ref.threadTs}`;
+    if (seen.has(key) || await deps.alreadyAttached(ref.channelId, ref.threadTs, url)) {
+      out.skipped.push(`the thread for record ${recordId} already has it`);
+      continue;
+    }
+    seen.add(key);
+    const caption = (await deps.captionOf(orgId, artifactId).catch(() => null)) ?? 'A recording was filed.';
+    const ts = await deps.post(ref, caption);
+    await deps.remember({ orgId, channelId: ref.channelId, ts: ts ?? '', threadTs: ref.threadTs, text: caption, announcedLabel: typeof input.role === 'string' ? input.role : 'recording', announcedUrl: url });
+    out.posted += 1;
+    if (await deps.attach(orgId, ref, { url, caption }).catch(() => false)) {
+      out.attached += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The automation job: `do: { job: slack-thread-recording }` on `recording.filed`.
+ * @param orgId - The workspace.
+ * @param input - The event's payload.
+ */
+export async function runSlackThreadRecordingJob(orgId: string, input: Record<string, unknown>): Promise<SlackThreadRecordingResult> {
+  try {
+    return await slackThreadRecording(orgId, input);
+  } catch (err) {
+    return { posted: 0, attached: 0, skipped: [`the post failed: ${(err as Error).message}`] };
   }
 }
