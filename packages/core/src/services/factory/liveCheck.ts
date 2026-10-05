@@ -667,7 +667,11 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
       taskIds: ids(release.meta.taskIds),
     };
     try {
-      await emitEvent({ orgId, type: RELEASE_LIVE_CHECK_REQUESTED, payload, dedupeKey: `${RELEASE_LIVE_CHECK_REQUESTED}:${releaseId}:${next.attempt}`, invokedBy: 'job:live-check-ended', dispatchMode: 'auto' });
+      // KEYED TO THE ROUND (FE-457, 2026-10-05): a person's "Check live again" starts a new
+      // round at attempt 1, and its retry carried the same key as the first round's
+      // (`:460:2`), so it was deduped away: no second attempt, never "done", and the
+      // send-back never fired. The retry is keyed to the fire it follows.
+      await emitEvent({ orgId, type: RELEASE_LIVE_CHECK_REQUESTED, payload, dedupeKey: `${RELEASE_LIVE_CHECK_REQUESTED}:${releaseId}:${next.attempt}:after:${runId}`, invokedBy: 'job:live-check-ended', dispatchMode: 'auto' });
     } catch (err) {
       const why = `${next.reason}; the retry could not be started (${short(err)})`;
       await liveCheckGaveUp(orgId, releaseId, why, now);
