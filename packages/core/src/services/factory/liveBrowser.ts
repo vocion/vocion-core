@@ -92,6 +92,13 @@ export const BROWSER_LIMITS = {
   responses: 400,
   /** Contexts close after this long unused (the evidence stays). */
   idleMs: 10 * 60_000,
+  /**
+   * A demo tab closes this soon after its last action (2026-10-05: five demos recorded in parallel
+   * each kept ten idle minutes of a still page, the box spent half an hour encoding them before
+   * any could be filed, and the narrated video ended on a spinner). Long enough for QA to think
+   * between steps; a story that pauses longer opens a new take, and the takes are stitched.
+   */
+  demoIdleMs: 2 * 60_000,
   /** A session is dropped this long after its last use. */
   ttlMs: 3 * 60 * 60_000,
   /** How long a click or a typed value may wait for its target. */
@@ -372,7 +379,8 @@ function touch(s: Session): void {
   // FE-226 re-recorded from chat: the demo sat in memory for the session's
   // three-hour life, and a deploy would have lost it). A mission run still
   // files at its end; a chat has no end, so idle is its end.
-  s.idle = setTimeout(() => void closeTabs(s).then(() => flushRecordings(s)), BROWSER_LIMITS.idleMs);
+  const recordingDemo = [...s.tabs.values()].some(t => t.purpose === 'demo');
+  s.idle = setTimeout(() => void closeTabs(s).then(() => flushRecordings(s)), recordingDemo ? BROWSER_LIMITS.demoIdleMs : BROWSER_LIMITS.idleMs);
   s.idle.unref?.();
 }
 
