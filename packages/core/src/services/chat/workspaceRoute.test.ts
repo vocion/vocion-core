@@ -33,6 +33,17 @@ describe('a thread is fixed to one workspace', () => {
   });
 });
 
+describe('what the read sees', () => {
+  it('a catch-all mention is read with the real channel\'s name and the pictures on the ask (Chris, 2026-10-05)', async () => {
+    const d = deps();
+    const pictures = [{ contentType: 'image/png', base64: 'iVBORw0K' }];
+    await routeToWorkspace(CATCH_ALL, { text: 'See this thread.', scopeRef: 'slack:C9:1.2', channelId: 'C9', pictures }, d);
+
+    expect(d.channelName).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'C9' }));
+    expect((d.read as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![2]).toEqual(pictures);
+  });
+});
+
 describe('a channel has its workspaces', () => {
   it('offers the channel\'s own workspaces first, marked, with the channel\'s name and each workspace\'s products', async () => {
     const d = deps();

@@ -153,6 +153,34 @@ describe('handleInbound', () => {
     expect(call.message).toContain('A picture was attached that could not be read (Gone already)');
   });
 
+  it('reads the pictures above a bare mention in a thread, routes on them, and attaches them only on the first call (Chris, 2026-10-05)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+    const runAgent = vi.fn(async () => ({ response: 'I see the share page.', traceId: 't', toolCalls: [] }));
+    const fetchFile = vi.fn(async () => ({ bytes: png, contentType: 'image/png' }));
+    const threadPictures = vi.fn(async () => [{ id: 'F1', name: 'image.png', contentType: 'image/png', bytes: png.byteLength, url: 'https://files.slack.example/f1/download' }]);
+    const route = vi.fn(async () => ({ orgId: ORG, agentSlug: 'revenue-lead', routed: 'binding' as const, reason: 'the channel is bound' }));
+    const bare = { ...inbound, threadRef: '100.1', messageRef: '100.3', text: 'See this thread.' };
+    const deps = { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), fetchFile, threadPictures, route };
+
+    expect((await svc.handleInbound(adapter, bare, deps)).outcome).toBe('replied');
+
+    const routed = (route.mock.calls[0] as unknown as [unknown, { pictures?: Array<{ contentType: string; base64: string }> }])[1];
+
+    expect(routed.pictures).toEqual([{ contentType: 'image/png', base64: Buffer.from(png).toString('base64') }]);
+
+    const first = (runAgent.mock.calls[0] as unknown as [{ attachments?: Array<{ title: string }> }])[0];
+
+    expect(first.attachments?.map(a => a.title)).toEqual(['image.png']);
+
+    // The second bare mention in the same thread already has the picture in its conversation.
+    await svc.handleInbound(adapter, { ...bare, messageRef: '100.4' }, deps);
+    const second = (runAgent.mock.calls[1] as unknown as [{ attachments?: unknown[] }])[0];
+
+    expect(second.attachments).toBeUndefined();
+  });
+
   it('lets a reply decide a card waiting in the thread, answering with the decision and running no turn (backlog 057)', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();

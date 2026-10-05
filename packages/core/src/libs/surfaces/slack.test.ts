@@ -66,6 +66,12 @@ describe('parseSlackPayload', () => {
     expect(inboundFiles(undefined)).toEqual([]);
   });
 
+  it('keeps a bare mention inside a thread: the ask is the thread above it, picture and all (Chris, 2026-10-05)', () => {
+    const bare = parseSlackPayload({ type: 'event_callback', team_id: 'T1', event: { type: 'app_mention', user: 'U9', channel: 'C7', ts: '1.005', thread_ts: '1.001', text: '<@UBOT>' } });
+
+    expect(bare).toEqual({ kind: 'message', inbound: { surface: 'slack', teamId: 'T1', channelId: 'C7', threadRef: '1.001', messageRef: '1.005', externalUserId: 'U9', text: 'See this thread.', isDirect: false } });
+  });
+
   it('treats a DM as inbound, and ignores bots, edits, other event types and empty text', () => {
     const dm = parseSlackPayload({ type: 'event_callback', team_id: 'T1', event: { type: 'message', channel_type: 'im', user: 'U1', channel: 'D1', ts: '5', text: 'hi' } });
 

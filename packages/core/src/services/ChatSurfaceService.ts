@@ -1,4 +1,4 @@
-import type { ChatImageFetcher, ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { LoadedAttachment } from '@/services/chat/attachments';
 import type { ThreadApproval } from '@/services/chat/slackApproval';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
@@ -7,7 +7,7 @@ import process from 'node:process';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { fetchSlackFile } from '@/libs/surfaces/slack';
-import { chatPermalink } from '@/libs/surfaces/slackRead';
+import { chatPermalink, conversationReplies } from '@/libs/surfaces/slackRead';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
@@ -218,7 +218,7 @@ export async function handleJoined(adapter: ChatSurfaceAdapter, join: ChatJoin):
 /** Dependency seam so the handler is testable without a model or a network. */
 export type ChatHandlerDeps = {
   /** Which workspace a catch-all mention is for (`chat/workspaceRoute.ts`). */
-  route: (binding: ChatChannelBinding, inbound: { text: string; scopeRef: string; channelId?: string }) => Promise<import('./chat/workspaceRoute').RoutedWorkspace>;
+  route: (binding: ChatChannelBinding, inbound: { text: string; scopeRef: string; channelId?: string; pictures?: readonly import('./chat/workspaceRoute').RoutePicture[] }) => Promise<import('./chat/workspaceRoute').RoutedWorkspace>;
   runAgent: typeof runAgentDeep;
   preflight: typeof preflightCheck;
   /** Builds the thread context. Injected so the tests need no Slack. */
@@ -229,7 +229,32 @@ export type ChatHandlerDeps = {
   fetchFile: (url: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
   /** A reply that decides a card waiting in this thread (`slackApproval.ts`), or null to answer as a turn. */
   approval: (orgId: string, inbound: ChatInbound, conversationId: number) => Promise<ThreadApproval>;
+  /** The pictures people posted earlier in the thread, for a mention that brought none. */
+  threadPictures: (inbound: ChatInbound) => Promise<ChatInboundFile[]>;
 };
+
+/** Picture types read from a thread; the same set the adapter reads off a mention. */
+const THREAD_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/**
+ * THE PICTURE ABOVE THE MENTION (Chris, 2026-10-05): a person posts a screenshot, then says
+ * "@Vocion" in its thread. The ask is the picture, so the pictures people (not bots) posted
+ * before this message are read, at most five, newest kept.
+ * @param inbound - The mention.
+ * @param token - The bot token.
+ */
+export async function slackThreadPictures(inbound: Pick<ChatInbound, 'channelId' | 'threadRef' | 'messageRef'>, token: string | undefined): Promise<ChatInboundFile[]> {
+  const replies = await conversationReplies({ channelId: inbound.channelId, threadTs: inbound.threadRef }, token);
+  if (!replies.ok) {
+    return [];
+  }
+  const files = replies.value
+    .filter(m => !m.botId && m.ts !== inbound.messageRef && Number(m.ts) < Number(inbound.messageRef))
+    .flatMap(m => m.files ?? [])
+    .filter(f => THREAD_IMAGE_TYPES.has(f.mimeType) && typeof f.url === 'string')
+    .map(f => ({ id: f.id, name: f.name.slice(0, 120), contentType: f.mimeType, bytes: f.size ?? 0, url: f.url! }));
+  return files.slice(-5);
+}
 
 const defaultDeps: ChatHandlerDeps = {
   route: async (binding, inbound) => (await import('./chat/workspaceRoute')).routeToWorkspace(binding, inbound),
@@ -239,7 +264,20 @@ const defaultDeps: ChatHandlerDeps = {
   permalink: opts => chatPermalink(opts, process.env.SLACK_BOT_TOKEN),
   fetchFile: url => fetchSlackFile(url, process.env.SLACK_BOT_TOKEN),
   approval: (orgId, inbound, conversationId) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps),
+  threadPictures: inbound => slackThreadPictures(inbound, process.env.SLACK_BOT_TOKEN),
 };
+
+/** A picture on the ask with its bytes, or null bytes when it could not be read. */
+type FetchedPicture = { file: ChatInboundFile; got: { bytes: Uint8Array; contentType: string } | null };
+
+/**
+ * The bytes of each picture, read once: the router looks at them and the turn keeps them.
+ * @param files - The pictures on the ask.
+ * @param fetchFile - How bytes are fetched.
+ */
+async function fetchPictures(files: readonly ChatInboundFile[], fetchFile: ChatHandlerDeps['fetchFile']): Promise<FetchedPicture[]> {
+  return Promise.all(files.map(async file => ({ file, got: await fetchFile(file.url).catch(() => null) })));
+}
 
 /**
  * THE PICTURE ON THE MENTION (backlog 057): a bug the Slate team reports is
@@ -251,13 +289,12 @@ const defaultDeps: ChatHandlerDeps = {
  * @param orgId - The workspace.
  * @param inbound - The message.
  * @param createdBy - Who sent it, as the record names them.
- * @param fetchFile - How bytes are fetched.
+ * @param fetched - The pictures, already read.
  */
-async function pictureAttachments(orgId: string, inbound: ChatInbound, createdBy: string, fetchFile: ChatHandlerDeps['fetchFile']): Promise<{ attachments: LoadedAttachment[]; unread: string[] }> {
+async function pictureAttachments(orgId: string, inbound: ChatInbound, createdBy: string, fetched: readonly FetchedPicture[]): Promise<{ attachments: LoadedAttachment[]; unread: string[] }> {
   const attachments: LoadedAttachment[] = [];
   const unread: string[] = [];
-  for (const f of inbound.files ?? []) {
-    const got = await fetchFile(f.url).catch(() => null);
+  for (const { file: f, got } of fetched) {
     if (!got || got.bytes.byteLength === 0 || got.bytes.byteLength > MAX_IMAGE_BYTES) {
       unread.push(f.name);
       continue;
@@ -316,7 +353,13 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   }
   // WHICH WORKSPACE (Chris, 2026-10-05): a mention that only matched the team's catch-all goes to
   // the workspace it is about, and the rest of its thread follows (`chat/workspaceRoute.ts`).
-  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId });
+  // The pictures are read first, because a screenshot often says which product it is before any
+  // word does. A mention that brought none, in a thread, brings the thread's (Chris, 2026-10-05).
+  const inThread = inbound.threadRef !== inbound.messageRef;
+  const threadFiles = (inbound.files?.length ?? 0) === 0 && inThread ? await deps.threadPictures(inbound).catch(() => []) : [];
+  const fetched = await fetchPictures(inbound.files?.length ? inbound.files : threadFiles, deps.fetchFile);
+  const routePictures = fetched.flatMap(p => p.got && p.got.bytes.byteLength <= MAX_IMAGE_BYTES ? [{ contentType: p.got.contentType, base64: Buffer.from(p.got.bytes).toString('base64') }] : []);
+  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId, ...(routePictures.length > 0 ? { pictures: routePictures } : {}) });
   const binding = route.routed === 'model' || route.routed === 'thread'
     ? { ...bound, orgId: route.orgId, agentSlug: route.agentSlug, displayName: null, iconUrl: null }
     : bound;
@@ -339,7 +382,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   }
   const conversationId = conversation.id;
   const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
-  const pictures = await pictureAttachments(orgId, inbound, createdBy, deps.fetchFile);
+  // The thread's pictures join the turn only the first time Vocion is called into it; later turns
+  // already have them in the conversation.
+  const pictures = await pictureAttachments(orgId, inbound, createdBy, inbound.files?.length || history.length === 0 ? fetched : []);
   const userMsg = await appendMessage({ orgId, conversationId, role: 'user', content: inbound.text, userId: createdBy });
   if (pictures.attachments.length > 0 && userMsg?.id) {
     await claimAttachments({ orgId, artifactIds: pictures.attachments.map(a => a.id), conversationId, messageId: userMsg.id }).catch(() => {});

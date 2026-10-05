@@ -133,8 +133,11 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
   }
   const files = inboundFiles(ev.files);
   const text = stripMentions(ev.text ?? '');
-  // A picture with no words is still a message (backlog 057: "@Vocion" and a screenshot).
-  if (!text && files.length === 0) {
+  // A picture with no words is still a message (backlog 057: "@Vocion" and a screenshot), and so
+  // is a bare "@Vocion" in a thread: the ask is the thread above it, picture and all (Chris,
+  // 2026-10-05, the Slate loop). Only an empty direct message with nothing on it is noise.
+  const bareThreadMention = isMention && Boolean(ev.thread_ts) && ev.thread_ts !== ev.ts;
+  if (!text && files.length === 0 && !bareThreadMention) {
     return { kind: 'ignore', reason: 'empty text' };
   }
   const inbound: ChatInbound = {
@@ -144,7 +147,7 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
     threadRef: ev.thread_ts ?? ev.ts,
     messageRef: ev.ts,
     externalUserId: ev.user,
-    text: text || 'See the attached picture.',
+    text: text || (files.length > 0 ? 'See the attached picture.' : 'See this thread.'),
     isDirect,
     ...(files.length > 0 ? { files } : {}),
   };
