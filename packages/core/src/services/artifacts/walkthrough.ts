@@ -73,7 +73,10 @@ export async function writeWalkthrough(input: {
     const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
     const m = model ?? await (async () => {
       const { buildChatModelForOrg } = await import('@/libs/llm');
-      return buildChatModelForOrg('main', input.orgId, { temperature: 0.3, streaming: false, maxTokens: 1_500 }) as Promise<Model>;
+      // The extractor seat: the walkthrough is one forced tool call, and the main seat's model
+      // (Sonnet 5.5) always thinks, which refuses a forced tool_choice with a 400 (2026-10-05: every
+      // live-check narration since #1167 failed with it).
+      return buildChatModelForOrg('extractor', input.orgId, { temperature: 0.3, streaming: false, maxTokens: 1_500, thinking: 'off' }) as Promise<Model>;
     })();
     const report = tool(async () => 'recorded', { name: 'record_walkthrough', description: 'Record the spoken walkthrough of the recording.', schema: WalkthroughSchema as never });
     const system = [
@@ -88,7 +91,7 @@ export async function writeWalkthrough(input: {
     if (!model) {
       const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
       const { FEATURES } = await import('@/libs/Langfuse/features');
-      await chargeModelCall({ orgId: input.orgId, agentSlug: input.speaker.slug, feature: FEATURES.RECORDING_WALKTHROUGH, role: 'main', response: res as never }).catch(() => undefined);
+      await chargeModelCall({ orgId: input.orgId, agentSlug: input.speaker.slug, feature: FEATURES.RECORDING_WALKTHROUGH, role: 'extractor', response: res as never }).catch(() => undefined);
     }
     const call = (res.tool_calls ?? []).find(c => c.name === 'record_walkthrough');
     const parsed = call ? WalkthroughSchema.safeParse(call.args) : null;
