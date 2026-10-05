@@ -18,7 +18,7 @@ vi.mock('@/libs/DB');
 // (and never to the agent): set per test.
 const access: { environments: EnvironmentAccess[] } = { environments: [] };
 const proposed: Array<Record<string, unknown>> = [];
-vi.mock('@/services/ActionService', async (importOriginal) => ({
+vi.mock('@/services/ActionService', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/ActionService')>()),
   proposeAction: async (input: Record<string, unknown>) => {
     proposed.push(input);
@@ -573,6 +573,7 @@ describe('when QA\'s fire ends', () => {
 
     expect(out.did).toBe('done');
     expect(out.line).toContain(`sent back #${requestId}`);
+
     const m = await meta(requestId);
 
     expect(m.liveCheck).toMatchObject({ state: 'partial', sentBackFor: releaseId });
