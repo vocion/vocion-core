@@ -1793,7 +1793,11 @@ export function useChatSession({
     }
     const noun = intake.label.toLowerCase();
     const text = `Build it: **${card.title}**. File it as a ${noun} and start the build.${facts ? `\n\n${facts}` : ''}`;
-    if (intake.ownerSlug && intake.ownerSlug !== agent.slug && agents.some(a => a.slug === intake.ownerSlug)) {
+    // Always named, never routed: an unrouted turn lets the router keep a
+    // follow-up with the agent the thread is with, and a Build it tap in a
+    // wiki researcher's thread went back to the wiki researcher (2026-10-04),
+    // who cannot file. The intake owner answers this one turn.
+    if (intake.ownerSlug && agents.some(a => a.slug === intake.ownerSlug)) {
       routeOnceRef.current = intake.ownerSlug;
     }
     void sendMessage(text);
