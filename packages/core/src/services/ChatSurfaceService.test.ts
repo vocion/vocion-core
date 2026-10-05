@@ -1,4 +1,5 @@
 import type { ChatInbound, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import { Buffer } from 'node:buffer';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -126,6 +127,30 @@ describe('handleInbound', () => {
     expect(first.outcome === 'replied' && second.outcome === 'replied' && second.conversationId).toBe(first.outcome === 'replied' ? first.conversationId : -1);
     // user + assistant from turn 1 are the history for turn 2
     expect(adapter.replies[1]!.text).toBe('history=2');
+  });
+
+  it('hands the pictures on the mention to the agent as attachments, kept as upload artifacts; an unreadable one is said, not dropped (backlog 057)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    // A 1×1 PNG.
+    const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+    const runAgent = vi.fn(async () => ({ response: 'I see the header overflowing.', traceId: 't', toolCalls: [] }));
+    const fetchFile = vi.fn(async (url: string) => (url.endsWith('/f1/download') ? { bytes: png, contentType: 'image/png' } : null));
+    const withPictures = { ...inbound, files: [
+      { id: 'F1', name: 'The broken header', contentType: 'image/png', bytes: png.byteLength, url: 'https://files.slack.example/f1/download' },
+      { id: 'F2', name: 'Gone already', contentType: 'image/png', bytes: 10, url: 'https://files.slack.example/f2/download' },
+    ] };
+
+    const out = await svc.handleInbound(adapter, withPictures, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), fetchFile });
+
+    expect(out.outcome).toBe('replied');
+
+    const call = (runAgent.mock.calls[0] as unknown as [{ message: string; attachments?: Array<{ kind: string; title: string; contentType: string; filename?: string }> }])[0];
+
+    expect(call.attachments).toHaveLength(1);
+    expect(call.attachments![0]).toMatchObject({ kind: 'image', title: 'The broken header', contentType: 'image/png' });
+    expect(call.attachments![0]!.filename).toBeTruthy();
+    expect(call.message).toContain('A picture was attached that could not be read (Gone already)');
   });
 
   it('stores the reply as a finished turn, so a Slack answer is not a row nobody can read (#114)', async () => {

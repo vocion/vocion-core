@@ -1,13 +1,19 @@
 import type { ChatImageFetcher, ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { LoadedAttachment } from '@/services/chat/attachments';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
+import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { fetchSlackFile } from '@/libs/surfaces/slack';
 import { chatPermalink } from '@/libs/surfaces/slackRead';
+import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
+import { claimAttachments, createArtifact } from '@/services/ArtifactService';
 import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
+import { acceptUpload, loadedFromArtifact, MAX_IMAGE_BYTES, uploadSpec } from '@/services/chat/attachments';
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
 import { withPageContext } from '@/services/chat/pageContext';
 import { recordSlackPost, threadAlreadyNoticed } from '@/services/chat/slackPosts';
@@ -215,6 +221,8 @@ export type ChatHandlerDeps = {
   buildThreadContext: typeof buildSlackThreadContext;
   /** Permalink to the message being answered, for feedback provenance. */
   permalink: (opts: { channelId: string; messageTs: string }) => Promise<string | null>;
+  /** The bytes of a picture on the message, behind the bot's token. Null when it cannot be read. */
+  fetchFile: (url: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
 };
 
 const defaultDeps: ChatHandlerDeps = {
@@ -222,7 +230,50 @@ const defaultDeps: ChatHandlerDeps = {
   preflight: preflightCheck,
   buildThreadContext: buildSlackThreadContext,
   permalink: opts => chatPermalink(opts, process.env.SLACK_BOT_TOKEN),
+  fetchFile: url => fetchSlackFile(url, process.env.SLACK_BOT_TOKEN),
 };
+
+/**
+ * THE PICTURE ON THE MENTION (backlog 057): a bug the Slate team reports is
+ * the screenshot. Each image on the message is fetched with the bot's token,
+ * kept as the same `file` artifact an upload in the composer becomes, and
+ * handed to the turn as an attachment, so the agent sees what the person saw
+ * and what it files carries it. A picture that could not be read is said in
+ * the message in one line, never dropped in silence.
+ * @param orgId - The workspace.
+ * @param inbound - The message.
+ * @param createdBy - Who sent it, as the record names them.
+ * @param fetchFile - How bytes are fetched.
+ */
+async function pictureAttachments(orgId: string, inbound: ChatInbound, createdBy: string, fetchFile: ChatHandlerDeps['fetchFile']): Promise<{ attachments: LoadedAttachment[]; unread: string[] }> {
+  const attachments: LoadedAttachment[] = [];
+  const unread: string[] = [];
+  for (const f of inbound.files ?? []) {
+    const got = await fetchFile(f.url).catch(() => null);
+    if (!got || got.bytes.byteLength === 0 || got.bytes.byteLength > MAX_IMAGE_BYTES) {
+      unread.push(f.name);
+      continue;
+    }
+    const verdict = acceptUpload({ name: f.name, type: got.contentType, size: got.bytes.byteLength });
+    if (!verdict.ok) {
+      unread.push(f.name);
+      continue;
+    }
+    const data = Buffer.from(got.bytes);
+    const saved = await saveArtifact({ orgId, data, ext: verdict.accepted.ext, contentType: verdict.accepted.contentType });
+    const { artifact } = await createArtifact({
+      orgId,
+      kind: 'file',
+      title: f.name,
+      spec: uploadSpec({ filename: saved.filename, originalName: f.name, contentType: verdict.accepted.contentType, bytes: saved.bytes, url: saved.url }),
+      author: { kind: 'human', id: createdBy },
+      changeSummary: `Attached in ${inbound.surface}`,
+      visibility: 'user',
+    });
+    attachments.push(loadedFromArtifact(artifact));
+  }
+  return { attachments, unread };
+}
 
 /**
  * The workspace a channel answers for — part of the context, and the scope of the reply.
@@ -274,7 +325,11 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   }
   const conversationId = conversation.id;
   const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
-  await appendMessage({ orgId, conversationId, role: 'user', content: inbound.text, userId: createdBy });
+  const pictures = await pictureAttachments(orgId, inbound, createdBy, deps.fetchFile);
+  const userMsg = await appendMessage({ orgId, conversationId, role: 'user', content: inbound.text, userId: createdBy });
+  if (pictures.attachments.length > 0 && userMsg?.id) {
+    await claimAttachments({ orgId, artifactIds: pictures.attachments.map(a => a.id), conversationId, messageId: userMsg.id }).catch(() => {});
+  }
 
   // Where the person is, on this surface: the channel, the post they replied
   // to, who else is in the thread, and the workspace we answer for. Built
@@ -296,6 +351,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     withPageContext(inbound.text, pageContext),
     feedbackNote(signal),
     permalink ? `\n\nPermalink to this message, for anything you file: ${permalink}` : '',
+    pictures.unread.length > 0 ? `\n\nA picture was attached that could not be read (${pictures.unread.join(', ')}); say so if it matters to the ask.` : '',
   ].filter(Boolean).join('');
 
   try {
@@ -309,6 +365,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       conversationId,
       conversationHistory: history,
       ...(pageContext ? { pageContext } : {}),
+      ...(pictures.attachments.length > 0 ? { attachments: pictures.attachments } : {}),
     }) }));
     let text = result.response.trim() || '(no reply)';
 

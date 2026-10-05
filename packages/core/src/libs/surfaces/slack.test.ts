@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { parseSlackPayload, postSlackReply, stripMentions, verifySlackSignature } from './slack';
+import { inboundFiles, parseSlackPayload, postSlackReply, stripMentions, verifySlackSignature } from './slack';
 
 const SECRET = 'shh';
 const NOW = 1_700_000_000;
@@ -49,6 +49,21 @@ describe('parseSlackPayload', () => {
       kind: 'message',
       inbound: { surface: 'slack', teamId: 'T1', channelId: 'C7', threadRef: '1.001', messageRef: '1.002', externalUserId: 'U9', text: 'how is the quarter?', isDirect: false },
     });
+  });
+
+  it('carries the pictures on a mention, images only, and keeps a mention that is only a picture (backlog 057)', () => {
+    const files = [
+      { id: 'F1', name: 'bug.png', title: 'The broken header', mimetype: 'image/png', size: 4321, url_private: 'https://files.slack.example/f1', url_private_download: 'https://files.slack.example/f1/download' },
+      { id: 'F2', name: 'notes.pdf', mimetype: 'application/pdf', size: 99, url_private: 'https://files.slack.example/f2' },
+    ];
+    const parsed = parseSlackPayload({ type: 'event_callback', team_id: 'T1', event: { type: 'app_mention', user: 'U9', channel: 'C7', ts: '1.002', text: '<@UBOT> the header overflows on my phone', files } });
+
+    expect(parsed.kind === 'message' && parsed.inbound.files).toEqual([{ id: 'F1', name: 'The broken header', contentType: 'image/png', bytes: 4321, url: 'https://files.slack.example/f1/download' }]);
+
+    const pictureOnly = parseSlackPayload({ type: 'event_callback', team_id: 'T1', event: { type: 'app_mention', user: 'U9', channel: 'C7', ts: '1.003', text: '<@UBOT>', files: [files[0]] } });
+
+    expect(pictureOnly.kind === 'message' && pictureOnly.inbound.text).toBe('See the attached picture.');
+    expect(inboundFiles(undefined)).toEqual([]);
   });
 
   it('treats a DM as inbound, and ignores bots, edits, other event types and empty text', () => {

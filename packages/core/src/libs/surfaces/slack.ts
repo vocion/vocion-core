@@ -1,4 +1,4 @@
-import type { ChatImage, ChatImageFetcher, ChatInbound, ChatMessage, ChatParse, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
+import type { ChatImage, ChatImageFetcher, ChatInbound, ChatInboundFile, ChatMessage, ChatParse, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
 import { Buffer } from 'node:buffer';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -29,6 +29,7 @@ type SlackEvent = {
   channel_type?: string;
   ts?: string;
   thread_ts?: string;
+  files?: { id?: string; name?: string; title?: string; mimetype?: string; size?: number; url_private?: string; url_private_download?: string }[];
 };
 
 type SlackEnvelope = {
@@ -130,8 +131,10 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
   if (!isMention && !isDirect) {
     return { kind: 'ignore', reason: `event type ${ev.type ?? 'unknown'}` };
   }
+  const files = inboundFiles(ev.files);
   const text = stripMentions(ev.text ?? '');
-  if (!text) {
+  // A picture with no words is still a message (backlog 057: "@Vocion" and a screenshot).
+  if (!text && files.length === 0) {
     return { kind: 'ignore', reason: 'empty text' };
   }
   const inbound: ChatInbound = {
@@ -141,10 +144,48 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
     threadRef: ev.thread_ts ?? ev.ts,
     messageRef: ev.ts,
     externalUserId: ev.user,
-    text,
+    text: text || 'See the attached picture.',
     isDirect,
+    ...(files.length > 0 ? { files } : {}),
   };
   return { kind: 'message', inbound };
+}
+
+/** Picture types the handler reads; anything else on the message is left in Slack. */
+const INBOUND_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/**
+ * The pictures on a Slack message, as the handler fetches them. Only images,
+ * at most five, each with the private download address the bot's token opens.
+ * @param files - Slack's `files` block.
+ */
+export function inboundFiles(files: SlackEvent['files']): ChatInboundFile[] {
+  return (files ?? [])
+    .filter(f => f && typeof f.mimetype === 'string' && INBOUND_IMAGE_TYPES.has(f.mimetype) && typeof (f.url_private_download ?? f.url_private) === 'string')
+    .slice(0, 5)
+    .map(f => ({ id: f.id ?? '', name: (f.title || f.name || 'picture').slice(0, 120), contentType: f.mimetype!, bytes: typeof f.size === 'number' ? f.size : 0, url: (f.url_private_download ?? f.url_private)! }));
+}
+
+/**
+ * The bytes of a picture Slack holds, with the bot's token. Null when there is
+ * no token, Slack refuses, or the body is not an image.
+ * @param url - The file's private address.
+ * @param token - The bot token.
+ * @param fetchImpl - The network, injectable in tests.
+ */
+export async function fetchSlackFile(url: string, token: string | undefined, fetchImpl: typeof fetch = fetch): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  if (!token) {
+    return null;
+  }
+  const res = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` }, redirect: 'follow' }).catch(() => null);
+  if (!res || !res.ok) {
+    return null;
+  }
+  const contentType = (res.headers.get('content-type') ?? '').split(';')[0]!.trim();
+  if (!INBOUND_IMAGE_TYPES.has(contentType)) {
+    return null;
+  }
+  return { bytes: new Uint8Array(await res.arrayBuffer()), contentType };
 }
 
 /* ------------------------------------------------------------------ */
