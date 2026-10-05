@@ -90,6 +90,20 @@ export function connectStartHref(input: {
   return `/api/connect/${input.provider}/start?${parts.join('&')}`;
 }
 
+const START_HREF = /^\/api\/connect\/([a-z][a-z0-9-]*)\/start(?:\?|$)/;
+
+/**
+ * The provider a start URL from `connectStartHref` logs in with. A chat card
+ * stores only that URL, so this is how it knows whose login button to draw.
+ * Anything that is not a start route, an absolute URL included, names none.
+ * @param href - The URL, if there is one.
+ * @returns The provider id, or null.
+ */
+export function providerOfStartHref(href: string | null | undefined): string | null {
+  const match = href ? START_HREF.exec(href) : null;
+  return match?.[1] ?? null;
+}
+
 /**
  * The next message pre-filled in chat after a connect: true either way,
  * never "I connected it" when it failed.

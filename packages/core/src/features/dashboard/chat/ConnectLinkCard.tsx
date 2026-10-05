@@ -2,10 +2,10 @@
 
 import type { RecommendedAction } from './types';
 import { Check, Plug } from 'lucide-react';
+import { providerOfStartHref } from '@/libs/connect/returnTo';
 import { Link } from '@/libs/I18nNavigation';
 import { LastAttemptLine } from '../LastAttemptLine';
-
-const PRIMARY_BUTTON = 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90';
+import { ProviderLoginButton } from '../ProviderLoginButton';
 
 /**
  * Whether a card is the connect card `offer_connection` emits (#1080). It is
@@ -64,17 +64,14 @@ export function ConnectLinkCard({ rec, replyInProgress = false, timeZone }: { re
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        {replyInProgress
-          ? (
-              <button type="button" disabled title="Ready once the reply finishes" data-testid="recommended-action-open" className={`${PRIMARY_BUTTON} disabled:opacity-60`}>
-                {failed ? 'Try again' : (rec.hrefLabel ?? 'Connect')}
-              </button>
-            )
-          : (
-              <a href={rec.href} data-testid="recommended-action-open" className={PRIMARY_BUTTON}>
-                {failed ? 'Try again' : (rec.hrefLabel ?? 'Connect')}
-              </a>
-            )}
+        <ProviderLoginButton
+          provider={providerOfStartHref(rec.href)}
+          href={rec.href}
+          waitingTitle={replyInProgress ? 'Ready once the reply finishes' : undefined}
+          testId="recommended-action-open"
+        >
+          {failed ? 'Try again' : (rec.hrefLabel ?? 'Connect')}
+        </ProviderLoginButton>
         {rec.secondaryHref && (
           <Link href={rec.secondaryHref} data-testid="recommended-action-secondary" className="text-sm font-medium text-brand-amber-deep hover:underline">
             {rec.secondaryHrefLabel ?? 'Other options'}

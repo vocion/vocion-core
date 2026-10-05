@@ -119,6 +119,8 @@ describe('the add form puts the credential inside it', () => {
 
     expect(href.startsWith('/api/connect/github/start?connector=github')).toBe(true);
     expect(decodeURIComponent(href)).toContain('returnTo=/dashboard/connectors?add=github');
+    // Dressed as GitHub's own login, so the person sees whose login opens next.
+    await expect.element(login).toHaveAttribute('data-brand', 'github');
 
     await expect.element(page.getByText('or paste a Personal access token')).toBeVisible();
     await expect.element(page.getByLabelText('Personal access token', { exact: true })).toBeVisible();

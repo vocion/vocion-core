@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Env', () => ({ Env: { AUTH_SECRET: 'test-secret-0123456789abcdef' } }));
 
-const { connectReturnPrompt, connectStartHref, returnUrl, safeReturnPath, withoutAddParam } = await import('./returnTo');
+const { connectReturnPrompt, connectStartHref, providerOfStartHref, returnUrl, safeReturnPath, withoutAddParam } = await import('./returnTo');
 const { signState, verifyState } = await import('./state');
 
 describe('safeReturnPath — never an open redirect', () => {
@@ -61,6 +61,14 @@ describe('connectStartHref and connectReturnPrompt', () => {
   it('passes returnTo to the start route only when there is one', () => {
     expect(connectStartHref({ provider: 'github', source: 'github', returnTo: null })).toBe('/api/connect/github/start?source=github');
     expect(connectStartHref({ provider: 'github', source: 'github', returnTo: '/dashboard/chat?conversation=7' })).toBe('/api/connect/github/start?source=github&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D7');
+  });
+
+  it('reads the provider back from a start URL, so a chat card knows whose login it draws; anything else names no provider', () => {
+    expect(providerOfStartHref(connectStartHref({ provider: 'atlassian', connector: 'jira', returnTo: '/dashboard/chat?conversation=7', conversationId: 7, cardId: 'card_1' }))).toBe('atlassian');
+    expect(providerOfStartHref(connectStartHref({ provider: 'slack', connector: 'slack', returnTo: null }))).toBe('slack');
+    expect(providerOfStartHref('/dashboard/connectors?add=jira&paste=1')).toBeNull();
+    expect(providerOfStartHref('https://evil.example/api/connect/github/start?connector=github')).toBeNull();
+    expect(providerOfStartHref(undefined)).toBeNull();
   });
 
   it('starts from a connector alone and carries the chat card', () => {

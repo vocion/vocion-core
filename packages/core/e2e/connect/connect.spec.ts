@@ -132,6 +132,9 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   await expect(page.getByLabel('Personal access token', { exact: true })).toBeVisible();
   await expect(page.getByText(/press Connect on its row/)).toHaveCount(0);
 
+  // Dressed as GitHub's own login, so the person sees whose login opens next.
+  await expect(page.getByRole('link', { name: 'Log in with GitHub' })).toHaveAttribute('data-brand', 'github');
+
   await page.getByRole('link', { name: 'Log in with GitHub' }).click();
 
   await expect.poll(() => requested(/\/dashboard\/connectors\?.*connect=ok/)).toBe(true);
@@ -216,6 +219,9 @@ test('Slack from the Connectors page: the login makes the source itself and the 
   await signIn(page);
   await page.goto('/dashboard/connectors');
   await page.getByRole('button', { name: 'Connect Slack' }).click();
+
+  await expect(page.getByRole('link', { name: 'Log in with Slack' })).toHaveAttribute('data-brand', 'slack');
+
   await page.getByRole('link', { name: 'Log in with Slack' }).click();
 
   await expect.poll(() => requested(/\/dashboard\/connectors\?.*connect=ok/)).toBe(true);
@@ -242,7 +248,9 @@ test('in chat: a refused login keeps the card, now saying Try again with the dat
   // The script holds the reply 3 seconds after the card appears. Pressed as
   // soon as it can be: the button waits for the reply to be saved, or the
   // login would come back before the card exists to note the attempt on.
-  await card.getByRole('link', { name: 'Connect Jira' }).click({ timeout: 120_000 });
+  await expect(card.getByRole('link', { name: 'Connect Jira' })).toHaveAttribute('data-brand', 'atlassian', { timeout: 120_000 });
+
+  await card.getByRole('link', { name: 'Connect Jira' }).click();
 
   await expect.poll(() => requested(/\/dashboard\/chat\?conversation=\d+&connect=error&reason=access_denied/)).toBe(true);
 

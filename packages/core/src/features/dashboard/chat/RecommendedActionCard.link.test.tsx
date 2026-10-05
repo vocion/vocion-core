@@ -79,6 +79,17 @@ describe('a link card (offer_connection) starts the login and never says Approve
     await expect.element(page.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute('href', START);
   });
 
+  it('the login button wears the brand of the provider it logs in with: Jira logs in through Atlassian; a card whose link is not a login keeps the plain button', async () => {
+    const jira = { ...connect, label: 'Connect Jira', hrefLabel: 'Connect Jira', href: '/api/connect/atlassian/start?connector=jira&conversation=7&card=card_l' };
+    const { rerender } = await render(<TooltipProvider><RecommendedActionCard rec={jira} /></TooltipProvider>);
+
+    await expect.element(page.getByRole('link', { name: 'Connect Jira' })).toHaveAttribute('data-brand', 'atlassian');
+
+    await rerender(<TooltipProvider><RecommendedActionCard rec={{ ...connect, href: '/dashboard/connectors?add=github' }} /></TooltipProvider>);
+
+    await expect.element(page.getByRole('link', { name: 'Connect GitHub' })).not.toHaveAttribute('data-brand');
+  });
+
   it('shows what the login asks for', async () => {
     await render(<TooltipProvider><ConnectLinkCard rec={{ ...connect, body: 'Asks for: The repositories you choose during install' }} timeZone="UTC" /></TooltipProvider>);
 

@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { client, noStoreClient } from '@/libs/Orpc';
 import { afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { ProviderLoginButton } from './ProviderLoginButton';
 
 /**
  * What the Connectors page knows about one connector's login, worked out on
@@ -366,9 +367,9 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
       {login && href
         ? (
             <div className="space-y-2">
-              <a href={href} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90">
+              <ProviderLoginButton provider={login.provider} href={href}>
                 {`Log in with ${info?.providerLabel ?? login.provider}`}
-              </a>
+              </ProviderLoginButton>
               {login.access.length > 0 && (
                 <p className="text-xs text-muted-foreground">{`Asks for: ${login.access.join(', ')}`}</p>
               )}
