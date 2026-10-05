@@ -413,8 +413,28 @@ function touch(s: Session): void {
   if (s.idle) {
     clearTimeout(s.idle);
   }
-  s.idle = setTimeout(() => void closeTabs(s), BROWSER_LIMITS.idleMs);
+  // Idle: the tabs close, and what they recorded is FILED THEN (2026-10-05,
+  // FE-226 re-recorded from chat: the demo sat in memory for the session's
+  // three-hour life, and a deploy would have lost it). A mission run still
+  // files at its end; a chat has no end, so idle is its end.
+  s.idle = setTimeout(() => void closeTabs(s).then(() => flushRecordings(s)), BROWSER_LIMITS.idleMs);
   s.idle.unref?.();
+}
+
+/**
+ * File the recordings set aside so far and forget them, so a session that
+ * lives on files each stretch once.
+ * @param s - The session.
+ */
+async function flushRecordings(s: Session): Promise<void> {
+  if (s.recordings.length === 0) {
+    return;
+  }
+  const batch = s.recordings.splice(0);
+  await s.deps.keepRecordings(s.orgId, s.releaseId, batch, s.deps.now()).catch(async (err) => {
+    const { logger } = await import('@/libs/Logger');
+    logger.warn('live check recordings not kept', { orgId: s.orgId, releaseId: s.releaseId, error: short(err) });
+  });
 }
 
 /**
@@ -1089,12 +1109,7 @@ export async function closeBrowserSession(key: string | null): Promise<void> {
     clearTimeout(s.idle);
   }
   await closeTabs(s);
-  if (s.recordings.length > 0) {
-    await s.deps.keepRecordings(s.orgId, s.releaseId, s.recordings, s.deps.now()).catch(async (err) => {
-      const { logger } = await import('@/libs/Logger');
-      logger.warn('live check recordings not kept', { orgId: s.orgId, releaseId: s.releaseId, error: short(err) });
-    });
-  }
+  await flushRecordings(s);
   // The sign-in page's video and anything not kept go with the session.
   if (s.videoDir) {
     await rm(s.videoDir, { recursive: true, force: true }).catch(() => {});
