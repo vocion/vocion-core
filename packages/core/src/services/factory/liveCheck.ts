@@ -638,6 +638,7 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
     // THE DEMO IS OWED (Chris, 2026-10-04): a feature seen live with no Feature Demo recording gets
     // one from QA on its own, once per release, through `release.demo.requested`.
     const owing = await requestsOwingDemo(orgId, ids(release.meta.requestIds));
+    const sentBack = await sendBackNotReached(orgId, releaseId, now);
     if (owing.length > 0) {
       const { emitEvent, RELEASE_DEMO_REQUESTED } = await import('@/services/EventService');
       const payload: import('@/services/EventService').ReleaseDemoRequestedPayload = {
@@ -650,9 +651,9 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
       await emitEvent({ orgId, type: RELEASE_DEMO_REQUESTED, payload, dedupeKey: `${RELEASE_DEMO_REQUESTED}:${releaseId}`, invokedBy: 'job:live-check-ended', dispatchMode: 'auto' }).catch((err) => {
         logger.warn('live check: the feature demo could not be asked for', { orgId, releaseId, error: short(err) });
       });
-      return { releaseId, did: 'done', line: `${next.why}; demo requested for ${owing.map(id => `#${id}`).join(', ')}` };
+      return { releaseId, did: 'done', line: `${next.why}; demo requested for ${owing.map(id => `#${id}`).join(', ')}${sentBack.length > 0 ? `; sent back ${sentBack.map(id => `#${id}`).join(', ')}` : ''}` };
     }
-    return { releaseId, did: 'done', line: next.why };
+    return { releaseId, did: 'done', line: `${next.why}${sentBack.length > 0 ? `; sent back ${sentBack.map(id => `#${id}`).join(', ')}` : ''}` };
   }
   if (next.do === 'retry') {
     const { emitEvent, RELEASE_LIVE_CHECK_REQUESTED } = await import('@/services/EventService');
@@ -675,5 +676,75 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
     return { releaseId, did: `retry:${next.attempt}`, line: next.reason };
   }
   await liveCheckGaveUp(orgId, releaseId, next.reason, now);
-  return { releaseId, did: 'gave-up', line: next.reason };
+  const sentBack = await sendBackNotReached(orgId, releaseId, now);
+  return { releaseId, did: 'gave-up', line: `${next.reason}${sentBack.length > 0 ? `; sent back ${sentBack.map(id => `#${id}`).join(', ')}` : ''}` };
+}
+
+/**
+ * A LINE THE LIVE CHECK PROVED BROKEN BECOMES WORK BY ITSELF (Chris, 2026-10-05, FE-457: the
+ * owner was asked for the passcode on their own link; the page read "Shipped · partly seen ·
+ * Nothing needs you · Nothing running", and nothing was going to fix it). Once the attempts are
+ * spent, each request with a line the check reached and found wrong (`not_reached`, with its
+ * reason; never a line production cannot show) goes back through its own loop: reopened by the
+ * live check, status "changes asked" with the check's words, and the next attempt dispatched
+ * carrying what production showed — the same path QA's send-back takes before a merge. Once
+ * per release per request (`liveCheck.sentBackFor`). Never throws; a send-back that could not
+ * start is written on the request.
+ * @param orgId - The workspace.
+ * @param releaseId - The release whose check ended.
+ * @param now - The clock.
+ * @returns The requests sent back.
+ */
+export async function sendBackNotReached(orgId: string, releaseId: number, now: Date = new Date()): Promise<number[]> {
+  const release = await readMeta(orgId, releaseId);
+  if (!release) {
+    return [];
+  }
+  const sent: number[] = [];
+  for (const requestId of ids(release.meta.requestIds)) {
+    try {
+      const request = await readMeta(orgId, requestId);
+      const mark = (request?.meta.liveCheck && typeof request.meta.liveCheck === 'object' ? request.meta.liveCheck : {}) as Meta;
+      if (!request || mark.releaseId !== releaseId || mark.sentBackFor === releaseId || (mark.state !== 'partial' && mark.state !== 'not_seen')) {
+        continue;
+      }
+      const lines = Array.isArray(mark.lines) ? (mark.lines as Array<{ line?: number | null; text?: string; result?: string; reason?: string | null }>) : [];
+      const broken = lines.filter(l => l.result === 'not_reached' && typeof l.text === 'string' && l.text.trim() !== '');
+      if (broken.length === 0) {
+        continue;
+      }
+      const at = now.toISOString();
+      const saw = broken.map(l => `${l.line ? `line ${l.line}: ` : ''}"${l.text!.trim()}" — ${(l.reason ?? 'not reached').trim()}`).join('\n');
+      const why = `The live check reached ${broken.length === 1 ? 'a line' : `${broken.length} lines`} and found ${broken.length === 1 ? 'it' : 'them'} wrong on production, so the feature goes back for another attempt.`;
+      const line = `Seen live and sent back: ${broken.length === 1 ? broken[0]!.text!.trim() : `${broken.length} lines not as asked`} — ${(broken[0]!.reason ?? 'not reached').trim()}`.slice(0, 600);
+      // Reopened by the live check: an automatic start after the ship is refused unless the request was reopened after it.
+      await mergeMeta(orgId, requestId, { reopenedAt: at, reopenedBy: 'live-check', reopenReason: line, liveCheck: { ...mark, sentBackFor: releaseId, sentBackAt: at } });
+      const { markStatus } = await import('@/services/objects/statusField');
+      await markStatus(orgId, requestId, 'live_changes', { line, reopen: true, at });
+      const { proposeAction } = await import('@/services/ActionService');
+      const res = await proposeAction({
+        orgId,
+        actionId: 'factory.dispatch_task',
+        input: {
+          requestId,
+          trigger: 'recovery',
+          recoveryClass: 'not_seen_live',
+          note: `The live check on release #${releaseId} reached these lines on production and found them wrong:\n${saw}\n\nStart from the shipped code. Fix what production showed, keep what was proven, and prove every line again.`,
+          reason: why,
+        },
+        principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
+        invokedBy: 'factory:live-check',
+        internal: true,
+        proposal: { confidence: 0.9, rationale: why, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'Production showed the line is not as asked; the next attempt fixes what was seen.' },
+      }) as { runId: number; status: string };
+      const { noteOnRequest } = await import('./carry');
+      await noteOnRequest(orgId, requestId, `${line}. ${res.status === 'pending' ? 'The next attempt is on a card.' : 'The next attempt has started.'}`).catch(() => undefined);
+      sent.push(requestId);
+    } catch (err) {
+      logger.warn('live check: the send-back could not start', { orgId, releaseId, requestId, error: short(err) });
+      const { noteOnRequest } = await import('./carry');
+      await noteOnRequest(orgId, requestId, `The live check found a line wrong on production, but the next attempt could not be started: ${short(err)}`).catch(() => undefined);
+    }
+  }
+  return sent;
 }

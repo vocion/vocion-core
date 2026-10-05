@@ -380,6 +380,7 @@ schema:
         # The factory's handlers.
         qa_changes: changes_asked
         qa_reject: changes_asked
+        live_changes: changes_asked
         merge_waits: awaiting_merge
         merge_running: deploying
         shipped: shipped
