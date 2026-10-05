@@ -639,6 +639,22 @@ async function referenceToCorrect(ctx: RuntimeContext, spec: FilingType, fields:
 }
 
 /**
+ * The person's name and email as the account holds them, or null. Reads the one table; never throws.
+ * @param userId
+ */
+async function personOnTurn(userId: string): Promise<{ name: string | null; email: string } | null> {
+  try {
+    const { userSchema } = await import('@/models/Schema');
+    const { db } = await import('@/libs/DB');
+    const { eq } = await import('drizzle-orm');
+    const [row] = await db.select({ name: userSchema.name, email: userSchema.email }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
+    return row?.email ? { name: row.name ?? null, email: row.email } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * THE ASKER IS THE PERSON ON THE TURN (Chris, 2026-10-05: three share cards read "Chris · 4 Oct"
  * for asks the QA account had made; the model had written the workspace's owner). When the type
  * keeps who asked and a person is on this turn, it is their name and email as the account holds
@@ -653,8 +669,7 @@ async function askedByPerson(ctx: RuntimeContext, spec: FilingType, fields: Reco
   if (!('askedBy' in spec.properties) || !ctx.userId || ctx.missionRunId) {
     return fields;
   }
-  const { getProfile } = await import('@/services/UserProfileService');
-  const who = await getProfile(ctx.userId).catch(() => null);
+  const who = await personOnTurn(ctx.userId);
   if (!who?.email) {
     return fields;
   }
