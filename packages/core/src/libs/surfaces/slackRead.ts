@@ -112,6 +112,22 @@ export async function conversationReplies(opts: { channelId: string; threadTs: s
 }
 
 /**
+ * The email on a Slack user's profile (`users.info`, scope `users:read.email`),
+ * or null: no token, no scope, no email. The one fact that ties a Slack user
+ * to a Vocion member (backlog 057): an approval said in Slack runs only as a
+ * member Vocion knows by that email.
+ * @param userId - The Slack user id.
+ * @param token - The bot token.
+ * @param baseUrl - Slack's API base.
+ * @param fetchImpl - The network, injectable in tests.
+ */
+export async function slackUserEmail(userId: string, token: string | undefined, baseUrl = SLACK_API_BASE, fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  const res = await slackApi<{ user?: { profile?: { email?: string } } }>('users.info', { user: userId }, token, baseUrl, fetchImpl);
+  const email = res.ok ? res.body.user?.profile?.email : undefined;
+  return typeof email === 'string' && email.includes('@') ? email.trim().toLowerCase() : null;
+}
+
+/**
  * Display names for Slack user ids. Costs `users:read`, which the app holds,
  * so a poster's name is the one piece of thread context that never degrades.
  * Ids that cannot be resolved are simply absent from the map.

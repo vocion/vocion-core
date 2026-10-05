@@ -153,6 +153,19 @@ describe('handleInbound', () => {
     expect(call.message).toContain('A picture was attached that could not be read (Gone already)');
   });
 
+  it('lets a reply decide a card waiting in the thread, answering with the decision and running no turn (backlog 057)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn();
+    const approval = vi.fn(async () => ({ decided: true as const, verb: 'approve' as const, runId: 7049, reply: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' }));
+
+    const out = await svc.handleInbound(adapter, { ...inbound, text: 'ship it' }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), approval });
+
+    expect(out).toMatchObject({ outcome: 'replied', text: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' });
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(adapter.replies[0]!.text).toContain('Approved by Chris');
+  });
+
   it('stores the reply as a finished turn, so a Slack answer is not a row nobody can read (#114)', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();
