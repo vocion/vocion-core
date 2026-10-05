@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ffmpegBin, run } from './ffmpeg';
-import { planStitch, stitchTakes } from './stitch';
+import { planStitch, stitchEncoder, stitchTakes } from './stitch';
 
 /**
  * ONE STORY, ONE VIDEO (Chris, 2026-10-05): a sender's tab and a visitor's tab, told in turns,
@@ -47,13 +47,16 @@ describe('the plan: which take shows when', () => {
   });
 });
 
-describe('the cut', () => {
-  it('joins the segments into one video of the planned length', { timeout: 60_000 }, async () => {
+describe('the cut', async () => {
+  // CI's ffmpeg may be absent or built without libvpx; the cut is then refused with its reason, and the takes are kept.
+  const encoder = await stitchEncoder();
+
+  it('joins the segments into one video of the planned length', { timeout: 60_000, skip: encoder === null }, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'stitch-'));
     const a = join(dir, 'a.webm');
     const b = join(dir, 'b.webm');
     for (const [p, colour] of [[a, 'red'], [b, 'blue']] as const) {
-      const r = await run(ffmpegBin(), ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=${colour}:s=160x90:r=25:d=4`, '-c:v', 'libvpx', '-b:v', '200k', p], 30_000);
+      const r = await run(ffmpegBin(), ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=${colour}:s=160x90:r=25:d=4`, '-c:v', encoder!, '-b:v', '200k', p], 30_000);
 
       expect(r.code, r.stderr).toBe(0);
     }
@@ -72,12 +75,22 @@ describe('the cut', () => {
     expect(Math.abs(Number(probed.stdout.trim()) - plan.durationMs / 1000)).toBeLessThan(0.3);
   });
 
+  it('refuses with its reason when this ffmpeg cannot write WebM, and the caller keeps the takes', async () => {
+    expect(await stitchEncoder({ available: false, encoders: new Set() })).toBeNull();
+    expect(await stitchEncoder({ available: true, encoders: new Set(['libx264']) })).toBeNull();
+    expect(await stitchEncoder({ available: true, encoders: new Set(['libx264', 'libvpx-vp9']) })).toBe('libvpx-vp9');
+
+    const plan = planStitch([{ path: 'x', startedAt: iso(0), endedAt: iso(4_000), script: [{ atMs: 0, text: 'a' }] }, { path: 'y', startedAt: iso(0), endedAt: iso(4_000), script: [{ atMs: 2_000, text: 'b' }] }])!;
+
+    expect(await stitchTakes([{ path: 'x.webm', startedAt: iso(0), endedAt: iso(4_000), script: [] }, { path: 'y.webm', startedAt: iso(0), endedAt: iso(4_000), script: [] }], plan, '/nowhere/out.webm', { encoder: null })).toEqual({ ok: false, reason: 'the takes could not be stitched (this installation\'s ffmpeg cannot write WebM: no libvpx encoder)' });
+  });
+
   it('says why when ffmpeg refuses', async () => {
     const plan = planStitch([{ path: 'x', startedAt: iso(0), endedAt: iso(4_000), script: [{ atMs: 0, text: 'a' }] }, { path: 'y', startedAt: iso(0), endedAt: iso(4_000), script: [{ atMs: 2_000, text: 'b' }] }])!;
 
     const takes = [{ path: 'x.webm', startedAt: iso(0), endedAt: iso(4_000), script: [] }, { path: 'y.webm', startedAt: iso(0), endedAt: iso(4_000), script: [] }];
 
-    expect(await stitchTakes(takes, plan, '/nowhere/out.webm', { run: async () => ({ code: 1, stdout: '', stderr: 'No such file', error: null }) })).toEqual({ ok: false, reason: 'the takes could not be stitched (No such file)' });
+    expect(await stitchTakes(takes, plan, '/nowhere/out.webm', { encoder: 'libvpx', run: async () => ({ code: 1, stdout: '', stderr: 'No such file', error: null }) })).toEqual({ ok: false, reason: 'the takes could not be stitched (No such file)' });
     expect(await stitchTakes([], plan, '/nowhere/out.webm')).toMatchObject({ ok: false });
   });
 });

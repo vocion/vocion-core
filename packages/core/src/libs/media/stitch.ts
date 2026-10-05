@@ -10,7 +10,7 @@
  * starting a little before its first line so the move into that tab is seen, and the said lines
  * are placed on the stitched clock. The plan is pure; the cut is one ffmpeg run.
  */
-import { ffmpegBin, run } from './ffmpeg';
+import { ffmpegBin, ffmpegCapabilities, run } from './ffmpeg';
 
 /** One tab's recording, as the session set it aside. */
 export type Take = {
@@ -35,6 +35,23 @@ export type StitchPlan = {
   timeline: Array<{ atMs: number } & Record<string, unknown>>;
   durationMs: number;
 };
+
+/** The WebM encoders this can write with, in order of preference; a Playwright take is VP8 WebM. */
+export const STITCH_ENCODERS = ['libvpx', 'libvpx-vp9'] as const;
+
+/**
+ * The encoder this installation's ffmpeg can write WebM with, or null (the caller keeps the takes).
+ * @param caps - The installation's ffmpeg, for tests.
+ * @param caps.available
+ * @param caps.encoders
+ */
+export async function stitchEncoder(caps?: { available: boolean; encoders: Set<string> }): Promise<string | null> {
+  const c = caps ?? await ffmpegCapabilities();
+  if (!c.available) {
+    return null;
+  }
+  return STITCH_ENCODERS.find(e => c.encoders.has(e)) ?? null;
+}
 
 /** How long before a tab's first line its take is shown: the move into the tab, the cursor, the page. */
 export const STITCH_LEAD_MS = 1500;
@@ -118,16 +135,21 @@ export function planStitch(takes: readonly Take[], leadMs: number = STITCH_LEAD_
  * @param deps - Seams for tests.
  * @param deps.ffmpeg - The binary.
  * @param deps.run - How it is run.
+ * @param deps.encoder
  */
-export async function stitchTakes(takes: readonly Take[], plan: StitchPlan, out: string, deps: { ffmpeg?: string; run?: typeof run } = {}): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
+export async function stitchTakes(takes: readonly Take[], plan: StitchPlan, out: string, deps: { ffmpeg?: string; run?: typeof run; encoder?: string | null } = {}): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
   try {
-    return await cut(takes, plan, out, deps);
+    const encoder = deps.encoder === undefined ? await stitchEncoder() : deps.encoder;
+    if (!encoder) {
+      return { ok: false, reason: 'the takes could not be stitched (this installation\'s ffmpeg cannot write WebM: no libvpx encoder)' };
+    }
+    return await cut(takes, plan, out, { ...deps, encoder });
   } catch (e) {
     return { ok: false, reason: `the takes could not be stitched (${(e as Error).message.slice(0, 200)})` };
   }
 }
 
-async function cut(takes: readonly Take[], plan: StitchPlan, out: string, deps: { ffmpeg?: string; run?: typeof run }): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
+async function cut(takes: readonly Take[], plan: StitchPlan, out: string, deps: { ffmpeg?: string; run?: typeof run; encoder: string }): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
   const bin = deps.ffmpeg ?? ffmpegBin();
   const exec = deps.run ?? run;
   const inputs = [...new Set(plan.segments.map(s => s.take))];
@@ -140,7 +162,7 @@ async function cut(takes: readonly Take[], plan: StitchPlan, out: string, deps: 
   }
   const parts = plan.segments.map((s, k) => `[${inputs.indexOf(s.take)}:v]trim=start=${(s.fromMs / 1000).toFixed(3)}:end=${(s.toMs / 1000).toFixed(3)},setpts=PTS-STARTPTS[v${k}]`);
   const filter = `${parts.join(';')};${plan.segments.map((_, k) => `[v${k}]`).join('')}concat=n=${plan.segments.length}:v=1:a=0[v]`;
-  args.push('-filter_complex', filter, '-map', '[v]', '-c:v', 'libvpx', '-b:v', '2M', '-crf', '10', '-r', '25', '-an', out);
+  args.push('-filter_complex', filter, '-map', '[v]', '-c:v', deps.encoder, '-b:v', '2M', '-crf', '10', '-r', '25', '-an', out);
   const res = await exec(bin, args, Math.max(120_000, plan.durationMs * 4));
   if (res.code !== 0) {
     const tail = res.stderr.trim().split('\n').slice(-2).join(' ').slice(0, 300);
