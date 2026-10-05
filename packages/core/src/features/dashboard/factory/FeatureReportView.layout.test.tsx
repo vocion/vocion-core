@@ -321,7 +321,7 @@ describe('the feature page, in the order a product owner reads it', () => {
 
     const first = document.querySelector('[data-testid="report-slide"] [data-testid="report-slide-video"] video')!;
 
-    expect(first.getAttribute('src')).toBe(`${narrated.url}#t=1.8`);
+    expect(first.getAttribute('src')).toBe(`${narrated.url}#t=3.3`);
     expect(document.querySelector('[data-testid="report-slide-caption"]')!.textContent).toContain('narrated by QA');
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });

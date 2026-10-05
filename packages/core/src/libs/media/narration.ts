@@ -29,6 +29,29 @@ export const SPOKEN_CHARS_PER_SECOND = 14;
 /** The least a demo holds the screen for one spoken line, and the most, whatever its length. */
 export const DWELL_MS = { min: 1_400, max: 12_000, lead: 400 } as const;
 export const URL_BAR = { height: 40, maxChars: 96 } as const;
+
+/** When a recording's script carries no end for its first line, the frame is taken this long after it starts. */
+export const POSTER_SETTLE_MS = 1_500;
+
+/**
+ * The second the preview frame of a recording is taken at: the END of the
+ * first spoken line, when the state it describes has settled (walk 23,
+ * 2026-10-04: the frame at the line's start showed a page still loading), or
+ * null when the recording carries no script.
+ * @param spec - The recording's spec (`script` as the narration placed it).
+ */
+export function posterSecond(spec: Record<string, unknown> | null | undefined): number | null {
+  const script = Array.isArray(spec?.script) ? spec.script as Array<{ atMs?: unknown; endMs?: unknown }> : [];
+  const first = script
+    .map(l => ({ at: Number(l.atMs), end: Number(l.endMs) }))
+    .filter(l => Number.isFinite(l.at) && l.at >= 0)
+    .sort((a, b) => a.at - b.at)[0];
+  if (!first) {
+    return null;
+  }
+  const at = Number.isFinite(first.end) && first.end > first.at ? first.end : first.at + POSTER_SETTLE_MS;
+  return Math.round(at) / 1000;
+}
 /**
  * The band below the picture that carries the speaker's bubble and the spoken
  * line as a subtitle (Chris, 2026-10-04, via the peer's frame-by-frame read of

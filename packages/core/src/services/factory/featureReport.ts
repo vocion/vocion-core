@@ -81,6 +81,7 @@ import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { liveTopic } from '@/libs/live/topics';
+import { posterSecond } from '@/libs/media/narration';
 import { narratedRole } from '@/libs/media/roles';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
@@ -947,9 +948,7 @@ export type ReportRecording = {
  * @param spec - The recording's spec.
  */
 export function firstLineAt(spec: Record<string, unknown> | null | undefined): number | null {
-  const script = Array.isArray(spec?.script) ? spec.script as Array<{ atMs?: unknown }> : [];
-  const first = script.map(l => Number(l.atMs)).filter(n => Number.isFinite(n) && n >= 0).sort((a, b) => a - b)[0];
-  return first === undefined ? null : Math.round(first) / 1000;
+  return posterSecond(spec);
 }
 export type ReportRecordings = { demo: ReportRecording | null; preview: ReportRecording | null; live: ReportRecording | null; qa: ReportRecording | null };
 
