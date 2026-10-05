@@ -1003,6 +1003,95 @@ describe('the preview demo recorded from the branch', async () => {
     assert.ok(r.seconds > 0);
   });
 
+  it('with the chrome, acts like a person: clicks the link on screen, glides and ripples, types keystroke by keystroke, outlines what it talks about (2026-10-05)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-'));
+    const webm = path.join(dir, 'demo', 'take.webm');
+    const calls = [];
+    let clock = 0;
+    const element = name => ({
+      async click() {
+        calls.push(`click ${name}`);
+      },
+      async waitFor() {},
+      async fill(v) {
+        calls.push(`fill ${name}=${v}`);
+      },
+      async pressSequentially(v, opts) {
+        calls.push(`type ${name}=${v} delay=${opts.delay}`);
+      },
+      async boundingBox() {
+        return { x: 100, y: 200, width: 80, height: 20 };
+      },
+      async scrollIntoViewIfNeeded() {
+        calls.push(`scroll ${name}`);
+      },
+    });
+    const loc = name => ({ first: () => element(name), or: () => loc(name) });
+    const page = {
+      _url: 'about:blank',
+      async goto(url) {
+        calls.push(`goto ${url}`); this._url = url;
+      },
+      async waitForLoadState() {},
+      async waitForTimeout(ms) {
+        clock += ms;
+      },
+      url() {
+        return this._url;
+      },
+      locator(sel) {
+        if (sel === 'a[href="/library?tab=links"]') {
+          this._url = 'http://127.0.0.1:4173/library?tab=links';
+        }
+        return loc(sel);
+      },
+      getByRole(_role, { name }) {
+        return loc(name);
+      },
+      getByText(text) {
+        return loc(text);
+      },
+      async $$eval(_sel, fn) {
+        return fn(['/library', '/library?tab=links', 'mailto:x@y.example'].map(h => ({ getAttribute: () => h })));
+      },
+      async evaluate(_fn, arg) {
+        calls.push(`chrome ${arg[0]} ${JSON.stringify(arg[1])}`);
+      },
+      video() {
+        return { path: async () => {
+          fs.mkdirSync(path.dirname(webm), { recursive: true }); fs.writeFileSync(webm, 'x'); return webm;
+        } };
+      },
+    };
+    const browser = { async newContext() {
+      return { async addInitScript(src) {
+        calls.push(`init ${src.slice(0, 12)}`);
+      }, newPage: async () => page, close: async () => {} };
+    } };
+    const flows = [
+      { name: 'Search', criterion: 'The search box finds a deck by name', path: '/library', steps: [{ fill: { selector: '#search', value: 'board' } }, { shoot: 'One row remains' }] },
+      { name: 'Links', path: '/library?tab=links', steps: [{ click: 'Copy link' }] },
+    ];
+    const r = await recordPreviewDemo({ browser, base: 'http://127.0.0.1:4173', flows, outDir: dir, now: () => (clock += 100), waitMs: async (ms) => {
+      clock += ms;
+    }, chrome: '(() => { /* chrome */ })();' });
+
+    assert.equal(r.error, undefined);
+    assert.equal(calls[0], 'init (() => { /* ');
+    // The first page has nothing on screen yet, so it is opened by its address; the second is reached by its link.
+    assert.deepEqual(r.moments.map(m => m.what), ['open /library', 'fill #search', 'One row remains', 'open /library?tab=links by its link', 'click Copy link']);
+    assert.ok(calls.includes('goto http://127.0.0.1:4173/library'));
+    assert.ok(!calls.includes('goto http://127.0.0.1:4173/library?tab=links'), 'the second page was clicked to, not typed');
+    // Into the field: scroll, glide, ripple, click, clear, type with a keystroke gap — never a paste.
+    const field = calls.filter(c => c.includes('#search'));
+    assert.deepEqual(field, ['scroll #search', 'click #search', 'fill #search=', 'type #search=board delay=55']);
+    assert.ok(calls.some(c => c.startsWith('chrome moveTo [140,210]')));
+    assert.ok(calls.some(c => c.startsWith('chrome ripple [140,210]')));
+    // The line said after the action outlines the field it is about.
+    assert.ok(calls.some(c => c.startsWith('chrome spotlight [{"x":100,"y":200')));
+    assert.deepEqual(r.lines.map(l => l.text), ['The search box finds a deck by name.', 'One row remains', 'Links.']);
+  });
+
   it('says so when there is nothing to demo', async () => {
     const r = await recordPreviewDemo({ browser: {}, base: 'http://127.0.0.1:4173', flows: [], outDir: fs.mkdtempSync(path.join(os.tmpdir(), 'demo-')) });
     assert.deepEqual(r, { error: 'no flow to demo' });

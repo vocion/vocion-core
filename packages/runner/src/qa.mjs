@@ -1283,11 +1283,150 @@ export function demoSpecHeader(moments, lines) {
   return JSON.stringify({ timeline, script });
 }
 
+/** How long the demo's cursor takes to reach its target, matching the chrome's CSS transition. */
+export const CURSOR_GLIDE_MS = 520;
+
+/**
+ * WHERE TO LOOK (Chris, 2026-10-05, watching a preview demo: "There's a lot on the screen and I
+ * have no idea what the narrator wants me looking at"). With the chrome installed
+ * (`/api/demo-chrome`, the same script QA's live demo wears) the cursor glides to the element a
+ * step acts on, ripples where it clicks, and the element a line is about keeps a thin outline in
+ * the accent while the line is said. Decoration only: never throws, never changes what the step
+ * does, and a page that refuses it still gets its click.
+ */
+function demoChrome(page, hold) {
+  const call = async (method, ...args) => {
+    try {
+      await page.evaluate(([m, a]) => globalThis.__vocionDemo?.[m]?.(...a), [method, args]);
+    } catch {
+      // decoration only
+    }
+  };
+  const centre = rect => [Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2)];
+  return {
+    /** The element's box, or null when it cannot be measured. */
+    async boxOf(locator) {
+      try {
+        return await locator.first().boundingBox({ timeout: 2000 });
+      } catch {
+        return null;
+      }
+    },
+    /** Glide the cursor to the box and, for a click, ripple there. */
+    async pointAt(rect, { ripple = true } = {}) {
+      if (!rect) {
+        return;
+      }
+      const [x, y] = centre(rect);
+      await call('moveTo', x, y);
+      await hold(CURSOR_GLIDE_MS);
+      if (ripple) {
+        await call('ripple', x, y);
+        await hold(120);
+      }
+    },
+    /** Outline the area a line is about, or clear it with null. */
+    async spotlight(rect) {
+      await call('spotlight', rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null);
+    },
+  };
+}
+
+/** How a person pauses: a look at a page before acting, a breath after each action, a keystroke's gap. */
+export const HUMAN_BEATS = { afterNavigationMs: 700, afterActionMs: 350, keystrokeMs: 55 };
+
+function demoPathOf(url) {
+  return `${url.pathname.replace(/\/+$/, '') || '/'}${url.search}`;
+}
+
+/**
+ * A PERSON CLICKS, A SCRIPT TELEPORTS (Chris, 2026-10-05: "the recording is just jumping from
+ * screen to screen like a magic non human script"). The href on the page that leads to the
+ * target, or null: same origin, same path and query, hash ignored, first in reading order. The
+ * same reading as core's `libs/factory/demoNavigation.ts`.
+ */
+export function hrefLeadingTo(hrefs, pageUrl, target) {
+  let want;
+  let here;
+  try {
+    want = new URL(target);
+    here = new URL(pageUrl);
+  } catch {
+    return null;
+  }
+  if (want.origin !== here.origin) {
+    return null;
+  }
+  const wanted = demoPathOf(want);
+  for (const href of hrefs) {
+    if (typeof href !== 'string' || !href.trim() || /^(?:javascript|mailto|tel):/i.test(href)) {
+      continue;
+    }
+    try {
+      const u = new URL(href, pageUrl);
+      if (u.origin === want.origin && demoPathOf(u) === wanted) {
+        return href;
+      }
+    } catch {
+      // not a URL
+    }
+  }
+  return null;
+}
+
+/**
+ * Go to the target the way a person would: click the link on screen that leads there when one
+ * is visible, else type the address. Returns how it went.
+ */
+async function arriveAt(page, target, look, hold) {
+  const current = typeof page.url === 'function' ? page.url() : '';
+  if (look && typeof current === 'string' && current.startsWith('http') && typeof page.$$eval === 'function') {
+    try {
+      const hrefs = await page.$$eval('a[href]', as => as.map(a => a.getAttribute('href')));
+      const href = hrefLeadingTo(hrefs, current, target);
+      if (href) {
+        const link = page.locator(`a[href="${href.replace(/"/g, '\\"')}"]`).first();
+        await link.scrollIntoViewIfNeeded?.({ timeout: 2000 }).catch(() => {});
+        await look.pointAt(await look.boxOf(link));
+        await link.click({ timeout: 15000 });
+        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+        await hold(HUMAN_BEATS.afterNavigationMs);
+        return 'clicked';
+      }
+    } catch {
+      // fall through to the address
+    }
+  }
+  await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  if (look) {
+    await hold(HUMAN_BEATS.afterNavigationMs);
+  }
+  return 'went';
+}
+
+/** The locator a step acts on, for pointing at it before the action: click, fill or upload. */
+function stepLocator(page, step) {
+  if (step.click) {
+    return locate(page, step.click);
+  }
+  if (step.fill) {
+    return page.locator(step.fill.selector);
+  }
+  if (step.upload) {
+    return page.locator(step.upload.selector);
+  }
+  return null;
+}
+
 /**
  * Walk the flows on the branch build in one recorded desktop context, saying the lines. Returns
  * the webm path with its moments and lines, or `{ error }`. Never throws.
+ * `chrome` is the demo chrome script (`/api/demo-chrome`); without it the recording shows the
+ * page as it is, and the report says so.
  */
-export async function recordPreviewDemo({ browser, base, flows, outDir, log = () => {}, vars = {}, now = () => Date.now(), waitMs = null }) {
+export async function recordPreviewDemo({ browser, base, flows, outDir, log = () => {}, vars = {}, now = () => Date.now(), waitMs = null, chrome = null }) {
   const demoDir = path.join(outDir, 'demo');
   fs.mkdirSync(demoDir, { recursive: true });
   const vp = VIEWPORTS.desktop;
@@ -1296,18 +1435,25 @@ export async function recordPreviewDemo({ browser, base, flows, outDir, log = ()
     return { error: 'no flow to demo' };
   }
   const context = await browser.newContext({ ...viewportContextOptions('desktop'), recordVideo: { dir: demoDir, size: { width: vp.width, height: vp.height } } });
+  if (chrome) {
+    await context.addInitScript(chrome).catch(e => log('qa.demo.chrome.failed', { error: String(e.message || e).slice(0, 200) }));
+  }
   const page = await context.newPage();
   const started = now();
   const moments = [];
   const lines = [];
   const hold = waitMs || (ms => page.waitForTimeout(ms));
   const at = () => now() - started;
+  const look = chrome ? demoChrome(page, hold) : null;
+  // The area the last action touched: what a line said after it is about.
+  let area = null;
   const say = async (text) => {
     const line = String(text || '').trim();
     if (!line || lines.length >= DEMO_LIMITS.lines) {
       return;
     }
     lines.push({ atMs: at(), text: line });
+    await look?.spotlight(area);
     await hold(dwellMs(line));
   };
   let video = null;
@@ -1317,10 +1463,10 @@ export async function recordPreviewDemo({ browser, base, flows, outDir, log = ()
         break;
       }
       const target = addressOf(base, fillVars(flow.path, vars));
-      moments.push({ atMs: at(), what: `open ${demoAddress(target)}`, url: demoAddress(target), ok: true });
+      area = null;
       try {
-        await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+        const how = await arriveAt(page, target, look, hold);
+        moments.push({ atMs: at(), what: `open ${demoAddress(target)}${how === 'clicked' ? ' by its link' : ''}`, url: demoAddress(target), ok: true });
       } catch (e) {
         moments.push({ atMs: at(), what: `could not open ${demoAddress(target)}: ${String(e.message || e).slice(0, 120)}`, ok: false });
         continue;
@@ -1338,7 +1484,27 @@ export async function recordPreviewDemo({ browser, base, flows, outDir, log = ()
         }
         const verb = Object.keys(step)[0];
         try {
-          await runStep(page, step, shoot, flowCtx);
+          const acted = look ? stepLocator(page, step) : null;
+          if (acted) {
+            await acted.first().scrollIntoViewIfNeeded?.({ timeout: 2000 }).catch(() => {});
+            const box = await look.boxOf(acted);
+            await look.pointAt(box);
+            area = box;
+          }
+          if (acted && step.fill) {
+            // A person clicks into the field and types; a script pastes.
+            const field = acted.first();
+            await field.click({ timeout: 15000 });
+            await field.fill('', { timeout: 15000 });
+            await field.pressSequentially(String(step.fill.value ?? ''), { delay: HUMAN_BEATS.keystrokeMs, timeout: 15000 + String(step.fill.value ?? '').length * HUMAN_BEATS.keystrokeMs });
+          } else {
+            await runStep(page, step, shoot, flowCtx);
+          }
+          if (acted) {
+            // Where it stands after the action, when it is still there.
+            area = (await look.boxOf(acted)) ?? area;
+            await hold(HUMAN_BEATS.afterActionMs);
+          }
           if (step.click || step.fill || step.upload || step.goto) {
             moments.push({ atMs: at(), what: `${verb} ${stepTarget(step)}`.slice(0, 200), url: demoAddress(page.url()), ok: true });
           }
@@ -1368,7 +1534,7 @@ export async function recordPreviewDemo({ browser, base, flows, outDir, log = ()
  *
  * `run` is the worker's spawnSync wrapper, `log` its JSON logger, `post` its Vocion POST.
  */
-export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, outDir, aws, run, log, post, upload = null, artifactUrl, refusedFlows = [] }) {
+export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, outDir, aws, run, log, post, upload = null, artifactUrl, refusedFlows = [], demoChrome = null }) {
   const started = Date.now();
   const rows = [];
   const failures = [];
@@ -1515,7 +1681,13 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
       if (flowsToDemo.length > 0) {
         const t0 = Date.now();
         try {
-          const d = await recordPreviewDemo({ browser, base: afterBase, flows: flowsToDemo, outDir, log });
+          const chrome = demoChrome
+            ? await demoChrome().catch((e) => {
+                log('qa.demo.chrome.failed', { error: String(e.message || e).slice(0, 200) });
+                return null;
+              })
+            : null;
+          const d = await recordPreviewDemo({ browser, base: afterBase, flows: flowsToDemo, outDir, log, chrome });
           if (d.error) {
             failures.push({ scope: 'demo', message: `no preview demo: ${d.error}` });
           } else {
