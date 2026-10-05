@@ -514,9 +514,9 @@ export const CUT = {
   /** Room kept before an action. */
   actionLeadMs: 200,
   /** Room kept after an action, for the page to show what it did. */
-  actionTailMs: 900,
+  actionTailMs: 600,
   /** An idle stretch shorter than this is left alone. */
-  maxGapMs: 1_200,
+  maxGapMs: 800,
   /** Of a longer idle stretch, this much before the next moment is kept. */
   keepBeforeMs: 500,
 } as const;

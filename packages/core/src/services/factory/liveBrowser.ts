@@ -310,6 +310,11 @@ async function linkOnScreen(tab: Tab, target: string): Promise<Locator | null> {
   }
 }
 
+/** How far into a step's line its action lands: the words lead, the change follows inside them. */
+const LINE_LEAD_MS = 500;
+/** The least a line holds after its action, so the result is seen while the words finish. */
+const LINE_TAIL_MS = 700;
+
 /** How long a keycap stays up for a press nobody narrates: long enough to read. */
 const KEYCAP_MS = 900;
 
@@ -821,12 +826,26 @@ async function actNow(key: string | null, d: LiveBrowserDeps, what: string, ref:
   }
   const { s, tab } = a;
   const page = tab.page!;
-  // In a demo the cursor glides to the target and ripples before the action lands.
+  // SAID WHILE IT IS DONE (Chris, 2026-10-05: "the highlight focus sections don't quite line up
+  // with the timing of the voiceover"). In a demo a step with a line starts the line first, with
+  // its target outlined; the cursor glides and the action lands inside the words, the outline
+  // follows to the result, and the screen holds only for what is left of the line. Doing first and
+  // saying after put every change a second ahead of its words, with silence between lines.
+  const line = tab.purpose === 'demo' ? say?.trim().slice(0, 300) || null : null;
+  const lineStart = d.now().getTime();
+  // Where a person would look first: the element scrolled into view.
   let target: Rect | null = null;
   if (tab.purpose === 'demo' && ref) {
-    // Where a person would look first: the element scrolled into view, then the cursor on it.
     await byRef(page, ref)?.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
     target = await byRef(page, ref)?.boundingBox({ timeout: 2000 }).catch(() => null) ?? null;
+  }
+  const said = line ? log(s, 'said', { text: line, tab: tab.key }, d.now()) : null;
+  if (line) {
+    await demoSpotlight(tab, target);
+    await d.dwell(LINE_LEAD_MS);
+  }
+  // The cursor glides to the target and ripples as the action lands.
+  if (tab.purpose === 'demo' && ref) {
     await demoPointAt(tab, target);
   }
   // A key press has no target to point at: the key itself is shown, as a keycap, as it lands.
@@ -842,21 +861,32 @@ async function actNow(key: string | null, d: LiveBrowserDeps, what: string, ref:
   }
   if (out.ok) {
     await settle(page);
-    if (tab.purpose === 'demo') {
+    if (tab.purpose === 'demo' && !line) {
       await d.dwell(HUMAN_BEATS.afterActionMs);
     }
   }
   const entry = log(s, 'action', { what, ok: out.ok, detail: out.result, url: page.url() }, d.now());
+  if (said && !out.ok) {
+    // A line for a step that did not happen is not said: it leaves the demo's script.
+    s.evidence.delete(said.id);
+    await demoSpotlight(tab, null);
+  }
   if (out.ok) {
     // The area spoken about: the target as it stands after the action (it may have moved or changed).
     // A press is about whatever it moved: the element with focus, or the row now selected.
     const focus = tab.purpose === 'demo'
       ? ref ? await byRef(page, ref)?.boundingBox({ timeout: 1000 }).catch(() => null) ?? target : demoKey ? await demoFocusRect(tab) : null
       : null;
-    if (demoKey && !say?.trim()) {
-      await d.dwell(KEYCAP_MS);
+    if (line) {
+      await demoSpotlight(tab, focus);
+      await d.dwell(Math.max(LINE_TAIL_MS, spokenMs(line) - (d.now().getTime() - lineStart)));
+      await demoSpotlight(tab, null);
+    } else {
+      if (demoKey) {
+        await d.dwell(KEYCAP_MS);
+      }
+      await sayLine(s, tab, d, say, focus);
     }
-    await sayLine(s, tab, d, say, focus);
   }
   if (demoKey) {
     await demoKeycap(tab, null);
