@@ -25,6 +25,22 @@ export type ChatInbound = {
   /** Message text with the bot mention stripped. */
   text: string;
   isDirect: boolean;
+  /**
+   * Pictures attached to the message (backlog 057: the bug the Slate team
+   * reports is the screenshot). Only images; the bytes are fetched with the
+   * bot's token when the message is handled, never here.
+   */
+  files?: ChatInboundFile[];
+};
+
+/** One picture on an inbound message, as the platform describes it. */
+export type ChatInboundFile = {
+  id: string;
+  name: string;
+  contentType: string;
+  bytes: number;
+  /** Where the bytes are, behind the bot's token. */
+  url: string;
 };
 
 /**
