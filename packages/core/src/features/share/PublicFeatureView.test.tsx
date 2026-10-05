@@ -25,7 +25,7 @@ function fixture(over: Partial<PublicFeaturePage> = {}): PublicFeaturePage {
     workspaceName: 'Northwind Studio',
     productName: 'Ledger',
     openUrl: '/w/northwind-studio/dashboard/p/feature/370',
-    status: { word: 'Shipped', at: '2026-10-02T08:30:32.000Z' },
+    status: { word: 'Shipped', at: '2026-10-02T08:30:32.000Z', live: null },
     media: [
       { kind: 'video', src: '/api/share/feature/TOKEN/media/951?k=sig', type: 'video/webm', label: 'On the live product', caption: 'Live check of the library' },
       { kind: 'image', src: PNG, label: 'Mockup', alt: 'Library rows with dates', caption: 'The proposed row' },

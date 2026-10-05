@@ -17,7 +17,7 @@ function page(over: Partial<PublicFeaturePage> = {}): PublicFeaturePage {
     workspaceName: 'Northwind Studio',
     productName: null,
     openUrl: '/w/northwind-studio/dashboard/p/feature/370',
-    status: { word: 'Shipped', at: '2026-10-02T08:30:32.000Z' },
+    status: { word: 'Shipped', at: '2026-10-02T08:30:32.000Z', live: null },
     media: [
       { kind: 'video', src: '/api/share/feature/TOKEN/media/951?k=s1', type: 'video/webm', label: 'Walkthrough', caption: 'A walk through it' },
       { kind: 'image', src: '/api/share/feature/TOKEN/media/962?k=s2', label: 'QA after', alt: 'Library · desktop · after', caption: null },
