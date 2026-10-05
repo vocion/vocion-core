@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { DEMO_VIDEO_ROLE, LIVE_VIDEO_ROLE } from '@/libs/factory/liveCheck';
 import { logger } from '@/libs/Logger';
 import { spokenMs } from '@/libs/media/narration';
+import { planStitch, stitchTakes } from '@/libs/media/stitch';
 import { fileRecording } from '@/services/artifacts/recordings';
 
 /**
@@ -54,6 +55,55 @@ export function demoScript(said: ReadonlyArray<{ atMs: number; text: string }>):
   return said.map(l => ({ atMs: Math.round(l.atMs), endMs: Math.round(l.atMs) + spokenMs(l.text), text: l.text.slice(0, 400) }));
 }
 
+/** A demo as filed: a tab's take, or several tabs' takes stitched into one story. */
+export type DemoTake = SessionRecording & { tabs: number };
+
+/**
+ * ONE STORY, ONE VIDEO (Chris, 2026-10-05): the demos of one request told across several tabs
+ * (a sender signed in, a visitor signed out) are stitched into one video in the order the lines
+ * were said (`libs/media/stitch.ts`), so the feature page and the share card lead with the whole
+ * story, not the half narrated last. Takes of the same request and viewport are stitched; a
+ * story that could not be stitched is kept as its takes, each said why. Never throws.
+ * @param demos - The session's demo recordings.
+ * @param stitch - The cut, for tests.
+ */
+export async function mergeDemoTakes(demos: readonly SessionRecording[], stitch: typeof stitchTakes = stitchTakes): Promise<{ takes: DemoTake[]; refused: string[] }> {
+  const groups = new Map<string, SessionRecording[]>();
+  for (const r of demos) {
+    const key = `${r.requestId ?? 'none'}|${r.viewport}`;
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  const takes: DemoTake[] = [];
+  const refused: string[] = [];
+  for (const group of groups.values()) {
+    const ordered = [...group].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+    const plan = ordered.length > 1 ? planStitch(ordered) : null;
+    if (!plan) {
+      takes.push(...ordered.map(r => ({ ...r, tabs: 1 })));
+      continue;
+    }
+    const first = ordered[0]!;
+    const out = `${first.path.replace(/\.[^./]+$/, '')}-story.webm`;
+    const cut = await stitch(ordered, plan, out);
+    if (!cut.ok) {
+      refused.push(`the ${first.viewport} demo of request #${first.requestId} was kept as ${ordered.length} takes: ${cut.reason}`);
+      takes.push(...ordered.map(r => ({ ...r, tabs: 1 })));
+      continue;
+    }
+    takes.push({
+      ...first,
+      path: cut.path,
+      // The story's clock: from the first take's start, to the end of what was stitched.
+      startedAt: first.startedAt,
+      endedAt: new Date(Date.parse(first.startedAt) + plan.durationMs).toISOString(),
+      script: plan.script,
+      timeline: plan.timeline as SessionRecording['timeline'],
+      tabs: ordered.length,
+    });
+  }
+  return { takes, refused };
+}
+
 /**
  * Keep a closed session's recordings and file them.
  * @param orgId - The workspace.
@@ -71,9 +121,10 @@ export async function keepLiveRecordings(orgId: string, releaseId: number, recor
   const { codeForRecord } = await import('@/services/codes');
   const code = await codeForRecord(orgId, releaseId).catch(() => null);
   const checks = recordings.filter(r => r.purpose !== 'demo');
-  const demos = recordings.filter(r => r.purpose === 'demo');
+  const merged = await mergeDemoTakes(recordings.filter(r => r.purpose === 'demo'));
+  const demos = merged.takes;
   const several = checks.length > 1;
-  const refused: string[] = [];
+  const refused: string[] = [...merged.refused];
   const read = async (r: SessionRecording, what: string): Promise<Buffer | null> => {
     try {
       return await readFile(r.path);
@@ -128,7 +179,7 @@ export async function keepLiveRecordings(orgId: string, releaseId: number, recor
       records: [{ id: requestId, role: DEMO_VIDEO_ROLE }],
       title: caption,
       caption,
-      provenance: { liveCheck: true, demo: true, releaseId, viewport: r.viewport, signedIn: r.signedIn, environment: r.env, startedAt: r.startedAt, endedAt: r.endedAt },
+      provenance: { liveCheck: true, demo: true, releaseId, viewport: r.viewport, signedIn: r.tabs > 1 ? 'both' : r.signedIn, environment: r.env, startedAt: r.startedAt, endedAt: r.endedAt, tabs: r.tabs },
       timeline: r.timeline,
       extraSpec: r.script.length > 0 ? { script: demoScript(r.script) } : undefined,
       author: { kind: 'system', id: 'live-check' },
