@@ -30,6 +30,7 @@ import type { Phase } from '@/libs/factory/featureGlance';
 import { cardDescription, cardTitle, compactSpan, DEFAULT_BUILDER, DEFAULT_SITE_NAME, timeSplit } from '@/libs/factory/featureGlance';
 import { readRequestLive } from '@/libs/factory/liveCheck';
 import { showsAnError } from '@/libs/factory/mockup';
+import { requestAsk } from '@/libs/factory/requestAsk';
 import { posterSecond } from '@/libs/media/narration';
 import { API_ARTIFACTS_BASE } from '@/libs/tools/artifacts/url';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
@@ -106,7 +107,9 @@ export type PublicFeaturePage = {
    */
   media: PublicSlide[];
   ask: {
-    /** The request as the person typed it. */
+    /** Whether a person asked, or an agent put it forward and a person approved it (`libs/factory/requestAsk.ts`). */
+    kind: 'asked' | 'proposed';
+    /** The request as the person typed it, or the feature as it was put to them. */
     text: string;
     /** Their display name, or null when hidden or not recorded. Never an email. */
     by: string | null;
@@ -118,6 +121,8 @@ export type PublicFeaturePage = {
   effort: {
     /** "1h 12m" (`compactSpan`), or null when nothing is dated. */
     duration: string | null;
+    /** What the duration runs from: the ask, or the go-ahead a person gave a proposal. */
+    from: 'ask' | 'go-ahead';
     /** What the duration runs to. */
     until: 'seen live' | 'shipped' | 'so far' | null;
     attempts: number | null;
@@ -351,6 +356,8 @@ function stepOf(row: HistoryRow): string | null {
  */
 export const STEP_SENTENCE: Readonly<Record<string, string>> = {
   'Asked': 'The ask came in and was filed as a feature.',
+  'Proposed': 'The feature was put forward for a person to decide.',
+  'Approved': 'A person said to build it.',
   'Planned': 'The product manager wrote a plan for the change.',
   'Plan approved': 'The plan was approved, so building could start.',
   'Building': 'An engineer agent is building the change.',
@@ -411,6 +418,8 @@ export const SAME_MOMENT_MS = 3 * 60_000;
 /** The loop's order, for steps stamped within the same moment. */
 const STEP_RANK: Readonly<Record<string, number>> = {
   'Asked': 0,
+  'Proposed': 0,
+  'Approved': 1,
   'Planned': 10,
   'Plan approved': 11,
   'Building': 20,
@@ -453,14 +462,21 @@ function ownWords(row: HistoryRow): string | null {
  * request; these words cannot.
  * @param history - The report's Timeline, newest first.
  * @param askedAt - When they asked.
+ * @param ask
+ * @param ask.kind
+ * @param ask.startedAt
  */
-export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null): PublicStep[] {
+export function publicSteps(history: readonly HistoryRow[], askedAt: Date | null, ask: { kind: 'asked' | 'proposed'; startedAt: Date | null } = { kind: 'asked', startedAt: null }): PublicStep[] {
   const rows = history.flatMap(r => (r.kind === 'attempt' ? r.children ?? [] : [r]));
   const steps = rows
     .map(r => ({ step: stepOf(r), at: r.at, said: ownWords(r) }))
     .filter((s): s is { step: string; at: string; said: string | null } => s.step !== null && s.at !== null && !Number.isNaN(Date.parse(s.at)));
   if (askedAt) {
-    steps.push({ step: 'Asked', at: askedAt.toISOString(), said: null });
+    steps.push({ step: ask.kind === 'proposed' ? 'Proposed' : 'Asked', at: askedAt.toISOString(), said: null });
+  }
+  // A proposal's go-ahead is its own step: the wait before it was a person's, not the build's.
+  if (ask.kind === 'proposed' && ask.startedAt && (!askedAt || ask.startedAt.getTime() > askedAt.getTime())) {
+    steps.push({ step: 'Approved', at: ask.startedAt.toISOString(), said: null });
   }
   // By time; two steps written within the same few minutes keep the loop's order (QA approves, then
   // the merge, then the deploy), because a verdict's row is stamped when its run ends, which can be
@@ -508,20 +524,23 @@ export function shippedEvidence(candidates: readonly SharedArtifact[], attempt: 
  * @param report - The report.
  * @param meta - The request's metadata, for when the live check saw it.
  */
-function durationOf(report: PublicFeatureReport, meta: Record<string, unknown>): Pick<PublicFeaturePage['effort'], 'duration' | 'until'> {
-  const askedAt = report.summary.askedAt;
+function durationOf(report: PublicFeatureReport, meta: Record<string, unknown>): Pick<PublicFeaturePage['effort'], 'duration' | 'from' | 'until'> {
+  // FROM THE GO-AHEAD (Chris, 2026-10-05): the days a proposal waited for a person are the
+  // timeline's, not the build's. `summary.startedAt` is the one reading (`libs/factory/requestAsk.ts`).
+  const askedAt = report.summary.startedAt ?? report.summary.askedAt;
+  const from = report.summary.startedAt && report.summary.askedAt && report.summary.startedAt.getTime() > report.summary.askedAt.getTime() ? 'go-ahead' as const : 'ask' as const;
   if (!askedAt) {
-    return { duration: null, until: null };
+    return { duration: null, from, until: null };
   }
   const live = readRequestLive(meta);
   const seenAt = report.release.state === 'live' && live?.state === 'seen' && live.checkedAt ? new Date(live.checkedAt) : null;
   if (seenAt && !Number.isNaN(seenAt.getTime()) && seenAt.getTime() >= askedAt.getTime()) {
-    return { duration: compactSpan(seenAt.getTime() - askedAt.getTime()), until: 'seen live' };
+    return { duration: compactSpan(seenAt.getTime() - askedAt.getTime()), from, until: 'seen live' };
   }
   if (report.summary.shippedAt) {
-    return { duration: compactSpan(report.summary.shippedAt.getTime() - askedAt.getTime()), until: 'shipped' };
+    return { duration: compactSpan(report.summary.shippedAt.getTime() - askedAt.getTime()), from, until: 'shipped' };
   }
-  return { duration: report.summary.elapsed, until: report.summary.elapsed ? 'so far' : null };
+  return { duration: report.summary.elapsed, from, until: report.summary.elapsed ? 'so far' : null };
 }
 
 /**
@@ -584,7 +603,8 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
   const askedBy = bag(meta.askedBy);
   const name = str(askedBy, 'name');
   const by = input.hideAsker || name === null || name.includes('@') ? null : scrub(name);
-  const text = str(meta, 'body') ?? request.title;
+  const theAsk = requestAsk(meta, request.createdAt);
+  const text = theAsk.text ?? request.title;
   const builtFrom = str(meta, 'outcome') ?? str(meta, 'summary') ?? report.title;
   const byId = new Map(input.pictures.map(a => [a.id, a]));
   const recording = walkthroughOf(input.recordings);
@@ -613,7 +633,7 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
     ...shippedEvidence(input.evidence ?? [], report.acceptance?.attempt).filter(e => !shown.has(e.artifact.id)).map(({ artifact, label: l }) => image(artifact, l)),
   ];
   const shippedAt = report.summary.shippedAt;
-  const timeline = publicSteps(report.history, report.summary.askedAt);
+  const timeline = publicSteps(report.history, report.summary.askedAt, theAsk);
   return {
     title,
     builtBy: input.workspaceName?.trim() ? scrub(input.workspaceName.trim()) : DEFAULT_BUILDER,
@@ -623,7 +643,7 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
     openUrl: input.openUrl && /^\/w\/[\w-]+\/[\w/-]+$/.test(input.openUrl) ? input.openUrl : null,
     status: shippedAt ? { word: 'Shipped', at: shippedAt.toISOString() } : { word: 'In progress', at: null },
     media,
-    ask: { text: scrub(text), by, at: report.summary.askedAt?.toISOString() ?? null },
+    ask: { kind: theAsk.kind, text: scrub(text), by, at: report.summary.askedAt?.toISOString() ?? null },
     built: scrub(firstSentence(builtFrom) ?? builtFrom),
     effort: {
       ...durationOf(report, meta),

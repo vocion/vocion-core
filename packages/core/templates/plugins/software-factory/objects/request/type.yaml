@@ -153,7 +153,11 @@ schema:
     body:
       x-display: {label: In their words, role: prose, order: 1}
       type: string
-      description: The request as it arrived — the asker's own words, unedited. Triage summarises beside it, never instead of it.
+      description: >-
+        The request as it arrived — the asker's own words, unedited. Triage summarises beside it,
+        never instead of it. A request an agent puts forward has no asker: leave `body` empty and
+        put the feature as you would say it to the person in `story`; the prompt or pass that led
+        you to it is never the ask (the feature page and its share card show `story` for a proposal).
     story:
       x-display: {label: The story, role: prose, order: 2}
       type: string
