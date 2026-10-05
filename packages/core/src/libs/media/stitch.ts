@@ -160,17 +160,20 @@ export async function stitchTakes(takes: readonly Take[], plan: StitchPlan, out:
 async function cut(takes: readonly Take[], plan: StitchPlan, out: string, deps: { ffmpeg?: string; run?: typeof run; encoder: string }): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
   const bin = deps.ffmpeg ?? ffmpegBin();
   const exec = deps.run ?? run;
-  const inputs = [...new Set(plan.segments.map(s => s.take))];
-  if (inputs.some(i => !takes[i]?.path)) {
+  if (plan.segments.some(s => !takes[s.take]?.path)) {
     throw new Error('a segment names a take that is not there');
   }
+  // Each segment is its own input, read from its own seek point, so ffmpeg decodes the seconds the
+  // story uses and not each tab's whole life; the encoder runs at its realtime speed. The old cut
+  // (trim over whole inputs, VP8/9 at its slowest default) ran past 545 s on the box for a minute of
+  // story and the demo was filed as separate takes (FE-457, 2026-10-05); this one costs a fifth.
   const args: string[] = ['-y', '-hide_banner', '-loglevel', 'error'];
-  for (const take of inputs) {
-    args.push('-i', takes[take]!.path);
+  for (const s of plan.segments) {
+    args.push('-ss', (s.fromMs / 1000).toFixed(3), '-to', (s.toMs / 1000).toFixed(3), '-i', takes[s.take]!.path);
   }
-  const parts = plan.segments.map((s, k) => `[${inputs.indexOf(s.take)}:v]trim=start=${(s.fromMs / 1000).toFixed(3)}:end=${(s.toMs / 1000).toFixed(3)},setpts=PTS-STARTPTS[v${k}]`);
+  const parts = plan.segments.map((_, k) => `[${k}:v]setpts=PTS-STARTPTS[v${k}]`);
   const filter = `${parts.join(';')};${plan.segments.map((_, k) => `[v${k}]`).join('')}concat=n=${plan.segments.length}:v=1:a=0[v]`;
-  args.push('-filter_complex', filter, '-map', '[v]', '-c:v', deps.encoder, '-b:v', '2M', '-crf', '10', '-r', '25', '-an', out);
+  args.push('-filter_complex', filter, '-map', '[v]', '-c:v', deps.encoder, '-b:v', '2M', '-crf', '10', '-deadline', 'realtime', '-cpu-used', '8', '-r', '25', '-an', out);
   const res = await exec(bin, args, Math.max(120_000, plan.durationMs * 4));
   if (res.code !== 0) {
     const tail = res.stderr.trim().split('\n').slice(-2).join(' ').slice(0, 300);
