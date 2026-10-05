@@ -11,6 +11,7 @@ import process from 'node:process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { HUMAN_BEATS } from '@/libs/factory/demoNavigation';
 import { RecordedLineSchema } from '@/libs/factory/liveCheck';
+import { spokenMs } from '@/libs/media/narration';
 
 vi.mock('@/libs/DB');
 
@@ -456,12 +457,20 @@ describe('the browser tools, in a real browser against a fictional product', asy
       expect(opened.ok).toBe(true);
       expect(held()).toHaveLength(1);
 
+      // A step with a line says it while it is done (2026-10-05): the line leads by half a second,
+      // the typing lands inside the words, and the screen holds only for what is left of the line.
+      const before = held().length;
       await browserSvc.browserType(key, { ref: /textbox "Name" \[ref=(e\d+)\]/.exec(opened.snapshot ?? '')?.[1] ?? '', text: 'Q3 board deck', say: 'I type the new name, Q3 board deck.' }, d);
+      const typed = held().slice(before);
+
+      expect(typed[0]).toBe(500);
+      expect(typed.at(-1)!).toBeGreaterThanOrEqual(700);
+      expect(typed.at(-1)!).toBeLessThanOrEqual(spokenMs('I type the new name, Q3 board deck.'));
+
       const closing = await browserSvc.browserSay(key, 'Save is ready, and the document keeps its new name.', d);
 
       expect(closing).toMatchObject({ ok: true, result: expect.stringMatching(/^said, and held the screen \d+(\.\d)?s$/) });
-      expect(held()).toHaveLength(3);
-      expect(held().every(ms => ms >= 1_800 && ms <= 12_000)).toBe(true);
+      expect(held().at(-1)).toBe(spokenMs('Save is ready, and the document keeps its new name.'));
 
       await browserSvc.closeBrowserSession(key);
 

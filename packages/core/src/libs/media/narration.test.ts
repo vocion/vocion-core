@@ -155,7 +155,7 @@ describe('the demo cut (Chris, 2026-10-04: "pace of the demo could be a touch fa
   it('leaves a short idle stretch in, and keeps a video with nothing logged whole', async () => {
     const { demoCut } = await import('./narration');
 
-    expect(demoCut([{ atMs: 1_000 }, { atMs: 2_500 }], [], 10_000).segments).toEqual([{ fromMs: 800, toMs: 3_400, startMs: 0 }]);
+    expect(demoCut([{ atMs: 1_000 }, { atMs: 2_500 }], [], 10_000).segments).toEqual([{ fromMs: 800, toMs: 3_100, startMs: 0 }]);
     expect(demoCut([], [], 10_000)).toMatchObject({ durationMs: 10_000, selectExpr: 'between(t,0.000,10.000)' });
   });
 
