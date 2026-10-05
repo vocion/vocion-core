@@ -9,6 +9,21 @@ export const CLOSED_REQUEST_STATES: ReadonlySet<string> = new Set(['deferred', '
 /** Closed by a verdict (not by shipping): a person's Build reopens it. */
 export const REOPENABLE_REQUEST_STATES: ReadonlySet<string> = new Set([...CLOSED_REQUEST_STATES].filter(s => s !== 'shipped'));
 
+/** The state a reopened request is put back in: in the work, approved to build. */
+export const OPEN_REQUEST_STATE = 'in_scope';
+
+/**
+ * THE ONE WAY A REQUEST IS REOPENED: the fields every reopen writes, so an automatic step after
+ * the ship (the live check's send-back, FE-457, 2026-10-05) reads as open exactly as a person's
+ * Build does. `settledReason` reads the type's settled field (`state`) and `reopenedAt`; a reopen
+ * that stamps only the time stays settled and every automatic start after it is refused.
+ * @param by - Who reopened it: a person's id, or the step's name.
+ * @param at - When, ISO.
+ */
+export function reopenedFields(by: string, at: string): { state: string; recommendationState: string; reopenedAt: string; reopenedBy: string } {
+  return { state: OPEN_REQUEST_STATE, recommendationState: 'approved', reopenedAt: at, reopenedBy: by };
+}
+
 /**
  * The state a request closes in when what it reported resolved itself, with
  * nothing built (an environment healthy again). One of the closed states.
