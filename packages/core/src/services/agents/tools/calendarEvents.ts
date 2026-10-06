@@ -198,7 +198,7 @@ export function calendarTools(ctx: RuntimeContext) {
       const windowLabel = span > 0 ? `${label} and the next ${span} day(s)` : label;
 
       try {
-        const token = await resolveGoogleAccessToken(credentialed.credentials);
+        const token = await resolveGoogleAccessToken(credentialed.credentials, ctx.orgId);
         const params = new URLSearchParams({
           singleEvents: 'true',
           orderBy: 'startTime',

@@ -78,6 +78,7 @@ export function gmailTools(ctx: RuntimeContext) {
             return 'No gmail credentials are stored for this workspace, and the synced mirror does not know that message\'s thread.';
           }
           const resolved = await resolveThreadIdForMessage({
+            orgId: ctx.orgId,
             credentials: credentialed.credentials,
             messageId: message_id,
           });
@@ -137,6 +138,7 @@ export function gmailTools(ctx: RuntimeContext) {
       }
 
       const doc = await fetchGmailThreadDoc({
+        orgId: ctx.orgId,
         credentials: credentialed.credentials,
         threadId: threadId!,
       });

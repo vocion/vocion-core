@@ -50,6 +50,8 @@ export function connectOutcomeMessage(outcome: ConnectOutcome): string {
     source_not_created: 'You are logged in, but the source could not be created. Add it from Connectors.',
     provider_unreachable: 'The vendor could not be reached, so nothing was connected. Try again.',
     not_implemented: 'This provider is not available on this server yet.',
+    invalid_client: 'The vendor refused the app\'s client ID or secret. An admin needs to check the login app on the Developers page, or the client set on the server.',
+    login_app_unreadable: 'The saved login app for this vendor could not be read, so nothing was connected. An admin needs to save it again on the Developers page.',
   };
   return `Could not connect${which}: ${reasons[outcome.reason] ?? `the vendor refused (${outcome.reason}).`}`;
 }

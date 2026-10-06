@@ -46,6 +46,8 @@ import type { IngestDoc } from '@/services/IngestionService';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 import { ATLASSIAN_API_BASE, isAtlassianGrant, isExpiring, refreshAtlassianGrant, siteForBaseUrl } from '@/libs/atlassian/oauth';
+import { loginClientForGrant } from '@/libs/connect/loginClient';
+import { TokenRequestError } from '@/libs/connect/tokenRequest';
 import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
 import { updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, resolveApiTokenIdForSource, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
@@ -280,8 +282,13 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
     const parent = stored?.grant.refreshToken ?? current.refreshToken;
     let fresh: Awaited<ReturnType<typeof refreshAtlassianGrant>>;
     try {
-      fresh = await refreshAtlassianGrant(parent);
+      // A refresh token only works with the app it was issued to: find that one.
+      const client = await loginClientForGrant({ orgId: persistence.orgId, provider: 'atlassian', vendor: 'Atlassian', loginClientId: (stored?.grant ?? current).loginClientId });
+      fresh = await refreshAtlassianGrant(parent, client);
     } catch (err) {
+      if (err instanceof TokenRequestError && err.code === 'login_app_changed') {
+        throw new Error('This Atlassian login was made with an Atlassian login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with Atlassian again on the Connectors page.');
+      }
       throw new Error(`${err instanceof Error ? err.message : String(err)} ${RECONNECT_HINT}`);
     }
     current = { ...current, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken, expiresAt: fresh.expiresAt, ...(fresh.scope ? { scope: fresh.scope } : {}) };

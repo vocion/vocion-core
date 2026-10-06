@@ -80,9 +80,9 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     return `${name} is already connected; nothing to offer.`;
   }
   const how = howToConnectFor(connector.slug);
-  // A login this server has no app for would be a card that only errors, so
-  // it is offered as paste instead.
-  const login = connectOptionFor(connector.slug)?.configured ? how?.login : undefined;
+  // A login with no app to run on (neither the server's nor the workspace's
+  // own) would be a card that only errors, so it is offered as paste instead.
+  const login = (await connectOptionFor(ctx.orgId, connector.slug))?.configured ? how?.login : undefined;
   const source = { agentSlug: ctx.agentSlug, tool: 'offer_connection' };
   if (!login) {
     // No login for this connector: the button opens its token form. A connector

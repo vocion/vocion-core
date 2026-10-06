@@ -192,6 +192,8 @@ function stubSourcesApi(
     linkedCredentialId?: string;
     /** Credentials the workspace already holds for this platform. */
     available?: { id: string; name: string; keyHint: string | null; expiresAt: string | null }[];
+    /** The vendor-login option the credential read reports, when the connector has one. */
+    connect?: Record<string, unknown>;
   } = {},
 ) {
   const posts: { url: string; body: Record<string, unknown> }[] = [];
@@ -230,6 +232,7 @@ function stubSourcesApi(
           credentials: stored,
           available: options.available ?? [],
           linkedCredentialId: options.linkedCredentialId ?? null,
+          ...(options.connect === undefined ? {} : { connect: options.connect }),
           platform: 'strapi',
           platformLabel: 'Strapi',
           helpText: 'A Strapi API token.',
@@ -1796,5 +1799,46 @@ describe('testing a connection', () => {
     await page.getByRole('button', { name: /^Test connection$/ }).last().click();
 
     await expect.element(page.getByText('An Apollo API key is required.')).toBeVisible();
+  });
+});
+
+describe('the unconfigured vendor login line in the connect dialog', () => {
+  const UNCONFIGURED_LOGIN = {
+    provider: 'slack',
+    label: 'Slack',
+    configured: false,
+    requiredEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
+  };
+
+  /**
+   * Open the connect dialog for an unconnected source whose credential read reports `connect`.
+   * @param connect - The vendor-login option the read returns.
+   */
+  async function openEditWithConnect(connect: Record<string, unknown>) {
+    stubSourcesApi(CONNECTORS, [], { sources: [{ ...sourceRow(null), credentialConnected: false }], connect });
+    renderPanel();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+
+    await expect.element(page.getByText('Connect strapi-cms')).toBeVisible();
+  }
+
+  it('points an admin at the Developers page when a workspace may bring its own app', async () => {
+    await openEditWithConnect({ ...UNCONFIGURED_LOGIN, bringYourOwnApp: true });
+
+    await expect.element(page.getByText(/or a Slack login app an admin saves on the Developers page/)).toBeVisible();
+    await expect.element(page.getByText(/SLACK_CLIENT_ID, SLACK_CLIENT_SECRET/)).toBeVisible();
+  });
+
+  it('does not offer a login app when the provider cannot take one', async () => {
+    await openEditWithConnect({ ...UNCONFIGURED_LOGIN, bringYourOwnApp: false });
+
+    await expect.element(page.getByText(/Connecting with Slack/)).toBeVisible();
+    await expect.element(page.getByText(/login app an admin saves/)).not.toBeInTheDocument();
+  });
+
+  it('does not offer a login app when an older server omits the flag', async () => {
+    await openEditWithConnect(UNCONFIGURED_LOGIN);
+
+    await expect.element(page.getByText(/login app an admin saves/)).not.toBeInTheDocument();
   });
 });

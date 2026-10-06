@@ -110,6 +110,7 @@ export async function withFreshPosthogGrant(
   }
   return usableLoginGrant({
     vendor: 'PostHog',
+    provider: 'posthog',
     connectorSlug: 'posthog',
     grant: credentials as LoginGrant,
     persistence,

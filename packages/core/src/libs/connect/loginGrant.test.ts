@@ -2,10 +2,13 @@ import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+// The server's env app, for every vendor: what a login made before workspace
+// login apps refreshes with. A test that needs the workspace's own app saves one.
+vi.mock('./serverClients', () => ({ serverLoginClient: (provider: string) => ({ clientId: `${provider}_server_client`, clientSecret: 'server_secret', owner: 'server' }) }));
 
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, knowledgeSourceSchema } = await import('@/models/Schema');
-const { storeLoginCredential, updateLoginCredentialValues } = await import('@/services/ApiTokenService');
+const { storeLoginCredential, storePlatformKey, updateLoginCredentialValues } = await import('@/services/ApiTokenService');
 const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
 const { testConnectionPersistence, usableLoginGrant } = await import('./loginGrant');
 const { TokenRequestError } = await import('./tokenRequest');
@@ -93,6 +96,7 @@ type ExpiringGrant = { accessToken: string; refreshToken: string; expiresAt: str
 function callerOn(seeded: { orgId: string; sourceId: number }, grant: ExpiringGrant, vendor: { ms: number; refreshedFrom: string[] }) {
   return usableLoginGrant({
     vendor: 'Zoom',
+    provider: 'zoom',
     connectorSlug: 'hubspot',
     grant,
     persistence: { kind: 'persist', orgId: seeded.orgId, sourceId: seeded.sourceId, warn: () => {} },
@@ -114,6 +118,7 @@ describe('a sync on an expiring login', () => {
 
     const usable = await usableLoginGrant({
       vendor: 'HubSpot',
+      provider: 'hubspot',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -136,6 +141,7 @@ describe('a sync on an expiring login', () => {
 
     const usable = await usableLoginGrant({
       vendor: 'HubSpot',
+      provider: 'hubspot',
       connectorSlug: 'hubspot',
       grant: loadedEarlier,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -157,6 +163,7 @@ describe('a sync on an expiring login', () => {
 
     const usable = await usableLoginGrant({
       vendor: 'HubSpot',
+      provider: 'hubspot',
       connectorSlug: 'hubspot',
       grant: { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED },
       persistence: { kind: 'persist', orgId, sourceId, warn: message => warnings.push(message) },
@@ -178,6 +185,7 @@ describe('a sync on an expiring login', () => {
 
     const failure = await usableLoginGrant({
       vendor: 'Apollo',
+      provider: 'apollo',
       connectorSlug: 'apollo',
       grant: { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED },
       persistence: testConnectionPersistence('apollo', { orgId, sourceId }),
@@ -203,6 +211,7 @@ describe('a sync on an expiring login', () => {
 
     const usable = await usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'hubspot',
       grant: { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED },
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -222,6 +231,7 @@ describe('a sync on an expiring login', () => {
 
     const usable = await usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'hubspot',
       grant: { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED },
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -242,6 +252,7 @@ describe('a sync on an expiring login', () => {
 
     const failure = await usableLoginGrant({
       vendor: 'HubSpot',
+      provider: 'hubspot',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -262,6 +273,7 @@ describe('a sync on an expiring login', () => {
 
     await expect(usableLoginGrant({
       vendor: 'HubSpot',
+      provider: 'hubspot',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'never' },
@@ -282,6 +294,7 @@ describe('a sync on an expiring login', () => {
 
     await expect(usableLoginGrant({
       vendor: 'HubSpot',
+      provider: 'hubspot',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -300,6 +313,7 @@ describe('a sync on an expiring login', () => {
 
     const failure = await usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'zoom',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -319,6 +333,7 @@ describe('a sync on an expiring login', () => {
 
     const failure = await usableLoginGrant({
       vendor: 'HubSpot',
+      provider: 'hubspot',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -371,6 +386,7 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
 
     await expect(usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -391,6 +407,7 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
 
     const pending = usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -414,6 +431,7 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
 
     const pending = usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -436,6 +454,7 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
 
     await expect(usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'hubspot',
       grant,
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
@@ -447,5 +466,67 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
     })).rejects.toThrow('Zoom could not refresh the login just now (http_503).');
 
     expect(await refreshClaimOn(tokenId)).toBeNull();
+  });
+});
+
+describe('the app a refresh runs on', () => {
+  it('a login made on the workspace\'s own login app is refreshed on that app, not the server\'s, since its refresh token only works with that client', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED, loginClientId: 'ws_hubspot_client' };
+    const { orgId, sourceId } = await seedSourceOnLogin(grant);
+    await storePlatformKey({ orgId, name: 'Our HubSpot app', platform: 'hubspot-login-app', values: { clientId: 'ws_hubspot_client', clientSecret: 'ws_hubspot_secret' } });
+    const handed: Array<string | undefined> = [];
+
+    const usable = await usableLoginGrant({
+      vendor: 'HubSpot',
+      provider: 'hubspot',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async (_refreshToken, client) => {
+        handed.push(client?.clientSecret);
+        return { accessToken: 'a2', refreshToken: 'r2', expiresAt: LATER };
+      },
+      now: NOW,
+    });
+
+    expect(handed).toEqual(['ws_hubspot_secret']);
+    expect(usable).toMatchObject({ accessToken: 'a2', loginClientId: 'ws_hubspot_client' });
+  });
+
+  it('a login whose login app the workspace replaced says to log in again, never refreshes on the new app, and leaves the saved login as it was', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED, loginClientId: 'ws_hubspot_client_old' };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+    await storePlatformKey({ orgId, name: 'Our HubSpot app', platform: 'hubspot-login-app', values: { clientId: 'ws_hubspot_client_new', clientSecret: 'ws_hubspot_secret_new' } });
+    const refresh = vi.fn();
+
+    await expect(usableLoginGrant({
+      vendor: 'HubSpot',
+      provider: 'hubspot',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh,
+      now: NOW,
+    })).rejects.toThrow('This HubSpot login was made with a HubSpot login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with HubSpot again on the Connectors page.');
+    expect(refresh).not.toHaveBeenCalled();
+    expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
+  });
+
+  it('a refused workspace login app points at the Developers page, where it was saved, not at the server', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED, loginClientId: 'ws_hubspot_client' };
+    const { orgId, sourceId } = await seedSourceOnLogin(grant);
+    await storePlatformKey({ orgId, name: 'Our HubSpot app', platform: 'hubspot-login-app', values: { clientId: 'ws_hubspot_client', clientSecret: 'ws_hubspot_secret' } });
+
+    await expect(usableLoginGrant({
+      vendor: 'HubSpot',
+      provider: 'hubspot',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async () => {
+        throw new TokenRequestError('HubSpot', 'invalid_client', 401);
+      },
+      now: NOW,
+    })).rejects.toThrow('HubSpot refused this workspace\'s HubSpot login app (invalid_client), so logging in again will not help. An admin needs to check its client ID and secret on the Developers page.');
   });
 });

@@ -138,8 +138,12 @@ export async function postTokenRequest(input: {
  */
 export type RefusalFix = 'log-in-again' | 'check-server-client' | 'try-later';
 
-/** Answers that mean the person's grant is gone. */
-const GRANT_IS_GONE = new Set(['invalid_grant', 'access_denied', 'http_400', 'http_401', 'http_403']);
+/**
+ * Answers that mean the person's grant is gone. `login_app_changed` is ours,
+ * not a vendor's: the workspace replaced or removed the login app the grant
+ * was issued to, so only a new login on the current app can fix it.
+ */
+const GRANT_IS_GONE = new Set(['invalid_grant', 'access_denied', 'http_400', 'http_401', 'http_403', 'login_app_changed']);
 
 /**
  * Answers that mean the OAuth client is the problem, not the person's grant:

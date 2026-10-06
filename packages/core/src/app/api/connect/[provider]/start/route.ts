@@ -14,12 +14,15 @@ import type { NextRequest } from 'next/server';
 import type { ConnectProvider } from '@/libs/connect/provider';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { loginClientForNewLogin } from '@/libs/connect/loginClient';
 import { providerFor, providerForConnector } from '@/libs/connect/registry';
 import { safeReturnPath } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { pkceChallengeFor, pkceVerifierFor, signState } from '@/libs/connect/state';
 import { Env } from '@/libs/Env';
+import { logger } from '@/libs/Logger';
+import { loginAppPlatformFor } from '@/libs/platforms/registry';
 
 type StartTarget
   = | { ok: true; connectorSlug: string; sourceSlug?: string }
@@ -85,9 +88,21 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   if (!target.ok) {
     return NextResponse.json({ error: target.error }, { status: target.status });
   }
-  if (!provider.configured()) {
+  // The app the login runs on: the workspace's own login app, else the server's.
+  let client;
+  try {
+    client = await loginClientForNewLogin(orgId, provider.id);
+  } catch (error) {
+    logger.error('[connect] the workspace login app could not be read', { orgId, provider: provider.id, errorName: error instanceof Error ? error.name : 'unknown' });
     return NextResponse.json(
-      { error: `Connecting with ${provider.label} needs ${provider.requiredEnv.join(', ')} on the server.` },
+      { error: `The saved ${provider.label} login app could not be read. An admin needs to save it again on the Developers page.` },
+      { status: 500 },
+    );
+  }
+  if (!client && !provider.configured()) {
+    const bringYourOwn = loginAppPlatformFor(provider.id) ? `, or a ${provider.label} login app saved on the Developers page` : '';
+    return NextResponse.json(
+      { error: `Connecting with ${provider.label} needs ${provider.requiredEnv.join(', ')} on the server${bringYourOwn}.` },
       { status: 400 },
     );
   }
@@ -114,5 +129,5 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     ...card,
   });
   const codeChallenge = provider.pkce ? pkceChallengeFor(pkceVerifierFor(state)) : undefined;
-  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id), connector: target.connectorSlug, ...(codeChallenge ? { codeChallenge } : {}) }), 302);
+  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id), connector: target.connectorSlug, ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);
 }

@@ -14,20 +14,28 @@ vi.mock('@/libs/DB');
 const providerSetup = vi.hoisted(() => ({ unconfigured: new Set<string>() }));
 
 /**
- * The connect option as this test's server has it.
+ * The connect option as this test's server has it: the server's env app is
+ * this test's to give or take away, and a workspace's own saved login app
+ * still counts, read from the store as it really is.
+ * @param orgId - The workspace being offered the connection.
  * @param option - The real option.
  */
-function setUpForTest(option: ReturnType<typeof connectOptionFor>): ReturnType<typeof connectOptionFor> {
-  return option && { ...option, configured: !providerSetup.unconfigured.has(option.provider) };
+async function setUpForTest(orgId: string, option: Awaited<ReturnType<typeof connectOptionFor>>): Promise<Awaited<ReturnType<typeof connectOptionFor>>> {
+  if (!option) {
+    return null;
+  }
+  const { workspaceLoginClient } = await import('@/libs/connect/loginClient');
+  const serverHasApp = !providerSetup.unconfigured.has(option.provider);
+  return { ...option, configured: serverHasApp || (await workspaceLoginClient(orgId, option.provider)) !== null };
 }
 
 vi.mock('@/libs/connect/registry', async (importOriginal) => {
   const real = await importOriginal<typeof RealRegistry>();
-  return { ...real, connectOptionFor: (slug: string) => setUpForTest(real.connectOptionFor(slug)) };
+  return { ...real, connectOptionFor: async (orgId: string, slug: string) => setUpForTest(orgId, await real.connectOptionFor(orgId, slug)) };
 });
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
-const { storeLoginCredential } = await import('@/services/ApiTokenService');
+const { revokeToken, storeLoginCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const { recordConnectAttempt } = await import('@/libs/connect/attempts');
 const { connectHref, offerConnectionTool, pasteHref } = await import('./offerConnection');
 
@@ -108,6 +116,20 @@ describe('offer_connection', () => {
       expect(emit.mock.calls[0]![0].card.href).toBe(pasteHref('github', 7));
     } finally {
       providerSetup.unconfigured.delete('github');
+    }
+  });
+
+  it('a workspace that saved its own login app gets a login card even though the server has none, since the login runs on that app', async () => {
+    providerSetup.unconfigured.add('google');
+    const app = await storePlatformKey({ orgId: ORG, name: 'Our Google app', platform: 'google-login-app', values: { clientId: 'ws_google', clientSecret: 'ws_google_secret' } });
+    try {
+      const emit = vi.fn();
+      await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'gmail', why: 'x' });
+
+      expect(emit.mock.calls[0]![0].card.href.startsWith('/api/connect/google/start?connector=gmail')).toBe(true);
+    } finally {
+      await revokeToken(ORG, app.id);
+      providerSetup.unconfigured.delete('google');
     }
   });
 

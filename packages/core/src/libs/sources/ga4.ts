@@ -37,7 +37,7 @@ export const ga4Connector: SourceConnector<typeof ga4ConfigSchema> = {
   configSchema: ga4ConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = ga4ConfigSchema.parse(ctx.config);
-    const token = await resolveGoogleAccessToken(ctx.credentials);
+    const token = await resolveGoogleAccessToken(ctx.credentials, ctx.orgId);
     const startDate = ctx.since ? isoDate(ctx.since) : '30daysAgo';
     const res = await fetch(`${cfg.baseUrl}/properties/${cfg.propertyId}:runReport`, {
       method: 'POST',

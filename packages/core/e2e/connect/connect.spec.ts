@@ -106,6 +106,10 @@ const REFUSED_LOGIN = 'HubSpot would not refresh the login (invalid_grant). An a
 /** A made-up Granola key, saved on the Developers page and then shown on the Connectors form. */
 const GRANOLA_KEY = 'grn-e2e-not-a-real-key-0002';
 
+/** A made-up HubSpot login app, saved on Developers. Nothing sends it anywhere: the login it starts is checked, never opened. */
+const HUBSPOT_APP_CLIENT_ID = 'e2e-hubspot-app-client';
+const HUBSPOT_APP_SECRET = 'e2e-not-a-real-secret-0003';
+
 /**
  * Whether the workspace's HubSpot source reads as connected, the way the
  * Connectors page reads it.
@@ -266,6 +270,45 @@ test('a key saved on Developers: the Connectors form shows only its tail until S
 
   await expect(stored).toHaveText(`Saved key · ••••${GRANOLA_KEY.slice(-4)}`);
   expect(await page.content()).not.toContain(GRANOLA_KEY);
+});
+
+test('a HubSpot login app saved on Developers: with no HubSpot app on the server, the connect dialog now offers the login, and it starts on the workspace\'s client', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/dashboard/developers');
+
+  await expect.poll(() => credentialFormOpened(page), { timeout: 30_000 }).toBe(true);
+
+  await page.getByLabel('Platform', { exact: true }).selectOption('hubspot-login-app');
+
+  // The vendor has to be told this server's callback, so the form shows the exact URL.
+  await expect(page.getByText(/\/api\/connect\/hubspot\/callback$/)).toBeVisible();
+
+  await page.getByLabel('Name').fill('Northwind HubSpot app');
+  await page.getByLabel('Client ID', { exact: true }).fill(HUBSPOT_APP_CLIENT_ID);
+  await page.getByLabel('Client secret', { exact: true }).fill(HUBSPOT_APP_SECRET);
+  await page.getByRole('button', { name: 'Save key' }).click();
+
+  await expect(page.getByRole('row').filter({ hasText: 'Northwind HubSpot app' })).toBeVisible();
+  expect(await page.content()).not.toContain(HUBSPOT_APP_SECRET);
+
+  // Until now HubSpot offered paste only (no app on this server); the HubSpot
+  // row still carries the refused login from the case above, so it offers Reconnect.
+  await page.goto('/dashboard/connectors');
+  await page.getByRole('button', { name: 'Reconnect' }).click();
+  const login = page.getByRole('link', { name: 'Connect with HubSpot' });
+
+  await expect(login).toBeVisible();
+
+  // Ask our own start route where it sends the person, without going there,
+  // so no real vendor is reached.
+  const start = await page.request.get((await login.getAttribute('href'))!, { maxRedirects: 0 });
+
+  expect(start.status()).toBe(302);
+
+  const vendor = new URL(start.headers().location!);
+
+  expect(vendor.host).toBe('app.hubspot.com');
+  expect(vendor.searchParams.get('client_id')).toBe(HUBSPOT_APP_CLIENT_ID);
 });
 
 test('Slack from the Connectors page: the login makes the source itself and the add form does not reopen', async ({ page }) => {

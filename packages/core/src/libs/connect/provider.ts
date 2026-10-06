@@ -1,3 +1,4 @@
+import type { LoginClient } from './serverClients';
 import type { RawCredentials } from '@/services/SourceCredentialService';
 
 /**
@@ -46,17 +47,20 @@ export type ConnectProvider = {
    * The vendor URL to send the person to. `state` is the opaque signed state
    * (already base64url); `redirectUri` is this deployment's callback for the
    * provider; `connector` is the connector the login is for, so a provider
-   * serving several (Google) asks only for that connector's access. Never
-   * logs any of them.
+   * serving several (Google) asks only for that connector's access. `client`
+   * is the app the login runs on (`loginClient.ts`: the workspace's own, else
+   * the server's); a provider that takes a client ID and secret falls back to
+   * the server's env app when it is left out. Never logs any of them.
    */
-  authorizeUrl: (input: { state: string; redirectUri: string; connector: string; codeChallenge?: string }) => string;
+  authorizeUrl: (input: { state: string; redirectUri: string; connector: string; codeChallenge?: string; client?: LoginClient }) => string;
   /**
    * Turn the callback's query into the credential bag to store, or a refusal.
    * `query` is every query param of the callback request. Vendors differ:
    * Slack/Atlassian carry `code`; GitHub carries `installation_id` + `setup_action`;
    * Sentry carries `code` + `installationId`. `codeVerifier` is set when `pkce` is.
+   * `client` is the same app `authorizeUrl` sent the person to.
    */
-  exchange: (input: { query: Record<string, string>; redirectUri: string; codeVerifier?: string }) => Promise<
+  exchange: (input: { query: Record<string, string>; redirectUri: string; codeVerifier?: string; client?: LoginClient }) => Promise<
     | { ok: true; credentials: RawCredentials; displayName: string }
     | { ok: false; reason: string }
   >;

@@ -112,6 +112,7 @@ export async function resolveZoomAccess(input: {
   if (isLoginGrant(input.credentials)) {
     const grant = await usableLoginGrant({
       vendor: 'Zoom',
+      provider: 'zoom',
       connectorSlug: 'zoom',
       grant: input.credentials,
       persistence: input.persistence,

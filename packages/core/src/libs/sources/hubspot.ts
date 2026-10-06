@@ -240,7 +240,7 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
  */
 export async function resolveHubspotToken(credentials: Record<string, unknown> | undefined, persistence: GrantPersistence): Promise<string> {
   if (isLoginGrant(credentials)) {
-    const grant = await usableLoginGrant({ vendor: 'HubSpot', connectorSlug: 'hubspot', grant: credentials, persistence, refresh: refreshHubspotGrant });
+    const grant = await usableLoginGrant({ vendor: 'HubSpot', provider: 'hubspot', connectorSlug: 'hubspot', grant: credentials, persistence, refresh: refreshHubspotGrant });
     return grant.accessToken;
   }
   const token = tokenFromCredentials(credentials);

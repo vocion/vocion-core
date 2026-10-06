@@ -16,12 +16,16 @@
  * rotated refresh token it could not save would strand the stored one.
  */
 
+import type { ConnectProviderId } from './provider';
+import type { LoginClient } from './serverClients';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
+import { loginAppPlatformFor } from '@/libs/platforms/registry';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { claimLoginRefresh, releaseLoginRefresh, updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
+import { LOGIN_CLIENT_ID_KEY, loginClientForGrant } from './loginClient';
 import { refusalFix, TokenRequestError } from './tokenRequest';
 
 export type LoginGrant = Record<string, unknown> & { accessToken: string; refreshToken: string; expiresAt: string };
@@ -29,8 +33,13 @@ export type LoginGrant = Record<string, unknown> & { accessToken: string; refres
 /** What a vendor's refresh returns. A vendor that keeps the same refresh token returns the one it was given. */
 export type RefreshedTokens = { accessToken: string; refreshToken: string; expiresAt: string; scope?: string };
 
-/** Mints new tokens from a refresh token, or throws `TokenRequestError`. */
-export type GrantRefresher = (refreshToken: string) => Promise<RefreshedTokens>;
+/**
+ * Mints new tokens from a refresh token, or throws `TokenRequestError`.
+ * `client` is the app the login was issued to (`loginClientForGrant`), for a
+ * vendor whose login is a client ID and secret; left out for one whose is
+ * not (PostHog).
+ */
+export type GrantRefresher = (refreshToken: string, client?: LoginClient) => Promise<RefreshedTokens>;
 
 /**
  * What a caller does with a rotated token: save it (a sync, an agent tool,
@@ -233,6 +242,7 @@ async function letGoOfRefresh(orgId: string, tokenId: string, claimedUntil: Date
  * needs a new login.
  * @param input - The grant, the vendor and where to save.
  * @param input.vendor - The vendor's name, for messages: "HubSpot".
+ * @param input.provider - The connect provider whose app the login ran on.
  * @param input.connectorSlug - The source's connector.
  * @param input.grant - The grant this run loaded.
  * @param input.persistence - The sync's org, source and warning channel.
@@ -242,6 +252,7 @@ async function letGoOfRefresh(orgId: string, tokenId: string, claimedUntil: Date
  */
 export async function refreshLoginGrant(input: {
   vendor: string;
+  provider: ConnectProviderId;
   connectorSlug: string;
   grant: LoginGrant;
   persistence: Extract<GrantPersistence, { kind: 'persist' }>;
@@ -284,6 +295,7 @@ export async function refreshLoginGrant(input: {
  * loses uses the winner's grant.
  * @param input - As `refreshLoginGrant`, with the saved login read under the turn.
  * @param input.vendor - The vendor's name, for messages.
+ * @param input.provider - The connect provider whose app the login ran on.
  * @param input.connectorSlug - The source's connector.
  * @param input.grant - The grant this run loaded.
  * @param input.persistence - The sync's org, source and warning channel.
@@ -293,6 +305,7 @@ export async function refreshLoginGrant(input: {
  */
 async function refreshAndSave(input: {
   vendor: string;
+  provider: ConnectProviderId;
   connectorSlug: string;
   grant: LoginGrant;
   persistence: Extract<GrantPersistence, { kind: 'persist' }>;
@@ -304,14 +317,19 @@ async function refreshAndSave(input: {
   const base = input.stored?.grant ?? input.grant;
   const parentRefreshToken = base.refreshToken;
   let fresh: RefreshedTokens;
+  let client: LoginClient | undefined;
   try {
-    fresh = await input.refresh(parentRefreshToken);
+    // A refresh token only works with the app it was issued to: find that one.
+    client = loginAppPlatformFor(input.provider)
+      ? await loginClientForGrant({ orgId, provider: input.provider, vendor: input.vendor, loginClientId: base[LOGIN_CLIENT_ID_KEY] })
+      : undefined;
+    fresh = await input.refresh(parentRefreshToken, client);
   } catch (error) {
     const winner = await grantSavedByAnotherRun({ orgId, sourceId, connectorSlug: input.connectorSlug, parentRefreshToken, now: input.now });
     if (winner) {
       return winner;
     }
-    throw refreshFailure(input.vendor, input.connectorSlug, orgId, error);
+    throw refreshFailure({ vendor: input.vendor, connectorSlug: input.connectorSlug, orgId, error, clientOwner: client?.owner ?? 'server' });
   }
   const next: LoginGrant = {
     ...base,
@@ -372,20 +390,29 @@ async function grantSavedByAnotherRun(input: { orgId: string; sourceId: number; 
  * vendor that did not answer (a timeout, a 5xx) says to try
  * again later, so nobody re-authorizes a good login over an outage. Worded for
  * a sync and a chat tool alike, since both refresh through here.
- * @param vendor - The vendor's name, for the sentence.
- * @param connectorSlug - The source's connector, for the log line.
- * @param orgId - The workspace, for the log line.
- * @param error - What the refresh threw.
+ * @param input - What failed and where.
+ * @param input.vendor - The vendor's name, for the sentence.
+ * @param input.connectorSlug - The source's connector, for the log line.
+ * @param input.orgId - The workspace, for the log line.
+ * @param input.error - What the refresh threw.
+ * @param input.clientOwner - Whose app the refresh ran on, since a refused workspace app is fixed on the Developers page and a refused server app on the server.
  */
-function refreshFailure(vendor: string, connectorSlug: string, orgId: string, error: unknown): Error {
+function refreshFailure(input: { vendor: string; connectorSlug: string; orgId: string; error: unknown; clientOwner: LoginClient['owner'] }): Error {
+  const { vendor, connectorSlug, orgId, error } = input;
   const code = error instanceof TokenRequestError ? error.code : 'unknown';
   const fix = error instanceof TokenRequestError ? refusalFix(error) : 'try-later';
   logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, fix, errorName: error instanceof Error ? error.name : 'unknown' });
+  if (code === 'login_app_changed') {
+    return new Error(`This ${vendor} login was made with a ${vendor} login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with ${vendor} again on the Connectors page.`);
+  }
   if (fix === 'log-in-again') {
     return new Error(`${vendor} would not refresh the login (${code}). An admin needs to log in with ${vendor} again on the Connectors page.`);
   }
   if (fix === 'check-server-client' && code === 'not_configured') {
     return new Error(`The ${vendor} app is no longer set up on this server (${code}), so the login cannot be refreshed and logging in again will not help. An admin needs to set the ${vendor} app up on the server again.`);
+  }
+  if (fix === 'check-server-client' && input.clientOwner === 'workspace') {
+    return new Error(`${vendor} refused this workspace's ${vendor} login app (${code}), so logging in again will not help. An admin needs to check its client ID and secret on the Developers page.`);
   }
   if (fix === 'check-server-client') {
     return new Error(`${vendor} refused this server's OAuth client (${code}), so logging in again will not help. An admin needs to check the ${vendor} client ID and secret set on the server.`);
@@ -443,6 +470,7 @@ export function renewedLoginNote(vendor: string): string {
  * save (`persistence.kind === 'never'`) gets a sentence instead of a refresh.
  * @param input - The grant, the vendor and where a refresh would be saved.
  * @param input.vendor - The vendor's name, for messages.
+ * @param input.provider - The connect provider whose app the login ran on.
  * @param input.connectorSlug - The source's connector.
  * @param input.grant - The grant this run loaded.
  * @param input.persistence - Save (a sync) or never refresh (Test connection).
@@ -452,6 +480,7 @@ export function renewedLoginNote(vendor: string): string {
  */
 export async function usableLoginGrant(input: {
   vendor: string;
+  provider: ConnectProviderId;
   connectorSlug: string;
   grant: LoginGrant;
   persistence: GrantPersistence;
@@ -465,5 +494,5 @@ export async function usableLoginGrant(input: {
   if (input.persistence.kind === 'never') {
     throw new Error(`The ${input.vendor} access token has expired, and only a saved connector can renew it, because the new token has to be kept. Save the connector if it is new, then press Sync now on its row on the Connectors page, or Test connection where the row shows that instead; both renew the login.`);
   }
-  return refreshLoginGrant({ vendor: input.vendor, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh, now: input.now, wait: input.wait });
+  return refreshLoginGrant({ vendor: input.vendor, provider: input.provider, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh, now: input.now, wait: input.wait });
 }

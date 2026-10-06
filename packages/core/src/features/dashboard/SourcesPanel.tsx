@@ -777,7 +777,9 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                     {' '}
                     <span className="font-mono">{connect.requiredEnv.join(', ')}</span>
                     {' '}
-                    on the server. Until then, paste a token below.
+                    on the server
+                    {connect.bringYourOwnApp ? `, or a ${connect.label} login app an admin saves on the Developers page` : ''}
+                    . Until then, paste a token below.
                   </p>
                 )
               : null}
@@ -2493,6 +2495,8 @@ type ConnectOption = {
   label: string;
   configured: boolean;
   requiredEnv: string[];
+  /** Whether a workspace may save its own login app for this vendor; absent from an older server. */
+  bringYourOwnApp?: boolean;
 };
 
 /**

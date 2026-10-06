@@ -65,7 +65,7 @@ function check(key: string, label: string, ok: boolean, detail: string | null): 
  */
 export async function resolveApolloAuth(credentials: Record<string, unknown> | undefined, persistence: GrantPersistence): Promise<ApolloAuth | null> {
   if (isLoginGrant(credentials)) {
-    const grant = await usableLoginGrant({ vendor: 'Apollo', connectorSlug: 'apollo', grant: credentials, persistence, refresh: refreshApolloGrant });
+    const grant = await usableLoginGrant({ vendor: 'Apollo', provider: 'apollo', connectorSlug: 'apollo', grant: credentials, persistence, refresh: refreshApolloGrant });
     return { accessToken: grant.accessToken };
   }
   const apiKey = keyFromCredentials(credentials);

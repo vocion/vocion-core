@@ -29,4 +29,14 @@ describe('the connect outcome the callback writes into the URL', () => {
     expect(connectOutcomeMessage({ ok: true, source: 'slack' }))
       .toContain('Connected slack.');
   });
+
+  it('tells an admin where to fix a vendor that refused the client ID or secret', () => {
+    expect(connectOutcomeMessage({ ok: false, reason: 'invalid_client', source: 'slack' }))
+      .toBe('Could not connect slack: The vendor refused the app\'s client ID or secret. An admin needs to check the login app on the Developers page, or the client set on the server.');
+  });
+
+  it('tells an admin to save the login app again when the stored one cannot be read', () => {
+    expect(connectOutcomeMessage({ ok: false, reason: 'login_app_unreadable', source: null }))
+      .toBe('Could not connect: The saved login app for this vendor could not be read, so nothing was connected. An admin needs to save it again on the Developers page.');
+  });
 });

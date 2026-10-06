@@ -8,7 +8,8 @@ approve at the vendor, and come back with the credential stored. Nothing is
 pasted and the token never crosses the browser.
 
 The mechanism is one pair of routes and one descriptor per vendor. This guide
-is the mechanism; each vendor's guide says what to create on its side.
+is the mechanism; [login-apps.md](login-apps.md) says what to create at each
+vendor and where its client ID and secret go.
 
 ## What a person sees
 
@@ -89,8 +90,17 @@ person clicks Connect with Slack
   and says to save the connector and renew from its row. Jira's Atlassian
   grant is never refreshed by a test.
 - **Only when set up.** The Connectors form and the chat card offer a login
-  only when the server holds that provider's app (its client ID). Otherwise
-  they offer paste alone, rather than a button that can only fail.
+  only when there is an app to run it on: the server's (its client ID in the
+  env) or the workspace's own login app, saved on Developers. Otherwise they
+  offer paste alone, rather than a button that can only fail.
+- **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom
+  and Apollo, a workspace admin can save the vendor's client ID and secret as
+  a `<provider>-login-app` credential (`libs/connect/loginClient.ts`). A new
+  login runs on it in preference to the server's. Each login records the
+  client ID it ran on (`loginClientId`), and every refresh finds that same app
+  again, since a refresh token only works with the client that issued it. A
+  login whose app was replaced or removed asks for a new login
+  (`login_app_changed`). Setup is in [login-apps.md](login-apps.md).
 - **A login that lacks a connector's access is not reused for it.** One
   Google login can serve Gmail, Drive, Calendar and Analytics, but only for
   the scopes it was granted. Keeping a Drive login for Gmail is refused with a
@@ -131,7 +141,8 @@ forwarded host of the request.
 | `apollo` | `apollo` | `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET` | `/api/connect/apollo/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
-connector keeps its paste form.
+connector keeps its paste form. Step-by-step setup for each vendor's app is in
+[login-apps.md](login-apps.md).
 
 Before going live with each vendor:
 

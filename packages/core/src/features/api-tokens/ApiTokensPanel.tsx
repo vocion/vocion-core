@@ -82,6 +82,8 @@ type PlatformOption = {
   credentialsPerOrg: 'one-live' | 'many';
   keyShapeHint: string;
   helpText: string;
+  /** For a login app: the callback to register at the vendor. Null otherwise; absent from an older server. */
+  redirectUrl?: string | null;
   fields: PlatformField[];
 };
 
@@ -795,6 +797,13 @@ export function ApiTokensPanel() {
                 <p className="text-xs text-muted-foreground">
                   {selectedPlatform?.helpText}
                 </p>
+                {selectedPlatform?.redirectUrl && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>Redirect URL to register at the vendor:</span>
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono break-all text-foreground">{selectedPlatform.redirectUrl}</code>
+                    <CopyValueButton value={selectedPlatform.redirectUrl} label="redirect URL" />
+                  </div>
+                )}
                 {!isMinted && !existingKey && (
                   <p className="text-xs text-muted-foreground">
                     {holdsManyCredentials

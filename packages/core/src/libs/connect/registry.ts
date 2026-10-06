@@ -5,6 +5,8 @@
  */
 
 import type { ConnectProvider } from './provider';
+import { loginAppPlatformFor } from '@/libs/platforms/registry';
+import { loginOffered } from './loginClient';
 import { apolloProvider } from './providers/apollo';
 import { atlassianProvider } from './providers/atlassian';
 import { githubProvider } from './providers/github';
@@ -55,15 +57,20 @@ export function providerForConnector(connectorSlug: string): ConnectProvider | n
 
 /**
  * What the browser may know about a connector's connect option: enough to
- * draw the button or say what the server is missing, never an env value.
+ * draw the button or say what is missing, never an env value or a client.
+ * `configured` is true when the server's env or the workspace's own login app
+ * (`loginOffered`) sets the login up; `bringYourOwnApp` says whether a
+ * workspace may save its own app for this vendor at all.
+ * @param orgId - The workspace being shown the option.
  * @param connectorSlug - A source's connector slug.
  */
-export function connectOptionFor(connectorSlug: string): {
+export async function connectOptionFor(orgId: string, connectorSlug: string): Promise<{
   provider: ConnectProvider['id'];
   label: string;
   configured: boolean;
   requiredEnv: readonly string[];
-} | null {
+  bringYourOwnApp: boolean;
+} | null> {
   const provider = providerForConnector(connectorSlug);
   if (!provider) {
     return null;
@@ -71,7 +78,8 @@ export function connectOptionFor(connectorSlug: string): {
   return {
     provider: provider.id,
     label: provider.label,
-    configured: provider.configured(),
+    configured: await loginOffered(orgId, provider),
     requiredEnv: provider.requiredEnv,
+    bringYourOwnApp: loginAppPlatformFor(provider.id) !== null,
   };
 }

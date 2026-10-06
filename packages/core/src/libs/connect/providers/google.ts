@@ -12,9 +12,10 @@
  */
 
 import type { ConnectProvider } from '../provider';
-import { Env } from '@/libs/Env';
+import type { LoginClient } from '../serverClients';
 import { logger } from '@/libs/Logger';
 import { grantExpiresAt } from '../loginGrant';
+import { serverLoginClient } from '../serverClients';
 import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -44,11 +45,13 @@ const CONNECTOR_NAMES: Record<string, string> = {
   'ga4': 'Google Analytics',
 };
 
-/** The OAuth client of this deployment, or null when either half is unset. */
-function googleClient(): { clientId: string; clientSecret: string } | null {
-  const clientId = Env.GOOGLE_OAUTH_CLIENT_ID;
-  const clientSecret = Env.GOOGLE_OAUTH_CLIENT_SECRET;
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+/**
+ * The Google app a login or refresh runs on: the one the caller chose
+ * (`libs/connect/loginClient.ts`), else this server's env app, else null.
+ * @param chosen - The app the caller resolved, if it did.
+ */
+function googleClient(chosen?: LoginClient): LoginClient | null {
+  return chosen ?? serverLoginClient('google');
 }
 
 /**
@@ -92,8 +95,8 @@ export const googleProvider: ConnectProvider = {
   requiredEnv: ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'],
   configured: () => googleClient() !== null,
 
-  authorizeUrl({ state, redirectUri, connector }) {
-    const client = googleClient();
+  authorizeUrl({ state, redirectUri, connector, client: chosen }) {
+    const client = googleClient(chosen);
     if (!client) {
       throw new Error('Google OAuth is not configured — set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET.');
     }
@@ -114,7 +117,7 @@ export const googleProvider: ConnectProvider = {
     return url.toString();
   },
 
-  async exchange({ query, redirectUri }) {
+  async exchange({ query, redirectUri, client: chosen }) {
     if (query.error) {
       return { ok: false, reason: SAFE_ERROR_CODE.test(query.error) ? query.error : 'login_refused' };
     }
@@ -122,7 +125,7 @@ export const googleProvider: ConnectProvider = {
     if (!code) {
       return { ok: false, reason: 'missing_code' };
     }
-    const client = googleClient();
+    const client = googleClient(chosen);
     if (!client) {
       return { ok: false, reason: 'not_configured' };
     }

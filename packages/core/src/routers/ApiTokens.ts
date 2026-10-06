@@ -28,6 +28,7 @@
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, DEFAULT_PLATFORM_ID, isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
 import { issueToken, listTokens, revealPlatformCredential, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
@@ -139,6 +140,7 @@ export const revokeTokenRoute = os
  */
 export const listPlatformsRoute = os.handler(async () => {
   await guardAuth();
+  const origin = connectOrigin();
   return listPlatforms().map(platform => ({
     id: platform.id,
     label: platform.label,
@@ -149,6 +151,10 @@ export const listPlatformsRoute = os.handler(async () => {
     credentialsPerOrg: platform.credentialsPerOrg,
     keyShapeHint: platform.keyShapeHint,
     helpText: platform.helpText,
+    // A login app has to be registered at the vendor with this server's
+    // callback, so the form shows the exact URL to copy. Null for every other
+    // platform, and when the server has no NEXT_PUBLIC_APP_URL to build it from.
+    redirectUrl: platform.loginAppFor && origin ? callbackUri(origin, platform.loginAppFor) : null,
     // RegExp does not survive the wire, so the form gets the human hint and
     // the server stays the only place the shape is actually enforced.
     fields: platform.fields.map(field => ({

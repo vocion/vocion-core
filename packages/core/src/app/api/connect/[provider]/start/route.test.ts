@@ -6,6 +6,8 @@ vi.mock('@/libs/connect/sources', () => ({ findSourceBySlug: vi.fn() }));
 vi.mock('@/libs/connect/state', () => ({ signState: vi.fn(() => 'signed.state') }));
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
+// The workspace's own login app, when a test saves one; none by default.
+vi.mock('@/libs/connect/loginClient', () => ({ loginClientForNewLogin: vi.fn(async () => null) }));
 
 const configured = { value: true };
 vi.mock('@/libs/connect/registry', () => {
@@ -15,8 +17,8 @@ vi.mock('@/libs/connect/registry', () => {
     label: 'Slack',
     requiredEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
     configured: () => configured.value,
-    authorizeUrl: ({ state, redirectUri }: { state: string; redirectUri: string }) =>
-      `https://slack.com/oauth/v2/authorize?state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`,
+    authorizeUrl: ({ state, redirectUri, client }: { state: string; redirectUri: string; client?: { clientId: string } }) =>
+      `https://slack.com/oauth/v2/authorize?state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}${client ? `&client_id=${client.clientId}` : ''}`,
     exchange: vi.fn(),
   };
   return {
@@ -28,6 +30,7 @@ vi.mock('@/libs/connect/registry', () => {
 const { clerkAuth } = await import('@/libs/Auth');
 const { findSourceBySlug } = await import('@/libs/connect/sources');
 const { signState } = await import('@/libs/connect/state');
+const { loginClientForNewLogin } = await import('@/libs/connect/loginClient');
 const { GET } = await import('./route');
 
 const admin = {
@@ -91,15 +94,36 @@ describe('GET /api/connect/[provider]/start', () => {
     await expect(res.json()).resolves.toEqual({ error: 'kb-strapi is not a Slack source' });
   });
 
-  it('names the missing env vars when the server is not configured', async () => {
+  it('names the missing env vars, and the login app a workspace could save instead, when there is no app to log in with', async () => {
     configured.value = false;
 
     const res = await GET(request(), context());
 
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({
-      error: 'Connecting with Slack needs SLACK_CLIENT_ID, SLACK_CLIENT_SECRET on the server.',
+      error: 'Connecting with Slack needs SLACK_CLIENT_ID, SLACK_CLIENT_SECRET on the server, or a Slack login app saved on the Developers page.',
     });
+  });
+
+  it('with no app on the server but one saved by the workspace, the login starts on the workspace\'s client', async () => {
+    configured.value = false;
+    vi.mocked(loginClientForNewLogin).mockResolvedValueOnce({ clientId: 'ws_slack', clientSecret: 'ws_secret', owner: 'workspace' });
+
+    const res = await GET(request(), context());
+
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.get('location')!).searchParams.get('client_id')).toBe('ws_slack');
+    expect(loginClientForNewLogin).toHaveBeenCalledWith('org_1', 'slack');
+  });
+
+  it('a saved login app that cannot be read stops the login with the fix, rather than starting it on the server\'s app', async () => {
+    vi.mocked(loginClientForNewLogin).mockRejectedValueOnce(new Error('vault'));
+
+    const res = await GET(request(), context());
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'The saved Slack login app could not be read. An admin needs to save it again on the Developers page.' });
+    expect(signState).not.toHaveBeenCalled();
   });
 
   it('fails closed when the server cannot sign a state or name its own origin', async () => {

@@ -8,6 +8,8 @@ vi.mock('@/services/connect/completeLogin', () => ({ completeLogin: vi.fn(), rec
 vi.mock('@/services/connect/createSourceOnLogin', () => ({ createSourceWhenNoConfigNeeded: vi.fn(), loginMakesItsSource: (connector: string) => connector === 'slack' }));
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
+// The workspace's own login app, when a test saves one; none by default.
+vi.mock('@/libs/connect/loginClient', () => ({ LOGIN_CLIENT_ID_KEY: 'loginClientId', loginClientForNewLogin: vi.fn(async () => null) }));
 
 const exchange = vi.fn();
 const missingAccessFor = vi.fn((): string | null => null);
@@ -33,6 +35,7 @@ const { findSourceBySlug } = await import('@/libs/connect/sources');
 const { verifyState } = await import('@/libs/connect/state');
 const { approveLoginCard, completeLogin, recordFailedLogin } = await import('@/services/connect/completeLogin');
 const { createSourceWhenNoConfigNeeded } = await import('@/services/connect/createSourceOnLogin');
+const { loginClientForNewLogin } = await import('@/libs/connect/loginClient');
 const { GET } = await import('./route');
 
 const admin = {
@@ -135,6 +138,28 @@ describe('GET /api/connect/[provider]/callback', () => {
       query: { code: 'c0de', extra: '1' },
       redirectUri: 'https://agents.example/api/connect/slack/callback',
     });
+  });
+
+  it('a login on the workspace\'s own app trades the code with that app and stores its client ID, so a refresh can find the same app', async () => {
+    const workspaceApp = { clientId: 'ws_slack', clientSecret: 'ws_secret', owner: 'workspace' as const };
+    vi.mocked(loginClientForNewLogin).mockResolvedValueOnce(workspaceApp);
+
+    await GET(request(), context());
+
+    expect(exchange).toHaveBeenCalledWith(expect.objectContaining({ client: workspaceApp }));
+    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({
+      exchanged: { credentials: { token: 'xoxb-1', teamId: 'T1', loginClientId: 'ws_slack' }, displayName: 'Slack — Noco' },
+    }));
+  });
+
+  it('a saved login app that cannot be read lands with its own reason, trades nothing and stores nothing', async () => {
+    vi.mocked(loginClientForNewLogin).mockRejectedValueOnce(new Error('vault'));
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'login_app_unreadable' });
+    expect(exchange).not.toHaveBeenCalled();
+    expect(completeLogin).not.toHaveBeenCalled();
   });
 
   it('logs in for the connector, not the source row\'s own slug, and says so on the landing URL', async () => {

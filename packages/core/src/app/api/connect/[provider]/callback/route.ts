@@ -21,6 +21,7 @@ import type { NextRequest } from 'next/server';
 import type { ConnectProvider } from '@/libs/connect/provider';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { LOGIN_CLIENT_ID_KEY, loginClientForNewLogin } from '@/libs/connect/loginClient';
 import { providerFor } from '@/libs/connect/registry';
 import { returnUrl, withoutAddParam } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
@@ -194,11 +195,21 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       query[key] = value;
     }
   });
+  // The same app the start sent the person to: the workspace's own login app,
+  // else the server's. Its client ID is stored with the login, because a
+  // refresh token only works with the app that issued it.
+  let client;
+  try {
+    client = await loginClientForNewLogin(orgId, provider.id);
+  } catch (error) {
+    console.error('[connect] the workspace login app could not be read', { provider: provider.id, connector: connectorSlug, message: error instanceof Error ? error.name : 'unknown' });
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'login_app_unreadable', card, stateIssuedAt: issuedAt }, landing);
+  }
   let exchanged: Awaited<ReturnType<typeof provider.exchange>>;
   try {
     // The state verified above, so it is the string the start derived the PKCE challenge from.
     const codeVerifier = provider.pkce && rawState ? pkceVerifierFor(rawState) : undefined;
-    exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id), ...(codeVerifier ? { codeVerifier } : {}) });
+    exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id), ...(codeVerifier ? { codeVerifier } : {}), ...(client ? { client } : {}) });
   } catch (error) {
     // The vendor timed out, refused the connection or sent something unreadable. Nothing was stored.
     console.error('[connect] vendor exchange threw', {
@@ -222,7 +233,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   return storeAndLand(
     req,
     origin,
-    { orgId, userId, provider, connectorSlug, sourceSlug: source?.slug, exchanged: { credentials: exchanged.credentials, displayName: exchanged.displayName }, card },
+    { orgId, userId, provider, connectorSlug, sourceSlug: source?.slug, exchanged: { credentials: client ? { ...exchanged.credentials, [LOGIN_CLIENT_ID_KEY]: client.clientId } : exchanged.credentials, displayName: exchanged.displayName }, card },
     issuedAt,
     landing,
   );

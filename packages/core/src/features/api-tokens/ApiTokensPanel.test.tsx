@@ -243,6 +243,51 @@ describe('saving a second credential for a platform', () => {
   });
 });
 
+describe('the redirect URL a login app must register', () => {
+  const REDIRECT_URL = 'https://app.example.com/api/connect/slack/callback';
+  const SLACK_LOGIN_APP_PLATFORM = {
+    id: 'slack-login-app',
+    label: 'Slack login app',
+    keySource: 'supplied' as const,
+    credentialsPerOrg: 'one-live' as const,
+    keyShapeHint: 'a client ID and secret',
+    helpText: 'Your own Slack OAuth app.',
+    redirectUrl: REDIRECT_URL,
+    fields: [
+      { name: 'clientId', label: 'Client ID', shapeHint: 'any non-empty id', secret: false },
+      { name: 'clientSecret', label: 'Client secret', shapeHint: 'any non-empty secret', secret: true },
+    ],
+  };
+
+  /**
+   * Open the create form with the given platforms on offer and one selected.
+   * @param platforms - What `apiTokens.listPlatforms` answers with.
+   * @param selectedId - The platform to choose in the form.
+   */
+  async function openCreateForm(platforms: unknown[], selectedId: string) {
+    list.mockResolvedValue([tokenRow({})]);
+    listPlatforms.mockResolvedValue(platforms);
+    render(<ApiTokensPanel />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Add credential' }));
+    await userEvent.selectOptions(page.getByLabelText('Platform'), selectedId);
+  }
+
+  it('shows the exact URL to register at the vendor, with a copy button', async () => {
+    await openCreateForm([VOCION_PLATFORM, SLACK_LOGIN_APP_PLATFORM], 'slack-login-app');
+
+    await expect.element(page.getByText('Redirect URL to register at the vendor:')).toBeVisible();
+    await expect.element(page.getByText(REDIRECT_URL, { exact: true })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Copy redirect URL' })).toBeVisible();
+  });
+
+  it('shows no redirect line for a platform without one', async () => {
+    await openCreateForm([VOCION_PLATFORM, { ...OPENAI_PLATFORM, redirectUrl: null }], 'openai');
+
+    await expect.element(page.getByText('Redirect URL to register at the vendor:')).not.toBeInTheDocument();
+  });
+});
+
 describe('the show-revoked toggle', () => {
   it('asks for live rows only on first load', async () => {
     await renderWithRow(tokenRow({}));

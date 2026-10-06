@@ -9,7 +9,8 @@
  */
 
 import type { ConnectProvider } from '../provider';
-import { Env } from '@/libs/Env';
+import type { LoginClient } from '../serverClients';
+import { serverLoginClient } from '../serverClients';
 
 const AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize';
 const ACCESS_URL = 'https://slack.com/api/oauth.v2.access';
@@ -28,21 +29,34 @@ type AccessResponse = {
   team?: { id?: string; name?: string };
 };
 
+/**
+ * The Slack app a login runs on: the one the caller chose
+ * (`libs/connect/loginClient.ts`), else this server's env app, else null.
+ * @param chosen - The app the caller resolved, if it did.
+ */
+function slackApp(chosen?: LoginClient): LoginClient | null {
+  return chosen ?? serverLoginClient('slack');
+}
+
 export const slackProvider: ConnectProvider = {
   id: 'slack',
   connectorSlugs: ['slack'],
   label: 'Slack',
   requiredEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
-  configured: () => Boolean(Env.SLACK_CLIENT_ID && Env.SLACK_CLIENT_SECRET),
-  authorizeUrl: ({ state, redirectUri }) => {
+  configured: () => slackApp() !== null,
+  authorizeUrl: ({ state, redirectUri, client: chosen }) => {
+    const app = slackApp(chosen);
+    if (!app) {
+      throw new Error('Slack login is not set up: set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET, or save a Slack login app on the Developers page.');
+    }
     const url = new URL(AUTHORIZE_URL);
-    url.searchParams.set('client_id', Env.SLACK_CLIENT_ID ?? '');
+    url.searchParams.set('client_id', app.clientId);
     url.searchParams.set('scope', SLACK_SOURCE_SCOPES.join(','));
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);
     return url.toString();
   },
-  exchange: async ({ query, redirectUri }) => {
+  exchange: async ({ query, redirectUri, client: chosen }) => {
     if (query.error) {
       // Slack's own refusal, e.g. `access_denied` when the person cancels.
       return { ok: false, reason: query.error };
@@ -51,9 +65,13 @@ export const slackProvider: ConnectProvider = {
     if (!code) {
       return { ok: false, reason: 'missing_code' };
     }
+    const app = slackApp(chosen);
+    if (!app) {
+      return { ok: false, reason: 'not_configured' };
+    }
     const body = new URLSearchParams({
-      client_id: Env.SLACK_CLIENT_ID ?? '',
-      client_secret: Env.SLACK_CLIENT_SECRET ?? '',
+      client_id: app.clientId,
+      client_secret: app.clientSecret,
       code,
       redirect_uri: redirectUri,
     });

@@ -8,7 +8,7 @@
 
 import type { ConnectInfo } from '@/features/dashboard/ConnectByLogin';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
-import { connectOptionFor } from '@/libs/connect/registry';
+import { connectOptionFor, providerForConnector } from '@/libs/connect/registry';
 import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
 import { LOGIN_WITHOUT_TOKEN_HINT } from '@/services/ApiTokenService';
@@ -66,6 +66,27 @@ async function keepableCredential(orgId: string, connector: string, credential: 
   };
 }
 
+type ConnectOption = Awaited<ReturnType<typeof connectOptionFor>>;
+
+/**
+ * A connector's connect option, worked out once per provider: whether a login
+ * is offered can read the workspace's saved login app, and Google's four
+ * connectors would otherwise read it four times.
+ * @param orgId - The workspace.
+ * @param connectorSlug - The connector on the row.
+ * @param seen - The options already worked out this call, by provider.
+ */
+async function connectOptionOnce(orgId: string, connectorSlug: string, seen: Map<string, ConnectOption>): Promise<ConnectOption> {
+  const providerId = providerForConnector(connectorSlug)?.id;
+  if (!providerId) {
+    return null;
+  }
+  if (!seen.has(providerId)) {
+    seen.set(providerId, await connectOptionFor(orgId, connectorSlug));
+  }
+  return seen.get(providerId) ?? null;
+}
+
 /**
  * The page's per-connector login state and last failed attempt.
  * @param orgId - The workspace.
@@ -73,6 +94,8 @@ async function keepableCredential(orgId: string, connector: string, credential: 
 export async function connectInfoForOrg(orgId: string): Promise<Record<string, ConnectInfo>> {
   const attempts = await lastConnectAttempts(orgId);
   const info: Record<string, ConnectInfo> = {};
+  // One answer per provider: Google's four connectors share one login app.
+  const optionsByProvider = new Map<string, ConnectOption>();
   for (const connector of listConnectors()) {
     const slug = connector.slug;
     const newest = await liveCredentialOf(orgId, slug);
@@ -90,9 +113,10 @@ export async function connectInfoForOrg(orgId: string): Promise<Record<string, C
     if (!loggedInAs && !failed && !stored && !howToConnectFor(slug)?.login) {
       continue;
     }
-    // A login this server has no app for (no client ID set) would be a button
-    // that only errors, so the page is told there is none and offers paste.
-    const option = connectOptionFor(slug);
+    // A login with no app to run on (no server client ID, no workspace login
+    // app) would be a button that only errors, so the page is told there is
+    // none and offers paste.
+    const option = await connectOptionOnce(orgId, slug, optionsByProvider);
     info[slug] = { providerLabel: option?.configured ? option.label : null, loggedInAs, stored, lastAttempt: failed };
   }
   return info;

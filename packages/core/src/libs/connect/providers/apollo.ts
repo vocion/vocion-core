@@ -13,9 +13,10 @@
 
 import type { RefreshedTokens } from '../loginGrant';
 import type { ConnectProvider } from '../provider';
-import { Env } from '@/libs/Env';
+import type { LoginClient } from '../serverClients';
 import { logger } from '@/libs/Logger';
 import { grantExpiresAt } from '../loginGrant';
+import { serverLoginClient } from '../serverClients';
 import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 /** Apollo's consent page is a hash route: the query string goes AFTER `#/oauth/authorize?`. */
@@ -37,12 +38,12 @@ const SAFE_REFUSAL = /^[\w.-]{1,64}$/;
 export const APOLLO_LOGIN_SCOPES = ['read_user_profile', 'app_scopes'] as const;
 
 /**
- * The deployment's Apollo app credentials, or null when either is unset.
+ * The Apollo app a login or refresh runs on: the one the caller chose
+ * (`libs/connect/loginClient.ts`), else this server's env app, else null.
+ * @param chosen - The app the caller resolved, if it did.
  */
-function apolloApp(): { clientId: string; clientSecret: string } | null {
-  const clientId = Env.APOLLO_CLIENT_ID;
-  const clientSecret = Env.APOLLO_CLIENT_SECRET;
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+function apolloApp(chosen?: LoginClient): LoginClient | null {
+  return chosen ?? serverLoginClient('apollo');
 }
 
 /**
@@ -72,10 +73,11 @@ function tokensFrom(body: Record<string, unknown>, sentRefreshToken: string | nu
  * Mint a new Apollo access token from a refresh token. Apollo revokes the
  * old access and refresh tokens when this succeeds.
  * @param refreshToken - The stored refresh token.
+ * @param client
  * @throws {TokenRequestError} TokenRequestError when Apollo refuses or cannot be reached, or the deployment has no Apollo app configured.
  */
-export async function refreshApolloGrant(refreshToken: string): Promise<RefreshedTokens> {
-  const app = apolloApp();
+export async function refreshApolloGrant(refreshToken: string, client?: LoginClient): Promise<RefreshedTokens> {
+  const app = apolloApp(client);
   if (!app) {
     throw new TokenRequestError('Apollo', 'not_configured', null);
   }
@@ -141,8 +143,8 @@ export const apolloProvider: ConnectProvider = {
   requiredEnv: ['APOLLO_CLIENT_ID', 'APOLLO_CLIENT_SECRET'],
   configured: () => apolloApp() !== null,
 
-  authorizeUrl({ state, redirectUri }) {
-    const app = apolloApp();
+  authorizeUrl({ state, redirectUri, client: chosen }) {
+    const app = apolloApp(chosen);
     if (!app) {
       // The start route checks `configured()` first; this is the backstop.
       throw new Error('Apollo OAuth is not configured. Set APOLLO_CLIENT_ID and APOLLO_CLIENT_SECRET.');
@@ -157,11 +159,11 @@ export const apolloProvider: ConnectProvider = {
     return `${AUTHORIZE_BASE}?${query.toString()}`;
   },
 
-  async exchange({ query, redirectUri }) {
+  async exchange({ query, redirectUri, client: chosen }) {
     if (query.error) {
       return { ok: false, reason: refusalReason(query) };
     }
-    const app = apolloApp();
+    const app = apolloApp(chosen);
     if (!app) {
       return { ok: false, reason: 'not_configured' };
     }

@@ -20,6 +20,14 @@ vi.mock('./AuthGuards', () => ({
   loadProject: vi.fn(),
 }));
 
+// The public origin is the one input the redirect URL depends on; mocking it
+// avoids touching the validated Env. The callback path builder stays real.
+const connectOriginMock = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/connect/routes', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/connect/routes')>();
+  return { ...actual, connectOrigin: connectOriginMock };
+});
+
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema } = await import('@/models/Schema');
 const { guardAuth } = await import('./AuthGuards');
@@ -203,6 +211,27 @@ describe('platform key routes', () => {
     const aws = options.find(option => option.id === 'aws');
 
     expect(aws?.fields.map(field => field.name)).toEqual(['accessKeyId', 'secretAccessKey']);
+  });
+
+  it('tells a login app the callback URL to register at the vendor, and every other platform nothing', async () => {
+    signedInAs('admin');
+    connectOriginMock.mockReturnValue('https://app.example.com');
+    const options = await call<Array<{ id: string; redirectUrl: string | null }>>(listPlatformsRoute, undefined);
+
+    expect(options.find(option => option.id === 'slack-login-app')?.redirectUrl)
+      .toBe('https://app.example.com/api/connect/slack/callback');
+    expect(options.find(option => option.id === 'atlassian-login-app')?.redirectUrl)
+      .toBe('https://app.example.com/api/connect/atlassian/callback');
+    expect(options.find(option => option.id === 'openai')?.redirectUrl).toBeNull();
+  });
+
+  it('gives no redirect URL to any platform when the server has no public origin', async () => {
+    signedInAs('admin');
+    connectOriginMock.mockReturnValue(null);
+    const options = await call<Array<{ id: string; redirectUrl: string | null }>>(listPlatformsRoute, undefined);
+
+    expect(options.find(option => option.id === 'slack-login-app')).toBeDefined();
+    expect(options.every(option => option.redirectUrl === null)).toBe(true);
   });
 
   it('stores a key for an admin and returns only the masked hint', async () => {

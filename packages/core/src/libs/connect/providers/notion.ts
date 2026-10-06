@@ -12,9 +12,10 @@
  */
 
 import type { ConnectProvider } from '../provider';
-import { Env } from '@/libs/Env';
+import type { LoginClient } from '../serverClients';
 import { logger } from '@/libs/Logger';
 import { DEFAULT_NOTION_VERSION } from '@/libs/sources/notionVersion';
+import { serverLoginClient } from '../serverClients';
 import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://api.notion.com/v1/oauth/authorize';
@@ -39,17 +40,30 @@ function textField(body: Record<string, unknown>, key: string): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+/**
+ * The Notion app a login runs on: the one the caller chose
+ * (`libs/connect/loginClient.ts`), else this server's env app, else null.
+ * @param chosen - The app the caller resolved, if it did.
+ */
+function notionApp(chosen?: LoginClient): LoginClient | null {
+  return chosen ?? serverLoginClient('notion');
+}
+
 /** Notion public-integration login (connector `notion`). */
 export const notionProvider: ConnectProvider = {
   id: 'notion',
   connectorSlugs: ['notion'],
   label: 'Notion',
   requiredEnv: ['NOTION_CLIENT_ID', 'NOTION_CLIENT_SECRET'],
-  configured: () => Boolean(Env.NOTION_CLIENT_ID && Env.NOTION_CLIENT_SECRET),
+  configured: () => notionApp() !== null,
 
-  authorizeUrl: ({ state, redirectUri }) => {
+  authorizeUrl: ({ state, redirectUri, client: chosen }) => {
+    const app = notionApp(chosen);
+    if (!app) {
+      throw new Error('Notion login is not set up: set NOTION_CLIENT_ID and NOTION_CLIENT_SECRET, or save a Notion login app on the Developers page.');
+    }
     const url = new URL(AUTHORIZE_URL);
-    url.searchParams.set('client_id', Env.NOTION_CLIENT_ID ?? '');
+    url.searchParams.set('client_id', app.clientId);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('owner', 'user');
@@ -57,13 +71,17 @@ export const notionProvider: ConnectProvider = {
     return url.toString();
   },
 
-  exchange: async ({ query, redirectUri }) => {
+  exchange: async ({ query, redirectUri, client: chosen }) => {
     if (query.error) {
       return { ok: false, reason: safeRefusalReason(query.error) };
     }
     const code = query.code;
     if (!code) {
       return { ok: false, reason: 'missing_code' };
+    }
+    const app = notionApp(chosen);
+    if (!app) {
+      return { ok: false, reason: 'not_configured' };
     }
     let body: Record<string, unknown>;
     try {
@@ -72,7 +90,7 @@ export const notionProvider: ConnectProvider = {
         url: TOKEN_URL,
         encoding: 'json',
         params: { grant_type: 'authorization_code', code, redirect_uri: redirectUri },
-        basicAuth: { clientId: Env.NOTION_CLIENT_ID ?? '', clientSecret: Env.NOTION_CLIENT_SECRET ?? '' },
+        basicAuth: { clientId: app.clientId, clientSecret: app.clientSecret },
         // Notion's API reference marks this header required on the token endpoint.
         extraHeaders: { 'Notion-Version': DEFAULT_NOTION_VERSION },
       });

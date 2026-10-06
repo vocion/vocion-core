@@ -1,3 +1,4 @@
+import type { ConnectProvider } from '@/libs/connect/provider';
 import type { connectOptionFor } from '@/libs/connect/registry';
 import type * as RealRegistry from '@/libs/connect/registry';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,16 +16,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const providerSetup = vi.hoisted(() => ({ unconfigured: new Set<string>() }));
 
 /**
- * The connect option as this test's server has it.
- * @param option - The real option.
+ * The connect option as this test's server has it: a login is offered unless
+ * a test takes the provider's app away. Whether the workspace saved its own
+ * app is `loginClient.test.ts`'s concern, so nothing here reads the store.
+ * @param provider - The connector's real provider, or null when it has none.
  */
-function setUpForTest(option: ReturnType<typeof connectOptionFor>): ReturnType<typeof connectOptionFor> {
-  return option && { ...option, configured: !providerSetup.unconfigured.has(option.provider) };
+function setUpForTest(provider: ConnectProvider | null): Awaited<ReturnType<typeof connectOptionFor>> {
+  return provider && { provider: provider.id, label: provider.label, configured: !providerSetup.unconfigured.has(provider.id), requiredEnv: provider.requiredEnv, bringYourOwnApp: false };
 }
 
 vi.mock('@/libs/connect/registry', async (importOriginal) => {
   const real = await importOriginal<typeof RealRegistry>();
-  return { ...real, connectOptionFor: (slug: string) => setUpForTest(real.connectOptionFor(slug)) };
+  return { ...real, connectOptionFor: async (_orgId: string, slug: string) => setUpForTest(real.providerForConnector(slug)) };
 });
 
 vi.mock('@/libs/connect/attempts', () => ({ lastConnectAttempts: vi.fn() }));

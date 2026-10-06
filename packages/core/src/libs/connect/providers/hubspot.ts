@@ -11,9 +11,10 @@
 
 import type { RefreshedTokens } from '../loginGrant';
 import type { ConnectProvider } from '../provider';
-import { Env } from '@/libs/Env';
+import type { LoginClient } from '../serverClients';
 import { logger } from '@/libs/Logger';
 import { grantExpiresAt } from '../loginGrant';
+import { serverLoginClient } from '../serverClients';
 import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://app.hubspot.com/oauth/authorize';
@@ -28,12 +29,12 @@ const SAFE_REFUSAL = /^[\w.-]{1,64}$/;
 export const HUBSPOT_LOGIN_SCOPES = ['oauth', 'crm.objects.contacts.read', 'crm.objects.companies.read', 'crm.objects.deals.read'] as const;
 
 /**
- * The deployment's HubSpot app credentials, or null when either is unset.
+ * The HubSpot app a login or refresh runs on: the one the caller chose
+ * (`libs/connect/loginClient.ts`), else this server's env app, else null.
+ * @param chosen - The app the caller resolved, if it did.
  */
-function hubspotApp(): { clientId: string; clientSecret: string } | null {
-  const clientId = Env.HUBSPOT_CLIENT_ID;
-  const clientSecret = Env.HUBSPOT_CLIENT_SECRET;
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+function hubspotApp(chosen?: LoginClient): LoginClient | null {
+  return chosen ?? serverLoginClient('hubspot');
 }
 
 /**
@@ -61,10 +62,11 @@ function tokensFrom(body: Record<string, unknown>, sentRefreshToken: string | nu
 /**
  * Mint a new HubSpot access token from a refresh token.
  * @param refreshToken - The stored refresh token.
+ * @param client
  * @throws {TokenRequestError} TokenRequestError when HubSpot refuses or cannot be reached, or the deployment has no HubSpot app configured.
  */
-export async function refreshHubspotGrant(refreshToken: string): Promise<RefreshedTokens> {
-  const app = hubspotApp();
+export async function refreshHubspotGrant(refreshToken: string, client?: LoginClient): Promise<RefreshedTokens> {
+  const app = hubspotApp(client);
   if (!app) {
     throw new TokenRequestError('HubSpot', 'not_configured', null);
   }
@@ -120,8 +122,8 @@ export const hubspotProvider: ConnectProvider = {
   requiredEnv: ['HUBSPOT_CLIENT_ID', 'HUBSPOT_CLIENT_SECRET'],
   configured: () => hubspotApp() !== null,
 
-  authorizeUrl({ state, redirectUri }) {
-    const app = hubspotApp();
+  authorizeUrl({ state, redirectUri, client: chosen }) {
+    const app = hubspotApp(chosen);
     if (!app) {
       // The start route checks `configured()` first; this is the backstop, so
       // nobody is sent to HubSpot with an empty client id.
@@ -135,11 +137,11 @@ export const hubspotProvider: ConnectProvider = {
     return url.toString();
   },
 
-  async exchange({ query, redirectUri }) {
+  async exchange({ query, redirectUri, client: chosen }) {
     if (query.error) {
       return { ok: false, reason: refusalReason(query) };
     }
-    const app = hubspotApp();
+    const app = hubspotApp(chosen);
     if (!app) {
       return { ok: false, reason: 'not_configured' };
     }

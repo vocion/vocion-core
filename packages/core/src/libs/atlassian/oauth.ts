@@ -13,6 +13,9 @@
  * fails and the person has to reconnect.
  */
 
+import type { LoginClient } from '@/libs/connect/serverClients';
+import { serverLoginClient } from '@/libs/connect/serverClients';
+
 export const ATLASSIAN_AUTHORIZE_URL = 'https://auth.atlassian.com/authorize';
 export const ATLASSIAN_TOKEN_URL = 'https://auth.atlassian.com/oauth/token';
 export const ATLASSIAN_RESOURCES_URL = 'https://api.atlassian.com/oauth/token/accessible-resources';
@@ -45,13 +48,17 @@ export type AtlassianGrant = {
   sites: AtlassianSite[];
   /** Pinned when the grant reached exactly one site; otherwise resolved per source. */
   cloudId?: string;
+  /** The client ID of the app the login ran on (`libs/connect/loginClient.ts`); absent on a login made before workspace login apps. */
+  loginClientId?: string;
 };
 
-/** The deployment's OAuth client, or null when either half is unset. */
-export function atlassianClient(): { clientId: string; clientSecret: string } | null {
-  const clientId = process.env.ATLASSIAN_CLIENT_ID?.trim();
-  const clientSecret = process.env.ATLASSIAN_CLIENT_SECRET?.trim();
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+/**
+ * The Atlassian app a login or refresh runs on: the one the caller chose
+ * (`libs/connect/loginClient.ts`), else this server's env app, else null.
+ * @param chosen - The app the caller resolved, if it did.
+ */
+export function atlassianClient(chosen?: LoginClient): LoginClient | null {
+  return chosen ?? serverLoginClient('atlassian');
 }
 
 /**
@@ -115,9 +122,10 @@ async function tokenRequest(body: Record<string, string>): Promise<TokenResponse
  * @param input - The code and the redirect URI the authorize step used.
  * @param input.code
  * @param input.redirectUri
+ * @param input.client - The app the login ran on; the server's env app when left out.
  */
-export async function exchangeAuthorizationCode(input: { code: string; redirectUri: string }): Promise<TokenResponse> {
-  const client = atlassianClient();
+export async function exchangeAuthorizationCode(input: { code: string; redirectUri: string; client?: LoginClient }): Promise<TokenResponse> {
+  const client = atlassianClient(input.client);
   if (!client) {
     throw new Error(`Atlassian OAuth is not configured — set ${ATLASSIAN_ENV.join(' and ')}.`);
   }
@@ -134,9 +142,10 @@ export async function exchangeAuthorizationCode(input: { code: string; redirectU
  * Trade a refresh token for a new access token and, because Atlassian
  * rotates them, usually a new refresh token. The caller persists the result.
  * @param refreshToken - The stored refresh token.
+ * @param chosen - The app the login ran on (`loginClientForGrant`); the server's env app when left out.
  */
-export async function refreshAtlassianGrant(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; expiresAt: string; scope?: string }> {
-  const client = atlassianClient();
+export async function refreshAtlassianGrant(refreshToken: string, chosen?: LoginClient): Promise<{ accessToken: string; refreshToken: string; expiresAt: string; scope?: string }> {
+  const client = atlassianClient(chosen);
   if (!client) {
     throw new Error(`Atlassian OAuth is not configured — set ${ATLASSIAN_ENV.join(' and ')}.`);
   }

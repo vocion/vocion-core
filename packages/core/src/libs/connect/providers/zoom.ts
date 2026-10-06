@@ -15,9 +15,10 @@
 
 import type { RefreshedTokens } from '../loginGrant';
 import type { ConnectProvider } from '../provider';
-import { Env } from '@/libs/Env';
+import type { LoginClient } from '../serverClients';
 import { logger } from '@/libs/Logger';
 import { grantExpiresAt } from '../loginGrant';
+import { serverLoginClient } from '../serverClients';
 import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://zoom.us/oauth/authorize';
@@ -42,12 +43,12 @@ export const ZOOM_LOGIN_SCOPES = [
 ] as const;
 
 /**
- * The deployment's Zoom General-app client id and secret, or null when either is unset.
+ * The Zoom app a login or refresh runs on: the one the caller chose
+ * (`libs/connect/loginClient.ts`), else this server's env app, else null.
+ * @param chosen - The app the caller resolved, if it did.
  */
-function zoomApp(): { clientId: string; clientSecret: string } | null {
-  const clientId = Env.ZOOM_CLIENT_ID;
-  const clientSecret = Env.ZOOM_CLIENT_SECRET;
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+function zoomApp(chosen?: LoginClient): LoginClient | null {
+  return chosen ?? serverLoginClient('zoom');
 }
 
 /**
@@ -76,10 +77,11 @@ function tokensFrom(body: Record<string, unknown>, sentRefreshToken: string | nu
  * Mint a new Zoom access token from a refresh token. Zoom rotates the
  * refresh token: the returned one replaces the one passed in.
  * @param refreshToken - The stored refresh token.
+ * @param client
  * @throws TokenRequestError when Zoom refuses or cannot be reached, or the deployment has no Zoom app configured.
  */
-export async function refreshZoomGrant(refreshToken: string): Promise<RefreshedTokens> {
-  const app = zoomApp();
+export async function refreshZoomGrant(refreshToken: string, client?: LoginClient): Promise<RefreshedTokens> {
+  const app = zoomApp(client);
   if (!app) {
     throw new TokenRequestError('Zoom', 'not_configured', null);
   }
@@ -136,8 +138,8 @@ export const zoomProvider: ConnectProvider = {
   requiredEnv: ['ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET'],
   configured: () => zoomApp() !== null,
 
-  authorizeUrl({ state, redirectUri }) {
-    const app = zoomApp();
+  authorizeUrl({ state, redirectUri, client: chosen }) {
+    const app = zoomApp(chosen);
     if (!app) {
       // The start route checks `configured()` first; this is the backstop, so
       // nobody is sent to Zoom with an empty client id.
@@ -151,11 +153,11 @@ export const zoomProvider: ConnectProvider = {
     return url.toString();
   },
 
-  async exchange({ query, redirectUri }) {
+  async exchange({ query, redirectUri, client: chosen }) {
     if (query.error) {
       return { ok: false, reason: refusalReason(query) };
     }
-    const app = zoomApp();
+    const app = zoomApp(chosen);
     if (!app) {
       return { ok: false, reason: 'not_configured' };
     }

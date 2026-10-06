@@ -79,7 +79,17 @@ export type CredentialPlatformId
   // calls the way it already does on model calls.
     | 'tavily'
     | 'brave'
-    | 'firecrawl';
+    | 'firecrawl'
+  // Login apps (#1080). A workspace's own OAuth app at a vendor, so its "Log
+  // in with <vendor>" runs on the workspace's client ID and secret instead of
+  // the server's env. One live per vendor: saving a new one replaces the old.
+    | 'slack-login-app'
+    | 'atlassian-login-app'
+    | 'google-login-app'
+    | 'hubspot-login-app'
+    | 'notion-login-app'
+    | 'zoom-login-app'
+    | 'apollo-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -223,6 +233,12 @@ export type CredentialPlatform = {
    */
   fields: readonly CredentialField[];
   /**
+   * Set on a login-app platform only: the connect provider whose logins run on
+   * the OAuth app this credential holds. `libs/connect/loginClient.ts` reads
+   * it to prefer the workspace's own app over the server's env.
+   */
+  loginAppFor?: ConnectProviderId;
+  /**
    * How a person connects this platform (#1080). The Connectors form and the
    * chat card read this instead of special-casing providers. Declared on every
    * platform that backs a connector. It stays free of runtime imports so client
@@ -261,6 +277,54 @@ export type CredentialPlatform = {
 function singleKeyField(label: string, pattern: RegExp | null, shapeHint: string): readonly CredentialField[] {
   return [{ name: 'apiKey', label, pattern, shapeHint, secret: true }];
 }
+
+/**
+ * A login-app platform: a workspace's own OAuth app at one vendor. A login
+ * with that vendor runs on its client ID and secret instead of the server's
+ * env, so a workspace can bring its own app without a redeploy. It is not a
+ * connector credential: no source points at it, and the logins it runs are
+ * stored on the connectors' own platforms as before.
+ * @param id - The platform id, `<provider>-login-app`.
+ * @param provider - The connect provider whose logins it runs.
+ * @param vendor - The vendor's name, as the form shows it.
+ */
+function loginAppPlatform(id: CredentialPlatformId, provider: ConnectProviderId, vendor: string): CredentialPlatform {
+  return {
+    id,
+    label: `${vendor} login app`,
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a client ID and a client secret',
+    helpText: `Your own ${vendor} OAuth app. Logins with ${vendor} in this workspace use it instead of the server's, so it works without a redeploy. Saving a new app replaces the old one, and logins made with the old app need logging in again.`,
+    fields: [
+      { name: 'clientId', label: 'Client ID', pattern: null, shapeHint: 'is the client ID the vendor shows for your app', secret: false },
+      { name: 'clientSecret', label: 'Client secret', pattern: null, shapeHint: 'is the client secret the vendor shows for your app', secret: true },
+    ],
+    loginAppFor: provider,
+  };
+}
+
+/**
+ * The login apps a workspace can bring, one per connect provider whose login
+ * is a plain client ID and secret. GitHub is left out because its login is a
+ * GitHub App (an app id, a private key and a webhook the server receives), and
+ * PostHog because its client is a public document this server publishes
+ * (CIMD), with no secret to bring.
+ */
+const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
+  loginAppPlatform('google-login-app', 'google', 'Google'),
+  loginAppPlatform('slack-login-app', 'slack', 'Slack'),
+  loginAppPlatform('atlassian-login-app', 'atlassian', 'Atlassian'),
+  loginAppPlatform('hubspot-login-app', 'hubspot', 'HubSpot'),
+  loginAppPlatform('notion-login-app', 'notion', 'Notion'),
+  loginAppPlatform('zoom-login-app', 'zoom', 'Zoom'),
+  loginAppPlatform('apollo-login-app', 'apollo', 'Apollo'),
+];
 
 /**
  * The platform table. `vocion` is first because it is the default selection
@@ -1144,6 +1208,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       },
     ],
   },
+  ...LOGIN_APP_PLATFORMS,
   {
     id: 'custom',
     label: 'Other platform',
@@ -1328,6 +1393,15 @@ export function credentialsAreShareable(id: CredentialPlatformId): boolean {
  */
 export function platformForToolProvider(provider: string): CredentialPlatform | null {
   return PLATFORMS.find(platform => platform.toolProvider === provider) ?? null;
+}
+
+/**
+ * The login-app platform for a connect provider, or `null` when a workspace
+ * cannot bring its own app for it (GitHub, PostHog).
+ * @param provider - A connect provider id, e.g. `google`.
+ */
+export function loginAppPlatformFor(provider: ConnectProviderId): CredentialPlatform | null {
+  return PLATFORMS.find(platform => platform.loginAppFor === provider) ?? null;
 }
 
 /**

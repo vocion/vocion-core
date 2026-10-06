@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
+// The token refresh can look up a workspace login app; these syncs never reach the store.
+vi.mock('@/libs/DB', () => ({ db: {} }));
 
 const { ga4Connector } = await import('./ga4');
 

@@ -87,7 +87,7 @@ export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchem
   configSchema: calendarConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = calendarConfigSchema.parse(ctx.config);
-    const token = await resolveGoogleAccessToken(ctx.credentials);
+    const token = await resolveGoogleAccessToken(ctx.credentials, ctx.orgId);
     const headers = { authorization: `Bearer ${token}` };
 
     const now = Date.now();
