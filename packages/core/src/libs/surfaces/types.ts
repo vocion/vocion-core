@@ -73,7 +73,11 @@ export type ChatParse
   = | { kind: 'challenge'; challenge: string }
     | { kind: 'message'; inbound: ChatInbound }
     | { kind: 'joined'; join: ChatJoin }
+    | { kind: 'stop'; stop: ChatStop }
     | { kind: 'ignore'; reason: string };
+
+/** A person pressed stop on the agent's work in a thread (Slack's agent session). */
+export type ChatStop = { surface: string; channelId: string; threadRef: string; externalUserId: string | null };
 
 /** An image a message carries: something a reader can open, and what it shows. */
 export type ChatImage = {
@@ -150,4 +154,10 @@ export type ChatSurfaceAdapter = {
   retract?: (post: ChatPostRef) => Promise<void>;
   /** Change a post's words in place, such as the working line as the turn moves from step to step. */
   edit?: (post: ChatPostRef, text: string) => Promise<void>;
+  /**
+   * The platform's own "working" state on a thread (Slack's agent session: "Working…" and a stop
+   * button). True when the platform took it; false where the app is not set up for it, and the
+   * caller says it is working in words instead.
+   */
+  session?: (target: Pick<ChatReplyTarget, 'channelId' | 'threadRef'>, state: 'working' | 'idle') => Promise<boolean>;
 };

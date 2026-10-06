@@ -14,6 +14,14 @@
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 
 /** A head start for an agent the router did not pick: the turn is dropped, never answered. */
+/** A person stopped the turn (Slack's stop button on an agent session); it ends with no answer. */
+export class TurnStopped extends Error {
+  constructor() {
+    super('a person stopped the turn');
+    this.name = 'TurnStopped';
+  }
+}
+
 export class HeadStartDropped extends Error {
   constructor() {
     super('the turn was started early for an agent the router did not pick');

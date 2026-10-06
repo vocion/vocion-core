@@ -120,6 +120,13 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
     }
     return { kind: 'joined', join: { surface: 'slack', teamId: env.team_id ?? null, channelId: ev.channel, botUserId } };
   }
+  // A person pressed stop on an agent session: the turn working in that thread ends.
+  if (ev.type === 'agent_session_stopped') {
+    if (!ev.channel || !ev.thread_ts) {
+      return { kind: 'ignore', reason: 'incomplete stop event' };
+    }
+    return { kind: 'stop', stop: { surface: 'slack', channelId: ev.channel, threadRef: ev.thread_ts, externalUserId: ev.user ?? null } };
+  }
   if (ev.bot_id || ev.subtype) {
     return { kind: 'ignore', reason: ev.bot_id ? 'bot message' : `subtype ${ev.subtype}` };
   }
@@ -608,6 +615,13 @@ export const slackSurface: ChatSurfaceAdapter = {
   reply: (target, message, opts) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN, SLACK_API_BASE, opts?.fetchImage ? { fetchImage: opts.fetchImage } : {}),
   retract: async (post) => {
     await deleteSlackPost(post, process.env.SLACK_BOT_TOKEN);
+  },
+  session: async (target, state) => {
+    if (!target.threadRef) {
+      return false;
+    }
+    const r = await slackApi('agents.sessions.setStatus', { channel_id: target.channelId, thread_ts: target.threadRef, status: state === 'working' ? 'processing' : 'active' }, process.env.SLACK_BOT_TOKEN);
+    return r.ok;
   },
   edit: async (post, text) => {
     if (!post.ts) {

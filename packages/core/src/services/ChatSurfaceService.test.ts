@@ -141,6 +141,37 @@ describe('handleInbound', () => {
     expect(adapter.replies[1]!.text).toBe('history=2');
   });
 
+  it('uses the platform\'s own working state where it has one, and a person\'s stop ends the turn (Slack agent session)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const states: string[] = [];
+    adapter.session = async (_t, state) => {
+      states.push(state);
+      return true;
+    };
+    const quick = await svc.handleInbound(adapter, inbound, { runAgent: vi.fn(async () => ({ response: 'Up 12%.', traceId: 't', toolCalls: [] })) as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect(quick.outcome).toBe('replied');
+    // No "Looking into it…" line: the session said it, and goes idle with the answer.
+    expect(adapter.retracted).toEqual([]);
+    expect(adapter.replies.map(r => r.text)).toEqual(['Up 12%.']);
+    expect(states).toEqual(['working', 'idle']);
+
+    const { TurnStopped } = await import('@/services/agents/turnGate');
+    const slow = vi.fn((opts: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+      opts.signal?.addEventListener('abort', () => reject(new TurnStopped()));
+    }));
+    const pending = svc.handleInbound(adapter, { ...inbound, messageRef: '100.3', text: 'and the next one?' }, { runAgent: slow as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+    await vi.waitFor(() => expect(slow).toHaveBeenCalled());
+
+    expect(await svc.stopThreadTurn(adapter, { surface: 'slack', channelId: 'C1', threadRef: '100.1', externalUserId: 'U42' })).toBe(true);
+    expect(await pending).toMatchObject({ outcome: 'failed' });
+    expect(adapter.replies.at(-1)!.text).toBe('Stopped, as you asked.');
+    expect(states.at(-1)).toBe('idle');
+    // Nothing running there any more: a second stop only settles the state.
+    expect(await svc.stopThreadTurn(adapter, { surface: 'slack', channelId: 'C1', threadRef: '100.1', externalUserId: 'U42' })).toBe(false);
+  });
+
   it('answers a reply with no mention only in a thread it is already in (Chris, 2026-10-06: "Do that")', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();

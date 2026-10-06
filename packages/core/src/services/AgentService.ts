@@ -34,7 +34,7 @@ import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
-import { HeadStartDropped, TurnGateCallback } from './agents/turnGate';
+import { HeadStartDropped, TurnGateCallback, TurnStopped } from './agents/turnGate';
 import { asksForAct, NO_INTENT, readIntent } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { inTurn } from './agents/turnScope';
@@ -568,6 +568,8 @@ export async function runAgentDeep(opts: {
    * the other harnesses wait for the answer before they are called.
    */
   hold?: Promise<boolean>;
+  /** A person's stop (Slack's stop button): the turn ends at once with `TurnStopped`. */
+  signal?: AbortSignal;
   /**
    * Run this ONE turn on a named model instead of the agent's own. The
    * model-upgrade test (`services/evals/modelUpgradeTest.ts`) is the caller.
@@ -809,7 +811,7 @@ export async function runAgentDeep(opts: {
       dropped.abort(new HeadStartDropped());
     }
   }, () => {});
-  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline, dropped.signal]);
+  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline, dropped.signal, ...(opts.signal ? [opts.signal] : [])]);
 
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
@@ -1344,6 +1346,9 @@ export async function runAgentDeep(opts: {
     // A head start that was not picked ends here: no recovery pass, no answer.
     if (dropped.signal.aborted) {
       throw new HeadStartDropped();
+    }
+    if (opts.signal?.aborted) {
+      throw new TurnStopped();
     }
     let err: unknown = caught;
     let recovered = false;

@@ -1,4 +1,4 @@
-import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatPostRef, ChatReplyTarget, ChatStop, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { LoadedAttachment } from '@/services/chat/attachments';
 import type { ThreadApproval } from '@/services/chat/slackApproval';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
@@ -11,6 +11,7 @@ import { fetchSlackFile } from '@/libs/surfaces/slack';
 import { chatPermalink, conversationReplies } from '@/libs/surfaces/slackRead';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
+import { TurnStopped } from '@/services/agents/turnGate';
 import { runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, createArtifact } from '@/services/ArtifactService';
 import { withRunCost } from '@/services/budget/runCost';
@@ -340,6 +341,9 @@ async function workspaceFor(orgId: string): Promise<{ orgId: string; name?: stri
   return { orgId, ...(row?.name ? { name: row.name } : {}), ...(row?.slug ? { slug: row.slug } : {}) };
 }
 
+/** The turns working in a thread now, by `surface:channel:thread`, so a person's stop can end one. */
+const runningTurns = new Map<string, AbortController>();
+
 /**
  * The whole phase-1 slice, end to end: bind → budget → conversation → run → reply.
  * Returns what happened so the route and the tests can see it; never throws on
@@ -381,16 +385,32 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const target = replyTargetFor(binding, inbound, await agentPersona(orgId, agentSlug));
 
   // Something shows straight away that the mention was heard (Chris, 2026-10-05: "there was no
-  // thinking indicator"); it is taken back when the answer is posted.
-  const working = await adapter.reply(target, WORKING_LINE).catch(() => null);
+  // thinking indicator"). Where the platform has its own working state (Slack's agent session:
+  // "Working…" and a stop button) that is it, and the steps go up as a line once there is one;
+  // elsewhere a working line goes up at once. Either is taken back when the answer is posted.
+  const native = adapter.session ? await adapter.session(target, 'working').catch(() => false) : false;
+  let working = native ? null : await adapter.reply(target, WORKING_LINE).catch(() => null);
   // The line names the turn's steps as they happen (`chat/workingLine.ts`), then goes when the answer lands.
-  const progress = followTurn(WORKING_LINE, async text => (working && adapter.edit ? adapter.edit(working, text) : undefined));
+  const progress = followTurn(native ? '' : WORKING_LINE, async (text) => {
+    if (working) {
+      await adapter.edit?.(working, text);
+    } else if (native) {
+      working = await adapter.reply(target, text).catch(() => null);
+    }
+  });
   const doneWorking = async () => {
     await progress.stop();
     if (working && adapter.retract) {
       await adapter.retract(working).catch(() => undefined);
     }
+    if (native) {
+      await adapter.session?.(target, 'idle').catch(() => false);
+    }
   };
+  // A person can stop this turn from the thread (`stopThreadTurn`).
+  const turnKey = `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`;
+  const stopper = new AbortController();
+  runningTurns.set(turnKey, stopper);
 
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
@@ -465,6 +485,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       ...(pageContext ? { pageContext } : {}),
       ...(pictures.attachments.length > 0 ? { attachments: pictures.attachments } : {}),
       onEvent: progress.onEvent,
+      signal: stopper.signal,
     }) }));
     // Slack shows no trace, so it gets the answer after the turn's last tool call; the steps
     // before it ("I'll check the rollup first") stay on the run in Vocion (`lastAnswerOf`).
@@ -506,9 +527,31 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
     await doneWorking();
-    await adapter.reply(target, 'Something went wrong on my side; a person can see the details in Vocion.').catch(() => {});
+    const stopped = error instanceof TurnStopped;
+    await adapter.reply(target, stopped ? 'Stopped, as you asked.' : 'Something went wrong on my side; a person can see the details in Vocion.').catch(() => {});
     return { outcome: 'failed', orgId, agentSlug, error: failure };
+  } finally {
+    if (runningTurns.get(turnKey) === stopper) {
+      runningTurns.delete(turnKey);
+    }
   }
+}
+
+/**
+ * A PERSON PRESSED STOP (Slack's agent session). The turn working in that thread ends, says it
+ * stopped, and the thread's working state goes back to idle; with no turn there, only the state.
+ * @param adapter - The surface.
+ * @param stop - Where.
+ * @returns Whether a turn was running there.
+ */
+export async function stopThreadTurn(adapter: ChatSurfaceAdapter, stop: ChatStop): Promise<boolean> {
+  const turn = runningTurns.get(`${stop.surface}:${stop.channelId}:${stop.threadRef}`);
+  if (turn) {
+    turn.abort();
+    return true;
+  }
+  await adapter.session?.({ channelId: stop.channelId, threadRef: stop.threadRef }, 'idle').catch(() => false);
+  return false;
 }
 
 export type AnnouncementInput = {
