@@ -74,6 +74,18 @@ describe('what the factory does about it', () => {
     expect(recoveryDecision({ failure: lost, attempts: 1, lastWasInfraRetry: true })).toMatchObject({ do: 'escalate', why: expect.stringContaining('twice in a row') });
   });
 
+  it('continues an attempt that ran out of time on its kept branch, within the limit (walk 27, FE-478)', () => {
+    const f = classifyFailure({ status: 'failed', error: 'claude exited 143 without a JSON result (wall clock: claude exceeded 2400s)', failures: [{ scope: 'claude', message: 'claude exited 143 without a JSON result (wall clock: claude exceeded 2400s)' }] });
+
+    expect(f.class).toBe('timed_out');
+
+    const d = recoveryDecision({ failure: f, attempts: 1 });
+
+    expect(d).toMatchObject({ do: 'dispatch', why: expect.stringMatching(/kept branch/) });
+    expect(d.do === 'dispatch' && d.note).toMatch(/ran out of its time budget/);
+    expect(recoveryDecision({ failure: f, attempts: RECOVERY_LIMIT }).do).toBe('escalate');
+  });
+
   it('stops at the limit whatever the failure, naming what would unblock it', () => {
     const d = recoveryDecision({ failure: failure({ status: 'failed', error: 'verification failed: required checks failed: lint', failures: [{ scope: 'check:lint', message: 'x' }] }), attempts: RECOVERY_LIMIT });
 
