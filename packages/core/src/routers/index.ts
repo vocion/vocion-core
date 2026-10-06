@@ -15,6 +15,7 @@ import {
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
 import {
+  featureShare as artifactFeatureShareRoute,
   folders as artifactFoldersRoute,
   share as artifactShareRoute,
   exportPage as exportArtifactPageRoute,
@@ -25,6 +26,7 @@ import {
   versions as listArtifactVersionsRoute,
   remove as removeArtifactRoute,
   restore as restoreArtifactVersionRoute,
+  setFeatureShare as setArtifactFeatureShareRoute,
   setFolder as setArtifactFolderRoute,
   setShare as setArtifactShareRoute,
   update as updateArtifactRoute,
@@ -52,6 +54,7 @@ import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState 
 import { addConnectorRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute } from './Connect';
 import {
   append as appendConvMessage,
+  intake as conversationIntake,
   create as createConv,
   feedback as feedbackConvMessage,
   get as getConv,
@@ -300,8 +303,11 @@ export const router = {
     exportPage: exportArtifactPageRoute,
     share: artifactShareRoute,
     setShare: setArtifactShareRoute,
+    featureShare: artifactFeatureShareRoute,
+    setFeatureShare: setArtifactFeatureShareRoute,
   },
   conversations: {
+    intake: conversationIntake,
     list: listConvs,
     get: getConv,
     create: createConv,

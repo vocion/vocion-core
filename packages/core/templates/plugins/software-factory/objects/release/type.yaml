@@ -108,7 +108,7 @@ schema:
       x-display: {label: Seen live, format: badge, group: After the deploy, tones: {seen: ok, partial: warn, not_seen: bad}}
       type: string
       description: >-
-        What QA saw when it checked the change on the live product as the QA account (`check_live`). `not_seen` is a failure said with its reason (`liveSummary`); a release is verified when its change was seen, not on an HTTP 200. Absent while no live check has run.
+        What QA saw when it checked the change on the live product as the QA account (the browser tools, recorded with `record_live_check`). `not_seen` is a failure said with its reason (`liveSummary`); a release is verified when its change was seen, not on an HTTP 200. Absent while no live check has run.
       enum: [seen, partial, not_seen]
     liveSummary:
       x-display: {label: Live check, group: After the deploy}

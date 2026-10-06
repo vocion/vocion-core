@@ -73,10 +73,12 @@ function ConstantLine({ constants }: { constants: TableLayout['constants'] }) {
  */
 /**
  * The picture, or the mark in its place — a full-height strip on the card's
- * LEFT EDGE at every width (Chris, 2026-09-24: "the thumbnail should be full
- * height and left edge of the card"). A picture fills the strip; a named
- * icon (`thumbFallback`) sits centred in it; a row with neither draws no
- * strip at all — never an empty frame.
+ * LEFT EDGE from a tablet's width up (Chris, 2026-09-24: "the thumbnail should
+ * be full height and left edge of the card"), and a banner across the TOP on
+ * a phone (Chris, 2026-10-04, FE-441 on a phone: a card the height of the
+ * screen stretched the strip into a sliver of the drawing beside the words).
+ * A picture fills the strip; a named icon (`thumbFallback`) sits centred in
+ * it; a row with neither draws no strip at all — never an empty frame.
  * @param root0 - Props.
  * @param root0.row - The row.
  * @param root0.field - The picture field.
@@ -97,7 +99,7 @@ function Thumb({ row, field, fallback, now }: { row: PageRow; field: PageField |
     return null;
   }
   return (
-    <span className="flex w-20 shrink-0 self-stretch overflow-hidden border-r border-border bg-muted @md:w-28" data-testid={picture ? 'block-thumb' : 'block-mark'}>
+    <span className="flex h-28 w-full shrink-0 overflow-hidden border-b border-border bg-muted @md:h-auto @md:w-28 @md:self-stretch @md:border-r @md:border-b-0 [&_img]:object-top @md:[&_img]:object-center" data-testid={picture ? 'block-thumb' : 'block-mark'}>
       <FieldValue row={row} field={picture ?? mark!} now={now} />
     </span>
   );
@@ -120,6 +122,30 @@ function InlineMark({ row, field, now }: { row: PageRow; field: PageField | null
       <FieldValue row={row} field={field} now={now} />
     </span>
   );
+}
+
+/** Past this many characters a plain fact reads as a sentence, whatever its punctuation. */
+const PROSE_CHARS = 72;
+
+/**
+ * Whether a subtitle fact is a SENTENCE — plain words long enough, or with a
+ * full stop in them — rather than a chip. A sentence sits on a row of its own;
+ * a chip shares a row with the chips beside it. A drawn format (a badge, a
+ * live line, a date, money) is never prose, however long its words.
+ * @param row - The row.
+ * @param field - The fact.
+ */
+export function proseFact(row: PageRow, field: PageField): boolean {
+  if (field.format !== undefined && field.format !== 'text') {
+    return false;
+  }
+  const value = resolveField(row, field.from ?? field.key);
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const text = value.trim();
+  // A full stop that closes a sentence (followed by a space or the end), not the one in "$6.16" or "v1.2".
+  return text.length > PROSE_CHARS || /[.!?…](?:\s|$)/.test(text);
 }
 
 const TONE_DOT: Record<string, 'pass' | 'amber' | 'fail' | 'neutral' | 'ink'> = { ok: 'pass', warn: 'amber', bad: 'fail', info: 'ink', muted: 'neutral' };
@@ -182,6 +208,7 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   const rest = layout.subtitle.filter(f => f.format !== 'badge');
   const facts = factsFor(row, layout.columns, now);
   const lines = subtitleLines(rest, row, now);
+  const shownBadges = badges.filter(f => !fieldIsEmptyOn(row, f, now));
   // A card whose facts open their OWN places cannot also be one big link — a
   // link inside a link is a tap that does two things. Its title opens the
   // row instead, and each linked fact opens where it says. A `link` field
@@ -216,35 +243,60 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
               )
             : <span className="min-w-0">{title}</span>}
         </span>
-        {badges.some(f => !fieldIsEmptyOn(row, f, now)) && (
+        {shownBadges.length > 0 && (
           <span className="hidden items-center gap-1.5 @md:flex @md:shrink-0">
-            {badges.filter(f => !fieldIsEmptyOn(row, f, now)).map(f => (
+            {shownBadges.map(f => (
               <FieldValue key={f.key} row={row} field={f} now={now} links={links} />
             ))}
           </span>
         )}
       </div>
-      {(rest.some(f => !fieldIsEmptyOn(row, f, now)) || badges.some(f => !fieldIsEmptyOn(row, f, now))) && (
+      {(lines.length > 0 || shownBadges.length > 0) && (
         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
-          {badges.filter(f => !fieldIsEmptyOn(row, f, now)).map(f => (
-            <span key={f.key} className="flex items-center gap-1.5 @md:hidden">
-              <FieldValue row={row} field={f} now={now} links={links} />
-              <span aria-hidden className="text-muted-foreground/50">·</span>
+          {/* A SENTENCE takes a row of its own, with no dot before or after
+              it; CHIPS (a state, a live line, a cost, a product) share a row
+              joined by dots. One flex-wrap row of both put a dot after a
+              sentence that had wrapped, floating at the right edge of its
+              middle line, and a dot after the state chip with nothing
+              beside it (Chris, 2026-10-04, FE-441 on a phone). On a phone
+              the state leads the first row; from @md up it holds the top
+              right beside the headline. */}
+          {lines.length === 0 && (
+            <span className="flex items-center gap-1.5 @md:hidden" data-testid="block-line">
+              {shownBadges.map(f => <FieldValue key={f.key} row={row} field={f} now={now} links={links} />)}
             </span>
-          ))}
-          {/* The separator TRAILS its fact rather than leading the next one.
-              Led, it wrapped onto the start of a new line as a stray "·"
-              floating before the value it was meant to divide. */}
-          {lines.map((line, li) => (
-            <span key={line[0]!.key} className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 ${lines.length > 1 ? 'basis-full' : ''} ${li > 0 ? 'mt-0.5' : ''}`} data-testid="block-line">
-              {line.map((f, i) => (
-                <span key={f.key} className="flex items-center gap-1.5">
-                  <Fact row={row} field={f} now={now} links={links} />
-                  {i < line.length - 1 && <span aria-hidden className="text-muted-foreground/50">·</span>}
-                </span>
-              ))}
-            </span>
-          ))}
+          )}
+          {lines.map((line, li) => {
+            const leading = li === 0 ? shownBadges : [];
+            const firstIsChip = line[0] !== undefined && !proseFact(row, line[0]);
+            return (
+              <span key={line[0]!.key} className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 ${lines.length > 1 || leading.length > 0 ? 'basis-full' : ''} ${li > 0 ? 'mt-0.5' : ''}`} data-testid="block-line">
+                {leading.map((f, bi) => (
+                  <span key={f.key} className="flex items-center gap-1.5 @md:hidden">
+                    <FieldValue row={row} field={f} now={now} links={links} />
+                    {(bi < leading.length - 1 || firstIsChip) && <span aria-hidden className="text-muted-foreground/50">·</span>}
+                  </span>
+                ))}
+                {line.map((f, i) => {
+                  if (proseFact(row, f)) {
+                    return (
+                      <span key={f.key} className="basis-full" data-testid="block-prose">
+                        <Fact row={row} field={f} now={now} links={links} />
+                      </span>
+                    );
+                  }
+                  const next = line[i + 1];
+                  const dot = next !== undefined && !proseFact(row, next);
+                  return (
+                    <span key={f.key} className="flex items-center gap-1.5">
+                      <Fact row={row} field={f} now={now} links={links} />
+                      {dot && <span aria-hidden className="text-muted-foreground/50">·</span>}
+                    </span>
+                  );
+                })}
+              </span>
+            );
+          })}
         </div>
       )}
       {facts.length > 0 && (
@@ -281,7 +333,7 @@ function Block({ row, layout, now, links, href, rowActions, rowActionsAs }: {
   const inner = !strip
     ? <div className={`p-4 ${menuItems.length > 0 ? 'pr-10' : ''}`}>{body}</div>
     : (
-        <div className="flex items-stretch">
+        <div className="flex flex-col @md:flex-row @md:items-stretch">
           <Thumb row={row} field={layout.thumb} fallback={layout.thumbFallback} now={now} />
           <div className={`min-w-0 flex-1 p-4 ${originChatOf(row) && menuItems.length > 0 ? 'pr-16' : menuItems.length > 0 || originChatOf(row) ? 'pr-8' : ''}`}>{body}</div>
         </div>

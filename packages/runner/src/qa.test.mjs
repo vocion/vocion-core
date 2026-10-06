@@ -10,19 +10,25 @@ import { describe, it } from 'node:test';
 import {
   buildSurface,
   caption,
+  captionForShotFile,
+  captionForVideoFile,
   captureEvidence,
+  collectRepoTestShots,
+  collectRepoTestVideos,
   detectErrorState,
   duplicateOf,
   ERROR_STATE_PATTERNS,
   errorPatternsFor,
   evidenceKey,
   evidenceTitle,
+  excludeShotsDir,
   findPlaceholder,
   firstListItemHref,
   hasPlaceholder,
   isSelector,
   LIST_ROUTE_FALLBACKS,
   listRoutesFor,
+  otherTasksShots,
   pageAt,
   PLACEHOLDER_SEGMENT_RE,
   presignGet,
@@ -640,5 +646,454 @@ describe('a flow that proves what an API answered (expect_response, FE-314 2026-
       server.close();
       fs.rmSync(outDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the repo\'s own test screenshots (FE-398, 2026-10-03)', () => {
+  it('reads a trailing -phone, -desktop or -<width> as the viewport, and turns dashes into spaces', () => {
+    assert.deepEqual(captionForShotFile('title-line-phone.png'), { caption: `title line ${String.fromCharCode(0xB7)} phone`, viewport: 'phone' });
+    assert.deepEqual(captionForShotFile('empty-state-desktop.jpg'), { caption: `empty state ${String.fromCharCode(0xB7)} desktop`, viewport: 'desktop' });
+    assert.deepEqual(captionForShotFile('filter-chip-375.png'), { caption: `filter chip ${String.fromCharCode(0xB7)} 375`, viewport: '375' });
+    assert.deepEqual(captionForShotFile('search-box.png'), { caption: 'search box', viewport: '' });
+  });
+
+  it('with no shots directory, uploads and skips nothing', async () => {
+    const r = await collectRepoTestShots({ dir: path.join(os.tmpdir(), 'no-such-qa-shots-dir'), taskId: 't1', runId: 'r1', recordId: null, aws: { bucket: 'b', region: 'us-west-2', presign: {} }, post: null });
+    assert.deepEqual(r, { uploaded: [], skipped: [], evidence: [] });
+  });
+
+  it('stores each picture inline in Vocion when no bucket is reachable but the task can be posted to (Walk 17)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'archived-link-desktop.png'), Buffer.from('fake png'));
+    const savedEnv = { AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY, AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, AWS_CONTAINER_CREDENTIALS_FULL_URI: process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI };
+    for (const k of Object.keys(savedEnv)) {
+      delete process.env[k];
+    }
+    const posted = [];
+    const post = async (p, body) => {
+      posted.push({ p, body });
+      return { ok: true, json: { artifact: { id: 77 } } };
+    };
+    try {
+      const r = await collectRepoTestShots({ dir, taskId: 't1', runId: 'r1', recordId: 'TK-9', aws: { bucket: '', region: 'us-west-2', presign: {} }, post });
+      assert.equal(r.skipped.length, 0);
+      assert.equal(r.uploaded.length, 1);
+      assert.match(r.uploaded[0].url, /^data:image\/png;base64,/);
+      assert.equal(posted.length, 1);
+      assert.equal(posted[0].body.recordRole, 'qa-screenshot');
+      assert.equal(r.evidence[0].artifactId, 77);
+    } finally {
+      for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) {
+          delete process.env[k];
+        } else {
+          process.env[k] = v;
+        }
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips every file, named, when no credentials can reach the evidence bucket', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'title-line-phone.png'), Buffer.from('fake png'));
+    fs.mkdirSync(path.join(dir, 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'nested', 'empty-state-desktop.png'), Buffer.from('fake png too'));
+    const savedEnv = { AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY, AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, AWS_CONTAINER_CREDENTIALS_FULL_URI: process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI };
+    delete process.env.AWS_ACCESS_KEY_ID;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+    delete process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI;
+    delete process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI;
+    try {
+      const r = await collectRepoTestShots({ dir, taskId: 't1', runId: 'r1', recordId: null, aws: { bucket: 'b', region: 'us-west-2', presign: {} }, post: null });
+      assert.equal(r.uploaded.length, 0);
+      assert.equal(r.skipped.length, 2);
+      assert.ok(r.skipped.every(s => /could not reach the evidence bucket/.test(s.reason)));
+      // Recursive, and sorted so the report reads the same way twice.
+      assert.deepEqual(r.skipped.map(s => s.file).sort(), ['nested/empty-state-desktop.png', 'title-line-phone.png']);
+    } finally {
+      for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) {
+          delete process.env[k];
+        } else {
+          process.env[k] = v;
+        }
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a file over the byte cap, naming its size', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'huge-desktop.png'), Buffer.alloc(10));
+    const r = await collectRepoTestShots({ dir, taskId: 't1', runId: 'r1', recordId: null, aws: { bucket: 'b', region: 'us-west-2', presign: {} }, post: null, maxBytes: 5 });
+    assert.equal(r.uploaded.length, 0);
+    assert.match(r.skipped[0].reason, /over the 0 MB cap/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('uploads up to the limit and caps the rest, with S3 PUT and presign exercised for real', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    for (let i = 0; i < 3; i++) {
+      fs.writeFileSync(path.join(dir, `line-${i}-desktop.png`), Buffer.from(`fake png ${i}`));
+    }
+    const puts = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts) => {
+      puts.push({ url: String(url), method: opts?.method });
+      return { ok: true, status: 200, text: async () => '' };
+    };
+    process.env.AWS_ACCESS_KEY_ID = 'AKIAFAKETESTKEY0001';
+    process.env.AWS_SECRET_ACCESS_KEY = 'fakeSecretKeyForTestsOnly0000000000000000';
+    try {
+      const posted = [];
+      const post = async (p, body) => {
+        posted.push({ p, body }); return { ok: true, status: 200, json: { id: `art-${posted.length}` } };
+      };
+      const r = await collectRepoTestShots({
+        dir,
+        taskId: 't1',
+        runId: 'r1',
+        recordId: 42,
+        aws: { bucket: 'vocion-qa-test', region: 'us-west-2', presign: { accessKeyId: 'AKIAFAKETESTKEY0001', secretAccessKey: 'fakeSecretKeyForTestsOnly0000000000000000' } },
+        post,
+        limit: 2,
+      });
+      assert.equal(r.uploaded.length, 2);
+      assert.equal(r.skipped.length, 1);
+      assert.match(r.skipped[0].reason, /over the limit of 2 files/);
+      assert.equal(puts.length, 2);
+      assert.ok(puts.every(p => p.method === 'PUT' && p.url.includes('vocion-qa-test.s3.us-west-2.amazonaws.com')));
+      assert.ok(r.uploaded.every(u => /^https:\/\/vocion-qa-test\.s3\.us-west-2\.amazonaws\.com\//.test(u.url) && u.url.includes('X-Amz-Signature=')));
+      assert.equal(posted.length, 2);
+      assert.equal(posted[0].body.recordRole, 'qa-screenshot');
+      assert.equal(posted[0].body.recordId, '42');
+      assert.deepEqual(r.evidence.map(e => e.source), ['repo-test', 'repo-test']);
+      assert.ok(r.evidence.every(e => e.artifactId));
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.AWS_ACCESS_KEY_ID;
+      delete process.env.AWS_SECRET_ACCESS_KEY;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is its own heading in the qa report, with what uploaded and what did not', () => {
+    const md = qaReportMarkdown({
+      taskId: 't1',
+      runId: 'r1',
+      base: 'https://example.test',
+      qa: { surface: 'app', video: false },
+      rows: [],
+      failures: [],
+      repoShots: { uploaded: [{ file: 'title-line-phone.png', caption: 'title line', viewport: 'phone' }], skipped: [{ file: 'huge.png', reason: 'over the 5 MB cap' }] },
+    });
+    assert.match(md, /## From the repo's own tests/);
+    assert.match(md, /title-line-phone\.png/);
+    assert.match(md, /title line/);
+    assert.match(md, /huge\.png.*over the 5 MB cap/);
+  });
+
+  it('does not add the heading when there is nothing from the repo\'s tests', () => {
+    const md = qaReportMarkdown({ taskId: 't1', runId: 'r1', base: '', qa: { surface: 'app' }, rows: [], failures: [], repoShots: { uploaded: [], skipped: [] } });
+    assert.doesNotMatch(md, /From the repo's own tests/);
+  });
+});
+
+describe('the repo\'s own test recordings (2026-10-03)', () => {
+  it('captions a recording by its name, or by its folder when Playwright called it video.webm', () => {
+    assert.deepEqual(captionForVideoFile('rename-save-disabled-desktop.webm'), { caption: `rename save disabled ${String.fromCharCode(0xB7)} desktop`, viewport: 'desktop' });
+    assert.deepEqual(captionForVideoFile('rename-blank-name-phone/video.webm'), { caption: `rename blank name ${String.fromCharCode(0xB7)} phone`, viewport: 'phone' });
+  });
+
+  it('sends each recording to Vocion as raw bytes with its type, and leaves the pictures to the shots pass', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'rename-desktop.webm'), Buffer.from('fake webm'));
+    fs.writeFileSync(path.join(dir, 'rename-desktop.png'), Buffer.from('fake png'));
+    fs.mkdirSync(path.join(dir, 'library-phone'));
+    fs.writeFileSync(path.join(dir, 'library-phone', 'video.mp4'), Buffer.from('fake mp4'));
+    const sent = [];
+    const upload = async (p, bytes, type) => {
+      sent.push({ p, bytes: bytes.toString(), type });
+      return { ok: true, status: 201, json: { url: `/api/media/41/v-${sent.length}.webm`, artifactIds: [900 + sent.length, 950 + sent.length] } };
+    };
+    try {
+      const r = await collectRepoTestVideos({ dir, recordId: 77, upload });
+      assert.equal(r.skipped.length, 0);
+      assert.deepEqual(sent.map(x => [x.type, x.bytes]), [['video/mp4', 'fake mp4'], ['video/webm', 'fake webm']]);
+      const q = new URLSearchParams(sent[1].p.split('?')[1]);
+      assert.ok(sent[1].p.startsWith('/artifacts/video?'));
+      assert.equal(q.get('recordId'), '77');
+      assert.equal(q.get('role'), 'qa-video');
+      assert.match(q.get('caption'), /rename .* desktop .* before merge$/);
+      assert.deepEqual(r.evidence.map(e => [e.role, e.source, e.url]), [['qa-video', 'repo-test', '/api/media/41/v-1.webm'], ['qa-video', 'repo-test', '/api/media/41/v-2.webm']]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('names what it did not send: over the cap, refused by Vocion, or with no task to file it on', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-'));
+    fs.writeFileSync(path.join(dir, 'a-desktop.webm'), Buffer.alloc(10));
+    fs.writeFileSync(path.join(dir, 'b-desktop.webm'), Buffer.alloc(2));
+    try {
+      const refused = async () => ({ ok: false, status: 413, json: { error: { message: 'A recording may be 200 MB at most; this one is larger.' } } });
+      const r = await collectRepoTestVideos({ dir, recordId: 77, upload: refused, maxBytes: 5 });
+      assert.match(r.skipped.find(s => s.file === 'a-desktop.webm').reason, /over the 0 MB cap/);
+      assert.match(r.skipped.find(s => s.file === 'b-desktop.webm').reason, /Vocion refused it: A recording may be 200 MB at most/);
+      const none = await collectRepoTestVideos({ dir, recordId: null, upload: refused });
+      assert.ok(none.skipped.every(s => /no task record/.test(s.reason)));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('keeping the repo\'s own shots out of the branch', () => {
+  it('appends an ignore line to .git/info/exclude, once, never .gitignore', () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-exclude-'));
+    fs.mkdirSync(path.join(repoDir, '.git'), { recursive: true });
+    excludeShotsDir(repoDir, 'qa-shots');
+    excludeShotsDir(repoDir, 'qa-shots'); // idempotent: a second run must not duplicate the line
+    const exclude = fs.readFileSync(path.join(repoDir, '.git', 'info', 'exclude'), 'utf8');
+    assert.equal(exclude.split('\n').filter(l => l.trim() === '/qa-shots/').length, 1);
+    assert.ok(!fs.existsSync(path.join(repoDir, '.gitignore')));
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it('keeps an existing exclude file\'s other lines', () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-exclude-'));
+    fs.mkdirSync(path.join(repoDir, '.git', 'info'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, '.git', 'info', 'exclude'), '*.local\n');
+    excludeShotsDir(repoDir, 'screens');
+    const exclude = fs.readFileSync(path.join(repoDir, '.git', 'info', 'exclude'), 'utf8');
+    assert.match(exclude, /\*\.local/);
+    assert.match(exclude, /\/screens\//);
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+});
+
+describe('pictures in the shots directory that are another task\'s (2026-10-04, walks 17-18)', () => {
+  it('names every image or recording outside this task\'s folder, and none inside it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-shots-root-'));
+    const mine = path.join(root, 'FE-9');
+    fs.mkdirSync(path.join(mine, 'nested'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'FE-8'), { recursive: true });
+    fs.writeFileSync(path.join(mine, 'sort-by-name-desktop.png'), 'mine');
+    fs.writeFileSync(path.join(mine, 'nested', 'sort-by-name-phone.webm'), 'mine too');
+    fs.writeFileSync(path.join(root, 'archive-action-desktop.png'), 'an earlier task, saved at the root');
+    fs.writeFileSync(path.join(root, 'FE-8', 'archived-link-desktop.png'), 'an earlier task, in its folder');
+    fs.writeFileSync(path.join(root, 'notes.txt'), 'not a picture');
+    try {
+      assert.deepEqual(otherTasksShots(root, mine), ['FE-8/archived-link-desktop.png', 'archive-action-desktop.png']);
+      assert.deepEqual(otherTasksShots(root, path.join(root, 'FE-8')), ['FE-9/nested/sort-by-name-phone.webm', 'FE-9/sort-by-name-desktop.png', 'archive-action-desktop.png']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('with no shots directory, names nothing', () => {
+    assert.deepEqual(otherTasksShots(path.join(os.tmpdir(), 'no-such-qa-shots-dir'), path.join(os.tmpdir(), 'no-such-qa-shots-dir', 'x')), []);
+  });
+});
+
+// ---------- the preview demo (backlog 058) ----------
+describe('the preview demo recorded from the branch', async () => {
+  const { DEMO_DWELL, demoAddress, demoLine, demoSpecHeader, dwellMs, recordPreviewDemo } = await import('./qa.mjs');
+
+  it('holds the screen the time a line takes to say, within bounds, the same figures as core', () => {
+    assert.equal(dwellMs(''), DEMO_DWELL.min);
+    const line = 'Starred documents sort first.';
+    assert.equal(dwellMs(line), 400 + Math.round((line.length / 14) * 1000));
+    assert.equal(dwellMs('x'.repeat(2000)), DEMO_DWELL.max);
+  });
+
+  it('says the acceptance line a flow was written for, closed as a sentence, else its name', () => {
+    assert.equal(demoLine({ name: 'star', criterion: 'A starred document shows a filled star' }), 'A starred document shows a filled star.');
+    assert.equal(demoLine({ name: 'Archive two at once' }), 'Archive two at once.');
+    assert.equal(demoLine({ name: 'already closed?' }), 'already closed?');
+    assert.equal(demoLine({}), '');
+  });
+
+  it('shows the path in the address bar, never the container host', () => {
+    assert.equal(demoAddress('http://127.0.0.1:4173/library?sort=starred'), '/library?sort=starred');
+    assert.equal(demoAddress('http://127.0.0.1:4173'), '/');
+  });
+
+  it('writes the header core reads: moments with their address, lines with their time, bounded', () => {
+    const spec = JSON.parse(demoSpecHeader(
+      [{ atMs: 10.4, what: 'open /library', url: '/library', ok: true }, { atMs: 3000, what: 'click Star', url: '/library' }],
+      [{ atMs: 400, text: 'I open the library.' }, { atMs: 3400, text: 'Two documents are starred.' }],
+    ));
+    assert.deepEqual(spec.timeline, [{ atMs: 10, what: 'open /library', url: '/library', ok: true }, { atMs: 3000, what: 'click Star', url: '/library' }]);
+    assert.deepEqual(spec.script, [{ atMs: 400, text: 'I open the library.' }, { atMs: 3400, text: 'Two documents are starred.' }]);
+  });
+
+  it('walks the flows in one take, says each criterion and each shoot label, logs each move, and stops a flow at its first failed step', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-'));
+    const webm = path.join(dir, 'demo', 'take.webm');
+    let clock = 0;
+    const calls = [];
+    // A locator that chains `.or()` the way Playwright's does, and clicks by its target's name.
+    const loc = name => ({
+      or: () => loc(name),
+      first: () => ({
+        async click() {
+          if (name === 'text=Vanish') {
+            throw new Error('no element matches text=Vanish');
+          }
+          calls.push(`click ${name}`);
+        },
+        async waitFor() {},
+        async fill(v) {
+          calls.push(`fill ${name}=${v}`);
+        },
+      }),
+    });
+    const page = {
+      async goto(url) {
+        calls.push(`goto ${url}`); this._url = url;
+      },
+      async waitForLoadState() {},
+      async waitForTimeout(ms) {
+        clock += ms;
+      },
+      url() {
+        return this._url;
+      },
+      locator(sel) {
+        return loc(sel);
+      },
+      getByRole(_role, { name }) {
+        return loc(name);
+      },
+      getByText(text) {
+        return loc(text);
+      },
+      video() {
+        return { path: async () => {
+          fs.mkdirSync(path.dirname(webm), { recursive: true }); fs.writeFileSync(webm, 'x'); return webm;
+        } };
+      },
+    };
+    const browser = { async newContext(opts) {
+      calls.push(`context ${opts.recordVideo.size.width}x${opts.recordVideo.size.height}`); return { newPage: async () => page, close: async () => {} };
+    } };
+    const flows = [
+      { name: 'Star two documents', criterion: 'Two selected documents are starred in one move', path: '/library', steps: [{ click: 'Select all' }, { shoot: 'Both rows show a filled star' }] },
+      { name: 'Copy links', path: '/library?tab=links', steps: [{ click: 'text=Vanish' }, { shoot: 'never reached' }] },
+    ];
+    const r = await recordPreviewDemo({ browser, base: 'http://127.0.0.1:4173', flows, outDir: dir, now: () => (clock += 100), waitMs: async (ms) => {
+      clock += ms;
+    } });
+
+    assert.equal(r.error, undefined);
+    assert.equal(r.videoPath, webm);
+    assert.deepEqual(r.lines.map(l => l.text), ['Two selected documents are starred in one move.', 'Both rows show a filled star', 'Copy links.']);
+    assert.deepEqual(r.moments.map(m => m.what), [
+      'open /library',
+      'click Select all',
+      'Both rows show a filled star',
+      'open /library?tab=links',
+      'click text=Vanish failed: no element matches text=Vanish',
+    ]);
+    assert.equal(r.moments[0].url, '/library');
+    assert.ok(r.lines[1].atMs > r.lines[0].atMs);
+    assert.deepEqual(calls, ['context 1440x900', 'goto http://127.0.0.1:4173/library', 'click Select all', 'goto http://127.0.0.1:4173/library?tab=links']);
+    assert.ok(r.seconds > 0);
+  });
+
+  it('with the chrome, acts like a person: clicks the link on screen, glides and ripples, types keystroke by keystroke, outlines what it talks about (2026-10-05)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-'));
+    const webm = path.join(dir, 'demo', 'take.webm');
+    const calls = [];
+    let clock = 0;
+    const element = name => ({
+      async click() {
+        calls.push(`click ${name}`);
+      },
+      async waitFor() {},
+      async fill(v) {
+        calls.push(`fill ${name}=${v}`);
+      },
+      async pressSequentially(v, opts) {
+        calls.push(`type ${name}=${v} delay=${opts.delay}`);
+      },
+      async boundingBox() {
+        return { x: 100, y: 200, width: 80, height: 20 };
+      },
+      async scrollIntoViewIfNeeded() {
+        calls.push(`scroll ${name}`);
+      },
+    });
+    const loc = name => ({ first: () => element(name), or: () => loc(name) });
+    const page = {
+      _url: 'about:blank',
+      async goto(url) {
+        calls.push(`goto ${url}`); this._url = url;
+      },
+      async waitForLoadState() {},
+      async waitForTimeout(ms) {
+        clock += ms;
+      },
+      url() {
+        return this._url;
+      },
+      locator(sel) {
+        if (sel === 'a[href="/library?tab=links"]') {
+          this._url = 'http://127.0.0.1:4173/library?tab=links';
+        }
+        return loc(sel);
+      },
+      getByRole(_role, { name }) {
+        return loc(name);
+      },
+      getByText(text) {
+        return loc(text);
+      },
+      async $$eval(_sel, fn) {
+        return fn(['/library', '/library?tab=links', 'mailto:x@y.example'].map(h => ({ getAttribute: () => h })));
+      },
+      async evaluate(_fn, arg) {
+        calls.push(`chrome ${arg[0]} ${JSON.stringify(arg[1])}`);
+      },
+      video() {
+        return { path: async () => {
+          fs.mkdirSync(path.dirname(webm), { recursive: true }); fs.writeFileSync(webm, 'x'); return webm;
+        } };
+      },
+    };
+    const browser = { async newContext() {
+      return { async addInitScript(src) {
+        calls.push(`init ${src.slice(0, 12)}`);
+      }, newPage: async () => page, close: async () => {} };
+    } };
+    const flows = [
+      { name: 'Search', criterion: 'The search box finds a deck by name', path: '/library', steps: [{ fill: { selector: '#search', value: 'board' } }, { shoot: 'One row remains' }] },
+      { name: 'Links', path: '/library?tab=links', steps: [{ click: 'Copy link' }] },
+    ];
+    const r = await recordPreviewDemo({ browser, base: 'http://127.0.0.1:4173', flows, outDir: dir, now: () => (clock += 100), waitMs: async (ms) => {
+      clock += ms;
+    }, chrome: '(() => { /* chrome */ })();' });
+
+    assert.equal(r.error, undefined);
+    assert.equal(calls[0], 'init (() => { /* ');
+    // The first page has nothing on screen yet, so it is opened by its address; the second is reached by its link.
+    assert.deepEqual(r.moments.map(m => m.what), ['open /library', 'fill #search', 'One row remains', 'open /library?tab=links by its link', 'click Copy link']);
+    assert.ok(calls.includes('goto http://127.0.0.1:4173/library'));
+    assert.ok(!calls.includes('goto http://127.0.0.1:4173/library?tab=links'), 'the second page was clicked to, not typed');
+    // Into the field: scroll, glide, ripple, click, clear, type with a keystroke gap — never a paste.
+    const field = calls.filter(c => c.includes('#search'));
+    assert.deepEqual(field, ['scroll #search', 'click #search', 'fill #search=', 'type #search=board delay=55']);
+    assert.ok(calls.some(c => c.startsWith('chrome moveTo [140,210]')));
+    assert.ok(calls.some(c => c.startsWith('chrome ripple [140,210]')));
+    // The line said after the action outlines the field it is about.
+    assert.ok(calls.some(c => c.startsWith('chrome spotlight [{"x":100,"y":200')));
+    assert.deepEqual(r.lines.map(l => l.text), ['The search box finds a deck by name.', 'One row remains', 'Links.']);
+  });
+
+  it('says so when there is nothing to demo', async () => {
+    const r = await recordPreviewDemo({ browser: {}, base: 'http://127.0.0.1:4173', flows: [], outDir: fs.mkdtempSync(path.join(os.tmpdir(), 'demo-')) });
+    assert.deepEqual(r, { error: 'no flow to demo' });
   });
 });

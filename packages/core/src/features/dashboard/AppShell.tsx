@@ -105,12 +105,20 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
+  // The shell's reads depend only on the workspace, so they start together
+  // and are awaited where they are used: one after another they were most of
+  // the shell's time before its first byte.
   // Agent picker options for the dock (and the ⌘K palette). Empty outside an
   // org — the dock renders nothing rather than a picker with no agents in it.
-  const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
+  const agentsRead = orgId ? loadChatAgentContext(orgId).then(c => c.agents) : Promise.resolve([]);
   // The "Review queue" badge. Counted in SQL, and a failure here must never take
   // the shell down — a badge that reads 0 is a smaller fault than no page.
-  const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
+  const waitingRead = orgId ? needsYouCount(orgId).catch(() => 0) : Promise.resolve(0);
+  const mountedRead = orgId ? mountedWorkspaceIsProjects(orgId).catch(() => false) : Promise.resolve(true);
+  const usageRead = orgId ? shellUsage(orgId) : Promise.resolve(null);
+  const blockedRead = orgId ? shellBlockedAgents(orgId) : Promise.resolve([]);
+  const agents = await agentsRead;
+  const waiting = await waitingRead;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
   // Where each enabled plugin's rows sit (plugin.yaml `nav.section`): its
   // pages, the core routes it owns and its surfaces fold into one section, so
@@ -120,7 +128,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // The mounted folder's own pages (and its plugins') list only for the
   // project that folder was applied to; another project under the same mount
   // sees its plugins' pages and nothing of the folder's.
-  const mounted = orgId ? await mountedWorkspaceIsProjects(orgId).catch(() => false) : true;
+  const mounted = await mountedRead;
   const ownDir = orgId && !mounted ? await projectPagesFolder(orgId).catch(() => null) : null;
   const pages = readWorkspacePages({ enabledPlugins, mounted, dir: ownDir }).pages;
   const nav = pluginNav({
@@ -137,30 +145,13 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // embedding, rerank and generated image — was not in the number at all. The
   // cap is the workspace's own when an admin set one, and the sum of the agent
   // caps otherwise, which is what the ring meant before.
-  const usage = orgId
-    ? await Promise.all([orgUsageTotals({ orgId }), listAgentBudgets(orgId)])
-        .then(([totals, rows]) => {
-          const agentCaps = rows.map(b => b.hardCentsLimit).filter((c): c is number => typeof c === 'number');
-          const capCents = totals.hardCentsLimit
-            ?? (agentCaps.length > 0 ? agentCaps.reduce((a, c) => a + c, 0) : null);
-          const anythingToShow = totals.spentCents > 0 || rows.length > 0 || capCents !== null;
-          return anythingToShow ? { spentCents: totals.spentCents, capCents } : null;
-        })
-        .catch(() => null)
-    : null;
+  const usage = await usageRead;
 
   // Agents that have spent through their cap — a default one included, since
   // every agent without a budget of its own runs on one (#272). Loud on
   // purpose: a refused turn is the person's first sign otherwise. A read that
   // fails hides the banner rather than the page.
-  const blockedAgents = orgId
-    ? await agentBudgetStatuses(orgId)
-        .then(status => status.agents.filter(agent => agent.blocked))
-        .catch((error: unknown) => {
-          console.warn('app shell: could not read agent budgets for the banner', { orgId, error: error instanceof Error ? error.message : String(error) });
-          return [];
-        })
-    : [];
+  const blockedAgents = await blockedRead;
 
   return (
     // The shell IS the viewport: `h-svh` over `min-h-svh` is what stops the
@@ -256,4 +247,35 @@ function safeListPlugins(): ReturnType<typeof listPlugins> {
   } catch {
     return [];
   }
+}
+
+/**
+ * This workspace's spend against its cap, for the header avatar's ring; null
+ * hides it.
+ * @param orgId - The workspace.
+ */
+function shellUsage(orgId: string) {
+  return Promise.all([orgUsageTotals({ orgId }), listAgentBudgets(orgId)])
+    .then(([totals, rows]) => {
+      const agentCaps = rows.map(b => b.hardCentsLimit).filter((c): c is number => typeof c === 'number');
+      const capCents = totals.hardCentsLimit
+        ?? (agentCaps.length > 0 ? agentCaps.reduce((a, c) => a + c, 0) : null);
+      const anythingToShow = totals.spentCents > 0 || rows.length > 0 || capCents !== null;
+      return anythingToShow ? { spentCents: totals.spentCents, capCents } : null;
+    })
+    .catch(() => null);
+}
+
+/**
+ * Agents that have spent through their cap, for the banner; a failed read
+ * hides the banner rather than the page.
+ * @param orgId - The workspace.
+ */
+function shellBlockedAgents(orgId: string) {
+  return agentBudgetStatuses(orgId)
+    .then(status => status.agents.filter(agent => agent.blocked))
+    .catch((error: unknown) => {
+      console.warn('app shell: could not read agent budgets for the banner', { orgId, error: error instanceof Error ? error.message : String(error) });
+      return [];
+    });
 }

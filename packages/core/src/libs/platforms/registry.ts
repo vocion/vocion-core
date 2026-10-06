@@ -49,6 +49,7 @@ export type CredentialPlatformId
   // Connector platforms. One per API-key connector, so a workspace types its
   // Jira or Strapi key once and every connector install can point at it.
     | 'apollo'
+    | 'elevenlabs'
     | 'github'
     | 'granola'
     | 'hubspot'
@@ -56,6 +57,7 @@ export type CredentialPlatformId
     | 'notion'
     | 'posthog'
     | 'sentry'
+    | 'slate'
     | 'strapi'
   // Any bearer-token REST API the workspace declares endpoints for
   // (`libs/sources/rest.ts`). One-live for the same reason as `apollo` — see
@@ -704,6 +706,60 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         secret: true,
       },
     ],
+  },
+  {
+    id: 'slate',
+    label: 'Slate',
+    keySource: 'supplied',
+    // `one-live`, like Sentry and PostHog: one Slate account per workspace,
+    // asked for with no row id in hand.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['slate'],
+    howToConnect: {
+      paste: {
+        credential: 'Session token',
+        access: [],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Slate session token (slt_…)',
+    helpText: 'A Slate session token (slt_…, about 90 days) — sign in to Slate\'s desktop or command-line app and copy its token. Test connection reads whose account it is; nothing is synced or uploaded.',
+    fields: [
+      {
+        name: 'token',
+        label: 'Session token',
+        pattern: /^slt_\S{8,}$/,
+        shapeHint: 'is a Slate session token, starting slt_',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'elevenlabs',
+    label: 'ElevenLabs',
+    keySource: 'supplied',
+    // `one-live`, for the reason Apollo, Notion, PostHog and Sentry are:
+    // widening the cap means rebuilding `api_token_org_platform_live_idx`, and
+    // one key speaks in every voice of the account.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['elevenlabs'],
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: ['Text to Speech', 'Voices (read)', 'User (read), so Test connection can show the characters left'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an ElevenLabs API key',
+    helpText: 'An ElevenLabs API key, from Developers → API Keys. It needs Text to Speech and Voices (read); User (read) lets Test connection show the characters left. Speaking a line spends the account\'s characters, so the usage lands on your own ElevenLabs plan.',
+    // `apiKey`: the key `libs/voice/elevenlabs.ts` reads out of the credential.
+    fields: singleKeyField('API key', /^\S{16,}$/, 'is an API key with no spaces, at least 16 characters (sk_…)'),
   },
   {
     id: 'strapi',

@@ -186,6 +186,50 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(document.querySelector('[data-testid="feature-timeline"] [data-testid="timeline-cost"]')!.textContent).toBe('$8.30');
   });
 
+  // FE-392, 2026-10-03: "Live since" in Current state read a fixed-UTC
+  // stamp ("03 Oct 2026, 01:27 UTC") while "Did it work?" and the Timeline
+  // read the reader's own calendar off the same instant ("2 Oct") — three
+  // clocks disagreeing on one page across a day boundary. Both now render
+  // the live date through the same `LocalDate` component off the same
+  // `report.release.at`, so they can never read a different calendar day.
+  it('keeps the live date when the headline is not just "Live" (FE-398: "Shipped · seen live" lost it)', async () => {
+    await page.viewport(390, 844);
+    await draw(fixture({
+      releases: [{
+        id: 9,
+        title: 'northwind-portal 2.4.0',
+        status: 'shipped',
+        createdAt: T('2026-10-03T01:00:00Z'),
+        meta: { product: 'northwind-portal', version: '2.4.0', releasedAt: '2026-10-03T01:27:00Z', taskIds: [77], requestIds: [41], liveState: 'seen', liveSummary: 'Seen live: 3 of 3 states reached.' },
+      }],
+    }));
+
+    const sentence = document.querySelector('[data-testid="report-status-sentence"]')!;
+
+    expect(sentence.textContent).toMatch(/^Live since /);
+    expect(sentence.querySelector('time')).not.toBeNull();
+  });
+
+  it('reads the same live date in Current state and in "Did it work?" (FE-392)', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture({
+      releases: [{
+        id: 9,
+        title: 'northwind-portal 2.4.0',
+        status: 'shipped',
+        createdAt: T('2026-10-03T01:00:00Z'),
+        meta: { product: 'northwind-portal', version: '2.4.0', releasedAt: '2026-10-03T01:27:00Z', taskIds: [77], requestIds: [41] },
+      }],
+    }));
+
+    const stateTime = document.querySelector('[data-testid="report-status-sentence"] time')!;
+    const outcomeTime = document.querySelector('[data-testid="report-outcome-line"] time')!;
+
+    expect(stateTime.textContent).not.toBe('');
+    expect(stateTime.textContent).toBe(outcomeTime.textContent);
+    expect(stateTime.getAttribute('dateTime')).toBe(outcomeTime.getAttribute('dateTime'));
+  });
+
   it('shows acceptance as N of M verified with no pass that has no evidence', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
@@ -196,6 +240,18 @@ describe('the feature page, in the order a product owner reads it', () => {
     expect(acceptance.textContent).toContain('Unverified');
     expect(acceptance.textContent).not.toContain('Passed');
     expect(acceptance.querySelector('[data-preview-key="feature_section:41.criterion-0"]')).not.toBeNull();
+  });
+
+  it('says why a line is not passed under it, and nothing under a passed line (Walk 12)', async () => {
+    await page.viewport(390, 844);
+    const report = fixture({
+      tasks: [{ id: 77, title: 'Room PDF export', status: 'changes_requested', createdAt: T('2026-09-03T09:00:00Z'), meta: { requestId: 41, acceptanceContract: ['The share menu offers PDF'], prUrl: LONG_PR, verdict: { value: 'changes', at: '2026-09-04T12:00:00Z', by: 'change-reviewer', criteria: [{ criterion: 'The share menu offers PDF', status: 'unchecked' }] } } }],
+    });
+    await draw(report);
+
+    const note = document.querySelector('#report-outcome [data-testid="criterion-note"]');
+
+    expect(note?.textContent).toBe('QA did not judge this line.');
   });
 
   it('opens a drawer in the one preview pane, in the URL so Back closes it', async () => {
@@ -224,6 +280,50 @@ describe('the feature page, in the order a product owner reads it', () => {
     await draw(fixture());
 
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
+  });
+
+  // Chris, 2026-10-03: the recordings of QA's runs live on the feature.
+  // Chris, 2026-10-04: "missing the video on this feature page carousel" — they lead it.
+  it('draws no video when nothing was recorded', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    expect(document.querySelector('video')).toBeNull();
+  });
+
+  it('leads the carousel with the live check as a video slide, phone-wide without scrolling sideways', async () => {
+    await page.viewport(390, 844);
+    const recording = (id: number, role: string, recordId: string, caption: string, at: string) => ({ id, kind: 'file', title: caption, recordType: 'object', recordId, recordRole: role, spec: { url: `/api/media/${recordId}/rec-${id}000000000000000.webm`, contentType: 'video/webm', caption }, url: `/api/media/${recordId}/rec-${id}000000000000000.webm`, createdAt: T(at) });
+    await draw(fixture({ artifacts: [
+      recording(1, 'qa-live-video', '41', 'Live check of REL-9, 2026-09-20', '2026-09-20T09:00:00Z'),
+      recording(2, 'qa-video', '77', 'share menu offers pdf · desktop · before merge', '2026-09-04T11:00:00Z'),
+    ] }));
+
+    const slides = [...document.querySelectorAll('[data-testid="report-slide"]')];
+
+    expect(slides.length).toBeGreaterThan(0);
+    // The recording is the first slide, drawn as its first frame under a play mark, with its chip.
+    expect(slides[0]!.querySelector('[data-testid="report-slide-video"] video')).not.toBeNull();
+    expect(slides[0]!.querySelector('[data-testid="report-slide-chip"]')!.textContent).toBe('Live check');
+    expect(document.querySelector('[data-testid="report-slide-caption"]')!.textContent).toContain('Live check of REL-9, 2026-09-20');
+    // The tests' own per-flow recordings are not hero material.
+    expect(slides.filter(s => s.querySelector('video'))).toHaveLength(1);
+    // Nothing else on the page plays it a second time.
+    expect(document.querySelector('[data-testid="report-recordings"]')).toBeNull();
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
+
+  it('plays the narrated version in the recording\'s place when QA narrated it', async () => {
+    await page.viewport(390, 844);
+    const live = { id: 1, kind: 'file', title: 'Live check of REL-9, 2026-09-20', recordType: 'object', recordId: '41', recordRole: 'qa-live-video', spec: { url: '/api/media/9/live-check-desktop-1-0000000000000001.webm', contentType: 'video/webm', caption: 'Live check of REL-9, 2026-09-20' }, url: '/api/media/9/live-check-desktop-1-0000000000000001.webm', createdAt: T('2026-09-20T09:00:00Z') };
+    const narrated = { id: 2, kind: 'file', title: 'Narrated: Live check of REL-9, 2026-09-20', recordType: 'object', recordId: '41', recordRole: 'qa-live-video-narrated', spec: { url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', contentType: 'video/mp4', caption: 'Live check of REL-9, 2026-09-20 · narrated by QA', narratedFrom: 1, script: [{ atMs: 1_800, text: 'I open the room.' }] }, url: '/api/media/9/live-check-desktop-1-narrated-0000000000000002.mp4', createdAt: T('2026-09-20T09:05:00Z') };
+    await draw(fixture({ artifacts: [live, narrated] }));
+
+    const first = document.querySelector('[data-testid="report-slide"] [data-testid="report-slide-video"] video')!;
+
+    expect(first.getAttribute('src')).toBe(`${narrated.url}#t=3.3`);
+    expect(document.querySelector('[data-testid="report-slide-caption"]')!.textContent).toContain('narrated by QA');
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 });
 

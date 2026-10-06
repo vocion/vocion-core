@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /**
- * Migration 0165 against keys that already exist.
+ * Migration 0167 against keys that already exist.
  *
  * Every `api_token` row written before logins were stored here was a pasted
  * key, so each one has to read as `paste` with no account. And because
@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 const MIGRATION_SQL = readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0165_api_token_login.sql'),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0167_api_token_login.sql'),
   'utf8',
 );
 
@@ -41,7 +41,7 @@ async function readProvenance(db: PGlite): Promise<Array<{ id: string; obtainedV
   return rows.rows.map(row => ({ id: row.id, obtainedVia: row.obtained_via, account: row.account }));
 }
 
-describe('migration 0165: api_token login provenance', () => {
+describe('migration 0167: api_token login provenance', () => {
   it('reads every key pasted before this migration as a paste with no account', async () => {
     await database.exec(`INSERT INTO "api_token" ("id", "platform") VALUES ('tok_a', 'openai'), ('tok_b', 'github')`);
 

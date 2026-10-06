@@ -1,4 +1,5 @@
 import type { ChatInbound, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import { Buffer } from 'node:buffer';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,10 +13,21 @@ const ORG = 'org_chat';
 
 type FakeReply = { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string; images?: { url: string; caption: string }[] };
 
-function fakeAdapter(): ChatSurfaceAdapter & { replies: FakeReply[] } {
+function fakeAdapter(): ChatSurfaceAdapter & { replies: FakeReply[]; retracted: string[] } {
   const replies: FakeReply[] = [];
+  const retracted: string[] = [];
+  const tsOf: string[] = [];
   let seq = 0;
   return {
+    retracted,
+    retract: async (post) => {
+      const i = tsOf.indexOf(post.ts);
+      if (i >= 0) {
+        retracted.push(replies[i]!.text);
+        replies.splice(i, 1);
+        tsOf.splice(i, 1);
+      }
+    },
     id: 'slack',
     replies,
     verify: () => ({ ok: true }),
@@ -24,6 +36,7 @@ function fakeAdapter(): ChatSurfaceAdapter & { replies: FakeReply[] } {
       const msg = typeof message === 'string' ? { text: message } : message;
       replies.push({ ...target, text: msg.text, ...(msg.images ? { images: msg.images } : {}) });
       seq += 1;
+      tsOf.push(`900.${seq}`);
       return { channelId: target.channelId, ts: `900.${seq}`, ...(target.threadRef ? { threadRef: target.threadRef } : {}), media: 'none' as const };
     },
   };
@@ -126,6 +139,82 @@ describe('handleInbound', () => {
     expect(first.outcome === 'replied' && second.outcome === 'replied' && second.conversationId).toBe(first.outcome === 'replied' ? first.conversationId : -1);
     // user + assistant from turn 1 are the history for turn 2
     expect(adapter.replies[1]!.text).toBe('history=2');
+  });
+
+  it('hands the pictures on the mention to the agent as attachments, kept as upload artifacts; an unreadable one is said, not dropped (backlog 057)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    // A 1×1 PNG.
+    const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+    const runAgent = vi.fn(async () => ({ response: 'I see the header overflowing.', traceId: 't', toolCalls: [] }));
+    const fetchFile = vi.fn(async (url: string) => (url.endsWith('/f1/download') ? { bytes: png, contentType: 'image/png' } : null));
+    const withPictures = { ...inbound, files: [
+      { id: 'F1', name: 'The broken header', contentType: 'image/png', bytes: png.byteLength, url: 'https://files.slack.example/f1/download' },
+      { id: 'F2', name: 'Gone already', contentType: 'image/png', bytes: 10, url: 'https://files.slack.example/f2/download' },
+    ] };
+
+    const out = await svc.handleInbound(adapter, withPictures, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), fetchFile });
+
+    expect(out.outcome).toBe('replied');
+
+    const call = (runAgent.mock.calls[0] as unknown as [{ message: string; attachments?: Array<{ kind: string; title: string; contentType: string; filename?: string }> }])[0];
+
+    expect(call.attachments).toHaveLength(1);
+    expect(call.attachments![0]).toMatchObject({ kind: 'image', title: 'The broken header', contentType: 'image/png' });
+    expect(call.attachments![0]!.filename).toBeTruthy();
+    expect(call.message).toContain('A picture was attached that could not be read (Gone already)');
+  });
+
+  it('reads the pictures above a bare mention in a thread, routes on them, and attaches them only on the first call (Chris, 2026-10-05)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+    const runAgent = vi.fn(async () => ({ response: 'I see the share page.', traceId: 't', toolCalls: [] }));
+    const fetchFile = vi.fn(async () => ({ bytes: png, contentType: 'image/png' }));
+    const threadPictures = vi.fn(async () => [{ id: 'F1', name: 'image.png', contentType: 'image/png', bytes: png.byteLength, url: 'https://files.slack.example/f1/download' }]);
+    const route = vi.fn(async () => ({ orgId: ORG, agentSlug: 'revenue-lead', routed: 'binding' as const, reason: 'the channel is bound' }));
+    const bare = { ...inbound, threadRef: '100.1', messageRef: '100.3', text: 'See this thread.' };
+    const deps = { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), fetchFile, threadPictures, route };
+
+    expect((await svc.handleInbound(adapter, bare, deps)).outcome).toBe('replied');
+
+    const routed = (route.mock.calls[0] as unknown as [unknown, { pictures?: Array<{ contentType: string; base64: string }> }])[1];
+
+    expect(routed.pictures).toEqual([{ contentType: 'image/png', base64: Buffer.from(png).toString('base64') }]);
+
+    const first = (runAgent.mock.calls[0] as unknown as [{ attachments?: Array<{ title: string }> }])[0];
+
+    expect(first.attachments?.map(a => a.title)).toEqual(['image.png']);
+
+    // The second bare mention in the same thread already has the picture in its conversation.
+    await svc.handleInbound(adapter, { ...bare, messageRef: '100.4' }, deps);
+    const second = (runAgent.mock.calls[1] as unknown as [{ attachments?: unknown[] }])[0];
+
+    expect(second.attachments).toBeUndefined();
+  });
+
+  it('says it is working the moment it hears the mention, takes that back, and posts the answer after the last tool (Chris, 2026-10-05)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn(async () => ({ response: 'I\'ll check the rollup first.\n\nThe share page shows views by viewer.', lastAnswer: 'The share page shows views by viewer.', traceId: 't', toolCalls: [] }));
+
+    await svc.handleInbound(adapter, inbound, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect(adapter.retracted).toEqual([svc.WORKING_LINE]);
+    expect(adapter.replies.map(r => r.text)).toEqual(['The share page shows views by viewer.']);
+  });
+
+  it('lets a reply decide a card waiting in the thread, answering with the decision and running no turn (backlog 057)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn();
+    const approval = vi.fn(async () => ({ decided: true as const, verb: 'approve' as const, runId: 7049, reply: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' }));
+
+    const out = await svc.handleInbound(adapter, { ...inbound, text: 'ship it' }, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), approval });
+
+    expect(out).toMatchObject({ outcome: 'replied', text: 'Approved by Chris: "Merge it". It ran; Undo is in Vocion.' });
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(adapter.replies[0]!.text).toContain('Approved by Chris');
   });
 
   it('stores the reply as a finished turn, so a Slack answer is not a row nobody can read (#114)', async () => {

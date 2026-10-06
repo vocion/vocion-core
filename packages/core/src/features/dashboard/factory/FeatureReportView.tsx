@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { MediaSlide } from './MediaCarousel';
 import type { DotTone } from '@/components/patterns';
 import type { RecordStatus } from '@/libs/factory/liveStatus';
 import type { RelatedItem } from '@/libs/workspace/related';
@@ -8,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { Related, Section, StatusDot } from '@/components/patterns';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { heroPictures } from '@/libs/factory/heroPictures';
 import { showsAnError } from '@/libs/factory/mockup';
 import { prNumberLabel } from '@/libs/factory/runTitle';
 import { liveTopic } from '@/libs/live/topics';
@@ -110,8 +112,27 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
  * @param props.pictures - The pictures, ranked.
  * @param props.docs - Mockups that are documents rather than pictures.
  * @param props.mockupStatus
+ * @param props.recordings
+ * @param props.acceptance
  */
-function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[]; docs: ReportEvidence[]; mockupStatus?: FeatureReport['mockupStatus'] }) {
+function HeroMedia({ pictures, docs, mockupStatus, recordings, acceptance }: { pictures: ReportEvidence[]; docs: ReportEvidence[]; mockupStatus?: FeatureReport['mockupStatus']; recordings?: FeatureReport['recordings']; acceptance?: FeatureReport['acceptance'] }) {
+  // THE RECORDINGS LEAD (Chris, 2026-10-04: "missing the video on this
+  // feature page carousel"): the feature demo, then the demo recorded from
+  // the branch before merge, then QA's live check — each the narrated
+  // version when QA narrated it — as video slides at the front of the one
+  // carousel. Then the pictures that show the feature works: the ones QA
+  // cited for each acceptance line (`heroPictures`); a swipe through twenty
+  // near-identical QA shots buried the demo under them (FE-441, 21 slides).
+  // Every other shot stays with the criteria below.
+  const videos: MediaSlide[] = ([
+    recordings?.demo ? { key: 'demo', label: 'Feature demo', r: recordings.demo } : null,
+    recordings?.preview ? { key: 'preview', label: 'Feature demo, before merge', r: recordings.preview } : null,
+    recordings?.live ? { key: 'live', label: 'Live check', r: recordings.live } : null,
+  ].filter(x => x !== null)).map(({ label, r }) => {
+    const v = r.narrated ?? r;
+    return { id: v.artifactId, kind: 'video' as const, src: v.url, type: v.contentType, label, title: v.caption, caption: null, ...(v.posterAt !== null ? { posterAt: v.posterAt } : {}) };
+  });
+  const shown = heroPictures(pictures, [...(acceptance?.items ?? []), ...(acceptance?.risks ?? [])]);
   // Where the default mockup stands, said where it would be: drawing, or why
   // it drew nothing (`visuals.mockupDraw`).
   // A failure line never stands over pictures of the change: the page is not
@@ -123,7 +144,7 @@ function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[
         </p>
       )
     : null;
-  if (pictures.length === 0) {
+  if (pictures.length === 0 && videos.length === 0) {
     return (
       <div id="report-visuals" data-section="visuals" className="space-y-4">
         {docs.length > 0
@@ -140,7 +161,7 @@ function HeroMedia({ pictures, docs, mockupStatus }: { pictures: ReportEvidence[
   const word = (e: ReportEvidence) => e.section ?? (e.role === 'today' ? 'Today' : ROLE_WORD[e.role] ?? e.role);
   return (
     <div id="report-visuals" data-section="visuals" className="space-y-4">
-      <MediaCarousel slides={pictures.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption, source: p.source ?? null }))} />
+      <MediaCarousel slides={[...videos, ...shown.map(p => ({ id: p.id, src: p.imageUrl!, label: word(p), title: p.title, caption: p.caption, source: p.source ?? null }))]} />
       {status}
       {docs.length > 0 && <Gallery items={docs} />}
     </div>
@@ -314,6 +335,24 @@ function StatusBlock({ report, status }: { report: FeatureReport; status: Record
         )
     : null;
   const yours = report.state.needsYou && actions !== null;
+  // LIVE'S DATE IS NOT BAKED SERVER-SIDE (2026-10-03, FE-392). `release.sentence`
+  // carries no date of its own; here it is spliced onto `LocalDate` — the same
+  // component the Timeline uses for its own dates — so this line and the
+  // Timeline always read the same calendar day for the same instant, instead
+  // of this line's old fixed-UTC stamp disagreeing with the Timeline's
+  // reader-zone one across a day boundary.
+  // Any headline of a live release ("Live", "Shipped · seen live"…): keyed on
+  // the headline word, FE-398's line lost its date entirely (2026-10-03).
+  const sentence = report.release.state === 'live' && report.release.at
+    ? (
+        <>
+          {'Live since '}
+          <LocalDate at={report.release.at} />
+          {', '}
+          {s.sentence}
+        </>
+      )
+    : s.sentence;
   return (
     <section id="report-state" data-testid="report-status" aria-label="Current state" className="space-y-3">
       <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Current state</div>
@@ -321,7 +360,7 @@ function StatusBlock({ report, status }: { report: FeatureReport; status: Record
           sentence would repeat it. After the merge the run is GitHub's, and
           the sentence is the part the Now line cannot say: who merged it,
           when, and who is watching until the release lands (#269). */}
-      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live && report.live.kind !== 'deploying' ? '' : s.sentence} />
+      <FeatureHeadline requestId={report.requestId} tone={DOT_TONE[s.tone]} headline={s.headline} sentence={report.live && report.live.kind !== 'deploying' ? '' : sentence} />
       <WorkStatus status={status} hideStage youAction={yours ? <span className="flex flex-wrap items-center gap-2">{actions}</span> : undefined} className="max-w-prose" />
       {!yours && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       {report.notices.length > 0 && <Notices notices={report.notices} requestId={report.requestId} />}
@@ -375,7 +414,11 @@ function CriterionList({ report, items, offset, testId }: { report: FeatureRepor
             <span className="w-[5.5rem] shrink-0 pt-px text-[12px]">
               <StatusDot tone={CRITERION_TONE[c.state]} label={<span className={c.state === 'unverified' ? 'text-muted-foreground' : 'text-foreground'}>{CRITERION_WORD[c.state]}</span>} />
             </span>
-            <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] leading-relaxed break-words text-foreground">{c.statement}</span>
+              {/* Why a line is not passed, when the proof says (e.g. "Left to the live check…"): a bare "Unverified" explains nothing. */}
+              {c.state !== 'passed' && c.note && <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground" data-testid="criterion-note">{c.note}</span>}
+            </span>
           </FeatureDrawerLink>
         </li>
       ))}
@@ -393,7 +436,7 @@ function seenLive(seen: ReportReleaseSummary['seen']): string | null {
     return null;
   }
   const count = seen.reached !== undefined && seen.total !== undefined && seen.total > 0 ? ` ${seen.reached} of ${seen.total}` : '';
-  return seen.state === 'seen' ? `seen live${count}` : seen.state === 'partial' ? `partly seen live${count}` : seen.state === 'not_seen' ? 'not seen live' : 'not yet seen live';
+  return seen.state === 'seen' ? `seen live${count}` : seen.state === 'partial' ? `partly seen live${count}` : seen.state === 'not_seen' ? 'not seen live' : seen.state === 'not_checked' ? 'not checked live yet' : 'not yet seen live';
 }
 
 /**
@@ -592,7 +635,7 @@ export function FeatureReportView({ report, status, related = [] }: { report: Fe
       </div>
 
       {/* 3. WHAT IT LOOKS LIKE — the gallery, as it was. */}
-      <HeroMedia pictures={pictures} docs={docs} mockupStatus={report.mockupStatus} />
+      <HeroMedia pictures={pictures} docs={docs} mockupStatus={report.mockupStatus} recordings={report.recordings} acceptance={report.acceptance} />
 
       {/* 3. DID IT WORK? 4. TIMELINE — one question each. */}
       <div>

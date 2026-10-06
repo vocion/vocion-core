@@ -55,6 +55,12 @@ schema:
   # (conversation 362: "Three changes to this request…" went to
   # change-reviewer on "changes", and nothing was written).
   x-owner: product-manager
+  # THE FRONT DOOR (core: services/chat/intake.ts). A card in chat offers
+  # Build it when a type declares itself the intake; the tap hands the idea to
+  # the type's `x-owner` as the person's word, who files it here and starts
+  # the build (Chris, 2026-10-04: "a path to just push the idea into the
+  # software factory from chat … universal. Simple. Magical. Fast.").
+  x-intake: true
   # FILED THROUGH ITS OWN TOOL (core: services/agents/tools/fileRecord.ts).
   # An agent that works with requests gets `file_request`, whose arguments ARE
   # these fields: the proposal-ready bar below marked required, `product` as
@@ -64,6 +70,9 @@ schema:
   # "Stamp"`, no story, no dedupOn), was refused twice, and nothing was filed.
   x-agent-file:
     dedupOn: [product, title]
+    # A title longer than the title's maxLength is kept here, as the ask, and
+    # the request is named by a model (core: services/agents/tools/fileRecord.ts).
+    longTitleTo: body
     fields: [product, kind, outcome, story, body, acceptance, mainRisk, visuals, whyNote, gapCheck, why, severity, sizeClass, surface, askedBy, evidence, icp, source, theme, tags, expectedResult, howWeCheck]
     omit: [acceptance.met, acceptance.evidenceUrl, acceptance.checkedAt, visuals.beforeArtifactIds, visuals.mockupArtifactIds, visuals.afterArtifactIds, visuals.drawnArtifactId, visuals.mockupDraw]
   # RELATED (core: libs/workspace/related.ts): what a request is connected
@@ -100,7 +109,28 @@ schema:
     title:
       x-display: {hidden: true}
       type: string
-      description: One line, in the asker's terms where possible. The row on the backlog.
+      # TICKET-SIZED (Chris, 2026-10-03: "The title is too long and verbose …
+      # not a full request or spec in the title"). FE-402's title was the whole
+      # ask — "On Stamp's library list, let me sort the documents by name,
+      # upload date or last opened, newest first by default, and remember my
+      # choice…" — and every row, page header and share page led with it. The
+      # filing tool reads this limit; handed a longer title, it keeps the words
+      # in `body` (`x-agent-file.longTitleTo`) and a model names the work
+      # (core: services/objects/recordName.ts). Never cut by a character count.
+      maxLength: 60
+      description: >-
+        A ticket-sized name for the work, at most 60 characters: a noun phrase
+        or an imperative in the asker's terms ("Sort the library by name, date
+        or last opened", "Upload date on each library row"). The row on Work
+        and the heading of the feature page. Not the ask itself — the person's
+        whole words go in `body`, verbatim.
+    name:
+      x-display: {hidden: true}
+      type: string
+      description: >-
+        The short name a model read from a title longer than a name, for a
+        request filed before titles were ticket-sized. Surfaces read it before
+        the title (core: libs/workspace/recordName.ts). Never written by a filer.
     outcome:
       x-display: {label: Outcome, role: prose, order: 0}
       type: string
@@ -108,8 +138,8 @@ schema:
         WHAT A PERSON CAN DO AFTERWARDS THAT THEY CANNOT DO NOW, in one
         sentence, and the line every surface leads with.
 
-        The title is the asker's words and is evidence, so it is never
-        rewritten — which left the work with no line stating the change. A
+        The asker's words are evidence and are kept verbatim in `body`; the
+        title names the work. Neither states the change. A
         page that leads with the ask leads with a situation; a person deciding
         needs the outcome. "Add send/share to the file detail page" is a
         control and a place. "Allow users to send files to email recipients"
@@ -123,7 +153,11 @@ schema:
     body:
       x-display: {label: In their words, role: prose, order: 1}
       type: string
-      description: The request as it arrived — the asker's own words, unedited. Triage summarises beside it, never instead of it.
+      description: >-
+        The request as it arrived — the asker's own words, unedited. Triage summarises beside it,
+        never instead of it. A request an agent puts forward has no asker: leave `body` empty and
+        put the feature as you would say it to the person in `story`; the prompt or pass that led
+        you to it is never the ask (the feature page and its share card show `story` for a proposal).
     story:
       x-display: {label: The story, role: prose, order: 2}
       type: string
@@ -346,6 +380,7 @@ schema:
         # The factory's handlers.
         qa_changes: changes_asked
         qa_reject: changes_asked
+        live_changes: changes_asked
         merge_waits: awaiting_merge
         merge_running: deploying
         shipped: shipped
@@ -493,10 +528,10 @@ schema:
       type: object
       description: >-
         What QA saw of this feature on the live product after its release
-        (`check_live`): `state` (seen, partial, not_seen), the `line` the page
-        reads, `releaseId`, `checkedAt`, `attempt`, and `flows` — the live QA
-        flow that checked it (setup, check, cleanup), reused and amended the
-        next time. Shipped and not yet seen live reads as such.
+        (`record_live_check`): `state` (seen, partial, not_seen), the `line`
+        the page reads, `releaseId`, `checkedAt`, `attempt`, `beforeMerge`
+        (the lines production cannot show) and `lines` — what it saw of each
+        acceptance line. Shipped and not yet seen live reads as such.
     releaseId:
       x-display: {label: Shipped in, format: link, to: release}
       type: integer

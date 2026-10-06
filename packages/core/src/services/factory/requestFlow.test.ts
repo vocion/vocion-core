@@ -31,6 +31,13 @@ function harness(outcomes: Outcome[], reads: Record<number, Read>, opts: { live?
     },
     async runAction(_org, actionId, input, by) {
       if (actionId === 'factory.dispatch_task') {
+        // The flow's input must be one the real action accepts (Walk 18: a
+        // `trigger: deploy` the action refused passed this harness unseen).
+        const { factoryDispatchAction } = await import('@/libs/actions/factory-dispatch');
+        const parsed = factoryDispatchAction.inputSchema.safeParse(input);
+        if (!parsed.success) {
+          throw new Error(`the flow sent factory.dispatch_task an input it refuses: ${parsed.error.message}`);
+        }
         const contract = (input.contract ?? {}) as { attempt?: number; baseSha?: string };
         const d: Dispatch = { attempt: Number(contract.attempt), base: contract.baseSha ?? null, reason: String(input.reason), by, ...(input.note ? { note: String(input.note) } : {}), ...(input.planId ? { planId: Number(input.planId) } : {}), ...(input.trigger ? { trigger: String(input.trigger) } : {}) };
         dispatches.push(d);
@@ -71,9 +78,9 @@ const failed = (branch: string): Read => ({ status: 'failed', branch, prUrl: nul
 const opened = (branch: string, prUrl: string): Read => ({ status: 'completed', branch, prUrl, failure: null, decision: { do: 'none', why: '' } });
 const from = (d: Dispatch) => /\(([\w-]+)\)\.$/.exec(d.reason)?.[1];
 
-async function start(name: string, requestId: number) {
+async function start(name: string, requestId: number, more: Record<string, unknown> = {}) {
   const id = durableIdFor(ORG, 'request', `${requestId}.1`);
-  await durable().start(name, id, { orgId: ORG, flowRef: REQUEST_FLOW, flow: loadFlow(REQUEST_FLOW), input: { requestId, since: new Date(Date.now() - 5000).toISOString() } });
+  await durable().start(name, id, { orgId: ORG, flowRef: REQUEST_FLOW, flow: loadFlow(REQUEST_FLOW), input: { requestId, since: new Date(Date.now() - 5000).toISOString(), ...more } });
   return id;
 }
 
@@ -116,6 +123,46 @@ describe('the software-factory request flow owns a request from Build to live (b
     const { valueFor } = await import('@/libs/objects/statusModel');
 
     expect(h.marks.map(([t]) => [t, valueFor(REQUEST_STATUSES, t)])).toEqual([['starting', 'building'], ['building', 'building'], ['review', 'in_qa'], ['deploying', 'deploying'], ['checking_live', null], ['live', 'seen_live']]);
+  });
+
+  it('a new run of the flow goes on from the request\'s last build, not attempt 1 (walk 26: the send-back read "building attempt 1")', async () => {
+    const h = harness([{ kind: 'building', workerRunId: 613, taskId: 1 }], {});
+    await ask(62, { from: 'live' });
+    const id = await start(h.name, 62, { attempt: 1 });
+    await until(id, 'building');
+
+    expect(h.dispatches[0]).toMatchObject({ attempt: 2 });
+    expect(h.marks.find(([t]) => t === 'building')?.[1]).toBe('RUN-613 is building attempt 2.');
+  });
+
+  it('says when QA could not finish, and still takes the review the factory starts again (Walk 11, FE-387)', async () => {
+    const h = harness([{ kind: 'building', workerRunId: 611, taskId: 1 }], { 611: opened('feat-1', 'pr/71') }, { live: () => ({ state: 'seen', line: 'Seen live: 1 of 1' }) });
+    await ask(70);
+    const id = await start(h.name, 70);
+    await until(id, 'building');
+    await emit('worker_run.completed', { workerRunId: 611 });
+    await until(id, 'review');
+    await emit('factory.review_failed', { requestId: 70, url: 'pr/71' });
+    await vi.waitFor(() => expect(h.marks.map(([, line]) => line)).toContain('QA could not finish its review of the pull request; the factory starts it again, up to twice.'));
+    await emit('pr.merged', { url: 'pr/71' });
+
+    await until(id, 'deploying');
+  });
+
+  it('says when the merge\'s deploy failed, and still takes the release a re-run records (Walk 15, FE-406)', async () => {
+    const h = harness([{ kind: 'building', workerRunId: 621, taskId: 1 }], { 621: opened('feat-1', 'pr/81') }, { live: () => ({ state: 'seen', line: 'Seen live: 1 of 1' }) });
+    await ask(80);
+    const id = await start(h.name, 80);
+    await until(id, 'building');
+    await emit('worker_run.completed', { workerRunId: 621 });
+    await until(id, 'review');
+    await emit('pr.merged', { url: 'pr/81', mergeSha: 'c0ffee81' });
+    await until(id, 'deploying');
+    await emit('run.failed', { headSha: 'c0ffee81', name: 'Deploy', url: 'https://ci.example/runs/81' });
+    await vi.waitFor(() => expect(h.marks.map(([, line]) => line)).toContain('Merged pr/81, but its deploy failed (Deploy: https://ci.example/runs/81); the release engineer is answering it.'));
+    await emit('release.linked', { releaseId: 981, requestIds: [80] });
+
+    await vi.waitFor(() => expect(h.marks.map(([t]) => t)).toContain('checking_live'));
   });
 
   it('retries a failure on the kept branch, takes QA\'s send-back as the next attempt, and ends live', async () => {
@@ -213,6 +260,45 @@ describe('the software-factory request flow owns a request from Build to live (b
     expect(h.dispatches).toHaveLength(4);
     expect(h.stops).toHaveLength(1);
     expect(h.stops[0]).toMatch(/3 automatic attempts/);
+  });
+
+  it('a start that was refused is not an attempt: three refusals do not spend the three (FE-457, 2026-10-05)', async () => {
+    const h = harness(
+      [{ kind: 'refused', why: 'nothing started: the request has settled' }, { kind: 'refused', why: 'nothing started: a build is underway' }, { kind: 'refused', why: 'nothing started: the plan is stale' }, { kind: 'building', workerRunId: 901, taskId: 901 }],
+      { 901: failed('d1') },
+    );
+    await ask(45, { by: 'factory:live-check', byPerson: false, from: 'the live check', trigger: 'recovery' });
+    const id = await start(h.name, 45);
+    for (const n of [1, 2, 3]) {
+      await vi.waitFor(() => expect(h.dispatches).toHaveLength(n));
+      await until(id, 'stopped');
+      await emit(BUILD_REQUESTED, { requestId: 45, by: 'factory:live-check', byPerson: false, from: 'the live check', trigger: 'recovery' });
+    }
+    await vi.waitFor(() => expect(h.dispatches).toHaveLength(4));
+    await until(id, 'building');
+
+    expect(h.stops).toHaveLength(3);
+    expect(h.stops.join('\n')).not.toMatch(/automatic attempts/);
+  });
+
+  it('a deploy since the stop gets exactly one more attempt, then stops again (Walk 12, FE-376)', async () => {
+    const h = harness(
+      [601, 602, 603, 604, 605].map(w => ({ kind: 'building', workerRunId: w, taskId: w }) as Outcome),
+      { 601: failed('c1'), 602: failed('c2'), 603: failed('c3'), 604: failed('c4'), 605: failed('c5') },
+    );
+    await ask(43);
+    const id = await start(h.name, 43);
+    for (const w of [601, 602, 603, 604]) {
+      await vi.waitFor(() => expect(h.dispatches.length).toBeGreaterThanOrEqual(w - 600));
+      await emit('worker_run.failed', { workerRunId: w });
+    }
+    await until(id, 'stopped');
+    await emit(BUILD_REQUESTED, { requestId: 43, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'recovery', afterDeploy: true });
+    await vi.waitFor(() => expect(h.dispatches).toHaveLength(5));
+    await emit('worker_run.failed', { workerRunId: 605 });
+    await vi.waitFor(() => expect(h.stops).toHaveLength(2));
+
+    expect(h.dispatches).toHaveLength(5);
   });
 
   it('an ask raised while the dispatch runs is not lost (FE-370: the plan approved before the wait opened)', async () => {

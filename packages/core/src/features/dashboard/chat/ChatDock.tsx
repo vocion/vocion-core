@@ -753,6 +753,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                     onCitationClick={(_n, messageId) => openSources(messageId)}
                     blocks={blocks}
                     onFeedback={session.handleFeedback}
+                    onBuildCard={session.buildFromCard}
                     autonomy={session.autonomy}
                     conversationId={session.conversationId}
                   />

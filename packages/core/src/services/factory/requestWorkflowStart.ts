@@ -29,6 +29,35 @@ export type BuildIntent = {
 export { type DurableMark, durableMarkOf } from '@/libs/durable/records';
 
 /**
+ * How many builds this request has had: its tasks that a worker run took.
+ * A new run of the flow (the live check's send-back starts one) begins its
+ * count here, so the page's "building attempt N" goes on from the request's
+ * last build instead of starting at 1 again (walk 26: FE-472's second build
+ * read "building attempt 1" while its recovery log said "attempt 2 of 3").
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ */
+export async function priorBuilds(orgId: string, requestId: number): Promise<number> {
+  const [{ and, eq, sql }, { db }, { businessObjectSchema, businessObjectTypeSchema }, { factoryTypes }] = await Promise.all([
+    import('drizzle-orm'),
+    import('@/libs/DB'),
+    import('@/models/Schema'),
+    import('@/libs/factory/types'),
+  ]);
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectTypeSchema.slug, (await factoryTypes(orgId)).task),
+      sql`${businessObjectSchema.metadata}->>'requestId' = ${String(requestId)}`,
+      sql`coalesce(${businessObjectSchema.metadata}->>'workerRunId', '') <> ''`,
+    ));
+  return Number(row?.n ?? 0);
+}
+
+/**
  * Whether this request's next step belongs to its flow, so a handler reacting
  * to an event leaves it alone. The one check every factory handler that would
  * move a request asks.
@@ -59,11 +88,34 @@ export async function askRequestWorkflow(orgId: string, requestId: number, inten
     recordId: requestId,
     kind: 'request',
     flowRef: REQUEST_FLOW,
-    input: { requestId, since },
+    input: { requestId, since, attempt: await priorBuilds(orgId, requestId).catch(() => 0) },
     readMeta: async () => (await readRecord(orgId, requestId))?.meta ?? null,
     writeMeta: patch => writeMeta(orgId, requestId, patch),
   });
   return run.started
     ? { owner: 'workflow', workflowId: run.workflowId, requestId, line: 'Started the request\'s workflow; it takes the build from here.' }
     : { owner: 'workflow', workflowId: run.workflowId, requestId, line: 'Told the request\'s workflow; it takes the build from here.' };
+}
+
+/**
+ * Restart a stopped request's flow on the current definition when it was
+ * started on another (`restartOnCurrentFlow`). Called at a safe point only:
+ * the request is stopped, waiting on a person, nothing in flight.
+ * @param orgId - Tenant.
+ * @param requestId - The request.
+ * @param since - Where the new generation's first wait catches up from.
+ */
+export async function restartRequestFlowIfChanged(orgId: string, requestId: number, since: string): Promise<boolean> {
+  const { restartOnCurrentFlow } = await import('@/libs/durable/records');
+  const { readRecord, writeMeta } = await import('@/libs/actions/factory-dispatch');
+  const run = await restartOnCurrentFlow({
+    orgId,
+    recordId: requestId,
+    kind: 'request',
+    flowRef: REQUEST_FLOW,
+    input: { requestId, since, attempt: await priorBuilds(orgId, requestId).catch(() => 0) },
+    readMeta: async () => (await readRecord(orgId, requestId))?.meta ?? null,
+    writeMeta: patch => writeMeta(orgId, requestId, patch),
+  });
+  return run.restarted;
 }

@@ -4,7 +4,7 @@ import path from 'node:path';
 // node --test packages/runner/src/
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { BUILTIN_CHECKS, ContractError, criterionTests, interactionNamed, mergeEngineerFlows, normalizeContract, normalizeQa, QA_STEP_VERBS, RISK_CLASSES, validateContract } from './contract.mjs';
+import { BUILTIN_CHECKS, ContractError, criterionTests, interactionNamed, mergeEngineerFlows, normalizeContract, normalizeQa, QA_STEP_VERBS, RISK_CLASSES, shotsDirFor, taskShotsDir, validateContract } from './contract.mjs';
 import { PLAN_REQUIRED_RISK_CLASSES } from './plan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -244,6 +244,19 @@ describe('the qa block', () => {
     assert.equal(normalizeQa({}), null);
   });
 
+  it('shots_dir: defaults to qa-shots, accepts the contract\'s own directory, and refuses a leading or trailing slash', () => {
+    assert.equal(normalizeQa({ flows: [{ name: 'x', path: '/x' }] }).shots_dir, 'qa-shots');
+    assert.equal(normalizeQa({ flows: [{ name: 'x', path: '/x' }], shots_dir: 'evidence/screens' }).shots_dir, 'evidence/screens');
+    assert.equal(shotsDirFor(undefined), 'qa-shots');
+    assert.equal(shotsDirFor({}), 'qa-shots');
+    assert.equal(shotsDirFor({ shots_dir: 'evidence/screens' }), 'evidence/screens');
+    // shotsDirFor reads the raw contract, so it resolves even with no qa.flows at all.
+    assert.equal(shotsDirFor({ shots_dir: 'evidence/screens', flows: undefined }), 'evidence/screens');
+    assert.deepEqual(validateContract({ ...ui, qa: { shots_dir: 'evidence/screens', flows: [{ name: 'x', path: '/x' }] } }), { ok: true, errors: [] });
+    const bad = validateContract({ ...ui, qa: { shots_dir: '/leading-slash', flows: [{ name: 'x', path: '/x' }] } });
+    assert.ok(bad.errors.some(e => /qa\.shots_dir does not match/.test(e)), bad.errors.join('; '));
+  });
+
   it('names qa as the canonical spelling for the shapes people write instead', () => {
     const { errors } = validateContract({ ...minimal, screenshots: [] });
     assert.ok(errors.some(e => /screenshots is not a contract field \(write qa\)/.test(e)), errors.join('; '));
@@ -323,4 +336,17 @@ it('a criterion no screenshot can show keeps its named test only when the branch
   assert.match(refused[1], /has no test named/);
   assert.match(refused[2], /not a test file inside the repo/);
   assert.deepEqual(criterionTests('nope', read).proofs, []);
+});
+
+describe('the folder a task\'s own pictures live in (2026-10-04, walks 17-18)', () => {
+  it('is the request\'s folder inside the shots directory, the same across the task\'s attempts', () => {
+    assert.equal(taskShotsDir({ task_id: 'send-t41', request_id: '1234', qa: {} }), 'qa-shots/1234');
+    assert.equal(taskShotsDir({ task_id: 'send-t42', request_id: '1234', qa: { shots_dir: 'evidence/screens' } }), 'evidence/screens/1234');
+  });
+
+  it('falls back to the task id, and never writes a path a shell or git would misread', () => {
+    assert.equal(taskShotsDir({ task_id: 'send-t41' }), 'qa-shots/send-t41');
+    assert.equal(taskShotsDir({ task_id: 'run-7', request_id: 'vocion:worker-run:7' }), 'qa-shots/vocion-worker-run-7');
+    assert.equal(taskShotsDir({}), 'qa-shots/task');
+  });
 });

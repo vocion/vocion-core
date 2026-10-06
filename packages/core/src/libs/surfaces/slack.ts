@@ -1,4 +1,4 @@
-import type { ChatImage, ChatImageFetcher, ChatInbound, ChatMessage, ChatParse, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
+import type { ChatImage, ChatImageFetcher, ChatInbound, ChatInboundFile, ChatMessage, ChatParse, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
 import { Buffer } from 'node:buffer';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -29,6 +29,7 @@ type SlackEvent = {
   channel_type?: string;
   ts?: string;
   thread_ts?: string;
+  files?: { id?: string; name?: string; title?: string; mimetype?: string; size?: number; url_private?: string; url_private_download?: string }[];
 };
 
 type SlackEnvelope = {
@@ -130,8 +131,13 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
   if (!isMention && !isDirect) {
     return { kind: 'ignore', reason: `event type ${ev.type ?? 'unknown'}` };
   }
+  const files = inboundFiles(ev.files);
   const text = stripMentions(ev.text ?? '');
-  if (!text) {
+  // A picture with no words is still a message (backlog 057: "@Vocion" and a screenshot), and so
+  // is a bare "@Vocion" in a thread: the ask is the thread above it, picture and all (Chris,
+  // 2026-10-05, the Slate loop). Only an empty direct message with nothing on it is noise.
+  const bareThreadMention = isMention && Boolean(ev.thread_ts) && ev.thread_ts !== ev.ts;
+  if (!text && files.length === 0 && !bareThreadMention) {
     return { kind: 'ignore', reason: 'empty text' };
   }
   const inbound: ChatInbound = {
@@ -141,10 +147,48 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
     threadRef: ev.thread_ts ?? ev.ts,
     messageRef: ev.ts,
     externalUserId: ev.user,
-    text,
+    text: text || (files.length > 0 ? 'See the attached picture.' : 'See this thread.'),
     isDirect,
+    ...(files.length > 0 ? { files } : {}),
   };
   return { kind: 'message', inbound };
+}
+
+/** Picture types the handler reads; anything else on the message is left in Slack. */
+const INBOUND_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/**
+ * The pictures on a Slack message, as the handler fetches them. Only images,
+ * at most five, each with the private download address the bot's token opens.
+ * @param files - Slack's `files` block.
+ */
+export function inboundFiles(files: SlackEvent['files']): ChatInboundFile[] {
+  return (files ?? [])
+    .filter(f => f && typeof f.mimetype === 'string' && INBOUND_IMAGE_TYPES.has(f.mimetype) && typeof (f.url_private_download ?? f.url_private) === 'string')
+    .slice(0, 5)
+    .map(f => ({ id: f.id ?? '', name: (f.title || f.name || 'picture').slice(0, 120), contentType: f.mimetype!, bytes: typeof f.size === 'number' ? f.size : 0, url: (f.url_private_download ?? f.url_private)! }));
+}
+
+/**
+ * The bytes of a picture Slack holds, with the bot's token. Null when there is
+ * no token, Slack refuses, or the body is not an image.
+ * @param url - The file's private address.
+ * @param token - The bot token.
+ * @param fetchImpl - The network, injectable in tests.
+ */
+export async function fetchSlackFile(url: string, token: string | undefined, fetchImpl: typeof fetch = fetch): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  if (!token) {
+    return null;
+  }
+  const res = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` }, redirect: 'follow' }).catch(() => null);
+  if (!res || !res.ok) {
+    return null;
+  }
+  const contentType = (res.headers.get('content-type') ?? '').split(';')[0]!.trim();
+  if (!INBOUND_IMAGE_TYPES.has(contentType)) {
+    return null;
+  }
+  return { bytes: new Uint8Array(await res.arrayBuffer()), contentType };
 }
 
 /* ------------------------------------------------------------------ */
@@ -210,6 +254,25 @@ function asMessage(message: string | ChatMessage): ChatMessage {
   return typeof message === 'string' ? { text: message } : message;
 }
 
+/** The most text one `markdown` block carries. */
+const SLACK_MARKDOWN_MAX = 12_000;
+
+/**
+ * Slack Web API methods that accept only form arguments: the reads, and
+ * `files.getUploadURLExternal`, which answered every JSON call with "missing
+ * required field: filename", so no file Vocion uploaded ever reached Slack —
+ * every announcement's screenshot fell back to a link (walk 26, 2026-10-06).
+ */
+const SLACK_READ_METHODS = ['conversations.', 'users.', 'files.info', 'files.getUploadURLExternal', 'chat.getPermalink', 'auth.', 'team.', 'bots.'];
+
+/**
+ * Whether a Slack method reads (form arguments only) rather than writes (JSON accepted).
+ * @param method - The Web API method, `conversations.replies`.
+ */
+export function isSlackRead(method: string): boolean {
+  return SLACK_READ_METHODS.some(prefix => method.startsWith(prefix));
+}
+
 /**
  * One Slack Web API call, with the two-layer error check (`res.ok` and
  * `body.ok`) the source connector already uses. `missing_scope` is returned
@@ -225,11 +288,20 @@ export async function slackApi<T extends Record<string, unknown>>(method: string
   if (!token) {
     return { ok: false, error: 'missing_token' };
   }
-  const res = await fetchImpl(`${baseUrl}/${method}`, {
-    method: 'POST',
-    headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
-    body: JSON.stringify(body),
-  });
+  // Slack's read methods (conversations.replies, conversations.info, users.info…) take form
+  // arguments only: a JSON body reads as "missing required field: channel" (2026-10-05, every
+  // thread read since the surface shipped). Reads go as a form; writes keep JSON, which they accept.
+  const res = await fetchImpl(`${baseUrl}/${method}`, isSlackRead(method)
+    ? {
+        method: 'POST',
+        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(Object.entries(body).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => [k, String(v)])).toString(),
+      }
+    : {
+        method: 'POST',
+        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(body),
+      });
   if (!res.ok) {
     return { ok: false, error: `http_${res.status}` };
   }
@@ -387,6 +459,11 @@ export async function postSlackReply(
   }
   if (renderable.length > 0) {
     payload.blocks = slackBlocks(text, renderable);
+  } else if (text.length <= SLACK_MARKDOWN_MAX) {
+    // Agents write standard Markdown; Slack's `markdown` block renders it as written (bold, lists,
+    // links), where plain `text` shows the asterisks. The words are not touched; `text` stays as
+    // the notification fallback.
+    payload.blocks = [{ type: 'markdown', text }];
   }
   const posted = await slackApi<{ ts?: string; channel?: string }>('chat.postMessage', payload, token, baseUrl, fetchImpl);
   if (!posted.ok) {
@@ -406,8 +483,8 @@ export async function postSlackReply(
  * @param index
  */
 function filenameFor(image: ChatImage, index: number): string {
-  const last = image.url.split(/[?#]/)[0]!.split('/').pop() ?? '';
-  return /\.(?:png|jpe?g|gif|webp)$/i.test(last) ? last : `screenshot-${index + 1}.png`;
+  const last = image.filename ?? image.url.split(/[?#]/)[0]!.split('/').pop() ?? '';
+  return /\.(?:png|jpe?g|gif|webp|mp4|webm|mov)$/i.test(last) ? last : `screenshot-${index + 1}.png`;
 }
 
 /**
@@ -519,4 +596,7 @@ export const slackSurface: ChatSurfaceAdapter = {
   verify: (rawBody, headers) => verifySlackSignature(rawBody, headers, process.env.SLACK_SIGNING_SECRET),
   parse: payload => parseSlackPayload(payload, process.env.SLACK_BOT_USER_ID),
   reply: (target, message, opts) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN, SLACK_API_BASE, opts?.fetchImage ? { fetchImage: opts.fetchImage } : {}),
+  retract: async (post) => {
+    await deleteSlackPost(post, process.env.SLACK_BOT_TOKEN);
+  },
 };

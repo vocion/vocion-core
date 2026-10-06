@@ -20,8 +20,9 @@ import type { Action, ActionContext, ReviewCard } from './types';
 import type { SettledDescriptor } from '@/libs/factory/requestStates';
 import { z } from 'zod';
 import { nounCode } from '@/libs/codes';
-import { REOPENABLE_REQUEST_STATES, settledReason } from '@/libs/factory/requestStates';
+import { REOPENABLE_REQUEST_STATES, reopenedFields, settledReason } from '@/libs/factory/requestStates';
 import { factoryTypes } from '@/libs/factory/types';
+import { recordName } from '@/libs/workspace/recordName';
 import { codesForRecords } from '@/services/codes';
 import { USABLE_RECORD_STATUSES } from './objects-propose-candidate';
 
@@ -375,6 +376,27 @@ export function contractGaps(meta: Meta): string[] {
   return gaps;
 }
 
+/** The runner's contract caps `title` (packages/runner/contract/schema.json, maxLength). */
+export const CONTRACT_TITLE_MAX = 120;
+
+/**
+ * A request's title as a contract title: whole when it fits, else cut at a word
+ * and marked. Walk 18 (FE-419): a 164-character title (the person's whole ask)
+ * made the worker refuse the contract before it cloned; the objective and the
+ * acceptance lines carry the full ask, so the title is only the label. A
+ * record with a ticket-sized name (`recordName`) is labelled by it first.
+ * @param title - The task's name, else its title.
+ */
+export function contractTitle(title: string): string {
+  const t = title.replace(/\s+/g, ' ').trim();
+  if (t.length <= CONTRACT_TITLE_MAX) {
+    return t;
+  }
+  const cut = t.slice(0, CONTRACT_TITLE_MAX - 1);
+  const word = cut.lastIndexOf(' ');
+  return `${(word > CONTRACT_TITLE_MAX / 2 ? cut.slice(0, word) : cut).replace(/[\s,;:.-]+$/, '')}…`;
+}
+
 /**
  * The engineering_task record as the worker's contract (snake_case, the
  * squatch factory schema). Pure, so the mapping is tested without a database.
@@ -404,7 +426,7 @@ export function contractFromTask(task: { id: number; title: string; meta: Meta }
     repo,
     base_sha: str(m, 'baseSha') ?? 'origin/main',
     objective: str(m, 'objective'),
-    title: task.title,
+    title: contractTitle(recordName(task.title, m)),
     acceptance_contract: list(m, 'acceptanceContract'),
     allowed_paths: list(m, 'allowedPaths'),
     risk_class: str(m, 'riskClass'),
@@ -1058,8 +1080,11 @@ async function loadAll(ctx: ActionContext, input: z.infer<typeof dispatchInput>)
     const { reportedLinks } = await import('@/services/objects/reported');
     const reported = await reportedLinks(ctx.orgId, request.id).catch(() => []);
     const environments = await productEnvironments(ctx.orgId, str(request.meta, 'product'));
-    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: request.title }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note, reported, environments });
-    task = { id: 0, title: String(meta.title ?? request.title), typeId: 0, typeSlug: (await factoryTypes(ctx.orgId)).task, meta: { ...meta, requestId: request.id } };
+    // The request's ticket-sized name, else its title (`recordName`): the
+    // contract is labelled with the name, the ask rides the objective.
+    const named = recordName(request.title, request.meta);
+    const meta = deriveContract({ given: (input.contract ?? {}) as Meta, request: { ...request.meta, title: named }, plan: plan?.meta ?? null, repo, previous, resume, note: input.note, reported, environments });
+    task = { id: 0, title: String(meta.title ?? named), typeId: 0, typeSlug: (await factoryTypes(ctx.orgId)).task, meta: { ...meta, requestId: request.id } };
   }
   return { task, plan, request, repo };
 }
@@ -1515,7 +1540,7 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     const reopened = Boolean(request && !automatic && (REOPENABLE_REQUEST_STATES.has(String(request.meta.state ?? '')) || request.meta.recommendationState === 'rejected'));
     if (request && reopened) {
       const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
-      await writeMeta(ctx.orgId, request.id, { state: 'in_scope', recommendationState: 'approved', reopenedAt: at, reopenedBy: by, decisionReason: `Reopened by Build (${by}) after it was ${String(request.meta.state ?? 'rejected').replace(/_/g, ' ')}.` });
+      await writeMeta(ctx.orgId, request.id, { ...reopenedFields(by, at), decisionReason: `Reopened by Build (${by}) after it was ${String(request.meta.state ?? 'rejected').replace(/_/g, ' ')}.` });
       request.meta = { ...request.meta, state: 'in_scope', recommendationState: 'approved' };
     }
     // A person's Build on a shipped request is their word to build it again:
@@ -1523,8 +1548,8 @@ export const factoryDispatchAction: Action<typeof dispatchInput> = {
     // (`settledReason`: a reopen after the ship reopens it).
     if (request && !automatic && str(request.meta, 'shippedAt') && settledReason(request)) {
       const by = ctx.reviewedBy ?? ctx.invokedBy ?? 'a person';
-      await writeMeta(ctx.orgId, request.id, { reopenedAt: at, reopenedBy: by });
-      request.meta = { ...request.meta, reopenedAt: at, reopenedBy: by };
+      await writeMeta(ctx.orgId, request.id, reopenedFields(by, at));
+      request.meta = { ...request.meta, ...reopenedFields(by, at) };
     }
     // A PERSON'S START SETTLES WHAT IT ANSWERS (Chris, 2026-09-29, #201:
     // approving the re-dispatch left "Needs your decision: Stopped …" and a

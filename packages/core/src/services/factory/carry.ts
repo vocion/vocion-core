@@ -1593,6 +1593,61 @@ export async function replanStaleStops(orgId: string, now: Date = new Date()): P
 }
 
 /**
+ * A DEPLOY RESUMES A WORKFLOW'S STOP ONCE (Walk 12, 2026-10-03: FE-376
+ * stopped on a QA gate core #1089 then removed, and kept waiting for a
+ * person). `resumeAfterWorkerRebuild` below does this for the choreography,
+ * which a request run by its workflow skips. A request whose workflow stopped
+ * before the newest applied deploy is asked to build once more, by the event
+ * its flow waits on, once per deploy; the flow gives a deploy's ask exactly
+ * one attempt, so a stop that still fails stops again and waits for a person.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ * @param opts - Overrides for tests.
+ * @param opts.durable - Whether the factory runs as a workflow here; read from the workspace when absent.
+ */
+export async function resumeWorkflowStopsAfterDeploy(orgId: string, now: Date = new Date(), opts: { durable?: boolean } = {}): Promise<CarryResult[]> {
+  const durable = opts.durable ?? await (await import('@/libs/durable/flags')).durableOn(orgId, 'factory');
+  if (!durable) {
+    return [];
+  }
+  const { and, desc, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { workspaceVersionSchema } = await import('@/models/Schema');
+  const [applied] = await db.select({ id: workspaceVersionSchema.id, at: workspaceVersionSchema.appliedAt }).from(workspaceVersionSchema).where(and(eq(workspaceVersionSchema.orgId, orgId), eq(workspaceVersionSchema.status, 'applied'))).orderBy(desc(workspaceVersionSchema.id)).limit(1);
+  if (!applied?.at || applied.at.getTime() > now.getTime()) {
+    return [];
+  }
+  const version = `deploy ${applied.id}`;
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const { writeMeta } = await lib();
+  const { emitEvent } = await import('@/services/EventService');
+  const { BUILD_REQUESTED } = await import('./requestWorkflowStart');
+  const out: CarryResult[] = [];
+  for (const r of ((await listBusinessObjects(orgId, (await factoryTypes(orgId)).request).catch(() => [])) as Array<{ id: number; metadata: unknown }>)) {
+    const meta = (r.metadata ?? {}) as Meta;
+    const stoppedAt = Date.parse(String(meta.statusAt ?? ''));
+    if (meta.status !== 'stopped' || meta.deployResumedFor === version || !Number.isFinite(stoppedAt) || stoppedAt >= applied.at.getTime()) {
+      continue;
+    }
+    const line = `Vocion was deployed since the stop (${version}); one more attempt.`;
+    const since = new Date(Date.now() - 1000).toISOString();
+    await emitEvent({ orgId, type: BUILD_REQUESTED, payload: { requestId: r.id, by: 'system:factory-reconcile', byPerson: false, from: 'a deploy since the stop', trigger: 'recovery', afterDeploy: true, note: line, planId: null }, dedupeKey: `${BUILD_REQUESTED}:${r.id}:deploy:${applied.id}`, invokedBy: 'system:factory-reconcile' });
+    await writeMeta(orgId, r.id, { deployResumedFor: version });
+    // A run started on an older flow would read this ask under the old rules
+    // (FE-419); at this safe point it is restarted on the current flow.
+    const { restartRequestFlowIfChanged } = await import('./requestWorkflowStart');
+    await restartRequestFlowIfChanged(orgId, r.id, since).catch(err => console.warn('factory: could not restart a stopped flow on the current definition', { orgId, requestId: r.id, message: (err as Error).message }));
+    const askId = readRecovery(meta).askId;
+    if (askId) {
+      const { supersedeAsk } = await import('@/services/AskService');
+      await supersedeAsk(orgId, askId, line).catch(() => undefined);
+    }
+    out.push({ requestId: r.id, did: 'resumed after a deploy', line });
+  }
+  return out;
+}
+
+/**
  * A NEW WORKER RETRIES EVERY STOP ONCE (2026-09-30). A worker deploy is new
  * capability: on 2026-09-30 the worker stopped fencing the engineer inside the
  * plan's paths (squatch-core #130), and four features sat "Stopped" for a

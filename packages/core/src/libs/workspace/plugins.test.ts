@@ -64,7 +64,7 @@ describe('the shipped catalogue', () => {
     // ui or flow request's mockup the moment it is filed (2.29.0); the eight
     // reporting and hygiene missions are gone.
     expect(factory.missions).toEqual(['close-the-gap', 'keep-the-pipeline-answered', 'prove-the-contract', 'show-it-first', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'incident-deploy-caused', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-live-check', 'release-live-check-ended', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'incident-deploy-caused', 'narrate-recording', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-feature-demo', 'release-live-check', 'release-live-check-ended', 'slack-thread-follow', 'slack-thread-recording', 'tell-the-asker-in-chat', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -297,7 +297,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@3.0.0');
+    expect(ws.sha).toContain('+software-factory@3.28.0');
     // A re-run of a red CI's failed jobs is done for you: it changes no code (backlog 049).
     expect(ws.trust?.rules.find(r => r.action === 'repo.rerun_failed_checks')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
     // The pipeline's owner opens its own fix, and it merges on green (plugin 2.33.0).
@@ -456,11 +456,11 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.automations.filter(a => a.agent === 'product-manager').map(a => a.slug).sort()).toEqual(['factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'release-announcement-draft', 'tell-the-requester-check']);
     // The decision landing is what makes the card the commitment: approve freezes and queues, defer parks.
     expect(ws.automations.find(a => a.slug === 'factory-decision-landed')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
-    expect(ws.automations.filter(a => a.agent === 'change-reviewer').map(a => a.slug).sort()).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'release-live-check', 'release-live-check-ended']);
+    expect(ws.automations.filter(a => a.agent === 'change-reviewer').map(a => a.slug).sort()).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'narrate-recording', 'release-feature-demo', 'release-live-check', 'release-live-check-ended']);
     // An automation either checks a mission, or runs plain code — the jobs
     // that carry a request through the factory (backlog 038).
     expect(ws.automations.every(a => (a.do.job ? true : ws.missions.some(m => m.slug === a.do.checkMission)))).toBe(true);
-    expect(ws.automations.filter(a => a.do.job).map(a => a.do.job).sort()).toEqual(['factory-ci-failed', 'factory-contract-changed', 'factory-environment-deployed', 'factory-environment-health', 'factory-intake', 'factory-pipeline-fix-ended', 'factory-plan-build', 'factory-plan-review', 'factory-planning-ended', 'factory-reconcile', 'factory-recover', 'factory-recovery-answer', 'factory-sweep', 'live-check-ended', 'mockup-default', 'mockup-ended', 'mockup-sweep']);
+    expect(ws.automations.filter(a => a.do.job).map(a => a.do.job).sort()).toEqual(['conversation-follow', 'factory-ci-failed', 'factory-contract-changed', 'factory-environment-deployed', 'factory-environment-health', 'factory-intake', 'factory-pipeline-fix-ended', 'factory-plan-build', 'factory-plan-review', 'factory-planning-ended', 'factory-reconcile', 'factory-recover', 'factory-recovery-answer', 'factory-sweep', 'live-check-ended', 'mockup-default', 'mockup-ended', 'mockup-sweep', 'narrate-recording', 'slack-thread-follow', 'slack-thread-recording']);
     // EVERY NEW FEATURE WITH A UI GETS ITS MOCKUP (2.29.0): the rule is the
     // plugin's, on the job's input — core names no surface, kind or state.
     expect(ws.automations.find(a => a.slug === 'design-mockup-default')).toMatchObject({
@@ -486,13 +486,13 @@ describe('loadWorkspace with the software factory', () => {
     expect(draft.do.prompt).toContain('do not propose release.announce');
 
     // Vocion checks the release on the live product (backlog 043): QA, on the
-    // same moment and on its one retry, ending in check_live; its end decides
+    // same moment and on its one retry, ending in record_live_check; its end decides
     // the retry or writes the reason, in code.
     const live = ws.automations.find(a => a.slug === 'release-live-check')!;
 
     expect(live).toMatchObject({ agent: 'change-reviewer', status: 'active' });
     expect(live.when).toEqual({ event: ['release.linked', 'release.live_check.requested'], filter: { userFacing: true } });
-    expect(live.do).toMatchObject({ checkMission: 'prove-the-contract', requireTool: 'check_live' });
+    expect(live.do).toMatchObject({ checkMission: 'prove-the-contract', requireTool: 'record_live_check' });
     expect(live.do.prompt).toContain('check-the-live-release');
 
     const ended = ws.automations.find(a => a.slug === 'release-live-check-ended')!;
@@ -502,7 +502,8 @@ describe('loadWorkspace with the software factory', () => {
 
     const qa = ws.agents.find(a => a.slug === 'change-reviewer')!;
 
-    expect(qa.harness?.grantTools).toEqual(expect.arrayContaining(['product_access', 'check_live']));
+    expect(qa.harness?.grantTools).toEqual(expect.arrayContaining(['product_access', 'browser', 'record_live_check']));
+    expect(qa.harness?.grantTools).not.toContain('check_live');
     expect(qa.skills).toContain('check-the-live-release');
 
     // The score and the decision still live on the request record.
@@ -595,5 +596,40 @@ describe('the client-documents template', () => {
     expect(ws.objectTypes.map(o => o.slug)).toEqual(['data_room']);
     expect(ws.effectiveSurfaces).toEqual(['proposals']);
     expect(ws.teams.map(t => t.slug).sort()).toEqual(['data-rooms', 'proposals']);
+  });
+});
+
+// Chris, 2026-10-03: a plugin's option, set by the workspace — the software
+// factory narrates its recordings only when `narrateRecordings` is on.
+describe('plugin settings', () => {
+  const narrate = (ws: ReturnType<typeof loadWorkspace>) => ws.automations.find(a => a.slug === 'narrate-recording');
+
+  it('applies a setting-gated automation disabled while the setting is at its default (off)', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\n'));
+
+    expect(narrate(ws)).toMatchObject({ status: 'disabled', setting: 'narrateRecordings', when: { event: 'recording.filed' }, do: { job: 'narrate-recording', input: { narrator: 'change-reviewer' } } });
+  });
+
+  it('applies it active when the workspace turns the setting on', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\npluginSettings:\n  software-factory:\n    narrateRecordings: true\n'));
+
+    expect(narrate(ws)?.status).toBe('active');
+  });
+
+  it('keeps it off when the workspace says false', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\npluginSettings:\n  software-factory:\n    narrateRecordings: false\n'));
+
+    expect(narrate(ws)?.status).toBe('disabled');
+  });
+
+  it('fails the load on a setting the plugin does not declare, or a plugin that is not on', () => {
+    expect(() => loadWorkspace(makeWorkspace('plugins: [software-factory]\npluginSettings:\n  software-factory:\n    narrateRecording: true\n'))).toThrow(/has no setting "narrateRecording" \(it has narrateRecordings\)/);
+    expect(() => loadWorkspace(makeWorkspace('plugins: [wiki]\npluginSettings:\n  software-factory:\n    narrateRecordings: true\n'))).toThrow(/plugin "software-factory", which is not on/);
+  });
+
+  it('refuses setting: on a workspace\'s own automation', () => {
+    const files = { 'automations/mine.yaml': 'slug: mine\nsetting: narrateRecordings\nwhen:\n  event: recording.filed\ndo:\n  job: narrate-recording\n' };
+
+    expect(() => loadWorkspace(makeWorkspace('plugins: [software-factory]\n', files))).toThrow(/setting: is for a plugin's automations/);
   });
 });

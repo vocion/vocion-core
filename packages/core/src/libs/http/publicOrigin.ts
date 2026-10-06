@@ -28,3 +28,21 @@ export function publicOrigin(request: Pick<NextRequest, 'headers' | 'nextUrl'>):
   }
   return request.nextUrl.origin;
 }
+
+/**
+ * The origin a request came in on, read from the proxy's forwarded headers —
+ * for an absolute URL that has to be fetched back from the same address the
+ * page was opened at (a link preview's picture). Never the configured public
+ * origin: a page opened at one address and pointing at another is the
+ * redirect loop of 2026-09-22 again.
+ * @param headers - The request's headers.
+ */
+export function requestOrigin(headers: Pick<Headers, 'get'>): string | null {
+  const host = (headers.get('x-forwarded-host') ?? headers.get('host'))?.split(',')[0]?.trim();
+  if (!host) {
+    return null;
+  }
+  const forwarded = headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
+  const local = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host);
+  return `${forwarded || (local ? 'http' : 'https')}://${host}`;
+}

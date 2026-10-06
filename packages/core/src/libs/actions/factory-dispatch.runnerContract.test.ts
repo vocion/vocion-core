@@ -70,6 +70,25 @@ describe('the runner contract from the records (backlog 052)', () => {
     expect((contract.qa as { surfaces: Record<string, { live_url?: string }> }).surfaces.app?.live_url).toBe('https://app.northwind.example');
   });
 
+  it('stays a contract the runner accepts when the request is titled with a whole long ask (Walk 18, FE-419)', () => {
+    const meta = deriveContract({ given: {}, request, plan: null, repo, environments });
+    const long = 'On the portal\'s room list, let me sort the rooms by name, created date or last visited, newest first by default, and remember my choice next time I open the list';
+    const contract = contractFromTask({ id: 41, title: long, meta: { ...meta, requestId: 12 } }, { product: 'portal' });
+
+    expect(validateContract(contract)).toEqual({ ok: true, errors: [] });
+    expect(String(contract.title).length).toBeLessThanOrEqual(120);
+    expect(String(contract.title)).toMatch(/^On the portal's room list, let me sort .*…$/);
+  });
+
+  it('is labelled with the work\'s ticket-sized name when it has one (Chris, 2026-10-03)', () => {
+    const meta = deriveContract({ given: {}, request, plan: null, repo, environments });
+    const long = 'On the portal\'s room list, let me sort the rooms by name, created date or last visited, newest first by default, and remember my choice next time I open the list';
+    const contract = contractFromTask({ id: 41, title: long, meta: { ...meta, requestId: 12, name: 'Sort the room list by name, date or last visited' } }, { product: 'portal' });
+
+    expect(contract.title).toBe('Sort the room list by name, date or last visited');
+    expect(validateContract(contract)).toEqual({ ok: true, errors: [] });
+  });
+
   it('is a contract the runner accepts, validated by the runner\'s own schema', () => {
     const meta = deriveContract({ given: {}, request, plan: null, repo, environments });
     const contract = contractFromTask({ id: 41, title: String(meta.title), meta: { ...meta, requestId: 12 } }, { product: 'portal' });

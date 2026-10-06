@@ -577,6 +577,21 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  // Slate is a connection and syncs nothing: the session token is the
+  // credential, taken by Connect. Only where a non-production Slate lives.
+  'slate': [
+    {
+      key: 'apiBase',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://api.slatevideo.com',
+    },
+  ],
+  // A voice is called, never synced: the API key is the whole connection,
+  // taken by Connect. Nothing to configure here.
+  'elevenlabs': [],
+
   'posthog': [
     {
       key: 'projectId',

@@ -1,0 +1,44 @@
+# THE FEATURE DEMO IS OWED (Chris, 2026-10-04, walk 19). FE-432 shipped, its
+# live check ended "seen", and no demo was recorded: QA had recorded every line
+# before touching the demo step. The demo is what a product owner watches, so
+# it is owed whether or not QA needed the browser to prove the lines. When a
+# live check ends seen and a shipped request has no `feature-demo` recording,
+# core raises `release.demo.requested` (`services/factory/liveCheck.ts`
+# `liveCheckEnded`, once per release) and QA records the demo alone here.
+slug: release-feature-demo
+name: Record the feature demo
+label: Recorded the demo
+doing: Recording the feature demo
+description: >-
+  Fires when a release's live check saw a feature and no Feature Demo was
+  recorded for it. QA opens the feature's demo tab on the live product as the
+  product's QA account and walks the happy path end to end, saying each step as
+  it does it, so the feature page and the public share page lead with a
+  narrated demo a product owner can watch. Records no lines and changes no
+  record; the recording is filed on the request when the browser closes.
+status: active
+agent: change-reviewer
+when:
+  event: [release.demo.requested]
+  filter:
+    userFacing: true
+do:
+  checkMission: prove-the-contract
+  requireTool: browser_say
+  prompt: >-
+    Release #{{releaseId}} of {{product}} was seen live, and {{reason}}.
+    Record the feature demo for each of requests {{requestIds}}, following
+    step 6 of check-the-live-release only: browser_open with
+    demo_for_request and the page where a user starts, then enact the whole
+    story as a user would, six to twelve steps: make what the feature needs
+    in the demo itself (a file goes in with browser_upload, a setting is set
+    there and then), do the one thing it is for, and show the payoff from
+    the side it lands on (open the link as a visitor with signed_in false,
+    see the expired page, find the row). Say each step as you do it (say on
+    each action, browser_say for the opening and closing lines) in one plain
+    present-tense sentence a product manager who has never seen the feature
+    follows. The screen holds while a line is said; a line said over a screen
+    that did not change for it is cut. Remove anything you made in a check tab
+    afterwards. If the QA account cannot reach the feature, say in one line
+    what the environment needs and stop. Report in one line what the demo
+    shows.

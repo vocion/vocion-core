@@ -211,7 +211,7 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
     },
     {
       name: 'recommend_action',
-      description: `Surface a recommended action as a ONE-TAP CARD in your answer (not dead text). Use this for every concrete next action you suggest that maps to a connector action — the user taps to prepare it for review; nothing sends without their approval. Prefer this over spelling the action out in prose. Available actions:\n${available}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${inputs}`,
+      description: `Surface a recommended action as a ONE-TAP CARD in your answer (not dead text). Use this for every concrete next action you suggest that maps to a connector action — the user taps to prepare it for review; nothing sends without their approval. Prefer this over spelling the action out in prose. ${described.length > 0 ? `Available actions:\n${available}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${inputs}` : 'Action ids and their input fields are listed under ACTIONS in your instructions.'}`,
       schema: z.object({
         action_id: z.string().describe('Registered action id, e.g. "gmail.send"'),
         action_input: z.record(z.string(), z.unknown()).describe('Pre-filled payload for the action — for gmail.send: { to, subject, body, draft: true }'),

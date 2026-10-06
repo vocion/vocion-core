@@ -82,6 +82,10 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   'claude-opus-5': { inputCentsPerMillion: 500, outputCentsPerMillion: 2500, cacheReadCentsPerMillion: 50 },
   'claude-opus-4-8': { inputCentsPerMillion: 500, outputCentsPerMillion: 2500, cacheReadCentsPerMillion: 50 },
   'claude-sonnet-5': { inputCentsPerMillion: 200, outputCentsPerMillion: 1000, cacheReadCentsPerMillion: 20 },
+  // The 5.5 generation, at list price (2026-10-05). Unlisted until now, so every
+  // Squatch product-manager turn on claude-opus-5-5 priced at 0.
+  'claude-opus-5-5': { inputCentsPerMillion: 400, outputCentsPerMillion: 2000, cacheReadCentsPerMillion: 20 },
+  'claude-sonnet-5-5': { inputCentsPerMillion: 200, outputCentsPerMillion: 1000, cacheReadCentsPerMillion: 20 },
   // Undated alias of the dated Haiku row above — providers report both.
   'claude-haiku-4-5': { inputCentsPerMillion: 100, outputCentsPerMillion: 500, cacheReadCentsPerMillion: 10 },
 

@@ -51,7 +51,7 @@ export async function markStatus(orgId: string, recordId: number, transition: st
     const { db } = await import('@/libs/DB');
     const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
     const [row] = await db
-      .select({ meta: businessObjectSchema.metadata, schema: businessObjectTypeSchema.schema })
+      .select({ meta: businessObjectSchema.metadata, schema: businessObjectTypeSchema.schema, typeSlug: businessObjectTypeSchema.slug })
       .from(businessObjectSchema)
       .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
       .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, recordId)))
@@ -74,15 +74,34 @@ export async function markStatus(orgId: string, recordId: number, transition: st
     if (current === value && (meta[`${model.field}Line`] ?? null) === line) {
       return null;
     }
-    const set = { [model.field]: value, [`${model.field}Line`]: line, [`${model.field}At`]: opts.at ?? new Date().toISOString() };
+    const at = opts.at ?? new Date().toISOString();
+    const set = { [model.field]: value, [`${model.field}Line`]: line, [`${model.field}At`]: at };
     await db
       .update(businessObjectSchema)
       .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify(set)}::jsonb`, updatedAt: new Date() })
       .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, recordId)));
+    // ONE EVENT PER MOVE (backlog 057): whatever follows the record hears it.
+    // Never on the write's path: a bus that fails leaves the status written.
+    await announceStatusMarked(orgId, { recordId, typeSlug: row.typeSlug, field: model.field, value, groupRole: groupOf(model, value).role, needsYou: model.needsYou.has(value), transition, line: line ?? '', at });
     return value;
   } catch (err) {
     console.warn('status was not written', { orgId, recordId, transition, message: (err as Error).message });
     return null;
+  }
+}
+
+/**
+ * Raise `record.status_marked` for a status just written. Deduped on the record,
+ * the value and the moment; a failure is a warning, never the caller's.
+ * @param orgId - The workspace.
+ * @param payload - What moved.
+ */
+async function announceStatusMarked(orgId: string, payload: import('@/services/EventService').RecordStatusMarkedPayload): Promise<void> {
+  try {
+    const { emitEvent, RECORD_STATUS_MARKED } = await import('@/services/EventService');
+    await emitEvent({ orgId, type: RECORD_STATUS_MARKED, payload, dedupeKey: `${RECORD_STATUS_MARKED}:${payload.recordId}:${payload.value}:${payload.at}`, invokedBy: 'system:status', dispatchMode: 'auto' });
+  } catch (err) {
+    console.warn('record.status_marked was not raised', { orgId, recordId: payload.recordId, message: (err as Error).message });
   }
 }
 

@@ -1,7 +1,8 @@
 'use client';
 
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { EvidenceSource } from '@/services/factory/carouselSource';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -18,7 +19,64 @@ export type MediaSlide = {
   caption: string | null;
   /** Who or what made it and when, linked to where it came from. */
   source?: EvidenceSource | null;
+  /**
+   * A picture (the default) or a recording Vocion serves (`type` is its
+   * content type). A recording opens full screen and plays there; a picture
+   * opens zoomable.
+   */
+  kind?: 'image' | 'video';
+  /** The recording's content type, for `kind: 'video'`. */
+  type?: string;
+  /** For a recording: the second its still frame is taken at (its first spoken line), else just past the start. */
+  posterAt?: number;
 };
+
+/**
+ * What a slide shows in the strip before it is opened: the picture, or the
+ * recording's first frame under a play mark — it plays once opened.
+ * @param props
+ * @param props.slide - The slide.
+ * @param props.eager - Load it now (the first slide).
+ */
+function SlidePreview({ slide, eager }: { slide: MediaSlide; eager: boolean }) {
+  const alt = slide.caption ?? slide.title;
+  if (slide.kind === 'video') {
+    return (
+      <span className="relative flex size-full items-center justify-center overflow-hidden rounded-md bg-[#09090b]" data-testid="report-slide-video">
+        {/* The first frame stands for the recording; it plays full screen. */}
+        { }
+        <video src={`${slide.src}#t=${slide.posterAt ?? 0.1}`} muted playsInline preload="metadata" aria-hidden className="max-h-full max-w-full object-contain" />
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex size-14 items-center justify-center rounded-full bg-white/90 text-[#09090b] shadow-md">
+            <Play className="size-6 translate-x-0.5 fill-current" aria-hidden />
+          </span>
+        </span>
+      </span>
+    );
+  }
+  return <img src={slide.src} alt={alt} loading={eager ? 'eager' : 'lazy'} className="max-h-full max-w-full rounded-md object-contain" />;
+}
+
+/**
+ * A recording or a player, full screen: it plays with its own controls (the
+ * player's own full-screen button included) while it is the slide in view.
+ * @param props
+ * @param props.slide - The slide.
+ * @param props.inView - Whether it is the slide being looked at; one out of view is not loaded.
+ */
+function SlidePlayer({ slide, inView }: { slide: MediaSlide; inView: boolean }) {
+  const label = `${slide.label}: ${slide.caption ?? slide.title}`;
+  if (!inView) {
+    return <span className="size-full" aria-hidden />;
+  }
+  return (
+    // A browser recording has no sound to caption; what it shows is the caption below.
+    // eslint-disable-next-line jsx-a11y/media-has-caption
+    <video controls autoPlay playsInline preload="auto" aria-label={label} className="max-h-full max-w-full rounded-md bg-black object-contain" data-testid="report-lightbox-video">
+      <source src={slide.src} {...(slide.type ? { type: slide.type } : {})} />
+    </video>
+  );
+}
 
 /**
  * WHO MADE IT, WHEN — the picture's source line. It opens where the picture
@@ -89,6 +147,7 @@ function SlideCaption({ slide }: { slide: MediaSlide }) {
  */
 export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
   const strip = useRef<HTMLDivElement>(null);
+  const thumbs = useRef<HTMLDivElement>(null);
   const [idx, setIdx] = useState(0);
   const [open, setOpen] = useState<number | null>(null);
 
@@ -100,6 +159,34 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
     const next = Math.max(0, Math.min(slides.length - 1, to));
     el.scrollTo({ left: next * el.clientWidth, behavior: 'smooth' });
   }, [slides.length]);
+
+  // The thumbnail in view stays in view as the index moves, without
+  // scrolling the page.
+  useEffect(() => {
+    const t = thumbs.current?.children[idx] as HTMLElement | undefined;
+    const row = thumbs.current;
+    if (t && row) {
+      const left = t.offsetLeft - row.offsetLeft;
+      if (left < row.scrollLeft || left + t.offsetWidth > row.scrollLeft + row.clientWidth) {
+        row.scrollTo({ left: left - (row.clientWidth - t.offsetWidth) / 2, behavior: 'smooth' });
+      }
+    }
+  }, [idx]);
+
+  // Left and right arrows move the index (Chris, 2026-10-03: "should advance
+  // index, not scroll the thumbnails"), from anywhere inside the carousel —
+  // a focused thumbnail hands focus to the new one.
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') {
+      return;
+    }
+    e.preventDefault();
+    const to = Math.max(0, Math.min(slides.length - 1, idx + (e.key === 'ArrowRight' ? 1 : -1)));
+    go(to);
+    if (thumbs.current?.contains(document.activeElement)) {
+      (thumbs.current.children[to] as HTMLElement | undefined)?.focus({ preventScroll: true });
+    }
+  };
 
   const onScroll = () => {
     const el = strip.current;
@@ -115,7 +202,8 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
   const many = slides.length > 1;
 
   return (
-    <div data-testid="report-carousel" className="space-y-2">
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- arrow keys from the slides and thumbnails inside
+    <div data-testid="report-carousel" className="space-y-2" onKeyDown={onKeyDown}>
       <div className="group relative">
         <div
           ref={strip}
@@ -134,11 +222,15 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
                   setOpen(i);
                 }
               }}
-              aria-label={`Open ${s.caption ?? s.title} full screen`}
+              aria-label={`${s.kind === 'video' ? 'Play' : 'Open'} ${s.caption ?? s.title} full screen`}
               data-testid="report-slide"
-              className="flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
+              className="relative flex aspect-[4/3] w-full shrink-0 snap-center items-center justify-center p-2 sm:aspect-[16/10]"
             >
-              <img src={s.src} alt={s.caption ?? s.title} loading={i === 0 ? 'eager' : 'lazy'} className="max-h-full max-w-full rounded-md object-contain" />
+              <SlidePreview slide={s} eager={i === 0} />
+              {/* WHAT KIND OF PICTURE (Chris, 2026-10-04: "chips for QA, demo or
+                  mock on the overlays"): the slide's section, in its corner,
+                  so a swipe through twenty pictures never loses what each is. */}
+              <span data-testid="report-slide-chip" className="pointer-events-none absolute top-3 left-3 rounded-full bg-[#09090b]/75 px-2 py-0.5 text-[11px] font-semibold tracking-[0.06em] text-white uppercase backdrop-blur-sm">{s.label}</span>
             </button>
           ))}
         </div>
@@ -156,18 +248,21 @@ export function MediaCarousel({ slides }: { slides: MediaSlide[] }) {
       {/* THUMBNAILS (Chris, 2026-09-25: "show thumbnails on the gallery"):
           every picture at a glance, the one in view outlined, a tap goes to it. */}
       {many && (
-        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Pictures" data-testid="report-thumbs">
+        <div ref={thumbs} className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Pictures" data-testid="report-thumbs">
           {slides.map((s, i) => (
             <button
               key={s.id}
               type="button"
               role="tab"
               aria-selected={i === idx}
+              tabIndex={i === idx ? 0 : -1}
               aria-label={`Picture ${i + 1} of ${slides.length}: ${s.label} — ${s.caption ?? s.title}`}
               onClick={() => go(i)}
               className={`h-14 w-20 shrink-0 overflow-hidden rounded-md border bg-muted transition sm:h-16 sm:w-24 ${i === idx ? 'border-foreground ring-1 ring-foreground' : 'border-border opacity-70 hover:opacity-100'}`}
             >
-              <img src={s.src} alt="" loading="lazy" className="size-full object-cover object-top" />
+              {s.kind === 'video'
+                ? <span className="flex size-full items-center justify-center bg-[#09090b] text-white"><Play className="size-4 fill-current" aria-hidden /></span>
+                : <img src={s.src} alt="" loading="lazy" className="size-full object-cover object-top" />}
             </button>
           ))}
         </div>
@@ -261,6 +356,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
     <div role="dialog" aria-modal="true" aria-label={current.caption ?? current.title} data-testid="report-lightbox" className="fixed inset-0 z-[100] flex flex-col bg-[#09090b] text-white">
       <div className="flex h-14 shrink-0 items-center gap-3 px-3 pt-[env(safe-area-inset-top)]">
         <span className="font-mono text-xs tabular-nums opacity-70">{`${idx + 1} / ${slides.length}`}</span>
+        <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold tracking-[0.06em] uppercase" data-testid="report-lightbox-chip">{current.label}</span>
         <span className="min-w-0 flex-1 truncate text-sm">{current.title}</span>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -287,14 +383,18 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
       >
         {slides.map((s, i) => (
           <div key={s.id} className="flex h-full w-full shrink-0 snap-center items-center justify-center overflow-hidden p-2">
-            <ZoomableImage
-              // Remounted when it leaves view, so the next visit opens fitted.
-              key={i === idx ? 'in-view' : 'out'}
-              src={s.src}
-              alt={s.caption ?? s.title}
-              testId={i === idx ? 'report-lightbox-image' : undefined}
-              onZoomChange={z => i === idx && setZoomed(z)}
-            />
+            {s.kind === 'video'
+              ? <SlidePlayer slide={s} inView={i === idx} />
+              : (
+                  <ZoomableImage
+                    // Remounted when it leaves view, so the next visit opens fitted.
+                    key={i === idx ? 'in-view' : 'out'}
+                    src={s.src}
+                    alt={s.caption ?? s.title}
+                    testId={i === idx ? 'report-lightbox-image' : undefined}
+                    onZoomChange={z => i === idx && setZoomed(z)}
+                  />
+                )}
           </div>
         ))}
       </div>
@@ -304,7 +404,7 @@ function Lightbox({ slides, start, onClose }: { slides: MediaSlide[]; start: num
           {current.caption ?? current.title}
         </span>
         {current.source && <SourceLine source={current.source} tone="dark" onOpen={() => onClose(idx)} />}
-        <span className="mt-1 block text-[11px] opacity-50">{zoomed ? 'Pinch or tap to fit · drag to look around' : 'Pinch or tap to zoom · swipe for the next'}</span>
+        <span className="mt-1 block text-[11px] opacity-50">{current.kind === 'video' ? (slides.length > 1 ? 'Swipe for the next' : '') : zoomed ? 'Pinch or tap to fit · drag to look around' : 'Pinch or tap to zoom · swipe for the next'}</span>
       </div>
     </div>,
     document.body,

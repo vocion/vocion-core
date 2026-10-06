@@ -330,8 +330,12 @@ export async function recomputeRollups(opts: { orgId: string; childType: string;
           ? children.reduce((acc, c) => acc + numberOf((c.metadata ?? {})[rollup.sum!]), 0)
           : children.length;
       }
+      // MERGED, NEVER REWRITTEN (Walks 17–18): writing the whole metadata from
+      // the copy read above put back a status line the request's flow had just
+      // written ("QA is reviewing" over "QA could not finish"). Only the
+      // rollup fields are merged in, so a concurrent write to any other key stands.
       await db.update(businessObjectSchema)
-        .set({ metadata: { ...(parent.metadata ?? {}), ...fields, rollupsUpdatedAt: now.toISOString() } })
+        .set({ metadata: sql`coalesce(${businessObjectSchema.metadata}, '{}'::jsonb) || ${JSON.stringify({ ...fields, rollupsUpdatedAt: now.toISOString() })}::jsonb` })
         .where(eq(businessObjectSchema.id, parent.id));
       written.push({ type: parentType, id: parent.id, fields });
     }

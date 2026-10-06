@@ -1,16 +1,24 @@
-import type { ChatImageFetcher, ChatInbound, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { LoadedAttachment } from '@/services/chat/attachments';
+import type { ThreadApproval } from '@/services/chat/slackApproval';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
+import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { chatPermalink } from '@/libs/surfaces/slackRead';
+import { fetchSlackFile } from '@/libs/surfaces/slack';
+import { chatPermalink, conversationReplies } from '@/libs/surfaces/slackRead';
+import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
+import { claimAttachments, createArtifact } from '@/services/ArtifactService';
 import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
+import { acceptUpload, loadedFromArtifact, MAX_IMAGE_BYTES, uploadSpec } from '@/services/chat/attachments';
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
 import { withPageContext } from '@/services/chat/pageContext';
-import { recordSlackPost, threadAlreadyNoticed } from '@/services/chat/slackPosts';
+import { approvalFromThread, defaultThreadApprovalDeps } from '@/services/chat/slackApproval';
+import { recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
 import { buildSlackThreadContext, scopeGapSentence, threadPageContext } from '@/services/chat/slackThread';
 import { appendMessage, createConversation, latestConversationForScope, listMessages, toHistoryTurns } from '@/services/ConversationService';
 
@@ -207,22 +215,113 @@ export async function handleJoined(adapter: ChatSurfaceAdapter, join: ChatJoin):
   }
 }
 
+/** What Vocion says the moment a mention is heard, taken back when the answer lands. */
+export const WORKING_LINE = 'Looking into it…';
+
 /** Dependency seam so the handler is testable without a model or a network. */
 export type ChatHandlerDeps = {
+  /** Which workspace a catch-all mention is for (`chat/workspaceRoute.ts`). */
+  route: (binding: ChatChannelBinding, inbound: { text: string; scopeRef: string; channelId?: string; pictures?: readonly import('./chat/workspaceRoute').RoutePicture[] }) => Promise<import('./chat/workspaceRoute').RoutedWorkspace>;
   runAgent: typeof runAgentDeep;
   preflight: typeof preflightCheck;
   /** Builds the thread context. Injected so the tests need no Slack. */
   buildThreadContext: typeof buildSlackThreadContext;
   /** Permalink to the message being answered, for feedback provenance. */
   permalink: (opts: { channelId: string; messageTs: string }) => Promise<string | null>;
+  /** The bytes of a picture on the message, behind the bot's token. Null when it cannot be read. */
+  fetchFile: (url: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
+  /** A reply that decides a card waiting in this thread (`slackApproval.ts`), or null to answer as a turn. */
+  approval: (orgId: string, inbound: ChatInbound, conversationId: number) => Promise<ThreadApproval>;
+  /** The pictures people posted earlier in the thread, for a mention that brought none. */
+  threadPictures: (inbound: ChatInbound) => Promise<ChatInboundFile[]>;
 };
 
+/** Picture types read from a thread; the same set the adapter reads off a mention. */
+const THREAD_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/**
+ * THE PICTURE ABOVE THE MENTION (Chris, 2026-10-05): a person posts a screenshot, then says
+ * "@Vocion" in its thread. The ask is the picture, so the pictures people (not bots) posted
+ * before this message are read, at most five, newest kept.
+ * @param inbound - The mention.
+ * @param token - The bot token.
+ */
+export async function slackThreadPictures(inbound: Pick<ChatInbound, 'channelId' | 'threadRef' | 'messageRef'>, token: string | undefined): Promise<ChatInboundFile[]> {
+  const replies = await conversationReplies({ channelId: inbound.channelId, threadTs: inbound.threadRef }, token);
+  if (!replies.ok) {
+    return [];
+  }
+  const files = replies.value
+    .filter(m => !m.botId && m.ts !== inbound.messageRef && Number(m.ts) < Number(inbound.messageRef))
+    .flatMap(m => m.files ?? [])
+    .filter(f => THREAD_IMAGE_TYPES.has(f.mimeType) && typeof f.url === 'string')
+    .map(f => ({ id: f.id, name: f.name.slice(0, 120), contentType: f.mimeType, bytes: f.size ?? 0, url: f.url! }));
+  return files.slice(-5);
+}
+
 const defaultDeps: ChatHandlerDeps = {
+  route: async (binding, inbound) => (await import('./chat/workspaceRoute')).routeToWorkspace(binding, inbound),
   runAgent: runAgentDeep,
   preflight: preflightCheck,
   buildThreadContext: buildSlackThreadContext,
   permalink: opts => chatPermalink(opts, process.env.SLACK_BOT_TOKEN),
+  fetchFile: url => fetchSlackFile(url, process.env.SLACK_BOT_TOKEN),
+  approval: (orgId, inbound, conversationId) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps),
+  threadPictures: inbound => slackThreadPictures(inbound, process.env.SLACK_BOT_TOKEN),
 };
+
+/** A picture on the ask with its bytes, or null bytes when it could not be read. */
+type FetchedPicture = { file: ChatInboundFile; got: { bytes: Uint8Array; contentType: string } | null };
+
+/**
+ * The bytes of each picture, read once: the router looks at them and the turn keeps them.
+ * @param files - The pictures on the ask.
+ * @param fetchFile - How bytes are fetched.
+ */
+async function fetchPictures(files: readonly ChatInboundFile[], fetchFile: ChatHandlerDeps['fetchFile']): Promise<FetchedPicture[]> {
+  return Promise.all(files.map(async file => ({ file, got: await fetchFile(file.url).catch(() => null) })));
+}
+
+/**
+ * THE PICTURE ON THE MENTION (backlog 057): a bug the Slate team reports is
+ * the screenshot. Each image on the message is fetched with the bot's token,
+ * kept as the same `file` artifact an upload in the composer becomes, and
+ * handed to the turn as an attachment, so the agent sees what the person saw
+ * and what it files carries it. A picture that could not be read is said in
+ * the message in one line, never dropped in silence.
+ * @param orgId - The workspace.
+ * @param inbound - The message.
+ * @param createdBy - Who sent it, as the record names them.
+ * @param fetched - The pictures, already read.
+ */
+async function pictureAttachments(orgId: string, inbound: ChatInbound, createdBy: string, fetched: readonly FetchedPicture[]): Promise<{ attachments: LoadedAttachment[]; unread: string[] }> {
+  const attachments: LoadedAttachment[] = [];
+  const unread: string[] = [];
+  for (const { file: f, got } of fetched) {
+    if (!got || got.bytes.byteLength === 0 || got.bytes.byteLength > MAX_IMAGE_BYTES) {
+      unread.push(f.name);
+      continue;
+    }
+    const verdict = acceptUpload({ name: f.name, type: got.contentType, size: got.bytes.byteLength });
+    if (!verdict.ok) {
+      unread.push(f.name);
+      continue;
+    }
+    const data = Buffer.from(got.bytes);
+    const saved = await saveArtifact({ orgId, data, ext: verdict.accepted.ext, contentType: verdict.accepted.contentType });
+    const { artifact } = await createArtifact({
+      orgId,
+      kind: 'file',
+      title: f.name,
+      spec: uploadSpec({ filename: saved.filename, originalName: f.name, contentType: verdict.accepted.contentType, bytes: saved.bytes, url: saved.url }),
+      author: { kind: 'human', id: createdBy },
+      changeSummary: `Attached in ${inbound.surface}`,
+      visibility: 'user',
+    });
+    attachments.push(loadedFromArtifact(artifact));
+  }
+  return { attachments, unread };
+}
 
 /**
  * The workspace a channel answers for — part of the context, and the scope of the reply.
@@ -251,15 +350,37 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   | { outcome: 'failed'; orgId: string; agentSlug: string; error: string }
 > {
   const deps: ChatHandlerDeps = { ...defaultDeps, ...overrides };
-  const binding = await resolveBinding(inbound.surface, inbound.teamId, inbound.channelId);
-  if (!binding) {
+  const bound = await resolveBinding(inbound.surface, inbound.teamId, inbound.channelId);
+  if (!bound) {
     return { outcome: 'unbound' };
   }
+  // WHICH WORKSPACE (Chris, 2026-10-05): a mention that only matched the team's catch-all goes to
+  // the workspace it is about, and the rest of its thread follows (`chat/workspaceRoute.ts`).
+  // The pictures are read first, because a screenshot often says which product it is before any
+  // word does. A mention that brought none, in a thread, brings the thread's (Chris, 2026-10-05).
+  const inThread = inbound.threadRef !== inbound.messageRef;
+  const threadFiles = (inbound.files?.length ?? 0) === 0 && inThread ? await deps.threadPictures(inbound).catch(() => []) : [];
+  const fetched = await fetchPictures(inbound.files?.length ? inbound.files : threadFiles, deps.fetchFile);
+  const routePictures = fetched.flatMap(p => p.got && p.got.bytes.byteLength <= MAX_IMAGE_BYTES ? [{ contentType: p.got.contentType, base64: Buffer.from(p.got.bytes).toString('base64') }] : []);
+  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId, ...(routePictures.length > 0 ? { pictures: routePictures } : {}) });
+  const binding = route.routed === 'model' || route.routed === 'thread'
+    ? { ...bound, orgId: route.orgId, agentSlug: route.agentSlug, displayName: null, iconUrl: null }
+    : bound;
   const { orgId, agentSlug } = binding;
   const target = replyTargetFor(binding, inbound, await agentPersona(orgId, agentSlug));
 
+  // Something shows straight away that the mention was heard (Chris, 2026-10-05: "there was no
+  // thinking indicator"); it is taken back when the answer is posted.
+  const working = await adapter.reply(target, WORKING_LINE).catch(() => null);
+  const doneWorking = async () => {
+    if (working && adapter.retract) {
+      await adapter.retract(working).catch(() => undefined);
+    }
+  };
+
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
+    await doneWorking();
     await adapter.reply(target, `This agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`).catch(() => {});
     return { outcome: 'over_budget', agentSlug };
   }
@@ -274,7 +395,25 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   }
   const conversationId = conversation.id;
   const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
-  await appendMessage({ orgId, conversationId, role: 'user', content: inbound.text, userId: createdBy });
+  // The thread's pictures join the turn only the first time Vocion is called into it; later turns
+  // already have them in the conversation.
+  const pictures = await pictureAttachments(orgId, inbound, createdBy, inbound.files?.length || history.length === 0 ? fetched : []);
+  const userMsg = await appendMessage({ orgId, conversationId, role: 'user', content: inbound.text, userId: createdBy });
+  if (pictures.attachments.length > 0 && userMsg?.id) {
+    await claimAttachments({ orgId, artifactIds: pictures.attachments.map(a => a.id), conversationId, messageId: userMsg.id }).catch(() => {});
+  }
+
+  // A REPLY THAT DECIDES (backlog 057): a card waiting on this thread, and
+  // words a model reads as the decision, from a Slack user Vocion knows as a
+  // member — decided here, said back, no agent turn. Anything else is a turn.
+  const approval = await deps.approval(orgId, inbound, conversationId).catch(() => null);
+  if (approval) {
+    await appendMessage({ orgId, conversationId, role: 'assistant', content: approval.reply, status: 'complete' });
+    await doneWorking();
+    const posted = await adapter.reply(target, approval.reply);
+    await recordSlackPost({ orgId, teamId: inbound.teamId, channelId: inbound.channelId, ts: tsOf(posted), threadTs: inbound.threadRef, kind: 'reply', agentSlug, text: approval.reply, createdBy: approval.decided ? `decision:${approval.verb}:${approval.runId}` : 'system:slack-approval' }).catch(() => {});
+    return { outcome: 'replied', orgId, agentSlug, conversationId, text: approval.reply };
+  }
 
   // Where the person is, on this surface: the channel, the post they replied
   // to, who else is in the thread, and the workspace we answer for. Built
@@ -296,6 +435,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     withPageContext(inbound.text, pageContext),
     feedbackNote(signal),
     permalink ? `\n\nPermalink to this message, for anything you file: ${permalink}` : '',
+    pictures.unread.length > 0 ? `\n\nA picture was attached that could not be read (${pictures.unread.join(', ')}); say so if it matters to the ask.` : '',
   ].filter(Boolean).join('');
 
   try {
@@ -309,8 +449,11 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       conversationId,
       conversationHistory: history,
       ...(pageContext ? { pageContext } : {}),
+      ...(pictures.attachments.length > 0 ? { attachments: pictures.attachments } : {}),
     }) }));
-    let text = result.response.trim() || '(no reply)';
+    // Slack shows no trace, so it gets the answer after the turn's last tool call; the steps
+    // before it ("I'll check the rollup first") stay on the run in Vocion (`lastAnswerOf`).
+    let text = (result.lastAnswer ?? result.response).trim() || '(no reply)';
 
     // Something was missing, and the channel has not been told yet. The
     // sentence names the scope and what it would have bought — the whole
@@ -327,6 +470,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     // The reply went out, so the turn finished: say so rather than leaving a
     // NULL that a reader has to guess at (#114).
     await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete', cost: { tokens: cost.tokens, microCents: cost.microCents } });
+    await doneWorking();
     const posted = await adapter.reply(target, text);
     await recordSlackPost({
       orgId,
@@ -344,6 +488,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     return { outcome: 'replied', orgId, agentSlug, conversationId, text, ...(thread ? { thread } : {}) };
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
+    await doneWorking();
     await adapter.reply(target, 'Something went wrong on my side; a person can see the details in Vocion.').catch(() => {});
     return { outcome: 'failed', orgId, agentSlug, error: failure };
   }

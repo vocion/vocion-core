@@ -29,6 +29,7 @@ import { decideResume, readSessionConversation, writeSessionConversation } from 
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
+import { loadWorkspaceIntake } from './useWorkspaceIntake';
 import { describeToolCall } from './WorkTimeline';
 
 /* ----------------------------------------------------------------- */
@@ -572,6 +573,20 @@ export function useChatSession({
         // stamped with, so live and reloaded transcripts agree (backlog 009).
         const spoken = evt as unknown as { agent: { slug: string; name: string } };
         appendToLatestAgent(m => ({ ...m, agentSlug: spoken.agent.slug, agentName: nameOfAgent(spoken.agent.slug, spoken.agent.name) }));
+        setActivity(`${nameOfAgent(spoken.agent.slug, spoken.agent.name)} is thinking…`);
+        return;
+      }
+      case 'turn_restarted': {
+        // The app restarted while this turn was being answered, and it is
+        // being answered again from where it stood (backlog 056). What was on
+        // screen was the first attempt; what follows is the whole answer.
+        pendingTraceRef.current = new Map();
+        traceDirtyRef.current = false;
+        textRunsRef.current = 0;
+        lastRunIsTextRef.current = false;
+        appendToLatestAgent(m => ({ ...m, content: '', runs: [], trace: undefined, status: undefined, statusReason: undefined }));
+        setPhase('thinking');
+        setActivity('The app restarted — picking the answer back up…');
         return;
       }
       case 'run_meta': {
@@ -582,7 +597,8 @@ export function useChatSession({
       }
       case 'thinking':
         setPhase('thinking');
-        setActivity('Thinking…');
+        // Keep "<agent> is thinking…" when the turn already named its speaker.
+        setActivity(prev => (prev?.endsWith(' is thinking…') ? prev : 'Thinking…'));
         return;
       case 'thinking_delta': {
         // Chain-of-thought token (Anthropic extended thinking).
@@ -1398,29 +1414,19 @@ export function useChatSession({
     routeOnceRef.current = null;
     const routed = searchAgent ?? routeTurn(recordRefs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
     const turnAgent = routed ?? agent;
+    // A new thread nobody named an agent for is routed first: say so, rather
+    // than a bare spinner, until the runtime says who answers.
+    if (!routed && !isSearchOnly && conversationIdRef.current === null) {
+      setActivity('Choosing who answers…');
+    }
     // The reply is NOT attributed here from the tags: the runtime says who
     // speaks (`turn_agent`, the first frame) and the row records it. A label
     // stamped from a guess read "via QA" on a turn the product manager
     // answered (backlog 009).
-    if (conversationIdRef.current === null && agent.slug !== '__search__') {
-      try {
-        const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
-        setActiveConversation(agent.slug, conv.id);
-        // The name the server is about to give it — the first message, cut —
-        // shown now rather than after the turn lands.
-        setThreadMeta({ id: conv.id, title: firstMessageTitle(text), titleSource: 'auto' });
-        if (autonomy !== DEFAULT_AUTONOMY) {
-          // The person's standing choice applies to the thread it just created
-          // (the row is born at the default; only a different rung needs writing).
-          client.conversations.setAutonomy({ id: conv.id, autonomy }).catch((error) => {
-            console.warn('useChatSession: could not persist the autonomy setting', error);
-          });
-        }
-      } catch (error) {
-        // persistence is best-effort — chat still works ephemerally
-        console.warn('useChatSession: failed to create a persisted conversation', error);
-      }
-    }
+    // A new thread is created by the turn itself (`create_conversation`) and
+    // named in its first frame, rather than by a round trip of its own before
+    // the turn could start.
+    const createsThread = conversationIdRef.current === null && agent.slug !== '__search__';
     const activeConversationId = conversationIdRef.current;
 
     const controller = new AbortController();
@@ -1453,6 +1459,9 @@ export function useChatSession({
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),
+          ...(createsThread
+            ? { create_conversation: true, ...(autonomy !== DEFAULT_AUTONOMY ? { conversation_autonomy: autonomy } : {}) }
+            : {}),
           // How strong a model, how much it thinks (`libs/llm/modelPrefs.ts`).
           model_strength: modelPrefsRef.current.strength,
           thinking_effort: modelPrefsRef.current.effort,
@@ -1483,6 +1492,13 @@ export function useChatSession({
           try {
             const evt = JSON.parse(block.slice(6));
             if (evt.type === 'stream_meta') {
+              // The thread this turn created, when it created one.
+              if (createsThread && typeof evt.conversationId === 'number' && conversationIdRef.current === null) {
+                setActiveConversation(agent.slug, evt.conversationId);
+                // The name the server is about to give it — the first message,
+                // cut — shown now rather than after the turn lands.
+                setThreadMeta({ id: evt.conversationId, title: firstMessageTitle(text), titleSource: 'auto' });
+              }
               // Resume handle — stash it; replayed events are counted below
               // so a reconnect asks only for what it missed.
               streamStashRef.current = { streamId: String(evt.streamId), agentSlug: agent.slug, count: 0, conversationId: conversationIdRef.current };
@@ -1745,6 +1761,48 @@ export function useChatSession({
     }
   }, [sendMessage, agent.slug, agents, bootTarget]);
 
+  /**
+   * BUILD IT (Chris, 2026-10-04: "I should have a path to just push the idea
+   * into the software factory from chat … Simple. Magical. Fast."). A card a
+   * turn drew is handed to the workspace's intake owner as the person's own
+   * word — "build it", with the card — so it runs as their action: the owner
+   * files it through the intake's own gates and starts the build, and the
+   * transcript shows exactly what was asked. No intake, no button.
+   * @param card - The card's chip.
+   * @param card.id - Its artifact id.
+   * @param card.title - Its name.
+   */
+  const buildFromCard = useCallback(async (card: { id: number; title: string }) => {
+    const intake = await loadWorkspaceIntake();
+    if (!intake) {
+      return;
+    }
+    // The card's own facts travel with it, so nothing depends on the owner
+    // finding it in the thread.
+    let facts = '';
+    try {
+      const art = await client.artifacts.get({ id: card.id });
+      const spec = (art as { spec?: { type?: unknown; status?: unknown; fields?: unknown } }).spec ?? {};
+      const fields = Array.isArray(spec.fields) ? spec.fields as Array<{ k?: unknown; v?: unknown }> : [];
+      facts = fields
+        .filter(f => typeof f.k === 'string' && f.v !== null && f.v !== undefined && String(f.v).trim())
+        .map(f => `- ${String(f.k)}: ${String(f.v)}`)
+        .join('\n');
+    } catch (error) {
+      console.warn('useChatSession: could not read the card to build; sending its name', error);
+    }
+    const noun = intake.label.toLowerCase();
+    const text = `Build it: **${card.title}**. File it as a ${noun} and start the build.${facts ? `\n\n${facts}` : ''}`;
+    // Always named, never routed: an unrouted turn lets the router keep a
+    // follow-up with the agent the thread is with, and a Build it tap in a
+    // wiki researcher's thread went back to the wiki researcher (2026-10-04),
+    // who cannot file. The intake owner answers this one turn.
+    if (intake.ownerSlug && agents.some(a => a.slug === intake.ownerSlug)) {
+      routeOnceRef.current = intake.ownerSlug;
+    }
+    void sendMessage(text);
+  }, [agent.slug, agents, sendMessage]);
+
   const handleApproveHitl = useCallback(() => {
     setPendingHitl(null);
     void sendMessage('approve');
@@ -1984,6 +2042,8 @@ export function useChatSession({
   }, [sendQueue]);
 
   return {
+    /** Build it on a card a turn drew (`ArtifactChips`). */
+    buildFromCard,
     /** The agent this chat is talking to right now. */
     agent,
     /** Chips for the empty state — the picked agent's own, else the workspace set. */

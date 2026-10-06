@@ -25,7 +25,9 @@ function slackMock(answers: Record<string, Record<string, unknown>> = {}) {
     const u = String(url);
     const method = u.split('/').pop() ?? '';
     const raw = init?.body;
-    calls.push({ url: u, body: typeof raw === 'string' ? JSON.parse(raw) : raw });
+    // Form-only methods (files.getUploadURLExternal) send a form; the rest send JSON.
+    const form = String(new Headers(init?.headers).get('content-type')).startsWith('application/x-www-form-urlencoded');
+    calls.push({ url: u, body: typeof raw === 'string' ? (form ? Object.fromEntries(new URLSearchParams(raw)) : JSON.parse(raw)) : raw });
     if (!u.startsWith(BASE)) {
       return new Response('', { status: 200 }); // the upload PUT target
     }
@@ -79,6 +81,8 @@ describe('postSlackReply media ladder', () => {
     expect(ref?.media).toBe('uploaded');
     // An upload posts the message itself; its files are the only handle to take it back.
     expect(ref?.fileIds).toEqual(['F1']);
+    // Slack takes the upload URL request only as a form (a JSON body is "missing required field: filename").
+    expect(calls[0]!.body).toEqual({ filename: expect.any(String), length: '3' });
     expect(calls.map(c => c.url)).toEqual([
       `${BASE}/files.getUploadURLExternal`,
       'https://files.slack.test/upload/1',
@@ -128,7 +132,7 @@ describe('postSlackReply media ladder', () => {
     const body = calls[0]!.body as Record<string, unknown>;
 
     // No image block pointing at a URL Slack cannot fetch — that renders grey.
-    expect(body.blocks).toBeUndefined();
+    expect(body.blocks).toEqual([{ type: 'markdown', text: body.text }]);
     // And the text says why, rather than pasting a link that looks like a picture.
     expect(String(body.text)).toContain('sign-in required');
     expect(String(body.text)).toContain('Slack cannot show it inline');
@@ -149,13 +153,13 @@ describe('postSlackReply media ladder', () => {
     expect(calls.at(-1)!.url).toBe(`${BASE}/chat.postMessage`);
   });
 
-  it('is byte-identical to the pre-images payload when a message carries none', async () => {
+  it('renders a message with no images as one markdown block, its text unchanged as the fallback', async () => {
     const { calls, impl } = slackMock();
 
     const ref = await postSlackReply({ channelId: 'C1', threadRef: '100.1' }, 'plain reply', 'xoxb-test', BASE, { scopes: new Set(['chat:write']), fetchImpl: impl });
 
     expect(ref?.media).toBe('none');
-    expect(calls[0]!.body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'plain reply' });
+    expect(calls[0]!.body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'plain reply', blocks: [{ type: 'markdown', text: 'plain reply' }] });
   });
 });
 

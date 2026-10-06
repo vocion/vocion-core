@@ -175,6 +175,20 @@ export async function reconcileOpenPulls(orgId: string, now: Date, deps: Reconci
     if (state !== (str(meta.prState) ?? 'open') || (state === 'open' && read.pr.head.sha !== str(meta.headSha))) {
       await stamp(orgId, task.id, { prState: state, ...(state === 'open' ? { headSha: read.pr.head.sha } : {}) });
     }
+    // A PULL REQUEST THAT CONFLICTS WITH ITS BASE RUNS NO CHECKS (Walk 18,
+    // FE-376: PR #193 sat "QA is reviewing" for hours; GitHub never ran CI, so
+    // no review could start and nothing said why). The attempt goes back to the
+    // engineer on its kept branch to merge the base in, once per head commit.
+    const conflicting = state === 'open' && (read.pr.mergeable === false || read.pr.mergeable_state === 'dirty');
+    if (conflicting && !history && requestId && str(meta.conflictSentFor) !== read.pr.head.sha) {
+      const why = `${url} conflicts with ${read.pr.base.ref}, so GitHub ran none of its checks`;
+      const { askRequestWorkflow } = await import('./requestWorkflowStart');
+      const asked = await askRequestWorkflow(orgId, requestId, { by: 'system:factory-reconcile', byPerson: false, from: 'a conflict with the base branch', trigger: 'recovery', note: `${why}. Merge ${read.pr.base.ref} into the branch, resolve the conflicts so both changes stand, and push.`, planId: null }).catch((err: Error) => ({ line: `could not ask: ${err.message}` }));
+      await stamp(orgId, task.id, { conflictSentFor: read.pr.head.sha });
+      const line = `${why}; sent back to the engineer to merge ${read.pr.base.ref} in.`;
+      await note(orgId, requestId, line);
+      out.push({ requestId, did: 'conflict sent back', line: `${line} (${String((asked as { line?: string }).line ?? '')})` });
+    }
   }
   return out;
 }
@@ -347,6 +361,49 @@ export async function settleClosedRequests(orgId: string, now: Date): Promise<Re
 }
 
 /**
+ * A SHIPPED REQUEST READS SHIPPED. Request 224 (2026-10-02) shipped and was
+ * seen live 6 of 6, then a late QA verdict on a superseded attempt started a
+ * retry that wrote `state: building`; the retry's run was stopped, a stopped
+ * run raises no failure, and the request read "building" with nothing behind
+ * it for days. The guard that refuses such a retry came after; this repairs
+ * the records it left. A ship not reopened since, no run live on any of its
+ * tasks, and a state other than shipped: the state goes back to shipped and
+ * any recovery stage settles. The status (seen live) is left as it is.
+ * @param orgId - Tenant.
+ * @param now - The clock.
+ */
+export async function settleShippedRequests(orgId: string, now: Date): Promise<Result[]> {
+  const { and, eq, sql } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+  const { readRecovery, settleRecovery } = await import('./recovery');
+  const { writeMeta } = await import('@/libs/actions/factory-dispatch');
+  const m = businessObjectSchema.metadata;
+  const rows = await db.select({ id: businessObjectSchema.id, meta: m }).from(businessObjectSchema).where(and(
+    eq(businessObjectSchema.orgId, orgId),
+    sql`coalesce(${m}->>'shippedAt', '') <> ''`,
+    sql`coalesce(${m}->>'state', '') not in ('shipped', '')`,
+    sql`(coalesce(${m}->>'reopenedAt', '') = '' or (${m}->>'reopenedAt')::timestamptz <= (${m}->>'shippedAt')::timestamptz)`,
+    sql`not exists (
+      select 1 from business_object t join worker_run w on w.org_id = t.org_id and w.id::text = t.metadata->>'workerRunId'
+      where t.org_id = ${orgId} and t.metadata->>'requestId' = ${businessObjectSchema.id}::text
+        and w.status in ('queued', 'running', 'paused', 'awaiting_review'))`,
+  )).limit(20);
+  const out: Result[] = [];
+  for (const row of rows) {
+    const meta = (row.meta ?? {}) as Meta;
+    const was = String(meta.state);
+    const release = meta.shippedIn !== undefined && meta.shippedIn !== null && String(meta.shippedIn) ? ` in release #${String(meta.shippedIn)}` : '';
+    const recovery = meta.recovery && typeof meta.recovery === 'object'
+      ? settleRecovery(readRecovery(meta), `Shipped${release}; read "${was.replace(/_/g, ' ')}" with nothing running, so it reads shipped again.`, now.toISOString())
+      : undefined;
+    await writeMeta(orgId, row.id, { state: 'shipped', ...(recovery ? { recovery } : {}) });
+    out.push({ requestId: row.id, did: 'shipped again', line: null });
+  }
+  return out;
+}
+
+/**
  * A request whose attempt passed QA and whose merge card is waiting still
  * carrying a stage from before the approval is settled on the card's line —
  * the same settle `record_verdict` makes when it files the card, for a request
@@ -411,6 +468,11 @@ export async function reconcilePipeline(orgId: string, input: Meta = {}, now: Da
   await step('the merge read-back', async () => (await (await import('./delivery')).refreshDeliveries(orgId, now, d.deliveries)).map(r => ({ requestId: r.requestId, did: r.did, line: null })));
   await step('the pipeline changes', async () => (await import('./pipelineChange')).reconcileChanges(orgId, now, owner));
   await step('the unanswered pipeline fixes', async () => (await import('./pipelineChange')).watchUnanswered(orgId, now, owner));
+  // A STOP RESUMES ONCE AFTER A DEPLOY, for requests their workflow runs (Walk 12).
+  await step('the stops a deploy resumes', async () => (await import('./carry')).resumeWorkflowStopsAfterDeploy(orgId, now));
+  // A LIVE CHECK THAT NEVER LOOKED IS CHECKED AGAIN: after each deploy, and once by itself (FE-419).
+  await step('the live checks that never looked', async () => (await import('./liveCheck')).recheckNeverLooked(orgId, now));
+  await step('the shipped requests', () => settleShippedRequests(orgId, now));
   await step('the closed requests', () => settleClosedRequests(orgId, now));
   await step('the waiting merges', () => settleWaitingMerges(orgId, now));
   await step('the missed deploys', async () => (await import('./environments')).watchMissedDeploys(orgId, now, owner).then(r => r.map(x => ({ requestId: x.recordId, did: x.did, line: x.line }))));

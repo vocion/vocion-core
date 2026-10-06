@@ -4,6 +4,14 @@ import { alignToContract, buildAgain, clipNote, contractOf, judgeVerdict, mergeS
 const proven = (criterion: string) => ({ criterion, status: 'proven' as const, evidence: 'https://example.com/shot.png' });
 
 describe('judgeVerdict', () => {
+  it('approves with a line left to the live check when no picture could be stored, and refuses live when one was (Walk 12, FE-392)', () => {
+    const lines = [proven('a'), { criterion: 'Fits a phone at 390px', status: 'live' as const }];
+
+    expect(judgeVerdict('approve', lines, [], new Set(), false)).toMatchObject({ refusal: null, proven: 1, total: 2 });
+    expect(judgeVerdict('approve', lines, [], new Set(), false).value).toBeUndefined();
+    expect(judgeVerdict('approve', lines, [], new Set(), true).refusal).toMatch(/is marked live, but this task has stored screenshots/);
+  });
+
   it('counts proven criteria itself', () => {
     const r = judgeVerdict('changes', [proven('a'), { criterion: 'b', status: 'unproven' }, { criterion: 'c', status: 'unchecked' }], []);
 
@@ -29,6 +37,14 @@ describe('judgeVerdict', () => {
   it('refuses proven without evidence, and an empty criteria list', () => {
     expect(judgeVerdict('changes', [{ criterion: 'a', status: 'proven' }], []).refusal).toMatch(/marked proven with no evidence/);
     expect(judgeVerdict('approve', [], []).refusal).toMatch(/every acceptance criterion/);
+  });
+
+  it('a criterion proven on cited tests needs no prose evidence: the tests are the evidence (Walk 10)', () => {
+    expect(judgeVerdict('approve', [{ criterion: 'a', status: 'proven', tests: ['t1'] }], [])).toEqual({ proven: 1, total: 1, refusal: null });
+  });
+
+  it('carries the cited tests onto the contract line', () => {
+    expect(alignToContract(['The header shows the type before the page count.'], [{ criterion: 'The header shows the type before the page count.', status: 'proven', tests: ['t1', 't2'] }])).toEqual([{ criterion: 'The header shows the type before the page count.', status: 'proven', tests: ['t1', 't2'] }]);
   });
 
   it('accepts an approve where everything is proven', () => {

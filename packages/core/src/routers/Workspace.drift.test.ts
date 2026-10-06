@@ -112,6 +112,19 @@ type Status = {
 };
 
 describe('driftStatus', () => {
+  it('reuses its reading of the folder for a moment, while the diff reads the files as they are now', async () => {
+    const dir = mount(REVENUE);
+    signedInAs(REVENUE);
+
+    expect(await call<Status>(driftStatus)).toMatchObject({ own: true });
+
+    // The folder changes hands; the banner's reading is the one from a moment ago.
+    writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${FACTORY}\nname: ${FACTORY}\n`);
+
+    expect(await call<Status>(driftStatus)).toMatchObject({ own: true });
+    await expect(call(driftDiff)).rejects.toThrow(/not this project's/);
+  });
+
   it('a project whose folder is mounted and applied from it: drift is a differing sha', async () => {
     const dir = mount(REVENUE);
     await applied(REVENUE, { sourcePath: dir });

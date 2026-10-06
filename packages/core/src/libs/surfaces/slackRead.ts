@@ -58,7 +58,7 @@ export type SlackThreadMessage = {
 };
 
 /** One file on a message, named so a reader can decide whether to fetch it. */
-export type SlackMessageFile = { id: string; name: string; mimeType: string; size: number | null };
+export type SlackMessageFile = { id: string; name: string; mimeType: string; size: number | null; url?: string };
 
 /**
  * The channel's human name. Costs `channels:read` / `groups:read`.
@@ -88,7 +88,7 @@ export async function conversationInfo(channelId: string, token: string | undefi
  * @param fetchImpl - Injectable for tests.
  */
 export async function conversationReplies(opts: { channelId: string; threadTs: string; limit?: number }, token: string | undefined, baseUrl = SLACK_API_BASE, fetchImpl: typeof fetch = fetch): Promise<Scoped<SlackThreadMessage[]>> {
-  const res = await slackApi<{ messages?: { ts?: string; text?: string; user?: string; bot_id?: string; thread_ts?: string; files?: { id?: string; name?: string; title?: string; mimetype?: string; size?: number }[] }[] }>(
+  const res = await slackApi<{ messages?: { ts?: string; text?: string; user?: string; bot_id?: string; thread_ts?: string; files?: { id?: string; name?: string; title?: string; mimetype?: string; size?: number; url_private?: string; url_private_download?: string }[] }[] }>(
     'conversations.replies',
     { channel: opts.channelId, ts: opts.threadTs, limit: opts.limit ?? 30 },
     token,
@@ -106,9 +106,25 @@ export async function conversationReplies(opts: { channelId: string; threadTs: s
       ...(m.user ? { user: m.user } : {}),
       ...(m.bot_id ? { botId: m.bot_id } : {}),
       ...(m.thread_ts ? { threadTs: m.thread_ts } : {}),
-      ...(m.files?.length ? { files: m.files.filter(f => typeof f.id === 'string').map(f => ({ id: f.id!, name: f.name ?? f.title ?? f.id!, mimeType: f.mimetype ?? 'application/octet-stream', size: typeof f.size === 'number' ? f.size : null })) } : {}),
+      ...(m.files?.length ? { files: m.files.filter(f => typeof f.id === 'string').map(f => ({ id: f.id!, name: f.name ?? f.title ?? f.id!, mimeType: f.mimetype ?? 'application/octet-stream', size: typeof f.size === 'number' ? f.size : null, ...((f.url_private_download ?? f.url_private) ? { url: (f.url_private_download ?? f.url_private)! } : {}) })) } : {}),
     }));
   return { ok: true, value: messages };
+}
+
+/**
+ * The email on a Slack user's profile (`users.info`, scope `users:read.email`),
+ * or null: no token, no scope, no email. The one fact that ties a Slack user
+ * to a Vocion member (backlog 057): an approval said in Slack runs only as a
+ * member Vocion knows by that email.
+ * @param userId - The Slack user id.
+ * @param token - The bot token.
+ * @param baseUrl - Slack's API base.
+ * @param fetchImpl - The network, injectable in tests.
+ */
+export async function slackUserEmail(userId: string, token: string | undefined, baseUrl = SLACK_API_BASE, fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  const res = await slackApi<{ user?: { profile?: { email?: string } } }>('users.info', { user: userId }, token, baseUrl, fetchImpl);
+  const email = res.ok ? res.body.user?.profile?.email : undefined;
+  return typeof email === 'string' && email.includes('@') ? email.trim().toLowerCase() : null;
 }
 
 /**

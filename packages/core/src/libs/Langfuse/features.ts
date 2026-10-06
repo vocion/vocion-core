@@ -31,6 +31,8 @@ export const FEATURES = {
   RECORD_REFERENCE: 'record.reference',
   /** A release's short name, written once when it is linked (`services/factory/releaseName.ts`). */
   RELEASE_NAME: 'release.name',
+  /** A record's ticket-sized name, read from a title longer than a name (`services/objects/recordName.ts`). */
+  RECORD_NAME: 'record.name',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /**
@@ -70,6 +72,8 @@ export const FEATURES = {
   HEALTH_READ: 'factory.health_read',
   /** What caused a production error — a deploy, the code, or unknown — read by the classifier from the error tracker's facts (`error-watch`). */
   ERROR_CAUSE: 'errors.cause_read',
+  /** The walkthrough a seat speaks over a recording it made (`services/artifacts/walkthrough.ts`). */
+  RECORDING_WALKTHROUGH: 'recording.walkthrough',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

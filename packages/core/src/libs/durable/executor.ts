@@ -39,4 +39,9 @@ export async function startDurableExecutor(): Promise<void> {
   }
   const { startHousekeeping } = await import('@/services/background/housekeeping');
   await startHousekeeping();
+  // The chat turns the previous process was answering when it stopped (backlog 056):
+  // each is answered again once, under its own stream id, so a client re-attaches.
+  void import('@/services/chat/turnRecovery').then(m => m.recoverInterruptedTurns()).catch((err) => {
+    console.error('[durable] turn recovery did not run', (err as Error).message);
+  });
 }

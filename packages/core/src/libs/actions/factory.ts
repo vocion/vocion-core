@@ -136,9 +136,23 @@ export const gitMergeAction: Action = {
   ...gitMergeHandoff,
   manual: undefined,
   external: true,
+  // A PRODUCT WHOSE MERGES A PERSON APPROVES (Chris, 2026-10-05, on Slate: nothing reaches main or
+  // production without a person). Read off the request's product record (`mergeApproval`), so
+  // the rule is the record's, not core's.
+  async holdForPerson(ctx, raw) {
+    const { productMergeHold } = await import('@/services/factory/mergeHold');
+    return productMergeHold(ctx.orgId, raw as Record<string, unknown>);
+  },
   async reviewCard(ctx, raw) {
     const card = await gitMergeHandoff.reviewCard!(ctx, raw);
-    return { ...card, nextAction: 'Approving merges the pull request now (squash), onto the commit QA judged, only with every check green — the merge is the deploy. Undo opens the revert.', verbs: { approve: 'Merge', reject: 'Hold' } };
+    // THE DEMO FIRST (backlog 058): the feature recorded from the branch
+    // before merge, narrated when QA has narrated it, so the person approving
+    // watches it work before reading the verdict's lines.
+    const taskId = typeof (raw as { taskId?: unknown }).taskId === 'number' ? (raw as { taskId: number }).taskId : null;
+    const { previewDemoForTask } = await import('@/services/factory/previewDemo');
+    const demo = taskId !== null ? await previewDemoForTask(ctx.orgId, taskId) : null;
+    const content = demo ? [demo, ...(card.content ?? [])] : card.content;
+    return { ...card, ...(demo ? { content, contentHeading: { label: 'What it does' } } : {}), nextAction: 'Approving merges the pull request now (squash), onto the commit QA judged, only with every check green — the merge is the deploy. Undo opens the revert.', verbs: { approve: 'Merge', reject: 'Hold' } };
   },
   async execute(ctx, raw) {
     const input = raw as Record<string, unknown>;

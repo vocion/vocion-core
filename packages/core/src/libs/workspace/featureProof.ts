@@ -29,7 +29,7 @@
 export const PLAN_RISK_PREFIX = 'The plan\'s risk is handled: ';
 
 /** One judged line, as `record_verdict` stores it on a task (`verdict.criteria`). */
-export type JudgedCriterion = { criterion: string; status: 'proven' | 'unproven' | 'unchecked'; evidence?: string };
+export type JudgedCriterion = { criterion: string; status: 'proven' | 'unproven' | 'unchecked' | 'live'; evidence?: string; tests?: string[] };
 
 /** A record with only what the proof reads. */
 export type ProofRecord = { id: number; meta: Record<string, unknown> };
@@ -45,9 +45,11 @@ export type ProofCriterion = {
   evidence: string | null;
   /** The first link in the evidence, when it names one. */
   evidenceUrl: string | null;
-  /** Where the state came from: the attempt's verdict, or a mark on the request itself. */
-  from: 'verdict' | 'request' | null;
+  /** Where the state came from: the attempt's verdict, a mark on the request itself, or the live check of a line QA left to it. */
+  from: 'verdict' | 'request' | 'live' | null;
   note: string | null;
+  /** QA's verdict left this line to the live check (`live`): only the running product can show it. */
+  leftToLive?: boolean;
 };
 
 export type ProofAttempt = {
@@ -134,7 +136,7 @@ export function alignToContract(contract: string[], judged: JudgedCriterion[]): 
   return contract.map((line, idx) => {
     const i = byText[idx]!;
     const j = i >= 0 ? judged[i] : undefined;
-    return j ? { criterion: line, status: j.status, ...(j.evidence ? { evidence: j.evidence } : {}) } : { criterion: line, status: 'unchecked' as const };
+    return j ? { criterion: line, status: j.status, ...(j.evidence ? { evidence: j.evidence } : {}), ...(Array.isArray(j.tests) && j.tests.length ? { tests: j.tests } : {}) } : { criterion: line, status: 'unchecked' as const };
   });
 }
 
@@ -154,7 +156,7 @@ function verdictOf(task: ProofRecord): { value: string | null; criteria: JudgedC
     .filter(c => typeof c.criterion === 'string')
     .map((c): JudgedCriterion => ({
       criterion: String(c.criterion),
-      status: c.status === 'proven' || c.status === 'unproven' ? c.status : 'unchecked',
+      status: c.status === 'proven' || c.status === 'unproven' || c.status === 'live' ? c.status : 'unchecked',
       ...(str(c.evidence) ? { evidence: str(c.evidence)! } : {}),
     }));
   return { value: str(v.value), criteria, at: str(v.at), by: str(v.by) };
@@ -190,7 +192,7 @@ function fromJudgement(statement: string, group: ProofCriterion['group'], j: Jud
   const state: ProofState = j.status === 'proven' && evidence !== null ? 'passed' : j.status === 'unproven' ? 'failed' : 'unverified';
   const note = j.status === 'proven' && evidence === null
     ? 'QA marked it proven, with no evidence attached.'
-    : j.status === 'unchecked' ? 'QA did not judge this line.' : null;
+    : j.status === 'unchecked' ? 'QA did not judge this line.' : j.status === 'live' ? 'No picture could be made before the merge; the live check proves it in production.' : null;
   return { statement, group, state, evidence, evidenceUrl: firstUrl(evidence), from: 'verdict', note };
 }
 
@@ -210,10 +212,83 @@ function fromRequestMark(statement: string, mark: Record<string, unknown>): Proo
   };
 }
 
+/** What the live check recorded of one line on the request (`liveCheck.lines`, `services/factory/liveCheck.ts`). */
+export type LiveLineResult = 'reached' | 'not_reached' | 'not_checked';
+
+/** The words a person reads for a line QA left to the live check, before the live check has checked it. */
+export const LEFT_TO_LIVE_NOTE = 'Left to the live check; it has not checked this line yet.';
+
+/**
+ * One line's words, compared the way the live check stores them (whitespace folded, clipped as a flow's `criterion` is).
+ * @param s - The line's words.
+ */
+function lineKey(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().slice(0, 280);
+}
+
+type RecordedLive = {
+  state: 'seen' | 'partial' | 'not_seen';
+  releaseId: number | null;
+  checkedAt: string | null;
+  /** The lines the check flows cited, by their words. */
+  cited: Set<string>;
+  /** What the check saw of each line, when it recorded that (absent on checks recorded before it did). */
+  lines: Map<string, { result: LiveLineResult; url: string | null; reason: string | null }> | null;
+};
+
+function recordedLive(request: ProofRecord | null): RecordedLive | null {
+  const m = obj(request?.meta.liveCheck);
+  const state = m.state === 'seen' || m.state === 'partial' || m.state === 'not_seen' ? m.state : null;
+  if (!state) {
+    return null;
+  }
+  const releaseId = Number(m.releaseId);
+  const cited = new Set((Array.isArray(m.flows) ? m.flows : []).map(obj).map(f => str(f.criterion)).filter((c): c is string => c !== null).map(lineKey));
+  const lines = Array.isArray(m.lines)
+    ? new Map(m.lines.map(obj).filter(l => str(l.text) !== null).map((l) => {
+        const result: LiveLineResult = l.result === 'reached' || l.result === 'not_reached' ? l.result : 'not_checked';
+        return [lineKey(str(l.text)!), { result, url: str(l.url), reason: str(l.reason) }] as const;
+      }))
+    : null;
+  return { state, releaseId: Number.isSafeInteger(releaseId) && releaseId > 0 ? releaseId : null, checkedAt: str(m.checkedAt), cited, lines };
+}
+
+/**
+ * A line QA left to the live check, as the live check left it: seen (passed, the live check is its
+ * evidence), not reached (failed, with why), or not checked yet — said so, never a bare "Unverified".
+ * @param base - The line as QA's verdict left it.
+ * @param live - The live check the request recorded, if any.
+ */
+function fromLiveCheck(base: ProofCriterion, live: RecordedLive | null): ProofCriterion {
+  const left = { ...base, leftToLive: true };
+  if (!live) {
+    return { ...left, state: 'unverified', note: LEFT_TO_LIVE_NOTE };
+  }
+  const key = lineKey(base.statement);
+  const where = `the live check of ${live.releaseId !== null ? `release #${live.releaseId}` : 'the release'}${live.checkedAt ? ` (${live.checkedAt.slice(0, 10)})` : ''}`;
+  const seen = (url: string | null): ProofCriterion => ({ ...left, state: 'passed', evidence: `Seen live by ${where}.${url ? ` ${url}` : ''}`, evidenceUrl: url, from: 'live', note: null });
+  const recorded = live.lines?.get(key);
+  if (recorded) {
+    if (recorded.result === 'reached') {
+      return seen(recorded.url);
+    }
+    if (recorded.result === 'not_reached') {
+      return { ...left, state: 'failed', evidence: null, evidenceUrl: recorded.url, from: 'live', note: `Not seen by ${where}${recorded.reason ? `: ${recorded.reason}` : '.'}` };
+    }
+    return { ...left, state: 'unverified', note: `${where[0]!.toUpperCase()}${where.slice(1)} did not check this line on the live product.` };
+  }
+  // A check recorded before it kept each line's result: a fully seen check that cited the line saw it.
+  if (live.lines === null && live.state === 'seen' && live.cited.has(key)) {
+    return seen(null);
+  }
+  return { ...left, state: 'unverified', note: LEFT_TO_LIVE_NOTE };
+}
+
 /**
  * How many of this feature's criteria are proven, by which evidence, from which attempt.
  * @param input - The records.
- * @param input.request - The request, whose `acceptance` is the work's own contract.
+ * @param input.request - The request, whose `acceptance` is the work's own contract, and whose
+ *   `liveCheck` says what the live check saw of the lines QA left to it.
  * @param input.tasks - Its engineering tasks (attempts).
  * @param input.shippedTaskIds - Attempts a release carried.
  */
@@ -239,10 +314,15 @@ export function featureProof(input: { request: ProofRecord | null; tasks: ProofR
   const alignedAcceptance = judged ? alignToContract(acceptanceLines, judged) : null;
   const alignedRisks = judged ? alignToContract(riskLines, judged) : null;
 
+  // A line QA left to the live check reads what the live check saw of it (the request's
+  // `liveCheck`), so the promise "the live check proves it" is kept or said to be pending.
+  const live = recordedLive(input.request);
+  const judge = (statement: string, group: ProofCriterion['group'], j: JudgedCriterion) => j.status === 'live' ? fromLiveCheck(fromJudgement(statement, group, j), live) : fromJudgement(statement, group, j);
+
   const acceptance = acceptanceLines.map((statement, i) => {
     const j = alignedAcceptance?.[i];
     if (j && j.status !== 'unchecked') {
-      return fromJudgement(statement, 'acceptance', j);
+      return judge(statement, 'acceptance', j);
     }
     // No judgement names this line: a person's own mark on the request, with
     // its evidence, still counts; a verdict that skipped it says so.
@@ -251,7 +331,7 @@ export function featureProof(input: { request: ProofRecord | null; tasks: ProofR
   });
   const risks = riskLines.map((statement, i) => {
     const j = alignedRisks?.[i];
-    return j ? fromJudgement(statement, 'risk', j) : { statement, group: 'risk' as const, state: 'unverified' as const, evidence: null, evidenceUrl: null, from: null, note: null };
+    return j ? judge(statement, 'risk', j) : { statement, group: 'risk' as const, state: 'unverified' as const, evidence: null, evidenceUrl: null, from: null, note: null };
   });
 
   return {

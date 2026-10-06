@@ -363,6 +363,55 @@ export type ReleaseLiveCheckRequestedPayload = {
   taskIds: number[];
 };
 
+/**
+ * A shipped, user-facing feature has no Feature Demo recording after its live
+ * check saw it (`services/factory/liveCheck.ts` `liveCheckEnded`): the plugin's
+ * QA records the demo on its own, once per release. Chris, 2026-10-04: the demo
+ * is what a product owner watches; it is owed whether or not QA needed the
+ * browser to prove the lines.
+ */
+export const RELEASE_DEMO_REQUESTED = 'release.demo.requested';
+
+/**
+ * A record's status moved (`services/objects/statusField.ts` `markStatus`):
+ * one event for every step a record takes, so whatever follows a record —
+ * the Slack thread it was asked in (backlog 057), a notification — hears each
+ * move once, with the sentence the step was written with. Scalars only.
+ */
+export const RECORD_STATUS_MARKED = 'record.status_marked';
+
+/** Payload of `record.status_marked`. */
+export type RecordStatusMarkedPayload = {
+  recordId: number;
+  /** The record's type slug, as the workspace declares it. */
+  typeSlug: string;
+  /** The status field's name on the record (`status`). */
+  field: string;
+  /** The value written. */
+  value: string;
+  /** The group the value belongs to, by its role: proposed, progress, done, archived. */
+  groupRole: string;
+  /** Whether this status waits on a person (the type's `x-needs-you`): a card is up, or the work stopped. */
+  needsYou: boolean;
+  /** The transition that named it. */
+  transition: string;
+  /** The sentence that went with it, or empty. */
+  line: string;
+  at: string;
+};
+
+/** Payload of `release.demo.requested`. Scalars and id lists only. */
+export type ReleaseDemoRequestedPayload = {
+  releaseId: number;
+  product: string | null;
+  /** Always true: a demo is only owed for a feature people use. */
+  userFacing: true;
+  /** The shipped requests with no demo recording yet. */
+  requestIds: number[];
+  /** Why now, in a sentence. */
+  reason: string;
+};
+
 export const LEAD_REPLIED = 'lead.replied';
 export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
 
@@ -629,6 +678,13 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     }
   }
 
+  // A person's approving review in Git approves the merge card waiting for it (Chris, 2026-10-05).
+  if (input.type === 'pr.review_submitted') {
+    const { approveMergeCardsOnReview } = await import('@/services/factory/mergeCards');
+    await approveMergeCardsOnReview(input.orgId, payload).catch((err) => {
+      console.warn('[events] could not approve merge cards from a review', { error: (err as Error).message });
+    });
+  }
   // A merge on GitHub is the decision its merge card asked for: close it
   // before anything subscribed to the merge reads the card as still open.
   if (input.type === 'pr.merged') {

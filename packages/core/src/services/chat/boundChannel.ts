@@ -50,3 +50,21 @@ export async function boundSlackChannel(orgId: string, channelId?: string | null
     .limit(1);
   return row ? { channelId: row.channelId, teamId: row.teamId ?? null, agentSlug: row.agentSlug } : null;
 }
+
+/**
+ * Every Slack channel this workspace bound by id, oldest first — the `*`
+ * catch-all is not a channel anything can post to. Empty when the deployment
+ * has no Slack app.
+ * @param orgId - The workspace.
+ */
+export async function listBoundSlackChannels(orgId: string): Promise<BoundSlackChannel[]> {
+  if (!slackToken()) {
+    return [];
+  }
+  const rows = await db
+    .select({ channelId: chatChannelBindingSchema.channelId, teamId: chatChannelBindingSchema.teamId, agentSlug: chatChannelBindingSchema.agentSlug })
+    .from(chatChannelBindingSchema)
+    .where(and(eq(chatChannelBindingSchema.orgId, orgId), eq(chatChannelBindingSchema.surface, 'slack'), ne(chatChannelBindingSchema.channelId, '*')))
+    .orderBy(asc(chatChannelBindingSchema.id));
+  return rows.map(row => ({ channelId: row.channelId, teamId: row.teamId ?? null, agentSlug: row.agentSlug }));
+}

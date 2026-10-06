@@ -1,130 +1,48 @@
 /**
- * THE LIVE CHECK, run from Vocion: QA's flows for a release, on the live
- * product, signed in as the product's QA account, in the browser where the
- * agents' tools run (the app and the durable executor both carry Chromium).
- * The decisions are `libs/factory/liveCheck.ts`; the tool is `check_live`.
+ * THE LIVE CHECK, recorded from Vocion: what QA saw of a release on the live
+ * product, line by line, written on the release and each feature it shipped.
+ * QA looks with the run's browser (`services/factory/liveBrowser.ts`, the
+ * `browser_*` tools) signed in as the product's QA account, and records with
+ * `record_live_check`; the decisions are `libs/factory/liveCheck.ts`.
  *
- * Where the browser runs, decided 2026-10-01: here, not on a runner. The
- * runner's contract is an engineering task (a repo, a base sha, allowed
- * paths, a model to run); a QA-only run would be a second contract, a run
- * token that may reveal a sign-in, and a round trip of minutes the seat
- * cannot see from its turn. A check here answers inside QA's turn, so QA
- * can look at what the page said and try again with it. The capture code is
- * the runner's own (`packages/runner/src/qa.mjs` `shootFlow`), loaded from
- * disk, so both sides drive a page the one way.
+ * The structure is on the evidence (Chris, 2026-10-03): every acceptance line
+ * of every shipped request is recorded seen, not seen or not observable, and a
+ * seen or not-seen line cites what this run's browser captured (a snapshot, a
+ * screenshot, a response, an action). What it writes is what the check wrote
+ * before the browser tools — `liveState`, `liveSummary`, `liveEvidence` and the
+ * announcement image on the release, `liveCheck` with its per-line `lines` on
+ * each feature — so the feature page, Releases, Work and the release pack read
+ * it unchanged.
  *
- * The password is read here and handed to the browser; it never reaches the
- * tool's answer, the record or a log line.
+ * The password is read where the browser signs in and never reaches a tool's
+ * answer, the record or a log line.
  */
 
-import type { Buffer } from 'node:buffer';
-import type { Browser, BrowserContext } from 'playwright';
-import type { AcceptanceLine, BeforeMergeLine, LiveFlow, LiveReason, LiveRow, LiveVerdict, NotObservable, RunnerResponseProof, RunnerShot } from '@/libs/factory/liveCheck';
-import type { Author } from '@/services/ArtifactService';
+import type { BrowserContext } from 'playwright';
+import type { AcceptanceLine, BeforeMergeLine, LiveReason, LiveRow, LiveVerdict, RecordedLine } from '@/libs/factory/liveCheck';
+import type { BrowserEvidence } from '@/services/factory/liveBrowser';
 import type { EnvironmentAccess } from '@/services/factory/productAccess';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { acceptanceLines, keptShots, LIVE_LIMITS, LIVE_ROLE, liveVerdict, notSeenLine, orderedFlows, pickAnnouncementImage, resolveLines, SETUP_PAGE_VAR, stepReason, uncheckedRow } from '@/libs/factory/liveCheck';
-import { businessObjectSchema } from '@/models/Schema';
+import { acceptanceLines, isSignInPath, lineResults, LIVE_ROLE, liveVerdict, pickAnnouncementImage, resolveRecordedLines, uncheckedRow } from '@/libs/factory/liveCheck';
+import { logger } from '@/libs/Logger';
+import { artifactSchema, businessObjectSchema } from '@/models/Schema';
 
 type Meta = Record<string, unknown>;
-
-/** The parts of the runner's QA module the check drives. */
-export type RunnerQa = {
-  shootFlow: (opts: {
-    browser: Browser;
-    base: string;
-    flow: { name: string; path: string; steps: Array<Record<string, unknown>> };
-    viewport: string;
-    side: string;
-    outDir: string;
-    context: BrowserContext;
-    stopAtFailure: boolean;
-    vars: Record<string, string>;
-    allow: (url: string) => boolean;
-    withText: boolean;
-  }) => Promise<{ shots: RunnerShot[]; stepFailures: Array<{ index: number; verb: string; target: string; error: string }>; httpStatus?: number | null; responses?: RunnerResponseProof[] }>;
-  stepFailureText: (f: { index: number; verb: string; target: string; error: string }) => string;
-  viewportContextOptions: (viewport: string) => Record<string, unknown>;
-  isSignInPath: (pathname: string) => boolean;
-};
-
-/**
- * The runner's QA module, from disk. The path is only known at runtime, so
- * the build leaves it alone; `next.config.ts` traces the file into the image.
- */
-async function loadRunnerQa(): Promise<RunnerQa> {
-  const { fromRepoRoot } = await import('@/libs/repo-root');
-  const file = fromRepoRoot('packages/runner/src/qa.mjs');
-  return await import(/* turbopackIgnore: true */ /* webpackIgnore: true */ pathToFileURL(file).href) as RunnerQa;
-}
-
-/** What the check needs from outside, so a test can stand in for the browser and the store. */
-export type LiveCheckDeps = {
-  browser: () => Promise<Browser>;
-  qa: () => Promise<RunnerQa>;
-  store: (orgId: string, png: Buffer) => Promise<{ url: string; filename: string; bytes: number; contentType: string }>;
-  now: () => Date;
-};
-
-const defaultDeps: LiveCheckDeps = {
-  browser: async () => (await import('@/libs/documents/render')).sharedBrowser(),
-  qa: loadRunnerQa,
-  store: async (orgId, png) => {
-    const { saveArtifact } = await import('@/libs/tools/artifacts/store');
-    const f = await saveArtifact({ orgId, data: png, ext: 'png', contentType: 'image/png' });
-    return { url: f.url, filename: f.filename, bytes: f.bytes, contentType: f.contentType };
-  },
-  now: () => new Date(),
-};
-
-/** One flow at one viewport, as the tool tells QA what happened. */
-export type LiveRunReport = {
-  phase: LiveFlow['phase'];
-  flow: string;
-  viewport: string;
-  /** Every step ran. */
-  ok: boolean;
-  /** The first step that failed, or why the flow could not run. */
-  failure: string | null;
-  shots: Array<{ label: string; at: string; status: 'reached' | 'not_reached'; reason: string | null; artifactId: number | null; pageText: string }>;
-};
-
-export type LiveCheckResult = {
-  ok: boolean;
-  releaseId: number;
-  product: string | null;
-  explore: boolean;
-  attempt: number | null;
-  verdict: LiveVerdict;
-  runs: LiveRunReport[];
-  problems: string[];
-  /** What was written, in one line, or why nothing was. */
-  written: string;
-  /** Each request the release shipped and its acceptance lines, numbered: what a check flow cites. */
-  acceptance: Array<{ requestId: number; lines: AcceptanceLine[] }>;
-  /** The lines QA said production cannot show, as the release and the features now carry them. */
-  beforeMerge: BeforeMergeLine[];
-  /** Set when the flows cited a line the record does not have: nothing ran or was written. */
-  refused?: string;
-};
 
 const short = (e: unknown, n = 240) => String((e as Error)?.message ?? e ?? '').split('\n')[0]!.slice(0, n);
 
 /**
- * The environment a flow runs on: the one whose surface it names, else the
+ * The environment a page opens on: the one whose surface is named, else the
  * one that carries the QA sign-in, else the first with an address.
- * @param flow - The flow.
+ * @param want - The surface asked for, if any.
+ * @param want.surface - An environment's surface or slug.
  * @param envs - The product's environments.
  */
-export function environmentFor(flow: Pick<LiveFlow, 'surface'>, envs: readonly EnvironmentAccess[]): EnvironmentAccess | null {
+export function environmentFor(want: { surface?: string }, envs: readonly EnvironmentAccess[]): EnvironmentAccess | null {
   const withUrl = envs.filter(e => e.url);
-  if (flow.surface) {
-    return withUrl.find(e => e.surface === flow.surface || e.slug === flow.surface) ?? null;
+  if (want.surface) {
+    return withUrl.find(e => e.surface === want.surface || e.slug === want.surface) ?? null;
   }
   return withUrl.find(e => e.login?.stored) ?? withUrl[0] ?? null;
 }
@@ -156,9 +74,8 @@ export function allowedOrigins(envs: readonly EnvironmentAccess[]): Set<string> 
  * never what was typed.
  * @param context - A fresh context.
  * @param env - The environment, its password revealed.
- * @param qa - The runner's module.
  */
-async function signIn(context: BrowserContext, env: EnvironmentAccess, qa: RunnerQa): Promise<string> {
+export async function signIn(context: BrowserContext, env: EnvironmentAccess): Promise<string> {
   const login = env.login!;
   const page = await context.newPage();
   try {
@@ -167,7 +84,7 @@ async function signIn(context: BrowserContext, env: EnvironmentAccess, qa: Runne
     await page.getByLabel('Password', { exact: true }).first().fill(login.password ?? '', { timeout: 15000 });
     await page.getByRole('button', { name: 'Sign in', exact: true }).or(page.locator('button[type=submit]')).first().click({ timeout: 15000 });
     try {
-      await page.waitForURL(u => !qa.isSignInPath(u.pathname), { timeout: 30000 });
+      await page.waitForURL(u => !isSignInPath(u.pathname), { timeout: 30000 });
     } catch {
       // What the page shows a person, as rendered.
       // eslint-disable-next-line unicorn/prefer-dom-node-text-content
@@ -188,7 +105,7 @@ async function signIn(context: BrowserContext, env: EnvironmentAccess, qa: Runne
  * Why the QA sign-in cannot be used, or ''.
  * @param env - The environment, its password revealed.
  */
-function signInProblem(env: EnvironmentAccess): string {
+export function signInProblem(env: EnvironmentAccess): string {
   const l = env.login;
   if (!l) {
     return `no QA sign-in is stored for ${env.slug} (the environment's qaLoginCredentialId)`;
@@ -223,239 +140,200 @@ function ids(v: unknown): number[] {
 }
 
 /**
- * Run a release's live check: setup, check, cleanup, on the live product, and
- * — unless it only explores — write what it saw on the release and on each
- * feature it shipped. Never throws for something the product or the flow did:
- * every failure is a row or a problem with its reason.
+ * A release and what its features promised, numbered: the product it names, the requests it
+ * shipped, and each request's acceptance lines — with the lines the shipped attempts' verdict left
+ * to the live check (FE-392).
  * @param orgId - The workspace.
- * @param input - The release and QA's flows.
- * @param input.releaseId - The release record.
- * @param input.flows - QA's flows, validated (`LiveFlowSchema`).
- * @param input.explore - Run and report; write nothing, attach nothing.
- * @param input.notObservable - The acceptance lines QA says the live product cannot show.
- * @param opts - Who ran it.
- * @param opts.author - Who the shots are recorded as.
- * @param opts.provenance - The run it ran in, for each shot's source line.
- * @param opts.provenance.agentSlug - The seat.
- * @param opts.provenance.missionRunId - The run.
- * @param deps - The browser, the runner's module and the store.
+ * @param releaseId - The release record.
  */
-export async function runLiveCheck(
-  orgId: string,
-  input: { releaseId: number; flows: LiveFlow[]; explore?: boolean; notObservable?: NotObservable[] },
-  opts: { author: Author; provenance?: { agentSlug?: string | null; missionRunId?: number | null } },
-  deps: Partial<LiveCheckDeps> = {},
-): Promise<LiveCheckResult> {
-  const d = { ...defaultDeps, ...deps };
-  const explore = input.explore === true;
-  const release = await readMeta(orgId, input.releaseId);
-  const product = release ? (typeof release.meta.product === 'string' && release.meta.product.trim() ? release.meta.product.trim() : null) : null;
-  const runs: LiveRunReport[] = [];
-  const rows: LiveRow[] = [];
-  const problems: string[] = [];
-  // What stopped flows from running, typed where it happened (`LiveReason`).
-  const blocking: Array<string | LiveReason> = [];
-  const acceptance: LiveCheckResult['acceptance'] = [];
-  const fail = (why: string): LiveCheckResult => {
-    const verdict = liveVerdict([], [why]);
-    return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [why], written: `nothing written: ${why}`, acceptance, beforeMerge: [] };
-  };
+export async function releaseLines(orgId: string, releaseId: number): Promise<
+  | { ok: true; meta: Meta; product: string; requestIds: number[]; linesByRequest: Map<number, AcceptanceLine[]>; acceptance: Array<{ requestId: number; lines: AcceptanceLine[] }> }
+  | { ok: false; why: string }
+> {
+  const release = await readMeta(orgId, releaseId);
   if (!release) {
-    return fail(`release #${input.releaseId} does not exist in this workspace`);
+    return { ok: false, why: `release #${releaseId} does not exist in this workspace` };
   }
+  const product = typeof release.meta.product === 'string' && release.meta.product.trim() ? release.meta.product.trim() : null;
   if (!product) {
-    return fail(`release #${input.releaseId} names no product, so there is no live product to check`);
+    return { ok: false, why: `release #${releaseId} names no product, so there is no live product to check` };
   }
   const requestIds = ids(release.meta.requestIds);
-  const onlyRequest = requestIds.length === 1 ? requestIds[0]! : null;
-  // WHAT THE FEATURES PROMISED, from their records: a check flow cites one of these lines by its
-  // number, and a line it cites that is not there is refused before anything runs.
+  const shippedTaskIds = ids(release.meta.taskIds);
+  const shippedTasks: Array<{ id: number; meta: Meta }> = [];
+  for (const id of shippedTaskIds) {
+    const task = await readMeta(orgId, id);
+    if (task) {
+      shippedTasks.push({ id, meta: task.meta });
+    }
+  }
   const linesByRequest = new Map<number, AcceptanceLine[]>();
+  const acceptance: Array<{ requestId: number; lines: AcceptanceLine[] }> = [];
   for (const id of requestIds) {
     const request = await readMeta(orgId, id);
     if (request) {
-      linesByRequest.set(id, acceptanceLines(request.meta));
+      linesByRequest.set(id, acceptanceLines(request.meta, { tasks: shippedTasks.filter(t => Number(t.meta.requestId) === id), shippedTaskIds }));
       acceptance.push({ requestId: id, lines: linesByRequest.get(id)! });
     }
   }
-  const resolved = resolveLines(input.flows, input.notObservable ?? [], linesByRequest, { explore });
-  if (!resolved.ok) {
-    const verdict = liveVerdict([], [resolved.refusal]);
-    return { ok: false, releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems: [], written: 'nothing run or written: the flows do not account for the request\'s lines as the record has them', acceptance, beforeMerge: [], refused: resolved.refusal };
-  }
-  const { beforeMerge, uncovered } = resolved;
-  const { productAccess } = await import('@/services/factory/productAccess');
-  const access = await productAccess(orgId, product, { reveal: true });
-  const envs = access.environments;
-  const flows = orderedFlows(resolved.flows);
-  const vars: Record<string, string> = {};
-  const origins = allowedOrigins(envs);
-  const allow = (url: string) => {
-    try {
-      return origins.has(new URL(url).origin);
-    } catch {
-      return false;
-    }
-  };
-  const started = d.now().getTime();
-  let runsLeft = LIVE_LIMITS.runs;
-  let setupFailed = '';
-  let setupWhy: LiveReason | null = null;
+  return { ok: true, meta: release.meta, product, requestIds, linesByRequest, acceptance };
+}
 
-  if (envs.length === 0) {
-    problems.push(`no production environment is recorded for ${product}; an environment record names its product, stage, url and QA sign-in`);
-    blocking.push(problems[0]!);
-  }
+/** Where the recording finds the evidence a line cites. */
+export type EvidenceSource = {
+  /** What this run's browser session captured, by id. */
+  session: ReadonlyMap<string, BrowserEvidence>;
+  /** The run the check ran in: a screenshot it filed on the release is evidence even once the session is gone. */
+  missionRunId?: number | null;
+  /** What stopped the session from looking (a failed sign-in), said when nothing was seen. */
+  problems?: LiveReason[];
+};
 
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vocion-live-'));
-  const contexts = new Map<string, Promise<{ context: BrowserContext; error: string }>>();
-  let browser: Browser | null = null;
-  let qa: RunnerQa | null = null;
+/**
+ * A screenshot id (`shot-<artifact id>`) the session no longer holds, read from the release's live
+ * shots — only one this run filed.
+ * @param orgId - The workspace.
+ * @param releaseId - The release.
+ * @param id - The evidence id.
+ * @param missionRunId - The run.
+ */
+async function storedShot(orgId: string, releaseId: number, id: string, missionRunId: number | null | undefined): Promise<BrowserEvidence | null> {
+  const n = id.startsWith('shot-') ? Number(id.slice(5)) : Number.NaN;
+  if (!Number.isSafeInteger(n) || n <= 0 || !missionRunId) {
+    return null;
+  }
+  const [row] = await db
+    .select({ id: artifactSchema.id, spec: artifactSchema.spec, createdAt: artifactSchema.createdAt })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.id, n), eq(artifactSchema.recordType, 'object'), eq(artifactSchema.recordId, String(releaseId)), eq(artifactSchema.recordRole, LIVE_ROLE)))
+    .limit(1);
+  const spec = (row?.spec ?? {}) as Meta;
+  const prov = (spec.provenance ?? {}) as Meta;
+  if (!row || Number(prov.missionRunId) !== missionRunId) {
+    return null;
+  }
+  return { id, kind: 'screenshot', at: row.createdAt?.toISOString?.() ?? '', artifactId: row.id, url: String(spec.url ?? ''), pageUrl: String(spec.capturedFrom ?? ''), caption: String(spec.caption ?? ''), viewport: prov.viewport === 'phone' ? 'phone' : 'desktop', signedIn: prov.signedIn !== false };
+}
+
+const pathOf = (url: string) => {
   try {
-    if (envs.length > 0 && flows.length > 0) {
-      try {
-        qa = await d.qa();
-        browser = await d.browser();
-      } catch (e) {
-        const why = `the live check could not start a browser on this installation: ${short(e)}`;
-        problems.push(why);
-        blocking.push(why);
-      }
-    }
-    const contextFor = (env: EnvironmentAccess, viewport: string, signedIn: boolean) => {
-      const key = `${env.slug}|${viewport}|${signedIn ? 'in' : 'out'}`;
-      if (!contexts.has(key)) {
-        contexts.set(key, (async () => {
-          const context = await browser!.newContext(qa!.viewportContextOptions(viewport));
-          // A confirm() is answered yes: a cleanup that deletes asks first.
-          context.on('page', p => p.on('dialog', dlg => void dlg.accept().catch(() => {})));
-          if (!signedIn) {
-            return { context, error: '' };
-          }
-          const problem = signInProblem(env);
-          if (problem) {
-            return { context, error: problem };
-          }
-          const failed = await signIn(context, env, qa!);
-          return { context, error: failed ? `signing in to ${env.slug} as the QA account failed: ${failed}` : '' };
-        })());
-      }
-      return contexts.get(key)!;
-    };
+    const u = new URL(url);
+    return `${u.pathname}${u.search}`.slice(0, 200);
+  } catch {
+    return url.slice(0, 200);
+  }
+};
 
-    for (const flow of browser && qa ? flows : []) {
-      const env = environmentFor(flow, envs);
-      for (const viewport of flow.viewports) {
-        const report: LiveRunReport = { phase: flow.phase, flow: flow.name, viewport, ok: false, failure: null, shots: [] };
-        runs.push(report);
-        const requestId = flow.request_id ?? onlyRequest;
-        const cites = flow.line !== undefined ? { line: flow.line } : {};
-        const missRow = (reason: string, why: LiveReason) => rows.push({ requestId, flow: flow.name, ...cites, criterion: flow.criterion ?? null, viewport, artifactId: null, status: 'not_reached', reason: reason.slice(0, 400), why: { ...why, detail: why.detail.slice(0, 400) }, url: null });
-        // Typed where it happened; a bare reason is a check that could not run.
-        const note = (why: string, typed: Omit<LiveReason, 'detail'> = { kind: 'could_not_run' }) => {
-          report.failure = why;
-          if (flow.phase === 'check') {
-            const reason = setupFailed ? `${why} (setup did not finish: ${setupFailed})` : why;
-            missRow(reason, setupWhy ?? { ...typed, flow: flow.name, detail: reason });
-          } else if (flow.phase === 'setup') {
-            setupFailed ||= `"${flow.name}": ${why}`;
-            const p = `setup "${flow.name}" (${viewport}) did not finish: ${why}`;
-            const t: LiveReason = { ...typed, kind: typed.kind === 'sign_in_failed' ? 'sign_in_failed' : 'setup_failed', flow: flow.name, detail: p };
-            setupWhy ??= t;
-            problems.push(p);
-            blocking.push(t);
-          } else {
-            problems.push(`cleanup "${flow.name}" (${viewport}) did not finish: ${why}; what setup made may still be on ${env?.slug ?? 'production'}`);
-          }
-        };
-        // Cleanup always runs, past the limits too: what setup made must not be left behind.
-        if (flow.phase !== 'cleanup' && (runsLeft <= 0 || (d.now().getTime() - started) / 1000 > LIVE_LIMITS.seconds)) {
-          note(`not run: a live check stops at ${LIVE_LIMITS.runs} runs or ${LIVE_LIMITS.seconds}s`);
-          continue;
-        }
-        runsLeft -= 1;
-        if (!env) {
-          note(flow.surface ? `no environment of ${product} serves the ${flow.surface} surface` : `no environment of ${product} has an address`);
-          continue;
-        }
-        try {
-          const { context, error } = await contextFor(env, viewport, flow.signed_in);
-          if (error) {
-            note(error, { kind: 'sign_in_failed' });
-            continue;
-          }
-          const result = await qa!.shootFlow({ browser: browser!, base: String(env.url).replace(/\/+$/, ''), flow: { name: flow.name, path: flow.path, steps: flow.steps }, viewport, side: 'live', outDir, context, stopAtFailure: true, vars, allow, withText: true });
-          const failure = result.stepFailures[0] ? qa!.stepFailureText(result.stepFailures[0]) : null;
-          // The page itself was not there: production answered 404 for the flow's path.
-          const missing = result.httpStatus === 404 ? { kind: 'page_not_found' as const, flow: flow.name, path: flow.path } : null;
-          const typedFailure = (detail: string): LiveReason => (missing
-            ? { ...missing, detail }
-            : result.stepFailures[0] ? stepReason(flow.phase, flow.name, result.stepFailures[0], detail) : { kind: 'could_not_run', flow: flow.name, detail });
-          report.ok = !failure;
-          report.failure = failure;
-          if (flow.phase !== 'check') {
-            const last = result.shots.at(-1);
-            // THE PAGE SETUP ENDED ON CARRIES ON (run 3, 2026-10-01): a check opens what setup
-            // made by naming it, as {{setupPage}} (the last setup flow that finished), beside
-            // anything setup remembered by its own name.
-            if (flow.phase === 'setup' && !failure && last?.at) {
-              vars[SETUP_PAGE_VAR] = `${new URL(String(env.url)).origin}${last.at}`;
-            }
-            report.shots.push({ label: last?.label ?? '', at: last?.at ?? '', status: failure ? 'not_reached' : 'reached', reason: failure, artifactId: null, pageText: last?.text ?? '' });
-            if (failure) {
-              const { detail: _d, ...typed } = typedFailure(failure);
-              note(failure, typed);
-            }
-            continue;
-          }
-          // What the flow's expect_response steps saw answer as promised, said as a person reads it.
-          const proved = (result.responses ?? []).map(r => `${r.method} ${r.path} returned ${r.status}${flow.signed_in ? ' signed in' : ' to a visitor'}`);
-          for (const { shot, status, reason, kind } of keptShots(flow.path, result)) {
-            let artifactId: number | null = null;
-            const why = reason && status !== 'reached' && setupFailed ? `${reason} (setup did not finish: ${setupFailed})` : reason;
-            const typed: LiveReason | null = !why || status === 'reached'
-              ? null
-              : setupWhy ?? (kind === 'not_visible' || missing ? typedFailure(why) : { kind: kind ?? 'could_not_run', flow: flow.name, detail: why });
-            const pageUrl = `${new URL(String(env.url)).origin}${shot.at || ''}`;
-            if (!explore) {
-              artifactId = await attachShot(orgId, input.releaseId, d, { file: shot.file, flow, viewport, label: shot.label, status, reason: why ?? null, pageUrl, author: opts.author, provenance: opts.provenance, proved: status === 'reached' ? proved : [] }).catch((e) => {
-                const p = `a live shot could not be stored on the release: ${short(e)}`;
-                if (!problems.includes(p)) {
-                  problems.push(p);
-                }
-                return null;
-              });
-            }
-            rows.push({ requestId, flow: flow.name, ...cites, criterion: flow.criterion ?? null, viewport, artifactId, status, ...(why ? { reason: why.slice(0, 400) } : {}), ...(typed ? { why: { ...typed, detail: typed.detail.slice(0, 400) } } : {}), url: pageUrl, ...(shot.label ? { label: shot.label } : {}), ...(status === 'reached' && proved.length > 0 ? { proved } : {}) });
-            report.shots.push({ label: shot.label, at: shot.at, status, reason: why ?? null, artifactId, pageText: shot.text ?? '' });
-          }
-        } catch (e) {
-          note(`the flow could not run: ${short(e)}`);
-        }
-      }
-    }
-  } finally {
-    for (const c of contexts.values()) {
-      await c.then(x => x.context.close()).catch(() => {});
-    }
-    fs.rmSync(outDir, { recursive: true, force: true });
-  }
+/** What `recordLiveCheck` answers. */
+export type RecordLiveResult = {
+  ok: boolean;
+  releaseId: number;
+  product: string | null;
+  attempt: number | null;
+  verdict: LiveVerdict;
+  /** What was written, in one line, or why nothing was. */
+  written: string;
+  /** Each request the release shipped and its acceptance lines, numbered. */
+  acceptance: Array<{ requestId: number; lines: AcceptanceLine[] }>;
+  beforeMerge: BeforeMergeLine[];
+  /** Set when the recording did not hold: nothing was written. */
+  refused?: string;
+};
 
-  if (explore) {
-    const verdict = liveVerdict(rows, blocking, beforeMerge);
-    return { ok: verdict.state === 'seen', releaseId: input.releaseId, product, explore, attempt: null, verdict, runs, problems, written: 'nothing written: this was an exploring run', acceptance, beforeMerge };
+/**
+ * Record a release's live check: every acceptance line of every request it shipped, seen, not seen
+ * or not observable, the seen and not-seen ones citing evidence this run captured. Writes what the
+ * check has always written on the release and each feature. Refuses, writing nothing, when a line
+ * is missing, unknown, doubled, or cites evidence this run did not capture.
+ * @param orgId - The workspace.
+ * @param input - The release and QA's lines.
+ * @param input.releaseId - The release record.
+ * @param input.lines - QA's lines, validated (`RecordedLineSchema`).
+ * @param source - Where the cited evidence is found.
+ * @param now - The clock.
+ */
+export async function recordLiveCheck(orgId: string, input: { releaseId: number; lines: RecordedLine[] }, source: EvidenceSource, now: Date = new Date()): Promise<RecordLiveResult> {
+  const release = await releaseLines(orgId, input.releaseId);
+  const nothing = (why: string, extra: Partial<RecordLiveResult> = {}): RecordLiveResult => ({ ok: false, releaseId: input.releaseId, product: release.ok ? release.product : null, attempt: null, verdict: liveVerdict([], [why]), written: 'nothing written', acceptance: release.ok ? release.acceptance : [], beforeMerge: [], refused: why, ...extra });
+  if (!release.ok) {
+    return nothing(release.why);
   }
-  // A line nothing checked on production stands unproven, said why: one QA never cited, and one QA
-  // said production cannot show that its verdict did not prove before the merge.
-  for (const u of uncovered) {
-    rows.push(uncheckedRow(u.requestId, u.line, false));
+  const resolved = resolveRecordedLines(input.lines, release.linesByRequest);
+  if (!resolved.ok) {
+    return nothing(resolved.refusal);
   }
-  for (const b of beforeMerge.filter(x => !x.proven)) {
-    rows.push(uncheckedRow(b.requestId, { n: b.line, text: b.text, provenBeforeMerge: false }, true));
+  // THE EVIDENCE IS THIS RUN'S: every id a line cites was captured by this run's browser.
+  const found = new Map<string, BrowserEvidence>();
+  const unknown: string[] = [];
+  for (const id of new Set(resolved.lines.flatMap(l => l.evidence))) {
+    const e = source.session.get(id) ?? await storedShot(orgId, input.releaseId, id, source.missionRunId);
+    if (e) {
+      found.set(id, e);
+    } else {
+      unknown.push(id);
+    }
   }
+  if (unknown.length > 0) {
+    const have = [...source.session.values()].filter(e => e.kind !== 'response').slice(-30).map(e => `${e.id} (${e.kind === 'screenshot' ? e.caption : e.kind === 'snapshot' ? e.url : e.kind === 'action' ? e.what : ''})`);
+    return nothing(`${unknown.length === 1 ? 'An evidence id was' : `${unknown.length} evidence ids were`} not captured by this run's browser: ${unknown.slice(0, 10).join(', ')}. Cite only ids this run's browser tools returned (snapshots, screenshots, responses from browser_responses, actions).${have.length > 0 ? `\nThis run captured: ${have.join('; ')}` : '\nThis run\'s browser captured nothing: open the live product with browser_open first.'}`);
+  }
+  // WHAT PRODUCTION ALREADY SHOWED STAYS SHOWN (walk 26, FE-472, 2026-10-06): attempt 1 reached
+  // the owner-open line and found it wrong; attempt 2 opened no browser, called every line
+  // not observable, and its write replaced attempt 1's rows, so the send-back found nothing
+  // broken and the page asked for a QA environment fix instead of a code fix. A line this report
+  // did not look at keeps what an earlier check of the same release saw there; a line it looked
+  // at again replaces it.
+  const key = (requestId: number | null, line: number | undefined) => `${requestId ?? ''}:${line ?? ''}`;
+  const earlier = new Map<string, LiveRow[]>();
+  for (const r of Array.isArray(release.meta.liveEvidence) ? (release.meta.liveEvidence as LiveRow[]) : []) {
+    if (typeof r?.line === 'number' && r.why?.kind !== 'not_checked' && (r.status === 'reached' || r.status === 'not_reached')) {
+      earlier.set(key(r.requestId, r.line), [...(earlier.get(key(r.requestId, r.line)) ?? []), r]);
+    }
+  }
+  const kept = new Set<string>();
+  const rows: LiveRow[] = [];
+  for (const l of resolved.lines) {
+    if (l.result === 'not_observable') {
+      const seenBefore = earlier.get(key(l.requestId, l.line.n));
+      if (seenBefore) {
+        rows.push(...seenBefore);
+        kept.add(key(l.requestId, l.line.n));
+        continue;
+      }
+      if (!l.line.provenBeforeMerge) {
+        rows.push(uncheckedRow(l.requestId, l.line, true));
+      }
+      continue;
+    }
+    const ev = l.evidence.map(id => found.get(id)!);
+    const shot = ev.find((e): e is Extract<BrowserEvidence, { kind: 'screenshot' }> => e.kind === 'screenshot');
+    const snap = ev.findLast((e): e is Extract<BrowserEvidence, { kind: 'snapshot' }> => e.kind === 'snapshot');
+    const responses = ev.filter((e): e is Extract<BrowserEvidence, { kind: 'response' }> => e.kind === 'response');
+    const seen = l.result === 'seen';
+    const proved = responses.map(r => `${r.method} ${pathOf(r.url)} returned ${r.status}${r.signedIn ? ' signed in' : ' to a visitor'}`);
+    const why = l.why.slice(0, 400);
+    rows.push({
+      requestId: l.requestId,
+      flow: `line ${l.line.n}`,
+      line: l.line.n,
+      criterion: l.line.text.slice(0, 300),
+      viewport: shot?.viewport ?? snap?.viewport ?? 'desktop',
+      artifactId: shot?.artifactId ?? null,
+      status: seen ? 'reached' : 'not_reached',
+      ...(seen ? {} : { reason: why, why: { kind: 'not_seen' as const, detail: why } }),
+      url: shot?.pageUrl || snap?.url || null,
+      ...(shot?.caption ? { label: shot.caption } : {}),
+      ...(seen && proved.length > 0 ? { proved } : {}),
+      evidence: l.evidence,
+    });
+  }
+  // What stopped the browser from looking at all, said first when nothing on a line was seen.
+  const blocking: LiveReason[] = rows.some(r => r.status === 'reached') ? [] : (source.problems ?? []);
+  const problems = blocking.map(p => p.detail);
+  const beforeMerge = resolved.beforeMerge.filter(b => !kept.has(key(b.requestId, b.line)));
   const verdict = liveVerdict(rows, blocking, beforeMerge);
   const attempt = (Number.isInteger(release.meta.liveAttempts) ? Number(release.meta.liveAttempts) : 0) + 1;
-  const checkedAt = d.now().toISOString();
+  const checkedAt = now.toISOString();
   const pick = pickAnnouncementImage(rows);
   await mergeMeta(orgId, input.releaseId, {
     liveEvidence: rows.slice(0, 120),
@@ -469,87 +347,35 @@ export async function runLiveCheck(
     liveBeforeMerge: beforeMerge,
     ...(pick ? { announcementImageArtifactId: pick } : {}),
   });
-  await markFeatures(orgId, input.releaseId, requestIds, { rows, blocking, flows, checkedAt, attempt, beforeMerge });
+  await markFeatures(orgId, input.releaseId, release.requestIds, { rows, blocking, checkedAt, attempt, beforeMerge });
   return {
     ok: verdict.state === 'seen',
     releaseId: input.releaseId,
-    product,
-    explore,
+    product: release.product,
     attempt,
     verdict,
-    runs,
-    problems,
     written: `release #${input.releaseId}: ${verdict.line}${pick ? `; the announcement leads with artifact #${pick}` : ''}`,
-    acceptance,
+    acceptance: release.acceptance,
     beforeMerge,
   };
 }
 
 /**
- * Store one live shot and file it on the release as a `live-screenshot`, its
- * caption saying what it shows and whether the state was reached.
- * @param orgId - The workspace.
- * @param releaseId - The release.
- * @param d - The store.
- * @param s - The shot.
- * @param s.file - Where the runner wrote it.
- * @param s.flow - Its flow.
- * @param s.viewport - Its viewport.
- * @param s.label - The flow's own label for it.
- * @param s.status - Reached or not.
- * @param s.reason - Why not.
- * @param s.pageUrl - The page it was taken on.
- * @param s.author - Who it is recorded as.
- * @param s.provenance - The run it was taken in.
- * @param s.provenance.agentSlug - The seat.
- * @param s.provenance.missionRunId - The run.
- * @param s.proved - What its expect_response steps saw answer as promised.
- */
-async function attachShot(orgId: string, releaseId: number, d: LiveCheckDeps, s: { file: string; flow: LiveFlow; viewport: string; label: string; status: 'reached' | 'not_reached'; reason: string | null; pageUrl: string; author: Author; provenance?: { agentSlug?: string | null; missionRunId?: number | null }; proved?: string[] }): Promise<number> {
-  const stored = await d.store(orgId, fs.readFileSync(s.file));
-  const what = s.flow.criterion ?? s.label ?? s.flow.name;
-  const caption = `${what}${s.status === 'reached' ? (s.proved?.length ? ` (${s.proved.join('; ')})` : '') : ` (not reached: ${s.reason ?? 'unknown'})`}`.slice(0, 300);
-  const { createArtifact } = await import('@/services/ArtifactService');
-  const { artifact } = await createArtifact({
-    orgId,
-    conversationId: null,
-    kind: 'file',
-    title: `${s.flow.name} · ${s.viewport} · live`.slice(0, 120),
-    spec: {
-      filename: stored.filename,
-      contentType: stored.contentType,
-      bytes: stored.bytes,
-      url: stored.url,
-      caption,
-      capturedFrom: s.pageUrl.slice(0, 2000),
-      provenance: { by: s.author.id ?? null, releaseId, liveCheck: true, agentSlug: s.provenance?.agentSlug ?? null, missionRunId: s.provenance?.missionRunId ?? null },
-    },
-    url: null,
-    record: { type: 'object', id: String(releaseId), role: LIVE_ROLE },
-    author: s.author,
-    changeSummary: `Live check of release #${releaseId}: ${caption}`.slice(0, 200),
-    visibility: 'user',
-  });
-  return artifact.id;
-}
-
-/**
  * Each feature the release shipped hears what the live check saw: its
- * `liveCheck` (state, the line, the flows that checked it — kept to be
- * reused), its reached shots added to its after pictures (the carousel's
- * Live section), and a line on its timeline.
+ * `liveCheck` (state, the line, what it saw of each acceptance line), its
+ * reached shots added to its after pictures (the carousel's Live section),
+ * and a line on its timeline.
  * @param orgId - The workspace.
  * @param releaseId - The release.
  * @param requestIds - The features it shipped.
  * @param w - What the check saw.
- * @param w.rows - The check rows.
- * @param w.blocking - What stopped flows from running.
- * @param w.flows - The flows.
+ * @param w.rows - The line rows.
+ * @param w.blocking - What stopped the browser from looking.
  * @param w.checkedAt - When.
  * @param w.attempt - Which attempt.
  * @param w.beforeMerge - The lines production cannot show.
  */
-async function markFeatures(orgId: string, releaseId: number, requestIds: number[], w: { rows: LiveRow[]; blocking: Array<string | LiveReason>; flows: LiveFlow[]; checkedAt: string; attempt: number; beforeMerge: BeforeMergeLine[] }): Promise<void> {
+async function markFeatures(orgId: string, releaseId: number, requestIds: number[], w: { rows: LiveRow[]; blocking: LiveReason[]; checkedAt: string; attempt: number; beforeMerge: BeforeMergeLine[] }): Promise<void> {
   for (const requestId of requestIds) {
     const request = await readMeta(orgId, requestId);
     if (!request) {
@@ -568,9 +394,10 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
         releaseId,
         checkedAt: w.checkedAt,
         attempt: w.attempt,
-        flows: w.flows.filter(f => f.request_id === undefined || f.request_id === requestId),
         why: verdict.why,
         beforeMerge,
+        // What it saw of each line, by its words: how the feature page reads a line QA left to it.
+        lines: lineResults(own),
       },
       ...(shots.length > 0 ? { visuals: { ...visuals, afterArtifactIds: after } } : {}),
     });
@@ -583,9 +410,41 @@ async function markFeatures(orgId: string, releaseId: number, requestIds: number
 }
 
 /**
+ * The shipped requests that have no Feature Demo recording yet (role `feature-demo` or its
+ * narrated twin, filed on the request). A preview demo from before the merge does not count.
+ * @param orgId - The workspace.
+ * @param requestIds - The requests the release shipped.
+ */
+export async function requestsOwingDemo(orgId: string, requestIds: number[]): Promise<number[]> {
+  if (requestIds.length === 0) {
+    return [];
+  }
+  const { DEMO_VIDEO_ROLE } = await import('@/libs/factory/liveCheck');
+  const { narratedRole } = await import('@/libs/media/roles');
+  const { artifactSchema } = await import('@/models/Schema');
+  const { inArray } = await import('drizzle-orm');
+  // The live demo and its narration, by name: the preview demo recorded from
+  // the branch before merge (`feature-demo-preview`, backlog 058) is not the
+  // live one and must not settle the debt.
+  const rows = await db
+    .select({ recordId: artifactSchema.recordId })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, orgId), inArray(artifactSchema.recordId, requestIds.map(String)), inArray(artifactSchema.recordRole, [DEMO_VIDEO_ROLE, narratedRole(DEMO_VIDEO_ROLE)])));
+  const have = new Set(rows.map(r => Number(r.recordId)));
+  return requestIds.filter(id => !have.has(id));
+}
+
+/**
  * The live check's last word, when the attempts are spent and QA never saw
  * the change: written on the release and each feature, so nothing reads
  * healthy or simply shipped on the strength of a deploy alone.
+ *
+ * A ROUND THAT WROTE NO REPORT DID NOT LOOK (FE-419, 2026-10-03): QA's run
+ * ended without `record_live_check`, the recording pass found nothing to
+ * record, and the feature read "Not seen live". When the release carries no
+ * recorded check (`releaseRecordedCheck`, a structural test) the state is
+ * `not_checked`, the line says Vocion checks again, and `recheckNeverLooked`
+ * starts it again by itself.
  * @param orgId - The workspace.
  * @param releaseId - The release.
  * @param reason - Why it was not seen.
@@ -596,16 +455,17 @@ export async function liveCheckGaveUp(orgId: string, releaseId: number, reason: 
   if (!release) {
     return;
   }
-  const { readReleaseLive } = await import('@/libs/factory/liveCheck');
+  const { readReleaseLive, releaseRecordedCheck } = await import('@/libs/factory/liveCheck');
   const live = readReleaseLive(release.meta);
   if (live?.state === 'seen' || live?.state === 'partial') {
     return;
   }
-  const line = live?.line ?? notSeenLine(reason).slice(0, 500);
-  const checkedAt = now.toISOString();
-  if (!live) {
-    await mergeMeta(orgId, releaseId, { liveState: 'not_seen', liveSummary: line, liveReason: reason.slice(0, 400), liveCheckedAt: checkedAt, liveProblems: [reason.slice(0, 400)] });
+  if (!live || !releaseRecordedCheck(release.meta)) {
+    await liveCheckNotChecked(orgId, releaseId, release.meta, reason, now);
+    return;
   }
+  const line = live.line;
+  const checkedAt = now.toISOString();
   for (const requestId of ids(release.meta.requestIds)) {
     const request = await readMeta(orgId, requestId);
     const mark = (request?.meta.liveCheck && typeof request.meta.liveCheck === 'object' ? request.meta.liveCheck : {}) as Meta;
@@ -618,6 +478,135 @@ export async function liveCheckGaveUp(orgId: string, releaseId: number, reason: 
     const { noteOnRequest } = await import('./carry');
     await noteOnRequest(orgId, requestId, `${line} (release #${releaseId}).`).catch(() => undefined);
   }
+}
+
+/**
+ * A round that wrote no report, on the release and each feature: `not_checked`, with why, how
+ * many rechecks Vocion has started, and what happens next.
+ * @param orgId - The workspace.
+ * @param releaseId - The release.
+ * @param releaseMeta - Its metadata.
+ * @param reason - Why the round wrote no report.
+ * @param now - The clock.
+ */
+async function liveCheckNotChecked(orgId: string, releaseId: number, releaseMeta: Meta, reason: string, now: Date): Promise<void> {
+  const { notCheckedLine, recheckCount } = await import('@/libs/factory/liveCheck');
+  const detail = reason.slice(0, 400);
+  const why: LiveReason = { kind: 'not_checked', detail };
+  const checkedAt = now.toISOString();
+  let most = 0;
+  for (const requestId of ids(releaseMeta.requestIds)) {
+    const request = await readMeta(orgId, requestId);
+    if (!request) {
+      continue;
+    }
+    const prior = (request.meta.liveCheck && typeof request.meta.liveCheck === 'object' ? request.meta.liveCheck : {}) as Meta;
+    // A mark another release wrote carries nothing over; this release's keeps its recheck count.
+    const own = prior.releaseId === releaseId ? prior : {};
+    const attempts = recheckCount(own);
+    most = Math.max(most, attempts);
+    const line = notCheckedLine(detail, attempts).slice(0, 600);
+    await mergeMeta(orgId, requestId, {
+      liveCheck: {
+        state: 'not_checked',
+        line,
+        releaseId,
+        checkedAt,
+        why,
+        attempts,
+        lastReason: detail,
+        ...(typeof own.recheckedFor === 'string' ? { recheckedFor: own.recheckedFor } : {}),
+        ...(typeof own.recheckedAt === 'string' ? { recheckedAt: own.recheckedAt } : {}),
+      },
+    });
+    const { markStatus } = await import('@/services/objects/statusField');
+    await markStatus(orgId, requestId, 'shipped', { line });
+    const { noteOnRequest } = await import('./carry');
+    await noteOnRequest(orgId, requestId, `${line} (release #${releaseId}).`).catch(() => undefined);
+  }
+  await mergeMeta(orgId, releaseId, { liveState: 'not_checked', liveSummary: notCheckedLine(detail, most).slice(0, 500), liveReason: detail, liveWhy: why, liveCheckedAt: checkedAt, liveProblems: [detail] });
+}
+
+/**
+ * START THE LIVE CHECK AGAIN WHERE IT NEVER LOOKED (FE-419, 2026-10-03). A feature whose last
+ * round wrote no report — `not_checked`, or a `not_seen` written before that state on a release
+ * with no recorded check — is checked again by the event the factory already raises for a live
+ * check (`release.live_check.requested`): once after each new deploy, and once by itself a short
+ * while after the round (`recheckDecision`), up to `LIVE_RECHECKS`. The count and the reason stay
+ * on the feature's `liveCheck`, so its line says why; after the cap it asks the person once.
+ * Runs in the factory sweep (`reconcilePipeline`).
+ * @param orgId - The workspace.
+ * @param now - The clock.
+ */
+export async function recheckNeverLooked(orgId: string, now: Date = new Date()): Promise<Array<{ requestId: number; did: string; line: string | null }>> {
+  const { desc } = await import('drizzle-orm');
+  const { workspaceVersionSchema } = await import('@/models/Schema');
+  const [applied] = await db.select({ id: workspaceVersionSchema.id, at: workspaceVersionSchema.appliedAt }).from(workspaceVersionSchema).where(and(eq(workspaceVersionSchema.orgId, orgId), eq(workspaceVersionSchema.status, 'applied'))).orderBy(desc(workspaceVersionSchema.id)).limit(1);
+  const deploy = applied?.at ? { id: applied.id, at: applied.at } : null;
+  const { factoryTypes } = await import('@/libs/factory/types');
+  const { listBusinessObjects } = await import('@/services/BusinessObjectService');
+  const requests = (await listBusinessObjects(orgId, (await factoryTypes(orgId)).request).catch(() => [])) as Array<{ id: number; metadata: unknown }>;
+  const { LIVE_ATTEMPTS, LIVE_RECHECKS, recheckDecision } = await import('@/libs/factory/liveCheck');
+  const releases = new Map<number, Meta | null>();
+  // One check per release and key: every feature it shipped is rechecked by the same fire.
+  const due = new Map<string, { releaseId: number; releaseMeta: Meta; key: string; marks: Array<{ requestId: number; mark: Meta; attempt: number }> }>();
+  for (const r of requests) {
+    const meta = (r.metadata ?? {}) as Meta;
+    const mark = (meta.liveCheck && typeof meta.liveCheck === 'object' && !Array.isArray(meta.liveCheck) ? meta.liveCheck : null) as Meta | null;
+    const releaseId = Number(mark?.releaseId);
+    if (!mark || !Number.isSafeInteger(releaseId) || releaseId <= 0) {
+      continue;
+    }
+    if (!releases.has(releaseId)) {
+      releases.set(releaseId, (await readMeta(orgId, releaseId))?.meta ?? null);
+    }
+    const releaseMeta = releases.get(releaseId);
+    if (!releaseMeta) {
+      continue;
+    }
+    const decision = recheckDecision({ mark, releaseMeta, deploy, now });
+    if (decision.do !== 'recheck') {
+      continue;
+    }
+    const at = `${releaseId}:${decision.key}`;
+    const group = due.get(at) ?? { releaseId, releaseMeta, key: decision.key, marks: [] };
+    group.marks.push({ requestId: r.id, mark, attempt: decision.attempt });
+    due.set(at, group);
+  }
+  const out: Array<{ requestId: number; did: string; line: string | null }> = [];
+  const { emitEvent, RELEASE_LIVE_CHECK_REQUESTED } = await import('@/services/EventService');
+  for (const g of due.values()) {
+    const reason = String(g.marks[0]!.mark.lastReason ?? g.marks[0]!.mark.line ?? 'the last check wrote no report').slice(0, 400);
+    const startedAt = now.toISOString();
+    const why = g.key === 'delay' ? 'a while after the last check' : `Vocion was deployed since the last check (${g.key})`;
+    // Written before the event, so an overlapping sweep never starts a second check for the same key.
+    for (const m of g.marks) {
+      const line = `Couldn't check live yet: ${reason.replace(/[.\s]+$/, '')}. Vocion is checking again, ${why} (recheck ${m.attempt} of ${LIVE_RECHECKS}).`.slice(0, 600);
+      await mergeMeta(orgId, m.requestId, { liveCheck: { ...m.mark, state: 'not_checked', line, attempts: m.attempt, lastReason: reason, recheckedFor: g.key, recheckedAt: startedAt } });
+      out.push({ requestId: m.requestId, did: `live recheck ${m.attempt}`, line });
+    }
+    const payload: import('@/services/EventService').ReleaseLiveCheckRequestedPayload = {
+      releaseId: g.releaseId,
+      product: typeof g.releaseMeta.product === 'string' ? g.releaseMeta.product : null,
+      userFacing: true,
+      // The last attempt of a round: a recheck that again writes no report ends the round
+      // (`liveAfterRun`) and the next recheck is the sweep's, by its own key.
+      attempt: LIVE_ATTEMPTS,
+      lastFailure: `The last live check wrote no report (${reason.replace(/[.\s]+$/, '')}). Vocion is checking again, ${why}. Look at the live product with the browser tools and record every acceptance line with record_live_check.`.slice(0, 600),
+      requestIds: ids(g.releaseMeta.requestIds),
+      taskIds: ids(g.releaseMeta.taskIds),
+    };
+    try {
+      await emitEvent({ orgId, type: RELEASE_LIVE_CHECK_REQUESTED, payload, dedupeKey: `${RELEASE_LIVE_CHECK_REQUESTED}:${g.releaseId}:recheck:${g.key}`, invokedBy: 'system:factory-reconcile', dispatchMode: 'auto' });
+    } catch (err) {
+      // Said where the person looks; the recheck it spent keeps the count honest.
+      for (const m of g.marks) {
+        const line = `Couldn't check live yet: ${reason.replace(/[.\s]+$/, '')}. The recheck could not be started (${short(err)}); Vocion tries again after the next deploy.`.slice(0, 600);
+        await mergeMeta(orgId, m.requestId, { liveCheck: { ...m.mark, state: 'not_checked', line, attempts: m.attempt, lastReason: reason, recheckedFor: g.key, recheckedAt: startedAt } });
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -666,7 +655,25 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
   const { liveAfterRun } = await import('@/libs/factory/liveCheck');
   const next = liveAfterRun(release.meta, { startedAt: run.createdAt ?? now, reason: reason || null, attempt: Number(fired.attempt) || 1 }, attempts);
   if (next.do === 'done') {
-    return { releaseId, did: 'done', line: next.why };
+    // THE DEMO IS OWED (Chris, 2026-10-04): a feature seen live with no Feature Demo recording gets
+    // one from QA on its own, once per release, through `release.demo.requested`.
+    const owing = await requestsOwingDemo(orgId, ids(release.meta.requestIds));
+    const sentBack = await sendBackNotReached(orgId, releaseId, now);
+    if (owing.length > 0) {
+      const { emitEvent, RELEASE_DEMO_REQUESTED } = await import('@/services/EventService');
+      const payload: import('@/services/EventService').ReleaseDemoRequestedPayload = {
+        releaseId,
+        product: typeof release.meta.product === 'string' ? release.meta.product : null,
+        userFacing: true,
+        requestIds: owing,
+        reason: `the live check saw ${owing.length === 1 ? 'the feature' : `${owing.length} features`} and no feature demo was recorded`,
+      };
+      await emitEvent({ orgId, type: RELEASE_DEMO_REQUESTED, payload, dedupeKey: `${RELEASE_DEMO_REQUESTED}:${releaseId}`, invokedBy: 'job:live-check-ended', dispatchMode: 'auto' }).catch((err) => {
+        logger.warn('live check: the feature demo could not be asked for', { orgId, releaseId, error: short(err) });
+      });
+      return { releaseId, did: 'done', line: `${next.why}; demo requested for ${owing.map(id => `#${id}`).join(', ')}${sentBack.length > 0 ? `; sent back ${sentBack.map(id => `#${id}`).join(', ')}` : ''}` };
+    }
+    return { releaseId, did: 'done', line: `${next.why}${sentBack.length > 0 ? `; sent back ${sentBack.map(id => `#${id}`).join(', ')}` : ''}` };
   }
   if (next.do === 'retry') {
     const { emitEvent, RELEASE_LIVE_CHECK_REQUESTED } = await import('@/services/EventService');
@@ -680,7 +687,11 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
       taskIds: ids(release.meta.taskIds),
     };
     try {
-      await emitEvent({ orgId, type: RELEASE_LIVE_CHECK_REQUESTED, payload, dedupeKey: `${RELEASE_LIVE_CHECK_REQUESTED}:${releaseId}:${next.attempt}`, invokedBy: 'job:live-check-ended', dispatchMode: 'auto' });
+      // KEYED TO THE ROUND (FE-457, 2026-10-05): a person's "Check live again" starts a new
+      // round at attempt 1, and its retry carried the same key as the first round's
+      // (`:460:2`), so it was deduped away: no second attempt, never "done", and the
+      // send-back never fired. The retry is keyed to the fire it follows.
+      await emitEvent({ orgId, type: RELEASE_LIVE_CHECK_REQUESTED, payload, dedupeKey: `${RELEASE_LIVE_CHECK_REQUESTED}:${releaseId}:${next.attempt}:after:${runId}`, invokedBy: 'job:live-check-ended', dispatchMode: 'auto' });
     } catch (err) {
       const why = `${next.reason}; the retry could not be started (${short(err)})`;
       await liveCheckGaveUp(orgId, releaseId, why, now);
@@ -689,5 +700,76 @@ export async function liveCheckEnded(orgId: string, input: Record<string, unknow
     return { releaseId, did: `retry:${next.attempt}`, line: next.reason };
   }
   await liveCheckGaveUp(orgId, releaseId, next.reason, now);
-  return { releaseId, did: 'gave-up', line: next.reason };
+  const sentBack = await sendBackNotReached(orgId, releaseId, now);
+  return { releaseId, did: 'gave-up', line: `${next.reason}${sentBack.length > 0 ? `; sent back ${sentBack.map(id => `#${id}`).join(', ')}` : ''}` };
+}
+
+/**
+ * A LINE THE LIVE CHECK PROVED BROKEN BECOMES WORK BY ITSELF (Chris, 2026-10-05, FE-457: the
+ * owner was asked for the passcode on their own link; the page read "Shipped · partly seen ·
+ * Nothing needs you · Nothing running", and nothing was going to fix it). Once the attempts are
+ * spent, each request with a line the check reached and found wrong (`not_reached`, with its
+ * reason; never a line production cannot show) goes back through its own loop: reopened by the
+ * live check, status "changes asked" with the check's words, and the next attempt dispatched
+ * carrying what production showed — the same path QA's send-back takes before a merge. Once
+ * per release per request (`liveCheck.sentBackFor`). Never throws; a send-back that could not
+ * start is written on the request.
+ * @param orgId - The workspace.
+ * @param releaseId - The release whose check ended.
+ * @param now - The clock.
+ * @returns The requests sent back.
+ */
+export async function sendBackNotReached(orgId: string, releaseId: number, now: Date = new Date()): Promise<number[]> {
+  const release = await readMeta(orgId, releaseId);
+  if (!release) {
+    return [];
+  }
+  const sent: number[] = [];
+  for (const requestId of ids(release.meta.requestIds)) {
+    try {
+      const request = await readMeta(orgId, requestId);
+      const mark = (request?.meta.liveCheck && typeof request.meta.liveCheck === 'object' ? request.meta.liveCheck : {}) as Meta;
+      if (!request || mark.releaseId !== releaseId || mark.sentBackFor === releaseId || (mark.state !== 'partial' && mark.state !== 'not_seen')) {
+        continue;
+      }
+      const lines = Array.isArray(mark.lines) ? (mark.lines as Array<{ line?: number | null; text?: string; result?: string; reason?: string | null }>) : [];
+      const broken = lines.filter(l => l.result === 'not_reached' && typeof l.text === 'string' && l.text.trim() !== '');
+      if (broken.length === 0) {
+        continue;
+      }
+      const at = now.toISOString();
+      const saw = broken.map(l => `${l.line ? `line ${l.line}: ` : ''}"${l.text!.trim()}" — ${(l.reason ?? 'not reached').trim()}`).join('\n');
+      const why = `The live check reached ${broken.length === 1 ? 'a line' : `${broken.length} lines`} and found ${broken.length === 1 ? 'it' : 'them'} wrong on production, so the feature goes back for another attempt.`;
+      const line = `Seen live and sent back: ${broken.length === 1 ? broken[0]!.text!.trim() : `${broken.length} lines not as asked`} — ${(broken[0]!.reason ?? 'not reached').trim()}`.slice(0, 600);
+      // Reopened by the live check: an automatic start after the ship is refused unless the request was reopened after it.
+      const { reopenedFields } = await import('@/libs/factory/requestStates');
+      await mergeMeta(orgId, requestId, { ...reopenedFields('live-check', at), reopenReason: line, liveCheck: { ...mark, sentBackFor: releaseId, sentBackAt: at } });
+      const { markStatus } = await import('@/services/objects/statusField');
+      await markStatus(orgId, requestId, 'live_changes', { line, reopen: true, at });
+      const { proposeAction } = await import('@/services/ActionService');
+      const res = await proposeAction({
+        orgId,
+        actionId: 'factory.dispatch_task',
+        input: {
+          requestId,
+          trigger: 'recovery',
+          recoveryClass: 'not_seen_live',
+          note: `The live check on release #${releaseId} reached these lines on production and found them wrong:\n${saw}\n\nStart from the shipped code. Fix what production showed, keep what was proven, and prove every line again.`,
+          reason: why,
+        },
+        principal: { kind: 'agent', id: 'agent:product-manager', scope: { orgId }, grants: ['*'], autonomy: 2 },
+        invokedBy: 'factory:live-check',
+        internal: true,
+        proposal: { confidence: 0.9, rationale: why, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'Production showed the line is not as asked; the next attempt fixes what was seen.' },
+      }) as { runId: number; status: string };
+      const { noteOnRequest } = await import('./carry');
+      await noteOnRequest(orgId, requestId, `${line}. ${res.status === 'pending' ? 'The next attempt is on a card.' : 'The next attempt has started.'}`).catch(() => undefined);
+      sent.push(requestId);
+    } catch (err) {
+      logger.warn('live check: the send-back could not start', { orgId, releaseId, requestId, error: short(err) });
+      const { noteOnRequest } = await import('./carry');
+      await noteOnRequest(orgId, requestId, `The live check found a line wrong on production, but the next attempt could not be started: ${short(err)}`).catch(() => undefined);
+    }
+  }
+  return sent;
 }

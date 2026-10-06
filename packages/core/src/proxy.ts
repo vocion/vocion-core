@@ -5,7 +5,7 @@ import { SURFACE_PATH_SEGMENTS } from './features/navigation/surfaces';
 import { ACTIVE_PROJECT_COOKIE, ACTIVE_PROJECT_COOKIE_OPTIONS } from './libs/activeProject';
 import { publicOrigin } from './libs/http/publicOrigin';
 import { routing } from './libs/I18nRouting';
-import { isWorkspacePath, parseWorkspacePath, WORKSPACE_ACCOUNT_PARAM, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
+import { DASHBOARD_HOME, isWorkspacePath, parseWorkspacePath, WORKSPACE_ACCOUNT_PARAM, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
 
 const handleI18nRouting = createMiddleware(routing);
 
@@ -19,6 +19,12 @@ const handleI18nRouting = createMiddleware(routing);
 const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', 'api-docs', WORKSPACE_ENTRY_SEGMENT, ...SURFACE_PATH_SEGMENTS];
 const PROTECTED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${PROTECTED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
+// The app's front door, `/` or a bare locale (`/fr`). Signed in, it goes
+// straight to the workspace home in one redirect; it used to walk
+// `/` → `/dashboard` → `/w/<slug>/dashboard` → `/dashboard/chat` →
+// `/w/<slug>/dashboard/chat`, four round trips (and one full shell render)
+// before the first byte of a page.
+const ROOT_PATH = new RegExp(`^/(?:(?:${routing.locales.join('|')})/?)?$`);
 // The sign-up page itself, locale-prefixed or not: where an invite link lands.
 const SIGN_UP_PAGE = /^\/(?:[^/]+\/)?sign-up\/?$/;
 
@@ -69,7 +75,7 @@ export default async function proxy(request: NextRequest) {
   }
 
   const origin = publicOrigin(request);
-  const protectedPath = PROTECTED_PATH.test(path);
+  const protectedPath = PROTECTED_PATH.test(path) || ROOT_PATH.test(path);
 
   // One session read for the whole request: the protection gate, the
   // already-signed-in bounce and the workspace resolution all need it.
@@ -139,25 +145,34 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
     if (!project) {
       return new NextResponse('No such workspace', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
     }
-    // The route tree is `app/[locale]/…`, so the rewrite carries the locale
-    // next-intl would otherwise have added.
-    const locale = canonical.locale || routing.defaultLocale;
-    // The rewrite target is built on the server's OWN origin, never on the
-    // public one. `publicOrigin` is browser-facing (https and the public host;
-    // behind Caddy the app itself is reached as plain http), so a target built
-    // from it is a *different* origin, and a cross-origin `NextResponse.rewrite`
-    // is not an internal rewrite at all: Next turns it into an outbound HTTP
-    // request. That request re-enters this proxy as a bare `/dashboard/…`,
-    // collects the canonicalising 307 below, and Next hands that 307 back to
-    // the browser, which is then redirected to the URL it just asked for. That
-    // is ERR_TOO_MANY_REDIRECTS, signed in only, and it is why `proxy.test.ts`
-    // walks the chain. Redirects use the public origin because a browser has to
-    // reach it; rewrites never do.
-    const target = new URL(`/${locale}${canonical.appPath}${request.nextUrl.search}`, request.nextUrl.origin);
-    const headers = new Headers(request.headers);
-    headers.set(WORKSPACE_HEADER.projectId, project.id);
-    headers.set(WORKSPACE_HEADER.slug, project.slug);
-    const response = NextResponse.rewrite(target, { request: { headers } });
+    // `/w/<slug>/dashboard` has no page of its own: send it to the home page
+    // here rather than render the whole shell for `dashboard/page.tsx` to
+    // redirect, which also dropped the workspace and cost two more hops.
+    let response: NextResponse;
+    if (request.method === 'GET' && canonical.appPath === '/dashboard') {
+      const home = workspaceUrl(project.slug, `${DASHBOARD_HOME}${request.nextUrl.search}`);
+      response = NextResponse.redirect(new URL(`${canonical.locale ? `/${canonical.locale}` : ''}${home}`, ctx.origin), 307);
+    } else {
+      // The route tree is `app/[locale]/…`, so the rewrite carries the locale
+      // next-intl would otherwise have added.
+      const locale = canonical.locale || routing.defaultLocale;
+      // The rewrite target is built on the server's OWN origin, never on the
+      // public one. `publicOrigin` is browser-facing (https and the public host;
+      // behind Caddy the app itself is reached as plain http), so a target built
+      // from it is a *different* origin, and a cross-origin `NextResponse.rewrite`
+      // is not an internal rewrite at all: Next turns it into an outbound HTTP
+      // request. That request re-enters this proxy as a bare `/dashboard/…`,
+      // collects the canonicalising 307 below, and Next hands that 307 back to
+      // the browser, which is then redirected to the URL it just asked for. That
+      // is ERR_TOO_MANY_REDIRECTS, signed in only, and it is why `proxy.test.ts`
+      // walks the chain. Redirects use the public origin because a browser has to
+      // reach it; rewrites never do.
+      const target = new URL(`/${locale}${canonical.appPath}${request.nextUrl.search}`, request.nextUrl.origin);
+      const headers = new Headers(request.headers);
+      headers.set(WORKSPACE_HEADER.projectId, project.id);
+      headers.set(WORKSPACE_HEADER.slug, project.slug);
+      response = NextResponse.rewrite(target, { request: { headers } });
+    }
     // Keep "last active" in step with the URL, so a bare link opened later in
     // this browser — and the next sign-in — land in the same workspace.
     if (request.cookies.get(ACTIVE_PROJECT_COOKIE)?.value !== project.id) {
@@ -170,15 +185,18 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
   // that did not go through the Link wrapper. Send it to its canonical
   // spelling so there is one URL per page per workspace, and so the reader can
   // see and share which workspace they are in.
-  if (request.method !== 'GET' || !isWorkspacePath(path)) {
+  // The front door is the dashboard, which is its home page.
+  const bare = ROOT_PATH.test(path) ? `${path.replace(/\/$/, '')}/dashboard` : path;
+  if (request.method !== 'GET' || !isWorkspacePath(bare)) {
     return null;
   }
   const workspace = await activeWorkspaceForUser(ctx.userId, request.cookies.get(ACTIVE_PROJECT_COOKIE)?.value);
   if (!workspace) {
     return null; // No workspace yet (onboarding) — leave the URL alone.
   }
-  const locale = localeOf(path);
-  const appPath = locale ? path.slice(locale.length + 1) : path;
+  const locale = localeOf(bare);
+  const requested = locale ? bare.slice(locale.length + 1) : bare;
+  const appPath = requested.replace(/\/$/, '') === '/dashboard' ? DASHBOARD_HOME : requested;
   const target = new URL(`${locale ? `/${locale}` : ''}${workspaceUrl(workspace.slug, `${appPath}${request.nextUrl.search}`)}`, ctx.origin);
   return NextResponse.redirect(target, 307);
 }
@@ -190,6 +208,7 @@ export const config = {
     // request the proxy matches has its body cut at Next's 10 MB clone limit
     // (`proxyClientMaxBodySize`), so a phone video or a 20 MB chat file arrived
     // truncated and failed to parse. The proxy passes `/api/*` through untouched.
-    '/((?!_next|_vercel|monitoring|api/auth|api/mobile/share|api/chat/attachments|icon|apple-icon|opengraph-image|twitter-image|manifest|robots|sitemap|.*\\..*).*)',
+    // `api/v1/artifacts/video` is the factory's recording upload (up to 200 MB).
+    '/((?!_next|_vercel|monitoring|api/auth|api/mobile/share|api/chat/attachments|api/v1/artifacts/video|icon|apple-icon|opengraph-image|twitter-image|manifest|robots|sitemap|.*\\..*).*)',
   ],
 };

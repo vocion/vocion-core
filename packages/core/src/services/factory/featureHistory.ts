@@ -105,7 +105,7 @@ function seenWords(release: ReportReleaseSummary): string | null {
     return null;
   }
   const count = s.reached !== undefined && s.total !== undefined && s.total > 0 ? ` ${s.reached} of ${s.total}` : '';
-  return s.state === 'seen' ? `seen${count}` : s.state === 'partial' ? `partly seen${count}` : 'not seen';
+  return s.state === 'seen' ? `seen${count}` : s.state === 'partial' ? `partly seen${count}` : s.state === 'not_checked' ? 'not checked yet' : 'not seen';
 }
 
 /** How close a run's tool call must land to a record's stamp to be the call that wrote it. */
@@ -313,6 +313,7 @@ export function buildHistory(input: FeatureReportInput, ctx: { implementation: R
       cents: c.cents ?? null,
       open: { type: 'conversation', id: String(c.id) },
       href: null,
+      ...(c.external ? { external: c.external } : {}),
       live: false,
     });
   }

@@ -270,6 +270,13 @@ export const WorkspaceManifestSchema = z.object({
    */
   plugins: z.array(SlugSchema).default([]),
   /**
+   * A plugin's settings, set for this workspace: `{<plugin>: {<key>: value}}`,
+   * each key one the plugin declares under `settings:` in its plugin.yaml
+   * (an unknown plugin or key fails the load). A key left out takes the
+   * plugin's default. E.g. `software-factory: {narrateRecordings: true}`.
+   */
+  pluginSettings: z.record(SlugSchema, z.record(z.string(), z.boolean())).default({}),
+  /**
    * Processes that run as durable workflows here instead of as automations
    * reacting to events (backlog 054), e.g. `[factory]`: each record such a
    * process owns has one workflow that owns its next step. Omit for none.
@@ -316,6 +323,15 @@ export const FactoryManifestSchema = z.object({
 });
 export type FactoryManifest = z.infer<typeof FactoryManifestSchema>;
 
+/** One plugin option: a switch, its default, and what it does in a person's words. */
+export const PluginSettingSchema = z.object({
+  type: z.literal('boolean'),
+  default: z.boolean(),
+  label: z.string().min(1).max(80),
+  description: z.string().min(1).max(500),
+});
+export type PluginSetting = z.infer<typeof PluginSettingSchema>;
+
 export const PluginManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().min(1),
@@ -354,6 +370,13 @@ export const PluginManifestSchema = z.object({
    * calls its work item something else runs the same loop.
    */
   factory: FactoryManifestSchema.optional(),
+  /**
+   * The plugin's options, each a switch a workspace sets under
+   * `pluginSettings.<plugin>.<key>`. A plugin automation names the one it
+   * waits for with `setting:`; off, it is applied disabled. Kept to on/off
+   * until a plugin needs more.
+   */
+  settings: z.record(z.string().regex(/^[a-z]\w*$/i, 'a setting key is one word, e.g. narrateRecordings'), PluginSettingSchema).optional(),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
@@ -926,6 +949,12 @@ export const AgentManifestSchema = z.object({
      * `services/agents/stepLimit.ts`.
      */
     maxSteps: z.number().int().positive().optional(),
+    /**
+     * How long one turn of this agent may run, in minutes (default: the
+     * deployment's `VOCION_TURN_DEADLINE_MS`, eight minutes). Walk 18: a QA
+     * review that opens a build's screenshots ran past eight and was stopped.
+     */
+    turnDeadlineMinutes: z.number().int().min(1).max(30).optional(),
     excludeTools: z.array(z.string()).default([]),
     /**
      * Granted-only tools this agent receives. Some built-ins (the discovery
@@ -935,6 +964,13 @@ export const AgentManifestSchema = z.object({
      */
     grantTools: z.array(z.string()).default([]),
     model: z.string().optional(),
+    /**
+     * The voice this agent speaks in when it narrates (a voice id from the
+     * workspace's voice connector). Absent, the connector's first voice.
+     */
+    voiceId: z.string().regex(/^[\w-]{1,64}$/, 'voiceId must be a voice id').optional(),
+    /** The seat's speaking pace for narrations, 1 = the voice's own; ElevenLabs takes 0.7–1.2. */
+    voiceSpeed: z.number().min(0.7).max(1.2).optional(),
     /**
      * How hard the model thinks: low, medium, high, max. An external worker
      * passes it to its model (`seatModelPolicy` puts it on the contract's
@@ -1289,6 +1325,13 @@ export const AutomationManifestSchema = z.object({
   doing: z.string().min(1).max(60).optional(),
   description: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
+  /**
+   * A plugin automation that runs only when one of its plugin's settings is
+   * on (`settings:` in plugin.yaml, set per workspace under `pluginSettings:`).
+   * Resolved at load: off, the automation is applied `disabled`. A plugin's
+   * automations only — the workspace turns its own on with `status`.
+   */
+  setting: z.string().regex(/^[a-z]\w*$/i, 'setting must be a plugin setting key, e.g. narrateRecordings').optional(),
   /**
    * Owning agent slug. For `checkMission` the owner is implied by the
    * mission's own `agent`, so this is optional; for `job`/`workflow`

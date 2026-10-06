@@ -60,6 +60,10 @@ export const TURN_STATUSES = [
   'truncated',
   'continued',
   'stalled',
+  /** Being answered now: written when the turn starts (backlog 056), so a restart cannot lose it. */
+  'running',
+  /** The app restarted while answering, and the one re-run did not finish either. */
+  'interrupted',
 ] as const;
 
 /** How an assistant turn ended. */
@@ -75,7 +79,7 @@ export type TurnStatus = typeof TURN_STATUSES[number];
  * the person stopped on purpose is NOT here: they read it and decided that was
  * enough, which makes it part of the conversation.
  */
-const DROPPED_FROM_HISTORY = new Set<TurnStatus>(['incomplete', 'failed', 'refused', 'stalled']);
+const DROPPED_FROM_HISTORY = new Set<TurnStatus>(['incomplete', 'failed', 'refused', 'stalled', 'running', 'interrupted']);
 
 /**
  * Should this row's text be left out of the history the next turn replays?
@@ -95,7 +99,7 @@ export function isDroppedFromHistory(status: string | null | undefined): boolean
  * @returns True for the endings that need an explanation, not just a marker.
  */
 export function isFailure(status: string | null | undefined): boolean {
-  return status === 'incomplete' || status === 'failed' || status === 'refused' || status === 'stalled';
+  return status === 'incomplete' || status === 'failed' || status === 'refused' || status === 'stalled' || status === 'interrupted';
 }
 
 /**

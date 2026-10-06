@@ -197,6 +197,26 @@ export type ReviewContent
   }
   | {
     /**
+     * A recording the reviewer watches before deciding — the feature demo
+     * recorded from the branch before merge (backlog 058), so the approval is
+     * of something seen working, not of a verdict's word. Vocion's own
+     * player, first frame until pressed.
+     */
+    kind: 'video';
+    id: string;
+    label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
+    /** The recording, served by Vocion (`/api/media/…`). */
+    url: string;
+    /** `video/mp4` or `video/webm`. */
+    contentType?: string;
+    caption?: string;
+    /** The second the preview frame is taken at, when the recording has a script. */
+    posterAt?: number;
+  }
+  | {
+    /**
      * A message a person will read where it is posted — a Slack post, a
      * channel notice. Editable (edit-then-approve), like `email`, because
      * the words are copy a reviewer vouches for; unlike `email` it has no
@@ -318,6 +338,13 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * evidence, externalRef) and the card.
    */
   manual?: { reversible?: boolean };
+  /**
+   * A HARD STOP THE RECORD DECLARES (Chris, 2026-10-05, on Slate: "a HARD STOP waiting for human
+   * approval before anything goes to main or production"). The reason this input waits for a
+   * person whatever the trust rules say, or null. Read before every rung of the ladder; a hold that
+   * cannot be read holds. A person's own word still runs: this stops only what an agent proposes.
+   */
+  holdForPerson?: (ctx: { orgId: string }, input: Record<string, unknown>) => Promise<string | null>;
   /**
    * The id the trust ladder keys on for THIS input, when one action id serves
    * several ledgers. A merge is one action with a `riskClass`, and merging

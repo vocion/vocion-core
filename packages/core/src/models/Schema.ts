@@ -845,6 +845,7 @@ export const agentSchema = pgTable(
       maxTokens?: number;
       /** Graph steps one turn may take; unset keeps each provider's own backstop. See `services/agents/stepLimit.ts`. */
       maxSteps?: number;
+      turnDeadlineMinutes?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
@@ -856,6 +857,8 @@ export const agentSchema = pgTable(
        * `buildChatModelForOrg`.
        */
       model?: string;
+      /** The voice this agent narrates in (`harness.voiceId`); absent, the voice connector's first. */
+      voiceId?: string;
       /**
        * Which vendor serves this agent's chat model. A different axis from
        * `provider` above, which selects where the agent *loop* executes —
@@ -1694,6 +1697,12 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * runs interleaved with tool breadcrumbs. Tool entries are dropped
    * when this row is replayed as history to the agent.
    */
+  /**
+   * The turn as a record from its first token (backlog 056): its stream id,
+   * the process answering it, the attempt, and the request needed to answer
+   * it again after a restart. Written when the turn begins, finished with it.
+   */
+  turnJson: jsonb('turn_json').$type<import('@/services/chat/turnLedger').TurnJson>(),
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
@@ -4458,6 +4467,13 @@ export const chatChannelBindingSchema = pgTable(
     displayName: text('display_name'),
     /** Public https URL of the persona avatar; Slack fetches it per message. */
     iconUrl: text('icon_url'),
+    /**
+     * The other workspaces this channel is for (Chris, 2026-10-05: "specific channels should get
+     * (n) workspace associations … but allow addition if context is appropriate"). `orgId` is the
+     * channel's first; a thread's first mention is routed among these, and a confident route to
+     * another workspace of the account adds it here (`services/chat/workspaceRoute.ts`).
+     */
+    workspaceIds: text('workspace_ids').array().notNull().default(sql`'{}'::text[]`),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },

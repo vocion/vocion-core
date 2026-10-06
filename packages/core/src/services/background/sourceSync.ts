@@ -28,6 +28,14 @@ export type SyncSourceActivityResult = SyncResult & {
 };
 
 export async function syncSourceActivity(input: SyncSourceActivityInput): Promise<SyncSourceActivityResult> {
+  // NEVER CONNECTED IS NOT A FAILURE (2026-10-02): nine sources declared in
+  // workspaces and never connected failed every tick, three attempts each,
+  // ~16 errors an hour that buried the real ones. A source that has never
+  // synced and has no credential skips quietly; the Sources page already says
+  // "Needs credentials", and the first tick after someone connects it syncs.
+  if (await neverConnected(input.orgId, input.sourceId)) {
+    return { ...skippedResult(input.sourceId), firstError: 'not connected' };
+  }
   try {
     return await runSync({
       orgId: input.orgId,
@@ -42,19 +50,41 @@ export async function syncSourceActivity(input: SyncSourceActivityInput): Promis
     // then fail the run, which reads as a broken schedule. Report the skip and
     // let the run that holds the source finish.
     if (err instanceof SyncAlreadyRunningError) {
-      return {
-        sourceId: input.sourceId,
-        created: 0,
-        updated: 0,
-        unchanged: 0,
-        metadataRefreshed: 0,
-        tombstoned: 0,
-        errors: 0,
-        firstError: null,
-        firstProcessorError: null,
-        skipped: true,
-      };
+      return skippedResult(input.sourceId);
     }
     throw err;
   }
+}
+
+function skippedResult(sourceId: number): SyncSourceActivityResult {
+  return { sourceId, created: 0, updated: 0, unchanged: 0, metadataRefreshed: 0, tombstoned: 0, errors: 0, firstError: null, firstProcessorError: null, skipped: true };
+}
+
+/**
+ * True for a source that has never synced and whose connector needs a
+ * credential nobody has connected — read the way the Sources page reads it,
+ * so the page and the schedule agree. A source that synced once is never
+ * skipped here: its failures are real and stay loud.
+ * @param orgId - The workspace.
+ * @param sourceId - The source.
+ */
+async function neverConnected(orgId: string, sourceId: number): Promise<boolean> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { knowledgeSourceSchema } = await import('@/models/Schema');
+  const [row] = await db.select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson, lastSyncedAt: knowledgeSourceSchema.lastSyncedAt })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.id, sourceId)));
+  if (!row || row.lastSyncedAt) {
+    return false;
+  }
+  const { listConnectors } = await import('@/libs/sources/registry');
+  const connectorSlug = (row.config?._connector as string | undefined) ?? row.slug;
+  const authKind = listConnectors().find(c => c.slug === connectorSlug)?.authKind ?? 'none';
+  if (authKind === 'none') {
+    return false;
+  }
+  const { credentialStatusForOrg } = await import('@/services/SourceCredentialService');
+  const status = await credentialStatusForOrg(orgId);
+  return !(status.bySourceId[sourceId] ?? status.byConnectorSlug[connectorSlug])?.connected;
 }

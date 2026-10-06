@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import { FeatureReportView, ReportContextLine, reportLiveRefresh } from '@/features/dashboard/factory/FeatureReportView';
+import { FeatureShare } from '@/features/dashboard/factory/FeatureShare';
 import { RecordChangeIntent } from '@/features/dashboard/objects/RecordChangeIntent';
 import { PausedAutomations } from '@/features/dashboard/plugins/PausedAutomations';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -226,6 +227,8 @@ export default async function WorkspaceReportPage(props: {
           and the breadcrumb ("Factory / 121") tells them neither. */}
       <TitleBar
         title={report ? report.title : manifest.title}
+        // Share: a public, read-only page of this feature, off until pressed (`FeatureShare`).
+        actions={report ? <FeatureShare requestId={report.requestId} title={report.title} /> : undefined}
         description={report
           ? (
               // The subtitle reads at body size and normal contrast — it is

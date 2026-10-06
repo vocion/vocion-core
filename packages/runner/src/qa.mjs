@@ -106,6 +106,244 @@ export function videoArtifact({ recordId, flowName, viewport, url, seconds, byte
   return artifact(recordId, 'qa-video', 'link', title, { href: url, url, title, description: text, caption: text, filename, contentType: 'video/webm', bytes });
 }
 
+// ---------- the repo's own test screenshots ----------
+//
+// Decision (2026-10-03, FE-398): pre-merge visual proof comes from the product repo's own
+// browser tests, not from the runner building and serving a signed-in app it has no contract to
+// build. A repo test that proves a line a person sees saves its screenshot under the contract's
+// shots directory (default qa-shots/ at the repo root), in this task's own folder
+// (contract.mjs taskShotsDir); the worker uploads whatever it finds there the same way it uploads
+// its own shots, so QA can cite them from the task record. Tests committed by earlier tasks run on
+// every build too and keep writing their pictures: whatever is in the shots directory outside this
+// task's folder is theirs, and is reported as such, never uploaded (2026-10-04, walks 17-18).
+
+const SHOT_FILE_RE = /\.(?:png|jpe?g)$/i;
+const SHOT_CONTENT_TYPE = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+export const REPO_SHOT_LIMITS = { files: 24, bytes: 5 * 1024 * 1024 };
+
+/** Every PNG/JPEG (or, with `re`, every match) under `dir`, recursively, sorted so the report and the upload order agree. */
+function listShotFiles(dir, re = SHOT_FILE_RE) {
+  const out = [];
+  const walk = (d, rel) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      const relPath = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        walk(full, relPath);
+      } else if (re.test(e.name)) {
+        out.push({ full, rel: relPath, name: e.name });
+      }
+    }
+  };
+  walk(dir, '');
+  return out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+}
+
+/**
+ * "title-line-phone.png" -> { caption: "title line · phone", viewport: "phone" }. A trailing
+ * -phone, -desktop or -<width> names the viewport; anything else is read as one caption with no
+ * viewport, so a file named plainly still uploads.
+ */
+export function captionForShotFile(filename) {
+  const base = String(filename || '').replace(/\.[^.]+$/, '');
+  const m = /^(.*[^-])-(phone|desktop|\d{2,4})$/.exec(base);
+  const namePart = m ? m[1] : base;
+  const viewport = m ? m[2] : '';
+  const text = namePart.replace(/[-_]+/g, ' ').trim() || base;
+  return { caption: viewport ? `${text} ${MIDDOT} ${viewport}` : text, viewport };
+}
+
+/**
+ * Uploads the repo's own test screenshots as qa-screenshot artifacts, exactly the shape and
+ * storage path (`evidenceKey`, `uploadEvidence`, `publishArtifact`) the worker's own shots use, so
+ * `taskPicturesStored` sees them and QA can cite them. Never fails the run: a read, size or upload
+ * problem for one file is recorded in `skipped` and the rest still upload. Capped at
+ * REPO_SHOT_LIMITS so a test suite that writes hundreds of frames cannot flood the task record.
+ */
+/**
+ * Keeps the repo's own QA shots out of the branch: appends an ignore line for the shots directory
+ * to `.git/info/exclude` (never `.gitignore`, which would itself be a change the engineer commits)
+ * unless it is already there. Called before the engineer's first commit, so a test run's
+ * screenshots are never untracked files `git status` offers to `land`'s `git add`, whatever the
+ * engineer or a test writes there later in the run.
+ */
+export function excludeShotsDir(repoDir, shotsDir) {
+  const file = path.join(repoDir, '.git', 'info', 'exclude');
+  const line = `/${String(shotsDir).replace(/^\/+|\/+$/g, '')}/`;
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  if (existing.split('\n').map(l => l.trim()).includes(line)) {
+    return;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${existing && !existing.endsWith('\n') ? '\n' : ''}${line}\n`);
+}
+
+/**
+ * Pictures and recordings in the shots directory that are not this task's: every match under
+ * `rootDir` that is not under `taskDir`, as paths relative to `rootDir`. They were written by a
+ * test an earlier task committed (or saved outside the briefed folder) and are named in the
+ * report so a missing picture is explained, not silent.
+ */
+export function otherTasksShots(rootDir, taskDir) {
+  if (!rootDir || !fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) {
+    return [];
+  }
+  const own = path.resolve(taskDir) + path.sep;
+  return listShotFiles(rootDir, /\.(?:png|jpe?g|webm|mp4)$/i)
+    .filter(f => !(path.resolve(f.full) + path.sep).startsWith(own) && path.resolve(f.full) !== path.resolve(taskDir))
+    .map(f => f.rel);
+}
+
+export async function collectRepoTestShots({ dir, taskId, runId, recordId, aws, post, artifactUrl: _artifactUrl, limit = REPO_SHOT_LIMITS.files, maxBytes = REPO_SHOT_LIMITS.bytes }) {
+  const uploaded = [];
+  const skipped = [];
+  const evidence = [];
+  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    return { uploaded, skipped, evidence };
+  }
+  const files = listShotFiles(dir);
+  if (!files.length) {
+    return { uploaded, skipped, evidence };
+  }
+  let credentials = null;
+  try {
+    credentials = await containerCredentials();
+  } catch {
+    // no task role; canUpload below records the reason per file
+  }
+  const canUpload = Boolean(credentials && aws?.bucket && aws?.presign?.accessKeyId);
+  for (const f of files) {
+    if (uploaded.length >= limit) {
+      skipped.push({ file: f.rel, reason: `over the limit of ${limit} files; the rest were not uploaded` });
+      continue;
+    }
+    let stat;
+    try {
+      stat = fs.statSync(f.full);
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `could not read: ${String(e.message || e).slice(0, 150)}` });
+      continue;
+    }
+    if (stat.size > maxBytes) {
+      skipped.push({ file: f.rel, reason: `${(stat.size / 1024 / 1024).toFixed(1)} MB is over the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap` });
+      continue;
+    }
+    // NO BUCKET, STILL EVIDENCE (Walk 17, FE-415): like the worker's own shots, a container
+    // with no evidence bucket stores the picture in Vocion itself, inline on the artifact.
+    if (!canUpload && !(post && recordId)) {
+      skipped.push({ file: f.rel, reason: 'the container could not reach the evidence bucket' });
+      continue;
+    }
+    const ext = (f.name.match(/\.([^.]+)$/)?.[1] ?? 'png').toLowerCase();
+    const contentType = SHOT_CONTENT_TYPE[ext] || 'image/png';
+    const { caption: text, viewport } = captionForShotFile(f.name);
+    const title = text.slice(0, 100);
+    let url = '';
+    try {
+      const body = fs.readFileSync(f.full);
+      const key = evidenceKey(taskId, runId, `repo-test ${text}`, viewport || 'desktop', 'after', ext === 'jpg' ? 'jpeg' : ext);
+      url = canUpload
+        ? await uploadEvidence({ bucket: aws.bucket, region: aws.region, key, body, contentType, credentials, presign: aws.presign })
+        : `data:${contentType};base64,${body.toString('base64')}`;
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `upload failed: ${String(e.message || e).slice(0, 200)}` });
+      continue;
+    }
+    const spec = { href: url, url, title, description: text, caption: text, filename: f.name, contentType, bytes: stat.size };
+    let artifactId = null;
+    if (post && recordId) {
+      const r = await publishArtifact(post, artifact(recordId, 'qa-screenshot', 'link', title, spec));
+      if (r.ok) {
+        artifactId = r.id;
+      } else {
+        skipped.push({ file: f.rel, reason: `artifact refused: ${r.error} (${r.status})` });
+      }
+    }
+    uploaded.push({ file: f.rel, caption: text, viewport, url });
+    evidence.push({ role: 'qa-screenshot', source: 'repo-test', flow: f.rel, viewport: viewport || undefined, url, caption: text, ...(artifactId ? { artifactId } : {}) });
+  }
+  return { uploaded, skipped, evidence };
+}
+
+// ---------- the repo's own test recordings ----------
+//
+// Decision (Chris, 2026-10-03): keep a recording of the QA run on the Feature Request. The repo's
+// browser tests record video into the same shots directory; the worker sends each file to Vocion as
+// raw bytes (POST /api/v1/artifacts/video), and Vocion keeps it (disk, or its own media bucket) and
+// files it on the task and on its request. The worker never needs a bucket for a video.
+
+const VIDEO_FILE_RE = /\.(?:webm|mp4)$/i;
+const VIDEO_CONTENT_TYPE = { webm: 'video/webm', mp4: 'video/mp4' };
+export const REPO_VIDEO_LIMITS = { files: 6, bytes: 200 * 1024 * 1024 };
+
+/**
+ * A recording's caption from its path: the file name read as a shot's is, or, for Playwright's own
+ * generic `video.webm`, the folder it sits in (the test's name).
+ */
+export function captionForVideoFile(rel) {
+  const parts = String(rel || '').split('/');
+  const name = parts.pop() || '';
+  const generic = /^video(?:-\d+)?\.[^.]+$/i.test(name) && parts.length > 0;
+  return captionForShotFile(generic ? `${parts.pop()}.webm` : name);
+}
+
+/**
+ * Sends every recording in the shots directory to Vocion as a qa-video on the task (and, through
+ * the task, its request). `upload(path, body, contentType)` is the worker's raw-body POST. Never
+ * fails the run: a read, size or upload problem is a named row in `skipped`.
+ */
+export async function collectRepoTestVideos({ dir, recordId, upload, limit = REPO_VIDEO_LIMITS.files, maxBytes = REPO_VIDEO_LIMITS.bytes }) {
+  const uploaded = [];
+  const skipped = [];
+  const evidence = [];
+  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    return { uploaded, skipped, evidence };
+  }
+  for (const f of listShotFiles(dir, VIDEO_FILE_RE)) {
+    if (!upload || !recordId) {
+      skipped.push({ file: f.rel, reason: 'the run has no task record in Vocion to file it on' });
+      continue;
+    }
+    if (uploaded.length >= limit) {
+      skipped.push({ file: f.rel, reason: `over the limit of ${limit} recordings; the rest were not sent` });
+      continue;
+    }
+    let size = 0;
+    try {
+      size = fs.statSync(f.full).size;
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `could not read: ${String(e.message || e).slice(0, 150)}` });
+      continue;
+    }
+    if (size > maxBytes) {
+      skipped.push({ file: f.rel, reason: `${(size / 1024 / 1024).toFixed(1)} MB is over the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap` });
+      continue;
+    }
+    const ext = (f.name.match(/\.([^.]+)$/)?.[1] ?? 'webm').toLowerCase();
+    const { caption: text, viewport } = captionForVideoFile(f.rel);
+    const title = `${text} ${MIDDOT} recording`.slice(0, 100);
+    const query = new URLSearchParams({ recordId: String(recordId), role: 'qa-video', title, caption: `${text} ${MIDDOT} before merge`, name: `repo-test ${text}` });
+    try {
+      const r = await upload(`/artifacts/video?${query}`, fs.readFileSync(f.full), VIDEO_CONTENT_TYPE[ext] || 'video/webm');
+      if (!r?.ok) {
+        skipped.push({ file: f.rel, reason: `Vocion refused it: ${String(r?.json?.error?.message || r?.json?.raw || r?.status || 'no answer').slice(0, 200)}` });
+        continue;
+      }
+      uploaded.push({ file: f.rel, caption: text, viewport, url: r.json?.url || '' });
+      evidence.push({ role: 'qa-video', source: 'repo-test', flow: f.rel, viewport: viewport || undefined, url: r.json?.url || '', caption: text, ...(r.json?.artifactIds?.length ? { artifactId: r.json.artifactIds[r.json.artifactIds.length - 1] } : {}) });
+    } catch (e) {
+      skipped.push({ file: f.rel, reason: `upload failed: ${String(e.message || e).slice(0, 200)}` });
+    }
+  }
+  return { uploaded, skipped, evidence };
+}
+
 export function reportArtifact({ recordId, taskId, markdown, summary }) {
   const title = `QA evidence for ${taskId}`.slice(0, 100);
   return artifact(recordId, 'qa-report', 'markdown', title, { md: markdown, summary: String(summary || 'What the worker captured, and anything it could not').slice(0, 200), caption: summary, title });
@@ -115,7 +353,7 @@ export function reportArtifact({ recordId, taskId, markdown, summary }) {
  * The one markdown artifact that says what happened, including when nothing did. Absence is a row
  * in the table with a reason, never a missing row.
  */
-export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures = [], elapsedS = 0, bytes = 0, videoSeconds = 0 }) {
+export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures = [], elapsedS = 0, bytes = 0, videoSeconds = 0, repoShots = null, demo = null }) {
   const cell = v => String(v ?? '').replace(/\|/g, '\\|').slice(0, 200);
   const lines = [
     `# QA evidence for ${taskId}`,
@@ -130,8 +368,31 @@ export function qaReportMarkdown({ taskId, runId, base, qa, rows = [], failures 
   if (!rows.length) {
     lines.push('| (none) | | | no flow produced a shot |');
   }
+  if (demo) {
+    lines.push('', `Feature demo, built from the branch: ${demo.seconds}s, ${demo.lines} line${demo.lines === 1 ? '' : 's'} said over ${demo.flows} flow${demo.flows === 1 ? '' : 's'}${demo.url ? ` ${MIDDOT} ${demo.url}` : ''}. It plays on the merge card and the feature page until the live demo replaces it.`);
+  }
   if (videoSeconds) {
     lines.push('', `Video added ${videoSeconds}s to the pass.`);
+  }
+  // From the repo's own tests: a line a person sees, proven by a browser test in the repo rather
+  // than by the worker building and serving the app (it has no contract to build a signed-in
+  // surface; see the FE-398 decision). A reader should tell these apart from the worker's shots.
+  if (repoShots && (repoShots.uploaded?.length || repoShots.skipped?.length)) {
+    lines.push('', '## From the repo\'s own tests', '');
+    if (repoShots.uploaded?.length) {
+      lines.push('| file | caption | viewport |', '|---|---|---|');
+      for (const s of repoShots.uploaded) {
+        lines.push(`| ${cell(s.file)} | ${cell(s.caption)} | ${cell(s.viewport || 'desktop')} |`);
+      }
+    } else {
+      lines.push('(none uploaded)');
+    }
+    if (repoShots.skipped?.length) {
+      lines.push('', 'Skipped:');
+      for (const s of repoShots.skipped) {
+        lines.push(`- **${cell(s.file)}**: ${String(s.reason).slice(0, 300)}`);
+      }
+    }
   }
   if (failures.length) {
     lines.push('', '## What failed', '');
@@ -964,13 +1225,316 @@ export async function publishArtifact(post, body) {
 
 // ---------- the pass ----------
 
+// ---------- the preview demo (backlog 058) ----------
+//
+// Chris, 2026-10-04: "the demo video to share with the requester at merge approval time, so they
+// would have more context and trust to approve." The flows already reach every state a criterion
+// names, on the branch's own build. So after the after-run, one desktop context with video on
+// walks every flow in order, SAYING each acceptance line as it reaches its state and each shoot
+// label as it shoots it, and holding the screen the time the line takes to say. The video and the
+// lines go to Vocion as `feature-demo-preview` on the task (and so on its request); QA's narration
+// job cuts it to its moments, draws the address bar and speaks the lines, the same as the live demo.
+
+/** The speaking rate and the hold per line — the same figures as core's `libs/media/narration.ts`. */
+export const DEMO_DWELL = { min: 1400, max: 12000, lead: 400, charsPerSecond: 14 };
+/** The role the preview demo is filed under (core: `DEMO_PREVIEW_VIDEO_ROLE`). */
+export const DEMO_PREVIEW_ROLE = 'feature-demo-preview';
+/** Flows and lines a demo takes at most, so a contract of forty flows does not make a ten-minute film. */
+export const DEMO_LIMITS = { flows: 10, lines: 40, seconds: 240 };
+
+/**
+ * How long the screen holds on a state while its line is said: a short lead so the viewer sees the
+ * state before the voice starts, then the words at speaking pace, within bounds.
+ */
+export function dwellMs(text) {
+  const chars = String(text || '').trim().length;
+  return Math.min(DEMO_DWELL.max, Math.max(DEMO_DWELL.min, DEMO_DWELL.lead + Math.round((chars / DEMO_DWELL.charsPerSecond) * 1000)));
+}
+
+/**
+ * The line said when a flow starts: the acceptance line it was written for, else its name. One
+ * plain sentence; a trailing full stop is added so the voice closes it.
+ */
+export function demoLine(flow) {
+  const text = String(flow?.criterion || flow?.name || '').trim().replace(/\s+/g, ' ');
+  if (!text) {
+    return '';
+  }
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
+}
+
+/** The address bar's text for a page on the branch build: the path, never the container's host and port. */
+export function demoAddress(url) {
+  try {
+    const u = new URL(url);
+    return `${u.pathname}${u.search}` || '/';
+  } catch {
+    return String(url || '');
+  }
+}
+
+/**
+ * The header the upload carries: what the demo shows (moments) and says (lines), as core's
+ * `readRecordingSpec` reads it. Bounded so a header never grows past what a server accepts.
+ */
+export function demoSpecHeader(moments, lines) {
+  const timeline = moments.slice(0, 120).map(m => ({ atMs: Math.round(m.atMs), what: String(m.what).slice(0, 200), ...(m.url ? { url: String(m.url).slice(0, 2000) } : {}), ...(typeof m.ok === 'boolean' ? { ok: m.ok } : {}) }));
+  const script = lines.slice(0, DEMO_LIMITS.lines).map(l => ({ atMs: Math.round(l.atMs), text: String(l.text).slice(0, 400) }));
+  return JSON.stringify({ timeline, script });
+}
+
+/** How long the demo's cursor takes to reach its target, matching the chrome's CSS transition. */
+export const CURSOR_GLIDE_MS = 520;
+
+/**
+ * WHERE TO LOOK (Chris, 2026-10-05, watching a preview demo: "There's a lot on the screen and I
+ * have no idea what the narrator wants me looking at"). With the chrome installed
+ * (`/api/demo-chrome`, the same script QA's live demo wears) the cursor glides to the element a
+ * step acts on, ripples where it clicks, and the element a line is about keeps a thin outline in
+ * the accent while the line is said. Decoration only: never throws, never changes what the step
+ * does, and a page that refuses it still gets its click.
+ */
+function demoChrome(page, hold) {
+  const call = async (method, ...args) => {
+    try {
+      await page.evaluate(([m, a]) => globalThis.__vocionDemo?.[m]?.(...a), [method, args]);
+    } catch {
+      // decoration only
+    }
+  };
+  const centre = rect => [Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2)];
+  return {
+    /** The element's box, or null when it cannot be measured. */
+    async boxOf(locator) {
+      try {
+        return await locator.first().boundingBox({ timeout: 2000 });
+      } catch {
+        return null;
+      }
+    },
+    /** Glide the cursor to the box and, for a click, ripple there. */
+    async pointAt(rect, { ripple = true } = {}) {
+      if (!rect) {
+        return;
+      }
+      const [x, y] = centre(rect);
+      await call('moveTo', x, y);
+      await hold(CURSOR_GLIDE_MS);
+      if (ripple) {
+        await call('ripple', x, y);
+        await hold(120);
+      }
+    },
+    /** Outline the area a line is about, or clear it with null. */
+    async spotlight(rect) {
+      await call('spotlight', rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null);
+    },
+  };
+}
+
+/** How a person pauses: a look at a page before acting, a breath after each action, a keystroke's gap. */
+export const HUMAN_BEATS = { afterNavigationMs: 700, afterActionMs: 350, keystrokeMs: 55 };
+
+function demoPathOf(url) {
+  return `${url.pathname.replace(/\/+$/, '') || '/'}${url.search}`;
+}
+
+/**
+ * A PERSON CLICKS, A SCRIPT TELEPORTS (Chris, 2026-10-05: "the recording is just jumping from
+ * screen to screen like a magic non human script"). The href on the page that leads to the
+ * target, or null: same origin, same path and query, hash ignored, first in reading order. The
+ * same reading as core's `libs/factory/demoNavigation.ts`.
+ */
+export function hrefLeadingTo(hrefs, pageUrl, target) {
+  let want;
+  let here;
+  try {
+    want = new URL(target);
+    here = new URL(pageUrl);
+  } catch {
+    return null;
+  }
+  if (want.origin !== here.origin) {
+    return null;
+  }
+  const wanted = demoPathOf(want);
+  for (const href of hrefs) {
+    if (typeof href !== 'string' || !href.trim() || /^(?:javascript|mailto|tel):/i.test(href)) {
+      continue;
+    }
+    try {
+      const u = new URL(href, pageUrl);
+      if (u.origin === want.origin && demoPathOf(u) === wanted) {
+        return href;
+      }
+    } catch {
+      // not a URL
+    }
+  }
+  return null;
+}
+
+/**
+ * Go to the target the way a person would: click the link on screen that leads there when one
+ * is visible, else type the address. Returns how it went.
+ */
+async function arriveAt(page, target, look, hold) {
+  const current = typeof page.url === 'function' ? page.url() : '';
+  if (look && typeof current === 'string' && current.startsWith('http') && typeof page.$$eval === 'function') {
+    try {
+      const hrefs = await page.$$eval('a[href]', as => as.map(a => a.getAttribute('href')));
+      const href = hrefLeadingTo(hrefs, current, target);
+      if (href) {
+        const link = page.locator(`a[href="${href.replace(/"/g, '\\"')}"]`).first();
+        await link.scrollIntoViewIfNeeded?.({ timeout: 2000 }).catch(() => {});
+        await look.pointAt(await look.boxOf(link));
+        await link.click({ timeout: 15000 });
+        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+        await hold(HUMAN_BEATS.afterNavigationMs);
+        return 'clicked';
+      }
+    } catch {
+      // fall through to the address
+    }
+  }
+  await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  if (look) {
+    await hold(HUMAN_BEATS.afterNavigationMs);
+  }
+  return 'went';
+}
+
+/** The locator a step acts on, for pointing at it before the action: click, fill or upload. */
+function stepLocator(page, step) {
+  if (step.click) {
+    return locate(page, step.click);
+  }
+  if (step.fill) {
+    return page.locator(step.fill.selector);
+  }
+  if (step.upload) {
+    return page.locator(step.upload.selector);
+  }
+  return null;
+}
+
+/**
+ * Walk the flows on the branch build in one recorded desktop context, saying the lines. Returns
+ * the webm path with its moments and lines, or `{ error }`. Never throws.
+ * `chrome` is the demo chrome script (`/api/demo-chrome`); without it the recording shows the
+ * page as it is, and the report says so.
+ */
+export async function recordPreviewDemo({ browser, base, flows, outDir, log = () => {}, vars = {}, now = () => Date.now(), waitMs = null, chrome = null }) {
+  const demoDir = path.join(outDir, 'demo');
+  fs.mkdirSync(demoDir, { recursive: true });
+  const vp = VIEWPORTS.desktop;
+  const taken = flows.filter(f => f && f.path).slice(0, DEMO_LIMITS.flows);
+  if (taken.length === 0) {
+    return { error: 'no flow to demo' };
+  }
+  const context = await browser.newContext({ ...viewportContextOptions('desktop'), recordVideo: { dir: demoDir, size: { width: vp.width, height: vp.height } } });
+  if (chrome) {
+    await context.addInitScript(chrome).catch(e => log('qa.demo.chrome.failed', { error: String(e.message || e).slice(0, 200) }));
+  }
+  const page = await context.newPage();
+  const started = now();
+  const moments = [];
+  const lines = [];
+  const hold = waitMs || (ms => page.waitForTimeout(ms));
+  const at = () => now() - started;
+  const look = chrome ? demoChrome(page, hold) : null;
+  // The area the last action touched: what a line said after it is about.
+  let area = null;
+  const say = async (text) => {
+    const line = String(text || '').trim();
+    if (!line || lines.length >= DEMO_LIMITS.lines) {
+      return;
+    }
+    lines.push({ atMs: at(), text: line });
+    await look?.spotlight(area);
+    await hold(dwellMs(line));
+  };
+  let video = null;
+  try {
+    for (const flow of taken) {
+      if (at() > DEMO_LIMITS.seconds * 1000) {
+        break;
+      }
+      const target = addressOf(base, fillVars(flow.path, vars));
+      area = null;
+      try {
+        const how = await arriveAt(page, target, look, hold);
+        moments.push({ atMs: at(), what: `open ${demoAddress(target)}${how === 'clicked' ? ' by its link' : ''}`, url: demoAddress(target), ok: true });
+      } catch (e) {
+        moments.push({ atMs: at(), what: `could not open ${demoAddress(target)}: ${String(e.message || e).slice(0, 120)}`, ok: false });
+        continue;
+      }
+      await say(demoLine(flow));
+      const flowCtx = { vars, base, startUrl: page.url(), acted: false, responses: [], proofs: [] };
+      const shoot = async (label) => {
+        moments.push({ atMs: at(), what: String(label || 'shown').slice(0, 200), url: demoAddress(page.url()), ok: true });
+        await say(label);
+      };
+      for (const step of flow.steps || []) {
+        if (step.shoot) {
+          await shoot(step.shoot);
+          continue;
+        }
+        const verb = Object.keys(step)[0];
+        try {
+          const acted = look ? stepLocator(page, step) : null;
+          if (acted) {
+            await acted.first().scrollIntoViewIfNeeded?.({ timeout: 2000 }).catch(() => {});
+            const box = await look.boxOf(acted);
+            await look.pointAt(box);
+            area = box;
+          }
+          if (acted && step.fill) {
+            // A person clicks into the field and types; a script pastes.
+            const field = acted.first();
+            await field.click({ timeout: 15000 });
+            await field.fill('', { timeout: 15000 });
+            await field.pressSequentially(String(step.fill.value ?? ''), { delay: HUMAN_BEATS.keystrokeMs, timeout: 15000 + String(step.fill.value ?? '').length * HUMAN_BEATS.keystrokeMs });
+          } else {
+            await runStep(page, step, shoot, flowCtx);
+          }
+          if (acted) {
+            // Where it stands after the action, when it is still there.
+            area = (await look.boxOf(acted)) ?? area;
+            await hold(HUMAN_BEATS.afterActionMs);
+          }
+          if (step.click || step.fill || step.upload || step.goto) {
+            moments.push({ atMs: at(), what: `${verb} ${stepTarget(step)}`.slice(0, 200), url: demoAddress(page.url()), ok: true });
+          }
+        } catch (e) {
+          moments.push({ atMs: at(), what: `${verb} ${stepTarget(step)} failed: ${String(e.message || e).split('\n')[0].slice(0, 120)}`.slice(0, 200), ok: false });
+          log('qa.demo.step.failed', { flow: flow.name, step: verb, target: stepTarget(step), error: String(e.message || e).slice(0, 200) });
+          break;
+        }
+      }
+    }
+    // The last state stays on screen a moment before the recording ends.
+    await hold(DEMO_DWELL.min);
+  } finally {
+    video = page.video();
+    await context.close().catch(() => {});
+  }
+  const videoPath = video ? await video.path().catch(() => null) : null;
+  if (!videoPath || !fs.existsSync(videoPath)) {
+    return { error: 'the recording never materialized' };
+  }
+  return { videoPath, moments, lines, seconds: Math.round(at() / 1000) };
+}
+
 /**
  * The whole capture: build, serve, shoot before and after for every flow and viewport, upload,
  * publish. Never throws. Returns what was captured, what was not and why, and the report markdown.
  *
  * `run` is the worker's spawnSync wrapper, `log` its JSON logger, `post` its Vocion POST.
  */
-export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, outDir, aws, run, log, post, artifactUrl, refusedFlows = [] }) {
+export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, outDir, aws, run, log, post, upload = null, artifactUrl, refusedFlows = [], demoChrome = null }) {
   const started = Date.now();
   const rows = [];
   const failures = [];
@@ -986,6 +1550,8 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
   let seq = 0;
   let bytes = 0;
   let videoSeconds = 0;
+  // The preview demo, when one was recorded and kept (backlog 058).
+  let demo = null;
   const base = productionBase(qa);
   const surface = surfaceOf(qa);
   const errorPatterns = errorPatternsFor(surface);
@@ -1109,6 +1675,41 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
         }
       }
     }
+    // THE PREVIEW DEMO (backlog 058): the flows once more, in one take, said aloud, on the branch.
+    if (afterBase && upload && recordId) {
+      const flowsToDemo = qa.flows.filter(f => !unresolvable.has(f));
+      if (flowsToDemo.length > 0) {
+        const t0 = Date.now();
+        try {
+          const chrome = demoChrome
+            ? await demoChrome().catch((e) => {
+                log('qa.demo.chrome.failed', { error: String(e.message || e).slice(0, 200) });
+                return null;
+              })
+            : null;
+          const d = await recordPreviewDemo({ browser, base: afterBase, flows: flowsToDemo, outDir, log, chrome });
+          if (d.error) {
+            failures.push({ scope: 'demo', message: `no preview demo: ${d.error}` });
+          } else {
+            const body = fs.readFileSync(d.videoPath);
+            const text = `Feature demo, built from the branch ${MIDDOT} ${d.seconds}s, ${d.lines.length} lines`;
+            const query = new URLSearchParams({ recordId: String(recordId), role: DEMO_PREVIEW_ROLE, title: 'Feature demo, before merge', caption: text, name: 'feature-demo-preview' });
+            const r = await upload(`/artifacts/video?${query}`, body, 'video/webm', { 'x-recording-spec': demoSpecHeader(d.moments, d.lines) });
+            if (!r?.ok) {
+              throw new Error(`Vocion refused the demo: ${String(r?.json?.error?.message || r?.status || 'no answer').slice(0, 200)}`);
+            }
+            demo = { url: r.json?.url || '', seconds: d.seconds, lines: d.lines.length, flows: flowsToDemo.length };
+            rows.push({ flow: 'feature demo', viewport: 'desktop', side: 'before merge', url: demo.url, note: `${d.seconds}s, ${d.lines.length} lines said, ${Math.round(body.length / 1024)} KB, stored in Vocion` });
+            evidence.push({ role: DEMO_PREVIEW_ROLE, flow: 'feature demo', viewport: 'desktop', side: 'after', url: demo.url, caption: text });
+            videoSeconds += Math.round((Date.now() - t0) / 1000);
+          }
+          log('qa.demo', { ok: !d.error, seconds: d.seconds || 0, lines: d.lines?.length || 0, elapsed_s: Math.round((Date.now() - t0) / 1000), error: d.error || undefined });
+        } catch (e) {
+          failures.push({ scope: 'demo', message: `the preview demo was not kept: ${String(e.message || e).slice(0, 250)}` });
+          log('qa.demo.failed', { error: String(e.message || e).slice(0, 300) });
+        }
+      }
+    }
     await browser.close().catch(() => {});
   }
   if (server) {
@@ -1202,6 +1803,18 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
     try {
       const body = fs.readFileSync(file);
       bytes += body.length;
+      if (!canUpload && upload && recordId) {
+        // NO BUCKET, STILL A RECORDING (2026-10-03): Vocion keeps it and files it on the request too.
+        const text = caption(flow.name, viewport, 'after video', `${seconds}s, ${Math.round(body.length / 1024)} KB`);
+        const query = new URLSearchParams({ recordId: String(recordId), role: 'qa-video', title: evidenceTitle(flow.name, viewport, 'after video'), caption: text, name: `${flow.name} ${viewport}` });
+        const r = await upload(`/artifacts/video?${query}`, body, 'video/webm');
+        if (!r?.ok) {
+          throw new Error(`Vocion refused the video: ${String(r?.json?.error?.message || r?.status || 'no answer').slice(0, 200)}`);
+        }
+        rows.push({ flow: flow.name, viewport, side: 'after video', url: r.json?.url || '', note: `${seconds}s, ${Math.round(body.length / 1024)} KB, stored in Vocion` });
+        evidence.push({ role: 'qa-video', flow: flow.name, viewport, side: 'after', url: r.json?.url || '', caption: text });
+        return;
+      }
       if (!canUpload) {
         throw new Error('the container could not reach the evidence bucket');
       }
@@ -1229,7 +1842,7 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
 
   async function finish() {
     const elapsedS = Math.round((Date.now() - started) / 1000);
-    const markdown = qaReportMarkdown({ taskId, runId, base, qa, rows, failures, elapsedS, bytes, videoSeconds });
+    const markdown = qaReportMarkdown({ taskId, runId, base, qa, rows, failures, elapsedS, bytes, videoSeconds, demo });
     const shots = rows.filter(r => r.url).length;
     const notEvidence = rows.filter(r => r.not_evidence).length;
     const summary = `${shots} of ${rows.length} shots stored, ${failures.length} problem${failures.length === 1 ? '' : 's'}${notEvidence ? `, ${notEvidence} shot${notEvidence === 1 ? '' : 's'} not evidence (a failed step or a duplicate)` : ''}`;
@@ -1242,6 +1855,6 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
       }
     }
     fs.writeFileSync(path.join(outDir, 'qa-report.md'), markdown);
-    return { captured: shots > 0, shots, rows, failures, evidence, markdown, summary, elapsedS, bytes, videoSeconds, reportPublished, base };
+    return { captured: shots > 0, shots, rows, failures, evidence, markdown, summary, elapsedS, bytes, videoSeconds, reportPublished, base, demo };
   }
 }

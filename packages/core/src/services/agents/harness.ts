@@ -27,6 +27,7 @@
  * until the new path is verified end-to-end against existing flows.
  */
 
+import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { SubAgent } from 'deepagents';
 import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
@@ -246,6 +247,8 @@ type AgentBlueprint = {
   filingTypes?: FilingType[];
   /** The agent's `rest` sources with their declared endpoints (`tools/restDirect.ts`). */
   restSources?: RestSourceSpec[];
+  /** The tools this agent keeps loaded; the rest are found by tool search (`toolTiers.ts`). Null defers nothing. */
+  hotTools?: string[] | null;
 };
 
 /**
@@ -417,12 +420,13 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     systemPrompt = `${systemPrompt}\n\n${intentNote}`;
   }
 
-  // Output discipline (CORE, all agents). The main model reliably PASTES raw
-  // tool output — record JSON, search hits — into its reply and ignores "don't
-  // paste" rules; fighting that with content-stripping is whack-a-mole (it
-  // pretty-prints/reformats so nothing matches). Instead give it a sanctioned
-  // place to lay data out — a <scratch> block we strip deterministically — so
-  // the user only ever sees what's AFTER it. Delimiter-based = format-agnostic.
+  // Output discipline (CORE, all agents). The answer is synthesis, never raw
+  // tool output. A sanctioned <scratch> block for laying data out used to sit
+  // here; by 2026-10-04 no scratch block in three days of production turns
+  // held raw data — they were planning essays (2.3k chars on average, 5.3k at
+  // p90) the person waited through before the first word (conversation 470:
+  // over a minute). Removed rather than rationed. `answerStream.ts` still
+  // keeps a stray block out of the answer.
   const { resolveVoice, voicePrompt } = await import('@/libs/agents/voice');
   const voice = resolveVoice(row.voice, row.voiceOverride);
   const stylePage = voice.style
@@ -431,16 +435,22 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   const voiceSection = voicePrompt(voice, stylePage ? { slug: stylePage.slug, content: stylePage.md } : null);
   const OUTPUT_DISCIPLINE = [
     'OUTPUT FORMAT (strict):',
-    'You may lay out raw data to reason over — record JSON, and ESPECIALLY search results and email contents (From/Subject/body, message lists) — but ONLY inside a single <scratch>…</scratch> block at the very START of your reply.',
-    'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — erinb@northwind.example"), never the search results you read to find it.',
-    'If you have no raw data to lay out, skip the scratch block and just answer.',
+    'The answer is clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — erinb@northwind.example"), never the search results you read to find it.',
     // Codes (`libs/codes.ts`): every tool names records and runs by one, so the answer can too.
     'RECORD REFERENCES: name a record, run, ask or conversation by its code exactly as tool output gives it — FE-294, PL-295, RUN-439, ACT-5590, ASK-267, CHAT-405 — the one reference a person may read in your answer. Never a bare number or "#294"; a pull request stays repo#number (squatch-core#147). Tools take the code as input too (read_object FE-294).',
     // How this agent talks: its `voice:` (YAML, then a person's override), composed once here (`libs/agents/voice.ts`).
     voiceSection,
     'CITATIONS: tool output that carries a bracketed number — search_knowledge hits rendered as "[3] **title** [source]", and a briefing returned as "[4] Latest … briefing" — is a citable source. When a sentence states a fact you took from one, cite it inline with that number immediately after the claim, e.g. "He owns healthcare-IT at Kestrel [3]." Use the exact numbers you were given (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Not every sentence needs a marker — your own synthesis, judgement and sequencing do not. But ANY concrete claim about the reader\'s world does: a meeting and its time, a dollar amount, a deal stage, a date, a person\'s name, how long something has been waiting. Those are the claims a reader needs to check, and an uncited one is indistinguishable from an invented one.',
   ].join(' ');
-  systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
+  // THE ACTIONS, ONCE (2026-10-04): recommend_action and propose_action each
+  // carried the whole registry — every id, description and input field,
+  // ~13k characters — in their own descriptions, so every model call paid
+  // for it twice. It is stated here once, cached with the prompt, and both
+  // tools point at it. An agent that holds neither tool carries none of it.
+  const heldTools = new Set(row.harnessConfig?.excludeTools ?? []);
+  const { actionCatalog } = await import('@/libs/actions/registry');
+  const ACTIONS = heldTools.has('recommend_action') && heldTools.has('propose_action') ? '' : actionCatalog();
+  systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE, ACTIONS].filter(Boolean).join('\n\n');
 
   // deepagents auto-injects a built-in `general-purpose` subagent whose prompt
   // is generic (DEFAULT_SUBAGENT_PROMPT — no answer-style rules). So when the
@@ -481,14 +491,18 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   // whether a Turbopack production build tolerates it too, so the gate stays.
   // With nothing mounted the middleware buys nothing; bodies still mount via
   // initialFiles for the file tools.
-  const [playbookCount] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(playbookSchema)
-    .where(eq(playbookSchema.orgId, orgId));
+  const { hotToolNames } = await import('./toolTiers');
+  const [[playbookCount], hotTools] = await Promise.all([
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(playbookSchema)
+      .where(eq(playbookSchema.orgId, orgId)),
+    hotToolNames(orgId, agentSlug),
+  ]);
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
-  return { ...definition, model, hasMounts };
+  return { ...definition, model, hasMounts, hotTools };
 }
 
 /**
@@ -576,7 +590,12 @@ export async function compileAgentForRequest(
   // reaches the model's catalog, so the agent can't even offer it (vs.
   // `interrupts`, which keeps the tool but gates execution).
   const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
-  const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
+  const domainTools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
+  const tools = await tieredTools(blueprint, ctx, domainTools);
+  // Deferred tools are invisible until searched for: without this line the
+  // model told a person it could not make an image while generate_image sat
+  // behind the search (live test, 2026-10-04). Stable per agent, so cached.
+  const deferring = tools.length > domainTools.length;
   // Specialists answer with the SAME tool surface as the lead, on this
   // request's context — a delegate must not read more than the person who
   // asked.
@@ -592,7 +611,7 @@ export async function compileAgentForRequest(
     // it a SECOND system message once the middleware prepends its own, which
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
-    systemPrompt: blueprint.systemPrompt,
+    systemPrompt: deferring ? `${blueprint.systemPrompt ?? ''}\n\nYou have more tools than the ones listed: search for one with tool_search_tool_bm25 before saying you cannot do something.` : blueprint.systemPrompt,
     // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
     // Store over Postgres, so an agent's file reads there see the org's full
     // approved memory across threads. Writes under /memories/ are refused —
@@ -613,6 +632,35 @@ export async function compileAgentForRequest(
   });
 
   return { graph, agentRow: blueprint.agentRow, ctx };
+}
+
+/**
+ * The turn's tools as the model will read them (`toolTiers.ts`): on the
+ * direct Anthropic API, the ones this agent uses stay loaded — with whatever
+ * it was granted by name — and the rest wait behind tool search. Any other
+ * provider, an agent with no history yet, or `harness.toolSearch: false`
+ * carries every tool in full, as before.
+ * @param blueprint - The agent's cached parts.
+ * @param ctx - This request's context.
+ * @param tools - The turn's tools.
+ */
+async function tieredTools<T extends StructuredToolInterface>(blueprint: AgentBlueprint, ctx: RuntimeContext, tools: T[]): Promise<T[]> {
+  const harness = ctx.harnessConfig as { toolSearch?: boolean; grantTools?: string[] };
+  if (!blueprint.hotTools?.length || harness.toolSearch === false) {
+    return tools;
+  }
+  const { ChatAnthropic } = await import('@langchain/anthropic');
+  if (!(blueprint.model instanceof ChatAnthropic)) {
+    return tools;
+  }
+  const { TOOL_SEARCH, deferColdTools } = await import('./toolTiers');
+  const keep = new Set([...blueprint.hotTools, ...(harness.grantTools ?? [])]);
+  if (tools.every(t => keep.has(t.name))) {
+    return tools;
+  }
+  // Anthropic runs the search itself; this entry only puts it in the request.
+  const search = makeTool(async () => '', { name: TOOL_SEARCH.name, description: 'Server-side tool search.', schema: z.object({}), extras: { providerToolDefinition: TOOL_SEARCH } }) as unknown as T;
+  return deferColdTools(tools, keep, search);
 }
 
 /**

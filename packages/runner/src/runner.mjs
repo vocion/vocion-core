@@ -32,12 +32,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
-import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa } from './contract.mjs';
-import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown } from './events.mjs';
-import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, namedTestStatus, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testNamePattern, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
+import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor, taskShotsDir } from './contract.mjs';
+import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown, usageFromMessages } from './events.mjs';
+import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
-import { captureEvidence, containerCredentials, productionBase, publishArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
+import { captureEvidence, collectRepoTestShots, collectRepoTestVideos, containerCredentials, excludeShotsDir, otherTasksShots, productionBase, publishArtifact, qaReportMarkdown, reportArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
 import { repairBrief, repairDecision, repairRecord, repairsLine } from './repair.mjs';
 import { resumeConflictNote } from './resume.mjs';
@@ -199,6 +199,26 @@ const vocion = {
   },
   post(p, body) {
     return this.call('POST', p, body);
+  },
+  /**
+   * POST raw bytes (a recording) with their own content type. Vocion keeps them; the worker never
+   * needs a bucket. A long timeout, because a few minutes of video is tens of MB.
+   */
+  async upload(p, bytes, contentType, headers = {}) {
+    const res = await fetch(`${cfg.vocionUrl}/api/v1${p}`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': contentType, 'authorization': `Bearer ${this.token}` },
+      body: bytes,
+      signal: AbortSignal.timeout(180000),
+    });
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = { raw: text.slice(0, 300) };
+    }
+    return { status: res.status, ok: res.ok, json };
   },
   /**
    * The run's last word (complete / fail) survives Vocion restarting under it. Run 361
@@ -390,6 +410,45 @@ function sh(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: 'utf8', cwd: opts.cwd || REPO_DIR, env: { ...process.env, ...gitAuthEnv(), ...(opts.env || {}) }, timeout: (opts.timeoutSeconds || 600) * 1000, maxBuffer: 64 * 1024 * 1024 });
   return { code: r.status ?? (r.signal ? 128 : 1), stdout: r.stdout || '', stderr: r.stderr || '', signal: r.signal || null };
 }
+// The same, without blocking the event loop. A check or an install can run for twenty minutes,
+// and spawnSync froze the heartbeat timer for all of it: the lease (300 s) expired and Vocion
+// marked the run `lost` while it was still verifying (walk 26, RUN-512 and RUN-513). Anything
+// that can run longer than a heartbeat or two goes through here.
+function shAsync(cmd, args, opts = {}) {
+  return new Promise((resolve) => {
+    const max = 64 * 1024 * 1024;
+    let stdout = '';
+    let stderr = '';
+    let signal = null;
+    let c;
+    try {
+      c = spawn(cmd, args, { cwd: opts.cwd || REPO_DIR, env: { ...process.env, ...gitAuthEnv(), ...(opts.env || {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      resolve({ code: 1, stdout: '', stderr: String(e.message || e), signal: null }); return;
+    }
+    c.stdout.setEncoding('utf8').on('data', (d) => {
+      if (stdout.length < max) {
+        stdout += d;
+      }
+    });
+    c.stderr.setEncoding('utf8').on('data', (d) => {
+      if (stderr.length < max) {
+        stderr += d;
+      }
+    });
+    const timer = setTimeout(() => {
+      signal = 'SIGTERM'; try {
+        c.kill('SIGTERM');
+      } catch {}
+    }, (opts.timeoutSeconds || 600) * 1000);
+    c.on('error', (e) => {
+      clearTimeout(timer); resolve({ code: 1, stdout, stderr: stderr || String(e.message || e), signal });
+    });
+    c.on('close', (code, sig) => {
+      clearTimeout(timer); resolve({ code: code ?? (sig || signal ? 128 : 1), stdout, stderr, signal: sig || signal });
+    });
+  });
+}
 function must(cmd, args, opts = {}) {
   const r = sh(cmd, args, opts);
   if (r.code !== 0) {
@@ -557,8 +616,9 @@ function renderTaskMarkdown(t, runId) {
     t.plan && !t.plan.skipped ? `## Approved plan\n\nThis work was planned and the plan was approved${t.plan.approved_by ? ` by ${t.plan.approved_by}` : ''}${t.plan.plan_id ? ` (${t.plan.plan_id})` : ''}${t.plan.url ? `: ${t.plan.url}` : ''}. Build the outcome it describes. Where the plan is wrong or incomplete, do what the outcome needs and say in your report what you changed from the plan and why.\n${t.plan.summary ? `\n${t.plan.summary}\n` : ''}` : '',
     t.plan && t.plan.skipped ? `## Plan\n\nA plan was offered and declined: ${t.plan.skip_reason}\n` : '',
     t.notes ? `## Notes\n\n${t.notes}\n` : '',
-    t.qa?.flows?.length ? `## QA evidence\n\nAfter the checks pass, the worker screenshots these paths on production and on your branch, at the viewports named, and posts them on the task: ${t.qa.flows.map(f => `${f.name} (${f.path}, ${(f.viewports || ['desktop']).join(' and ')})`).join('; ')}. Keep those paths loading.\n\nQA judges every acceptance criterion against a picture of THAT state, and one picture of a page at rest proves nothing about typing, filtering or an empty result. So for each criterion a person can see, write a flow into \`${QA_FLOWS_FILE}\` (outside the repo; it is not a change) that reaches the state and shoots it:\n\n\`\`\`json\n{ "flows": [ { "name": "<the criterion, short>", "criterion": "<the acceptance line, as written>", "path": "/", "viewports": ["desktop"], "steps": [ { "wait_for": "<text or selector>" }, { "fill": { "selector": "input[type=search]", "value": "kes" } }, { "shoot": "<what this shows>" } ] } ] }\n\`\`\`\n\nSteps name exactly one of wait_for, click, fill, upload ({ selector, megabytes }: a generated file into a file input), offline (true drops the network, false restores it), shoot. To show a bad-connection state: upload, wait for progress, offline: true, wait_for the message, shoot. Up to ${ENGINEER_FLOW_LIMITS.flows} flows of ${ENGINEER_FLOW_LIMITS.steps} steps.\n\nThe worker holds each flow to what it claims:\n- A criterion that is reached by doing something (a dialog that opens, a click, a toggle turned on, a row that shows after a send) needs the steps that do it: at least one click, fill, upload or offline before the shoot. A flow that names one and only looks at the page is refused.\n- A step that fails (a selector that matched nothing) makes every shot after it NOT EVIDENCE, and the report says which step. Targets are the visible text or accessible name (\`"Remind"\`), a CSS selector, or a Playwright selector (\`text=Remind\`, \`button:has-text('Send reminder')\`, \`[role=switch]\`).\n- A shot byte-for-byte the same as another flow's is marked a duplicate and proves nothing for its criterion. Two criteria are two different pictures.\n\nCheck your flows before you finish: \`node ${path.join(WORKER_HOME, 'contract.mjs')} check-flows ${QA_FLOWS_FILE}\` prints every refusal.\n\nThe after build is built from YOUR branch${t.qa.flows.some(f => f.sign_in) ? ' in the repository\'s preview mode, signed in with its sample account' : ''}. ${surfaceOf(t.qa).preview_note ? `${surfaceOf(t.qa).preview_note} ` : ''}When your change adds a state a criterion needs (a row in a new state, an error), put that state in the preview's data in this change and point the flow at it. A criterion a screenshot cannot show is covered below.\n` : '',
-    `## Criteria a screenshot cannot show\n\nA query scope, a URL, a plan limit, a migration: prove each with a test, and name it in \`${CRITERIA_TESTS_FILE}\` (outside the repo) so the pull request lists it and QA can open it:\n\n\`\`\`json\n{ "tests": [ { "criterion": "<the acceptance line, as written>", "file": "<path/to/x.test.ts>", "name": "<the it() or test() name, exactly>" } ] }\n\`\`\`\n\nThe worker keeps an entry only when that file is in your branch and contains that test name. A criterion with neither a shot nor a named test is recorded as unproven.\n`,
+    t.qa?.flows?.length ? `## QA evidence\n\nAfter the checks pass, the worker screenshots these paths on production and on your branch, at the viewports named, and posts them on the task: ${t.qa.flows.map(f => `${f.name} (${f.path}, ${(f.viewports || ['desktop']).join(' and ')})`).join('; ')}. Keep those paths loading.\n\nQA judges every acceptance criterion against a picture of THAT state, and one picture of a page at rest proves nothing about typing, filtering or an empty result. So for each criterion a person can see, write a flow into \`${QA_FLOWS_FILE}\` (outside the repo; it is not a change) that reaches the state and shoots it:\n\n\`\`\`json\n{ "flows": [ { "name": "<the criterion, short>", "criterion": "<the acceptance line, as written>", "path": "/", "viewports": ["desktop"], "steps": [ { "wait_for": "<text or selector>" }, { "fill": { "selector": "input[type=search]", "value": "kes" } }, { "shoot": "<what this shows>" } ] } ] }\n\`\`\`\n\nSteps name exactly one of wait_for, click, fill, upload ({ selector, megabytes }: a generated file into a file input), offline (true drops the network, false restores it), shoot. To show a bad-connection state: upload, wait for progress, offline: true, wait_for the message, shoot. Up to ${ENGINEER_FLOW_LIMITS.flows} flows of ${ENGINEER_FLOW_LIMITS.steps} steps.\n\nThe worker holds each flow to what it claims:\n- A criterion that is reached by doing something (a dialog that opens, a click, a toggle turned on, a row that shows after a send) needs the steps that do it: at least one click, fill, upload or offline before the shoot. A flow that names one and only looks at the page is refused.\n- A step that fails (a selector that matched nothing) makes every shot after it NOT EVIDENCE, and the report says which step. Targets are the visible text or accessible name (\`"Remind"\`), a CSS selector, or a Playwright selector (\`text=Remind\`, \`button:has-text('Send reminder')\`, \`[role=switch]\`).\n- A shot byte-for-byte the same as another flow's is marked a duplicate and proves nothing for its criterion. Two criteria are two different pictures.\n\nCheck your flows before you finish: \`node ${path.join(WORKER_HOME, 'contract.mjs')} check-flows ${QA_FLOWS_FILE}\` prints every refusal.\n\nThe same flows are then recorded in ONE take as the feature's demo before merge, each flow's criterion said aloud as it reaches its state and each shoot label said as it is shot. So write the flows in the order a user meets the feature, make each criterion one plain present-tense sentence a product manager follows, and make each shoot label say what is on screen.\n\nThe after build is built from YOUR branch${t.qa.flows.some(f => f.sign_in) ? ' in the repository\'s preview mode, signed in with its sample account' : ''}. ${surfaceOf(t.qa).preview_note ? `${surfaceOf(t.qa).preview_note} ` : ''}When your change adds a state a criterion needs (a row in a new state, an error), put that state in the preview's data in this change and point the flow at it. That makes the state visible; it proves nothing about the rule that produces it in production. A criterion a screenshot cannot show is covered below.\n` : '',
+    `## Pictures from your own browser tests\n\nFor each criterion a person can see (a layout, a control's state, text on a page), prove it with a browser test in the repository, run signed in the way the repository's own tests sign in, that saves a screenshot at the moment that shows it: \`await page.screenshot({ path: '${taskShotsDir(t)}/<criterion-in-a-few-words>-<desktop|phone>.png' })\`. Name that test in \`${CRITERIA_TESTS_FILE}\` too. After the checks pass, the worker uploads every image in \`${taskShotsDir(t)}/\` as this task's screenshots (the whole \`${shotsDirFor(t.qa)}/\` directory is excluded from the commit), and QA judges the criterion on that picture. That folder is this task's alone: tests from earlier tasks keep saving into their own folders on every run, and a picture outside yours is not counted as yours.\n\nRecord those browser tests too, so a person can watch the run: turn video on for them (\`test.use({ video: 'on' })\`, or \`recordVideo\` on the context) and save each test's recording beside its screenshots, \`const video = page.video(); await page.close(); await video?.saveAs('${taskShotsDir(t)}/<criterion-in-a-few-words>-<desktop|phone>.webm')\`. The worker sends every \`.webm\` or \`.mp4\` in \`${taskShotsDir(t)}/\` to Vocion as this task's recording; it lands on the feature request's page.\n`,
+    `## Criteria a screenshot cannot show\n\nA query scope, a URL, a plan limit, a migration: prove each with a test, and name it in \`${CRITERIA_TESTS_FILE}\` (outside the repo) so the pull request lists it and QA can open it:\n\n\`\`\`json\n{ "tests": [ { "criterion": "<the acceptance line, as written>", "file": "<path/to/x.test.ts>", "name": "<the it() or test() name, exactly>" } ] }\n\`\`\`\n\nThe worker keeps an entry only when that file is in your branch and contains that test name. A criterion with neither a shot nor a named test is recorded as unproven.\n\nWho is looking: a criterion about who is viewing or who counts (the owner's own opens, a visitor against a signed-in member, signed out, who is asked for a passcode, a permission) is not proven by the preview, where the sample owner is always signed in and the data is yours. Prove it with a test that drives the real routes against the database the way production records it (the visitor's request and its beacon, the owner's own visit through the same link), never by inserting rows in the shape you expect them to have, and name it here. QA judges such a line on that test alone.\n`,
     state.services.length ? `## Services\n\nRunning for this task: ${state.services.join(', ')}. ${Object.keys(state.serviceEnv).join(' and ')} ${Object.keys(state.serviceEnv).length === 1 ? 'is' : 'are'} set in your environment, and each service's setup (its migrations) has run, so the suites that need it run.\n` : '',
     t.engineer_rules?.length ? `## This repository's rules\n\n${t.engineer_rules.map(r => `- ${r}`).join('\n')}\n` : '',
     '## When you are done',
@@ -711,6 +771,12 @@ function prepareRepo(task, run) {
   if (resumedFrom && !resumedFrom.conflicts) {
     log('resumed', resumedFrom);
   }
+  // The repo's own QA tests may write screenshots under the shots directory for the worker to pick
+  // up after the checks run (see collectRepoTestShots). They prove a line to QA, not a change to
+  // ship: excluded here, before the engineer's first commit, so `git status` never offers them to
+  // `land`'s `git add`, whatever the engineer or a test run writes there.
+  excludeShotsDir(REPO_DIR, shotsDirFor(task.qa));
+
   const headBranch = must('git', ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   log('prepared', { branch: headBranch, base_sha: baseSha, attempt, resumed_from: resumedFrom || undefined });
   return { branch: headBranch, baseSha, attempt, resumedFrom };
@@ -720,16 +786,16 @@ function prepareRepo(task, run) {
 
 // npm ci once per run, without dependency scripts; then the repo's own postinstall (a generated
 // client, say), which the checks and the tests need.
-function ensureInstalled() {
+async function ensureInstalled() {
   if (fs.existsSync(path.join(REPO_DIR, 'node_modules'))) {
     return { ok: true };
   }
   log('install', { note: 'npm ci --ignore-scripts, then the repo postinstall' });
-  const inst = sh('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { timeoutSeconds: 900 });
+  const inst = await shAsync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { timeoutSeconds: 900 });
   if (inst.code !== 0) {
     return { ok: false, tail: `npm ci failed: ${tail(inst.stderr || inst.stdout, 15)}` };
   }
-  const post = sh('npm', ['run', 'postinstall', '--if-present', '--silent'], { timeoutSeconds: 600 });
+  const post = await shAsync('npm', ['run', 'postinstall', '--if-present', '--silent'], { timeoutSeconds: 600 });
   if (post.code !== 0) {
     return { ok: false, tail: `postinstall failed: ${tail(post.stderr || post.stdout, 15)}` };
   }
@@ -782,12 +848,12 @@ async function startServices(task) {
       state.serviceEnv[k] = svc.url;
     }
     Object.assign(process.env, state.serviceEnv);
-    const inst = ensureInstalled();
+    const inst = await ensureInstalled();
     if (!inst.ok) {
       throw new Error(inst.tail);
     }
     for (const cmd of svc.setup) {
-      const r = sh('sh', ['-c', cmd], { timeoutSeconds: 600 });
+      const r = await shAsync('sh', ['-c', cmd], { timeoutSeconds: 600 });
       if (r.code !== 0) {
         throw new Error(`${svc.name} setup \`${cmd}\` failed: ${tail(r.stderr || r.stdout, 15)}`);
       }
@@ -797,12 +863,12 @@ async function startServices(task) {
     log('service.started', { service: svc.name, host: new URL(svc.url).host });
   }
   if (setup.length) {
-    const inst = ensureInstalled();
+    const inst = await ensureInstalled();
     if (!inst.ok) {
       throw new Error(inst.tail);
     }
     for (const cmd of setup) {
-      const r = sh('sh', ['-c', cmd], { timeoutSeconds: 600 });
+      const r = await shAsync('sh', ['-c', cmd], { timeoutSeconds: 600 });
       if (r.code !== 0) {
         throw new Error(`setup \`${cmd}\` failed: ${tail(r.stderr || r.stdout, 15)}`);
       }
@@ -964,6 +1030,17 @@ function runClaude(task, runId, opts = {}) {
           cacheReadTokens: usage.cache_read_input_tokens || 0,
           cents: Math.round(costUsd * 100),
         });
+      } else if (!result) {
+        // KILLED BEFORE ITS RESULT LINE (walk 20, FE-436): the wall clock or a stop ended the
+        // process and no cost was ever printed, so the run read $0 after forty minutes of Opus.
+        // Every assistant message carried its own usage; that sum is reported, and Vocion prices
+        // it (the runner holds no price list), so the spend is on the run and the feature.
+        const seen = usageFromMessages(messages);
+        if (seen && seen.model) {
+          state.model = state.model || seen.model;
+          state.pendingUsage = withUsage(state.pendingUsage, { model: seen.model, inputTokens: seen.inputTokens, outputTokens: seen.outputTokens, cacheReadTokens: seen.cacheReadTokens });
+          log('claude.usage_from_stream', { model: seen.model, input_tokens: seen.inputTokens, output_tokens: seen.outputTokens, note: 'no result line; usage summed from the assistant messages, priced by Vocion' });
+        }
       }
       log(label === 'engineer' ? 'claude.finished' : 'repair.claude.finished', {
         pass: label === 'engineer' ? undefined : label,
@@ -1051,7 +1128,7 @@ function changedFiles() {
   return [...new Set(files.filter(Boolean))];
 }
 
-function verify(task) {
+async function verify(task) {
   setPhase('verify');
   const files = changedFiles();
   const owns = f => humanOwned(f, task.human_owned);
@@ -1098,12 +1175,12 @@ function verify(task) {
     } else if (step.kind === 'skipped') {
       rec = { name, status: 'skipped', exit_code: null, tail: step.reason };
     } else {
-      const inst = ensureInstalled();
+      const inst = await ensureInstalled();
       if (!inst.ok) {
         rec = { name, status: 'failed', exit_code: 1, tail: inst.tail }; outputs[name] = inst.tail;
       }
       if (!rec) {
-        const r = sh('sh', ['-c', step.command], { timeoutSeconds: 1200 });
+        const r = await shAsync('sh', ['-c', step.command], { timeoutSeconds: 1200 });
         const full = `${r.stdout}\n${r.stderr}`;
         outputs[name] = full;
         rec = { name, status: r.code === 0 ? 'passed' : 'failed', exit_code: r.code, tail: tail(full, 25), ...(step.kind === 'command' ? { command: step.command } : {}) };
@@ -1142,31 +1219,63 @@ function modelDisplayName(id) {
 
 /**
  * The engineer's named tests (criteria-tests.json), each kept only when it is in the branch, then
- * run by itself here, and the output stored in Vocion on the task: QA runs nothing, so the proof
- * it opens is this run's output. A named test that does not pass is dropped from the pull request.
+ * proven on the branch here, and the output stored in Vocion on the task: QA runs nothing, so the
+ * proof it opens is this run's output. A named test that does not pass is dropped from the pull request.
+ *
+ * WHAT RAN, NOT WHAT A PATTERN GUESSED (Walk 10, 2026-10-02, FE-381 task 383): each named test
+ * ran alone with `-t <its name>`, and three parametric names ("... ($document at $width px)")
+ * matched none of the expanded tests, so the file printed "39 skipped" and QA spent the attempt
+ * sending it back. Each file now runs once, whole, with the JSON reporter beside the verbose one;
+ * every test that ran is recorded with an id on the stored run (`spec.tests`), a named test is
+ * matched against that list (a parametric name matches its cases), and record_verdict refuses a
+ * cited test that is not on it. A runner with no JSON report falls back to reading the verbose
+ * line, as before.
  */
 async function provenByTests(recordId, runId) {
   if (!fs.existsSync(CRITERIA_TESTS_FILE)) {
-    return { proofs: [], runLink: null, notRun: [], allSkipped: [] };
+    return { proofs: [], runLink: null, notRun: [], allSkipped: [], tests: [] };
   }
   const read = (rel) => {
     const f = path.join(REPO_DIR, rel); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
   };
   const { proofs, refused } = criterionTests(fs.readFileSync(CRITERIA_TESTS_FILE, 'utf8'), read);
-  const runs = proofs.map((p) => {
-    // The package the test lives in (apps/<x> or packages/<x>), where vitest runs.
-    const parts = p.file.split('/');
+  // The package the test lives in (apps/<x> or packages/<x>), where vitest runs.
+  const whereOf = (file) => {
+    const parts = file.split('/');
     const ws = ['apps', 'packages'].includes(parts[0]) && parts.length > 2 && fs.existsSync(path.join(REPO_DIR, parts[0], parts[1], 'package.json')) ? path.join(parts[0], parts[1]) : '.';
-    const rel = ws === '.' ? p.file : parts.slice(2).join('/');
-    // -t is a regular expression: a name with a bracket or a question mark must match itself.
-    const args = ['vitest', 'run', rel, '-t', testNamePattern(p.name), '--reporter=verbose'];
+    return { ws, rel: ws === '.' ? file : parts.slice(2).join('/') };
+  };
+  const ran = new Map();
+  for (const file of [...new Set(proofs.map(p => p.file))]) {
+    const { ws, rel } = whereOf(file);
+    const report = path.join(os.tmpdir(), `vocion-named-tests-${runId}-${ran.size}.json`);
+    const args = ['vitest', 'run', rel, '--reporter=verbose', '--reporter=json', `--outputFile.json=${report}`];
     // Plain text: the stored run is read by QA and by people, and color codes made it noise.
     // The services' env (DATABASE_URL, TEST_DATABASE_URL) is in process.env since startServices, so sh passes it on.
-    const r = sh('npx', args, { cwd: path.join(REPO_DIR, ws), timeoutSeconds: 300, env: { NO_COLOR: '1', FORCE_COLOR: '0' } });
-    const output = `${r.stdout}\n${r.stderr}`;
-    const { status, line } = namedTestStatus(output, p.name, r.code);
+    const r = await shAsync('npx', args, { cwd: path.join(REPO_DIR, ws), timeoutSeconds: 300, env: { NO_COLOR: '1', FORCE_COLOR: '0' } });
+    let results = [];
+    try {
+      results = testResultsOf(JSON.parse(fs.readFileSync(report, 'utf8')), fs.realpathSync(REPO_DIR));
+    } catch {
+      results = [];
+    }
+    fs.rmSync(report, { force: true });
+    ran.set(file, { ws, rel, code: r.code, output: `${r.stdout}\n${r.stderr}`, results, command: `cd ${ws} && npx vitest run ${rel} --reporter=verbose --reporter=json` });
+  }
+  const tests = numberTests([...ran.values()].flatMap(f => f.results));
+  const runs = proofs.map((p) => {
+    const f = ran.get(p.file);
+    const inFile = tests.filter(t => t.file === p.file);
+    if (inFile.length) {
+      const matched = matchingTests(p.name, p.file, inFile);
+      const status = namedVerdict(matched);
+      const reason = status === 'skipped' ? skipReason(read(p.file), p.name, process.env) : '';
+      return { ...p, passed: status === 'passed', status, matched, line: '', reason, command: f.command, output: f.output.slice(-6000) };
+    }
+    // No JSON report (another runner, a crash before it wrote): the verbose line, as before.
+    const { status, line } = namedTestStatus(f.output, p.name, f.code);
     const reason = status === 'skipped' ? skipReason(read(p.file), p.name, process.env) : '';
-    return { ...p, passed: status === 'passed', status, line, reason, command: `cd ${ws} && npx ${args.map(a => (/[\s()[\]?*+|^$\\]/.test(a) ? JSON.stringify(a) : a)).join(' ')}`, output: output.slice(-6000) };
+    return { ...p, passed: status === 'passed', status, line, reason, command: f.command, output: f.output.slice(-6000) };
   });
   const notRun = runs.filter(r => !r.passed);
   const allSkipped = criteriaAllSkipped(runs);
@@ -1177,17 +1286,20 @@ async function provenByTests(recordId, runId) {
   }
   let runLink = null;
   if (runs.length && vocion.enabled && recordId) {
-    const md = testRunMarkdown(runs, runId);
+    const md = testRunMarkdown(runs, runId, tests);
     const passedCount = runs.filter(r => r.passed).length;
     const skippedCount = runs.filter(r => r.status === 'skipped').length;
-    const caption = `${passedCount} of ${runs.length} named tests passed on the branch${skippedCount ? `, ${skippedCount} not run (skipped)` : ''}${allSkipped.length ? `; ${allSkipped.length} criteria with no named test that ran` : ''}`;
-    const res = await publishArtifact((p, body) => vocion.post(p, body), { recordType: 'object', recordId: String(recordId), recordRole: 'qa-test-run', kind: 'markdown', title: `Named tests, run ${runId}`, spec: { md, title: `Named tests, run ${runId}`, summary: caption, caption } });
+    const unmatched = runs.filter(r => r.status === 'not-found').length;
+    const caption = `${passedCount} of ${runs.length} named tests passed on the branch${skippedCount ? `, ${skippedCount} not run (skipped)` : ''}${unmatched ? `, ${unmatched} matched no test that ran` : ''}${allSkipped.length ? `; ${allSkipped.length} criteria with no named test that ran` : ''}${tests.length ? `; ${tests.length} tests ran in ${ran.size} file${ran.size === 1 ? '' : 's'}` : ''}`;
+    const listed = tests.slice(0, 400).map(t => ({ id: t.id, file: t.file, name: t.name.slice(0, 300), status: t.status }));
+    const named = runs.map(r => ({ criterion: r.criterion.slice(0, 300), file: r.file, name: r.name.slice(0, 300), status: r.status, matched: (r.matched || []).map(t => t.id) }));
+    const res = await publishArtifact((p, body) => vocion.post(p, body), { recordType: 'object', recordId: String(recordId), recordRole: 'qa-test-run', kind: 'markdown', title: `Named tests, run ${runId}`, spec: { md, title: `Named tests, run ${runId}`, summary: caption, caption, tests: listed, named } });
     if (res.ok && res.id) {
       runLink = `${cfg.vocionUrl}/dashboard/artifacts/${res.id}`;
     }
   }
-  log('criteria.tests', { kept: proofs.length, passed: runs.filter(r => r.passed).length, not_run: notRun.map(r => `${r.name.slice(0, 80)}: ${verdictText(r)}`).slice(0, 8), refused: refused.slice(0, 8), stored: Boolean(runLink) });
-  return { proofs: runs.filter(r => r.passed), runLink, notRun, allSkipped };
+  log('criteria.tests', { kept: proofs.length, passed: runs.filter(r => r.passed).length, ran: tests.length, not_run: notRun.map(r => `${r.name.slice(0, 80)}: ${verdictText(r)}`).slice(0, 8), refused: refused.slice(0, 8), stored: Boolean(runLink) });
+  return { proofs: runs.filter(r => r.passed), runLink, notRun, allSkipped, tests };
 }
 
 function land(task, runId, verification, claude, prepared, evidence = null, tests = { proofs: [], runLink: null }) {
@@ -1793,7 +1905,7 @@ async function main() {
     // Checks still run on what is there, so the draft PR says how far the work got.
     if (claude.result && !state.stopped) {
       try {
-        checks = verify(task);
+        checks = await verify(task);
       } catch (e) {
         log('verify.crashed', { error: e.message });
       }
@@ -1815,7 +1927,7 @@ async function main() {
 
   let verification;
   try {
-    verification = verify(task);
+    verification = await verify(task);
   } catch (e) {
     await finalizeRunLogs(task, runId, claude, {}); await fail(runId, `verify crashed: ${e.message}`, [], partial); return;
   }
@@ -1870,7 +1982,7 @@ async function main() {
     }
     let after;
     try {
-      after = verify(task);
+      after = await verify(task);
     } catch (e) {
       log('verify.crashed', { error: e.message, pass });
       break;
@@ -1933,6 +2045,12 @@ async function main() {
     try {
       evidence = await captureEvidence({
         qa,
+        // The demo's chrome, from the deployment this run reports to: one look for every demo.
+        demoChrome: cfg.vocionUrl
+          ? async () => {
+            const r = await fetch(`${cfg.vocionUrl}/api/demo-chrome`, { signal: AbortSignal.timeout(10000) }); return r.ok ? await r.text() : null;
+          }
+          : null,
         taskId: task.task_id,
         runId,
         recordId: state.record?.id || null,
@@ -1942,6 +2060,7 @@ async function main() {
         run: sh,
         log,
         post: vocion.enabled ? (p, body) => vocion.post(p, body) : null,
+        upload: vocion.enabled ? (p, bytes, type, headers) => vocion.upload(p, bytes, type, headers) : null,
         // A shot stored in Vocion is evidence a person can open: its artifact page, not a
         // vocion:artifact:<id> reference the reviewer rightly refused to count (2026-09-26).
         artifactUrl: vocion.enabled ? id => `${cfg.vocionUrl}/dashboard/artifacts/${id}` : null,
@@ -1955,6 +2074,75 @@ async function main() {
     }
   } else if (qa) {
     log('qa.skipped', { note: 'QA_CAPTURE=0' });
+  }
+
+  // Repo-test screenshots (2026-10-03 decision, FE-398): the repo's own browser tests prove a line
+  // a person sees and save it under this task's folder in qa.shots_dir (taskShotsDir); the worker
+  // uploads them the same way it uploads its own shots. Independent of qa.flows, because a repo can
+  // carry this proof with no worker-shot flow configured at all. Only this task's folder counts:
+  // tests committed by earlier tasks run on every build and keep writing their own pictures
+  // (2026-10-04, walks 17-18: every task since carried the archive and sort tests' screenshots).
+  let repoShots = { uploaded: [], skipped: [], evidence: [] };
+  if (cfg.qaEnabled) {
+    try {
+      repoShots = await collectRepoTestShots({
+        dir: path.join(REPO_DIR, taskShotsDir(task)),
+        taskId: task.task_id,
+        runId,
+        recordId: state.record?.id || null,
+        aws: { bucket: cfg.qaBucket, region: cfg.qaRegion, presign: { accessKeyId: cfg.qaPresignKeyId, secretAccessKey: cfg.qaPresignSecret } },
+        post: vocion.enabled ? (p, body) => vocion.post(p, body) : null,
+        artifactUrl: vocion.enabled ? id => `${cfg.vocionUrl}/dashboard/artifacts/${id}` : null,
+      });
+      if (repoShots.uploaded.length || repoShots.skipped.length) {
+        log('qa.repo_shots', { uploaded: repoShots.uploaded.length, skipped: repoShots.skipped.map(s => `${s.file}: ${s.reason}`).slice(0, 8) });
+      }
+    } catch (e) {
+      log('qa.repo_shots.crashed', { error: String(e.message || e).slice(0, 300) });
+    }
+    // The same tests' recordings: sent to Vocion, which keeps them and files them on the task and
+    // its request (2026-10-03). Counted with the shots, so the report and the summary say them.
+    try {
+      const videos = await collectRepoTestVideos({
+        dir: path.join(REPO_DIR, taskShotsDir(task)),
+        recordId: state.record?.id || null,
+        upload: vocion.enabled ? (p, bytes, type, headers) => vocion.upload(p, bytes, type, headers) : null,
+      });
+      if (videos.uploaded.length || videos.skipped.length) {
+        log('qa.repo_videos', { uploaded: videos.uploaded.length, skipped: videos.skipped.map(s => `${s.file}: ${s.reason}`).slice(0, 8) });
+        repoShots = { uploaded: [...repoShots.uploaded, ...videos.uploaded], skipped: [...repoShots.skipped, ...videos.skipped], evidence: [...repoShots.evidence, ...videos.evidence] };
+      }
+    } catch (e) {
+      log('qa.repo_videos.crashed', { error: String(e.message || e).slice(0, 300) });
+    }
+    // Whatever else the tests wrote into the shots directory belongs to another task (or was saved
+    // outside the briefed folder): named in the report with its reason, so a picture QA expected
+    // and did not get is explained, and never shown on another feature's page.
+    try {
+      const others = otherTasksShots(path.join(REPO_DIR, shotsDirFor(task.qa)), path.join(REPO_DIR, taskShotsDir(task)));
+      if (others.length) {
+        log('qa.repo_shots.other_tasks', { count: others.length, folder: taskShotsDir(task), files: others.slice(0, 8) });
+        repoShots = { ...repoShots, skipped: [...repoShots.skipped, ...others.map(file => ({ file, reason: `outside this task's folder ${taskShotsDir(task)}/: written by another task's test, not uploaded` }))] };
+      }
+    } catch (e) {
+      log('qa.repo_shots.other_tasks.crashed', { error: String(e.message || e).slice(0, 300) });
+    }
+  }
+  if (repoShots.uploaded.length || repoShots.skipped.length) {
+    if (!evidence) {
+      evidence = { captured: false, shots: 0, rows: [], evidence: [], failures: [], markdown: '', summary: '', elapsedS: 0, bytes: 0, videoSeconds: 0, reportPublished: false, refusedFlows: [] };
+    }
+    evidence.evidence = [...evidence.evidence, ...repoShots.evidence];
+    evidence.shots += repoShots.uploaded.length;
+    evidence.captured = evidence.captured || repoShots.uploaded.length > 0;
+    evidence.markdown = qaReportMarkdown({ taskId: task.task_id, runId, base: qa ? productionBase(qa) : '', qa, rows: evidence.rows, failures: evidence.failures, elapsedS: evidence.elapsedS, bytes: evidence.bytes, videoSeconds: evidence.videoSeconds, repoShots });
+    evidence.summary = [evidence.summary, `${repoShots.uploaded.length} repo-test shot(s) uploaded${repoShots.skipped.length ? `, ${repoShots.skipped.length} skipped` : ''}`].filter(Boolean).join('; ');
+    fs.mkdirSync(path.join(SCRATCH_DIR, 'qa'), { recursive: true });
+    fs.writeFileSync(path.join(SCRATCH_DIR, 'qa', 'qa-report.md'), evidence.markdown);
+    if (vocion.enabled && state.record?.id) {
+      const r = await publishArtifact((p, body) => vocion.post(p, body), reportArtifact({ recordId: state.record.id, taskId: task.task_id, markdown: evidence.markdown, summary: evidence.summary }));
+      evidence.reportPublished = r.ok || evidence.reportPublished;
+    }
   }
 
   let tests = { proofs: [], runLink: null, notRun: [], allSkipped: [] };

@@ -267,6 +267,32 @@ export function validateContract(raw, context = {}) {
  * sign_in flag, the before source and an empty step list. Returns null when the contract has none,
  * so the worker's capture pass is a no-op for a task that asks for no evidence.
  */
+/**
+ * The directory, relative to the repo root, where the repo's own tests save QA screenshots —
+ * `qa.shots_dir` when the contract names one, else the schema default (`qa-shots`). Read from the
+ * raw contract, not the normalized qa block, so it resolves even for a task with no `qa.flows`
+ * (a repo test can still prove a line with no worker-shot flow defined).
+ */
+export function shotsDirFor(qa) {
+  return (qa && typeof qa.shots_dir === 'string' && qa.shots_dir.trim()) || schema.properties.qa.properties.shots_dir.default;
+}
+
+/**
+ * The folder inside {@link shotsDirFor} that is this task's alone: `<shots_dir>/<request_id>`,
+ * the request the task serves (the same across its attempts), else `<shots_dir>/<task_id>`.
+ *
+ * Why (2026-10-04, walks 17-18): a browser test the engineer writes is committed with the
+ * feature, and runs on every later build of the repository. Each one kept saving its pictures
+ * at the root of the shots directory, so every task since carried the archive and sort tests'
+ * screenshots as its own evidence and the feature pages showed another feature's pictures. The
+ * worker now briefs the engineer to save under this folder and uploads only what is in it;
+ * pictures elsewhere in the shots directory are another task's and are reported, not uploaded.
+ */
+export function taskShotsDir(task) {
+  const owner = String(task?.request_id || task?.task_id || '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'task';
+  return `${shotsDirFor(task?.qa)}/${owner}`;
+}
+
 export function normalizeQa(qa) {
   if (!qa || typeof qa !== 'object' || !Array.isArray(qa.flows)) {
     return null;
@@ -277,6 +303,7 @@ export function normalizeQa(qa) {
     surfaces: qa.surfaces && typeof qa.surfaces === 'object' ? structuredClone(qa.surfaces) : {},
     before_url: qa.before_url || '',
     video: qa.video ?? schema.properties.qa.properties.video.default,
+    shots_dir: qa.shots_dir || schema.properties.qa.properties.shots_dir.default,
     flows: qa.flows.map(flow => ({
       name: flow.name,
       path: flow.path,

@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { parseSlackPayload, postSlackReply, stripMentions, verifySlackSignature } from './slack';
+import { inboundFiles, isSlackRead, parseSlackPayload, postSlackReply, stripMentions, verifySlackSignature } from './slack';
 
 const SECRET = 'shh';
 const NOW = 1_700_000_000;
@@ -9,6 +9,27 @@ function sign(body: string, ts: number = NOW, secret = SECRET): Headers {
   const sig = `v0=${createHmac('sha256', secret).update(`v0:${ts}:${body}`).digest('hex')}`;
   return new Headers({ 'x-slack-request-timestamp': String(ts), 'x-slack-signature': sig });
 }
+
+/**
+ * A Slack call's arguments, sent as JSON (structured) or as a form (plain values).
+ * @param init - The request.
+ */
+function bodyOf(init: RequestInit): Record<string, unknown> {
+  const raw = String(init.body);
+  return raw.startsWith('{') ? JSON.parse(raw) as Record<string, unknown> : Object.fromEntries(new URLSearchParams(raw));
+}
+
+describe('isSlackRead', () => {
+  it('sends reads as a form, which is all Slack accepts there, and writes as JSON', () => {
+    expect(isSlackRead('conversations.replies')).toBe(true);
+    expect(isSlackRead('users.info')).toBe(true);
+    expect(isSlackRead('chat.postMessage')).toBe(false);
+    expect(isSlackRead('chat.delete')).toBe(false);
+    // Not a read, but form-only all the same: a JSON body is "missing required field: filename".
+    expect(isSlackRead('files.getUploadURLExternal')).toBe(true);
+    expect(isSlackRead('files.completeUploadExternal')).toBe(false);
+  });
+});
 
 describe('verifySlackSignature', () => {
   it('accepts a correctly signed, fresh request', () => {
@@ -49,6 +70,27 @@ describe('parseSlackPayload', () => {
       kind: 'message',
       inbound: { surface: 'slack', teamId: 'T1', channelId: 'C7', threadRef: '1.001', messageRef: '1.002', externalUserId: 'U9', text: 'how is the quarter?', isDirect: false },
     });
+  });
+
+  it('carries the pictures on a mention, images only, and keeps a mention that is only a picture (backlog 057)', () => {
+    const files = [
+      { id: 'F1', name: 'bug.png', title: 'The broken header', mimetype: 'image/png', size: 4321, url_private: 'https://files.slack.example/f1', url_private_download: 'https://files.slack.example/f1/download' },
+      { id: 'F2', name: 'notes.pdf', mimetype: 'application/pdf', size: 99, url_private: 'https://files.slack.example/f2' },
+    ];
+    const parsed = parseSlackPayload({ type: 'event_callback', team_id: 'T1', event: { type: 'app_mention', user: 'U9', channel: 'C7', ts: '1.002', text: '<@UBOT> the header overflows on my phone', files } });
+
+    expect(parsed.kind === 'message' && parsed.inbound.files).toEqual([{ id: 'F1', name: 'The broken header', contentType: 'image/png', bytes: 4321, url: 'https://files.slack.example/f1/download' }]);
+
+    const pictureOnly = parseSlackPayload({ type: 'event_callback', team_id: 'T1', event: { type: 'app_mention', user: 'U9', channel: 'C7', ts: '1.003', text: '<@UBOT>', files: [files[0]] } });
+
+    expect(pictureOnly.kind === 'message' && pictureOnly.inbound.text).toBe('See the attached picture.');
+    expect(inboundFiles(undefined)).toEqual([]);
+  });
+
+  it('keeps a bare mention inside a thread: the ask is the thread above it, picture and all (Chris, 2026-10-05)', () => {
+    const bare = parseSlackPayload({ type: 'event_callback', team_id: 'T1', event: { type: 'app_mention', user: 'U9', channel: 'C7', ts: '1.005', thread_ts: '1.001', text: '<@UBOT>' } });
+
+    expect(bare).toEqual({ kind: 'message', inbound: { surface: 'slack', teamId: 'T1', channelId: 'C7', threadRef: '1.001', messageRef: '1.005', externalUserId: 'U9', text: 'See this thread.', isDirect: false } });
   });
 
   it('treats a DM as inbound, and ignores bots, edits, other event types and empty text', () => {
@@ -98,7 +140,7 @@ describe('postSlackReply', () => {
 
     expect(url).toBe('https://slack.test/api/chat.postMessage');
 
-    return JSON.parse(String(init.body)) as Record<string, unknown>;
+    return bodyOf(init);
   }
 
   it('posts as the persona when the target carries one', async () => {
@@ -108,6 +150,7 @@ describe('postSlackReply', () => {
       channel: 'C1',
       thread_ts: '100.1',
       text: 'hello',
+      blocks: [{ type: 'markdown', text: 'hello' }],
       username: 'Sterling Banks',
       icon_url: 'https://www.vocion.ai/personas/sterling.png',
     });
@@ -117,16 +160,16 @@ describe('postSlackReply', () => {
     const body = await post({ channelId: 'C1', threadRef: '100.1' });
 
     // No `username`/`icon_url` keys at all — an empty username posts blank in Slack.
-    expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello' });
+    expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }] });
   });
 
   it('posts to the channel with no thread_ts when the target has no thread', async () => {
-    expect(await post({ channelId: 'C1' })).toEqual({ channel: 'C1', text: 'hello' });
+    expect(await post({ channelId: 'C1' })).toEqual({ channel: 'C1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }] });
   });
 
   it('carries whichever half of the persona is set', async () => {
-    expect(await post({ channelId: 'C1', threadRef: '1', displayName: 'Keel Marsden' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', username: 'Keel Marsden' });
-    expect(await post({ channelId: 'C1', threadRef: '1', iconUrl: 'https://www.vocion.ai/personas/keel.png' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', icon_url: 'https://www.vocion.ai/personas/keel.png' });
+    expect(await post({ channelId: 'C1', threadRef: '1', displayName: 'Keel Marsden' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }], username: 'Keel Marsden' });
+    expect(await post({ channelId: 'C1', threadRef: '1', iconUrl: 'https://www.vocion.ai/personas/keel.png' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', blocks: [{ type: 'markdown', text: 'hello' }], icon_url: 'https://www.vocion.ai/personas/keel.png' });
   });
 });
 

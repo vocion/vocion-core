@@ -65,6 +65,17 @@ export const get = os
     };
   });
 
+/**
+ * The workspace's intake (`services/chat/intake.ts`): which record type a
+ * chat card's Build it files, and which agent files it. Null when there is
+ * none, and then no card offers it.
+ */
+export const intake = os.handler(async () => {
+  const { orgId } = await guardAuth();
+  const { workspaceIntake } = await import('@/services/chat/intake');
+  return workspaceIntake(orgId);
+});
+
 export const create = os
   .input(z.object({
     agentSlug: z.string(),

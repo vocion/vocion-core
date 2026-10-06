@@ -48,7 +48,9 @@ Call `file_request` (see `surface-an-ask-as-a-card`). What the chat decides:
 - `askedBy`: `name` the author's display name as the tool returned it,
   `externalId` their chat user id, `email` only when the tool gave one.
 - `body`: the asker's own words, quoted, with the follow-ups that changed the
-  ask. Never a paraphrase in the body; the paraphrase is the `title`.
+  ask. Never a paraphrase in the body.
+- `title`: a ticket-sized name for it, at most 60 characters — never the
+  whole ask.
 - `evidence.urls`: the thread permalink first, then any link the thread
   carried. `evidence.screenshotArtifactIds`: the files you read, saved as
   artifacts by `chat_read_file`.

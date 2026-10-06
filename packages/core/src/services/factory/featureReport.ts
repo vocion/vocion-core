@@ -75,15 +75,19 @@ import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { nounCode } from '@/libs/codes';
 import { deliveryStage, failedRun, pausedAnswerLine, readDelivery, runName, runningRun } from '@/libs/factory/delivery';
-import { readRequestLive } from '@/libs/factory/liveCheck';
+import { DEMO_PREVIEW_VIDEO_ROLE, DEMO_VIDEO_ROLE, LIVE_RECHECKS, readRequestLive } from '@/libs/factory/liveCheck';
 import { blockedYou, pickLive, prLabel, youOf } from '@/libs/factory/liveStatus';
 import { resolveLiveUrl } from '@/libs/factory/liveUrl';
 import { hasMockups, readMockupDraw } from '@/libs/factory/mockupDefault';
+import { requestAsk } from '@/libs/factory/requestAsk';
 import { ciFact, mergeRuleFact, nextForAttempt, NO_PULL_SIGNALS, normalisePullUrl, pullFact, REQUEST_STAGE_LINE, requestStageOf, verdictFact } from '@/libs/factory/workFacts';
 import { liveTopic } from '@/libs/live/topics';
+import { posterSecond } from '@/libs/media/narration';
+import { narratedRole } from '@/libs/media/roles';
 import { shotParts } from '@/libs/workspace/criterionEvidence';
 import { featureProof, risksLine, shippedTaskIdsOf } from '@/libs/workspace/featureProof';
 import { genericRecordLinker } from '@/libs/workspace/recordHref';
+import { recordName } from '@/libs/workspace/recordName';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { blockerResolution } from './blocker';
 import { captionOf, CAROUSEL_SECTIONS, sourceOf } from './carouselSource';
@@ -389,6 +393,8 @@ export function liveOf(run: ReportWorkerRun & { heartbeatAt?: Date | null }, now
 
 export type FeatureReportSummary = {
   askedAt: Date | null;
+  /** When the work started: the person's go-ahead (`decidedAt`), else the ask. `elapsed` runs from here (`libs/factory/requestAsk.ts`). */
+  startedAt: Date | null;
   shippedAt: Date | null;
   /** "12d 4h", or null when nothing is dated. */
   elapsed: string | null;
@@ -431,6 +437,8 @@ export type ReportActivity = {
   detail: string | null;
   /** The conversation the feature was requested in: the oldest entry, closing its Activity. */
   origin?: boolean;
+  /** Where the conversation lives outside Vocion — the Slack thread it was asked in — and what the link says. */
+  external?: { url: string; label: string } | null;
   /** How many agent runs of the same title this row stands for. */
   count?: number;
   /**
@@ -480,6 +488,8 @@ export type HistoryRow = {
   open: { type: 'worker_run' | 'mission_run' | 'conversation' | 'object'; id: string } | null;
   /** Where a tap goes when it is not a preview: a pull request, a deploy run. */
   href: string | null;
+  /** Beside a preview, where the same thing lives outside Vocion: the Slack thread a chat came from. */
+  external?: { url: string; label: string } | null;
   /** Still going. */
   live: boolean;
   /** An attempt's own rows — its build and QA's reviews of it — newest first. */
@@ -502,6 +512,12 @@ export type HistoryCost = {
 export type FeatureReport = {
   /** Every conversation and run tied to this feature, newest first (loaded beside the report). */
   activity?: ReportActivity[];
+  /**
+   * The newest recording of each kind (Chris, 2026-10-03): QA driving the live
+   * product after release, and the engineer's own browser tests before merge.
+   * Each null when none was kept; the page draws nothing then.
+   */
+  recordings?: ReportRecordings;
   /**
    * Where the default mockup stands, when it is not drawn yet — "The designer
    * is drawing the mockup", or why it drew nothing (`visuals.mockupDraw`).
@@ -751,7 +767,7 @@ export type ReportReleaseSummary = {
    * `liveCheck`): seen, partly, not, or `pending` while no live check has
    * looked. Null before it is live. Shipped is not the same as seen.
    */
-  seen: { state: 'seen' | 'partial' | 'not_seen' | 'pending'; line: string; detail?: string | null; reached?: number; total?: number } | null;
+  seen: { state: 'seen' | 'partial' | 'not_seen' | 'not_checked' | 'pending'; line: string; detail?: string | null; reached?: number; total?: number; attempts?: number; reasonKind?: import('@/libs/factory/liveCheck').LiveReasonKind | null } | null;
   /** The release record's code (REL-375), when the codes were read. */
   code?: string | null;
   /** The release that shipped it, when one did: what "Check live again" asks QA to check. */
@@ -909,6 +925,102 @@ export function formatDuration(ms: number): string {
     rest -= n * size;
   }
   return parts.length > 0 ? parts.join(' ') : '0s';
+}
+
+// ---------------------------------------------------------------------------
+// Recordings
+// ---------------------------------------------------------------------------
+
+/** One recording the page plays. */
+export type ReportRecording = {
+  artifactId: number;
+  /** Where it plays from: Vocion's media route (`/api/media/…`). */
+  url: string;
+  contentType: string;
+  caption: string;
+  at: Date;
+  /** The second the first line is said, for the frame shown before play; null when it carries no script. */
+  posterAt: number | null;
+  /**
+   * Its second pass with the seat's avatar and voiceover, when one was made
+   * (`services/artifacts/narrate.ts`, role `<role>-narrated`, `spec.narratedFrom`
+   * naming this recording). The page plays it in the recording's place.
+   */
+  narrated: { artifactId: number; url: string; contentType: string; caption: string; at: Date; posterAt: number | null } | null;
+};
+
+/**
+ * When a recording's first said line starts, in seconds (`spec.script` as the
+ * narration placed it), or null when there is no script.
+ * @param spec - The recording's spec.
+ */
+export function firstLineAt(spec: Record<string, unknown> | null | undefined): number | null {
+  return posterSecond(spec);
+}
+export type ReportRecordings = { demo: ReportRecording | null; preview: ReportRecording | null; live: ReportRecording | null; qa: ReportRecording | null };
+
+/** The roles a recording is filed under: the feature demo's (live), the demo from the branch before merge, the live check's, and the engineer's own tests'. */
+export const RECORDING_ROLES = { demo: DEMO_VIDEO_ROLE, preview: DEMO_PREVIEW_VIDEO_ROLE, live: 'qa-live-video', qa: 'qa-video' } as const;
+
+/**
+ * The newest playable recording of each kind among a feature's artifacts. A
+ * recording Vocion keeps (its media route) is preferred to a link out, which
+ * may be a presigned URL that has since expired.
+ * @param artifacts - The artifacts on the request and its tasks.
+ */
+export function recordingsOf(artifacts: readonly ReportArtifact[]): ReportRecordings {
+  const pick = (role: string): ReportRecording | null => {
+    const candidates = artifacts
+      .filter(a => a.recordRole === role)
+      .map(a => ({ a, url: evidenceUrl(a) }))
+      .filter((x): x is { a: ReportArtifact; url: string } => x.url !== null && (x.url.startsWith('/api/media/') || /^https?:\/\//i.test(x.url)))
+      .sort((x, y) => Number(y.url.startsWith('/api/media/')) - Number(x.url.startsWith('/api/media/')) || y.a.createdAt.getTime() - x.a.createdAt.getTime() || y.a.id - x.a.id);
+    const top = candidates[0];
+    if (!top) {
+      return null;
+    }
+    // The narration of THIS recording: it names the source by id (any of its
+    // filings, which share one served file) or by that file's URL.
+    const sourceIds = new Set(artifacts.filter(a => evidenceUrl(a) === top.url).map(a => a.id));
+    const narration = artifacts
+      .filter(a => a.recordRole === narratedRole(role))
+      .filter(a => sourceIds.has(Number((a.spec as Record<string, unknown> | null)?.narratedFrom)) || str(a.spec, 'narratedFromUrl') === top.url)
+      .map(a => ({ a, url: evidenceUrl(a) }))
+      .filter((x): x is { a: ReportArtifact; url: string } => x.url !== null && x.url.startsWith('/api/media/'))
+      .sort((x, y) => y.a.createdAt.getTime() - x.a.createdAt.getTime() || y.a.id - x.a.id)[0];
+    return {
+      artifactId: top.a.id,
+      url: top.url,
+      contentType: str(top.a.spec, 'contentType') ?? 'video/webm',
+      caption: str(top.a.spec, 'caption') ?? top.a.title,
+      at: top.a.createdAt,
+      posterAt: firstLineAt(top.a.spec as Record<string, unknown> | null),
+      narrated: narration
+        ? { artifactId: narration.a.id, url: narration.url, contentType: str(narration.a.spec, 'contentType') ?? 'video/mp4', caption: str(narration.a.spec, 'caption') ?? narration.a.title, at: narration.a.createdAt, posterAt: firstLineAt(narration.a.spec as Record<string, unknown> | null) }
+        : null,
+    };
+  };
+  return { demo: pick(RECORDING_ROLES.demo), preview: pick(RECORDING_ROLES.preview), live: pick(RECORDING_ROLES.live), qa: pick(RECORDING_ROLES.qa) };
+}
+
+/**
+ * One artifact per served file: a recording is filed on the task AND on its
+ * request (`services/artifacts/recordings.ts`), so the same file arrives
+ * twice. The newest filing is kept.
+ * @param artifacts - QA evidence.
+ */
+function oncePerFile(artifacts: readonly ReportArtifact[]): ReportArtifact[] {
+  const newest = new Map<string, ReportArtifact>();
+  for (const a of artifacts) {
+    const url = evidenceUrl(a);
+    const key = url && !url.startsWith('data:') ? `url:${url}` : `id:${a.id}`;
+    const had = newest.get(key);
+    if (!had || had.createdAt.getTime() < a.createdAt.getTime()) {
+      newest.set(key, a);
+    }
+  }
+  const kept = new Set(newest.values());
+  return artifacts.filter(a => kept.has(a));
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,12 +1266,14 @@ function askSection(request: ReportObject): ReportSection {
   const s = blank('ask', 'The ask');
   const meta = request.meta;
   const askedBy = (meta.askedBy && typeof meta.askedBy === 'object' ? meta.askedBy : null) as Record<string, unknown> | null;
-  const body = str(meta, 'body');
+  const ask = requestAsk(meta, request.createdAt);
+  const body = ask.text;
   s.facts = [
-    { label: 'In their words', value: body, format: 'quote' },
-    { label: 'Asked by', value: askerLabel(askedBy) },
+    { label: ask.kind === 'proposed' ? 'As put to you' : 'In their words', value: body, format: 'quote' },
+    { label: ask.kind === 'proposed' ? 'Put forward by' : 'Asked by', value: ask.kind === 'proposed' ? (str(meta, 'source') ?? 'an agent') : askerLabel(askedBy) },
     { label: 'Channel', value: str(meta, 'channel') },
-    { label: 'Asked', value: formatStamp(asDate(meta.askedAt) ?? request.createdAt) },
+    { label: ask.kind === 'proposed' ? 'Proposed' : 'Asked', value: ask.at ? formatStamp(ask.at) : null },
+    { label: 'Go-ahead', value: ask.startedAt && ask.at && ask.startedAt.getTime() > ask.at.getTime() ? formatStamp(ask.startedAt) : null },
     { label: 'Product', value: str(meta, 'product'), format: 'mono' },
   ];
   if (!body) {
@@ -1723,7 +1837,7 @@ export function oneOfEachPicture<T extends { id: number; imageUrl: string | null
 
 function qaSection(artifacts: ReportArtifact[], taskCount: number, ctx: PictureContext = NO_PICTURE_CONTEXT): ReportSection {
   const s = blank('qa', 'QA');
-  s.evidence = artifacts
+  s.evidence = oncePerFile(artifacts.filter(a => qaEvidenceRole(a) !== null))
     .map(a => ({ a, role: qaEvidenceRole(a) }))
     .filter((x): x is { a: ReportArtifact; role: QaEvidenceRole } => x.role !== null)
     .map(({ a, role }) => {
@@ -2049,12 +2163,13 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
   const meta = input.request.meta;
   const askedBy = (meta.askedBy && typeof meta.askedBy === 'object' ? meta.askedBy : null) as Record<string, unknown> | null;
 
+  const theAsk = requestAsk(meta, input.request.createdAt);
   out.push({
     key: 'asked',
-    at: asDate(meta.askedAt) ?? input.request.createdAt,
+    at: theAsk.at ?? input.request.createdAt,
     kind: 'asked',
-    title: `Asked by ${askerLabel(askedBy)}${str(meta, 'channel') ? ` via ${str(meta, 'channel')}` : ''}`,
-    detail: str(meta, 'body') ?? input.request.title,
+    title: theAsk.kind === 'proposed' ? `Put forward by ${str(meta, 'source') ?? 'an agent'}` : `Asked by ${askerLabel(askedBy)}${str(meta, 'channel') ? ` via ${str(meta, 'channel')}` : ''}`,
+    detail: theAsk.text ?? input.request.title,
     cents: null,
     tone: 'info',
     href: `/dashboard/objects/${input.request.id}`,
@@ -2213,7 +2328,7 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
     }
   }
 
-  for (const artifact of input.artifacts) {
+  for (const artifact of oncePerFile(input.artifacts.filter(a => qaEvidenceRole(a) !== null))) {
     const role = qaEvidenceRole(artifact);
     if (role) {
       out.push({
@@ -2328,21 +2443,14 @@ function findNotices(input: FeatureReportInput, mergedPrs: Set<string>): ReportN
       `The plan rule required a plan for this work and none is on the record${skipped > 0 ? `, and ${skipped} task${skipped === 1 ? '' : 's'} recorded the plan as skipped` : ''}. ${executed.length} run${executed.length === 1 ? '' : 's'} ran anyway.`,
     );
   }
-  // Only a run that DID something can come before an approval. A refusal is
-  // the worker declining to start without one.
-  const firstRunAt = executed.map(r => r.claimedAt ?? runAt(r)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
-  for (const plan of input.plans) {
-    const approvedAt = asDate(plan.meta.approvedAt);
-    if (approvedAt && firstRunAt && approvedAt.getTime() > firstRunAt.getTime()) {
-      quiet(
-        `plan-late-${plan.id}`,
-        'The plan was approved after building had already begun.',
-        'It does not block: the plan is approved now. It did not gate the first attempt.',
-        { label: 'Review approval history', drawer: 'plan' },
-        `Plan ${plan.id} was approved at ${formatStamp(approvedAt)}, after the first run started at ${formatStamp(firstRunAt)}. A plan approved after the work is a record, not a gate.`,
-      );
-    }
-  }
+  // A plan approved after the first run started is NOT a page notice
+  // (2026-10-03, FE-392, Chris: "a note that says it does not block and
+  // needs nothing from the person should not be shown"). It never blocks —
+  // the plan is approved, full stop — so it was agent-voice noise read by
+  // the person for nothing. The fact itself is not lost: the Timeline
+  // already carries "Plan written" and "Plan approved by …" as their own
+  // rows (see the plan loop below), and the plan drawer shows the approval
+  // date, so the record survives without a quiet() entry here.
   for (const task of input.tasks) {
     if (task.status === 'accepted' && !str(task.meta, 'prUrl')) {
       quiet(
@@ -2765,7 +2873,7 @@ export type ReportCriterion = {
   state: CriterionState;
   note: string | null;
   /** Where the state came from: the counted attempt's QA verdict, or a mark on the request. */
-  from: 'verdict' | 'request' | null;
+  from: 'verdict' | 'request' | 'live' | null;
 };
 
 export type ReportAcceptance = {
@@ -2782,7 +2890,7 @@ export type ReportAcceptance = {
   /** "2 plan risks handled", or null when the contract carried none. */
   risksLine: string | null;
   /** The attempt whose judgement is read: the one that shipped, else the newest judged. */
-  attempt: { taskId: number; why: 'shipped' | 'judged' } | null;
+  attempt: { taskId: number; why: 'shipped' | 'judged'; verdict?: string | null } | null;
   /** When the contract stopped being a draft. Null while it still is. */
   frozenAt: Date | null;
   /** Where the criteria were read: the work's own contract, or the newest task's when the work carries none. */
@@ -2828,7 +2936,7 @@ function buildAcceptance(request: ReportObject, tasks: ReportObject[] = [], plan
     risksHandled: proof.risksHandled,
     risksTotal: proof.risksTotal,
     risksLine: risksLine(proof),
-    attempt: proof.attempt ? { taskId: proof.attempt.taskId, why: proof.attempt.why } : null,
+    attempt: proof.attempt ? { taskId: proof.attempt.taskId, why: proof.attempt.why, verdict: proof.attempt.verdict } : null,
     frozenAt: asDate(request.meta.acceptanceFrozenAt),
     source: proof.source,
     procedure: (plan ? str(plan.meta, 'verification') : null) ?? str(request.meta, 'howWeCheck'),
@@ -3186,7 +3294,11 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[], ctx:
  * @param line - The money line.
  */
 function buildSummary(input: FeatureReportInput, line: MoneyLine): FeatureReportSummary {
-  const askedAt = asDate(input.request.meta.askedAt) ?? input.request.createdAt;
+  const ask = requestAsk(input.request.meta, input.request.createdAt);
+  const askedAt = ask.at;
+  // BUILT FROM THE GO-AHEAD (Chris, 2026-10-05): a proposal that waited five
+  // days for a person is not a five-day build.
+  const startedAt = ask.startedAt ?? askedAt;
   const shippedAt = input.releases
     .map(r => asDate(r.meta.releasedAt))
     .filter((d): d is Date => d !== null)
@@ -3211,8 +3323,9 @@ function buildSummary(input: FeatureReportInput, line: MoneyLine): FeatureReport
   const decisionRecords = input.asks.length + input.actionRuns.length;
   return {
     askedAt,
+    startedAt,
     shippedAt,
-    elapsed: askedAt ? formatDuration(end.getTime() - askedAt.getTime()) : null,
+    elapsed: startedAt ? formatDuration(end.getTime() - startedAt.getTime()) : null,
     elapsedOpen: shippedAt === null,
     totalCents: line.actualCents ?? line.runCents,
     humanDecisions: decisionRecords === 0 && ranSomething ? null : humanDecisions,
@@ -3517,12 +3630,18 @@ function buildReleaseSummary(input: FeatureReportInput, mergedPrs: Set<string>):
     const name = [str(shipped.r.meta, 'product'), str(shipped.r.meta, 'version')].filter(Boolean).join(' ') || shipped.r.title;
     const live = readRequestLive(input.request.meta);
     const counts = liveCounts(shipped.r.meta, input.request.id);
-    const seen = live ? { state: live.state, line: live.line, detail: live.detail, ...counts } : { state: 'pending' as const, line: 'Not yet seen live' };
+    const seen = live ? { state: live.state, line: live.line, detail: live.detail, reasonKind: live.reasonKind, ...counts, ...(live.state === 'not_checked' ? { attempts: live.attempts } : {}) } : { state: 'pending' as const, line: 'Not yet seen live' };
     return {
       state: 'live',
       code: input.codes?.get(shipped.r.id) ?? null,
       label: 'Live',
-      sentence: `Live since ${formatStamp(shipped.at)}, in ${name}. ${seen.line}${/[.!?]$/.test(seen.line) ? '' : '.'}`,
+      // No baked date here: the page renders "Live since" itself, in the
+      // reader's own calendar via `LocalDate` — the same component the
+      // Timeline uses — off `at` below. A formatted-here date would be UTC
+      // (`formatStamp`'s job) and could read a different calendar day than
+      // the Timeline for the same instant (2026-10-03, FE-392: "Live since
+      // 03 Oct 2026, 01:27 UTC" beside a Timeline reading "2 Oct").
+      sentence: `in ${name}. ${seen.line}${/[.!?]$/.test(seen.line) ? '' : '.'}`,
       seen,
       releaseId: shipped.r.id,
       at: shipped.at,
@@ -3689,8 +3808,11 @@ function buildStatus(input: FeatureReportInput, state: ReportState, ctx: { canBu
             sentence: `${release.sentence} ${state.detail.includes('helped') ? `It ${state.detail.replace(/^live, and it /, '')}.` : 'Whether it helped has not been checked yet.'}`,
             action: ctx.surfaceUrl ? { kind: 'link', label: 'Open feature', href: ctx.surfaceUrl } : { kind: 'drawer', label: 'Open feature', drawer: 'release' },
             // A live check that did not see it, once its attempts are spent, is checked again
-            // when a person asks (`factory.check_live_again`), not by hand.
-            secondary: release.releaseId !== undefined && (release.seen?.state === 'not_seen' || release.seen?.state === 'partial')
+            // when a person asks (`factory.check_live_again`), not by hand. One that never looked
+            // is rechecked by Vocion itself, and asks the person only once those rechecks are spent.
+            // ...and at once when the QA environment cannot reach the feature: nothing changes there
+            // by itself, so the person fixes the environment and presses it (walk 19, FE-432).
+            secondary: release.releaseId !== undefined && (release.seen?.state === 'not_seen' || release.seen?.state === 'partial' || (release.seen?.state === 'not_checked' && ((release.seen.attempts ?? 0) >= LIVE_RECHECKS || release.seen.reasonKind === 'environment_cannot_show')))
               ? { kind: 'check_live', label: 'Check live again', releaseId: release.releaseId }
               : null,
             next: state.detail.includes('helped') ? null : 'Next, whether it helped is checked.',
@@ -3946,8 +4068,9 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     // what a person can do afterwards; the ask is kept underneath, verbatim.
     // The short name leads; the outcome sentence is the subtitle under it
     // (`goalOf`). A page titled with a sentence read like a ticket (Chris,
-    // 2026-09-25: "Short title: Share a document").
-    title: input.request.title,
+    // 2026-09-25: "Short title: Share a document"). A request filed with the
+    // whole ask as its title is read by its stored name (`recordName`).
+    title: recordName(input.request.title, input.request.meta),
     asked: input.request.title,
     story: str(input.request.meta, 'story'),
     state,
@@ -3966,6 +4089,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     hero: visualsSection(input.request, input.artifacts, pictures).evidence.find(e => e.imageUrl !== null) ?? null,
     mockupStatus: mockupStatusOf(input.request, input.now, sections.some(x => PICTURE_SECTIONS.has(x.key) && x.evidence.some(e => e.imageUrl !== null && e.role !== 'proposed'))),
     follow: followOf(input),
+    recordings: recordingsOf(input.artifacts),
   };
 }
 

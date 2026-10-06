@@ -78,10 +78,11 @@ async function classifier(orgId: string): Promise<Model> {
  * @param input.message - The person's first message.
  * @param input.agents - The active roster, with what each seat owns.
  * @param input.leadSlug - The workspace lead.
+ * @param input.intake - Who files new work in this workspace, when a type declares the front door.
  * @param input.signal - Aborts the call when the caller stops waiting.
  * @param model - Injected in tests.
  */
-export async function readRoute(input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; signal?: AbortSignal }, model?: Model): Promise<RouteRead> {
+export async function readRoute(input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; signal?: AbortSignal }, model?: Model): Promise<RouteRead> {
   const { tool } = await import('@langchain/core/tools');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const m = model ?? await classifier(input.orgId);
@@ -91,6 +92,7 @@ export async function readRoute(input: { orgId: string; message: string; agents:
     new SystemMessage(SYSTEM),
     new HumanMessage([
       `The roster:\n${input.agents.map(a => seatLines(a, input.leadSlug)).join('\n')}`,
+      ...(input.intake ? [`New work someone wants built, changed or fixed is filed as a ${input.intake.label} by ${input.intake.ownerSlug}: choose ${input.intake.ownerSlug} for a new ask like that.`] : []),
       `The person's message:\n${input.message.slice(0, 4_000)}`,
     ].join('\n\n')),
   ], { signal: input.signal } as never) as { tool_calls?: Array<{ name: string; args: unknown }> };
@@ -103,7 +105,12 @@ export async function readRoute(input: { orgId: string; message: string; agents:
   if (!call) {
     throw new Error('the model answered without the report tool');
   }
-  const parsed = RouteReadSchema.safeParse(call.args);
+  // A reason over the limit is still a reason: it is cut, not refused.
+  // Refusing it sent the first turn to the keyword fallback (conversation
+  // 470, 2026-10-04: "out of shape: reason", and the wiki researcher answered
+  // a product question on a keyword).
+  const args = call.args as { reason?: unknown } | null;
+  const parsed = RouteReadSchema.safeParse(args && typeof args.reason === 'string' ? { ...args, reason: args.reason.slice(0, 300) } : args);
   if (!parsed.success) {
     throw new Error(`the model's answer was out of shape: ${parsed.error.issues.map(i => i.path.join('.')).join(', ')}`);
   }

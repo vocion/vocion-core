@@ -1042,6 +1042,60 @@ describe('nothing waits on a review that never starts (2026-09-30, #269: CI fail
 
     expect(raised).toHaveLength(2);
   });
+
+  it('gives a review that used its restarts one more after a deploy (Walk 18, FE-419)', async () => {
+    const { watchAwaitingReview } = await import('./ciFailed');
+    // Its own clock, ahead of any deploy another test recorded in this database.
+    const T = Date.now() + 60_000;
+    const spent = await waitingOnQa('Rooms sort by name', 144);
+    await db.update(businessObjectSchema).set({ status: 'review_failed', updatedAt: new Date(Date.now() - 3_600_000), metadata: { ...(spent.task.metadata as Record<string, unknown>), status: 'review_failed', prUrl: spent.prUrl, reviewRestarts: 2, reviewRestartedAt: new Date(T - 30_000).toISOString() } }).where(eq(businessObjectSchema.id, spent.task.id));
+    await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.checks_completed', payload: { url: spent.prUrl, conclusion: 'success', headSha: 'bc9f315a148d' }, dedupeKey: 'github:144:checks' } as never);
+
+    const before = await watchAwaitingReview(ORG, new Date(T));
+
+    expect(before.find(o => o.requestId === spent.r.id)).toBeUndefined();
+
+    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-5e1d', status: 'applied', appliedAt: new Date(T - 10_000) });
+    const after = await watchAwaitingReview(ORG, new Date(T));
+
+    expect(after.find(o => o.requestId === spent.r.id)?.did).toBe('review started again');
+  });
+
+  it('starts a review again when the one after the task\'s last write errored (Walk 11, task 389)', async () => {
+    const { watchAwaitingReview } = await import('./ciFailed');
+    const failed = await waitingOnQa('Rooms show when each was last opened', 143);
+    await db.update(businessObjectSchema).set({ status: 'review_failed', updatedAt: new Date(Date.now() - 3_600_000) }).where(eq(businessObjectSchema.id, failed.task.id));
+    await db.insert(eventLogSchema).values({ orgId: ORG, type: 'pr.checks_completed', payload: { url: failed.prUrl, conclusion: 'success', headSha: 'bc9f315a148d' }, dedupeKey: 'github:143:checks' } as never);
+    await db.insert(automationRunSchema).values({ orgId: ORG, slug: 'contract-red-team-evidence', kind: 'mission_check', status: 'error', input: { url: failed.prUrl }, error: 'ended without record_verdict' } as never);
+
+    const out = await watchAwaitingReview(ORG);
+
+    expect(out.find(o => o.requestId === failed.r.id)?.did).toBe('review started again');
+  });
+});
+
+describe('a deploy resumes a workflow\'s stop once (Walk 12, FE-376)', () => {
+  it('asks the stopped request\'s flow to build once more after a deploy, once per deploy, and never a request that stopped after it', async () => {
+    const { resumeWorkflowStopsAfterDeploy } = await import('./carry');
+    const stopped = await request({ product: 'rooms', title: 'Rooms show how many people each was sent to' });
+    const later = await request({ product: 'rooms', title: 'Rooms show a New badge' });
+    const hour = 3_600_000;
+    const now = new Date();
+    await db.update(businessObjectSchema).set({ metadata: { ...(stopped.metadata as Record<string, unknown>), status: 'stopped', statusAt: new Date(now.getTime() - 3 * hour).toISOString() } }).where(eq(businessObjectSchema.id, stopped.id));
+    await db.update(businessObjectSchema).set({ metadata: { ...(later.metadata as Record<string, unknown>), status: 'stopped', statusAt: new Date(now.getTime() - hour / 2).toISOString() } }).where(eq(businessObjectSchema.id, later.id));
+    await db.insert(workspaceVersionSchema).values({ orgId: ORG, sha: 'local-7e1a', status: 'applied', appliedAt: new Date(now.getTime() - hour) });
+
+    const out = await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: true });
+
+    expect(out.map(o => o.requestId)).toEqual([stopped.id]);
+
+    const asked = (await db.select().from(eventLogSchema).where(and(eq(eventLogSchema.orgId, ORG), eq(eventLogSchema.type, 'factory.build_requested'))))
+      .filter(e => (e.payload as { requestId: number }).requestId === stopped.id);
+
+    expect(asked.map(e => (e.payload as { trigger: string; afterDeploy: boolean }))).toEqual([expect.objectContaining({ trigger: 'recovery', afterDeploy: true })]);
+    expect(await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: true })).toEqual([]);
+    expect(await resumeWorkflowStopsAfterDeploy(ORG, now, { durable: false })).toEqual([]);
+  });
 });
 
 describe('a stop whose ask is closed is still a stop (2026-09-30, "Open alerts" #124)', () => {

@@ -307,11 +307,15 @@ describe('the plan stage', () => {
     expect(report.contradictions.join(' ')).toContain('required a plan for this work and none is on the record');
   });
 
-  it('shows the contradiction when the plan was approved after the work already ran', () => {
+  // FE-392, 2026-10-03: this used to raise a contradiction ("A plan approved
+  // after the work is a record, not a gate") on a plan that is, in fact,
+  // approved — agent-voice noise with nothing for the reader to do. It no
+  // longer does; the approval still lands on the timeline (next test).
+  it('raises no contradiction for a plan approved after the work already ran', () => {
     const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z' } };
     const report = assembleFeatureReport(input({ plans: [late] }));
 
-    expect(report.contradictions.join(' ')).toContain('A plan approved after the work is a record, not a gate.');
+    expect(report.contradictions.join(' ')).not.toContain('A plan approved after the work is a record, not a gate.');
   });
 
   it('puts the plan on the timeline, written then approved, and the skip too', () => {
@@ -676,8 +680,10 @@ describe('the summary strip', () => {
     const report = assembleFeatureReport(input({ workerRuns: [run(), run({ id: 502, attempt: 2, cents: 830 })] }));
 
     expect(report.summary.askedAt).toEqual(T('2026-09-01T09:00:00Z'));
+    // BUILT FROM THE GO-AHEAD (2026-10-05): elapsed runs from the person's decision, not the ask.
+    expect(report.summary.startedAt).toEqual(T('2026-09-02T16:30:00Z'));
     expect(report.summary.shippedAt).toEqual(T('2026-09-06T10:00:00Z'));
-    expect(report.summary.elapsed).toBe('5d 1h');
+    expect(report.summary.elapsed).toBe('3d 17h');
     expect(report.summary.elapsedOpen).toBe(false);
     expect(report.summary.totalCents).toBe(1450);
     expect(report.summary.humanDecisions).toBe(2);
@@ -688,7 +694,7 @@ describe('the summary strip', () => {
     const report = assembleFeatureReport(input({ releases: [] }));
 
     expect(report.summary.elapsedOpen).toBe(true);
-    expect(report.summary.elapsed).toBe('20d 3h');
+    expect(report.summary.elapsed).toBe('18d 19h');
   });
 });
 
@@ -1354,17 +1360,18 @@ describe('the status sentence and its one action', () => {
 });
 
 describe('record problems, said plainly', () => {
-  it('turns each disagreement into what is known, whether it blocks, and one move, keeping the raw sentence as evidence', () => {
-    const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z' } };
-    const notice = assembleFeatureReport(input({ plans: [late] })).notices.find(n => n.key === `plan-late-${plan.id}`)!;
+  // FE-392, 2026-10-03: a plan approved after the first run started never
+  // blocks anything, so it is not a page notice — it read as agent-voice
+  // noise ("It does not block … Review approval history") for a reader with
+  // nothing to do about it. The fact is not lost: it stays on the Timeline
+  // as "Plan approved by …", at the real approval time.
+  it('does not raise a notice for a plan approved after building had already begun, and keeps the approval on the timeline instead', () => {
+    const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z', approvedBy: 'dana@northwind.example' } };
+    const r = assembleFeatureReport(input({ plans: [late] }));
 
-    expect(notice).toMatchObject({
-      severity: 'inconsistency',
-      known: 'The plan was approved after building had already begun.',
-      action: { label: 'Review approval history', drawer: 'plan' },
-    });
-    expect(notice.blocks).toMatch(/^It does not block/);
-    expect(notice.evidence).toContain('A plan approved after the work is a record, not a gate.');
+    expect(r.notices.some(n => n.key === `plan-late-${plan.id}`)).toBe(false);
+    expect(r.notices.some(n => n.key.startsWith('plan-late'))).toBe(false);
+    expect(r.history.some(h => h.key === `plan-approved-${plan.id}` && h.at === '2026-09-09T09:00:00Z')).toBe(true);
   });
 
   it('does not count a refused attempt as work that ran before the plan was approved', () => {
@@ -1466,7 +1473,7 @@ describe('the release, read honestly', () => {
 
     const seen = assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).release;
 
-    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', detail: null });
+    expect(seen.seen).toEqual({ state: 'seen', line: 'Seen live: 1 of 1 state reached', detail: null, reasonKind: null });
   });
 
   it('offers Check live again while QA has not seen it live, and not once it has (FE-314, 2026-10-02)', () => {
@@ -1476,6 +1483,16 @@ describe('the release, read honestly', () => {
     expect(missed.release.releaseId).toEqual(expect.any(Number));
     expect(assembleFeatureReport(input({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'seen', line: 'Seen live: 1 of 1 state reached', releaseId: 88 } } } })).status.secondary).toBeNull();
     expect(assembleFeatureReport(input()).status.secondary).toBeNull();
+  });
+
+  it('a check that never looked reads "Couldn\'t check live yet" and asks the person only once Vocion\'s rechecks are spent (FE-419)', () => {
+    const mark = (attempts: number) => ({ request: { ...request, meta: { ...request.meta, liveCheck: { state: 'not_checked', line: 'Couldn\'t check live yet: the run wrote no report. Vocion will check again.', releaseId: 88, attempts, lastReason: 'the run wrote no report' } } } });
+    const healing = assembleFeatureReport(input(mark(1)));
+
+    expect(healing.release.seen).toMatchObject({ state: 'not_checked', attempts: 1, detail: 'the run wrote no report' });
+    expect(healing.release.sentence).toContain('Couldn\'t check live yet: the run wrote no report. Vocion will check again.');
+    expect(healing.status.secondary).toBeNull();
+    expect(assembleFeatureReport(input(mark(3))).status.secondary).toEqual({ kind: 'check_live', label: 'Check live again', releaseId: expect.any(Number) });
   });
 
   it('is Release not verified — never Not released — when the change merged and nothing records a release', () => {

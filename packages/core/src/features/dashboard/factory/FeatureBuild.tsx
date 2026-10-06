@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { DotTone } from '@/components/patterns';
 import { Hammer, Loader2, RotateCcw } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
@@ -47,9 +48,11 @@ function useStarted(requestId: number): Started | null {
  * @param props.requestId - The request.
  * @param props.tone - The server's dot.
  * @param props.headline - The server's headline.
- * @param props.sentence - The server's sentence.
+ * @param props.sentence - The server's sentence — plain text, or the live
+ * case's sentence with its date spliced in as `LocalDate` (the reader's own
+ * calendar, not baked server-side — see `StatusBlock`).
  */
-export function FeatureHeadline({ requestId, tone, headline, sentence }: { requestId: number; tone: DotTone; headline: string; sentence: string }) {
+export function FeatureHeadline({ requestId, tone, headline, sentence }: { requestId: number; tone: DotTone; headline: string; sentence: ReactNode }) {
   const now = useStarted(requestId);
   const shown = now
     ? now.planning

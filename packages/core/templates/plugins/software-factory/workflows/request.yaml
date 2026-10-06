@@ -36,6 +36,8 @@ steps:
   # ask that started it is never missed.
   - set:
       since: {from: input.since}
+      # A new run goes on from the request's last build (walk 26: a send-back read "attempt 1").
+      attempt: {first: [{from: input.attempt}, {value: 0}]}
   - loop:
       max: 1000
       steps:
@@ -61,9 +63,10 @@ steps:
                     intent: {from: vars.asked.payload}
 
         # A person's ask resets the automatic count; three automatic attempts
-        # in a row stop and ask a person once.
+        # in a row stop and ask a person once. A deploy since the stop gets
+        # exactly one more attempt (Walk 12): it stops again if that fails.
         - set:
-            automatic: {if: {cond: {path: vars.intent.byPerson, equals: true}, then: 0, else: {add: [{from: vars.automatic}, 1]}}}
+            automatic: {if: {cond: {path: vars.intent.byPerson, equals: true}, then: 0, else: {if: {cond: {path: vars.intent.afterDeploy, equals: true}, then: 3, else: {add: [{from: vars.automatic}, 1]}}}}}
         - when:
             - if: {all: [{path: vars.intent.byPerson, notEquals: true}, {path: vars.automatic, gt: 3}]}
               then:
@@ -99,10 +102,15 @@ steps:
           as: dispatched
         - set: {intent: null}
         - when:
+            # A REFUSED START IS NOT AN ATTEMPT (FE-457, 2026-10-05): two dispatches
+            # that started nothing counted toward the three automatic attempts, and
+            # the live check's send-back — the first real fix attempt — was stopped
+            # for a person. Only a start that built counts.
             - if: {path: vars.dispatched.status, notEquals: done}
               then:
                 - set:
                     attempt: {add: [{from: vars.attempt}, -1]}
+                    automatic: {add: [{from: vars.automatic}, -1]}
                     why: {first: [{from: vars.dispatched.error}, {value: 'The build did not start ({{vars.dispatched.status}}).'}]}
                 - do: factory.stop_request
                   input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
@@ -113,6 +121,7 @@ steps:
               then:
                 - set:
                     attempt: {add: [{from: vars.attempt}, -1]}
+                    automatic: {add: [{from: vars.automatic}, -1]}
                 - status: {stage: planning, line: 'Planning first: {{vars.dispatched.result.why}}.'}
                 - wait_event:
                     any:
@@ -136,6 +145,7 @@ steps:
               then:
                 - set:
                     attempt: {add: [{from: vars.attempt}, -1]}
+                    automatic: {add: [{from: vars.automatic}, -1]}
                     why: The build started no worker run.
                 - do: factory.stop_request
                   input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
@@ -196,7 +206,7 @@ steps:
         # this wait opens, so it catches up from the run's end.
         - set:
             prUrl: {from: vars.read.result.prUrl}
-        - status: {stage: review, line: 'QA is reviewing {{vars.prUrl}}.', with: {prUrl: '{{vars.prUrl}}'}}
+        - status: {stage: review, line: QA is reviewing the pull request., with: {prUrl: '{{vars.prUrl}}'}}
         - set:
             reviewFrom: {now: true}
         - wait_event:
@@ -207,9 +217,29 @@ steps:
                 match: {url: '{{vars.prUrl}}'}
               - types: [pr.closed]
                 match: {url: '{{vars.prUrl}}'}
+              - types: [factory.review_failed]
+                match: {url: '{{vars.prUrl}}'}
             timeout: 2592000
             since: '{{vars.reviewFrom}}'
           as: reviewed
+        # A review that could not finish is said where the person looks
+        # (Walk 11: "QA is reviewing" over two failed reviews), and the flow
+        # waits on for the review the factory starts again.
+        - when:
+            - if: {path: vars.reviewed.type, equals: factory.review_failed}
+              then:
+                - status: {stage: review, line: 'QA could not finish its review of the pull request; the factory starts it again, up to twice.', with: {prUrl: '{{vars.prUrl}}'}}
+                - wait_event:
+                    any:
+                      - types: [factory.build_requested]
+                        match: {requestId: '{{input.requestId}}'}
+                      - types: [pr.merged]
+                        match: {url: '{{vars.prUrl}}'}
+                      - types: [pr.closed]
+                        match: {url: '{{vars.prUrl}}'}
+                    timeout: 2592000
+                    since: '{{vars.reviewFrom}}'
+                  as: reviewed
         - when:
             - if: {path: vars.reviewed, exists: false}
               then:
@@ -234,14 +264,30 @@ steps:
 
         # Merged: the deploy records a release, and the live check is done
         # only when a result is recorded on the release (release #369).
-        - status: {stage: deploying, line: 'Merged {{vars.prUrl}}; deploying.', with: {prUrl: '{{vars.prUrl}}'}}
+        - status: {stage: deploying, line: Merged the pull request; deploying., with: {prUrl: '{{vars.prUrl}}'}}
         - wait_event:
             any:
               - types: [release.linked]
                 match: {requestIds: ['{{input.requestId}}']}
+              - types: [run.failed]
+                match: {headSha: '{{vars.reviewed.payload.mergeSha}}'}
             timeout: 21600
             since: '{{vars.reviewFrom}}'
           as: released
+        # A failed deploy of the merge is said where the person looks (Walk 15,
+        # FE-406: "deploying" for half an hour over a failed run), and the flow
+        # waits on for the release a re-run or a fix records.
+        - when:
+            - if: {path: vars.released.type, equals: run.failed}
+              then:
+                - status: {stage: deploying, line: 'Merged {{vars.prUrl}}, but its deploy failed ({{vars.released.payload.name}}: {{vars.released.payload.url}}); the release engineer is answering it.', with: {prUrl: '{{vars.prUrl}}'}}
+                - wait_event:
+                    any:
+                      - types: [release.linked]
+                        match: {requestIds: ['{{input.requestId}}']}
+                    timeout: 21600
+                    since: '{{vars.reviewFrom}}'
+                  as: released
         - when:
             - if: {path: vars.released, exists: false}
               then:
@@ -286,7 +332,7 @@ steps:
                       - do: factory.check_live_again
                         input:
                           releaseId: '{{vars.releaseId}}'
-                          reason: the last QA run ended without recording a live check; record one with check_live (not explore), citing every acceptance line or naming it not observable
+                          reason: the last QA run ended without recording a live check; look at the live product with the browser tools and record it with record_live_check, every acceptance line seen, not seen or not observable
         - set:
             why: {value: 'REL-{{vars.releaseId}} is live, but no live check was recorded after 2 tries.'}
         - do: factory.stop_request

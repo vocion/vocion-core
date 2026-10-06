@@ -3,9 +3,10 @@
 import type { ReactNode } from 'react';
 import type { DotTone } from '@/components/patterns';
 import type { HistoryCost, HistoryRow, Tone } from '@/services/factory/featureReport';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, ExternalLink } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { RecordCode, StatusDot } from '@/components/patterns';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { historyCostLine } from '@/services/factory/featureHistory';
 import { money } from '@/services/factory/featureReport';
 import { cn } from '@/utils/Helpers';
@@ -79,32 +80,44 @@ function Opens({ row, children }: { row: HistoryRow; children: ReactNode }) {
  */
 function Row({ row, nested, notes }: { row: HistoryRow; nested?: boolean; notes?: boolean }) {
   return (
-    <li data-testid="timeline-row" data-kind={row.kind} data-live={row.live ? 'true' : undefined} className="min-w-0">
-      <Opens row={row}>
-        <span className={cn('flex min-w-0 items-start gap-2.5 px-2 py-1.5', nested && 'pl-6')}>
-          <span className="pt-[5px]">
-            <StatusDot tone={row.live ? 'amber' : DOT[row.tone]} label={null} pulse={row.live} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className={cn('block text-[14px] leading-snug break-words', row.kind === 'note' ? 'text-muted-foreground' : 'text-foreground', row.kind === 'attempt' && 'font-medium')} data-testid="timeline-title">
-              {row.title}
+    <li data-testid="timeline-row" data-kind={row.kind} data-live={row.live ? 'true' : undefined} className="flex min-w-0 items-start">
+      <div className="min-w-0 flex-1">
+        <Opens row={row}>
+          <span className={cn('flex min-w-0 items-start gap-2.5 px-2 py-1.5', nested && 'pl-6')}>
+            <span className="pt-[5px]">
+              <StatusDot tone={row.live ? 'amber' : DOT[row.tone]} label={null} pulse={row.live} />
             </span>
-            {(row.code || row.at) && (
-              <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-muted-foreground tabular-nums">
-                <RecordCode code={row.code} />
-                {row.at && <When at={row.at} />}
+            <span className="min-w-0 flex-1">
+              <span className={cn('block text-[14px] leading-snug break-words', row.kind === 'note' ? 'text-muted-foreground' : 'text-foreground', row.kind === 'attempt' && 'font-medium')} data-testid="timeline-title">
+                {row.title}
               </span>
-            )}
-            {notes && (row.notes ?? []).map(n => (
-              <span key={n} className="mt-1 block text-[12px] leading-relaxed break-words text-muted-foreground" data-testid="timeline-note">{n}</span>
-            ))}
+              {(row.code || row.at) && (
+                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-muted-foreground tabular-nums">
+                  <RecordCode code={row.code} />
+                  {row.at && <When at={row.at} />}
+                </span>
+              )}
+              {notes && (row.notes ?? []).map(n => (
+                <span key={n} className="mt-1 block text-[12px] leading-relaxed break-words text-muted-foreground" data-testid="timeline-note">{n}</span>
+              ))}
+            </span>
+            <span className="shrink-0 pt-px text-[12px] text-muted-foreground tabular-nums" data-testid="timeline-cost">
+              {row.cents === null ? '' : money(row.cents)}
+            </span>
+            {(row.open || row.href) && <ChevronRight className="mt-[3px] size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
           </span>
-          <span className="shrink-0 pt-px text-[12px] text-muted-foreground tabular-nums" data-testid="timeline-cost">
-            {row.cents === null ? '' : money(row.cents)}
-          </span>
-          {(row.open || row.href) && <ChevronRight className="mt-[3px] size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
-        </span>
-      </Opens>
+        </Opens>
+      </div>
+      {row.external && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a href={row.external.url} target="_blank" rel="noreferrer" aria-label={row.external.label} className="mt-1 shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground" data-testid="timeline-external">
+              <ExternalLink className="size-3.5" aria-hidden />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>{row.external.label}</TooltipContent>
+        </Tooltip>
+      )}
     </li>
   );
 }

@@ -8,7 +8,8 @@ const { createObjectType } = await import('@/services/BusinessObjectService');
 const { storePlatformKey } = await import('@/services/ApiTokenService');
 const { productAccess } = await import('./productAccess');
 const { productAccessTools } = await import('@/services/agents/tools/productAccess');
-const { checkLiveTools } = await import('@/services/agents/tools/checkLive');
+const { liveBrowserTools } = await import('@/services/agents/tools/liveBrowser');
+const { recordLiveCheckTools } = await import('@/services/agents/tools/recordLiveCheck');
 
 const ORG = 'org_product_access';
 const LOGIN = { signInUrl: 'https://app.northwind.example/sign-in', email: 'qa@northwind.example', password: 'a-long-qa-passphrase' };
@@ -56,8 +57,9 @@ describe('production access lives with the product (2026-09-30)', () => {
     expect(productAccessTools({ orgId: ORG, harnessConfig: {} } as never)).toEqual([]);
   });
 
-  it('grants check_live only to a seat that names it', () => {
-    expect(checkLiveTools({ orgId: ORG, harnessConfig: {} } as never)).toEqual([]);
-    expect(checkLiveTools({ orgId: ORG, harnessConfig: { grantTools: ['check_live'] } } as never).map(t => t.name)).toEqual(['check_live']);
+  it('grants the live check\'s browser and its recording only to a seat that names them', () => {
+    expect([...liveBrowserTools({ orgId: ORG, harnessConfig: {} } as never), ...recordLiveCheckTools({ orgId: ORG, harnessConfig: {} } as never)]).toEqual([]);
+    expect(liveBrowserTools({ orgId: ORG, harnessConfig: { grantTools: ['browser'] } } as never).map(t => t.name)).toEqual(['browser_open', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_upload', 'browser_press', 'browser_say', 'browser_screenshot', 'browser_responses']);
+    expect(recordLiveCheckTools({ orgId: ORG, harnessConfig: { grantTools: ['record_live_check'] } } as never).map(t => t.name)).toEqual(['record_live_check']);
   });
 });

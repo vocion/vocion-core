@@ -40,3 +40,12 @@ describe('card specs', () => {
     expect(cardPayloadFor('table', { columns: [] })).toMatchObject({ __card: 'data-table' });
   });
 });
+
+describe('a markdown spec keeps a QA test run\'s list of tests (Walk 11, task 389)', () => {
+  it('passes the tests through the schema', async () => {
+    const { markdownSpecSchema } = await import('./specs');
+    const tests = [{ id: 't1', file: 'apps/api/a.test.ts', name: 'list > one query', status: 'passed' }];
+
+    expect(markdownSpecSchema.parse({ md: '# Named tests, run 485', tests }).tests).toEqual(tests);
+  });
+});

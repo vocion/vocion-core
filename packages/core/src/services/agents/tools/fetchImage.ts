@@ -72,7 +72,7 @@ export async function artifactImageUrl(orgId: string, url: string): Promise<stri
   // presigned link dies in seven days) or, for a row whose copy was never
   // made, the link it arrived with. `openImage` reads either.
   const stored = row.url ?? (typeof row.spec?.url === 'string' ? row.spec.url : null);
-  return stored && (/^https:\/\//.test(stored) || isStoredArtifactUrl(stored)) ? stored : null;
+  return stored && (/^https:\/\//.test(stored) || /^data:image\//.test(stored) || isStoredArtifactUrl(stored)) ? stored : null;
 }
 
 /** `data:image/png;base64,…` → the extension to store it under. */

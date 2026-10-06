@@ -331,7 +331,73 @@ name: Software factory
 # 3.0.0 (vocion-core v0.6.0) — BREAKING: the factory-daily-plan,
 # factory-result-check, standard-from-shipped and product-debrief automations
 # are deleted (paused or never answering anything a person used).
-version: 3.0.0
+# 3.1.0 — QA cites the tests that ran (2026-10-02, Walk 10, FE-381 task 383:
+#   three parametric test names matched nothing under -t and an attempt was
+#   sent back as "skipped"). The worker stores every test that ran with an
+#   id; QA's review cites them by id (record_verdict `tests`), and a name
+#   that matched nothing reads "No test matched".
+# 3.5.0 — the live check drives a browser and structures its evidence, not its
+#   steps (2026-10-03, FE-402 line 6: a step `click: "Save"` waited 15 s on a
+#   Save correctly disabled for a blank name, and a correct feature read
+#   broken). QA holds `browser` (browser_open, _snapshot, _click, _type,
+#   _press, _screenshot, _responses: the page's accessibility snapshot with
+#   refs and element state, every capture with an id) and `record_live_check`
+#   (every acceptance line seen or not seen citing this run's evidence, or not
+#   observable). `check_live` and its step language are gone; the release and
+#   the feature carry the same live records as before.
+# 3.10.0 — QA narrates its recordings (Chris, 2026-10-03: "When it's
+#   connected, an option in Software Factory that adds a second video on top
+#   of the QA video: a second pass with an avatar bubble and voiceover"). The
+#   plugin's first setting, `narrateRecordings` (off by default): on, and with
+#   a voice connected (Connections), every recording filed on a feature —
+#   QA's live check, the engineer's tests before merge — gets a second video.
+#   QA writes a 5–10 line walkthrough timed to what its browser logged, says
+#   it in its voice (`harness.voiceId`, else the connector's first), under its
+#   avatar bubble (its image, else its initials on its accent), and the
+#   feature page offers Recording | Narrated. A failure is one line on the
+#   request; the check and the review never wait on it. Turn it on:
+#     pluginSettings: {software-factory: {narrateRecordings: true}}
+# 3.11.0 — a request's title is a ticket-sized name (Chris, 2026-10-03: "The
+#   title is too long and verbose … not a full request or spec in the
+#   title"). The title is at most 60 characters (`maxLength` on the request
+#   type); `file_request` tells the model so, and handed the whole ask it keeps
+#   the words in `body` (`x-agent-file.longTitleTo`) and a model names the
+#   request. A request filed before this is named the first time its public
+#   page is read, or by `npm run objects:backfill-names -- --project <id>`;
+#   Work rows read the name (`from: name`) and the feature page leads with it.
+# 3.12.0 — the feature demo (Chris, 2026-10-03: "the demo video should be
+#   designed to demonstrate functionality to a PM/PO … the happy path, end to
+#   end"). After the live check records its lines, QA records each seen
+#   feature's demo in its own tab, saying each step as it does it; the screen
+#   holds while a line is said, the video is filed on the request as
+#   `feature-demo` with the said lines as its script, and the narration
+#   (`narrateRecordings`) speaks them as written. The feature page and the
+#   public share page play the demo first.
+# 3.13.0 — the live check is honest about an environment it cannot reach, and
+#   the demo is owed (walk 19, FE-432, 2026-10-04). QA records why a line cannot
+#   be seen live (`cause`); `environment_cannot_show` makes the release read
+#   not checked with the fix named, never seen. A live check that ends seen
+#   with no Feature Demo on a shipped request raises `release.demo.requested`
+#   and `release-feature-demo` has QA record the demo alone.
+# 3.14.0 — Build it from any chat card (Chris, 2026-10-04: "I should have a
+#   path to just push the idea into the software factory from chat"). `request`
+#   declares `x-intake: true`; a card a turn drew offers Build it, and the tap
+#   hands the card to the request's owner as the person's word: file it, start
+#   the build.
+# 3.15.0 — the feature demo is recorded from the branch before merge and plays
+#   on the merge card (backlog 058; Chris, 2026-10-04: "more context and trust
+#   to approve"). The runner's QA pass walks the contract's flows on the PR's
+#   own build in one take, saying each acceptance line, and files it as
+#   `feature-demo-preview`; QA narrates it like the live demo; the merge card
+#   and the feature page lead with it until the live demo exists.
+# 3.16.0 — the demo enacts the whole story (Chris, 2026-10-04: "no pdf upload
+#   and no view of user trying to open an expired link"): browser_upload puts a
+#   sample PDF in, the skill makes what the feature needs on screen and shows
+#   the payoff from the recipient's side; a line over an unchanged screen is cut.
+# 3.17.0 — the Slack thread follows the request (backlog 057). One event per
+#   status write (`record.status_marked`); `slack-thread-follow` says each move
+#   in the thread the request was asked in, once, with the record's page.
+version: 3.28.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
@@ -358,6 +424,16 @@ factory:
     release: release
     product: product
     repo: repo
+# Options a workspace sets under `pluginSettings: {software-factory: {…}}`.
+settings:
+  narrateRecordings:
+    type: boolean
+    default: false
+    label: Narrate QA recordings
+    description: >-
+      When a voice is connected, QA adds a second video to every recording on a
+      feature: its avatar in the corner and its voice walking through what the
+      recording shows. The original recording is kept as it was.
 # The two moments a person hears about (2.26.0). Few on purpose: an event not
 # named here notifies nobody. `{field}` is filled from the event's payload.
 notifications:

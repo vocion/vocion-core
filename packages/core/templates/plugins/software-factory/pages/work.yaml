@@ -106,7 +106,9 @@ primary:
   # No fallback mark: a generic icon stretched into the media slot is
   # decoration. A row with no real picture has no slot at all.
 fields:
-  - {key: title, label: Outcome}
+  # The record's ticket-sized name, else its title (Chris, 2026-10-03: "a
+  # better ticket-sized name … not a full request or spec in the title").
+  - {key: title, label: Outcome, from: name}
   # An artifact id, resolved to its served url by the page layer. The record
   # names the artifact; a url copied onto the record would be a second copy of
   # a fact that can quietly disagree with the first.

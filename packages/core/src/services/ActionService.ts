@@ -321,7 +321,8 @@ async function learningEagernessFor(orgId: string): Promise<number | null> {
  * @param input - See {@link proposeActionInTurn}.
  */
 export async function proposeAction(input: Parameters<typeof proposeActionInTurn>[0]): Promise<ProposeResult> {
-  const { READ_ONLY_RECEIPT, noteWrite, writesRefused } = await import('@/services/agents/turnScope');
+  const { READ_ONLY_RECEIPT, noteWrite, settleTurn, writesRefused } = await import('@/services/agents/turnScope');
+  await settleTurn();
   if (writesRefused()) {
     throw new ActionError('read_only_turn', READ_ONLY_RECEIPT);
   }
@@ -759,6 +760,13 @@ async function ladderVerdict(
   }
   if (proposal?.suggestedDecision === 'reject' || proposal?.suggestedDecision === 'snooze') {
     return { mode: 'ask', reason: `the agent itself advised "${proposal.suggestedDecision}"`, threshold: null, source: 'advice' };
+  }
+  // The record's own hard stop: no trust rule, rung or confidence releases it. Fails safe.
+  if (action.holdForPerson) {
+    const held = await action.holdForPerson({ orgId }, parsed).catch(() => 'its hold could not be read, so it waits for a person');
+    if (held) {
+      return { mode: 'ask', reason: held, threshold: null, source: 'held' };
+    }
   }
   // Done for you, by default (`libs/actions/autoAccept.ts`): a reversible,
   // low-risk kind runs on its own above its bar; an automating rung runs at

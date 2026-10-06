@@ -281,7 +281,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
         return parseFile(trustPath, TrustManifestSchema, 'trust') as TrustManifest;
       })()
     : null;
-  const extras = loadPluginExtras(plugins);
+  const extras = loadPluginExtras(plugins, manifest.pluginSettings ?? {});
   const trust = mergeTrust(extras.trust, workspaceTrust);
 
   // Voice rules: one top-level file, same shape as trust.yaml. Absent means
@@ -315,6 +315,9 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       .map((file) => {
         files.push(file);
         const parsed = parseFile(file, AutomationManifestSchema, 'automation');
+        if (parsed.setting) {
+          throw new Error(`automation "${parsed.slug}" (${file}): setting: is for a plugin's automations — a workspace turns its own on or off with status:`);
+        }
         return { ...parsed, sourceFile: file };
       }),
     extras.automations,
@@ -815,14 +818,59 @@ type PluginExtras = {
 };
 
 /**
+ * Every `pluginSettings` entry names an enabled plugin and a setting it
+ * declares, so a typo fails the load instead of leaving a switch silently off.
+ * @param plugins - enabled plugins
+ * @param pluginSettings - workspace.yaml `pluginSettings`
+ */
+function assertPluginSettings(plugins: LoadedPlugin[], pluginSettings: Record<string, Record<string, boolean>>): void {
+  for (const [slug, values] of Object.entries(pluginSettings)) {
+    const plugin = plugins.find(p => p.manifest.slug === slug);
+    if (!plugin) {
+      throw new Error(`pluginSettings names plugin "${slug}", which is not on — add it to plugins: first`);
+    }
+    const declared = plugin.manifest.settings ?? {};
+    for (const key of Object.keys(values)) {
+      if (!declared[key]) {
+        const known = Object.keys(declared);
+        throw new Error(`pluginSettings.${slug}.${key}: plugin "${slug}" has no setting "${key}"${known.length > 0 ? ` (it has ${known.join(', ')})` : ' (it declares none)'}`);
+      }
+    }
+  }
+}
+
+/**
+ * Whether a plugin automation runs here: always, unless it names a `setting`
+ * — then that setting's value in this workspace, else the plugin's default.
+ * @param plugin - the plugin that ships it
+ * @param automation - the parsed automation
+ * @param automation.slug - its slug
+ * @param automation.setting - the setting it waits for, if any
+ * @param pluginSettings - workspace.yaml `pluginSettings`
+ */
+function settingAllows(plugin: LoadedPlugin, automation: { slug: string; setting?: string }, pluginSettings: Record<string, Record<string, boolean>>): boolean {
+  if (!automation.setting) {
+    return true;
+  }
+  const slug = plugin.manifest.slug;
+  const declared = plugin.manifest.settings?.[automation.setting];
+  if (!declared) {
+    throw new Error(`automation "${automation.slug}" of plugin "${slug}" waits for setting "${automation.setting}", which the plugin does not declare under settings:`);
+  }
+  return pluginSettings[slug]?.[automation.setting] ?? declared.default;
+}
+
+/**
  * The non-composable kinds a plugin ships: automations, teams, learning steps
  * and trust rules. Read as shipped (no {{env}} substitution, not sha-tracked —
  * the plugin version covers provenance). Two plugins shipping one automation or
  * team slug is an error, like the composable kinds.
  * @param plugins - enabled plugins, in load order
+ * @param pluginSettings - workspace.yaml `pluginSettings`, which turns setting-gated automations on
  */
-function loadPluginExtras(plugins: LoadedPlugin[]): PluginExtras {
+function loadPluginExtras(plugins: LoadedPlugin[], pluginSettings: Record<string, Record<string, boolean>> = {}): PluginExtras {
   const out: PluginExtras = { automations: [], teams: [], learningSteps: [], trust: [] };
+  assertPluginSettings(plugins, pluginSettings);
   const seen = new Map<string, string>();
   const claim = (kind: string, slug: string, plugin: string) => {
     const key = `${kind}:${slug}`;
@@ -838,7 +886,7 @@ function loadPluginExtras(plugins: LoadedPlugin[]): PluginExtras {
     for (const file of walkDir(join(root, 'automations')).filter(isYamlFile)) {
       const parsed = validateOrThrow(AutomationManifestSchema, parseYaml(readFileSync(file, 'utf8')), file, 'automation');
       claim('automation', parsed.slug, name);
-      out.automations.push({ ...parsed, sourceFile: file });
+      out.automations.push({ ...parsed, status: settingAllows(plugin, parsed, pluginSettings) ? parsed.status : 'disabled', sourceFile: file });
     }
     for (const file of walkDir(join(root, 'teams')).filter(isYamlFile)) {
       const team = loadTeam(file, null);

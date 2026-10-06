@@ -89,6 +89,16 @@ export function listActions(): Action[] {
   return Array.from(registry.values());
 }
 
+/**
+ * Every registered action with its input fields, stated once in an agent's
+ * instructions for recommend_action and propose_action to name from
+ * (`services/agents/harness.ts`).
+ */
+export function actionCatalog(): string {
+  const lines = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
+  return `ACTIONS (the ids recommend_action and propose_action take):\n${lines}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${actionInputHints(undefined)}`;
+}
+
 // Built-ins.
 registerAction(gmailSendAction);
 registerAction(hubspotUpdateAction);

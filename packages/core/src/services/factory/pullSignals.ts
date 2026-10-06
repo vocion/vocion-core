@@ -98,8 +98,9 @@ export async function mergeRiskClassOf(orgId: string, meta: Meta): Promise<strin
  * it cannot be read.
  * @param orgId - Tenant.
  * @param riskClass - The merge's class.
+ * @param taskId
  */
-export async function mergeRunsItself(orgId: string, riskClass: string): Promise<boolean | null> {
+export async function mergeRunsItself(orgId: string, riskClass: string, taskId?: number | null): Promise<boolean | null> {
   try {
     const { willExecuteOnItsOwn } = await import('@/services/ActionService');
     return await willExecuteOnItsOwn({
@@ -110,6 +111,8 @@ export async function mergeRunsItself(orgId: string, riskClass: string): Promise
         summary: 'QA approved it; merging is the deploy.',
         steps: [{ say: 'Merge the pull request.' }],
         riskClass,
+        // The task makes the product's own hold count: a product whose merges a person approves never runs itself.
+        ...(taskId ? { taskId } : {}),
         commitSha: '0000000',
         rollback: 'Revert the pull request and merge the revert.',
       },

@@ -418,6 +418,7 @@ function ChatShellInner({
                       onShowSources={openSources}
                       onCitationClick={(_n, messageId) => openSources(messageId)}
                       onFeedback={session.handleFeedback}
+                      onBuildCard={session.buildFromCard}
                       autonomy={session.autonomy}
                       conversationId={session.conversationId}
                       blocks={gateBlocks}

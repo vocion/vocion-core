@@ -18,6 +18,7 @@ import { track } from '@/services/adoption/track';
 import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, setArtifactShare, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 import { reviseDocument } from '@/services/documents/DocumentEngine';
+import { featureShareOf, setFeatureShare as writeFeatureShare } from '@/services/factory/featureShareData';
 import { isRecordBodyArtifact, restoreRecordBodyAsPerson, saveRecordBodyAsPerson } from '@/services/objects/recordBody';
 import { restoreWorkspaceSource, WorkspaceSourceError, writeWorkspaceSource } from '@/services/workspace/WorkspaceSourceService';
 import { ApiError } from './ApiError';
@@ -226,6 +227,30 @@ export const setShare = os
       throw ApiError.notFound({ id: input.id });
     }
     return shareInfo(row);
+  });
+
+/** Whether a feature has a public page, and its link (`services/factory/featureShare.ts`). */
+export const featureShare = os
+  .input(z.object({ requestId: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    return featureShareOf(orgId, input.requestId);
+  });
+
+/**
+ * Share a feature's public page, stop sharing it, or hide who asked. Stopping
+ * kills every copy of the link on its next request; sharing again files a new
+ * one. The person's own act: it runs as they pressed it.
+ */
+export const setFeatureShare = os
+  .input(z.object({ requestId: z.number().int().positive(), shared: z.boolean(), hideAsker: z.boolean().optional(), showOpenLink: z.boolean().optional() }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const state = await writeFeatureShare({ orgId, requestId: input.requestId, userId: userId ?? null, shared: input.shared, hideAsker: input.hideAsker, showOpenLink: input.showOpenLink });
+    if (!state) {
+      throw ApiError.notFound({ id: input.requestId });
+    }
+    return state;
   });
 
 export const setFolder = os

@@ -32,7 +32,7 @@ Work under Proposed, where Dismiss is the undo, and the answer names the
 request with its link — give the person that link.
 
 `file_request`'s arguments ARE the request's fields, with the ones a request
-must carry marked required: `title` (the ask as an outcome), `product` (one of
+must carry marked required: `title` (a ticket-sized name, at most 60 characters), `product` (one of
 this workspace's product slugs — the tool lists them), `story`, `outcome`, three
 to six `acceptance` lines, `mainRisk`, `visuals.surfaceUrl` and `whyNote`, plus
 what else you know (`kind`, `severity`, `why`, `body` in the asker's words).
@@ -56,12 +56,15 @@ in one tap, and the run it creates is on the record with who filed it and when.
 If they disagree they say so in the same conversation, and nothing was filed
 in the wrong shape.
 
-## Write the title as the outcome, not the instruction
+## Write the title as a ticket-sized name
 
-The title is what the work is FOR, because it becomes the name of the work
-item and the heading of its page. "Rename Send to Stamp at stampsend.com" is
-an instruction. *"The product is called Stamp everywhere a customer sees it"*
-is an outcome, and it is also the acceptance criterion.
+The title is the name of the work item and the heading of its page, so it is
+short: at most 60 characters, a noun phrase or an imperative in the asker's
+terms — "Sort the library by name, date or last opened", "Upload date on each
+library row". It is not the ask: the person's whole words go in `body`,
+verbatim, and the change a person can make afterwards goes in `outcome`. A
+title that is the whole ask is not refused — it is kept as `body` and a model
+names the request — but write the name yourself; you know what was meant.
 
 ## Say back what you understood
 

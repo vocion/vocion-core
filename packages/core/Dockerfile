@@ -34,7 +34,8 @@ COPY packages/plugins/transcript-highlights/package.json ./packages/plugins/tran
 
 # `--ignore-scripts` skips lefthook + husky hooks that aren't needed inside Docker.
 RUN apk add --no-cache libc6-compat python3 make g++ \
-  && npm ci --ignore-scripts
+  && npm ci --ignore-scripts \
+  && mkdir -p packages/core/node_modules
 
 # ----------------------------------------------------------------------
 # Stage 2 — build the app
@@ -82,6 +83,12 @@ ARG NEXT_PUBLIC_BRAND_ATTRIBUTION=
 ENV NEXT_PUBLIC_BRAND_ATTRIBUTION=${NEXT_PUBLIC_BRAND_ATTRIBUTION}
 
 COPY --from=deps /app/node_modules ./node_modules
+# A dependency the workspaces want at DIFFERENT versions is not hoisted: npm
+# nests core's copy under packages/core/node_modules (deepagents 1.14 for core
+# beside 1.10 for the agent runtime, 2026-10-04, deploy 37237947218: "Module
+# not found: Can't resolve 'deepagents'"). The deps stage makes the directory
+# exist even when nothing is nested, so this COPY never fails.
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY . .
 
 # `output: 'standalone'` in packages/core/next.config.ts produces
@@ -128,12 +135,19 @@ ARG VOCION_BUILD_SUBJECT=
 ARG VOCION_BUILD_REF=
 ARG VOCION_BUILD_DESCRIBE=
 ARG VOCION_AGENT_RUNTIME_IMAGE=
+# 0 skips writing Turbopack's build cache (next.config.ts): a builder that is
+# thrown away after one build, like the deploy runner, never reads it again.
+ARG VOCION_BUILD_FS_CACHE=1
 RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SHA}" \
     VOCION_BUILD_SUBJECT="${VOCION_BUILD_SUBJECT}" VOCION_BUILD_REF="${VOCION_BUILD_REF}" \
     VOCION_BUILD_DESCRIBE="${VOCION_BUILD_DESCRIBE}" \
     VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
     node scripts/write-version.mjs
 
+# Two passes, compile then generate (2026-10-03): in one process the compile's
+# memory (~4.6 GB) is still held while pages render (+~1.3 GB), and the 7 GB
+# deploy runner was killed twice (ResourceExhausted). Each pass now has the
+# memory to itself; the standalone output is the same.
 # One prerender worker, and a database that refuses at once (127.0.0.1:9),
 # never a hostname that can sit in DNS. v0.6.0's build on the deploy runner
 # (2 CPU, 7 GB) was killed at "Generating static pages using 2 workers (0/185)"
@@ -142,6 +156,7 @@ RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SH
 RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/app/packages/core/.next/cache \
     NODE_OPTIONS=--max-old-space-size=6144 \
     NEXT_BUILD_CPUS=1 \
+    VOCION_BUILD_FS_CACHE="${VOCION_BUILD_FS_CACHE}" \
     SKIP_ENV_VALIDATION=1 \
     VOCION_TYPES_CHECKED=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
@@ -155,7 +170,7 @@ RUN --mount=type=cache,id=vocion-core-next-build-cache,sharing=locked,target=/ap
     ANTHROPIC_API_KEY="sk-ant-build-stub" \
     LANGFUSE_PUBLIC_KEY="pk-stub" \
     LANGFUSE_SECRET_KEY="sk-stub" \
-    npm run build:next \
+    npm run build:next:staged \
  && npm run docs:index
 
 # The standalone output still carries some of core's source, specs and test
@@ -173,6 +188,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# The app handles SIGTERM itself (src/instrumentation.ts): a turn in flight finishes before the process exits (backlog 056).
+# Set here, in the stage that runs, not in the builder: the first attempt put it there and the container never saw it (2026-10-04).
+ENV NEXT_MANUAL_SIG_HANDLE=true
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
@@ -183,11 +201,18 @@ ENV HOSTNAME=0.0.0.0
 # not Playwright's download (glibc); the engine finds it through
 # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH. Fonts so text has a face to fall back
 # to when a document's web fonts do not load.
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-dejavu ttf-liberation font-noto-emoji \
+# ffmpeg (with ffprobe, libvpx and libx264) for recordings: Playwright encodes
+# the live check's video with it (VP8 WebM, linked below), and a narrated
+# recording is composed with it (`libs/media/ffmpeg.ts`, H.264/AAC MP4).
+# Alpine's `ffmpeg` is the smallest package that has all three.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-dejavu ttf-liberation font-noto-emoji ffmpeg \
   && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Where Playwright looks for its own binaries, fixed so it does not depend on
+# the runtime user's HOME (it was /home/nextjs/.cache/ms-playwright).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Copy the standalone server + the static + public + context tree.
 # The standalone output already includes the trimmed node_modules.
@@ -209,6 +234,24 @@ COPY --from=builder --chown=nextjs:nodejs /app/README.md ./README.md
 # package.json + the workspace root marker so `getRepoRoot()` resolves
 # to /app inside the container (the standalone build's CWD).
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+
+# Playwright records video by piping frames to its OWN ffmpeg build, which it
+# downloads for glibc and never for Alpine: with recording on, every page of the
+# live check failed with "Executable doesn't exist at
+# /home/nextjs/.cache/ms-playwright/ffmpeg-1011/ffmpeg-linux" (2026-10-03, #1107
+# falls back to checking without recording). Alpine's ffmpeg (VP8 via libvpx)
+# takes the same arguments, so it is linked where the installed playwright-core
+# looks — the path asked of its own registry, so a Playwright upgrade that moves
+# the revision moves the link with it. A build whose playwright-core cannot say
+# fails here rather than shipping an image that cannot record.
+RUN cd /app/packages/core \
+ && FFMPEG_AT="$(node -e "process.stdout.write(require('playwright-core/lib/server/registry/index').registry.findExecutable('ffmpeg').executablePath('javascript') || '')")" \
+ && test -n "$FFMPEG_AT" \
+ && mkdir -p "$(dirname "$FFMPEG_AT")" \
+ && ln -sf /usr/bin/ffmpeg "$FFMPEG_AT" \
+ && chown -R nextjs:nodejs "$PLAYWRIGHT_BROWSERS_PATH" \
+ && echo "playwright ffmpeg -> $FFMPEG_AT" \
+ && "$FFMPEG_AT" -hide_banner -encoders 2>/dev/null | grep -q libvpx
 
 USER nextjs
 EXPOSE 3000
