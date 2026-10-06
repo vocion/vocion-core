@@ -10,6 +10,7 @@ import type { LangfuseTurnUsage } from '@/libs/Langfuse';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
+import { asRootRun } from '@/libs/agents/rootRun';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { lastAnswerOf } from '@/libs/chat/lastAnswer';
 import { appendRecordLinks } from '@/libs/chat/recordLinks';
@@ -1042,7 +1043,8 @@ export async function runAgentDeep(opts: {
 
   // The loop, as a function, so the one structural continuation below can
   // re-enter it with the turn's own messages.
-  const runGraphPass = async (graphInput: typeof input): Promise<void> => {
+  // Its own root run, never a child of whatever turn started it (`asRootRun`).
+  const runGraphPass = (graphInput: typeof input): Promise<void> => asRootRun(async () => {
     const stream = await compiled.graph.streamEvents(graphInput as never, {
       version: 'v2',
       callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard), new TurnGateCallback(toolsReady)],
@@ -1223,7 +1225,7 @@ export async function runAgentDeep(opts: {
     // Note: per-actor citations ride on the `trace_node` events (so the trace
     // can show "found by <specialist>"); the Sources drawer keeps using the
     // richer `documents` event the search tool emits via ctx.emit.
-  };
+  });
   // Every pass runs inside the turn's scope: a question's turn writes nothing,
   // and what does land is counted (`agents/turnScope.ts`).
   const runGraph = (graphInput: typeof input): Promise<void> => inTurn(turn, () => runGraphPass(graphInput));
