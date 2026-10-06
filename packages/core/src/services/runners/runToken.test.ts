@@ -18,7 +18,12 @@ describe('a run token', () => {
 
     expect(token.startsWith('vrt_')).toBe(true);
     expect(verifyRunToken(token)).toMatchObject({ orgId: 'org_northwind', runId: 41, target: 'on-box' });
-    expect(verifyRunToken(`${token.slice(0, -2)}xx`)).toBeNull();
+
+    // A changed character inside the signature, never at its end: the last base64url character
+    // can carry only padding bits, so "…xx" sometimes decoded to the same signature and verified.
+    const at = token.length - 10;
+
+    expect(verifyRunToken(`${token.slice(0, at)}${token[at] === 'A' ? 'B' : 'A'}${token.slice(at + 1)}`)).toBeNull();
     expect(verifyRunToken(token.replace('vrt_', 'vrt_e30'))).toBeNull();
     expect(verifyRunToken('vcn_live_abc_def')).toBeNull();
   });
