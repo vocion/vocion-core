@@ -98,6 +98,13 @@ describe('state without a source row', () => {
     expect(verifyState(sign({ ...base, connectorSlug: 'github', conversationId: '7' }))).toEqual({ ok: false, reason: 'malformed' });
     expect(verifyState(sign({ ...base, connectorSlug: 'github', cardId: 5 }))).toEqual({ ok: false, reason: 'malformed' });
   });
+
+  it('carries the app the login started on to the callback, and refuses one that is not a client ID', () => {
+    const verified = verifyState(signState({ provider: 'google', orgId: 'org_1', userId: 'user_1', connectorSlug: 'gmail', loginClientId: 'ws_google' }));
+
+    expect(verified.ok && verified.payload.loginClientId).toBe('ws_google');
+    expect(verifyState(sign({ ...base, connectorSlug: 'gmail', loginClientId: 42 }))).toEqual({ ok: false, reason: 'malformed' });
+  });
 });
 
 describe('PKCE from the signed state', () => {

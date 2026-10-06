@@ -302,8 +302,8 @@ function loginAppPlatform(id: CredentialPlatformId, provider: ConnectProviderId,
     keyShapeHint: 'a client ID and a client secret',
     helpText: `Your own ${vendor} OAuth app. Logins with ${vendor} in this workspace use it instead of the server's, so it works without a redeploy. Saving a new app replaces the old one, and logins made with the old app need logging in again.`,
     fields: [
-      { name: 'clientId', label: 'Client ID', pattern: null, shapeHint: 'is the client ID the vendor shows for your app', secret: false },
-      { name: 'clientSecret', label: 'Client secret', pattern: null, shapeHint: 'is the client secret the vendor shows for your app', secret: true },
+      { name: 'clientId', label: 'Client ID', pattern: null, shapeHint: `the Client ID from your ${vendor} app's settings`, secret: false },
+      { name: 'clientSecret', label: 'Client secret', pattern: null, shapeHint: `the Client secret from the same page`, secret: true },
     ],
     loginAppFor: provider,
   };

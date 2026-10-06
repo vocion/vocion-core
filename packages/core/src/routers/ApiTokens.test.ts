@@ -234,6 +234,15 @@ describe('platform key routes', () => {
     expect(options.every(option => option.redirectUrl === null)).toBe(true);
   });
 
+  it('marks exactly the login apps, so the form warns that replacing or revoking one ends its logins', async () => {
+    signedInAs('admin');
+    const options = await call<Array<{ id: string; loginApp: boolean }>>(listPlatformsRoute, undefined);
+
+    expect(options.filter(option => option.loginApp).map(option => option.id).sort()).toEqual(
+      ['apollo-login-app', 'atlassian-login-app', 'google-login-app', 'hubspot-login-app', 'notion-login-app', 'slack-login-app', 'zoom-login-app'],
+    );
+  });
+
   it('stores a key for an admin and returns only the masked hint', async () => {
     signedInAs('admin');
     const saved = await call<{ keyHint: string }>(createPlatformKeyRoute, {

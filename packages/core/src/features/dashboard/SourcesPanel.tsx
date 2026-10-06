@@ -26,6 +26,7 @@ import {
   fieldValuesFromConfig,
   initialFieldValues,
 } from '@/libs/sources/configFields';
+import { withArticle } from '@/utils/withArticle';
 import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, failedAttempts, initialCredentialDraft, missingCredentialLabels } from './ConnectByLogin';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
@@ -778,7 +779,7 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                     <span className="font-mono">{connect.requiredEnv.join(', ')}</span>
                     {' '}
                     on the server
-                    {connect.bringYourOwnApp ? `, or a ${connect.label} login app an admin saves on the Developers page` : ''}
+                    {connect.bringYourOwnApp ? `, or ${withArticle(`${connect.label} login app`)} an admin saves on the Developers page` : ''}
                     . Until then, paste a token below.
                   </p>
                 )

@@ -15,7 +15,7 @@ vi.mock('./serverClients', () => ({ serverLoginClient: (provider: string) => ser
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, sourceDekSchema } = await import('@/models/Schema');
 const { revokeToken, storePlatformKey } = await import('@/services/ApiTokenService');
-const { loginClientForGrant, loginClientForNewLogin, loginOffered } = await import('./loginClient');
+const { loginClientForCallback, loginClientForGrant, loginClientForNewLogin, loginOffered } = await import('./loginClient');
 const { refusalFix, TokenRequestError } = await import('./tokenRequest');
 
 const ORG = 'org_login_client';
@@ -83,6 +83,26 @@ describe('the app a vendor login runs on', () => {
     await revokeToken(ORG, tokenId);
 
     await expect(loginClientForNewLogin(ORG, 'google')).resolves.toEqual(SERVER_GOOGLE);
+  });
+
+  it('half an app cannot be saved: a client ID with a blank secret, or the other way round, is refused and nothing is stored', async () => {
+    await expect(storePlatformKey({ orgId: ORG, name: 'Half an app', platform: 'google-login-app', values: { clientId: 'ws_google', clientSecret: '   ' } })).rejects.toThrow('Enter the Client secret.');
+    await expect(storePlatformKey({ orgId: ORG, name: 'Half an app', platform: 'google-login-app', values: { clientId: '  ', clientSecret: 'ws_secret' } })).rejects.toThrow('Enter the Client ID.');
+
+    await expect(loginClientForNewLogin(ORG, 'google')).resolves.toEqual(SERVER_GOOGLE);
+  });
+
+  it('a login finishes on the app it started on, even after an admin saved another one, and is refused when that app is gone', async () => {
+    await saveWorkspaceGoogleApp('ws_google_new');
+
+    // Started on the server's app before the admin saved the workspace's.
+    await expect(loginClientForCallback({ orgId: ORG, provider: 'google', vendor: 'Google', startedOnClientId: 'server_google' })).resolves.toEqual(SERVER_GOOGLE);
+    // Started on the workspace app now saved.
+    await expect(loginClientForCallback({ orgId: ORG, provider: 'google', vendor: 'Google', startedOnClientId: 'ws_google_new' })).resolves.toMatchObject({ clientId: 'ws_google_new', owner: 'workspace' });
+    // Started on an app replaced mid-login: its code cannot be traded on the new one.
+    await expect(loginClientForCallback({ orgId: ORG, provider: 'google', vendor: 'Google', startedOnClientId: 'ws_google_old' })).rejects.toMatchObject({ code: 'login_app_changed' });
+    // A state signed before states named the app gets the app a new login would.
+    await expect(loginClientForCallback({ orgId: ORG, provider: 'google', vendor: 'Google', startedOnClientId: undefined })).resolves.toMatchObject({ clientId: 'ws_google_new' });
   });
 
   it('GitHub and PostHog never take a workspace app: their logins are not a client ID and secret', async () => {

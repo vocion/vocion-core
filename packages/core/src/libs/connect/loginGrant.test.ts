@@ -472,7 +472,7 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
 describe('the app a refresh runs on', () => {
   it('a login made on the workspace\'s own login app is refreshed on that app, not the server\'s, since its refresh token only works with that client', async () => {
     const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED, loginClientId: 'ws_hubspot_client' };
-    const { orgId, sourceId } = await seedSourceOnLogin(grant);
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
     await storePlatformKey({ orgId, name: 'Our HubSpot app', platform: 'hubspot-login-app', values: { clientId: 'ws_hubspot_client', clientSecret: 'ws_hubspot_secret' } });
     const handed: Array<string | undefined> = [];
 
@@ -491,6 +491,9 @@ describe('the app a refresh runs on', () => {
 
     expect(handed).toEqual(['ws_hubspot_secret']);
     expect(usable).toMatchObject({ accessToken: 'a2', loginClientId: 'ws_hubspot_client' });
+    // The saved login keeps its app too; without it the next refresh would
+    // take the login for an old one and run it on the server's app.
+    expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r2', loginClientId: 'ws_hubspot_client' });
   });
 
   it('a login whose login app the workspace replaced says to log in again, never refreshes on the new app, and leaves the saved login as it was', async () => {
@@ -507,7 +510,29 @@ describe('the app a refresh runs on', () => {
       persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
       refresh,
       now: NOW,
-    })).rejects.toThrow('This HubSpot login was made with a HubSpot login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with HubSpot again on the Connectors page.');
+    })).rejects.toThrow('This HubSpot login was made with a HubSpot app that is no longer set up (it was replaced or removed), so it cannot be refreshed. An admin needs to log in with HubSpot again on the Connectors page, first saving a HubSpot login app on the Developers page if there is none.');
+    expect(refresh).not.toHaveBeenCalled();
+    expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
+  });
+
+  it('a saved login app that cannot be decrypted says to save it again on Developers, not to try again later, and calls no vendor', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED, loginClientId: 'ws_hubspot_client' };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+    const app = await storePlatformKey({ orgId, name: 'Our HubSpot app', platform: 'hubspot-login-app', values: { clientId: 'ws_hubspot_client', clientSecret: 'ws_hubspot_secret' } });
+    // Another row's ciphertext under this row's nonce and tag: the vault can no longer read the app.
+    const [login] = await db.select({ ciphertext: apiTokenSchema.ciphertext }).from(apiTokenSchema).where(eq(apiTokenSchema.id, tokenId));
+    await db.update(apiTokenSchema).set({ ciphertext: login!.ciphertext }).where(eq(apiTokenSchema.id, app.id));
+    const refresh = vi.fn();
+
+    await expect(usableLoginGrant({
+      vendor: 'HubSpot',
+      provider: 'hubspot',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh,
+      now: NOW,
+    })).rejects.toThrow('The saved HubSpot login app could not be read, so this login cannot be refreshed. An admin needs to save the HubSpot login app again on the Developers page.');
     expect(refresh).not.toHaveBeenCalled();
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
   });

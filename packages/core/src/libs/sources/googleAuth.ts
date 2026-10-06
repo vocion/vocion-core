@@ -22,7 +22,7 @@
  */
 
 import type { RawCredentials } from '@/services/SourceCredentialService';
-import { loginClientForGrant } from '@/libs/connect/loginClient';
+import { loginAppLookupFailure, loginClientForGrant } from '@/libs/connect/loginClient';
 import { postTokenRequest, refusalFix, TokenRequestError } from '@/libs/connect/tokenRequest';
 import { logger } from '@/libs/Logger';
 
@@ -49,12 +49,6 @@ type ClientSource = 'pasted' | 'workspace' | 'server';
  */
 function refreshRefusal(error: TokenRequestError, source: ClientSource): Error {
   const fix = refusalFix(error);
-  if (error.code === 'login_app_changed') {
-    return new Error('This Google login was made with a Google login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with Google again on the Connectors page.');
-  }
-  if (error.code === 'not_configured') {
-    return new Error('This Google login needs GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET set on the server to refresh. Set them, or paste a client id, secret and refresh token instead.');
-  }
   if (fix === 'try-later') {
     return new Error(`Google could not refresh the access token just now (${error.code}). Try again in a few minutes.`);
   }
@@ -108,8 +102,10 @@ async function refreshAccessToken(input: { refreshToken: string; clientId: strin
 
 /**
  * The OAuth client a "Log in with Google" login refreshes with: the app it
- * was issued to (`loginClientForGrant`), as a refusal sentence when that app
- * is gone.
+ * was issued to (`loginClientForGrant`). When that app is gone or
+ * unreadable, throws the sentence that names the fix
+ * (`loginAppLookupFailure`); a lookup that failed for a passing reason says
+ * to try again.
  * @param orgId - The workspace the login belongs to.
  * @param credentials - The login's bag, which records its app's client ID.
  */
@@ -118,10 +114,8 @@ async function loginClientOf(orgId: string, credentials: RawCredentials | undefi
     const client = await loginClientForGrant({ orgId, provider: 'google', vendor: 'Google', loginClientId: credentials?.loginClientId });
     return { clientId: client.clientId, clientSecret: client.clientSecret, source: client.owner };
   } catch (error) {
-    if (error instanceof TokenRequestError) {
-      throw refreshRefusal(error, 'server');
-    }
-    throw error;
+    logger.warn('resolveGoogleAccessToken could not find the app the login was made on', { code: error instanceof TokenRequestError ? error.code : null, errorName: error instanceof Error ? error.name : 'unknown' });
+    throw new Error(loginAppLookupFailure('Google', error) ?? 'The Google login app could not be looked up just now. Try again in a few minutes.');
   }
 }
 
@@ -142,6 +136,9 @@ export async function resolveGoogleAccessToken(credentials: RawCredentials | und
     throw new Error('This Google credential has only half of its OAuth client. Paste both the client ID and the client secret with the refresh token.');
   }
   if (refreshToken) {
+    // Checked before the app lookup on purpose: an access token Google already
+    // issued stays good until it expires (under an hour) even if an admin has
+    // since replaced the login app; the next refresh finds that out.
     const cached = cache.get(refreshToken);
     if (cached && cached.expiresAt > Date.now() + 5 * 60_000) {
       return cached.token;

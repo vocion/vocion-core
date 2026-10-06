@@ -9,7 +9,7 @@ vi.mock('@/services/connect/createSourceOnLogin', () => ({ createSourceWhenNoCon
 const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
 // The workspace's own login app, when a test saves one; none by default.
-vi.mock('@/libs/connect/loginClient', () => ({ LOGIN_CLIENT_ID_KEY: 'loginClientId', loginClientForNewLogin: vi.fn(async () => null) }));
+vi.mock('@/libs/connect/loginClient', () => ({ LOGIN_CLIENT_ID_KEY: 'loginClientId', loginClientForCallback: vi.fn(async () => null) }));
 
 const exchange = vi.fn();
 const missingAccessFor = vi.fn((): string | null => null);
@@ -35,7 +35,8 @@ const { findSourceBySlug } = await import('@/libs/connect/sources');
 const { verifyState } = await import('@/libs/connect/state');
 const { approveLoginCard, completeLogin, recordFailedLogin } = await import('@/services/connect/completeLogin');
 const { createSourceWhenNoConfigNeeded } = await import('@/services/connect/createSourceOnLogin');
-const { loginClientForNewLogin } = await import('@/libs/connect/loginClient');
+const { loginClientForCallback } = await import('@/libs/connect/loginClient');
+const { TokenRequestError } = await import('@/libs/connect/tokenRequest');
 const { GET } = await import('./route');
 
 const admin = {
@@ -142,7 +143,7 @@ describe('GET /api/connect/[provider]/callback', () => {
 
   it('a login on the workspace\'s own app trades the code with that app and stores its client ID, so a refresh can find the same app', async () => {
     const workspaceApp = { clientId: 'ws_slack', clientSecret: 'ws_secret', owner: 'workspace' as const };
-    vi.mocked(loginClientForNewLogin).mockResolvedValueOnce(workspaceApp);
+    vi.mocked(loginClientForCallback).mockResolvedValueOnce(workspaceApp);
 
     await GET(request(), context());
 
@@ -153,11 +154,30 @@ describe('GET /api/connect/[provider]/callback', () => {
   });
 
   it('a saved login app that cannot be read lands with its own reason, trades nothing and stores nothing', async () => {
-    vi.mocked(loginClientForNewLogin).mockRejectedValueOnce(new Error('vault'));
+    vi.mocked(loginClientForCallback).mockRejectedValueOnce(new Error('vault'));
 
     const res = await GET(request(), context());
 
     expect(landing(res)).toMatchObject({ connect: 'error', reason: 'login_app_unreadable' });
+    expect(exchange).not.toHaveBeenCalled();
+    expect(completeLogin).not.toHaveBeenCalled();
+  });
+
+  it('finishes the login on the app the start chose, named in the signed state, not whatever app is saved now', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, loginClientId: 'ws_slack_started' } });
+
+    await GET(request(), context());
+
+    expect(loginClientForCallback).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', provider: 'slack', startedOnClientId: 'ws_slack_started' }));
+  });
+
+  it('a login app replaced while the person was at the vendor lands with its own reason, trades nothing and stores nothing', async () => {
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: { ...payload, loginClientId: 'ws_slack_old' } });
+    vi.mocked(loginClientForCallback).mockRejectedValueOnce(new TokenRequestError('Slack', 'login_app_changed', null));
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'login_app_changed' });
     expect(exchange).not.toHaveBeenCalled();
     expect(completeLogin).not.toHaveBeenCalled();
   });

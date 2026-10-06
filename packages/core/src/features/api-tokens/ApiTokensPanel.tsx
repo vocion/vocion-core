@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/table';
 import { client } from '@/libs/Orpc';
 import { API_ERROR_CODE } from '@/types/ApiError';
+import { withArticle } from '@/utils/withArticle';
 
 /**
  * The expiry choices offered in the create form. A numeric value is a day
@@ -84,6 +85,8 @@ type PlatformOption = {
   helpText: string;
   /** For a login app: the callback to register at the vendor. Null otherwise; absent from an older server. */
   redirectUrl?: string | null;
+  /** A vendor login app (client ID and secret), whose replace or revoke ends the logins made with it. Absent from an older server. */
+  loginApp?: boolean;
   fields: PlatformField[];
 };
 
@@ -211,6 +214,39 @@ function submitLabel(isMinted: boolean, replacing: boolean, busy: boolean): stri
     return busy ? 'Replacing…' : 'Replace key';
   }
   return busy ? 'Saving…' : 'Save key';
+}
+
+/**
+ * What revoking a credential does, for the confirm. A login app's revoke
+ * also ends every login made with it, which an admin has to redo, so it
+ * says so rather than the key wording.
+ * @param platformId - The credential's platform.
+ * @param loginApp - Whether that platform is a vendor login app.
+ */
+function revokeConsequence(platformId: string, loginApp: boolean): string {
+  if (platformId === VOCION_PLATFORM_ID) {
+    return 'Anything using it stops working immediately.';
+  }
+  if (loginApp) {
+    return 'New logins go back to the server\'s app, if it has one, and logins made with this app will need to log in again.';
+  }
+  return 'This workspace goes back to running on the Vocion server key immediately.';
+}
+
+/**
+ * The hint under the Name field: what to name it after, so the list says
+ * which one is which.
+ * @param isMinted - Whether Vocion generates this credential.
+ * @param loginApp - Whether it is a vendor login app, which has no bill of its own.
+ */
+function nameHelp(isMinted: boolean, loginApp: boolean): string {
+  if (isMinted) {
+    return 'Name it after whatever will use it, so you know what breaks when you revoke it.';
+  }
+  if (loginApp) {
+    return 'Name it after the app at the vendor, so you can tell which app is saved.';
+  }
+  return 'Name it after the account the key belongs to, so you know whose bill it lands on.';
 }
 
 /**
@@ -582,10 +618,11 @@ export function ApiTokensPanel() {
     e.preventDefault();
     if (existingKey) {
       // eslint-disable-next-line no-alert
-      const proceed = window.confirm(
-        `${selectedPlatform?.label} already has a key on file (${existingKey.keyHint ?? 'saved'}).\n\n`
-        + 'Saving this one replaces it. The old key stops being used immediately and cannot be recovered.',
-      );
+      const proceed = window.confirm(selectedPlatform?.loginApp
+        ? `This workspace already has ${withArticle(selectedPlatform.label)} saved (${existingKey.keyHint ?? 'saved'}).\n\n`
+        + 'Saving this one replaces it. Logins made with the old app stop refreshing, and an admin will need to log in again on the Connectors page for each of them.'
+        : `${selectedPlatform?.label} already has a key on file (${existingKey.keyHint ?? 'saved'}).\n\n`
+          + 'Saving this one replaces it. The old key stops being used immediately and cannot be recovered.');
       if (!proceed) {
         return;
       }
@@ -613,9 +650,7 @@ export function ApiTokensPanel() {
   };
 
   const onRevoke = async (token: TokenSummary) => {
-    const consequence = token.platform === VOCION_PLATFORM_ID
-      ? 'Anything using it stops working immediately.'
-      : 'This workspace goes back to running on the Vocion server key immediately.';
+    const consequence = revokeConsequence(token.platform, platforms.find(platform => platform.id === token.platform)?.loginApp === true);
     // eslint-disable-next-line no-alert
     if (!window.confirm(`Revoke “${token.name}”? ${consequence}`)) {
       return;
@@ -797,6 +832,11 @@ export function ApiTokensPanel() {
                 <p className="text-xs text-muted-foreground">
                   {selectedPlatform?.helpText}
                 </p>
+                {selectedPlatform?.loginApp && !selectedPlatform.redirectUrl && (
+                  <p className="text-xs text-amber-600 dark:text-amber-500">
+                    This server does not know its public address (NEXT_PUBLIC_APP_URL is not set), so it cannot show the redirect URL to register at the vendor. Ask whoever runs the server to set it.
+                  </p>
+                )}
                 {selectedPlatform?.redirectUrl && (
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>Redirect URL to register at the vendor:</span>
@@ -817,7 +857,9 @@ export function ApiTokensPanel() {
                     <span>
                       {`A workspace holds one ${selectedPlatform?.label} key at a time, and this one already has `}
                       <span className="font-mono">{existingKey.keyHint ?? 'a key'}</span>
-                      {' on file. Saving replaces it — the old key stops being used immediately.'}
+                      {selectedPlatform?.loginApp
+                        ? ' on file. Saving replaces it, and logins made with the old app will need to log in again.'
+                        : ' on file. Saving replaces it — the old key stops being used immediately.'}
                     </span>
                   </p>
                 )}
@@ -834,9 +876,7 @@ export function ApiTokensPanel() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  {isMinted
-                    ? 'Name it after whatever will use it, so you know what breaks when you revoke it.'
-                    : 'Name it after the account the key belongs to, so you know whose bill it lands on.'}
+                  {nameHelp(isMinted, selectedPlatform?.loginApp === true)}
                 </p>
               </div>
 
@@ -863,7 +903,9 @@ export function ApiTokensPanel() {
 
               {!isMinted && (
                 <p className="text-xs text-muted-foreground">
-                  {`No expiry to set — ${selectedPlatform?.label} decides when this key stops working. Revoke it here, or replace it, when you want Vocion to stop using it.`}
+                  {selectedPlatform?.loginApp
+                    ? 'No expiry to set. Replace it here to switch apps, or revoke it to stop using it. Either way, logins made with it will need to log in again.'
+                    : `No expiry to set — ${selectedPlatform?.label} decides when this key stops working. Revoke it here, or replace it, when you want Vocion to stop using it.`}
                 </p>
               )}
 

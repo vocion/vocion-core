@@ -21,12 +21,13 @@ import type { NextRequest } from 'next/server';
 import type { ConnectProvider } from '@/libs/connect/provider';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { LOGIN_CLIENT_ID_KEY, loginClientForNewLogin } from '@/libs/connect/loginClient';
+import { LOGIN_CLIENT_ID_KEY, loginClientForCallback } from '@/libs/connect/loginClient';
 import { providerFor } from '@/libs/connect/registry';
 import { returnUrl, withoutAddParam } from '@/libs/connect/returnTo';
 import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { pkceVerifierFor, stateIssuedAt, verifyState } from '@/libs/connect/state';
+import { TokenRequestError } from '@/libs/connect/tokenRequest';
 import { approveLoginCard, completeLogin, recordFailedLogin } from '@/services/connect/completeLogin';
 import { createSourceWhenNoConfigNeeded, loginMakesItsSource } from '@/services/connect/createSourceOnLogin';
 
@@ -195,15 +196,16 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
       query[key] = value;
     }
   });
-  // The same app the start sent the person to: the workspace's own login app,
-  // else the server's. Its client ID is stored with the login, because a
-  // refresh token only works with the app that issued it.
+  // The same app the start sent the person to, named in the signed state. Its
+  // client ID is stored with the login, because a refresh token only works
+  // with the app that issued it.
   let client;
   try {
-    client = await loginClientForNewLogin(orgId, provider.id);
+    client = await loginClientForCallback({ orgId, provider: provider.id, vendor: provider.label, startedOnClientId: payload.loginClientId });
   } catch (error) {
-    console.error('[connect] the workspace login app could not be read', { provider: provider.id, connector: connectorSlug, message: error instanceof Error ? error.name : 'unknown' });
-    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'login_app_unreadable', card, stateIssuedAt: issuedAt }, landing);
+    const appChanged = error instanceof TokenRequestError && error.code === 'login_app_changed';
+    console.error('[connect] the app the login started on could not be found', { provider: provider.id, connector: connectorSlug, appChanged, message: error instanceof Error ? error.name : 'unknown' });
+    return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: appChanged ? 'login_app_changed' : 'login_app_unreadable', card, stateIssuedAt: issuedAt }, landing);
   }
   let exchanged: Awaited<ReturnType<typeof provider.exchange>>;
   try {

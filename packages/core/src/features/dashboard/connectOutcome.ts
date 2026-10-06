@@ -52,6 +52,7 @@ export function connectOutcomeMessage(outcome: ConnectOutcome): string {
     not_implemented: 'This provider is not available on this server yet.',
     invalid_client: 'The vendor refused the app\'s client ID or secret. An admin needs to check the login app on the Developers page, or the client set on the server.',
     login_app_unreadable: 'The saved login app for this vendor could not be read, so nothing was connected. An admin needs to save it again on the Developers page.',
+    login_app_changed: 'The login app for this vendor was replaced or removed while you were logging in, so nothing was connected. Log in again.',
   };
   return `Could not connect${which}: ${reasons[outcome.reason] ?? `the vendor refused (${outcome.reason}).`}`;
 }

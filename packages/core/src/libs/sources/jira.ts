@@ -42,13 +42,15 @@
 import type { ConnectorCheck, ConnectorInspection, InspectInput } from './inspect';
 import type { SourceConnector, SourceContext } from './types';
 import type { AtlassianGrant } from '@/libs/atlassian/oauth';
+import type { LoginClient } from '@/libs/connect/serverClients';
 import type { IngestDoc } from '@/services/IngestionService';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 import { ATLASSIAN_API_BASE, isAtlassianGrant, isExpiring, refreshAtlassianGrant, siteForBaseUrl } from '@/libs/atlassian/oauth';
-import { loginClientForGrant } from '@/libs/connect/loginClient';
+import { loginAppLookupFailure, loginClientForGrant } from '@/libs/connect/loginClient';
 import { TokenRequestError } from '@/libs/connect/tokenRequest';
 import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
+import { logger } from '@/libs/Logger';
 import { updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, resolveApiTokenIdForSource, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
 import { InspectInputError } from './inspect';
@@ -214,6 +216,27 @@ export function resolveJiraAuth(input: {
 
 const RECONNECT_HINT = 'The Atlassian grant may have been revoked — open the source and Connect with Atlassian again.';
 
+/** Added when the refresh ran on the workspace's own Atlassian login app, which a new login would use too. */
+const WORKSPACE_APP_HINT = ' If that login fails as well, an admin needs to check the Atlassian login app\'s client ID and secret on the Developers page.';
+
+/**
+ * The Atlassian app a Jira login refreshes on: the one the login was made
+ * with (`loginClientForGrant`). When that app is gone or unreadable, throws
+ * the sentence that names the fix (`loginAppLookupFailure`), which logging in
+ * again alone may not be; a lookup that failed for a passing reason says to
+ * try again.
+ * @param orgId - The workspace.
+ * @param loginClientId - The client ID the stored grant recorded, if any.
+ */
+async function atlassianAppForRefresh(orgId: string, loginClientId: unknown): Promise<LoginClient> {
+  try {
+    return await loginClientForGrant({ orgId, provider: 'atlassian', vendor: 'Atlassian', loginClientId });
+  } catch (error) {
+    logger.warn('jira could not find the Atlassian app the login was made on', { orgId, code: error instanceof TokenRequestError ? error.code : null, errorName: error instanceof Error ? error.name : 'unknown' });
+    throw new Error(loginAppLookupFailure('Atlassian', error) ?? 'The Atlassian login app could not be looked up just now. Try again in a few minutes.');
+  }
+}
+
 /** The stored grant, and the `api_token` row it was read from (null: the per-install `source_credential`). */
 type StoredGrant = { grant: AtlassianGrant; apiTokenId: string | null };
 
@@ -280,18 +303,20 @@ function grantAuth(baseUrl: string, grant: AtlassianGrant, persistence: GrantPer
     // successor is minted (with a ten-minute reuse window as the safety net).
     const stored = await readStoredGrant(persistence.orgId);
     const parent = stored?.grant.refreshToken ?? current.refreshToken;
+    // A refresh token only works with the app it was issued to: find that one,
+    // from the same grant the parent token came from.
+    const loginClientId = (stored?.grant ?? current).loginClientId;
+    const client = await atlassianAppForRefresh(persistence.orgId, loginClientId);
     let fresh: Awaited<ReturnType<typeof refreshAtlassianGrant>>;
     try {
-      // A refresh token only works with the app it was issued to: find that one.
-      const client = await loginClientForGrant({ orgId: persistence.orgId, provider: 'atlassian', vendor: 'Atlassian', loginClientId: (stored?.grant ?? current).loginClientId });
       fresh = await refreshAtlassianGrant(parent, client);
     } catch (err) {
-      if (err instanceof TokenRequestError && err.code === 'login_app_changed') {
-        throw new Error('This Atlassian login was made with an Atlassian login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with Atlassian again on the Connectors page.');
-      }
-      throw new Error(`${err instanceof Error ? err.message : String(err)} ${RECONNECT_HINT}`);
+      logger.warn('jira: Atlassian refused or did not answer the refresh', { orgId: persistence.orgId, clientOwner: client.owner, errorName: err instanceof Error ? err.name : 'unknown' });
+      throw new Error(`${err instanceof Error ? err.message : String(err)} ${RECONNECT_HINT}${client.owner === 'workspace' ? WORKSPACE_APP_HINT : ''}`);
     }
-    current = { ...current, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken, expiresAt: fresh.expiresAt, ...(fresh.scope ? { scope: fresh.scope } : {}) };
+    // The saved grant keeps the app the new tokens belong to, so the next
+    // refresh finds it again.
+    current = { ...current, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken, expiresAt: fresh.expiresAt, ...(fresh.scope ? { scope: fresh.scope } : {}), ...(loginClientId ? { loginClientId } : {}) };
     refreshedOnce = true;
     // Compare-and-swap on the parent token: a concurrent sync or a fresh
     // consent that landed first wins, and this run adopts what it stored.

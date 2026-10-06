@@ -72,11 +72,11 @@ describe('resolveGoogleAccessToken', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('says the server client is unset instead of calling Google with an empty one', async () => {
+  it('with no Google app on the server or the workspace, says where to save one instead of calling Google with an empty client', async () => {
     env.GOOGLE_OAUTH_CLIENT_SECRET = undefined;
     const fetchMock = vi.spyOn(globalThis, 'fetch');
 
-    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-2' }, ORG)).rejects.toThrow(/GOOGLE_OAUTH_CLIENT_ID/);
+    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-2' }, ORG)).rejects.toThrow('No Google app is set up any more, on this server or on the Developers page, so this login cannot be refreshed. An admin needs to save a Google login app on the Developers page (or set the Google app up on the server), then log in with Google again.');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -154,7 +154,7 @@ describe('resolveGoogleAccessToken', () => {
 
     await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-ws-2', loginClientId: 'ws_client_old' }, ORG))
       .rejects
-      .toThrow('This Google login was made with a Google login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with Google again on the Connectors page.');
+      .toThrow('This Google login was made with a Google app that is no longer set up (it was replaced or removed), so it cannot be refreshed. An admin needs to log in with Google again on the Connectors page, first saving a Google login app on the Developers page if there is none.');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

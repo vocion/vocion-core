@@ -12,7 +12,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceDekSchema } = await import('@/models/Schema');
-const { storeLoginCredential, updateLoginCredentialValues } = await import('@/services/ApiTokenService');
+const { storeLoginCredential, storePlatformKey, updateLoginCredentialValues } = await import('@/services/ApiTokenService');
 const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
 const { platformForConnectorSlug } = await import('@/libs/platforms/registry');
 const { jiraFetch, resolveJiraAuth } = await import('./jira');
@@ -29,13 +29,13 @@ const expiredGrant = {
   sites: [{ id: SITE_ID, url: BASE_URL, name: 'Northwind' }],
 };
 
-async function seedLoginLinkedJiraSource(): Promise<string> {
+async function seedLoginLinkedJiraSource(grant: Record<string, unknown> = expiredGrant): Promise<string> {
   const stored = await storeLoginCredential({
     orgId: ORG,
     platform: platformForConnectorSlug('jira')!.id,
     name: 'Atlassian - Northwind',
     account: 'Northwind',
-    values: expiredGrant,
+    values: grant,
     createdBy: 'user_admin',
   });
   await db.insert(knowledgeSourceSchema).values({
@@ -47,6 +47,26 @@ async function seedLoginLinkedJiraSource(): Promise<string> {
     apiTokenExclusive: false,
   });
   return stored.id;
+}
+
+/**
+ * Save the workspace's own Atlassian login app, as an admin does on the Developers page.
+ * @param clientId - The app's client ID; its secret is derived from it.
+ */
+async function saveWorkspaceAtlassianApp(clientId: string): Promise<void> {
+  await storePlatformKey({ orgId: ORG, name: 'Our Atlassian app', platform: 'atlassian-login-app', values: { clientId, clientSecret: `${clientId}_secret` } });
+}
+
+/**
+ * The client ID and secret each refresh sent to Atlassian's token endpoint.
+ * @param fetchStub - The stubbed network.
+ */
+function clientsSentToAtlassian(fetchStub: ReturnType<typeof vi.fn>): Array<{ clientId: unknown; clientSecret: unknown }> {
+  const calls = fetchStub.mock.calls as Array<[string | URL | Request, RequestInit | undefined]>;
+  return calls
+    .filter(([input]) => String(input).includes('auth.atlassian.com/oauth/token'))
+    .map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>)
+    .map(body => ({ clientId: body.client_id, clientSecret: body.client_secret }));
 }
 
 async function storedRefreshToken(tokenId: string): Promise<unknown> {
@@ -144,5 +164,57 @@ describe('refreshing a grant that came from a login row', () => {
 
     expect(warn).toHaveBeenCalledOnce();
     expect(await db.select().from(sourceCredentialSchema)).toHaveLength(0);
+  });
+});
+
+describe('the Atlassian app a Jira refresh runs on (#1080)', () => {
+  it('a login made on the workspace\'s own login app refreshes on that app, and the saved grant keeps it for the next refresh', async () => {
+    const tokenId = await seedLoginLinkedJiraSource({ ...expiredGrant, loginClientId: 'ws_atlassian' });
+    await saveWorkspaceAtlassianApp('ws_atlassian');
+    const fetchStub = stubNetwork();
+    const auth = resolveJiraAuth({
+      baseUrl: BASE_URL,
+      credentials: await getCredentialsForConnector({ orgId: ORG, connectorSlug: 'jira', apiTokenId: tokenId }),
+      persistence: { kind: 'persist', orgId: ORG, warn: vi.fn() },
+    });
+
+    await jiraFetch(auth, '/rest/api/3/project/search');
+
+    expect(clientsSentToAtlassian(fetchStub)).toEqual([{ clientId: 'ws_atlassian', clientSecret: 'ws_atlassian_secret' }]);
+    expect(await getCredentialsForConnector({ orgId: ORG, connectorSlug: 'jira', apiTokenId: tokenId })).toMatchObject({ refreshToken: 'r2', loginClientId: 'ws_atlassian' });
+  });
+
+  it('a login whose login app was replaced says to log in again on the current app, without the reconnect hint or a call to Atlassian', async () => {
+    const tokenId = await seedLoginLinkedJiraSource({ ...expiredGrant, loginClientId: 'ws_atlassian_old' });
+    await saveWorkspaceAtlassianApp('ws_atlassian_new');
+    const fetchStub = stubNetwork();
+    const auth = resolveJiraAuth({
+      baseUrl: BASE_URL,
+      credentials: await getCredentialsForConnector({ orgId: ORG, connectorSlug: 'jira', apiTokenId: tokenId }),
+      persistence: { kind: 'persist', orgId: ORG, warn: vi.fn() },
+    });
+
+    const failure = await jiraFetch(auth, '/rest/api/3/project/search').then(() => null, (error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe('This Atlassian login was made with an Atlassian app that is no longer set up (it was replaced or removed), so it cannot be refreshed. An admin needs to log in with Atlassian again on the Connectors page, first saving an Atlassian login app on the Developers page if there is none.');
+    expect(clientsSentToAtlassian(fetchStub)).toEqual([]);
+    expect(await storedRefreshToken(tokenId)).toBe('r1');
+  });
+
+  it('finds the app from the grant on file, not the one this run loaded, when someone logged in again on a new app meanwhile', async () => {
+    const tokenId = await seedLoginLinkedJiraSource({ ...expiredGrant, loginClientId: 'ws_atlassian_new' });
+    await saveWorkspaceAtlassianApp('ws_atlassian_new');
+    const fetchStub = stubNetwork();
+    const auth = resolveJiraAuth({
+      baseUrl: BASE_URL,
+      credentials: { ...expiredGrant, loginClientId: 'ws_atlassian_old' },
+      persistence: { kind: 'persist', orgId: ORG, warn: vi.fn() },
+    });
+
+    await jiraFetch(auth, '/rest/api/3/project/search');
+
+    expect(clientsSentToAtlassian(fetchStub)).toEqual([{ clientId: 'ws_atlassian_new', clientSecret: 'ws_atlassian_new_secret' }]);
+    expect(await getCredentialsForConnector({ orgId: ORG, connectorSlug: 'jira', apiTokenId: tokenId })).toMatchObject({ refreshToken: 'r2', loginClientId: 'ws_atlassian_new' });
   });
 });

@@ -114,6 +114,9 @@ describe('GET /api/connect/[provider]/start', () => {
     expect(res.status).toBe(302);
     expect(new URL(res.headers.get('location')!).searchParams.get('client_id')).toBe('ws_slack');
     expect(loginClientForNewLogin).toHaveBeenCalledWith('org_1', 'slack');
+    // The state names the app, so the callback trades the code on this one
+    // even if an admin replaces the login app before the person comes back.
+    expect(signState).toHaveBeenLastCalledWith(expect.objectContaining({ loginClientId: 'ws_slack' }));
   });
 
   it('a saved login app that cannot be read stops the login with the fix, rather than starting it on the server\'s app', async () => {

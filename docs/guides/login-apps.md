@@ -62,22 +62,27 @@ and in chat cards straight away.
 ## Where the values go
 
 The client secret is a secret. Never commit it, paste it into chat, a ticket
-or Slack, or pass it on a command line. Put it straight into the env file in
-your editor.
+or Slack, or pass it on a command line. There are two places it can go:
 
-- **Local dev.** `packages/core/.env.local` of the checkout you run. Each git
-  worktree has its own `.env.local`, so a worktree needs the values too.
-  Restart the dev server afterwards.
-- **Production (AWS host).** `/opt/vocion/infra/aws/.env.production` on the
-  host. The `app` and `worker` containers both read that whole file, so one
-  edit covers both. Then run `sudo bash /opt/vocion/infra/aws/update.sh`,
-  which recreates both with the new values
-  ([infra/aws/README.md](../../infra/aws/README.md#updating)).
+- **Developers page (no redeploy).** Add credential, then the vendor's
+  **login app** ([above](#saving-the-app-on-developers-no-redeploy)). Use this
+  when you can't change the server, or for one workspace's own app.
+- **The server's env**, typed straight into the env file in your editor:
+
+  - **Local dev.** `packages/core/.env.local` of the checkout you run. Each git
+    worktree has its own `.env.local`, so a worktree needs the values too.
+    Restart the dev server afterwards.
+  - **Production (AWS host).** `/opt/vocion/infra/aws/.env.production` on the
+    host. The `app` and `worker` containers both read that whole file, so one
+    edit covers both. Then run `sudo bash /opt/vocion/infra/aws/update.sh`,
+    which recreates both with the new values
+    ([infra/aws/README.md](../../infra/aws/README.md#updating)).
 
 **Check it worked.** Open **Connectors**, press **Add connector** and pick a
 connector the provider serves. With the app set, the form offers a login with
-the vendor. With it unset, the form offers only the paste fields, so check the
-env var names and that the server was restarted.
+the vendor. With it unset, the form offers only the paste fields: check the
+login app on Developers, or the env var names and that the server was
+restarted.
 
 **Callback URLs, local and live.** The callback uses `NEXT_PUBLIC_APP_URL`, so
 a dev server on port 3010 needs
@@ -87,9 +92,10 @@ vendor app can list both, or keep a separate app for dev.
 
 ## What Vocion stores after a login
 
-The client ID and secret stay in the env; they are never copied into the
-database. What the vendor sends back after the person approves is stored
-instead:
+A login never copies the app's client ID and secret anywhere: an env app
+stays in the env, and a workspace login app stays in its own encrypted
+Developers row. What the vendor sends back after the person approves is
+stored as the login:
 
 - **Where.** One row in the workspace's credential store (`api_token`,
   `obtained_via = login`), encrypted under the workspace's key. It shows on
@@ -151,8 +157,10 @@ Client**, type **Web application**. Under **Authorized redirect URIs** add
 (for example `http://localhost:3010/api/connect/google/callback` and the
 production URL). Google shows the client ID and secret once you create it.
 
-**5. Put them in the env** as `GOOGLE_OAUTH_CLIENT_ID` and
-`GOOGLE_OAUTH_CLIENT_SECRET` ([Where the values go](#where-the-values-go)).
+**5. Save them.** On **Developers**, add a **Google login app** with the
+client ID and secret (no redeploy), or put them in the server's env as
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`
+([Where the values go](#where-the-values-go)).
 
 **Before customers use it.** Gmail and Drive read scopes are restricted:
 Google must verify the app, including a security assessment, before accounts
@@ -160,6 +168,7 @@ outside your own Workspace can use them. And while an External app is in
 **Testing**, Google expires each refresh token after 7 days, so every login
 stops working a week later and the person sees "An admin needs to log in with
 Google again". Publish the app (**In production**) before customers rely on it.
+A workspace's own Google login app needs the same verification and publishing.
 
 **Without a server client.** A source can also hold its own Google client: an
 admin pastes a client ID, secret and refresh token into the connector's form.
@@ -176,7 +185,8 @@ off its `--client-secret` flag. Its client must allow
 - **Scopes the app must allow.** `oauth`, `crm.objects.contacts.read`,
   `crm.objects.companies.read`, `crm.objects.deals.read`. Vocion asks for
   exactly these.
-- **Env.** `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET`.
+- **Save it.** A **HubSpot login app** on Developers, or the env as
+  `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET`.
 
 Access tokens last 30 minutes; syncs refresh them.
 
@@ -186,7 +196,8 @@ Access tokens last 30 minutes; syncs refresh them.
   read content only. An internal integration has no login; its token is
   pasted instead.
 - **Redirect URL.** `<NEXT_PUBLIC_APP_URL>/api/connect/notion/callback`.
-- **Env.** `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`.
+- **Save it.** A **Notion login app** on Developers, or the env as
+  `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`.
 
 The person picks the pages to share on Notion's consent screen, and that is
 what syncs. Notion sends no expiry, so nothing is refreshed.
@@ -202,7 +213,8 @@ what syncs. Notion sends no expiry, so nothing is refreshed.
   `cloud_recording:read:list_recording_files`,
   `cloud_recording:read:meeting_transcript`. Add their `:admin` variants too,
   so an admin's login can read every user's recordings.
-- **Env.** `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`.
+- **Save it.** A **Zoom login app** on Developers, or the env as
+  `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`.
 
 Zoom replaces the refresh token on every refresh and each one lasts 90 days;
 Vocion saves the new one each time.
@@ -214,7 +226,8 @@ Vocion saves the new one each time.
 - **Redirect URL.** `<NEXT_PUBLIC_APP_URL>/api/connect/apollo/callback`.
 - **Scopes.** Vocion asks for `read_user_profile` and `app_scopes`. Confirm
   them against the app Apollo registers.
-- **Env.** `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET`.
+- **Save it.** A **Apollo login app** on Developers, or the env as
+  `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET`.
 
 Access tokens last 30 days. Apollo replaces both tokens on refresh, and Vocion
 saves the new pair.
@@ -224,24 +237,37 @@ saves the new pair.
 | What | Where |
 |---|---|
 | The login-app credential types, one per vendor | [`LOGIN_APP_PLATFORMS`, `loginAppPlatformFor`](../../packages/core/src/libs/platforms/registry.ts) |
-| Which app a new login or a refresh uses | [`loginClientForNewLogin`, `loginClientForGrant`, `loginOffered`](../../packages/core/src/libs/connect/loginClient.ts) |
+| Which app a new login, its callback or a refresh uses, and the sentence when that app is gone | [`loginClientForNewLogin`, `loginClientForCallback`, `loginClientForGrant`, `loginAppLookupFailure`, `loginOffered`](../../packages/core/src/libs/connect/loginClient.ts) |
 | The server's env apps | [`serverLoginClient`](../../packages/core/src/libs/connect/serverClients.ts) |
 | The login starts on the chosen app | [start route](../../packages/core/src/app/api/connect/%5Bprovider%5D/start/route.ts) |
-| The code is traded on it, and its client ID stored with the login | [callback route](../../packages/core/src/app/api/connect/%5Bprovider%5D/callback/route.ts) |
+| The code is traded on the app the start chose (its client ID rides in the signed [state](../../packages/core/src/libs/connect/state.ts)), and that client ID is stored with the login | [callback route](../../packages/core/src/app/api/connect/%5Bprovider%5D/callback/route.ts) |
 | Refresh on the login's own app | [`refreshAndSave` in `loginGrant.ts`](../../packages/core/src/libs/connect/loginGrant.ts), [`googleAuth.ts`](../../packages/core/src/libs/sources/googleAuth.ts), [`jira.ts`](../../packages/core/src/libs/sources/jira.ts) |
 | The redirect URL the Developers form shows | [`listPlatformsRoute`](../../packages/core/src/routers/ApiTokens.ts), [`ApiTokensPanel`](../../packages/core/src/features/api-tokens/ApiTokensPanel.tsx) |
 | Tests | [`loginClient.test.ts`](../../packages/core/src/libs/connect/loginClient.test.ts), [every provider](../../packages/core/src/libs/connect/providers/loginApps.test.ts), [refresh](../../packages/core/src/libs/connect/loginGrant.test.ts), [Google](../../packages/core/src/libs/sources/googleAuth.test.ts), [end to end](../../packages/core/e2e/connect/connect.spec.ts) |
 
 ## When a login stops working
 
-The connector's row says what happened and who fixes it. Two kinds:
+The connector's row says what happened and who fixes it:
 
 - **"An admin needs to log in with &lt;vendor&gt; again"**: the person's grant
   was revoked or expired. An admin presses **Reconnect** on the row.
-- **"…made with a &lt;vendor&gt; login app this workspace no longer has"**: the
-  workspace replaced or removed the login app this login ran on. An admin logs
-  in again, on the current app.
+- **"…made with a &lt;vendor&gt; app that is no longer set up"**: the login
+  app this login ran on was replaced or removed (or the server's client ID was
+  changed). An admin logs in again, on the current app, saving a login app on
+  Developers first if there is none.
+- **"No &lt;vendor&gt; app is set up any more"**: neither the server nor the
+  workspace has an app. Save a login app on Developers (or set the env), then
+  log in again.
+- **"The saved &lt;vendor&gt; login app could not be read"**: save the login
+  app again on Developers.
 - **"…logging in again will not help"**: the vendor refused the app itself
-  (`invalid_client`, `unauthorized_client`), or the env values are gone
-  (`not_configured`). For the workspace's login app, fix it on Developers. For
-  the server's, fix the env values and restart.
+  (`invalid_client`, `unauthorized_client`). For the workspace's login app,
+  fix it on Developers. For the server's, fix the env values and restart.
+- **"The vendor refused the app's client ID or secret"**, right after a login:
+  check on Developers that the client ID and secret aren't swapped or cut
+  short, then save the app again.
+- **`redirect_uri_mismatch` on the vendor's own page**: the redirect URL
+  registered at the vendor isn't the one the Developers form shows. Copy it
+  exactly: same scheme, host and port, no trailing slash.
+- **"…replaced or removed while you were logging in"**: an admin changed the
+  login app mid-login. Log in again.

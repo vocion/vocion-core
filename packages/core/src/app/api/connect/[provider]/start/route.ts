@@ -23,6 +23,7 @@ import { pkceChallengeFor, pkceVerifierFor, signState } from '@/libs/connect/sta
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { loginAppPlatformFor } from '@/libs/platforms/registry';
+import { withArticle } from '@/utils/withArticle';
 
 type StartTarget
   = | { ok: true; connectorSlug: string; sourceSlug?: string }
@@ -100,7 +101,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     );
   }
   if (!client && !provider.configured()) {
-    const bringYourOwn = loginAppPlatformFor(provider.id) ? `, or a ${provider.label} login app saved on the Developers page` : '';
+    const bringYourOwn = loginAppPlatformFor(provider.id) ? `, or ${withArticle(`${provider.label} login app`)} saved on the Developers page` : '';
     return NextResponse.json(
       { error: `Connecting with ${provider.label} needs ${provider.requiredEnv.join(', ')} on the server${bringYourOwn}.` },
       { status: 400 },
@@ -127,6 +128,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     connectorSlug: target.connectorSlug,
     ...(returnTo ? { returnTo } : {}),
     ...card,
+    ...(client ? { loginClientId: client.clientId } : {}),
   });
   const codeChallenge = provider.pkce ? pkceChallengeFor(pkceVerifierFor(state)) : undefined;
   return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id), connector: target.connectorSlug, ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);

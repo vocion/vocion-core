@@ -25,7 +25,7 @@ import { loginAppPlatformFor } from '@/libs/platforms/registry';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { claimLoginRefresh, releaseLoginRefresh, updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
-import { LOGIN_CLIENT_ID_KEY, loginClientForGrant } from './loginClient';
+import { LOGIN_CLIENT_ID_KEY, loginAppLookupFailure, loginClientForGrant } from './loginClient';
 import { refusalFix, TokenRequestError } from './tokenRequest';
 
 export type LoginGrant = Record<string, unknown> & { accessToken: string; refreshToken: string; expiresAt: string };
@@ -316,13 +316,12 @@ async function refreshAndSave(input: {
   const { orgId, sourceId, warn } = input.persistence;
   const base = input.stored?.grant ?? input.grant;
   const parentRefreshToken = base.refreshToken;
+  // A refresh token only works with the app it was issued to: find that one.
+  // Outside the vendor call's try, so a missing or unreadable app is never
+  // mistaken for the vendor being down.
+  const client = await loginAppForRefresh({ orgId, provider: input.provider, vendor: input.vendor, connectorSlug: input.connectorSlug, loginClientId: base[LOGIN_CLIENT_ID_KEY] });
   let fresh: RefreshedTokens;
-  let client: LoginClient | undefined;
   try {
-    // A refresh token only works with the app it was issued to: find that one.
-    client = loginAppPlatformFor(input.provider)
-      ? await loginClientForGrant({ orgId, provider: input.provider, vendor: input.vendor, loginClientId: base[LOGIN_CLIENT_ID_KEY] })
-      : undefined;
     fresh = await input.refresh(parentRefreshToken, client);
   } catch (error) {
     const winner = await grantSavedByAnotherRun({ orgId, sourceId, connectorSlug: input.connectorSlug, parentRefreshToken, now: input.now });
@@ -357,6 +356,31 @@ async function refreshAndSave(input: {
     warn(`${input.vendor} issued a new token but the saved login could not be updated. An admin needs to log in with ${input.vendor} again before the next sync.`);
   }
   return next;
+}
+
+/**
+ * The app a login refreshes on (`loginClientForGrant`), or undefined for a
+ * vendor whose login is not a client ID and secret (PostHog). When the app
+ * is gone or unreadable, throws the sentence that names the fix
+ * (`loginAppLookupFailure`); a lookup that failed for a passing reason says
+ * to try again, leaving the saved login as it was.
+ * @param input - The login and where it lives.
+ * @param input.orgId - The workspace.
+ * @param input.provider - The connect provider whose app the login ran on.
+ * @param input.vendor - The vendor's name, for the sentence.
+ * @param input.connectorSlug - The source's connector, for the log line.
+ * @param input.loginClientId - The client ID the stored login recorded, if any.
+ */
+async function loginAppForRefresh(input: { orgId: string; provider: ConnectProviderId; vendor: string; connectorSlug: string; loginClientId: unknown }): Promise<LoginClient | undefined> {
+  if (!loginAppPlatformFor(input.provider)) {
+    return undefined;
+  }
+  try {
+    return await loginClientForGrant({ orgId: input.orgId, provider: input.provider, vendor: input.vendor, loginClientId: input.loginClientId });
+  } catch (error) {
+    logger.warn('refreshLoginGrant could not find the app the login was made on', { orgId: input.orgId, connectorSlug: input.connectorSlug, code: error instanceof TokenRequestError ? error.code : null, errorName: error instanceof Error ? error.name : 'unknown' });
+    throw new Error(loginAppLookupFailure(input.vendor, error) ?? `The ${input.vendor} login app could not be looked up just now. The saved login is unchanged; try again in a few minutes.`);
+  }
 }
 
 /**
@@ -402,9 +426,6 @@ function refreshFailure(input: { vendor: string; connectorSlug: string; orgId: s
   const code = error instanceof TokenRequestError ? error.code : 'unknown';
   const fix = error instanceof TokenRequestError ? refusalFix(error) : 'try-later';
   logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, fix, errorName: error instanceof Error ? error.name : 'unknown' });
-  if (code === 'login_app_changed') {
-    return new Error(`This ${vendor} login was made with a ${vendor} login app this workspace no longer has, so it cannot be refreshed. An admin needs to log in with ${vendor} again on the Connectors page.`);
-  }
   if (fix === 'log-in-again') {
     return new Error(`${vendor} would not refresh the login (${code}). An admin needs to log in with ${vendor} again on the Connectors page.`);
   }

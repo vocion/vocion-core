@@ -155,6 +155,9 @@ export const listPlatformsRoute = os.handler(async () => {
     // callback, so the form shows the exact URL to copy. Null for every other
     // platform, and when the server has no NEXT_PUBLIC_APP_URL to build it from.
     redirectUrl: platform.loginAppFor && origin ? callbackUri(origin, platform.loginAppFor) : null,
+    // A login app's replace and revoke break the logins made with it, which
+    // the form has to say; a key's do not.
+    loginApp: Boolean(platform.loginAppFor),
     // RegExp does not survive the wire, so the form gets the human hint and
     // the server stays the only place the shape is actually enforced.
     fields: platform.fields.map(field => ({

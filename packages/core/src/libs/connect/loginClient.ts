@@ -16,9 +16,11 @@
  */
 import type { ConnectProvider, ConnectProviderId } from './provider';
 import type { LoginClient } from './serverClients';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { logger } from '@/libs/Logger';
 import { loginAppPlatformFor } from '@/libs/platforms/registry';
 import { resolvePlatformCredential } from '@/services/ApiTokenService';
+import { withArticle } from '@/utils/withArticle';
 import { serverLoginClient } from './serverClients';
 import { TokenRequestError } from './tokenRequest';
 
@@ -52,6 +54,27 @@ export async function workspaceLoginClient(orgId: string, provider: ConnectProvi
  */
 export async function loginClientForNewLogin(orgId: string, provider: ConnectProviderId): Promise<LoginClient | null> {
   return (await workspaceLoginClient(orgId, provider)) ?? serverLoginClient(provider);
+}
+
+/**
+ * The app a login's callback trades the code on: the one the start sent the
+ * person to, whose client ID the signed state carries. The code was issued to
+ * that app, so if an admin replaced or removed it mid-login this throws
+ * `TokenRequestError` with `login_app_changed` rather than trading the code
+ * on another app the vendor would refuse. A state without one (signed before
+ * states carried it, or for a provider with no client ID and secret) gets
+ * the app a new login would.
+ * @param input - The login being finished.
+ * @param input.orgId - The workspace.
+ * @param input.provider - The connect provider.
+ * @param input.vendor - The vendor's name, for the error.
+ * @param input.startedOnClientId - The `loginClientId` the state carries, if any.
+ */
+export async function loginClientForCallback(input: { orgId: string; provider: ConnectProviderId; vendor: string; startedOnClientId: string | undefined }): Promise<LoginClient | null> {
+  if (!input.startedOnClientId) {
+    return loginClientForNewLogin(input.orgId, input.provider);
+  }
+  return loginClientForGrant({ orgId: input.orgId, provider: input.provider, vendor: input.vendor, loginClientId: input.startedOnClientId });
 }
 
 /**
@@ -89,6 +112,35 @@ export async function loginClientForGrant(input: { orgId: string; provider: Conn
     return server;
   }
   throw new TokenRequestError(input.vendor, 'login_app_changed', null);
+}
+
+/**
+ * The sentence a refresh ends with when it cannot find the app its login was
+ * made on, or null when the lookup failed for a passing reason (the database
+ * did not answer) and trying again later is the fix. Every refresh path
+ * (`loginGrant`, `googleAuth`, `jira`) words these the same way through here.
+ *
+ * Each sentence names a fix that works whatever is left: logging in again
+ * only helps once some app exists, so the sentence says where to save one.
+ * @param vendor - The vendor's name, for the sentence.
+ * @param error - What `loginClientForGrant` threw.
+ */
+export function loginAppLookupFailure(vendor: string, error: unknown): string | null {
+  if (error instanceof VaultDecryptionError) {
+    return `The saved ${vendor} login app could not be read, so this login cannot be refreshed. An admin needs to save the ${vendor} login app again on the Developers page.`;
+  }
+  if (!(error instanceof TokenRequestError)) {
+    return null;
+  }
+  if (error.code === 'login_app_changed') {
+    // Also reached when the server's own client ID was changed, so the
+    // sentence does not say whose app went away.
+    return `This ${vendor} login was made with ${withArticle(`${vendor} app`)} that is no longer set up (it was replaced or removed), so it cannot be refreshed. An admin needs to log in with ${vendor} again on the Connectors page, first saving ${withArticle(`${vendor} login app`)} on the Developers page if there is none.`;
+  }
+  if (error.code === 'not_configured') {
+    return `No ${vendor} app is set up any more, on this server or on the Developers page, so this login cannot be refreshed. An admin needs to save ${withArticle(`${vendor} login app`)} on the Developers page (or set the ${vendor} app up on the server), then log in with ${vendor} again.`;
+  }
+  return null;
 }
 
 /**
