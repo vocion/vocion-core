@@ -148,7 +148,7 @@ describe('createPosthogClient', () => {
 
     const out = await createPosthogClient({ ...CREDS, apiKey: 'pha_fixture_token_0001', viaLogin: true }).query({ kind: 'HogQLQuery', query: 'SELECT 1' });
 
-    expect(!out.ok && out.message).toMatch(/log in with PostHog again and grant this project/);
+    expect(!out.ok && out.message).toMatch(/An admin needs to log in with PostHog again and grant this project/);
     expect(!out.ok && out.message).not.toMatch(/The key is valid/);
   });
 
@@ -156,6 +156,12 @@ describe('createPosthogClient', () => {
     const out = credentialsFrom({ accessToken: 'pha_fixture_token_0001', refreshToken: 'phr_fixture_0001', expiresAt: '2030-01-01T00:00:00Z', host: 'https://eu.posthog.com', projectId: '4242' });
 
     expect(out.ok && out.credentials.viaLogin).toBe(true);
+  });
+
+  it('a stored login with no usable access token says an admin must log in again, never to check a key', () => {
+    const out = credentialsFrom({ accessToken: 'not-a-posthog-token', refreshToken: 'phr_fixture_0001', expiresAt: '2030-01-01T00:00:00Z', host: 'https://eu.posthog.com', projectId: '4242' });
+
+    expect(!out.ok && out.message).toBe('The stored PostHog login does not hold a valid access token. An admin needs to log in with PostHog again on the Connectors page.');
   });
 
   it('a personal key PostHog calls invalid on the Query API is a rejected key, not a missing scope', async () => {

@@ -335,7 +335,7 @@ async function refreshAndSave(input: {
     logger.warn('refreshLoginGrant could not save the refreshed login', { orgId, sourceId, connectorSlug: input.connectorSlug, errorName: error instanceof Error ? error.name : 'unknown' });
   }
   if (!saved) {
-    warn(`${input.vendor} issued a new token but the saved login could not be updated. Log in with ${input.vendor} again before the next sync.`);
+    warn(`${input.vendor} issued a new token but the saved login could not be updated. An admin needs to log in with ${input.vendor} again before the next sync.`);
   }
   return next;
 }

@@ -170,7 +170,7 @@ async function shapeFailure(res: Response, path: string, viaLogin: boolean): Pro
       error: 'posthog_unauthorized',
       status: 403,
       message: viaLogin
-        ? `PostHog refused this call (403): ${detail}. The login does not reach this project with query:read and event_definition:read — log in with PostHog again and grant this project.`
+        ? `PostHog refused this call (403): ${detail}. The login does not reach this project with query:read and event_definition:read. An admin needs to log in with PostHog again and grant this project.`
         : `PostHog refused this call (403): ${detail}. The key is valid but lacks a read scope for it — give it query:read and event_definition:read on this project, or access to the project itself.`,
     };
   }

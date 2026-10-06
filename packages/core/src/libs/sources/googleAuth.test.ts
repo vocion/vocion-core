@@ -91,6 +91,14 @@ describe('resolveGoogleAccessToken', () => {
       .toThrow('Google refused this server\'s OAuth client (invalid_client), so logging in again will not help. An admin needs to check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET on the server.');
   });
 
+  it('a pasted client Google refuses says to paste it again, since this server\'s settings are not the problem', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'invalid_client' }), { status: 401 }));
+
+    await expect(resolveGoogleAccessToken({ refreshToken: 'pasted-refresh-7', clientId: 'own_client', clientSecret: 'own_client_key' }))
+      .rejects
+      .toThrow('Google refused the pasted OAuth client (invalid_client). An admin needs to paste the client ID and secret again, or log in with Google, on the Connectors page.');
+  });
+
   it('a refresh answered without an access token is refused rather than cached as an empty token', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ expires_in: 3600 }), { status: 200 }));
 
