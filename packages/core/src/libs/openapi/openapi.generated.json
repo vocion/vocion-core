@@ -3617,6 +3617,16 @@
               }
             }
           },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `CONFLICT`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Something failed on our side. Codes: `LOGIN_APP_SAVE_FAILED`.",
             "content": {
@@ -3628,7 +3638,7 @@
             }
           }
         },
-        "description": "Save the workspace's own OAuth login app for one vendor, replacing the one\nsaved before. Body: `{ clientId, clientSecret, name? }`. New logins with\nthat vendor then run on this app, with no server redeploy. Answers\n`{ loginApp: { provider, name, keyHint, redirectUrl, replaced } }`; the\nsecret is never returned. When `replaced` is true, logins made with the old\napp need an admin to log in again.\n\n`provider` is one of google, slack, atlassian, hubspot, notion, zoom,\napollo. GitHub and PostHog take no login app.\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session.",
+        "description": "Save the workspace's own OAuth login app for one vendor, replacing the one\nsaved before. New logins with that vendor then run on this app, with no\nserver redeploy. The login itself stays a click in the dashboard: this\nsaves the app, it does not log in.\n\nBody: `{ clientId, clientSecret, name? }`. `clientId` and `clientSecret` are\nstrings of up to 8192 characters, trimmed; `name` is 1 to 80 characters and\ndefaults to `<Vendor> login app`. A 400 names the field in\n`error.details.field`.\n\nAnswers `{ loginApp: { provider, vendor, name, keyHint, redirectUrl,\nreplaced, loginsNeedLoggingInAgain, note } }`. `keyHint` is the client ID,\nmasked to its last characters; the secret is never returned. `redirectUrl`\nis the callback to register at the vendor, null when the server has no\npublic address (NEXT_PUBLIC_APP_URL). `replaced` says an app was saved\nbefore. `loginsNeedLoggingInAgain` is true only when the client ID changed:\nlogins made with the old app then need an admin to log in again, and `note`\nsays so; a new secret for the same app leaves them working.\n\n`provider` is one of google, slack, atlassian, hubspot, notion, zoom,\napollo. GitHub and PostHog take no login app. A 409 means another save of\nthe same app kept landing at the same moment; send it again.\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "provider",
@@ -3646,8 +3656,18 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "description": "A JSON object. This endpoint reads its fields dynamically, so they are described in the prose above.",
-                "properties": {},
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "clientId": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "clientSecret": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "name": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
                 "additionalProperties": true
               }
             }

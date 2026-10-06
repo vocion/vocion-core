@@ -325,7 +325,9 @@ test('a HubSpot login app saved through /api/v1: it replaces the Developers one,
   const savedText = await saved.text();
 
   expect(saved.status()).toBe(200);
-  expect(JSON.parse(savedText).loginApp).toMatchObject({ provider: 'hubspot', replaced: true });
+  // A different client ID from the Developers one, so logins made with that
+  // app need logging in again, and the answer says so.
+  expect(JSON.parse(savedText).loginApp).toMatchObject({ provider: 'hubspot', replaced: true, loginsNeedLoggingInAgain: true });
   expect(savedText).not.toContain(HUBSPOT_API_APP_SECRET);
 
   const listed = await page.request.get('/api/v1/login-apps');

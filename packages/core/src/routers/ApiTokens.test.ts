@@ -35,6 +35,7 @@ const { sourceDekSchema } = await import('@/models/Schema');
 const { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } = await import('./ApiTokens');
 const { issueToken } = await import('@/services/ApiTokenService');
 const { resetCredentialVault } = await import('@/libs/crypto/credentialVault');
+const { logger } = await import('@/libs/Logger');
 
 const ORG = 'org_router_test';
 
@@ -211,6 +212,39 @@ describe('platform key routes', () => {
     const aws = options.find(option => option.id === 'aws');
 
     expect(aws?.fields.map(field => field.name)).toEqual(['accessKeyId', 'secretAccessKey']);
+  });
+
+  it('saves a login app the way the API does: one live app, and an audit line naming the admin and whether old logins end', async () => {
+    signedInAs('admin');
+    const audit = vi.spyOn(logger, 'info');
+
+    await call(createPlatformKeyRoute, { name: 'Acme Google', platform: 'google-login-app', values: { clientId: 'ws-google-old', clientSecret: 'not-a-real-secret-0001' } });
+    await call(createPlatformKeyRoute, { name: 'Acme Google', platform: 'google-login-app', values: { clientId: 'ws-google-new', clientSecret: 'not-a-real-secret-0002' } });
+
+    const live = (await db.select().from(apiTokenSchema)).filter(row => row.platform === 'google-login-app' && row.revokedAt === null);
+
+    expect(live.map(row => row.createdBy)).toEqual(['usr-1']);
+    expect(audit).toHaveBeenLastCalledWith('[login-apps] login app saved', expect.objectContaining({ orgId: ORG, provider: 'google', savedBy: 'usr-1', replaced: true, loginsNeedLoggingInAgain: true }));
+
+    audit.mockRestore();
+  });
+
+  it('refuses half a login app with the form\'s sentence', async () => {
+    signedInAs('admin');
+
+    await expect(call(createPlatformKeyRoute, { name: 'Acme Google', platform: 'google-login-app', values: { clientId: 'ws-google-client' } })).rejects.toThrow('Enter the Client secret.');
+  });
+
+  it('writes an audit line naming the admin who revoked a credential', async () => {
+    signedInAs('admin');
+    const audit = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, { name: 'Acme OpenAI', platform: 'openai', values: { apiKey: OPENAI_KEY } });
+
+    await call(revokeTokenRoute, { tokenId: saved.id });
+
+    expect(audit).toHaveBeenCalledWith('[apiTokens.revoke] credential revoked', { orgId: ORG, userId: 'usr-1', tokenId: saved.id });
+
+    audit.mockRestore();
   });
 
   it('tells a login app the callback URL to register at the vendor, and every other platform nothing', async () => {

@@ -105,7 +105,9 @@ export function requireCapability(caller: ApiCaller, action: string): NextRespon
  * `null` for an admin. A grant check (`requireCapability`) lets a member's
  * session through, since members hold `*`, and an admin token passes any grant
  * check, so a route that only admins may use on the dashboard checks the role
- * instead. A token's role is the one it was minted with.
+ * instead. A token's role is the one it was minted with. Its grants are not
+ * consulted: they add to what the role allows and never narrow it
+ * (`hasGrant` in `authz.ts`), so they cannot make a member an admin.
  * @param caller - The authenticated caller.
  * @param what - What the caller tried, for the message, e.g. `save a login app`.
  */
@@ -192,7 +194,9 @@ export async function readJsonBody(req: Request): Promise<Record<string, unknown
     }
     return body as Record<string, unknown>;
   } catch (error) {
-    console.error('[api/v1] request body was not valid JSON', error);
+    // The error's name only: a JSON parse error quotes a slice of the body it
+    // could not read, and a body can carry a secret (`/api/v1/login-apps`).
+    console.error('[api/v1] request body was not valid JSON', { errorName: error instanceof Error ? error.name : 'unknown' });
     return jsonError('VALIDATION_FAILED', 'Request body must be JSON', 400);
   }
 }

@@ -466,7 +466,7 @@ export function credentialInUseMessage(connectorSlug: string): string {
  * depend on.
  * @param error - Whatever the query threw.
  */
-function isUniqueViolation(error: unknown): boolean {
+export function isUniqueViolation(error: unknown): boolean {
   return sqlStateOf(error) === '23505' || sqlStateOf((error as { cause?: unknown })?.cause) === '23505';
 }
 

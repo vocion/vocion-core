@@ -197,6 +197,29 @@ export async function revokeToken(orgId: string, id: string): Promise<void> {
 }
 
 /**
+ * Revoke every live credential an org holds for one platform, in one
+ * statement, and return the ids it revoked (none when there were none).
+ *
+ * One statement rather than a read and then a revoke per row, so two revokes
+ * racing each other cannot both report the same row, and a save landing
+ * between a read and a revoke cannot survive it.
+ * @param orgId - The org whose credentials to revoke.
+ * @param platform - Which platform's credentials to revoke.
+ */
+export async function revokeLivePlatformCredentials(orgId: string, platform: CredentialPlatformId): Promise<string[]> {
+  const revoked = await db
+    .update(apiTokenSchema)
+    .set({ revokedAt: new Date() })
+    .where(and(
+      eq(apiTokenSchema.orgId, orgId),
+      eq(apiTokenSchema.platform, platform),
+      isNull(apiTokenSchema.revokedAt),
+    ))
+    .returning({ id: apiTokenSchema.id });
+  return revoked.map(row => row.id);
+}
+
+/**
  * One row of the credential list — metadata only. Never the Vocion secret, its
  * hash, or a supplied key's plaintext or ciphertext. `keyHint` is the only
  * trace of a credential's value that leaves the service.

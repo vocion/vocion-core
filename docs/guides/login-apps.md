@@ -57,26 +57,44 @@ and in chat cards straight away.
 
 ## Saving the app through the API (scripts)
 
-A script that sets up a workspace can do the same through the public API,
-with a workspace admin's tenant token (`Authorization: Bearer vcn_live_…`) or
-a signed-in admin session. A member is refused with 403, as on Developers.
+A script that sets up a workspace can save the app through the public API
+instead of the Developers form. It saves the app only: logging in with the
+vendor is still a click on the Connectors page, because the vendor's consent
+screen needs a person.
+
+**Getting a token.** An admin opens the Developers page and uses
+**Create token**. Every token acts as a workspace admin, so keep it where you
+keep other secrets. Send it as `Authorization: Bearer vcn_live_…`. A signed-in
+admin session works too. A member's session is refused with 403, as on the
+Developers page.
+
 `:provider` is `google`, `slack`, `atlassian`, `hubspot`, `notion`, `zoom` or
-`apollo`; any other name answers 404.
+`apollo`. Any other name answers 404.
 
 | Call | What it does |
 |---|---|
-| `PUT /api/v1/login-apps/:provider` with `{ "clientId", "clientSecret", "name"? }` | Saves the app, replacing the one before. Answers the masked client ID, the redirect URL to register, and `replaced`. When `replaced` is true, logins made with the old app need logging in again. |
-| `GET /api/v1/login-apps` | Lists every vendor with `saved`, the app's name, its masked client ID, when it was saved, and the redirect URL. |
+| `PUT /api/v1/login-apps/:provider` with `{ "clientId", "clientSecret", "name"? }` | Saves the app, replacing the one before. |
+| `GET /api/v1/login-apps` | Lists every vendor with `saved`, the app's `name`, `keyHint`, `savedAt` and `redirectUrl`. |
 | `DELETE /api/v1/login-apps/:provider` | Revokes the app. New logins go back to the server's app, if it has one. Answers `{ "revoked": false }` when none was saved, so running it twice is safe. |
 
-No answer ever carries the secret. Send the secret from a file or an
-environment variable, never typed on the command line:
+What the `PUT` answer means:
+
+- **`keyHint`** is the client ID, masked to its last few characters, so you can tell which app is saved. No answer ever carries the secret.
+- **`redirectUrl`** is the callback to register at the vendor. It is `null` when the server has no public address (`NEXT_PUBLIC_APP_URL` unset).
+- **`replaced`** is true when an app was saved before and this one took its place.
+- **`loginsNeedLoggingInAgain`** is true only when the client ID changed. Logins made with the old app then stop at their next refresh until an admin logs in again, and `note` says so. Saving a new secret for the same app leaves them working.
+- **A 400** names the bad field in `error.details.field`. Blank values get the Developers form's sentence, e.g. "Enter the Client secret."
+- **A 409** means another save of the same app kept landing at the same moment. Send yours again.
+
+Send the secret from a file or an environment variable, never typed on the
+command line:
 
 ```bash
 # CLIENT_ID and CLIENT_SECRET are already in the environment, e.g. from your
 # secrets manager. jq reads them from there, so the secret is never an argument.
+# --fail-with-body makes curl exit non-zero on a 4xx or 5xx and still print why.
 jq -n '{clientId: env.CLIENT_ID, clientSecret: env.CLIENT_SECRET}' \
-  | curl -sS -X PUT "$VOCION_URL/api/v1/login-apps/google" \
+  | curl -sS --fail-with-body -X PUT "$VOCION_URL/api/v1/login-apps/google" \
       -H "Authorization: Bearer $VOCION_TOKEN" -H 'content-type: application/json' --data @-
 ```
 
@@ -84,9 +102,11 @@ The routes are in
 [`app/api/v1/login-apps`](../../packages/core/src/app/api/v1/login-apps/route.ts)
 ([`:provider`](../../packages/core/src/app/api/v1/login-apps/%5Bprovider%5D/route.ts)),
 over [`services/connect/loginApps.ts`](../../packages/core/src/services/connect/loginApps.ts).
-Saving goes through the same `storePlatformKey` the Developers page uses,
-which validates, encrypts, and replaces the old app in one transaction. The
-full schema is in the OpenAPI document at `/api/v1/openapi`.
+A save from the API or from the Developers form goes through the same
+`saveLoginApp`, which uses `storePlatformKey` to validate, encrypt, and replace
+the old app in one transaction. Every save and revoke writes an audit line
+naming who did it. The full schema is in the OpenAPI document at
+`/api/v1/openapi`.
 
 ## Where the values go
 
