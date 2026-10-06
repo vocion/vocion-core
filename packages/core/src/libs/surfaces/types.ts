@@ -74,6 +74,8 @@ export type ChatImage = {
   url: string;
   /** What the image shows — the alt text, and the line written above it. */
   caption: string;
+  /** The file's name when it is uploaded; a video travels this way too (`movie.mp4`). */
+  filename?: string;
 };
 
 /**
