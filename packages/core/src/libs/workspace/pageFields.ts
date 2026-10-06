@@ -787,6 +787,12 @@ export const PageManifestSchema = z.object({
   })).optional(),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
   live: LiveSchema.optional(),
+  /**
+   * Links on the title's row, aligned right as outline pills: a way out of
+   * the page that is not in the sidebar (a booth's start screen, a public
+   * page). One or two; a plain link, so it may leave the app.
+   */
+  links: z.array(z.object({ label: z.string().min(1).max(40), href: z.string().min(1) })).max(2).optional(),
 
   // ---- review embed (any archetype) ----
   /**

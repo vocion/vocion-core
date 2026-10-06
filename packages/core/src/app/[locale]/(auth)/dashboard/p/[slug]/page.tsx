@@ -746,7 +746,22 @@ export default async function WorkspacePage(props: {
       <TitleBar
         title={manifest.title}
         description={manifest.description}
-        actions={manifest.live ? <LiveRefresh everyMs={manifest.live.every * 1000} /> : undefined}
+        actions={manifest.live || manifest.links?.length
+          ? (
+              <>
+                {manifest.live && <LiveRefresh everyMs={manifest.live.every * 1000} />}
+                {manifest.links?.map(link => (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    className="inline-flex h-10 items-center rounded-full border border-border bg-background px-5 text-[15px] font-semibold text-foreground transition-colors hover:bg-muted"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+              </>
+            )
+          : undefined}
       />
 
       {/* A page a plugin shipped carries that plugin's outcome panel — the
