@@ -410,6 +410,45 @@ function sh(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: 'utf8', cwd: opts.cwd || REPO_DIR, env: { ...process.env, ...gitAuthEnv(), ...(opts.env || {}) }, timeout: (opts.timeoutSeconds || 600) * 1000, maxBuffer: 64 * 1024 * 1024 });
   return { code: r.status ?? (r.signal ? 128 : 1), stdout: r.stdout || '', stderr: r.stderr || '', signal: r.signal || null };
 }
+// The same, without blocking the event loop. A check or an install can run for twenty minutes,
+// and spawnSync froze the heartbeat timer for all of it: the lease (300 s) expired and Vocion
+// marked the run `lost` while it was still verifying (walk 26, RUN-512 and RUN-513). Anything
+// that can run longer than a heartbeat or two goes through here.
+function shAsync(cmd, args, opts = {}) {
+  return new Promise((resolve) => {
+    const max = 64 * 1024 * 1024;
+    let stdout = '';
+    let stderr = '';
+    let signal = null;
+    let c;
+    try {
+      c = spawn(cmd, args, { cwd: opts.cwd || REPO_DIR, env: { ...process.env, ...gitAuthEnv(), ...(opts.env || {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      resolve({ code: 1, stdout: '', stderr: String(e.message || e), signal: null }); return;
+    }
+    c.stdout.setEncoding('utf8').on('data', (d) => {
+      if (stdout.length < max) {
+        stdout += d;
+      }
+    });
+    c.stderr.setEncoding('utf8').on('data', (d) => {
+      if (stderr.length < max) {
+        stderr += d;
+      }
+    });
+    const timer = setTimeout(() => {
+      signal = 'SIGTERM'; try {
+        c.kill('SIGTERM');
+      } catch {}
+    }, (opts.timeoutSeconds || 600) * 1000);
+    c.on('error', (e) => {
+      clearTimeout(timer); resolve({ code: 1, stdout, stderr: stderr || String(e.message || e), signal });
+    });
+    c.on('close', (code, sig) => {
+      clearTimeout(timer); resolve({ code: code ?? (sig || signal ? 128 : 1), stdout, stderr, signal: sig || signal });
+    });
+  });
+}
 function must(cmd, args, opts = {}) {
   const r = sh(cmd, args, opts);
   if (r.code !== 0) {
@@ -747,16 +786,16 @@ function prepareRepo(task, run) {
 
 // npm ci once per run, without dependency scripts; then the repo's own postinstall (a generated
 // client, say), which the checks and the tests need.
-function ensureInstalled() {
+async function ensureInstalled() {
   if (fs.existsSync(path.join(REPO_DIR, 'node_modules'))) {
     return { ok: true };
   }
   log('install', { note: 'npm ci --ignore-scripts, then the repo postinstall' });
-  const inst = sh('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { timeoutSeconds: 900 });
+  const inst = await shAsync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { timeoutSeconds: 900 });
   if (inst.code !== 0) {
     return { ok: false, tail: `npm ci failed: ${tail(inst.stderr || inst.stdout, 15)}` };
   }
-  const post = sh('npm', ['run', 'postinstall', '--if-present', '--silent'], { timeoutSeconds: 600 });
+  const post = await shAsync('npm', ['run', 'postinstall', '--if-present', '--silent'], { timeoutSeconds: 600 });
   if (post.code !== 0) {
     return { ok: false, tail: `postinstall failed: ${tail(post.stderr || post.stdout, 15)}` };
   }
@@ -809,12 +848,12 @@ async function startServices(task) {
       state.serviceEnv[k] = svc.url;
     }
     Object.assign(process.env, state.serviceEnv);
-    const inst = ensureInstalled();
+    const inst = await ensureInstalled();
     if (!inst.ok) {
       throw new Error(inst.tail);
     }
     for (const cmd of svc.setup) {
-      const r = sh('sh', ['-c', cmd], { timeoutSeconds: 600 });
+      const r = await shAsync('sh', ['-c', cmd], { timeoutSeconds: 600 });
       if (r.code !== 0) {
         throw new Error(`${svc.name} setup \`${cmd}\` failed: ${tail(r.stderr || r.stdout, 15)}`);
       }
@@ -824,12 +863,12 @@ async function startServices(task) {
     log('service.started', { service: svc.name, host: new URL(svc.url).host });
   }
   if (setup.length) {
-    const inst = ensureInstalled();
+    const inst = await ensureInstalled();
     if (!inst.ok) {
       throw new Error(inst.tail);
     }
     for (const cmd of setup) {
-      const r = sh('sh', ['-c', cmd], { timeoutSeconds: 600 });
+      const r = await shAsync('sh', ['-c', cmd], { timeoutSeconds: 600 });
       if (r.code !== 0) {
         throw new Error(`setup \`${cmd}\` failed: ${tail(r.stderr || r.stdout, 15)}`);
       }
@@ -1089,7 +1128,7 @@ function changedFiles() {
   return [...new Set(files.filter(Boolean))];
 }
 
-function verify(task) {
+async function verify(task) {
   setPhase('verify');
   const files = changedFiles();
   const owns = f => humanOwned(f, task.human_owned);
@@ -1136,12 +1175,12 @@ function verify(task) {
     } else if (step.kind === 'skipped') {
       rec = { name, status: 'skipped', exit_code: null, tail: step.reason };
     } else {
-      const inst = ensureInstalled();
+      const inst = await ensureInstalled();
       if (!inst.ok) {
         rec = { name, status: 'failed', exit_code: 1, tail: inst.tail }; outputs[name] = inst.tail;
       }
       if (!rec) {
-        const r = sh('sh', ['-c', step.command], { timeoutSeconds: 1200 });
+        const r = await shAsync('sh', ['-c', step.command], { timeoutSeconds: 1200 });
         const full = `${r.stdout}\n${r.stderr}`;
         outputs[name] = full;
         rec = { name, status: r.code === 0 ? 'passed' : 'failed', exit_code: r.code, tail: tail(full, 25), ...(step.kind === 'command' ? { command: step.command } : {}) };
@@ -1213,7 +1252,7 @@ async function provenByTests(recordId, runId) {
     const args = ['vitest', 'run', rel, '--reporter=verbose', '--reporter=json', `--outputFile.json=${report}`];
     // Plain text: the stored run is read by QA and by people, and color codes made it noise.
     // The services' env (DATABASE_URL, TEST_DATABASE_URL) is in process.env since startServices, so sh passes it on.
-    const r = sh('npx', args, { cwd: path.join(REPO_DIR, ws), timeoutSeconds: 300, env: { NO_COLOR: '1', FORCE_COLOR: '0' } });
+    const r = await shAsync('npx', args, { cwd: path.join(REPO_DIR, ws), timeoutSeconds: 300, env: { NO_COLOR: '1', FORCE_COLOR: '0' } });
     let results = [];
     try {
       results = testResultsOf(JSON.parse(fs.readFileSync(report, 'utf8')), fs.realpathSync(REPO_DIR));
@@ -1866,7 +1905,7 @@ async function main() {
     // Checks still run on what is there, so the draft PR says how far the work got.
     if (claude.result && !state.stopped) {
       try {
-        checks = verify(task);
+        checks = await verify(task);
       } catch (e) {
         log('verify.crashed', { error: e.message });
       }
@@ -1888,7 +1927,7 @@ async function main() {
 
   let verification;
   try {
-    verification = verify(task);
+    verification = await verify(task);
   } catch (e) {
     await finalizeRunLogs(task, runId, claude, {}); await fail(runId, `verify crashed: ${e.message}`, [], partial); return;
   }
@@ -1943,7 +1982,7 @@ async function main() {
     }
     let after;
     try {
-      after = verify(task);
+      after = await verify(task);
     } catch (e) {
       log('verify.crashed', { error: e.message, pass });
       break;
