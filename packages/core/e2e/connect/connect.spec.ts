@@ -1,4 +1,5 @@
 import type { Dialog, Page, Request } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 import { ADMIN, seedConnectWorkspace } from './support/seed';
 
@@ -98,6 +99,9 @@ async function listedConnectors(page: Page): Promise<string[]> {
 
 /** A made-up key: the test types it in and nothing ever sends it anywhere. */
 const HUBSPOT_KEY = 'pat-na1-e2e-not-a-real-key-0001';
+const FAIL_LAST_SYNC = 'e2e/connect/support/fail-last-sync.ts';
+/** What a sync records when HubSpot refuses the login's refresh (`refreshFailure` in libs/connect/loginGrant.ts). */
+const REFUSED_LOGIN = 'HubSpot would not refresh the login (invalid_grant). An admin needs to log in with HubSpot again on the Connectors page.';
 
 /** A made-up Granola key, saved on the Developers page and then shown on the Connectors form. */
 const GRANOLA_KEY = 'grn-e2e-not-a-real-key-0002';
@@ -111,6 +115,30 @@ async function hubspotConnected(page: Page): Promise<boolean> {
   const response = await page.request.get('/rpc/sources');
   const body = await response.json() as { sources: Array<{ slug: string; credentialConnected: boolean }> };
   return body.sources.some(source => source.slug.startsWith('hubspot') && source.credentialConnected);
+}
+
+/**
+ * The id of the HubSpot source the paste case made.
+ * @param page - A signed-in page.
+ */
+async function hubspotSourceId(page: Page): Promise<number> {
+  const response = await page.request.get('/rpc/sources');
+  const body = await response.json() as { sources: Array<{ id: number; slug: string }> };
+  const source = body.sources.find(candidate => candidate.slug.startsWith('hubspot'));
+  if (!source) {
+    throw new Error('No HubSpot source: this case runs after the HubSpot paste case, which makes it.');
+  }
+  return source.id;
+}
+
+/**
+ * Record a failed last sync on a source, as a sync that ended on a refused
+ * login records it, without calling the vendor.
+ * @param sourceId - The source whose last run failed.
+ * @param error - What the run ended with.
+ */
+function failLastSync(sourceId: number, error: string): void {
+  execFileSync('npx', ['dotenv', '-c', '--', 'npx', 'tsx', FAIL_LAST_SYNC, String(sourceId), error], { stdio: ['ignore', 'inherit', 'pipe'] });
 }
 
 /**
@@ -192,6 +220,19 @@ test('HubSpot, with no HubSpot app set up on this server: paste only, one key in
   await page.goto('/dashboard/developers');
 
   await expect(page.getByRole('row').filter({ hasText: 'HubSpot' }).first()).toBeVisible();
+});
+
+test('a HubSpot sync that ended on a refused login: the row says an admin must log in again, and its Reconnect opens the connect dialog', async ({ page }) => {
+  await signIn(page);
+  failLastSync(await hubspotSourceId(page), REFUSED_LOGIN);
+  await page.goto('/dashboard/connectors');
+
+  await expect(page.getByText(/An admin needs to log in with HubSpot again on the Connectors page/).first()).toBeVisible();
+
+  // Edit never runs a login again, so the row itself has to offer the fix.
+  await page.getByRole('button', { name: 'Reconnect' }).click();
+
+  await expect(page.getByRole('heading', { name: /^Connect hubspot/ })).toBeVisible();
 });
 
 test('a key saved on Developers: the Connectors form shows only its tail until Show, and Hide takes the value off the page', async ({ page }) => {
