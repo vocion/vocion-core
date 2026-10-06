@@ -80,9 +80,11 @@ person clicks Connect with Slack
   `libs/connect/loginGrant.ts`. It refreshes from the refresh token stored
   now, not the one the run loaded, and saves compare-and-swap, so two syncs
   never fight over a rotated refresh token: the loser uses the winner's
-  grant. Test connection on values typed into a form never refreshes, and
-  an expired login there says to run a sync. Re-testing a connected Apollo
-  source does refresh and save, because an Apollo row has no Sync now.
+  grant. Test connection on a connected Apollo or PostHog source renews an
+  expiring login and saves it, like a sync; Apollo needs this because its
+  row has no Sync now. A test of values typed into a form has no row to save
+  to, so it never refreshes, and says to save the connector and renew from
+  its row. Jira's Atlassian grant is never refreshed by a test.
 - **Only when set up.** The Connectors form and the chat card offer a login
   only when the server holds that provider's app (its client ID). Otherwise
   they offer paste alone, rather than a button that can only fail.

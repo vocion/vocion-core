@@ -11,8 +11,9 @@
  * run loaded, because another sync may already have rotated it; save the new
  * grant to the row it was read from, compare-and-swap on the refresh token
  * it came from; and when another sync won that race, use the winner's grant.
- * Test connection never refreshes: a rotated refresh token it could not save
- * would strand the stored one.
+ * Test connection refreshes only when it re-tests a connected source, which
+ * has a row to save to; for values typed into a form it never does, because a
+ * rotated refresh token it could not save would strand the stored one.
  */
 
 import { and, eq } from 'drizzle-orm';
@@ -33,8 +34,8 @@ export type GrantRefresher = (refreshToken: string) => Promise<RefreshedTokens>;
 
 /**
  * What a caller does with a rotated token: save it (a sync, an agent tool,
- * Apollo's re-test of a connected source), or refuse to refresh at all (Test
- * connection, which elsewhere does not save what it tests).
+ * a Test connection re-testing a connected source), or refuse to refresh at
+ * all (a test of values typed into a form, which has no row to save to).
  */
 export type GrantPersistence
   = | { kind: 'persist'; orgId: string; sourceId: number; warn: (message: string) => void }
@@ -393,9 +394,37 @@ function refreshFailure(vendor: string, connectorSlug: string, orgId: string, er
 }
 
 /**
+ * How Test connection treats an expiring login. Re-testing a connected
+ * source renews it and saves it to that source, as a sync would, so a
+ * connector with no Sync now (Apollo) can still keep its login alive. Values
+ * typed into a form have no source to keep a renewed token, so they never
+ * refresh.
+ * @param connectorSlug - The connector, for the log line.
+ * @param savedSource - The connected source being re-tested, if it is one.
+ * @param savedSource.orgId - Its workspace.
+ * @param savedSource.sourceId - Its row.
+ */
+export function testConnectionPersistence(connectorSlug: string, savedSource: { orgId: string; sourceId: number } | undefined): GrantPersistence {
+  if (!savedSource) {
+    return { kind: 'never' };
+  }
+  const { orgId, sourceId } = savedSource;
+  return { kind: 'persist', orgId, sourceId, warn: message => logger.warn('Test connection could not save the renewed login', { orgId, sourceId, connectorSlug, message }) };
+}
+
+/**
+ * The note a Test connection ends with when it renewed and saved a login,
+ * since "nothing was saved" would then be false.
+ * @param vendor - The vendor's name, for the sentence.
+ */
+export function renewedLoginNote(vendor: string): string {
+  return `This test renewed the expired ${vendor} login and saved it to this connector. Nothing else was saved.`;
+}
+
+/**
  * The grant to call the vendor with: as loaded while its access token is
- * good, refreshed and saved once it is expiring. Test connection
- * (`persistence.kind === 'never'`) gets a sentence instead of a refresh.
+ * good, refreshed and saved once it is expiring. A caller with nowhere to
+ * save (`persistence.kind === 'never'`) gets a sentence instead of a refresh.
  * @param input - The grant, the vendor and where a refresh would be saved.
  * @param input.vendor - The vendor's name, for messages.
  * @param input.connectorSlug - The source's connector.
@@ -418,7 +447,7 @@ export async function usableLoginGrant(input: {
     return input.grant;
   }
   if (input.persistence.kind === 'never') {
-    throw new Error(`The ${input.vendor} access token has expired, and Test connection does not refresh it because it cannot save the new one. Run Sync now, which refreshes and saves it, then test again.`);
+    throw new Error(`The ${input.vendor} access token has expired, and only a saved connector can renew it, because the new token has to be kept. Save the connector if it is new, then run Sync now or Test connection from its row on the Connectors page; either renews the login.`);
   }
   return refreshLoginGrant({ vendor: input.vendor, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh, now: input.now, wait: input.wait });
 }

@@ -13,6 +13,7 @@ const { pkceChallengeFor, pkceVerifierFor } = await import('../state');
 const { posthogProvider, POSTHOG_LOGIN_SCOPES, withFreshPosthogGrant } = await import('./posthog');
 const { GET: clientMetadataRoute } = await import('@/app/api/connect-client/posthog/route');
 const { createPosthogClient, credentialsFrom } = await import('@/libs/posthog/client');
+const { posthogConnector } = await import('@/libs/sources/posthog');
 
 const ORIGIN = 'https://v.example';
 const CALLBACK = `${ORIGIN}/api/connect/posthog/callback`;
@@ -173,7 +174,7 @@ describe('a sync on an expiring PostHog login', () => {
     vi.unstubAllGlobals();
   });
 
-  it('refreshes from the stored token, saves the rotated pair beside host and project, and Test connection refuses to refresh', async () => {
+  it('refreshes from the stored token, saves the rotated pair beside host and project, and a caller with nowhere to save refuses to refresh', async () => {
     env.NEXT_PUBLIC_APP_URL = ORIGIN;
     const expired = { accessToken: 'pha_old_token_00001', refreshToken: 'phr_old_token_00001', expiresAt: '2020-01-01T00:00:00.000Z', host: 'https://eu.posthog.com', projectId: '4242' };
     const orgId = 'org_posthog_refresh';
@@ -189,7 +190,7 @@ describe('a sync on an expiring PostHog login', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ access_token: 'pha_new_token_00002', refresh_token: 'phr_new_token_00002', expires_in: 36000 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(withFreshPosthogGrant(expired, { kind: 'never' })).rejects.toThrow(/Test connection does not refresh/);
+    await expect(withFreshPosthogGrant(expired, { kind: 'never' })).rejects.toThrow(/only a saved connector can renew it/);
     expect(fetchMock).not.toHaveBeenCalled();
 
     const fresh = await withFreshPosthogGrant(expired, { kind: 'persist', orgId, sourceId: source!.id, warn: () => {} });
@@ -197,6 +198,29 @@ describe('a sync on an expiring PostHog login', () => {
     expect(fresh).toMatchObject({ accessToken: 'pha_new_token_00002', refreshToken: 'phr_new_token_00002', host: 'https://eu.posthog.com', projectId: '4242' });
     expect(new URLSearchParams(String(fetchMock.mock.calls[0]![1]?.body)).get('refresh_token')).toBe('phr_old_token_00001');
     expect(await getCredentialsForConnector({ orgId, connectorSlug: 'posthog', apiTokenId: stored.id })).toMatchObject({ refreshToken: 'phr_new_token_00002', projectId: '4242' });
+  });
+
+  it('Test connection on a connected source renews an expired login, saves it, and says so instead of "nothing was saved"', async () => {
+    env.NEXT_PUBLIC_APP_URL = ORIGIN;
+    const expired = { accessToken: 'pha_old_token_00003', refreshToken: 'phr_old_token_00003', expiresAt: '2020-01-01T00:00:00.000Z', host: 'https://eu.posthog.com', projectId: '4242' };
+    const orgId = 'org_posthog_retest';
+    const stored = await storeLoginCredential({ orgId, platform: 'posthog', name: 'PostHog - Acme', account: 'Acme', values: expired, createdBy: 'user_admin' });
+    const [source] = await db.insert(knowledgeSourceSchema).values({
+      orgId,
+      slug: 'posthog-retest',
+      kind: 'plugin',
+      configJson: { _connector: 'posthog' },
+      apiTokenId: stored.id,
+      apiTokenExclusive: false,
+    }).returning({ id: knowledgeSourceSchema.id });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).includes('/oauth/token')
+      ? jsonResponse({ access_token: 'pha_new_token_00004', refresh_token: 'phr_new_token_00004', expires_in: 36000 })
+      : jsonResponse({ id: 4242, name: 'Acme', timezone: 'UTC', count: 0, next: null, results: [] })));
+
+    const inspection = await posthogConnector.inspect!({ config: {}, credentials: expired, options: {}, savedSource: { orgId, sourceId: source!.id } }) as { note: string | null };
+
+    expect(await getCredentialsForConnector({ orgId, connectorSlug: 'posthog', apiTokenId: stored.id })).toMatchObject({ accessToken: 'pha_new_token_00004', refreshToken: 'phr_new_token_00004' });
+    expect(inspection.note).toBe('This test renewed the expired PostHog login and saved it to this connector. Nothing else was saved.');
   });
 
   it('leaves a pasted key untouched', async () => {

@@ -96,9 +96,11 @@ describe('apollo source Test connection on a login', () => {
     const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
     const calls = stubApollo();
 
-    await apolloConnector.inspect!({ config: {}, credentials: grant, options: {}, savedSource: { orgId, sourceId } });
+    const inspection = await apolloConnector.inspect!({ config: {}, credentials: grant, options: {}, savedSource: { orgId, sourceId } }) as { note: string | null };
 
     expect(calls.filter(call => call.url !== TOKEN_URL).every(call => call.authorization === 'Bearer at-new')).toBe(true);
+    // A test that saved the renewed login must not say nothing was saved.
+    expect(inspection.note).toBe('This test renewed the expired Apollo login and saved it to this connector. Nothing else was saved.');
     expect(await getCredentialsForConnector({ orgId, connectorSlug: 'apollo', apiTokenId: tokenId }))
       .toMatchObject({ accessToken: 'at-new', refreshToken: 'rt-new', account: 'mara@acme.com' });
   });

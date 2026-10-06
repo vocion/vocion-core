@@ -27,9 +27,8 @@ import type { GrantPersistence } from '@/libs/connect/loginGrant';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { APOLLO_BASE_URL, createApolloClient, keyFromCredentials } from '@/libs/apollo/client';
-import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
+import { isLoginGrant, renewedLoginNote, testConnectionPersistence, usableLoginGrant } from '@/libs/connect/loginGrant';
 import { refreshApolloGrant } from '@/libs/connect/providers/apollo';
-import { logger } from '@/libs/Logger';
 import { InspectInputError } from './inspect';
 
 const apolloConfigSchema = z.object({
@@ -178,19 +177,15 @@ export const apolloConnector: SourceConnector<typeof apolloConfigSchema> = {
   authKind: 'apikey',
   syncless: true,
   configSchema: apolloConfigSchema,
-  inspectNote: `Runs five checks against Apollo and reports what this key opens. It spends ${APOLLO_PROBE_CREDIT_COST} Apollo credit, on the company-search check; the other four are free. Nothing is saved.`,
+  inspectNote: `Runs five checks against Apollo and reports what this key opens. It spends ${APOLLO_PROBE_CREDIT_COST} Apollo credit, on the company-search check; the other four are free. Nothing is saved, except an expired login it renews for a connected source.`,
 
   async inspect({ config, credentials, savedSource }) {
     let auth: ApolloAuth | null;
     try {
       // An Apollo row has no Sync now, so re-testing a connected source is
-      // where its person can renew an expiring login: the rotated token is
-      // saved to that source's login. Values typed into a form have no row
-      // to save to, so they never refresh.
-      const persistence: GrantPersistence = savedSource
-        ? { kind: 'persist', orgId: savedSource.orgId, sourceId: savedSource.sourceId, warn: message => logger.warn('apollo Test connection could not save the refreshed login', { orgId: savedSource.orgId, sourceId: savedSource.sourceId, message }) }
-        : { kind: 'never' };
-      auth = await resolveApolloAuth(credentials, persistence);
+      // where its person can renew an expiring login (see
+      // `testConnectionPersistence`).
+      auth = await resolveApolloAuth(credentials, testConnectionPersistence('apollo', savedSource));
     } catch (error) {
       throw new InspectInputError(error instanceof Error ? error.message : 'The Apollo login could not be used.');
     }
@@ -200,7 +195,9 @@ export const apolloConnector: SourceConnector<typeof apolloConfigSchema> = {
     const baseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim() !== ''
       ? config.baseUrl.trim()
       : undefined;
-    return inspectApolloKey({ ...auth, baseUrl });
+    const inspection = await inspectApolloKey({ ...auth, baseUrl });
+    const renewed = isLoginGrant(credentials) && auth.accessToken !== undefined && auth.accessToken !== credentials.accessToken;
+    return renewed ? { ...inspection, note: renewedLoginNote('Apollo') } : inspection;
   },
 
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

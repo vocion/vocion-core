@@ -231,7 +231,7 @@ describe('a sync on an expiring login', () => {
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
   });
 
-  it('Test connection never refreshes an expired token: it says to run a sync, and the saved login is untouched', async () => {
+  it('a caller with nowhere to save never refreshes an expired token: it names the two buttons that renew it, and the saved login is untouched', async () => {
     const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
     const { orgId, tokenId } = await seedSourceOnLogin(grant);
     const refreshedFrom: string[] = [];
@@ -246,7 +246,7 @@ describe('a sync on an expiring login', () => {
         return { accessToken: 'a2', refreshToken: 'r2', expiresAt: LATER };
       },
       now: NOW,
-    })).rejects.toThrow(/Run Sync now/);
+    })).rejects.toThrow(/Save the connector if it is new, then run Sync now or Test connection from its row on the Connectors page; either renews the login\./);
 
     expect(refreshedFrom).toEqual([]);
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
