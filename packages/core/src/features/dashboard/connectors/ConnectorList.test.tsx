@@ -126,6 +126,16 @@ describe('ConnectorList', () => {
     expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
   });
 
+  it('a connected Apollo row always offers Reconnect, since it never syncs and no failed run will say its login died', async () => {
+    const onConnect = vi.fn();
+    const rows = buildConnectorRows([tile('apollo', 'Apollo', { syncless: true, inspectable: true })], [source({ id: 11, slug: 'apollo', config: { _connector: 'apollo' }, syncless: true, inspectable: true })]);
+    render(<ConnectorList rows={rows} syncingId={null} onConnectNew={() => {}} onSync={() => {}} onTest={() => {}} onEdit={() => {}} onDelete={() => {}} onConnect={onConnect} />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Reconnect' }));
+
+    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
+  });
+
   it('a healthy row offers no Reconnect beside its actions', async () => {
     renderList([source({ id: 9, slug: 'hubspot-crm', config: { _connector: 'hubspot' } })]);
 

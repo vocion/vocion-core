@@ -115,6 +115,11 @@ describe('offersReconnect', () => {
     expect(offersReconnect(source('h', 'hubspot', { authKind: 'oauth', sync: FAILED }))).toBe(true);
   });
 
+  it('always offers Reconnect on a connector that never syncs, since no failed run will ever say its login died', () => {
+    expect(offersReconnect(source('a', 'apollo', { authKind: 'oauth', syncless: true }))).toBe(true);
+    expect(offersReconnect(source('a', 'apollo', { authKind: 'oauth', syncless: true, credentialConnected: false }))).toBe(false);
+  });
+
   it('leaves a revoked credential to Connect, so the row never shows both buttons', () => {
     expect(offersReconnect(source('h', 'hubspot', { credentialConnected: false, credentialBroken: 'revoked', sync: FAILED }))).toBe(false);
   });
