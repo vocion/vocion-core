@@ -15,7 +15,15 @@ describe('the pictures that lead a feature page (Chris, 2026-10-04: just enough 
       { state: 'unverified', evidence: '1002 would show it', evidenceUrl: null },
     ]);
 
-    expect(out.map(p => p.id)).toEqual([1003, 1001, 1005]);
+    // The mockup stays after what QA cited (Chris, 2026-10-06: "missing the mocks").
+    expect(out.map(p => p.id)).toEqual([1003, 1001, 1005, 900]);
+  });
+
+  it('a citation of a copy the page did not keep names the picture it kept (FE-472: QA cited 4135, the page kept 4136)', () => {
+    const kept = [{ ...shot(4136, 'QA after'), sameAs: [4135] }, shot(4141, 'QA after')];
+    const out = heroPictures(kept, [{ state: 'passed', evidence: 'Screenshot 4135 shows the chip on', evidenceUrl: null }]);
+
+    expect(out.map(p => p.id)).toEqual([4136]);
   });
 
   it('never mistakes a small number in a sentence for a picture', () => {
