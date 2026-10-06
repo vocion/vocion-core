@@ -61,6 +61,7 @@ export async function POST(
 
   let config = asRecord(body.config);
   let credentials = asRecord(body.credentials);
+  let savedSource: { orgId: string; sourceId: number } | undefined;
 
   // Re-test path: the credential comes out of the vault rather than the form,
   // so an already-connected source is verified with no re-paste.
@@ -91,6 +92,7 @@ export async function POST(
     }
     config = { ...source.config, ...config };
     credentials = { ...vaulted, ...credentials };
+    savedSource = { orgId, sourceId };
   }
 
   const options: Record<string, unknown> = {};
@@ -101,7 +103,7 @@ export async function POST(
   }
 
   try {
-    const inspection = await connector.inspect({ config, credentials, options });
+    const inspection = await connector.inspect({ config, credentials, options, savedSource });
     return Response.json({ inspection });
   } catch (err) {
     // Input the connector cannot work with is the operator's to fix, and its

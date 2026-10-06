@@ -27,6 +27,16 @@ async function authorizationHeaderOfSync(credentials: Record<string, unknown>): 
   return headers.authorization!;
 }
 
+/**
+ * Run one Notion sync to its end, for a test that only cares how it ends.
+ * @param context - The sync's context.
+ */
+async function runSync(context: SourceContext): Promise<void> {
+  for await (const _doc of notionConnector.sync(context)) {
+    // Only how the sync ends matters here.
+  }
+}
+
 describe('notion connect provider', () => {
   beforeEach(() => {
     env.NOTION_CLIENT_ID = 'nid';
@@ -109,6 +119,13 @@ describe('notion connect provider', () => {
 
   it('shows no account for a pasted token', () => {
     expect(notionProvider.summarize({ token: 'ntn_pasted' })).toBeNull();
+  });
+
+  it('a revoked Notion token ends the sync naming who fixes it and where, since a member cannot reconnect', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"object":"error","status":401}', { status: 401 })));
+    const context = { orgId: 'org_1', sourceId: 1, config: {}, credentials: { token: 'ntn_revoked' }, since: null } as unknown as SourceContext;
+
+    await expect(runSync(context)).rejects.toThrow('An admin needs to press Reconnect on the Connectors page and log in with Notion again');
   });
 
   it('syncs with a login bag and a pasted token alike, as a Bearer', async () => {

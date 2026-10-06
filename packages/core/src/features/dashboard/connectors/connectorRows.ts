@@ -131,20 +131,21 @@ export function parseMissingScopes(error: string | null | undefined): string[] {
 }
 
 /**
- * Whether a row with a stored credential offers Reconnect beside its other
- * actions: when its last sync failed, or its credential was revoked or
- * expired. A refused login says "Log in with HubSpot again on the Connectors
- * page", and Edit never runs a login again, so without this the row would
- * name a fix it has no button for. It shows for any failed sync, since the
- * row cannot tell a dead credential from a vendor outage, and connecting
- * again over a good credential loses nothing.
+ * Whether a row with a working credential offers Reconnect beside its other
+ * actions: when its last sync failed. A refused login says "An admin needs
+ * to log in with HubSpot again on the Connectors page", and Edit never runs a
+ * login again, so without this the row would name a fix it has no button
+ * for. It shows for any failed sync, since the row cannot tell a dead
+ * credential from a vendor outage, and connecting again over a good
+ * credential loses nothing. A revoked or expired credential counts as not
+ * connected, so its row already shows Connect.
  * @param source - The configured row.
  */
 export function offersReconnect(source: Source): boolean {
   if (source.authKind === 'none' || !source.credentialConnected) {
     return false;
   }
-  return source.sync?.status === 'failed' || source.credentialBroken !== null;
+  return source.sync?.status === 'failed';
 }
 
 /**

@@ -29,6 +29,7 @@ import { z } from 'zod';
 import { APOLLO_BASE_URL, createApolloClient, keyFromCredentials } from '@/libs/apollo/client';
 import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
 import { refreshApolloGrant } from '@/libs/connect/providers/apollo';
+import { logger } from '@/libs/Logger';
 import { InspectInputError } from './inspect';
 
 const apolloConfigSchema = z.object({
@@ -179,11 +180,17 @@ export const apolloConnector: SourceConnector<typeof apolloConfigSchema> = {
   configSchema: apolloConfigSchema,
   inspectNote: `Runs five checks against Apollo and reports what this key opens. It spends ${APOLLO_PROBE_CREDIT_COST} Apollo credit, on the company-search check; the other four are free. Nothing is saved.`,
 
-  async inspect({ config, credentials }) {
+  async inspect({ config, credentials, savedSource }) {
     let auth: ApolloAuth | null;
     try {
-      // Test connection never refreshes: it has no source row to save a rotated token to.
-      auth = await resolveApolloAuth(credentials, { kind: 'never' });
+      // An Apollo row has no Sync now, so re-testing a connected source is
+      // where its person can renew an expiring login: the rotated token is
+      // saved to that source's login. Values typed into a form have no row
+      // to save to, so they never refresh.
+      const persistence: GrantPersistence = savedSource
+        ? { kind: 'persist', orgId: savedSource.orgId, sourceId: savedSource.sourceId, warn: message => logger.warn('apollo Test connection could not save the refreshed login', { orgId: savedSource.orgId, sourceId: savedSource.sourceId, message }) }
+        : { kind: 'never' };
+      auth = await resolveApolloAuth(credentials, persistence);
     } catch (error) {
       throw new InspectInputError(error instanceof Error ? error.message : 'The Apollo login could not be used.');
     }

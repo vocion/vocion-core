@@ -138,7 +138,7 @@ describe('createPosthogClient', () => {
     const queried = await createPosthogClient(login).query({ kind: 'HogQLQuery', query: 'SELECT 1' });
 
     for (const out of [listed, queried]) {
-      expect(!out.ok && out.message).toMatch(/Log in with PostHog again on the Connectors page/);
+      expect(!out.ok && out.message).toMatch(/An admin needs to log in with PostHog again on the Connectors page/);
       expect(!out.ok && out.message).not.toMatch(/personal API key|lacks a read scope/);
     }
   });

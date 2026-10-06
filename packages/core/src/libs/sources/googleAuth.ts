@@ -46,12 +46,12 @@ function refreshRefusal(error: TokenRequestError, pasted: boolean): Error {
   }
   if (fix === 'check-server-client') {
     return new Error(pasted
-      ? `Google refused the pasted OAuth client (${error.code}). Paste the client ID and secret again, or log in with Google on the Connectors page.`
+      ? `Google refused the pasted OAuth client (${error.code}). An admin needs to paste the client ID and secret again, or log in with Google, on the Connectors page.`
       : `Google refused this server's OAuth client (${error.code}), so logging in again will not help. An admin needs to check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET on the server.`);
   }
   return new Error(pasted
-    ? `Google refused the pasted refresh token (${error.code}). Paste a new one, or log in with Google on the Connectors page.`
-    : `Google would not refresh the login (${error.code}). Log in with Google again on the Connectors page.`);
+    ? `Google refused the pasted refresh token (${error.code}). An admin needs to paste a new one, or log in with Google, on the Connectors page.`
+    : `Google would not refresh the login (${error.code}). An admin needs to log in with Google again on the Connectors page.`);
 }
 
 /**

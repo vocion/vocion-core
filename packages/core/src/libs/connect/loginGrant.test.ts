@@ -265,7 +265,7 @@ describe('a sync on an expiring login', () => {
         throw new TokenRequestError('HubSpot', 'invalid_grant', 400);
       },
       now: NOW,
-    })).rejects.toThrow('HubSpot would not refresh the login (invalid_grant). Log in with HubSpot again on the Connectors page.');
+    })).rejects.toThrow('HubSpot would not refresh the login (invalid_grant). An admin needs to log in with HubSpot again on the Connectors page.');
 
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
   });
@@ -378,7 +378,7 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
     await db.update(apiTokenSchema).set({ revokedAt: new Date() }).where(eq(apiTokenSchema.id, tokenId));
     const failure = await pending;
 
-    expect(failure.message).toBe('The Zoom login was revoked or removed. Log in with Zoom again on the Connectors page.');
+    expect(failure.message).toBe('The Zoom login was revoked or removed. An admin needs to log in with Zoom again on the Connectors page.');
     expect(refreshedFrom).toEqual([]);
   });
 

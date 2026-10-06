@@ -106,7 +106,7 @@ describe('hubspot source on a login', () => {
     const { orgId, sourceId } = await seedSourceOnLogin(grant);
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })));
 
-    await expect(runSync({ orgId, sourceId, credentials: grant })).rejects.toThrow(/Log in with HubSpot again/);
+    await expect(runSync({ orgId, sourceId, credentials: grant })).rejects.toThrow(/log in with HubSpot again/);
   });
 
   it('resolution without persistence never refreshes: an expired login says to run a sync', async () => {

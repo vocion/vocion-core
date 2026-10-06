@@ -50,6 +50,13 @@ export type InspectInput = {
   config: Record<string, unknown>;
   credentials: Record<string, unknown>;
   options: Record<string, unknown>;
+  /**
+   * The connected source being re-tested, when it is one (the route's
+   * `{ sourceId }` path); absent for values typed into a form. A connector
+   * with no Sync now (Apollo) renews an expiring login through it, since
+   * nothing else on its row can.
+   */
+  savedSource?: { orgId: string; sourceId: number };
 };
 
 /**

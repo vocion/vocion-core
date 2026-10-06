@@ -91,6 +91,18 @@ describe('apollo source Test connection on a login', () => {
     expect(calls).toEqual([]);
   });
 
+  it('re-testing a connected source renews an expired login and saves the rotated token, since an Apollo row has no Sync now to do it', async () => {
+    const grant = { accessToken: 'at-old', refreshToken: 'rt-1', expiresAt: EXPIRED, account: 'mara@acme.com' };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+    const calls = stubApollo();
+
+    await apolloConnector.inspect!({ config: {}, credentials: grant, options: {}, savedSource: { orgId, sourceId } });
+
+    expect(calls.filter(call => call.url !== TOKEN_URL).every(call => call.authorization === 'Bearer at-new')).toBe(true);
+    expect(await getCredentialsForConnector({ orgId, connectorSlug: 'apollo', apiTokenId: tokenId }))
+      .toMatchObject({ accessToken: 'at-new', refreshToken: 'rt-new', account: 'mara@acme.com' });
+  });
+
   it('a pasted API key still goes as x-api-key and still gets the master-key check', async () => {
     const calls = stubApollo();
 

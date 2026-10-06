@@ -109,14 +109,14 @@ describe('buildConnectorRows', () => {
 });
 
 describe('offersReconnect', () => {
-  const FAILED = { status: 'failed' as const, startedAt: '', completedAt: null, error: 'HubSpot would not refresh the login (invalid_grant). Log in with HubSpot again on the Connectors page.', counts: {} };
+  const FAILED = { status: 'failed' as const, startedAt: '', completedAt: null, error: 'HubSpot would not refresh the login (invalid_grant). An admin needs to log in with HubSpot again on the Connectors page.', counts: {} };
 
   it('offers Reconnect on a stored credential whose last sync failed, since Edit never runs a login again', () => {
     expect(offersReconnect(source('h', 'hubspot', { authKind: 'oauth', sync: FAILED }))).toBe(true);
   });
 
-  it('offers Reconnect on a revoked or expired credential the row still points at', () => {
-    expect(offersReconnect(source('h', 'hubspot', { credentialBroken: 'revoked' }))).toBe(true);
+  it('leaves a revoked credential to Connect, so the row never shows both buttons', () => {
+    expect(offersReconnect(source('h', 'hubspot', { credentialConnected: false, credentialBroken: 'revoked', sync: FAILED }))).toBe(false);
   });
 
   it('stays away from a healthy row, a row with nothing stored (Connect covers it), and a connector with no credential', () => {

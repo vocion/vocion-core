@@ -251,7 +251,7 @@ async function notionFetch(url: string, init: RequestInit): Promise<Response> {
   const res = await fetchRetryingRateLimits(url, init, { maxRetries: MAX_RETRIES });
   if (res.status === 401) {
     throw new Error(
-      'Notion rejected the token (401). The access may be revoked — if you connected with Notion login, log in with Notion again on the Connectors page; if you pasted a token, reconnect the source with a fresh internal integration token from notion.so/my-integrations.',
+      'Notion rejected the token (401). The access may be revoked. An admin needs to press Reconnect on the Connectors page and log in with Notion again, or paste a fresh internal integration token from notion.so/my-integrations.',
     );
   }
   if (res.status === 403) {

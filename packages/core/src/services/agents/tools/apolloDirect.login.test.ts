@@ -107,7 +107,7 @@ describe('apollo live tools on a login', () => {
     const resolved = await apolloClientForCtx({ orgId } as never);
 
     expect(resolved).toMatchObject({ ok: false, error: 'no_apollo_credentials' });
-    expect((resolved as { message: string }).message).toMatch(/Log in with Apollo again/);
+    expect((resolved as { message: string }).message).toMatch(/An admin needs to log in with Apollo again/);
   });
 
   it('a pasted API key still goes out as x-api-key', async () => {

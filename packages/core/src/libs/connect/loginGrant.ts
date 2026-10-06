@@ -32,8 +32,9 @@ export type RefreshedTokens = { accessToken: string; refreshToken: string; expir
 export type GrantRefresher = (refreshToken: string) => Promise<RefreshedTokens>;
 
 /**
- * What a sync does with a rotated token: save it (a sync), or refuse to
- * refresh at all (Test connection, which has no source row to save it to).
+ * What a caller does with a rotated token: save it (a sync, an agent tool,
+ * Apollo's re-test of a connected source), or refuse to refresh at all (Test
+ * connection, which elsewhere does not save what it tests).
  */
 export type GrantPersistence
   = | { kind: 'persist'; orgId: string; sourceId: number; warn: (message: string) => void }
@@ -188,7 +189,7 @@ async function takeRefreshTurn(input: { vendor: string; orgId: string; sourceId:
   while (Date.now() < deadline) {
     const claim = await claimLoginRefresh({ orgId: input.orgId, tokenId, holdMs: REFRESH_CLAIM_MS });
     if (claim.kind === 'gone') {
-      throw new Error(`The ${input.vendor} login was revoked or removed. Log in with ${input.vendor} again on the Connectors page.`);
+      throw new Error(`The ${input.vendor} login was revoked or removed. An admin needs to log in with ${input.vendor} again on the Connectors page.`);
     }
     if (claim.kind === 'claimed') {
       // Read again under the claim: the last holder may have saved since the
@@ -380,7 +381,7 @@ function refreshFailure(vendor: string, connectorSlug: string, orgId: string, er
   const fix = error instanceof TokenRequestError ? refusalFix(error) : 'try-later';
   logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, fix, errorName: error instanceof Error ? error.name : 'unknown' });
   if (fix === 'log-in-again') {
-    return new Error(`${vendor} would not refresh the login (${code}). Log in with ${vendor} again on the Connectors page.`);
+    return new Error(`${vendor} would not refresh the login (${code}). An admin needs to log in with ${vendor} again on the Connectors page.`);
   }
   if (fix === 'check-server-client' && code === 'not_configured') {
     return new Error(`The ${vendor} app is no longer set up on this server (${code}), so the login cannot be refreshed and logging in again will not help. An admin needs to set the ${vendor} app up on the server again.`);

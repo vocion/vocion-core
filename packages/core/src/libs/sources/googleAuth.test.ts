@@ -66,7 +66,7 @@ describe('resolveGoogleAccessToken', () => {
 
     await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-3' }))
       .rejects
-      .toThrow(/^Google would not refresh the login \(invalid_grant\)\. Log in with Google again on the Connectors page\.$/);
+      .toThrow(/^Google would not refresh the login \(invalid_grant\)\. An admin needs to log in with Google again on the Connectors page\.$/);
   });
 
   it('a pasted refresh token Google refuses asks for a new paste or a login, since the pasted client is not this deployment\'s', async () => {
@@ -74,7 +74,7 @@ describe('resolveGoogleAccessToken', () => {
 
     await expect(resolveGoogleAccessToken({ refreshToken: 'pasted-refresh-4', clientId: 'own_client', clientSecret: 'own_client_key' }))
       .rejects
-      .toThrow('Google refused the pasted refresh token (invalid_grant). Paste a new one, or log in with Google on the Connectors page.');
+      .toThrow('Google refused the pasted refresh token (invalid_grant). An admin needs to paste a new one, or log in with Google, on the Connectors page.');
   });
 
   it('a Google outage says to try again later, not to log in again', async () => {

@@ -80,8 +80,9 @@ person clicks Connect with Slack
   `libs/connect/loginGrant.ts`. It refreshes from the refresh token stored
   now, not the one the run loaded, and saves compare-and-swap, so two syncs
   never fight over a rotated refresh token: the loser uses the winner's
-  grant. Test connection never refreshes; an expired login there says to run
-  a sync.
+  grant. Test connection on values typed into a form never refreshes, and
+  an expired login there says to run a sync. Re-testing a connected Apollo
+  source does refresh and save, because an Apollo row has no Sync now.
 - **Only when set up.** The Connectors form and the chat card offer a login
   only when the server holds that provider's app (its client ID). Otherwise
   they offer paste alone, rather than a button that can only fail.
@@ -133,8 +134,9 @@ Before going live with each vendor:
   app, with a security assessment, before workspaces outside the app's own
   Google Workspace can use them. While the app's publishing status is
   "Testing", Google expires every refresh token it issues after 7 days, so each
-  Google login stops working a week after it was made and the person sees "Log
-  in with Google again". Move the app to "In production" before customers use it.
+  Google login stops working a week after it was made and the person sees "An
+  admin needs to log in with Google again". Move the app to "In production"
+  before customers use it.
 - **Zoom.** Add the scopes listed on the Zoom connector to the Marketplace
   app, plus their `:admin` variants so admins can read every user's
   recordings. Zoom sends no scope in the login URL.

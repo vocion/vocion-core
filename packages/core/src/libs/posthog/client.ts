@@ -115,7 +115,7 @@ export function credentialsFrom(
     return { ok: false, message: 'No PostHog personal API key is stored for this source. Connect it on the Connectors page (PostHog → Connect) with a personal API key, the host and the project id.' };
   }
   const keyProblem = grantToken
-    ? (LOGIN_ACCESS_TOKEN.test(grantToken) ? null : 'The stored PostHog login does not hold a valid access token. Log in with PostHog again on the Connectors page.')
+    ? (LOGIN_ACCESS_TOKEN.test(grantToken) ? null : 'The stored PostHog login does not hold a valid access token. An admin needs to log in with PostHog again on the Connectors page.')
     : describeKeyProblem(apiKey);
   if (keyProblem) {
     return { ok: false, message: keyProblem };
@@ -160,7 +160,7 @@ async function shapeFailure(res: Response, path: string, viaLogin: boolean): Pro
       status: res.status,
       message: viaLogin
         // PostHog's body is raw JSON; the status and the fix say all a person needs.
-        ? `PostHog refused the login's access token (${res.status}). Log in with PostHog again on the Connectors page.`
+        ? `PostHog refused the login's access token (${res.status}). An admin needs to log in with PostHog again on the Connectors page.`
         : `PostHog rejected the personal API key (${res.status}): ${detail}. The key may have been deleted or rotated — Test connection on the Connectors page reports whether it is valid.`,
     };
   }

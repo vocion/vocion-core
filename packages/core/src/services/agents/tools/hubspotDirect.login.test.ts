@@ -107,7 +107,7 @@ describe('hubspot live tools on a login', () => {
     const resolved = await hubspotClientForOrg(orgId);
 
     expect(resolved).toMatchObject({ ok: false, error: 'no_hubspot_credentials' });
-    expect((resolved as { message: string }).message).toMatch(/Log in with HubSpot again/);
+    expect((resolved as { message: string }).message).toMatch(/log in with HubSpot again/);
   });
 
   it('a pasted private-app token is used as stored, with no refresh attempt', async () => {
