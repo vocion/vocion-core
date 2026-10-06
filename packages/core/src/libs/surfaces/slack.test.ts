@@ -122,6 +122,12 @@ describe('parseSlackPayload', () => {
     expect(mention.kind === 'message' && mention.inbound.followUp).toBeUndefined();
   });
 
+  it('reads a person pressing stop on an agent session as a stop for that thread', () => {
+    expect(parseSlackPayload({ type: 'event_callback', event: { type: 'agent_session_stopped', channel: 'C7', thread_ts: '20.1', user: 'U1', event_ts: '21.0', streaming_message_ts: [] } }))
+      .toEqual({ kind: 'stop', stop: { surface: 'slack', channelId: 'C7', threadRef: '20.1', externalUserId: 'U1' } });
+    expect(parseSlackPayload({ type: 'event_callback', event: { type: 'agent_session_stopped', channel: 'C7' } }).kind).toBe('ignore');
+  });
+
   it('parses the bot being added to a channel as a join, and ignores anyone else joining', () => {
     const join = { type: 'event_callback', team_id: 'T1', authorizations: [{ user_id: 'UBOT', is_bot: true }], event: { type: 'member_joined_channel', user: 'UBOT', channel: 'C9', channel_type: 'C', inviter: 'U1', event_ts: '10.1' } };
     const parsed = parseSlackPayload(join);

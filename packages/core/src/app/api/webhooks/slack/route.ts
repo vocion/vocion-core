@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { logger } from '@/libs/Logger';
 import { getSurface } from '@/libs/surfaces/registry';
-import { handleInbound, handleJoined, slackEventsEnabled } from '@/services/ChatSurfaceService';
+import { handleInbound, handleJoined, slackEventsEnabled, stopThreadTurn } from '@/services/ChatSurfaceService';
 
 /**
  * POST /api/webhooks/slack — Slack Events API endpoint (approval item 025, phase 1).
@@ -53,6 +53,13 @@ export async function POST(request: Request) {
     void handleJoined(adapter, parsed.join)
       .then(r => r.outcome === 'introduced' ? undefined : logger.warn('slack join not introduced', { ...r }))
       .catch(error => logger.error('slack join failed', { error: error instanceof Error ? error.message : String(error) }));
+    return NextResponse.json({ ok: true });
+  }
+  if (parsed.kind === 'stop') {
+    // A person pressed stop on the agent's work in a thread: the turn there ends.
+    void stopThreadTurn(adapter, parsed.stop)
+      .then(stopped => logger.info('slack stop', { channelId: parsed.stop.channelId, stopped }))
+      .catch(error => logger.error('slack stop failed', { error: error instanceof Error ? error.message : String(error) }));
     return NextResponse.json({ ok: true });
   }
   // Ack now; reply from the agent lands in the thread when it is ready.

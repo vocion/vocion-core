@@ -26,7 +26,8 @@ export function workingText(head: string, steps: readonly Step[]): string {
   if (shown.length === 0) {
     return head;
   }
-  return [head, ...shown.map(s => `${s.failed ? '✗' : s.done ? '✓' : '…'} ${s.label}`)].join('\n');
+  // With the platform's own working state there is no sentence, only the steps.
+  return [...(head ? [head] : []), ...shown.map(s => `${s.failed ? '✗' : s.done ? '✓' : '…'} ${s.label}`)].join('\n');
 }
 
 /**
