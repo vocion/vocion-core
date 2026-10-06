@@ -36,6 +36,8 @@ steps:
   # ask that started it is never missed.
   - set:
       since: {from: input.since}
+      # A new run goes on from the request's last build (walk 26: a send-back read "attempt 1").
+      attempt: {first: [{from: input.attempt}, {value: 0}]}
   - loop:
       max: 1000
       steps:

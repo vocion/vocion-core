@@ -13,7 +13,7 @@ const { db } = await import('@/libs/DB');
 const { actionRunSchema, askSchema, businessObjectSchema, workerRunSchema } = await import('@/models/Schema');
 const { createObjectType } = await import('@/services/BusinessObjectService');
 const { and, eq } = await import('drizzle-orm');
-const { reconcileOpenPulls, recheckFixedBranches, settleClosedRequests, settleWaitingMerges, watchQueuedRuns } = await import('./reconcile');
+const { reconcileOpenPulls, recheckFixedBranches, settleClosedRequests, settleShippedRequests, settleWaitingMerges, watchQueuedRuns } = await import('./reconcile');
 
 const ORG = 'org_factory_reconcile';
 const REPO = 'Acme/northwind-core';
@@ -188,6 +188,32 @@ describe('a closed request leaves no stage behind', () => {
     expect(rec.stage).toBeNull();
     expect(rec.line).toBeNull();
     expect(rec.log.at(-1)?.text).toMatch(/^Closed \(shipped\)/);
+  });
+});
+
+describe('a shipped request reads shipped', () => {
+  it('puts a shipped request a stopped retry left on building back to shipped, and leaves a live one or a reopened one alone (request 224)', async () => {
+    const recovering = { stage: 'recovering', line: 'Recovering (attempt 2 of 3): QA sent attempt #350 back', attempts: [], since: null, limit: 3, askId: null, planRequestedAt: null, handledRunIds: [], log: [] };
+    const shippedMeta = { state: 'building', status: 'seen_live', shippedAt: '2026-10-02T03:19:00Z', shippedIn: 355, recovery: recovering };
+    const [stuck] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.request!, title: 'Rooms copy link', metadata: shippedMeta }).returning();
+    const [live] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.request!, title: 'Rooms share', metadata: shippedMeta }).returning();
+    const [reopened] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.request!, title: 'Rooms rename', metadata: { ...shippedMeta, reopenedAt: '2026-10-03T00:00:00Z' } }).returning();
+    const [run] = await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'send-engineer', status: 'running', input: {} } as never).returning();
+    await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: types.engineering_task!, title: 'Task share', status: 'dispatched', metadata: { requestId: live!.id, workerRunId: run!.id } });
+
+    const out = await settleShippedRequests(ORG, new Date('2026-10-06T12:00:00Z'));
+    const ids = out.map(r => r.requestId);
+
+    expect(ids).toContain(stuck!.id);
+    expect(ids).not.toContain(live!.id);
+    expect(ids).not.toContain(reopened!.id);
+
+    const meta = (await read(stuck!.id)).metadata as { state: string; status: string; recovery: { stage: unknown; log: Array<{ text: string }> } };
+
+    expect(meta).toMatchObject({ state: 'shipped', status: 'seen_live' });
+    expect(meta.recovery.stage).toBeNull();
+    expect(meta.recovery.log.at(-1)?.text).toMatch(/^Shipped in release #355; read "building" with nothing running/);
+    expect(await settleShippedRequests(ORG, new Date('2026-10-06T12:05:00Z'))).toEqual([]);
   });
 });
 

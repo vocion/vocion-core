@@ -78,9 +78,9 @@ const failed = (branch: string): Read => ({ status: 'failed', branch, prUrl: nul
 const opened = (branch: string, prUrl: string): Read => ({ status: 'completed', branch, prUrl, failure: null, decision: { do: 'none', why: '' } });
 const from = (d: Dispatch) => /\(([\w-]+)\)\.$/.exec(d.reason)?.[1];
 
-async function start(name: string, requestId: number) {
+async function start(name: string, requestId: number, more: Record<string, unknown> = {}) {
   const id = durableIdFor(ORG, 'request', `${requestId}.1`);
-  await durable().start(name, id, { orgId: ORG, flowRef: REQUEST_FLOW, flow: loadFlow(REQUEST_FLOW), input: { requestId, since: new Date(Date.now() - 5000).toISOString() } });
+  await durable().start(name, id, { orgId: ORG, flowRef: REQUEST_FLOW, flow: loadFlow(REQUEST_FLOW), input: { requestId, since: new Date(Date.now() - 5000).toISOString(), ...more } });
   return id;
 }
 
@@ -123,6 +123,16 @@ describe('the software-factory request flow owns a request from Build to live (b
     const { valueFor } = await import('@/libs/objects/statusModel');
 
     expect(h.marks.map(([t]) => [t, valueFor(REQUEST_STATUSES, t)])).toEqual([['starting', 'building'], ['building', 'building'], ['review', 'in_qa'], ['deploying', 'deploying'], ['checking_live', null], ['live', 'seen_live']]);
+  });
+
+  it('a new run of the flow goes on from the request\'s last build, not attempt 1 (walk 26: the send-back read "building attempt 1")', async () => {
+    const h = harness([{ kind: 'building', workerRunId: 613, taskId: 1 }], {});
+    await ask(62, { from: 'live' });
+    const id = await start(h.name, 62, { attempt: 1 });
+    await until(id, 'building');
+
+    expect(h.dispatches[0]).toMatchObject({ attempt: 2 });
+    expect(h.marks.find(([t]) => t === 'building')?.[1]).toBe('RUN-613 is building attempt 2.');
   });
 
   it('says when QA could not finish, and still takes the review the factory starts again (Walk 11, FE-387)', async () => {
