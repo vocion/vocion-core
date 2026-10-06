@@ -223,6 +223,28 @@ describe('a sync on an expiring PostHog login', () => {
     expect(inspection.note).toBe('This test renewed the expired PostHog login and saved it to this connector. Nothing else was saved.');
   });
 
+  it('Test connection on a connected source whose login is still good renews nothing and says nothing was saved', async () => {
+    env.NEXT_PUBLIC_APP_URL = ORIGIN;
+    const good = { accessToken: 'pha_good_token_00005', refreshToken: 'phr_good_token_00005', expiresAt: '2999-01-01T00:00:00.000Z', host: 'https://eu.posthog.com', projectId: '4242' };
+    const orgId = 'org_posthog_retest_good';
+    const stored = await storeLoginCredential({ orgId, platform: 'posthog', name: 'PostHog - Acme', account: 'Acme', values: good, createdBy: 'user_admin' });
+    const [source] = await db.insert(knowledgeSourceSchema).values({
+      orgId,
+      slug: 'posthog-retest-good',
+      kind: 'plugin',
+      configJson: { _connector: 'posthog' },
+      apiTokenId: stored.id,
+      apiTokenExclusive: false,
+    }).returning({ id: knowledgeSourceSchema.id });
+    const fetchMock = vi.fn(async (_url: string) => jsonResponse({ id: 4242, name: 'Acme', timezone: 'UTC', count: 0, next: null, results: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inspection = await posthogConnector.inspect!({ config: {}, credentials: good, options: {}, savedSource: { orgId, sourceId: source!.id } }) as { note: string | null };
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/oauth/token'))).toBe(false);
+    expect(inspection.note).toMatch(/^Nothing was saved by this test/);
+  });
+
   it('leaves a pasted key untouched', async () => {
     const pasted = { apiKey: 'phx_fixture_key_0001', host: 'https://us.posthog.com', projectId: '1' };
 

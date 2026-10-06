@@ -7,7 +7,7 @@ const { db } = await import('@/libs/DB');
 const { apiTokenSchema, knowledgeSourceSchema } = await import('@/models/Schema');
 const { storeLoginCredential, updateLoginCredentialValues } = await import('@/services/ApiTokenService');
 const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
-const { usableLoginGrant } = await import('./loginGrant');
+const { testConnectionPersistence, usableLoginGrant } = await import('./loginGrant');
 const { TokenRequestError } = await import('./tokenRequest');
 
 const NOW = Date.parse('2026-10-05T12:00:00.000Z');
@@ -173,6 +173,30 @@ describe('a sync on an expiring login', () => {
     expect(warnings).toEqual([]);
   });
 
+  it('a Test connection that renewed a login it could not save fails, rather than passing on a token the stored login does not hold', async () => {
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin({ accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED });
+
+    const failure = await usableLoginGrant({
+      vendor: 'Apollo',
+      connectorSlug: 'apollo',
+      grant: { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED },
+      persistence: testConnectionPersistence('apollo', { orgId, sourceId }),
+      refresh: async () => {
+        // Another writer changes the login, still expired, so the save loses
+        // and there is no usable winner to fall back on.
+        await updateLoginCredentialValues({ orgId, tokenId, values: { accessToken: 'a9', refreshToken: 'r9', expiresAt: EXPIRED }, expectedRefreshToken: 'r1' });
+        return { accessToken: 'a2', refreshToken: 'r2', expiresAt: LATER };
+      },
+      now: NOW,
+    }).catch((error: unknown) => error as Error);
+
+    expect(failure.message).toBe('Apollo issued a new token but the saved login could not be updated. An admin needs to log in with Apollo again before the next sync.');
+  });
+
+  it('a test of typed values never refreshes: it has no connector to keep the new token in', () => {
+    expect(testConnectionPersistence('apollo', undefined)).toEqual({ kind: 'never' });
+  });
+
   it('when another sync already refreshed, this run uses the saved grant and never spends a refresh token', async () => {
     const { orgId, sourceId } = await seedSourceOnLogin({ accessToken: 'a5', refreshToken: 'r5', expiresAt: LATER });
     const refreshedFrom: string[] = [];
@@ -246,7 +270,7 @@ describe('a sync on an expiring login', () => {
         return { accessToken: 'a2', refreshToken: 'r2', expiresAt: LATER };
       },
       now: NOW,
-    })).rejects.toThrow(/Save the connector if it is new, then run Sync now or Test connection from its row on the Connectors page; either renews the login\./);
+    })).rejects.toThrow(/Save the connector if it is new, then press Sync now on its row on the Connectors page, or Test connection where the row shows that instead; both renew the login\./);
 
     expect(refreshedFrom).toEqual([]);
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });

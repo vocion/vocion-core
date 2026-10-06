@@ -114,7 +114,7 @@ describe('hubspot source on a login', () => {
 
     await expect(resolveHubspotToken({ accessToken: 'at-old', refreshToken: 'rt-1', expiresAt: EXPIRED }, { kind: 'never' }))
       .rejects
-      .toThrow(/Save the connector if it is new, then run Sync now or Test connection from its row/);
+      .toThrow(/Save the connector if it is new, then press Sync now on its row/);
     expect(calls).toEqual([]);
   });
 

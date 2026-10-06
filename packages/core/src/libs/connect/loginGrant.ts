@@ -398,7 +398,8 @@ function refreshFailure(vendor: string, connectorSlug: string, orgId: string, er
  * source renews it and saves it to that source, as a sync would, so a
  * connector with no Sync now (Apollo) can still keep its login alive. Values
  * typed into a form have no source to keep a renewed token, so they never
- * refresh.
+ * refresh. A renewal that could not be saved fails the test (see
+ * `failTestOnUnsavedLogin`).
  * @param connectorSlug - The connector, for the log line.
  * @param savedSource - The connected source being re-tested, if it is one.
  * @param savedSource.orgId - Its workspace.
@@ -409,7 +410,22 @@ export function testConnectionPersistence(connectorSlug: string, savedSource: { 
     return { kind: 'never' };
   }
   const { orgId, sourceId } = savedSource;
-  return { kind: 'persist', orgId, sourceId, warn: message => logger.warn('Test connection could not save the renewed login', { orgId, sourceId, connectorSlug, message }) };
+  return { kind: 'persist', orgId, sourceId, warn: message => failTestOnUnsavedLogin(message, { orgId, sourceId, connectorSlug }) };
+}
+
+/**
+ * End a Test connection whose renewed login could not be saved. Passing would
+ * vouch for a token the stored login does not hold, and the next sync would
+ * fail on the old one, so the test fails with the sentence that names the fix.
+ * @param message - What `refreshAndSave` says about the unsaved login.
+ * @param context - Where it happened, for the log line.
+ * @param context.orgId - The workspace.
+ * @param context.sourceId - The source being tested.
+ * @param context.connectorSlug - Its connector.
+ */
+function failTestOnUnsavedLogin(message: string, context: { orgId: string; sourceId: number; connectorSlug: string }): never {
+  logger.warn('Test connection renewed a login it could not save', context);
+  throw new Error(message);
 }
 
 /**
@@ -447,7 +463,7 @@ export async function usableLoginGrant(input: {
     return input.grant;
   }
   if (input.persistence.kind === 'never') {
-    throw new Error(`The ${input.vendor} access token has expired, and only a saved connector can renew it, because the new token has to be kept. Save the connector if it is new, then run Sync now or Test connection from its row on the Connectors page; either renews the login.`);
+    throw new Error(`The ${input.vendor} access token has expired, and only a saved connector can renew it, because the new token has to be kept. Save the connector if it is new, then press Sync now on its row on the Connectors page, or Test connection where the row shows that instead; both renew the login.`);
   }
   return refreshLoginGrant({ vendor: input.vendor, connectorSlug: input.connectorSlug, grant: input.grant, persistence: input.persistence, refresh: input.refresh, now: input.now, wait: input.wait });
 }

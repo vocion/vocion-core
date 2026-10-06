@@ -105,6 +105,17 @@ describe('apollo source Test connection on a login', () => {
       .toMatchObject({ accessToken: 'at-new', refreshToken: 'rt-new', account: 'mara@acme.com' });
   });
 
+  it('re-testing a connected source whose login is still good renews nothing and says nothing was saved', async () => {
+    const grant = { accessToken: 'at-good', refreshToken: 'rt-1', expiresAt: FAR_FUTURE, account: 'mara@acme.com' };
+    const { orgId, sourceId } = await seedSourceOnLogin(grant);
+    const calls = stubApollo();
+
+    const inspection = await apolloConnector.inspect!({ config: {}, credentials: grant, options: {}, savedSource: { orgId, sourceId } }) as { note: string | null };
+
+    expect(calls.some(call => call.url === TOKEN_URL)).toBe(false);
+    expect(inspection.note).toMatch(/^Nothing was saved by this test/);
+  });
+
   it('a pasted API key still goes as x-api-key and still gets the master-key check', async () => {
     const calls = stubApollo();
 
