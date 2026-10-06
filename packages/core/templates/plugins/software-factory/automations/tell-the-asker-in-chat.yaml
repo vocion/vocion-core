@@ -1,23 +1,19 @@
-# THE ASKER HEARS BACK WHERE THEY ASKED (red team as a product exec, 2026-10-05:
-# five features asked for in chat shipped and were seen live, and the
-# conversation never heard another word). When a request asked for in an
-# in-app conversation waits on the person or is done — shipped, seen live,
-# answered — the conversation hears the step in one sentence with the feature
-# page and, when one is on, the public share link; `told` is written on the
-# request when the work is done. A Slack thread is told by its own automation.
-# Core job: `conversation-follow`.
+# THE ASKER HEARS BACK WHERE THEY ASKED (Chris, 2026-10-06). One automation for the app's chat and
+# a Slack thread alike: what the request type tells the asker for a move (`x-tell` on its status)
+# is said once in the conversation it was asked in, and in that conversation's thread. Replaced
+# `slack-thread-follow`, which did the thread's half with its own rules.
 slug: tell-the-asker-in-chat
-name: Tell the asker in chat
-label: Told the asker in chat
-doing: Telling the asker in chat
+name: Tell the asker where they asked
+label: Told the asker
+doing: Telling the asker
 description: >-
-  When a request asked for in the app's chat waits on the person or is done,
-  the conversation hears it with the feature page and the share link, and the
-  request records that the asker was told.
+  When a request is blocked, waits on a person's merge, or is live in
+  production, the conversation it was asked in hears it, in the app's chat
+  and in its Slack thread, with the feature page. Said once each.
 status: active
 when:
   event: record.status_marked
   filter:
     typeSlug: request
 do:
-  job: conversation-follow
+  job: asker-follow

@@ -260,7 +260,7 @@ export async function runProposal(
       // default, and the agent that never heard offered "the dispatch card".
       // The factory's intake is waited on briefly and said here.
       const { filingReceipt } = await import('@/services/factory/carry');
-      const started = await filingReceipt(ctx.orgId, { objectType: created.objectType, id: Number(created.id) }).catch(() => null);
+      const started = await filingReceipt(ctx.orgId, { objectType: created.objectType, id: Number(created.id) }, { name, href: href ?? null }).catch(() => null);
       return withAdvice(`${action_id} is DONE: filed as ${name} (${nounCode('action', res.runId)}, confidence ${confidence})${href ? `, open at ${href}` : ''}.${created.title ? ` Title: ${created.title}.` : ''} It was within bounds, so it ran without waiting — the record exists now; no approval is pending. Tell the person it is filed as ${name}${href ? ` and give them the link [${name}](${href})` : ''}. A person can undo it from the Review queue's Decided tab.${started ? `\n\n${started}` : ''}`);
     }
     // The record it moved, linked, so the person can follow it there.

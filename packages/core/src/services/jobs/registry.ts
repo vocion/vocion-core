@@ -36,9 +36,10 @@
  *   - `live-check-ended` — QA's live check of a release ended: seen, checked
  *     once more carrying why, or "could not reach the change" written on the
  *     release and its features. `services/jobs/liveCheck.ts`.
- *   - `slack-thread-follow` — a record's status moved; the Slack thread it was
- *     asked in hears the step's sentence, once (backlog 057).
- *     `services/jobs/slackThreadFollow.ts`.
+ *   - `asker-follow` — a record's status moved; when its type tells the asker
+ *     about that move (`x-tell`), the conversation it was asked in hears it,
+ *     in the app's chat and its Slack thread, once. `slack-thread-recording`
+ *     carries a filed demo into that thread. `services/jobs/askerFollow.ts`.
  *   - `narrate-recording` — a recording just filed is narrated in a seat's
  *     voice, off the event's path, when a voice is connected. Subscribed by
  *     the software-factory plugin when its `narrateRecordings` setting is on.
@@ -48,7 +49,7 @@
  * agent-driven — an hourly `checkMission` automation.)
  */
 
-import { CONVERSATION_FOLLOW_JOB, runConversationFollowJob } from './conversationFollow';
+import { ASKER_FOLLOW_JOB, ASKER_RECORDING_JOB, RETIRED_FOLLOW_JOBS, runAskerFollowJob, runAskerRecordingJob } from './askerFollow';
 import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
 import { ERROR_WATCH_JOB, runErrorWatch } from './errorWatch';
 import { factoryCarryJobs } from './factoryCarry';
@@ -58,7 +59,6 @@ import { mockupDefaultJobs } from './mockupDefault';
 import { NARRATE_RECORDING_JOB, runNarrateRecordingJob } from './narrateRecording';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
 import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
-import { runSlackThreadFollowJob, runSlackThreadRecordingJob, SLACK_THREAD_FOLLOW_JOB, SLACK_THREAD_RECORDING_JOB } from './slackThreadFollow';
 import { runSweepIdleConversationsJob, SWEEP_IDLE_CONVERSATIONS_JOB } from './sweepIdleConversations';
 
 type BuiltInJob = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
@@ -74,9 +74,10 @@ const JOBS: Record<string, BuiltInJob> = {
   ...mockupDefaultJobs,
   ...liveCheckJobs,
   [NARRATE_RECORDING_JOB]: (orgId, input) => runNarrateRecordingJob(orgId, input),
-  [SLACK_THREAD_FOLLOW_JOB]: (orgId, input) => runSlackThreadFollowJob(orgId, input),
-  [SLACK_THREAD_RECORDING_JOB]: (orgId, input) => runSlackThreadRecordingJob(orgId, input),
-  [CONVERSATION_FOLLOW_JOB]: (orgId, input) => runConversationFollowJob(orgId, input),
+  [ASKER_FOLLOW_JOB]: (orgId, input) => runAskerFollowJob(orgId, input),
+  [ASKER_RECORDING_JOB]: (orgId, input) => runAskerRecordingJob(orgId, input),
+  // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
+  ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };
 
 export function builtInJobNames(): string[] {
