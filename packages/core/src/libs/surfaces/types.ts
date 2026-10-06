@@ -148,4 +148,6 @@ export type ChatSurfaceAdapter = {
   reply: (target: ChatReplyTarget, message: string | ChatMessage, opts?: { fetchImage?: ChatImageFetcher }) => Promise<ChatPostRef | null>;
   /** Take a post back, such as the line that said Vocion was working once the answer is in. */
   retract?: (post: ChatPostRef) => Promise<void>;
+  /** Change a post's words in place, such as the working line as the turn moves from step to step. */
+  edit?: (post: ChatPostRef, text: string) => Promise<void>;
 };
