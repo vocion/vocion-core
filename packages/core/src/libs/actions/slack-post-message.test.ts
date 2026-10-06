@@ -217,7 +217,7 @@ describe('slackPostMessageAction', () => {
       { url: '/api/artifacts/org-1/org-1.png', caption: 'The chip reads (1)', filename: 'org-1.png' },
     ]);
     await expect(posts.sent[0]!.fetchImage!({ url: '/api/media/9/feature-demo-narrated-ab12.mp4', caption: '' })).resolves.toEqual(new Uint8Array([1, 2, 3]));
-    expect(out).toMatchObject({ line: 'Posted to Slack channel C0DELIVERY with 2 attached.' });
+    expect(out).toMatchObject({ line: expect.stringMatching(/^Posted to Slack channel C0DELIVERY with 2 attached\. The words and the files are one message.*nothing needs checking or posting again\.$/) });
 
     await slackPostMessageAction.undo!({ orgId: ORG }, parse({ text: 'Shipped.' }), out);
 
