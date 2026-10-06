@@ -478,8 +478,8 @@ export async function postSlackReply(
  * @param index
  */
 function filenameFor(image: ChatImage, index: number): string {
-  const last = image.url.split(/[?#]/)[0]!.split('/').pop() ?? '';
-  return /\.(?:png|jpe?g|gif|webp)$/i.test(last) ? last : `screenshot-${index + 1}.png`;
+  const last = image.filename ?? image.url.split(/[?#]/)[0]!.split('/').pop() ?? '';
+  return /\.(?:png|jpe?g|gif|webp|mp4|webm|mov)$/i.test(last) ? last : `screenshot-${index + 1}.png`;
 }
 
 /**
