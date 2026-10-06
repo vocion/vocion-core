@@ -128,7 +128,16 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
   }
   const isMention = ev.type === 'app_mention';
   const isDirect = ev.type === 'message' && ev.channel_type === 'im';
-  if (!isMention && !isDirect) {
+  // A reply in a channel thread with no mention: the handler answers it only in a thread Vocion is
+  // already in. One that does mention the bot arrives again as `app_mention`, which answers it.
+  const isFollowUp = ev.type === 'message' && !isDirect && Boolean(ev.thread_ts) && ev.thread_ts !== ev.ts;
+  if (isFollowUp) {
+    const botUserId = botUserIdFor(env, configuredBotUserId);
+    if (!botUserId || (ev.text ?? '').includes(`<@${botUserId}>`)) {
+      return { kind: 'ignore', reason: botUserId ? 'thread reply that mentions the bot (answered as app_mention)' : 'thread reply, bot user unknown' };
+    }
+  }
+  if (!isMention && !isDirect && !isFollowUp) {
     return { kind: 'ignore', reason: `event type ${ev.type ?? 'unknown'}` };
   }
   const files = inboundFiles(ev.files);
@@ -150,6 +159,7 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
     text: text || (files.length > 0 ? 'See the attached picture.' : 'See this thread.'),
     isDirect,
     ...(files.length > 0 ? { files } : {}),
+    ...(isFollowUp ? { followUp: true } : {}),
   };
   return { kind: 'message', inbound };
 }

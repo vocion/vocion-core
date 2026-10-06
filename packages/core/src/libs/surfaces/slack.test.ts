@@ -104,6 +104,24 @@ describe('parseSlackPayload', () => {
     expect(parseSlackPayload({ type: 'event_callback', event: { type: 'app_mention', user: 'U1', channel: 'C1', ts: '9', text: '<@UBOT>' } }).kind).toBe('ignore');
   });
 
+  it('takes a reply in a channel thread with no mention as a follow-up, and leaves a mention to app_mention (Chris, 2026-10-06: "Do that")', () => {
+    const reply = { type: 'event_callback', team_id: 'T1', authorizations: [{ user_id: 'UBOT', is_bot: true }], event: { type: 'message', channel_type: 'group', user: 'U1', channel: 'G1', ts: '20.2', thread_ts: '20.1', text: 'Do that' } };
+    const parsed = parseSlackPayload(reply);
+
+    expect(parsed.kind === 'message' && parsed.inbound).toMatchObject({ channelId: 'G1', threadRef: '20.1', messageRef: '20.2', text: 'Do that', followUp: true, isDirect: false });
+    // The same reply naming the bot comes again as app_mention; answering both would answer twice.
+    expect(parseSlackPayload({ ...reply, event: { ...reply.event, text: '<@UBOT> do that' } })).toMatchObject({ kind: 'ignore', reason: expect.stringMatching(/app_mention/) });
+    // A top-level channel message is not a follow-up of anything.
+    expect(parseSlackPayload({ ...reply, event: { ...reply.event, thread_ts: undefined } }).kind).toBe('ignore');
+    // Without knowing which user is ours, a mention cannot be told apart, so nothing is claimed.
+    expect(parseSlackPayload({ ...reply, authorizations: undefined }).kind).toBe('ignore');
+
+    // An app_mention is never marked a follow-up.
+    const mention = parseSlackPayload({ ...reply, event: { ...reply.event, type: 'app_mention', text: '<@UBOT> do that' } });
+
+    expect(mention.kind === 'message' && mention.inbound.followUp).toBeUndefined();
+  });
+
   it('parses the bot being added to a channel as a join, and ignores anyone else joining', () => {
     const join = { type: 'event_callback', team_id: 'T1', authorizations: [{ user_id: 'UBOT', is_bot: true }], event: { type: 'member_joined_channel', user: 'UBOT', channel: 'C9', channel_type: 'C', inviter: 'U1', event_ts: '10.1' } };
     const parsed = parseSlackPayload(join);
