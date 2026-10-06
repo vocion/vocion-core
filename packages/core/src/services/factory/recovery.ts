@@ -28,7 +28,7 @@ import { planRequirement } from './planRule';
 export const RECOVERY_LIMIT = 3;
 
 /** What a failed engineering run's failure was, as far as the records say. */
-export type FailureClass = 'plan_required' | 'environment' | 'contract_shape' | 'check_not_runnable' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'stale_plan' | 'refused_other';
+export type FailureClass = 'plan_required' | 'environment' | 'contract_shape' | 'check_not_runnable' | 'no_changes' | 'checks_failed' | 'lost' | 'transient' | 'no_plan' | 'stale_plan' | 'timed_out' | 'refused_other';
 
 export type Failure = {
   class: FailureClass;
@@ -322,6 +322,13 @@ const PLAN_REQUIRED = /\b(?:a )?plan is required\b/i;
 const NO_CHANGES = /produced no changes|left no changes|no changes in the working tree|outside (?:the task's )?allowed_paths|out of bounds|not (?:in|inside) (?:the )?allowed_paths|is blocked and fails the run/i;
 const CHECKS_FAILED = /required checks failed/i;
 /**
+ * The engineer ran out of its time budget (walk 27, FE-478: "claude exited 143 without a JSON
+ * result (wall clock: claude exceeded 2400s)"). The work so far is on the kept branch, so this is
+ * a reason to continue, not a question for a person; it was read as an unexplained refusal and
+ * stopped after one attempt.
+ */
+const TIMED_OUT = /\bwall[ -]clock\b|\bexceeded \d+\s*s\b/i;
+/**
  * The worker's own environment failing before any work starts: its service
  * sidecars, the install, the schema sync (#124, 2026-09-28: "services failed:
  * prisma:sync failed", twice in forty seconds, from a worker image older than
@@ -474,6 +481,9 @@ function classifyRaw(run: { status: string; error: string | null; failures?: Arr
   if (run.status === 'lost' || LOST.test(error)) {
     return { class: 'lost', sentence: 'the worker stopped reporting and its lease lapsed', tail: null, failedChecks: [] };
   }
+  if (TIMED_OUT.test(error)) {
+    return { class: 'timed_out', sentence: 'the engineer ran out of its time budget before it finished', tail: null, failedChecks: [] };
+  }
   if (NO_CHANGES.test(all)) {
     return { class: 'no_changes', sentence: firstSentence(error.replace(/^verification failed:\s*/i, '') || 'the attempt made no changes inside its allowed paths'), tail: null, failedChecks: [] };
   }
@@ -509,6 +519,8 @@ export function unblockFor(failure: Failure): string {
     case 'lost':
     case 'transient':
       return 'check that the worker is running and can reach the repository, then press Build';
+    case 'timed_out':
+      return 'press Build with a note on what to leave out, or raise the wall clock on the product\'s repo record';
     case 'contract_shape':
       return 'make the contract Vocion writes and the one the worker reads agree (a Vocion deploy or a worker rebuild); the build starts again on its own after either';
     case 'check_not_runnable':
@@ -538,6 +550,8 @@ export function nextAfter(failure: Failure): string {
     case 'lost':
     case 'transient':
       return 'the factory runs it once more';
+    case 'timed_out':
+      return 'the factory sends it again to continue the work on the kept branch';
     case 'no_changes':
       return 'the factory sends it again if the contract has changed since, and asks you if it has not';
     case 'contract_shape':
@@ -568,6 +582,7 @@ export type RecoveryDecision
  *   one that failed (paths, checks); the same contract again would fail again.
  * - `checks_failed` — send it again with the failing checks' output in the objective.
  * - `lost` / `transient` — send it again, once.
+ * - `timed_out` — send it again on the kept branch, to finish what it started.
  * - anything else, or the limit reached — one ask to a person.
  * @param input - The facts.
  * @param input.failure - What the failure was.
@@ -634,6 +649,12 @@ export function recoveryDecision(input: { failure: Failure; attempts: number; li
     // be asked to name paths the tree already names).
     case 'stale_plan':
       return { do: 'replan', why: failure.sentence, brief: replanBrief(failure) };
+    case 'timed_out':
+      return {
+        do: 'dispatch',
+        why: `${failure.sentence}; its work is on the kept branch, so the next attempt continues it`,
+        note: 'The last attempt ran out of its time budget before it finished. Its work is on the branch you start from: read what is there, finish what the acceptance lines still need, keep the change no larger than they ask, and leave time for the required checks.',
+      };
     case 'lost':
     case 'transient':
       return input.lastWasInfraRetry
