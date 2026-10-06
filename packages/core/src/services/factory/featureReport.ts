@@ -1823,16 +1823,24 @@ function changeSection(tasks: ReportObject[], runs: ReportWorkerRun[]): ReportSe
  * kept, in the order given.
  * @param items - Evidence, in the order it is drawn.
  */
-export function oneOfEachPicture<T extends { id: number; imageUrl: string | null }>(items: readonly T[]): T[] {
-  const seen = new Set<string>();
-  return items.filter((e) => {
+export function oneOfEachPicture<T extends { id: number; imageUrl: string | null }>(items: readonly T[]): Array<T & { sameAs?: number[] }> {
+  const kept = new Map<string, T & { sameAs?: number[] }>();
+  const out: Array<T & { sameAs?: number[] }> = [];
+  for (const e of items) {
     const keys = [`id:${e.id}`, ...(e.imageUrl ? [`img:${e.imageUrl.split(/[?#]/)[0]}`] : [])];
-    if (keys.some(k => seen.has(k))) {
-      return false;
+    const first = keys.map(k => kept.get(k)).find(Boolean);
+    if (first) {
+      // The copy is not shown, but a citation of it still names the picture kept.
+      if (first.id !== e.id && !first.sameAs?.includes(e.id)) {
+        first.sameAs = [...(first.sameAs ?? []), e.id];
+      }
+      continue;
     }
-    keys.forEach(k => seen.add(k));
-    return true;
-  });
+    const one: T & { sameAs?: number[] } = { ...e };
+    keys.forEach(k => kept.set(k, one));
+    out.push(one);
+  }
+  return out;
 }
 
 function qaSection(artifacts: ReportArtifact[], taskCount: number, ctx: PictureContext = NO_PICTURE_CONTEXT): ReportSection {

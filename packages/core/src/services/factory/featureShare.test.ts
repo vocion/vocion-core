@@ -400,4 +400,16 @@ describe('the QA shots a public page shows', () => {
     expect(ids({ taskId: 373, why: 'judged', verdict: 'changes' })).toEqual([]);
     expect(ids(null)).toEqual([]);
   });
+
+  it('shows each picture once, and never a shot the runner flagged as another flow\'s, before the cap (FE-472: 8 slides, 4 pictures)', () => {
+    const same = 'data:image/png;base64,AAAA';
+    const out = shippedEvidence([
+      shot(971, 374, 'Library · desktop · after', '2026-10-02T08:20:00Z', { url: same }),
+      shot(972, 374, 'Chip · desktop · after', '2026-10-02T08:21:00Z', { url: same }),
+      shot(973, 374, 'Count · desktop · after', '2026-10-02T08:22:00Z', { url: 'data:image/png;base64,BBBB', spec: { description: 'Count · desktop · after: at / · duplicate of Library' } }),
+      shot(974, 374, 'Empty · desktop · after', '2026-10-02T08:23:00Z', { url: 'data:image/png;base64,CCCC' }),
+    ], { taskId: 374, why: 'shipped' });
+
+    expect(out.map(e => e.artifact.id)).toEqual([971, 974]);
+  });
 });

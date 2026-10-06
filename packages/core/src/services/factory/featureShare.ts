@@ -233,6 +233,26 @@ export function serveVia(a: Pick<SharedArtifact, 'kind' | 'url' | 'spec'>): Serv
   return a.kind === 'file' && url === null && str(a.spec, 'filename') ? 'file' : null;
 }
 
+/**
+ * The picture an artifact shows, as a key: its stored address, or its inline image. Two rows
+ * filed for the same picture (a shot QA's live check filed again, the same stored file on two
+ * records) share it, and are shown once (Chris, 2026-10-06: "a lot of duplicate screenshots").
+ * @param a - The artifact.
+ */
+export function pictureKey(a: Pick<SharedArtifact, 'id' | 'url' | 'spec'>): string {
+  const url = a.url ?? str(a.spec, 'url');
+  return url ? `img:${url.split(/[?#]/)[0]}` : `id:${a.id}`;
+}
+
+/**
+ * Whether the runner said this shot is another flow's picture byte for byte, which is no
+ * evidence of its own line (its description carries "· duplicate of …").
+ * @param a - The artifact.
+ */
+function flaggedDuplicate(a: Pick<SharedArtifact, 'spec'>): boolean {
+  return / · duplicate of /.test(str(a.spec, 'description') ?? '');
+}
+
 function isPicture(a: SharedArtifact): boolean {
   const url = a.url ?? str(a.spec, 'url') ?? '';
   const type = str(a.spec, 'contentType');
@@ -260,14 +280,14 @@ export function sharedPictures(meta: Record<string, unknown>, byId: ReadonlyMap<
     ...(mockups.length > 0 ? before : []).map(id => ({ id, label: 'Before' as const })),
     ...ids(visuals, 'afterArtifactIds').map(id => ({ id, label: 'After' as const })),
   ];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const out: Array<{ artifact: SharedArtifact; label: 'Mockup' | 'Before' | 'After' }> = [];
   for (const w of wanted) {
     const artifact = byId.get(w.id);
-    if (!artifact || seen.has(w.id) || artifact.shareAudience === 'me' || !isPicture(artifact) || serveVia(artifact) === null) {
+    if (!artifact || seen.has(pictureKey(artifact)) || artifact.shareAudience === 'me' || !isPicture(artifact) || serveVia(artifact) === null) {
       continue;
     }
-    seen.add(w.id);
+    seen.add(pictureKey(artifact));
     out.push({ artifact, label: w.label });
   }
   return out;
@@ -515,10 +535,13 @@ export function shippedEvidence(candidates: readonly SharedArtifact[], attempt: 
   if (!attempt || (attempt.why !== 'shipped' && attempt.verdict !== 'approve')) {
     return [];
   }
+  // One slide per picture, before the cap: FE-472's eight QA slides were four pictures.
+  const seen = new Set<string>();
   return candidates
-    .filter(a => a.recordRole === QA_SHOT_ROLE && a.recordId === String(attempt.taskId) && a.shareAudience !== 'me' && isPicture(a) && serveVia(a) !== null && !showsAnError({ title: a.title, spec: a.spec }))
+    .filter(a => a.recordRole === QA_SHOT_ROLE && a.recordId === String(attempt.taskId) && a.shareAudience !== 'me' && isPicture(a) && serveVia(a) !== null && !showsAnError({ title: a.title, spec: a.spec }) && !flaggedDuplicate(a))
     .map(a => ({ artifact: a, label: shotParts(a.title).side === 'before' ? 'QA before' as const : 'QA after' as const }))
     .sort((x, y) => Number(x.label === 'QA before') - Number(y.label === 'QA before') || x.artifact.createdAt.getTime() - y.artifact.createdAt.getTime() || x.artifact.id - y.artifact.id)
+    .filter(({ artifact }) => !seen.has(pictureKey(artifact)) && Boolean(seen.add(pictureKey(artifact))))
     .slice(0, MAX_QA_SHOTS);
 }
 
@@ -657,13 +680,13 @@ export function publicFeaturePage(input: PublicFeatureInput): PublicFeaturePage 
   // carousel item, with the mocks, then QA evidence"). One picture is shown
   // once, in its first place.
   const pictures = sharedPictures(meta, byId);
-  const shown = new Set(pictures.map(p => p.artifact.id));
+  const shown = new Set(pictures.map(p => pictureKey(p.artifact)));
   const media: PublicSlide[] = [
     ...(recording === null
       ? []
       : [{ kind: 'video' as const, src: input.mediaSrc(recording.id), type: str(recording.spec, 'contentType') ?? 'video/webm', label, caption: caption(recording), ...(posterAt(recording.spec) !== null ? { posterAt: posterAt(recording.spec)! } : {}) }]),
     ...pictures.map(({ artifact, label: l }) => image(artifact, l)),
-    ...shippedEvidence(input.evidence ?? [], report.acceptance?.attempt).filter(e => !shown.has(e.artifact.id)).map(({ artifact, label: l }) => image(artifact, l)),
+    ...shippedEvidence(input.evidence ?? [], report.acceptance?.attempt).filter(e => !shown.has(pictureKey(e.artifact))).map(({ artifact, label: l }) => image(artifact, l)),
   ];
   const shippedAt = report.summary.shippedAt;
   const timeline = publicSteps(report.history, report.summary.askedAt, theAsk);
