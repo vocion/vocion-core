@@ -40,6 +40,9 @@ let answer: (url: string) => Response = () => new Response(new Uint8Array(PNG), 
 const fetched: string[] = [];
 
 beforeEach(async () => {
+  // The links are signed at NOW and valid seven days: the clock is NOW, or every run after
+  // 2026-10-06 01:00 UTC reads them expired.
+  vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
   dir = await mkdtemp(path.join(tmpdir(), 'vocion-kept-'));
   process.env.VOCION_ARTIFACTS_DIR = dir;
   fetched.length = 0;
@@ -53,6 +56,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   delete process.env.VOCION_ARTIFACTS_DIR;
   await rm(dir, { recursive: true, force: true });

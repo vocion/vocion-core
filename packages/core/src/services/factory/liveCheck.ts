@@ -277,9 +277,29 @@ export async function recordLiveCheck(orgId: string, input: { releaseId: number;
     const have = [...source.session.values()].filter(e => e.kind !== 'response').slice(-30).map(e => `${e.id} (${e.kind === 'screenshot' ? e.caption : e.kind === 'snapshot' ? e.url : e.kind === 'action' ? e.what : ''})`);
     return nothing(`${unknown.length === 1 ? 'An evidence id was' : `${unknown.length} evidence ids were`} not captured by this run's browser: ${unknown.slice(0, 10).join(', ')}. Cite only ids this run's browser tools returned (snapshots, screenshots, responses from browser_responses, actions).${have.length > 0 ? `\nThis run captured: ${have.join('; ')}` : '\nThis run\'s browser captured nothing: open the live product with browser_open first.'}`);
   }
+  // WHAT PRODUCTION ALREADY SHOWED STAYS SHOWN (walk 26, FE-472, 2026-10-06): attempt 1 reached
+  // the owner-open line and found it wrong; attempt 2 opened no browser, called every line
+  // not observable, and its write replaced attempt 1's rows, so the send-back found nothing
+  // broken and the page asked for a QA environment fix instead of a code fix. A line this report
+  // did not look at keeps what an earlier check of the same release saw there; a line it looked
+  // at again replaces it.
+  const key = (requestId: number | null, line: number | undefined) => `${requestId ?? ''}:${line ?? ''}`;
+  const earlier = new Map<string, LiveRow[]>();
+  for (const r of Array.isArray(release.meta.liveEvidence) ? (release.meta.liveEvidence as LiveRow[]) : []) {
+    if (typeof r?.line === 'number' && r.why?.kind !== 'not_checked' && (r.status === 'reached' || r.status === 'not_reached')) {
+      earlier.set(key(r.requestId, r.line), [...(earlier.get(key(r.requestId, r.line)) ?? []), r]);
+    }
+  }
+  const kept = new Set<string>();
   const rows: LiveRow[] = [];
   for (const l of resolved.lines) {
     if (l.result === 'not_observable') {
+      const seenBefore = earlier.get(key(l.requestId, l.line.n));
+      if (seenBefore) {
+        rows.push(...seenBefore);
+        kept.add(key(l.requestId, l.line.n));
+        continue;
+      }
       if (!l.line.provenBeforeMerge) {
         rows.push(uncheckedRow(l.requestId, l.line, true));
       }
@@ -310,7 +330,7 @@ export async function recordLiveCheck(orgId: string, input: { releaseId: number;
   // What stopped the browser from looking at all, said first when nothing on a line was seen.
   const blocking: LiveReason[] = rows.some(r => r.status === 'reached') ? [] : (source.problems ?? []);
   const problems = blocking.map(p => p.detail);
-  const { beforeMerge } = resolved;
+  const beforeMerge = resolved.beforeMerge.filter(b => !kept.has(key(b.requestId, b.line)));
   const verdict = liveVerdict(rows, blocking, beforeMerge);
   const attempt = (Number.isInteger(release.meta.liveAttempts) ? Number(release.meta.liveAttempts) : 0) + 1;
   const checkedAt = now.toISOString();
