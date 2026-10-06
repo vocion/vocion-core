@@ -21,6 +21,7 @@ import { withPageContext } from '@/services/chat/pageContext';
 import { approvalFromThread, defaultThreadApprovalDeps } from '@/services/chat/slackApproval';
 import { ourPostsInThread, recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
 import { buildSlackThreadContext, scopeGapSentence, threadPageContext } from '@/services/chat/slackThread';
+import { followTurn } from '@/services/chat/workingLine';
 import { appendMessage, createConversation, latestConversationForScope, listMessages, toHistoryTurns } from '@/services/ConversationService';
 
 /**
@@ -382,7 +383,10 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   // Something shows straight away that the mention was heard (Chris, 2026-10-05: "there was no
   // thinking indicator"); it is taken back when the answer is posted.
   const working = await adapter.reply(target, WORKING_LINE).catch(() => null);
+  // The line names the turn's steps as they happen (`chat/workingLine.ts`), then goes when the answer lands.
+  const progress = followTurn(WORKING_LINE, async text => (working && adapter.edit ? adapter.edit(working, text) : undefined));
   const doneWorking = async () => {
+    await progress.stop();
     if (working && adapter.retract) {
       await adapter.retract(working).catch(() => undefined);
     }
@@ -460,6 +464,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       conversationHistory: history,
       ...(pageContext ? { pageContext } : {}),
       ...(pictures.attachments.length > 0 ? { attachments: pictures.attachments } : {}),
+      onEvent: progress.onEvent,
     }) }));
     // Slack shows no trace, so it gets the answer after the turn's last tool call; the steps
     // before it ("I'll check the rollup first") stay on the run in Vocion (`lastAnswerOf`).

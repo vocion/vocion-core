@@ -609,4 +609,11 @@ export const slackSurface: ChatSurfaceAdapter = {
   retract: async (post) => {
     await deleteSlackPost(post, process.env.SLACK_BOT_TOKEN);
   },
+  edit: async (post, text) => {
+    if (!post.ts) {
+      return;
+    }
+    // The working line went up as a markdown block (`postSlackReply`); the block is what Slack draws.
+    await slackApi('chat.update', { channel: post.channelId, ts: post.ts, text, blocks: [{ type: 'markdown', text }] }, process.env.SLACK_BOT_TOKEN);
+  },
 };
