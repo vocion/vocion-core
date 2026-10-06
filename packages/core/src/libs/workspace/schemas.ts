@@ -102,8 +102,12 @@ export const WorkspaceManifestSchema = z.object({
       mark: z.string().optional(),
       by: z.object({ name: z.string().min(1).max(60), mark: z.string().optional() }).optional(),
     }).optional(),
-    /** Sidebar wording a workspace may change: the heading over its own pages ("Pages" by default). */
-    nav: z.object({ pagesLabel: z.string().min(1).max(40).optional() }).optional(),
+    /**
+     * Sidebar wording and layout a workspace may change: the heading over its
+     * own pages ("Pages" by default), and `collapsed: true` to start as the
+     * icon rail for anyone who has not toggled it (their ⌘B choice still wins).
+     */
+    nav: z.object({ pagesLabel: z.string().min(1).max(40).optional(), collapsed: z.boolean().optional() }).optional(),
     /**
      * IANA time zone the workspace lives in (`America/Los_Angeles`). The day
      * boundary for missions, briefings and every run no browser is behind; a

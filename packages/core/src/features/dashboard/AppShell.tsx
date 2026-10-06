@@ -101,9 +101,10 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
 
   // Get the persisted sidebar state from the cookie
   const cookieStore = await cookies();
-  // If the cookie is not set, default to open
-  const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
+  // If the cookie is not set, the workspace decides (`defaults.nav.collapsed`); open otherwise
   const chrome = workspaceChrome();
+  const sidebarCookie = cookieStore.get(AppConfig.sidebarCookieName)?.value;
+  const defaultOpen = sidebarCookie === undefined ? !chrome.collapsed : sidebarCookie !== 'false';
 
   // Agent picker options for the dock (and the ⌘K palette). Empty outside an
   // org — the dock renders nothing rather than a picker with no agents in it.

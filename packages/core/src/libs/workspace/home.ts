@@ -18,11 +18,12 @@ export type WorkspaceBrand = { name: string; mark?: string; by?: { name: string;
 /**
  * The sidebar's chrome from `defaults` in `workspace.yaml`: whose name and
  * mark sit at the top (`brand`), and what the heading over the workspace's
- * own pages says (`nav.pagesLabel`). Read at request time like `home`, so a
+ * own pages says (`nav.pagesLabel`), and whether the sidebar starts as the
+ * icon rail (`nav.collapsed`). Read at request time like `home`, so a
  * rename needs no deploy. Everything optional; the caller keeps the product's
  * own branding and wording for whatever is unset.
  */
-export function workspaceChrome(): { brand: WorkspaceBrand | null; pagesLabel: string | null } {
+export function workspaceChrome(): { brand: WorkspaceBrand | null; pagesLabel: string | null; collapsed: boolean } {
   const d = readDefaults();
   const b = d?.brand as Partial<WorkspaceBrand> | undefined;
   const brand = b && typeof b.name === 'string' && b.name
@@ -32,8 +33,9 @@ export function workspaceChrome(): { brand: WorkspaceBrand | null; pagesLabel: s
         ...(b.by && typeof b.by.name === 'string' ? { by: { name: b.by.name, ...(typeof b.by.mark === 'string' ? { mark: b.by.mark } : {}) } } : {}),
       }
     : null;
-  const label = (d?.nav as { pagesLabel?: unknown } | undefined)?.pagesLabel;
-  return { brand, pagesLabel: typeof label === 'string' && label ? label : null };
+  const nav = d?.nav as { pagesLabel?: unknown; collapsed?: unknown } | undefined;
+  const label = nav?.pagesLabel;
+  return { brand, pagesLabel: typeof label === 'string' && label ? label : null, collapsed: nav?.collapsed === true };
 }
 
 function readDefaults(): Record<string, unknown> | null {
