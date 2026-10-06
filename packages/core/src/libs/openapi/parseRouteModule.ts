@@ -1,6 +1,19 @@
+import type { JsonSchema } from './responseSchema';
 import type { DocumentedParameter, DocumentedResponse, HttpMethod, RouteOperation } from './types';
 import ts from 'typescript';
+import { combineSchemas, schemaForJsonBody } from './responseSchema';
 import { HANDLER_NAMES } from './types';
+
+/**
+ * The route file as part of a TypeScript program, so the answers' shapes can
+ * be read from their types (`createRouteProgram`). Without it, only what the
+ * syntax says is published, and a JSON answer is a bare object.
+ */
+export type RouteTypes = {
+  checker: ts.TypeChecker;
+  /** The route file's source file in that program. */
+  sourceFile: ts.SourceFile;
+};
 
 /**
  * Read one `/api/v1` route file and say what it documents.
@@ -19,6 +32,7 @@ import { HANDLER_NAMES } from './types';
  * | summary and description | each handler's own doc comment |
  * | query parameters | the doc comment's `Query parameters:` bullets, plus `readPagination` |
  * | request body | whether the handler calls `readJsonBody`, and the field names it reads |
+ * | success answer shapes | the type of each `NextResponse.json(...)` body, when given the type checker |
  * | error responses | the `jsonError(...)` calls in that handler, plus the shared helpers it uses |
  * | required capability | the string passed to `requireCapability` |
  *
@@ -557,8 +571,9 @@ function statusFromOptions(call: ts.CallExpression | ts.NewExpression, index: nu
  * own `jsonError(...)` calls plus the shared helpers it delegates to — a
  * handler that calls `authApi` can answer 401 whether or not it says so.
  * @param handler - The exported handler declaration.
+ * @param checker - The program's type checker, to read the answers' shapes; null for none.
  */
-function responsesOf(handler: ts.Node): DocumentedResponse[] {
+function responsesOf(handler: ts.Node, checker: ts.TypeChecker | null): DocumentedResponse[] {
   const calls = callsWithin(handler);
   const called = new Set(calls.map(entry => entry.name));
   const byStatus = new Map<number, Set<string>>();
@@ -582,11 +597,12 @@ function responsesOf(handler: ts.Node): DocumentedResponse[] {
     addErrorCode(byStatus, 400, 'VALIDATION_FAILED');
   }
 
-  const responses: DocumentedResponse[] = successResponsesOf(handler, calls).map(success => ({
+  const responses: DocumentedResponse[] = successResponsesOf(handler, calls, checker).map(success => ({
     status: success.status,
     description: describeSuccessStatus(success.status, success.contentType),
     errorCodes: [],
     contentType: success.contentType,
+    bodySchema: success.bodySchema,
   }));
   for (const [status, codes] of [...byStatus.entries()].sort((a, b) => a[0] - b[0])) {
     responses.push({
@@ -594,6 +610,7 @@ function responsesOf(handler: ts.Node): DocumentedResponse[] {
       description: describeStatus(status),
       errorCodes: [...codes].sort(),
       contentType: 'application/json',
+      bodySchema: null,
     });
   }
   return responses;
@@ -620,11 +637,19 @@ function addErrorCode(byStatus: Map<number, Set<string>>, status: number, code: 
  * /api/v1/automations/:slug/run` answers 202 when the caller asked for the work
  * to carry on in the background and 200 when it waited. A client told only
  * about the 200 meets the async path as a surprise.
+ *
+ * With the type checker, each JSON status also carries the shape of what it
+ * answers: the type of every `NextResponse.json` body sent at that status,
+ * combined. One body whose type cannot be read leaves the whole status
+ * without a shape, since publishing only the others would say they are all
+ * there is.
  * @param handler
  * @param calls - The call expressions inside the handler.
+ * @param checker - The program's type checker; null to read no shapes.
  */
-function successResponsesOf(handler: ts.Node, calls: { name: string; call: ts.CallExpression }[]): { status: number; contentType: string | null }[] {
+function successResponsesOf(handler: ts.Node, calls: { name: string; call: ts.CallExpression }[], checker: ts.TypeChecker | null): { status: number; contentType: string | null; bodySchema: JsonSchema | null }[] {
   const byStatus = new Map<number, string | null>();
+  const bodiesByStatus = new Map<number, (JsonSchema | null)[]>();
   for (const { name, call } of calls) {
     if (name === 'NextResponse.json') {
       // `NextResponse.json(x)` with no options is a plain 200. Reading only the
@@ -632,6 +657,10 @@ function successResponsesOf(handler: ts.Node, calls: { name: string; call: ts.Ca
       const status = statusFromOptions(call, 1) ?? 200;
       if (status < 400) {
         byStatus.set(status, JSON_MEDIA_TYPE);
+        const body = call.arguments[0];
+        const bodies = bodiesByStatus.get(status) ?? [];
+        bodies.push(checker && body ? schemaForJsonBody(body, checker) : null);
+        bodiesByStatus.set(status, bodies);
       }
       continue;
     }
@@ -651,8 +680,20 @@ function successResponsesOf(handler: ts.Node, calls: { name: string; call: ts.Ca
     byStatus.set(200, JSON_MEDIA_TYPE);
   }
   return [...byStatus.entries()]
-    .map(([status, contentType]) => ({ status, contentType }))
+    .map(([status, contentType]) => ({ status, contentType, bodySchema: bodySchemaAt(bodiesByStatus.get(status)) }))
     .sort((left, right) => left.status - right.status);
+}
+
+/**
+ * The shape of everything one status answers with, or null when any body's
+ * shape is unknown, or there were no `NextResponse.json` bodies at all.
+ * @param bodies - The schema of each body sent at the status; null where unreadable.
+ */
+function bodySchemaAt(bodies: (JsonSchema | null)[] | undefined): JsonSchema | null {
+  if (!bodies || bodies.length === 0 || bodies.includes(null)) {
+    return null;
+  }
+  return combineSchemas(bodies as JsonSchema[]);
 }
 
 /**
@@ -922,9 +963,11 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
  * Read every operation out of one route file.
  * @param source - The route file's TypeScript source.
  * @param apiPath - The OpenAPI path template the file serves.
+ * @param types - The route file in a TypeScript program, to read the answers'
+ * shapes from their types; null to read the syntax alone.
  */
-export function parseRouteModule(source: string, apiPath: string): RouteOperation[] {
-  const sourceFile = ts.createSourceFile('route.ts', source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+export function parseRouteModule(source: string, apiPath: string, types: RouteTypes | null = null): RouteOperation[] {
+  const sourceFile = types?.sourceFile ?? ts.createSourceFile('route.ts', source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   const handlers = exportedHandlers(sourceFile);
   const signedComments = signedDocCommentsIn(source);
   const operations: RouteOperation[] = [];
@@ -959,7 +1002,7 @@ export function parseRouteModule(source: string, apiPath: string): RouteOperatio
       requestBodyFields: bodyFieldsOf(handler, bodyNames),
       capabilities: capabilitiesOf(handler),
       delegatesErrorMapping: [...called].some(mapsServiceErrors),
-      responses: responsesOf(handler),
+      responses: responsesOf(handler, types?.checker ?? null),
     });
   }
   return operations;
