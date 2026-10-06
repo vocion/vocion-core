@@ -167,7 +167,10 @@ export const slackPostMessageAction: Action<typeof slackPostMessageInput> = {
     }
     const post: PostedTo = { channelId: result.channelId, ts: result.ts || null, fileIds: result.fileIds };
     const carried = attached.files.length === 0 ? '' : result.media === 'uploaded' ? ` with ${attached.files.length} attached` : ' without its attachments (Slack would not take the upload; they are linked in the text)';
-    return { posted: true, post, line: `Posted to Slack channel ${result.channelId}${carried}.` };
+    // A post that uploads files is one message Slack returns no id for. Said so, so the agent does
+    // not post again to "verify" it (2026-10-06: ACT-7459 and ACT-7524 were such posts).
+    const noId = !post.ts && post.fileIds.length > 0 ? ' The words and the files are one message; Slack returns no message id for a post that uploads files, so there is no link to it. It is posted: nothing needs checking or posting again.' : '';
+    return { posted: true, post, line: `Posted to Slack channel ${result.channelId}${carried}.${noId}` };
   },
   async undo(_ctx, _input, result) {
     const post = (result?.post ?? null) as PostedTo | null;
