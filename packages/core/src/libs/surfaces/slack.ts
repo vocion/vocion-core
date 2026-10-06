@@ -257,8 +257,13 @@ function asMessage(message: string | ChatMessage): ChatMessage {
 /** The most text one `markdown` block carries. */
 const SLACK_MARKDOWN_MAX = 12_000;
 
-/** Slack Web API families that read, and so accept only form arguments. */
-const SLACK_READ_METHODS = ['conversations.', 'users.', 'files.info', 'chat.getPermalink', 'auth.', 'team.', 'bots.'];
+/**
+ * Slack Web API methods that accept only form arguments: the reads, and
+ * `files.getUploadURLExternal`, which answered every JSON call with "missing
+ * required field: filename", so no file Vocion uploaded ever reached Slack —
+ * every announcement's screenshot fell back to a link (walk 26, 2026-10-06).
+ */
+const SLACK_READ_METHODS = ['conversations.', 'users.', 'files.info', 'files.getUploadURLExternal', 'chat.getPermalink', 'auth.', 'team.', 'bots.'];
 
 /**
  * Whether a Slack method reads (form arguments only) rather than writes (JSON accepted).

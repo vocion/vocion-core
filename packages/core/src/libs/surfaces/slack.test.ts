@@ -25,6 +25,9 @@ describe('isSlackRead', () => {
     expect(isSlackRead('users.info')).toBe(true);
     expect(isSlackRead('chat.postMessage')).toBe(false);
     expect(isSlackRead('chat.delete')).toBe(false);
+    // Not a read, but form-only all the same: a JSON body is "missing required field: filename".
+    expect(isSlackRead('files.getUploadURLExternal')).toBe(true);
+    expect(isSlackRead('files.completeUploadExternal')).toBe(false);
   });
 });
 
