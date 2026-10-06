@@ -109,6 +109,9 @@ const GRANOLA_KEY = 'grn-e2e-not-a-real-key-0002';
 /** A made-up HubSpot login app, saved on Developers. Nothing sends it anywhere: the login it starts is checked, never opened. */
 const HUBSPOT_APP_CLIENT_ID = 'e2e-hubspot-app-client';
 const HUBSPOT_APP_SECRET = 'e2e-not-a-real-secret-0003';
+/** The HubSpot login app a script saves through `/api/v1/login-apps`, replacing the one above. */
+const HUBSPOT_API_APP_CLIENT_ID = 'e2e-hubspot-api-app-client';
+const HUBSPOT_API_APP_SECRET = 'e2e-not-a-real-secret-0004';
 
 /**
  * Whether the workspace's HubSpot source reads as connected, the way the
@@ -309,6 +312,45 @@ test('a HubSpot login app saved on Developers: with no HubSpot app on the server
 
   expect(vendor.host).toBe('app.hubspot.com');
   expect(vendor.searchParams.get('client_id')).toBe(HUBSPOT_APP_CLIENT_ID);
+});
+
+test('a HubSpot login app saved through /api/v1: it replaces the Developers one, the login starts on it, and revoking it takes the login away', async ({ page }) => {
+  await signIn(page);
+
+  // An admin's session, as a script run from the dashboard would carry; a
+  // tenant token goes through the same route and the same admin check.
+  const saved = await page.request.put('/api/v1/login-apps/hubspot', {
+    data: { clientId: HUBSPOT_API_APP_CLIENT_ID, clientSecret: HUBSPOT_API_APP_SECRET, name: 'Northwind HubSpot app (API)' },
+  });
+  const savedText = await saved.text();
+
+  expect(saved.status()).toBe(200);
+  expect(JSON.parse(savedText).loginApp).toMatchObject({ provider: 'hubspot', replaced: true });
+  expect(savedText).not.toContain(HUBSPOT_API_APP_SECRET);
+
+  const listed = await page.request.get('/api/v1/login-apps');
+  const hubspot = (await listed.json()).loginApps.find((app: { provider: string }) => app.provider === 'hubspot');
+
+  expect(hubspot).toMatchObject({ saved: true, name: 'Northwind HubSpot app (API)' });
+
+  // The Developers page shows what the API saved.
+  await page.goto('/dashboard/developers');
+
+  await expect(page.getByRole('row').filter({ hasText: 'Northwind HubSpot app (API)' })).toBeVisible();
+
+  // The login now starts on the app the API saved.
+  await page.goto('/dashboard/connectors');
+  await page.getByRole('button', { name: 'Reconnect' }).click();
+  const startHref = (await page.getByRole('link', { name: 'Connect with HubSpot' }).getAttribute('href'))!;
+  const start = await page.request.get(startHref, { maxRedirects: 0 });
+
+  expect(new URL(start.headers().location!).searchParams.get('client_id')).toBe(HUBSPOT_API_APP_CLIENT_ID);
+
+  // Revoked, and with no HubSpot app on this server, there is nothing to log in with.
+  const revoked = await page.request.delete('/api/v1/login-apps/hubspot');
+
+  expect(await revoked.json()).toEqual({ revoked: true });
+  expect((await page.request.get(startHref, { maxRedirects: 0 })).status()).toBe(400);
 });
 
 test('Slack from the Connectors page: the login makes the source itself and the add form does not reopen', async ({ page }) => {

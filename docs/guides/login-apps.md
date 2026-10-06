@@ -54,10 +54,39 @@ and in chat cards straight away.
 - **Not available for GitHub or PostHog.** GitHub's login is a GitHub App (an
   app ID, a private key and a webhook the server receives), so it stays in the
   env. PostHog has no secret to save.
-- **API.** The Developers page saves it through the signed-in app API
-  (`apiTokens.createPlatformKey`, admin only, platform `<provider>-login-app`,
-  values `clientId` and `clientSecret`). The public `/api/v1` API does not
-  offer it yet.
+
+## Saving the app through the API (scripts)
+
+A script that sets up a workspace can do the same through the public API,
+with a workspace admin's tenant token (`Authorization: Bearer vcn_live_…`) or
+a signed-in admin session. A member is refused with 403, as on Developers.
+`:provider` is `google`, `slack`, `atlassian`, `hubspot`, `notion`, `zoom` or
+`apollo`; any other name answers 404.
+
+| Call | What it does |
+|---|---|
+| `PUT /api/v1/login-apps/:provider` with `{ "clientId", "clientSecret", "name"? }` | Saves the app, replacing the one before. Answers the masked client ID, the redirect URL to register, and `replaced`. When `replaced` is true, logins made with the old app need logging in again. |
+| `GET /api/v1/login-apps` | Lists every vendor with `saved`, the app's name, its masked client ID, when it was saved, and the redirect URL. |
+| `DELETE /api/v1/login-apps/:provider` | Revokes the app. New logins go back to the server's app, if it has one. Answers `{ "revoked": false }` when none was saved, so running it twice is safe. |
+
+No answer ever carries the secret. Send the secret from a file or an
+environment variable, never typed on the command line:
+
+```bash
+# CLIENT_ID and CLIENT_SECRET are already in the environment, e.g. from your
+# secrets manager. jq reads them from there, so the secret is never an argument.
+jq -n '{clientId: env.CLIENT_ID, clientSecret: env.CLIENT_SECRET}' \
+  | curl -sS -X PUT "$VOCION_URL/api/v1/login-apps/google" \
+      -H "Authorization: Bearer $VOCION_TOKEN" -H 'content-type: application/json' --data @-
+```
+
+The routes are in
+[`app/api/v1/login-apps`](../../packages/core/src/app/api/v1/login-apps/route.ts)
+([`:provider`](../../packages/core/src/app/api/v1/login-apps/%5Bprovider%5D/route.ts)),
+over [`services/connect/loginApps.ts`](../../packages/core/src/services/connect/loginApps.ts).
+Saving goes through the same `storePlatformKey` the Developers page uses,
+which validates, encrypts, and replaces the old app in one transaction. The
+full schema is in the OpenAPI document at `/api/v1/openapi`.
 
 ## Where the values go
 
@@ -242,6 +271,7 @@ saves the new pair.
 | The login starts on the chosen app | [start route](../../packages/core/src/app/api/connect/%5Bprovider%5D/start/route.ts) |
 | The code is traded on the app the start chose (its client ID rides in the signed [state](../../packages/core/src/libs/connect/state.ts)), and that client ID is stored with the login | [callback route](../../packages/core/src/app/api/connect/%5Bprovider%5D/callback/route.ts) |
 | Refresh on the login's own app | [`refreshAndSave` in `loginGrant.ts`](../../packages/core/src/libs/connect/loginGrant.ts), [`googleAuth.ts`](../../packages/core/src/libs/sources/googleAuth.ts), [`jira.ts`](../../packages/core/src/libs/sources/jira.ts) |
+| Saving, listing and revoking by API | [`/api/v1/login-apps`](../../packages/core/src/app/api/v1/login-apps/route.ts), [`loginApps.ts`](../../packages/core/src/services/connect/loginApps.ts), [tests](../../packages/core/src/app/api/v1/login-apps/route.test.ts) |
 | The redirect URL the Developers form shows | [`listPlatformsRoute`](../../packages/core/src/routers/ApiTokens.ts), [`ApiTokensPanel`](../../packages/core/src/features/api-tokens/ApiTokensPanel.tsx) |
 | Tests | [`loginClient.test.ts`](../../packages/core/src/libs/connect/loginClient.test.ts), [every provider](../../packages/core/src/libs/connect/providers/loginApps.test.ts), [refresh](../../packages/core/src/libs/connect/loginGrant.test.ts), [Google](../../packages/core/src/libs/sources/googleAuth.test.ts), [end to end](../../packages/core/e2e/connect/connect.spec.ts) |
 

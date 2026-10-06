@@ -1396,6 +1396,14 @@ export function platformForToolProvider(provider: string): CredentialPlatform | 
 }
 
 /**
+ * Every vendor login-app platform, one per connect provider that takes a
+ * workspace's own client ID and secret.
+ */
+export function loginAppPlatforms(): readonly CredentialPlatform[] {
+  return LOGIN_APP_PLATFORMS;
+}
+
+/**
  * The login-app platform for a connect provider, or `null` when a workspace
  * cannot bring its own app for it (GitHub, PostHog).
  * @param provider - A connect provider id, e.g. `google`.
