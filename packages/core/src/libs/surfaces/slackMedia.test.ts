@@ -25,7 +25,9 @@ function slackMock(answers: Record<string, Record<string, unknown>> = {}) {
     const u = String(url);
     const method = u.split('/').pop() ?? '';
     const raw = init?.body;
-    calls.push({ url: u, body: typeof raw === 'string' ? JSON.parse(raw) : raw });
+    // Form-only methods (files.getUploadURLExternal) send a form; the rest send JSON.
+    const form = String(new Headers(init?.headers).get('content-type')).startsWith('application/x-www-form-urlencoded');
+    calls.push({ url: u, body: typeof raw === 'string' ? (form ? Object.fromEntries(new URLSearchParams(raw)) : JSON.parse(raw)) : raw });
     if (!u.startsWith(BASE)) {
       return new Response('', { status: 200 }); // the upload PUT target
     }
@@ -79,6 +81,8 @@ describe('postSlackReply media ladder', () => {
     expect(ref?.media).toBe('uploaded');
     // An upload posts the message itself; its files are the only handle to take it back.
     expect(ref?.fileIds).toEqual(['F1']);
+    // Slack takes the upload URL request only as a form (a JSON body is "missing required field: filename").
+    expect(calls[0]!.body).toEqual({ filename: expect.any(String), length: '3' });
     expect(calls.map(c => c.url)).toEqual([
       `${BASE}/files.getUploadURLExternal`,
       'https://files.slack.test/upload/1',
