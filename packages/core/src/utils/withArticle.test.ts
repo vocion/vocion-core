@@ -11,4 +11,9 @@ describe('withArticle', () => {
     expect(withArticle('Session token')).toBe('a Session token');
     expect(withArticle('Server-to-server OAuth app credentials')).toBe('Server-to-server OAuth app credentials');
   });
+
+  it('keeps the article on a singular noun that ends in "ss", so "address" is not read as a plural', () => {
+    expect(withArticle('Email address')).toBe('an Email address');
+    expect(withArticle('Account password')).toBe('an Account password');
+  });
 });

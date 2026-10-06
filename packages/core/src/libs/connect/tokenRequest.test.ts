@@ -45,6 +45,7 @@ describe('the token request every vendor shares', () => {
     ['http_401', 'log-in-again'],
     ['invalid_client', 'check-server-client'],
     ['unauthorized_client', 'check-server-client'],
+    ['not_configured', 'check-server-client'],
     ['http_503', 'try-later'],
     ['timeout', 'try-later'],
     ['invalid_request', 'try-later'],

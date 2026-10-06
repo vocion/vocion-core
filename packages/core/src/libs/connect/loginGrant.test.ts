@@ -288,6 +288,25 @@ describe('a sync on an expiring login', () => {
     expect(failure.message).toBe('Zoom refused this server\'s OAuth client (invalid_client), so logging in again will not help. An admin needs to check the Zoom client ID and secret set on the server.');
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
   });
+
+  it('a login whose vendor app was removed from the server says an admin must set it up again, not to try again later', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+
+    const failure = await usableLoginGrant({
+      vendor: 'HubSpot',
+      connectorSlug: 'hubspot',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async () => {
+        throw new TokenRequestError('HubSpot', 'not_configured', null);
+      },
+      now: NOW,
+    }).catch((error: unknown) => error as Error);
+
+    expect(failure.message).toBe('The HubSpot app is no longer set up on this server (not_configured), so the login cannot be refreshed and logging in again will not help. An admin needs to set the HubSpot app up on the server again.');
+    expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
+  });
 });
 
 describe('two callers on one expired login (a sync and an agent tool at once)', () => {

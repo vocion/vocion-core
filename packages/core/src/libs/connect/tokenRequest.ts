@@ -129,7 +129,8 @@ export async function postTokenRequest(input: {
 /**
  * What fixes a refused token request, so the message names that one thing:
  * - `log-in-again`: the person's grant is gone (revoked, expired, spent).
- * - `check-server-client`: the vendor refused the OAuth client itself. For a
+ * - `check-server-client`: the vendor refused the OAuth client itself, or this
+ *   server no longer has the vendor's app set up (`not_configured`). For a
  *   login that is this server's client id or secret, which no new login can
  *   fix; an admin has to. For a pasted client, it is the paste.
  * - `try-later`: the vendor did not answer (a timeout, a 5xx), so the saved
@@ -140,15 +141,19 @@ export type RefusalFix = 'log-in-again' | 'check-server-client' | 'try-later';
 /** Answers that mean the person's grant is gone. */
 const GRANT_IS_GONE = new Set(['invalid_grant', 'access_denied', 'http_400', 'http_401', 'http_403']);
 
-/** Answers that mean the vendor refused the OAuth client, not the person's grant (RFC 6749 section 5.2). */
-const CLIENT_IS_REFUSED = new Set(['invalid_client', 'unauthorized_client']);
+/**
+ * Answers that mean the OAuth client is the problem, not the person's grant:
+ * the vendor refused it (RFC 6749 section 5.2), or the server has none set
+ * any more, so a refresh was never sent. Waiting fixes neither.
+ */
+const CLIENT_NEEDS_AN_ADMIN = new Set(['invalid_client', 'unauthorized_client', 'not_configured']);
 
 /**
  * What fixes a refused token request.
  * @param error - A `TokenRequestError` from `postTokenRequest`.
  */
 export function refusalFix(error: TokenRequestError): RefusalFix {
-  if (CLIENT_IS_REFUSED.has(error.code)) {
+  if (CLIENT_NEEDS_AN_ADMIN.has(error.code)) {
     return 'check-server-client';
   }
   return GRANT_IS_GONE.has(error.code) ? 'log-in-again' : 'try-later';

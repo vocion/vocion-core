@@ -364,9 +364,10 @@ async function grantSavedByAnotherRun(input: { orgId: string; sourceId: number; 
 
 /**
  * The error a failed refresh ends the run with, naming the one thing that
- * fixes it. A refused login says to log in again. A refused OAuth client says
- * an admin has to fix the server's client, since a new login would be refused
- * the same way. A vendor that did not answer (a timeout, a 5xx) says to try
+ * fixes it. A refused login says to log in again. A refused OAuth client, or
+ * a server whose vendor app was removed after the login, says an admin has to
+ * fix the server's client, since a new login would fail the same way. A
+ * vendor that did not answer (a timeout, a 5xx) says to try
  * again later, so nobody re-authorizes a good login over an outage. Worded for
  * a sync and a chat tool alike, since both refresh through here.
  * @param vendor - The vendor's name, for the sentence.
@@ -380,6 +381,9 @@ function refreshFailure(vendor: string, connectorSlug: string, orgId: string, er
   logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, fix, errorName: error instanceof Error ? error.name : 'unknown' });
   if (fix === 'log-in-again') {
     return new Error(`${vendor} would not refresh the login (${code}). Log in with ${vendor} again on the Connectors page.`);
+  }
+  if (fix === 'check-server-client' && code === 'not_configured') {
+    return new Error(`The ${vendor} app is no longer set up on this server (${code}), so the login cannot be refreshed and logging in again will not help. An admin needs to set the ${vendor} app up on the server again.`);
   }
   if (fix === 'check-server-client') {
     return new Error(`${vendor} refused this server's OAuth client (${code}), so logging in again will not help. An admin needs to check the ${vendor} client ID and secret set on the server.`);

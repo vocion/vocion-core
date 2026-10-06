@@ -124,6 +124,13 @@ describe('offer_connection', () => {
     expect(card.body).toContain('org:read');
   });
 
+  it('names what to paste with the article English needs, so chat says "Paste an API key", never "Paste a API key"', async () => {
+    const emit = vi.fn();
+    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'elevenlabs', why: 'x' });
+
+    expect(emit.mock.calls[0]![0].card.body).toMatch(/^Paste an API key\. It needs: Text to Speech; /);
+  });
+
   it('Google Ads, on the same platform as Gmail, gets the token form, because its API also needs a developer token no login can issue', async () => {
     const emit = vi.fn();
     await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'google-ads', why: 'x' });
