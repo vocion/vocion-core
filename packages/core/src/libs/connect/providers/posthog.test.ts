@@ -149,7 +149,7 @@ describe('the PostHog client on a login grant', () => {
   it('accepts the login grant\'s pha_ token as the Bearer', () => {
     const resolved = credentialsFrom(grant);
 
-    expect(resolved).toEqual({ ok: true, credentials: { apiKey: 'pha_fixture_token_1', host: 'https://eu.posthog.com', projectId: '4242' } });
+    expect(resolved).toEqual({ ok: true, credentials: { apiKey: 'pha_fixture_token_1', host: 'https://eu.posthog.com', projectId: '4242', viaLogin: true } });
     expect(createPosthogClient(resolved.ok ? resolved.credentials : (undefined as never)).credentials.apiKey).toBe('pha_fixture_token_1');
   });
 

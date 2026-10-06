@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { postTokenRequest, TokenRequestError } from './tokenRequest';
+import { postTokenRequest, refusalFix, TokenRequestError } from './tokenRequest';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -32,6 +32,24 @@ describe('the token request every vendor shares', () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ reason: 'Internal Error', error: 'invalid_request' }), { status: 400 }));
 
     await expect(postTokenRequest({ vendor: 'Zoom', url: 'https://zoom.us/oauth/token', params: { grant_type: 'refresh_token' }, encoding: 'form' })).rejects.toThrow('Zoom refused the token request (invalid_request).');
+  });
+
+  it('one vendor\'s dead-token field never re-reads another vendor\'s invalid_request, which stays retryable', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ reason: 'Invalid Token!', status: 'BAD_REFRESH_TOKEN', error: 'invalid_request' }), { status: 400 }));
+
+    await expect(postTokenRequest({ vendor: 'Notion', url: 'https://api.notion.com/v1/oauth/token', params: { grant_type: 'refresh_token' }, encoding: 'json' })).rejects.toThrow('Notion refused the token request (invalid_request).');
+  });
+
+  it.each([
+    ['invalid_grant', 'log-in-again'],
+    ['http_401', 'log-in-again'],
+    ['invalid_client', 'check-server-client'],
+    ['unauthorized_client', 'check-server-client'],
+    ['http_503', 'try-later'],
+    ['timeout', 'try-later'],
+    ['invalid_request', 'try-later'],
+  ] as const)('a refusal of %s is fixed by %s', (code, fix) => {
+    expect(refusalFix(new TokenRequestError('HubSpot', code, null))).toBe(fix);
   });
 
   it('a gateway page that is not JSON is reported by its status', async () => {

@@ -31,36 +31,45 @@ export class TokenRequestError extends Error {
 
 /**
  * The OAuth error code of a refusal body, when it is a safe short code.
+ * @param vendor - The vendor's name, as the caller passed it.
  * @param body - The parsed response body, if it parsed.
  */
-function vendorErrorCode(body: unknown): string | null {
+function vendorErrorCode(vendor: string, body: unknown): string | null {
   if (!body || typeof body !== 'object') {
     return null;
   }
   const fields = body as Record<string, unknown>;
-  if (fields.error === 'invalid_request' && saysTheRefreshTokenIsDead(fields)) {
+  if (fields.error === 'invalid_request' && saysTheRefreshTokenIsDead(vendor, fields)) {
     return 'invalid_grant';
   }
   return typeof fields.error === 'string' && SAFE_ERROR_CODE.test(fields.error) ? fields.error : null;
 }
 
 /**
+ * How each vendor that answers a dead refresh token with `invalid_request`
+ * names the cause, in a field of its own. Keyed by the vendor name callers
+ * pass, so one vendor's field never re-reads another vendor's refusal.
+ */
+const DEAD_REFRESH_TOKEN_ANSWERS = new Map<string, { field: string; value: string }>([
+  // HubSpot, live 2026-10-06: {"status":"BAD_REFRESH_TOKEN","error":"invalid_request",...}
+  ['HubSpot', { field: 'status', value: 'BAD_REFRESH_TOKEN' }],
+  // Zoom, as its developer forum reports it: {"reason":"Invalid Token!","error":"invalid_request"}
+  ['Zoom', { field: 'reason', value: 'Invalid Token!' }],
+]);
+
+/**
  * Whether an `invalid_request` refusal really means the refresh token is
- * dead, which RFC 6749 calls `invalid_grant`. HubSpot and Zoom answer a dead
- * refresh token with `invalid_request` and name the cause in a field of their
- * own. Read as `invalid_grant`, it tells the person to log in again; read as
- * itself, it would promise a retry that can never succeed. Only these exact
- * answers count: Zoom also says `invalid_request` for its own internal
- * errors, which must stay retryable.
+ * dead, which RFC 6749 calls `invalid_grant`. Read as `invalid_grant`, it
+ * tells the person to log in again; read as itself, it would promise a retry
+ * that can never succeed. Only the exact answer listed for that vendor
+ * counts: Zoom also says `invalid_request` for its own internal errors, which
+ * must stay retryable.
+ * @param vendor - The vendor's name, as the caller passed it.
  * @param fields - The parsed refusal body.
  */
-function saysTheRefreshTokenIsDead(fields: Record<string, unknown>): boolean {
-  // HubSpot, live 2026-10-06: {"status":"BAD_REFRESH_TOKEN","error":"invalid_request",...}
-  if (fields.status === 'BAD_REFRESH_TOKEN') {
-    return true;
-  }
-  // Zoom, as its developer forum reports it: {"reason":"Invalid Token!","error":"invalid_request"}
-  return fields.reason === 'Invalid Token!';
+function saysTheRefreshTokenIsDead(vendor: string, fields: Record<string, unknown>): boolean {
+  const answer = DEAD_REFRESH_TOKEN_ANSWERS.get(vendor);
+  return answer !== undefined && fields[answer.field] === answer.value;
 }
 
 /**
@@ -112,20 +121,35 @@ export async function postTokenRequest(input: {
     logger.warn('postTokenRequest got a body that is not JSON', { vendor: input.vendor, status: response.status, errorName: error instanceof Error ? error.name : 'unknown' });
   }
   if (!response.ok || !body || typeof body !== 'object') {
-    throw new TokenRequestError(input.vendor, vendorErrorCode(body) ?? `http_${response.status}`, response.status);
+    throw new TokenRequestError(input.vendor, vendorErrorCode(input.vendor, body) ?? `http_${response.status}`, response.status);
   }
   return body as Record<string, unknown>;
 }
 
-/** Vendor answers that mean the login itself is gone, so only logging in again fixes it. */
-const LOGIN_IS_GONE = new Set(['invalid_grant', 'invalid_client', 'unauthorized_client', 'access_denied', 'http_400', 'http_401', 'http_403']);
+/**
+ * What fixes a refused token request, so the message names that one thing:
+ * - `log-in-again`: the person's grant is gone (revoked, expired, spent).
+ * - `check-server-client`: the vendor refused the OAuth client itself. For a
+ *   login that is this server's client id or secret, which no new login can
+ *   fix; an admin has to. For a pasted client, it is the paste.
+ * - `try-later`: the vendor did not answer (a timeout, a 5xx), so the saved
+ *   grant is kept and a later call tries again.
+ */
+export type RefusalFix = 'log-in-again' | 'check-server-client' | 'try-later';
+
+/** Answers that mean the person's grant is gone. */
+const GRANT_IS_GONE = new Set(['invalid_grant', 'access_denied', 'http_400', 'http_401', 'http_403']);
+
+/** Answers that mean the vendor refused the OAuth client, not the person's grant (RFC 6749 section 5.2). */
+const CLIENT_IS_REFUSED = new Set(['invalid_client', 'unauthorized_client']);
 
 /**
- * Whether a refused token request means the grant itself is gone, so only a
- * new login (or a new paste) fixes it, rather than an outage the next sync
- * rides out. For refresh paths that do not go through `refreshLoginGrant`.
+ * What fixes a refused token request.
  * @param error - A `TokenRequestError` from `postTokenRequest`.
  */
-export function refusalMeansLoginIsGone(error: TokenRequestError): boolean {
-  return LOGIN_IS_GONE.has(error.code);
+export function refusalFix(error: TokenRequestError): RefusalFix {
+  if (CLIENT_IS_REFUSED.has(error.code)) {
+    return 'check-server-client';
+  }
+  return GRANT_IS_GONE.has(error.code) ? 'log-in-again' : 'try-later';
 }

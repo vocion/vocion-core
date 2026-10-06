@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { client, noStoreClient } from '@/libs/Orpc';
 import { accessForDisplay, afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { withArticle } from '@/utils/withArticle';
 import { ProviderLoginButton } from './ProviderLoginButton';
 
 /**
@@ -378,7 +379,7 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
                 <p className="text-xs text-muted-foreground">{`Asks for: ${accessForDisplay(login.access)}`}</p>
               )}
               <p className="text-xs text-muted-foreground" data-testid="connect-after-login">{afterLoginText(login.settingsAfterLogin)}</p>
-              <p className="pt-1 text-sm font-medium text-foreground/80">{`or paste a ${how.paste.credential}`}</p>
+              <p className="pt-1 text-sm font-medium text-foreground/80">{`or paste ${withArticle(how.paste.credential)}`}</p>
             </div>
           )
         : null}

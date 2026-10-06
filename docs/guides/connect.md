@@ -131,7 +131,10 @@ Before going live with each vendor:
 
 - **Google.** Gmail and Drive read scopes are restricted: Google verifies the
   app, with a security assessment, before workspaces outside the app's own
-  Google Workspace can use them.
+  Google Workspace can use them. While the app's publishing status is
+  "Testing", Google expires every refresh token it issues after 7 days, so each
+  Google login stops working a week after it was made and the person sees "Log
+  in with Google again". Move the app to "In production" before customers use it.
 - **Zoom.** Add the scopes listed on the Zoom connector to the Marketplace
   app, plus their `:admin` variants so admins can read every user's
   recordings. Zoom sends no scope in the login URL.

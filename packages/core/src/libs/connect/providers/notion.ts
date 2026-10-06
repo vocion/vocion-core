@@ -14,7 +14,7 @@
 import type { ConnectProvider } from '../provider';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
-import { DEFAULT_NOTION_VERSION } from '@/libs/sources/notion';
+import { DEFAULT_NOTION_VERSION } from '@/libs/sources/notionVersion';
 import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://api.notion.com/v1/oauth/authorize';

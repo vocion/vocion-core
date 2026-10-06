@@ -31,6 +31,8 @@ export type PosthogCredentials = {
   /** `https://us.posthog.com`, `https://eu.posthog.com`, or a self-hosted origin. No trailing slash. */
   host: string;
   projectId: string;
+  /** True when `apiKey` is a Log in with PostHog access token rather than a pasted personal key, which changes what fixes a refusal. */
+  viaLogin?: boolean;
 };
 
 export type PosthogClient = {
@@ -127,7 +129,7 @@ export function credentialsFrom(
       ? 'This PostHog login covers several projects (or all of them), so pick one: set the PostHog project id (the number in the URL after /project/) in the source settings.'
       : 'The PostHog project id must be the numeric id from Settings → Project (the number in the URL after /project/).' };
   }
-  return { ok: true, credentials: { apiKey, host, projectId } };
+  return { ok: true, credentials: { apiKey, host, projectId, viaLogin: Boolean(grantToken) } };
 }
 
 export function noPosthogCredentials(detail?: string): PosthogFailure {
@@ -157,7 +159,8 @@ async function shapeFailure(res: Response, path: string, viaLogin: boolean): Pro
       error: 'posthog_unauthorized',
       status: res.status,
       message: viaLogin
-        ? `PostHog refused the login's access token (${res.status}): ${detail}. Log in with PostHog again on the Connectors page.`
+        // PostHog's body is raw JSON; the status and the fix say all a person needs.
+        ? `PostHog refused the login's access token (${res.status}). Log in with PostHog again on the Connectors page.`
         : `PostHog rejected the personal API key (${res.status}): ${detail}. The key may have been deleted or rotated — Test connection on the Connectors page reports whether it is valid.`,
     };
   }
@@ -205,7 +208,7 @@ async function shapeFailure(res: Response, path: string, viaLogin: boolean): Pro
  */
 export function createPosthogClient(credentials: PosthogCredentials): PosthogClient {
   const host = credentials.host.replace(/\/+$/, '');
-  const viaLogin = LOGIN_ACCESS_TOKEN.test(credentials.apiKey);
+  const viaLogin = credentials.viaLogin === true;
   const headers = {
     'authorization': `Bearer ${credentials.apiKey}`,
     'content-type': 'application/json',

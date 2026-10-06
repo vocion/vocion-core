@@ -22,7 +22,7 @@
  */
 
 import type { RawCredentials } from '@/services/SourceCredentialService';
-import { postTokenRequest, refusalMeansLoginIsGone, TokenRequestError } from '@/libs/connect/tokenRequest';
+import { postTokenRequest, refusalFix, TokenRequestError } from '@/libs/connect/tokenRequest';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 
@@ -32,10 +32,32 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const cache = new Map<string, { token: string; expiresAt: number }>();
 
 /**
+ * The sentence a refused Google refresh ends with, naming the one fix. A
+ * login was issued to this server's OAuth client, so a refused client is an
+ * admin's to fix; a pasted credential is fixed by pasting it again. Worded for
+ * a sync and a chat tool alike, since both refresh through here.
+ * @param error - What the token request threw.
+ * @param pasted - True when the client was pasted with the token, false for a "Log in with Google" login.
+ */
+function refreshRefusal(error: TokenRequestError, pasted: boolean): Error {
+  const fix = refusalFix(error);
+  if (fix === 'try-later') {
+    return new Error(`Google could not refresh the access token just now (${error.code}). Try again in a few minutes.`);
+  }
+  if (fix === 'check-server-client') {
+    return new Error(pasted
+      ? `Google refused the pasted OAuth client (${error.code}). Paste the client ID and secret again, or log in with Google on the Connectors page.`
+      : `Google refused this server's OAuth client (${error.code}), so logging in again will not help. An admin needs to check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET on the server.`);
+  }
+  return new Error(pasted
+    ? `Google refused the pasted refresh token (${error.code}). Paste a new one, or log in with Google on the Connectors page.`
+    : `Google would not refresh the login (${error.code}). Log in with Google again on the Connectors page.`);
+}
+
+/**
  * Mint an access token from a refresh token, through the token request every
  * login shares (15 second timeout, only Google's short error code kept).
- * A refusal becomes a sentence that names the fix: a dead login is logged in
- * again, a dead paste is pasted again, and an outage waits for the next sync.
+ * A refusal becomes a sentence that names the fix (see `refreshRefusal`).
  * Google refuses a refresh token that was revoked, unused for six months, or
  * issued by an OAuth app still in "Testing" more than 7 days ago.
  * @param input - The refresh token and the OAuth client it was issued to.
@@ -58,15 +80,10 @@ async function refreshAccessToken(input: { refreshToken: string; clientId: strin
       throw error;
     }
     logger.warn('resolveGoogleAccessToken: Google refused or did not answer the refresh', { code: error.code, pasted: input.pasted });
-    if (!refusalMeansLoginIsGone(error)) {
-      throw new Error(`Google did not answer the token refresh (${error.code}). The next sync tries again.`);
-    }
-    throw new Error(input.pasted
-      ? `Google refused the pasted refresh token (${error.code}). Paste a new one, or log in with Google on the Connectors page.`
-      : `Google would not refresh the login (${error.code}). Log in with Google again on the Connectors page.`);
+    throw refreshRefusal(error, input.pasted);
   }
   if (typeof body.access_token !== 'string' || !body.access_token) {
-    throw new Error('Google answered the token refresh without an access token. The next sync tries again.');
+    throw new Error('Google answered the token refresh without an access token. Try again in a few minutes.');
   }
   return { access_token: body.access_token, expires_in: typeof body.expires_in === 'number' ? body.expires_in : undefined };
 }

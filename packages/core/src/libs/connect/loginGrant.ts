@@ -21,7 +21,7 @@ import { logger } from '@/libs/Logger';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { claimLoginRefresh, releaseLoginRefresh, updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
-import { refusalMeansLoginIsGone, TokenRequestError } from './tokenRequest';
+import { refusalFix, TokenRequestError } from './tokenRequest';
 
 export type LoginGrant = Record<string, unknown> & { accessToken: string; refreshToken: string; expiresAt: string };
 
@@ -363,9 +363,12 @@ async function grantSavedByAnotherRun(input: { orgId: string; sourceId: number; 
 }
 
 /**
- * The error a failed refresh ends the run with. A refused login says to log
- * in again; a vendor that did not answer (a timeout, a 5xx) says the next
- * sync retries, so nobody re-authorizes a good login over an outage.
+ * The error a failed refresh ends the run with, naming the one thing that
+ * fixes it. A refused login says to log in again. A refused OAuth client says
+ * an admin has to fix the server's client, since a new login would be refused
+ * the same way. A vendor that did not answer (a timeout, a 5xx) says to try
+ * again later, so nobody re-authorizes a good login over an outage. Worded for
+ * a sync and a chat tool alike, since both refresh through here.
  * @param vendor - The vendor's name, for the sentence.
  * @param connectorSlug - The source's connector, for the log line.
  * @param orgId - The workspace, for the log line.
@@ -373,11 +376,15 @@ async function grantSavedByAnotherRun(input: { orgId: string; sourceId: number; 
  */
 function refreshFailure(vendor: string, connectorSlug: string, orgId: string, error: unknown): Error {
   const code = error instanceof TokenRequestError ? error.code : 'unknown';
-  const loginIsGone = error instanceof TokenRequestError && refusalMeansLoginIsGone(error);
-  logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, errorName: error instanceof Error ? error.name : 'unknown' });
-  return loginIsGone
-    ? new Error(`${vendor} would not refresh the login (${code}). Log in with ${vendor} again on the Connectors page.`)
-    : new Error(`${vendor} did not answer the token refresh (${code}). The saved login is unchanged, and the next sync tries again.`);
+  const fix = error instanceof TokenRequestError ? refusalFix(error) : 'try-later';
+  logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, fix, errorName: error instanceof Error ? error.name : 'unknown' });
+  if (fix === 'log-in-again') {
+    return new Error(`${vendor} would not refresh the login (${code}). Log in with ${vendor} again on the Connectors page.`);
+  }
+  if (fix === 'check-server-client') {
+    return new Error(`${vendor} refused this server's OAuth client (${code}), so logging in again will not help. An admin needs to check the ${vendor} client ID and secret set on the server.`);
+  }
+  return new Error(`${vendor} could not refresh the login just now (${code}). The saved login is unchanged; try again in a few minutes.`);
 }
 
 /**

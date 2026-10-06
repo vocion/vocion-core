@@ -11,6 +11,7 @@ import { getConnector } from '@/libs/sources/registry';
 import { connectorHasLiveSource, newestLiveCredential } from '@/services/connect/createSourceOnLogin';
 import { loginCannotServe } from '@/services/connect/loginCannotServe';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
+import { withArticle } from '@/utils/withArticle';
 
 /**
  * The existing Sources add flow for one connector, carrying a way back to
@@ -43,7 +44,7 @@ export function pasteHref(connectorSlug: string, conversationId: number | undefi
  * @param paste.getItAt.steps
  */
 function pasteBody(paste: { credential: string; access: readonly string[]; getItAt?: { url: string; steps: readonly string[] } }): string {
-  const lines = [`Paste a ${paste.credential}.`];
+  const lines = [`Paste ${withArticle(paste.credential)}.`];
   if (paste.access.length > 0) {
     lines.push(`It needs: ${paste.access.join('; ')}.`);
   }

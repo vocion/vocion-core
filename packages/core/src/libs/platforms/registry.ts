@@ -749,7 +749,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     howToConnect: {
       paste: {
         credential: 'API key',
-        access: ['Text to Speech', 'Voices (read)', 'User (read), so Test connection can show the characters left'],
+        access: ['Text to Speech', 'Voices (read)', 'User (read) if Test connection should show the characters left'],
       },
     },
     credentialsShareable: true,

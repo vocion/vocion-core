@@ -77,10 +77,24 @@ describe('resolveGoogleAccessToken', () => {
       .toThrow('Google refused the pasted refresh token (invalid_grant). Paste a new one, or log in with Google on the Connectors page.');
   });
 
-  it('a Google outage says the next sync tries again, not to log in again', async () => {
+  it('a Google outage says to try again later, not to log in again', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>Service Unavailable</html>', { status: 503 }));
 
-    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-4' })).rejects.toThrow('Google did not answer the token refresh (http_503). The next sync tries again.');
+    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-4' })).rejects.toThrow('Google could not refresh the access token just now (http_503). Try again in a few minutes.');
+  });
+
+  it('a login refused for this server\'s OAuth client names the server settings, since logging in again cannot fix it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'invalid_client', error_description: 'The OAuth client was not found.' }), { status: 401 }));
+
+    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-5' }))
+      .rejects
+      .toThrow('Google refused this server\'s OAuth client (invalid_client), so logging in again will not help. An admin needs to check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET on the server.');
+  });
+
+  it('a refresh answered without an access token is refused rather than cached as an empty token', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ expires_in: 3600 }), { status: 200 }));
+
+    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-6' })).rejects.toThrow('Google answered the token refresh without an access token.');
   });
 
   it('falls back to a raw access token when there is no refresh token', async () => {

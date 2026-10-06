@@ -7,7 +7,8 @@ vi.mock('@/libs/Env', () => ({ Env: env }));
 vi.mock('@/libs/DB', () => ({ db: {} }));
 
 const { notionProvider } = await import('./notion');
-const { DEFAULT_NOTION_VERSION, notionConnector } = await import('@/libs/sources/notion');
+const { notionConnector } = await import('@/libs/sources/notion');
+const { DEFAULT_NOTION_VERSION } = await import('@/libs/sources/notionVersion');
 
 const REDIRECT = 'https://v.example/api/connect/notion/callback';
 

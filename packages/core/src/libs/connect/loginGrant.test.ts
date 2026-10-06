@@ -212,7 +212,7 @@ describe('a sync on an expiring login', () => {
     expect(usable).toMatchObject({ accessToken: 'a9', refreshToken: 'r9' });
   });
 
-  it('a vendor that does not answer says the next sync retries, not to log in again, and the saved login is untouched', async () => {
+  it('a vendor that does not answer says to try again later, not to log in again, and the saved login is untouched', async () => {
     const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
     const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
 
@@ -227,7 +227,7 @@ describe('a sync on an expiring login', () => {
       now: NOW,
     }).catch((error: unknown) => error as Error);
 
-    expect(failure.message).toBe('HubSpot did not answer the token refresh (http_503). The saved login is unchanged, and the next sync tries again.');
+    expect(failure.message).toBe('HubSpot could not refresh the login just now (http_503). The saved login is unchanged; try again in a few minutes.');
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
   });
 
@@ -267,6 +267,25 @@ describe('a sync on an expiring login', () => {
       now: NOW,
     })).rejects.toThrow('HubSpot would not refresh the login (invalid_grant). Log in with HubSpot again on the Connectors page.');
 
+    expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
+  });
+
+  it('a refused OAuth client says an admin must fix the server\'s client, since logging in again would be refused the same way', async () => {
+    const grant = { accessToken: 'a1', refreshToken: 'r1', expiresAt: EXPIRED };
+    const { orgId, tokenId, sourceId } = await seedSourceOnLogin(grant);
+
+    const failure = await usableLoginGrant({
+      vendor: 'Zoom',
+      connectorSlug: 'zoom',
+      grant,
+      persistence: { kind: 'persist', orgId, sourceId, warn: () => {} },
+      refresh: async () => {
+        throw new TokenRequestError('Zoom', 'invalid_client', 401);
+      },
+      now: NOW,
+    }).catch((error: unknown) => error as Error);
+
+    expect(failure.message).toBe('Zoom refused this server\'s OAuth client (invalid_client), so logging in again will not help. An admin needs to check the Zoom client ID and secret set on the server.');
     expect(await storedValues(orgId, tokenId)).toMatchObject({ refreshToken: 'r1' });
   });
 });
@@ -382,7 +401,7 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
       },
       now: NOW,
       wait: QUICK_WAIT,
-    })).rejects.toThrow('Zoom did not answer the token refresh (http_503).');
+    })).rejects.toThrow('Zoom could not refresh the login just now (http_503).');
 
     expect(await refreshClaimOn(tokenId)).toBeNull();
   });
