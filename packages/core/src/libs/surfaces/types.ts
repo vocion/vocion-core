@@ -31,6 +31,13 @@ export type ChatInbound = {
    * bot's token when the message is handled, never here.
    */
   files?: ChatInboundFile[];
+  /**
+   * A reply in a thread that did not mention the bot. Answered only in a
+   * thread Vocion is already in (it posted there), the way a person keeps
+   * talking to whoever answered them (Chris, 2026-10-06: "Do that" in the
+   * thread went unanswered because it carried no @mention).
+   */
+  followUp?: boolean;
 };
 
 /** One picture on an inbound message, as the platform describes it. */

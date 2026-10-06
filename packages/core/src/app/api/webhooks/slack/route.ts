@@ -57,7 +57,11 @@ export async function POST(request: Request) {
   }
   // Ack now; reply from the agent lands in the thread when it is ready.
   void handleInbound(adapter, parsed.inbound)
-    .then(r => r.outcome === 'replied' ? logger.info('slack mention answered', { orgId: r.orgId, agentSlug: r.agentSlug, conversationId: r.conversationId }) : logger.warn('slack mention not answered', { ...r }))
+    .then(r => r.outcome === 'replied'
+      ? logger.info('slack mention answered', { orgId: r.orgId, agentSlug: r.agentSlug, conversationId: r.conversationId })
+      : r.outcome === 'not_ours'
+        ? logger.info('slack event ignored', { reason: 'thread reply in a thread Vocion is not in' })
+        : logger.warn('slack mention not answered', { ...r }))
     .catch(error => logger.error('slack mention failed', { channelId: parsed.inbound.channelId, error: error instanceof Error ? error.message : String(error) }));
   return NextResponse.json({ ok: true });
 }

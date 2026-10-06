@@ -141,6 +141,24 @@ describe('handleInbound', () => {
     expect(adapter.replies[1]!.text).toBe('history=2');
   });
 
+  it('answers a reply with no mention only in a thread it is already in (Chris, 2026-10-06: "Do that")', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn(async () => ({ response: 'On it.', traceId: 't', toolCalls: [] }));
+    const followUp = { ...inbound, messageRef: '100.9', text: 'Do that', followUp: true };
+
+    const elsewhere = await svc.handleInbound(adapter, followUp, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), inThread: async () => false });
+
+    expect(elsewhere).toEqual({ outcome: 'not_ours' });
+    expect(adapter.replies).toEqual([]);
+    expect(runAgent).not.toHaveBeenCalled();
+
+    const ours = await svc.handleInbound(adapter, followUp, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), inThread: async () => true });
+
+    expect(ours.outcome).toBe('replied');
+    expect(adapter.replies.at(-1)).toEqual({ channelId: 'C1', threadRef: '100.1', text: 'On it.' });
+  });
+
   it('hands the pictures on the mention to the agent as attachments, kept as upload artifacts; an unreadable one is said, not dropped (backlog 057)', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();

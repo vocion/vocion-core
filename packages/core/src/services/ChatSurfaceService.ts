@@ -18,7 +18,7 @@ import { acceptUpload, loadedFromArtifact, MAX_IMAGE_BYTES, uploadSpec } from '@
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
 import { withPageContext } from '@/services/chat/pageContext';
 import { approvalFromThread, defaultThreadApprovalDeps } from '@/services/chat/slackApproval';
-import { recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
+import { ourPostsInThread, recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
 import { buildSlackThreadContext, scopeGapSentence, threadPageContext } from '@/services/chat/slackThread';
 import { appendMessage, createConversation, latestConversationForScope, listMessages, toHistoryTurns } from '@/services/ConversationService';
 
@@ -234,6 +234,8 @@ export type ChatHandlerDeps = {
   approval: (orgId: string, inbound: ChatInbound, conversationId: number) => Promise<ThreadApproval>;
   /** The pictures people posted earlier in the thread, for a mention that brought none. */
   threadPictures: (inbound: ChatInbound) => Promise<ChatInboundFile[]>;
+  /** Whether Vocion has posted in this thread (the parent or a reply), so a reply with no mention is for it. */
+  inThread: (channelId: string, threadRef: string) => Promise<boolean>;
 };
 
 /** Picture types read from a thread; the same set the adapter reads off a mention. */
@@ -268,6 +270,7 @@ const defaultDeps: ChatHandlerDeps = {
   fetchFile: url => fetchSlackFile(url, process.env.SLACK_BOT_TOKEN),
   approval: (orgId, inbound, conversationId) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps),
   threadPictures: inbound => slackThreadPictures(inbound, process.env.SLACK_BOT_TOKEN),
+  inThread: async (channelId, threadRef) => (await ourPostsInThread(channelId, threadRef)).length > 0,
 };
 
 /** A picture on the ask with its bytes, or null bytes when it could not be read. */
@@ -345,6 +348,7 @@ async function workspaceFor(orgId: string): Promise<{ orgId: string; name?: stri
  */
 export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatInbound, overrides: Partial<ChatHandlerDeps> = {}): Promise<
   | { outcome: 'unbound' }
+  | { outcome: 'not_ours' }
   | { outcome: 'over_budget'; agentSlug: string }
   | { outcome: 'replied'; orgId: string; agentSlug: string; conversationId: number; text: string; thread?: SlackThreadContext }
   | { outcome: 'failed'; orgId: string; agentSlug: string; error: string }
@@ -353,6 +357,11 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const bound = await resolveBinding(inbound.surface, inbound.teamId, inbound.channelId);
   if (!bound) {
     return { outcome: 'unbound' };
+  }
+  // A reply with no mention is answered only in a thread Vocion is already in; people talking
+  // among themselves in any other thread are left alone.
+  if (inbound.followUp && !(await deps.inThread(inbound.channelId, inbound.threadRef).catch(() => false))) {
+    return { outcome: 'not_ours' };
   }
   // WHICH WORKSPACE (Chris, 2026-10-05): a mention that only matched the team's catch-all goes to
   // the workspace it is about, and the rest of its thread follows (`chat/workspaceRoute.ts`).
