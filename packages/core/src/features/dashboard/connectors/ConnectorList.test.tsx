@@ -109,6 +109,30 @@ describe('ConnectorList', () => {
     expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }));
   });
 
+  it('a row whose login died offers Reconnect right on the row, so "Log in with HubSpot again" has a button to press', async () => {
+    const onConnect = vi.fn();
+    const dead = source({
+      id: 9,
+      slug: 'hubspot-crm',
+      config: { _connector: 'hubspot' },
+      sync: { status: 'failed', startedAt: '2026-09-18T14:00:00.000Z', completedAt: '2026-09-18T14:00:01.000Z', error: 'HubSpot would not refresh the login (invalid_grant). Log in with HubSpot again on the Connectors page.', counts: {} },
+    });
+    renderList([dead], { onConnect });
+
+    await expect.element(page.getByText(/Log in with HubSpot again/).first()).toBeVisible();
+
+    await userEvent.click(page.getByRole('button', { name: 'Reconnect' }));
+
+    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+  });
+
+  it('a healthy row offers no Reconnect beside its actions', async () => {
+    renderList([source({ id: 9, slug: 'hubspot-crm', config: { _connector: 'hubspot' } })]);
+
+    await expect.element(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+    expect(page.getByRole('button', { name: 'Reconnect' }).elements()).toHaveLength(0);
+  });
+
   it('names the account a grant is on and marks each listed repository against what it granted', async () => {
     const GITHUB = tile('github', 'GitHub');
     const rows = buildConnectorRows([GITHUB], [source({

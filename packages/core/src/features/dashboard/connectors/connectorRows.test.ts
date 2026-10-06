@@ -1,6 +1,6 @@
 import type { ConnectorTile, Source } from './connectorRows';
 import { describe, expect, it } from 'vitest';
-import { attentionFor, buildConnectorRows, filterConnectorRows, parseMissingScopes } from './connectorRows';
+import { attentionFor, buildConnectorRows, filterConnectorRows, offersReconnect, parseMissingScopes } from './connectorRows';
 
 const tile = (slug: string, name: string, extra: Partial<ConnectorTile> = {}): ConnectorTile => ({
   slug,
@@ -105,5 +105,23 @@ describe('buildConnectorRows', () => {
     expect(filterConnectorRows(rows, 'ads google').map(r => r.tile.slug)).toEqual(['google-ads']);
     expect(filterConnectorRows(rows, '').map(r => r.tile.slug)).toEqual(['google-ads', 'ga4']);
     expect(filterConnectorRows(rows, 'salesforce')).toEqual([]);
+  });
+});
+
+describe('offersReconnect', () => {
+  const FAILED = { status: 'failed' as const, startedAt: '', completedAt: null, error: 'HubSpot would not refresh the login (invalid_grant). Log in with HubSpot again on the Connectors page.', counts: {} };
+
+  it('offers Reconnect on a stored credential whose last sync failed, since Edit never runs a login again', () => {
+    expect(offersReconnect(source('h', 'hubspot', { authKind: 'oauth', sync: FAILED }))).toBe(true);
+  });
+
+  it('offers Reconnect on a revoked or expired credential the row still points at', () => {
+    expect(offersReconnect(source('h', 'hubspot', { credentialBroken: 'revoked' }))).toBe(true);
+  });
+
+  it('stays away from a healthy row, a row with nothing stored (Connect covers it), and a connector with no credential', () => {
+    expect(offersReconnect(source('h', 'hubspot', { sync: { ...FAILED, status: 'completed', error: null } }))).toBe(false);
+    expect(offersReconnect(source('h', 'hubspot', { credentialConnected: false, sync: FAILED }))).toBe(false);
+    expect(offersReconnect(source('w', 'web', { authKind: 'none', sync: FAILED }))).toBe(false);
   });
 });

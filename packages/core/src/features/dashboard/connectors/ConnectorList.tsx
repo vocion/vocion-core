@@ -42,7 +42,7 @@ import { useMemo, useState } from 'react';
 import { ListRows } from '@/components/patterns';
 import { Link } from '@/libs/I18nNavigation';
 import { LastAttemptLine } from '../LastAttemptLine';
-import { describeSourceConfig, filterConnectorRows, formatRelative } from './connectorRows';
+import { describeSourceConfig, filterConnectorRows, formatRelative, offersReconnect } from './connectorRows';
 
 /**
  * The connectors page as one flat list (Chris, 2026-09-18, Claude's list as
@@ -499,11 +499,18 @@ function SourceActions(props: {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2">
       {/* Connect is the call to action while nothing is stored; once a credential
-          exists, Edit changes it with everything else. */}
+          exists, Edit changes it with everything else. Reconnect stores a fresh
+          one (a login or a paste) when the stored one stopped working. */}
       {needsCreds && (
         <button type="button" onClick={() => props.onConnect(source)} className={pill}>
           <KeyRound className="size-3" aria-hidden />
           Connect
+        </button>
+      )}
+      {offersReconnect(source) && (
+        <button type="button" onClick={() => props.onConnect(source)} title="Log in or paste the credential again" className={pill}>
+          <KeyRound className="size-3" aria-hidden />
+          Reconnect
         </button>
       )}
       <button type="button" onClick={() => props.onEdit(source)} title="Edit this connector's settings" className={pill}>
@@ -652,14 +659,17 @@ function SourceDetail({ source, row, onConnect }: { source: Source; row: Connect
               Add the missing scopes to the app in the provider's developer console, save, then Reconnect here — a token already minted does not pick them up.
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => onConnect(source)}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
-          >
-            <KeyRound className="size-3" aria-hidden />
-            Reconnect
-          </button>
+          {/* The row's own Reconnect shows once a sync failed; one button is enough. */}
+          {!offersReconnect(source) && (
+            <button
+              type="button"
+              onClick={() => onConnect(source)}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
+            >
+              <KeyRound className="size-3" aria-hidden />
+              Reconnect
+            </button>
+          )}
         </div>
       )}
     </div>
