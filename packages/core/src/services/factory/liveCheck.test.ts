@@ -600,6 +600,52 @@ describe('when QA\'s fire ends', () => {
     expect(proposed).toHaveLength(1);
   });
 
+  it('a later attempt that did not look keeps what an earlier one saw, so the line it proved wrong is still sent back (walk 26, FE-472)', async () => {
+    const org = `${ORG}_kept`;
+    const acceptance = [{ statement: 'A blank name is not saved.' }, { statement: 'Opening your own link does not count as opened.' }, { statement: 'A team only ever sees its own documents.' }];
+    const { requestId, releaseId } = await seed(org, acceptance);
+    await db.update(businessObjectSchema).set({ metadata: { state: 'shipped', shippedAt: '2026-10-06T01:37:00Z', acceptance } }).where(eq(businessObjectSchema.id, requestId));
+    await recordLiveCheck(org, { releaseId, lines: lines([
+      { line: 1, result: 'seen', evidence: ['shot-7'], why: 'Save stayed disabled while the name was blank.' },
+      { line: 2, result: 'not_seen', evidence: ['shot-7'], why: 'After the owner opened their own link, the document left the list.' },
+      { line: 3, result: 'not_observable', cause: 'environment_cannot_show', why: 'The QA account is in no team.' },
+    ]) }, { session: new Map([['shot-7', shotEvidence(7)]]) });
+    const [run] = await db.insert(automationRunSchema).values({ orgId: org, slug: 'release-live-check', kind: 'mission', status: 'completed', input: { releaseId, attempt: 2 } }).returning();
+
+    // Attempt 2 opens no browser and calls every line not observable.
+    const second = await recordLiveCheck(org, { releaseId, lines: lines([
+      { line: 1, result: 'not_observable', why: 'Seen in attempt 1; the same commit is on production.' },
+      { line: 2, result: 'not_observable', why: 'Established in attempt 1; re-running cannot change it.' },
+      { line: 3, result: 'not_observable', cause: 'environment_cannot_show', why: 'The QA account is in no team.' },
+    ]) }, { session: new Map() });
+
+    expect(second.verdict.state).toBe('partial');
+
+    const kept = (await meta(requestId)).liveCheck;
+
+    expect(kept).toMatchObject({ state: 'partial', attempt: 2 });
+    expect(kept.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ line: 1, result: 'reached' }),
+      expect.objectContaining({ line: 2, result: 'not_reached' }),
+    ]));
+    expect(kept.beforeMerge.map((b: { line: number }) => b.line)).toEqual([3]);
+
+    proposed.length = 0;
+    const out = await liveCheckEnded(org, { automationRunId: run!.id, attempts: 2 });
+
+    expect(out.line).toContain(`sent back #${requestId}`);
+    expect(String((proposed[0]!.input as Record<string, unknown>).note)).toContain('line 2: "Opening your own link does not count as opened." — After the owner opened their own link');
+  });
+
+  it('a later attempt that looked again replaces what the earlier one saw', async () => {
+    const org = `${ORG}_relooked`;
+    const { requestId, releaseId } = await seed(org);
+    await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'not_seen', evidence: ['shot-7'], why: 'The blank name was saved.' }]) }, { session: new Map([['shot-7', shotEvidence(7)]]) });
+    await recordLiveCheck(org, { releaseId, lines: lines([{ line: 1, result: 'seen', evidence: ['shot-8'], why: 'Save stayed disabled while the name was blank.' }]) }, { session: new Map([['shot-8', shotEvidence(8)]]) });
+
+    expect((await meta(requestId)).liveCheck).toMatchObject({ state: 'seen', lines: [expect.objectContaining({ line: 1, result: 'reached' })] });
+  });
+
   it('a second round (a person\'s "Check live again") gets its own retry: the retry is keyed to the fire it follows (FE-457, 2026-10-05)', async () => {
     const org = `${ORG}_rounds`;
     const { releaseId } = await seed(org);
