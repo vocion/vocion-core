@@ -397,6 +397,8 @@ export type RecordStatusMarkedPayload = {
   transition: string;
   /** The sentence that went with it, or empty. */
   line: string;
+  /** What the type tells the asker for this transition (`x-tell`), or empty: nothing is said. */
+  tell: string;
   at: string;
 };
 

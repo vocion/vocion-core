@@ -81,6 +81,7 @@ const NO_STATUS: StatusModel = {
   tones: {},
   needsYou: new Set(),
   transitions: [],
+  tell: {},
 };
 
 /** How many rows each lane draws before the heading carries the remainder. */

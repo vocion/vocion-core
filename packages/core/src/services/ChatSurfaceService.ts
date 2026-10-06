@@ -6,6 +6,7 @@ import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { absoluteAppLinks } from '@/libs/links';
 import { fetchSlackFile } from '@/libs/surfaces/slack';
 import { chatPermalink, conversationReplies } from '@/libs/surfaces/slackRead';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
@@ -419,7 +420,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   if (approval) {
     await appendMessage({ orgId, conversationId, role: 'assistant', content: approval.reply, status: 'complete' });
     await doneWorking();
-    const posted = await adapter.reply(target, approval.reply);
+    const posted = await adapter.reply(target, absoluteAppLinks(approval.reply));
     await recordSlackPost({ orgId, teamId: inbound.teamId, channelId: inbound.channelId, ts: tsOf(posted), threadTs: inbound.threadRef, kind: 'reply', agentSlug, text: approval.reply, createdBy: approval.decided ? `decision:${approval.verb}:${approval.runId}` : 'system:slack-approval' }).catch(() => {});
     return { outcome: 'replied', orgId, agentSlug, conversationId, text: approval.reply };
   }
@@ -480,7 +481,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     // NULL that a reader has to guess at (#114).
     await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete', cost: { tokens: cost.tokens, microCents: cost.microCents } });
     await doneWorking();
-    const posted = await adapter.reply(target, text);
+    // The app's chat renders its own relative links; in a thread they are dead, so they leave absolute.
+    const out = absoluteAppLinks(text);
+    const posted = await adapter.reply(target, out);
     await recordSlackPost({
       orgId,
       projectId: orgId,
@@ -490,7 +493,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       threadTs,
       kind: 'reply',
       agentSlug,
-      text,
+      text: out,
       degradedNotice: sayGap,
       createdBy,
     });

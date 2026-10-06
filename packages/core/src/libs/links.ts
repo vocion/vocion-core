@@ -152,6 +152,23 @@ export function appBaseUrl(): string {
 }
 
 /**
+ * App links made absolute, for text that leaves the app (a Slack thread): a
+ * markdown link or a bare path to `/w/…` or `/dashboard/…` gets the app's own
+ * address in front. Text is unchanged when the app has no public address.
+ * Agents write the relative links the app's chat renders; in Slack they are dead.
+ * @param text - The message.
+ */
+export function absoluteAppLinks(text: string): string {
+  const base = appBaseUrl();
+  if (!base) {
+    return text;
+  }
+  return text
+    .replace(/\]\((\/(?:w|dashboard)\/[^)\s]*)\)/g, (_m, path: string) => `](${base}${path})`)
+    .replace(/(^|[\s(<])(\/(?:w|dashboard)\/[^\s)>]+)/g, (_m, lead: string, path: string) => `${lead}${base}${path}`);
+}
+
+/**
  * `/dashboard/inbox?x=1` → `dashboard/inbox?x=1`; `` → `dashboard`.
  * Strips leading slashes and collapses doubles so a caller's `/dashboard//inbox`
  * cannot produce a protocol-relative `//host` path.

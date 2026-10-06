@@ -361,6 +361,18 @@ schema:
         - {key: archived, label: Archived, role: archived, in: [out_of_scope, duplicate]}
       # Whose move it is: these lead their tab, and the product page counts them.
       x-needs-you: [deciding, changes_asked, awaiting_merge, stopped]
+      # WHAT THE ASKER HEARS, WHERE THEY ASKED (Chris, 2026-10-06): the filing reply says it has
+      # started; after that only what needs them and the end. A send-back that retries by itself,
+      # QA, the merge on a trust rule and the deploy stay quiet. Keyed by transition; `{line}` is
+      # the step's sentence and `{title}` the request's. The feature page follows every line.
+      x-tell:
+        stopped: 'Blocked, and it needs you: {line}'
+        merge_waits: 'Ready to merge, and the merge waits on you. {line}'
+        live: 'Done ✅ "{title}" is live in production and checked. {line}'
+        live_seen: 'Done ✅ "{title}" is live in production and checked. {line}'
+        live_unconfirmed: 'Live in production: "{title}". The live check could not confirm all of it. {line}'
+        live_unchecked: 'Live in production: "{title}". It could not be checked live yet. {line}'
+        resolved: 'Answered: {line}'
       x-transitions:
         # Filed, recommended, a Build card up.
         created: new
