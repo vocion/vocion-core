@@ -172,6 +172,29 @@ describe('handleInbound', () => {
     expect(await svc.stopThreadTurn(adapter, { surface: 'slack', channelId: 'C1', threadRef: '100.1', externalUserId: 'U42' })).toBe(false);
   });
 
+  it('a reply that put up a card for the person carries the request\'s mockups, and only for that card (Chris, 2026-10-06)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    let cards: Array<{ runId: number; input: Record<string, unknown> }> = [{ runId: 7, input: { requestId: 1 } }];
+    const runAgent = vi.fn(async () => {
+      cards = [{ runId: 9, input: { requestId: 133 } }, ...cards];
+      return { response: 'The Build card for FE-133 is below.', traceId: 't', toolCalls: [] };
+    });
+    const cardPictures = vi.fn(async (_o: string, input: Record<string, unknown>) => (input.requestId === 133 ? [{ url: '/api/artifacts/m1/m1.png', caption: 'Mockup: upload page', artifactId: 41 }] : []));
+    const deps = { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), cardsWaiting: async () => cards, cardPictures };
+
+    await svc.handleInbound(adapter, inbound, deps);
+
+    expect(cardPictures).toHaveBeenCalledWith(ORG, { requestId: 133 });
+    expect(adapter.replies.at(-1)).toMatchObject({ text: 'The Build card for FE-133 is below.', images: [{ url: '/api/artifacts/m1/m1.png', caption: 'Mockup: upload page' }] });
+
+    // The next reply, with no new card, carries none.
+    runAgent.mockImplementationOnce(async () => ({ response: 'It is waiting on you.', traceId: 't', toolCalls: [] }));
+    await svc.handleInbound(adapter, { ...inbound, messageRef: '100.4', text: 'status?' }, deps);
+
+    expect(adapter.replies.at(-1)).toEqual({ channelId: 'C1', threadRef: '100.1', text: 'It is waiting on you.' });
+  });
+
   it('answers a reply with no mention only in a thread it is already in (Chris, 2026-10-06: "Do that")', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();
