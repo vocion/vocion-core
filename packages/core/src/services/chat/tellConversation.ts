@@ -30,6 +30,37 @@ export function slackThreadOfScope(scopeRef: string | null | undefined): SlackTh
 /** A file the line carries: a stored recording or picture (`/api/media/…`, `/api/artifacts/…`). */
 export type TellFile = { url: string; caption: string; artifactId?: number };
 
+/**
+ * The bytes behind a file a line carries: a stored recording (`/api/media/…`) or a stored picture.
+ * @param orgId - The workspace.
+ * @param f - The file.
+ */
+export async function tellFileBytes(orgId: string, f: TellFile): Promise<Uint8Array | null> {
+  if (f.url.startsWith('/api/media/')) {
+    const { readMediaBytes } = await import('@/libs/tools/artifacts/media');
+    return (await readMediaBytes(orgId, f.url))?.bytes ?? null;
+  }
+  if (!f.artifactId) {
+    return null;
+  }
+  const { artifactImageBytes } = await import('@/services/factory/releaseAnnounce');
+  return artifactImageBytes(orgId, f.artifactId);
+}
+
+/**
+ * Files as the images a chat post carries, named for the upload, with their bytes read on demand.
+ * @param orgId - The workspace.
+ * @param files - The files.
+ */
+export function tellImages(orgId: string, files: readonly TellFile[]): { images: ChatImage[]; fetchImage: (img: { url: string }) => Promise<Uint8Array | null> } {
+  const byUrl = new Map(files.map(f => [f.url, f]));
+  const images = files.map((f) => {
+    const name = f.url.split(/[?#]/)[0]!.split('/').pop();
+    return { url: f.url, caption: f.caption, ...(name ? { filename: name } : {}) };
+  });
+  return { images, fetchImage: async img => (byUrl.has(img.url) ? tellFileBytes(orgId, byUrl.get(img.url)!) : null) };
+}
+
 export type TellResult = { said: true; channel: 'chat' | 'slack' } | { said: false; reason: string };
 
 export type TellDeps = {
@@ -64,33 +95,20 @@ const defaultDeps: TellDeps = {
     await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete', ...(agentSlug ? { agentSlug } : {}) });
   },
   async post(orgId, thread, text, agentSlug, files) {
-    const [{ getSurface }, { agentPersona }, { readMediaBytes }, { artifactImageBytes }] = await Promise.all([
+    const [{ getSurface }, { agentPersona }] = await Promise.all([
       import('@/libs/surfaces/registry'),
       import('@/services/ChatSurfaceService'),
-      import('@/libs/tools/artifacts/media'),
-      import('@/services/factory/releaseAnnounce'),
     ]);
     const adapter = getSurface('slack');
     if (!adapter) {
       return null;
     }
     const persona = agentSlug ? await agentPersona(orgId, agentSlug).catch(() => null) : null;
-    const images: ChatImage[] = files.map(f => ({ url: f.url, caption: f.caption, ...(f.url.split(/[?#]/)[0]!.split('/').pop() ? { filename: f.url.split(/[?#]/)[0]!.split('/').pop()! } : {}) }));
-    const byUrl = new Map(files.map(f => [f.url, f]));
+    const { images, fetchImage } = tellImages(orgId, files);
     const posted = await adapter.reply(
       { channelId: thread.channelId, threadRef: thread.threadTs, ...(persona?.displayName ? { displayName: persona.displayName } : {}), ...(persona?.iconUrl ? { iconUrl: persona.iconUrl } : {}) },
       { text, ...(images.length > 0 ? { images } : {}) },
-      images.length > 0
-        ? {
-            fetchImage: async (img) => {
-              const f = byUrl.get(img.url);
-              if (!f) {
-                return null;
-              }
-              return f.url.startsWith('/api/media/') ? (await readMediaBytes(orgId, f.url))?.bytes ?? null : f.artifactId ? artifactImageBytes(orgId, f.artifactId) : null;
-            },
-          }
-        : undefined,
+      images.length > 0 ? { fetchImage } : undefined,
     );
     return posted?.ts ?? null;
   },

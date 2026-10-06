@@ -24,7 +24,7 @@ export const ASKER_RECORDING_JOB = 'slack-thread-recording';
 export const RETIRED_FOLLOW_JOBS = ['conversation-follow', 'slack-thread-follow'] as const;
 
 /** The card waiting on a person for this record, as the line shows it. */
-export type WaitingCard = { verbs: { approve: string; reject: string }; video: { url: string; caption: string } | null };
+export type WaitingCard = { verbs: { approve: string; reject: string }; video: { url: string; caption: string } | null; mockups?: TellFile[] };
 
 /** The record as the line reads it. */
 export type AskedRecord = { conversationId: number | null; title: string; reopenedAt: string | null };
@@ -125,7 +125,9 @@ const defaultDeps: AskerFollowDeps = {
     const detail = await getReviewDetail(orgId, 'action', card.runId).catch(() => null);
     const shown = (detail?.card ?? null) as import('@/libs/actions/types').ReviewCard | null;
     const video = shown?.content?.find((c): c is Extract<import('@/libs/actions/types').ReviewContent, { kind: 'video' }> => c.kind === 'video') ?? null;
-    return { verbs: { approve: shown?.verbs?.approve ?? 'Approve', reject: shown?.verbs?.reject ?? 'Reject' }, video: video ? { url: video.url, caption: video.caption ?? video.label } : null };
+    const { cardMockups } = await import('@/services/chat/cardPictures');
+    const mockups = await cardMockups(orgId, card.input).catch(() => []);
+    return { verbs: { approve: shown?.verbs?.approve ?? 'Approve', reject: shown?.verbs?.reject ?? 'Reject' }, video: video ? { url: video.url, caption: video.caption ?? video.label } : null, mockups };
   },
   async tell(orgId, conversationId, text, opts) {
     const { tellConversation } = await import('@/services/chat/tellConversation');
@@ -174,8 +176,9 @@ export async function askerFollow(orgId: string, input: Record<string, unknown>,
     input.needsYou === true ? deps.waitingCard(orgId, record.conversationId).catch(() => null) : Promise.resolve(null),
   ]);
   const text = askerLine(template, { line, title: record.title }, { href, shareUrl, waiting });
-  // The card's demo goes up under the words, so the thread approves something seen working.
-  const files: TellFile[] = waiting?.video ? [waiting.video] : [];
+  // The card's demo and the request's mockups go up under the words, so the thread approves
+  // something seen working against what was drawn.
+  const files: TellFile[] = [...(waiting?.video ? [waiting.video] : []), ...(waiting?.mockups ?? [])];
   const told = await deps.tell(orgId, record.conversationId, text, { key: askerKey(recordId, value, groupRole, line, record.reopenedAt), files, url: href });
   if (!told.said) {
     return told;

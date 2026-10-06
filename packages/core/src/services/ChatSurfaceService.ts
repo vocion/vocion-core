@@ -22,6 +22,7 @@ import { withPageContext } from '@/services/chat/pageContext';
 import { approvalFromThread, defaultThreadApprovalDeps } from '@/services/chat/slackApproval';
 import { ourPostsInThread, recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
 import { buildSlackThreadContext, scopeGapSentence, threadPageContext } from '@/services/chat/slackThread';
+import { tellImages } from '@/services/chat/tellConversation';
 import { followTurn } from '@/services/chat/workingLine';
 import { appendMessage, createConversation, latestConversationForScope, listMessages, toHistoryTurns } from '@/services/ConversationService';
 
@@ -239,6 +240,10 @@ export type ChatHandlerDeps = {
   threadPictures: (inbound: ChatInbound) => Promise<ChatInboundFile[]>;
   /** Whether Vocion has posted in this thread (the parent or a reply), so a reply with no mention is for it. */
   inThread: (channelId: string, threadRef: string) => Promise<boolean>;
+  /** The cards waiting on a person whose origin is this conversation, newest first. */
+  cardsWaiting: (orgId: string, conversationId: number) => Promise<Array<{ runId: number; input: Record<string, unknown> }>>;
+  /** What a card's request was drawn as: its mockups, to go up with the ask. */
+  cardPictures: (orgId: string, input: Record<string, unknown>) => Promise<import('./chat/tellConversation').TellFile[]>;
 };
 
 /** Picture types read from a thread; the same set the adapter reads off a mention. */
@@ -274,6 +279,8 @@ const defaultDeps: ChatHandlerDeps = {
   approval: (orgId, inbound, conversationId) => approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps),
   threadPictures: inbound => slackThreadPictures(inbound, process.env.SLACK_BOT_TOKEN),
   inThread: async (channelId, threadRef) => (await ourPostsInThread(channelId, threadRef)).length > 0,
+  cardsWaiting: (orgId, conversationId) => defaultThreadApprovalDeps.pending(orgId, conversationId),
+  cardPictures: async (orgId, input) => (await import('./chat/cardPictures')).cardMockups(orgId, input),
 };
 
 /** A picture on the ask with its bytes, or null bytes when it could not be read. */
@@ -429,6 +436,8 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   }
   const conversationId = conversation.id;
   const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
+  // The cards already waiting here, so the reply carries pictures only for a card this turn put up.
+  const cardsBefore = new Set((await deps.cardsWaiting(orgId, conversationId).catch(() => [])).map(c => c.runId));
   // The thread's pictures join the turn only the first time Vocion is called into it; later turns
   // already have them in the conversation.
   const pictures = await pictureAttachments(orgId, inbound, createdBy, inbound.files?.length || history.length === 0 ? fetched : []);
@@ -509,7 +518,12 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     await doneWorking();
     // The app's chat renders its own relative links; in a thread they are dead, so they leave absolute.
     const out = absoluteAppLinks(text);
-    const posted = await adapter.reply(target, out);
+    // A card this turn put up for the person goes up with its request's mockups (Chris, 2026-10-06:
+    // "put mocks in Slack when asking for review").
+    const asked = (await deps.cardsWaiting(orgId, conversationId).catch(() => [])).find(c => !cardsBefore.has(c.runId));
+    const mockups = asked ? await deps.cardPictures(orgId, asked.input).catch(() => []) : [];
+    const pictured = mockups.length > 0 ? tellImages(orgId, mockups) : null;
+    const posted = await adapter.reply(target, pictured ? { text: out, images: pictured.images } : out, pictured ? { fetchImage: pictured.fetchImage } : undefined);
     await recordSlackPost({
       orgId,
       projectId: orgId,

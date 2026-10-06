@@ -48,12 +48,12 @@ describe('askerFollow', () => {
     expect(told).toEqual([]);
   });
 
-  it('a merge waiting on a person says how to decide it, and carries the card\'s demo', async () => {
-    const { d, told, marked } = deps({ waitingCard: async () => ({ verbs: { approve: 'Merge', reject: 'Hold' }, video: { url: '/api/media/478/demo.mp4', caption: 'The demo' } }) });
+  it('a merge waiting on a person says how to decide it, and carries the card\'s demo and the request\'s mockups', async () => {
+    const { d, told, marked } = deps({ waitingCard: async () => ({ verbs: { approve: 'Merge', reject: 'Hold' }, video: { url: '/api/media/478/demo.mp4', caption: 'The demo' }, mockups: [{ url: '/api/artifacts/m/m.png', caption: 'Mockup: the row', artifactId: 4273 }] }) });
 
     await askerFollow('org_sq', move({ value: 'awaiting_merge', groupRole: 'progress', needsYou: true, transition: 'merge_waits', line: 'QA approved 7 of 7', tell: 'Ready to merge, and the merge waits on you. {line}' }), d);
 
-    expect(told[0]).toMatchObject({ text: 'Ready to merge, and the merge waits on you. QA approved 7 of 7.\nMerge or Hold: reply here, or decide it in Vocion.\nFeature page: https://vocion.example/w/sq/dashboard/p/feature/478', files: 1 });
+    expect(told[0]).toMatchObject({ text: 'Ready to merge, and the merge waits on you. QA approved 7 of 7.\nMerge or Hold: reply here, or decide it in Vocion.\nFeature page: https://vocion.example/w/sq/dashboard/p/feature/478', files: 2 });
     expect(marked).toEqual([]);
   });
 
