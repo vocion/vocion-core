@@ -14,7 +14,8 @@
 import type { ConnectProvider } from '../provider';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
-import { postTokenRequest, TokenRequestError } from '../loginGrant';
+import { DEFAULT_NOTION_VERSION } from '@/libs/sources/notion';
+import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://api.notion.com/v1/oauth/authorize';
 const TOKEN_URL = 'https://api.notion.com/v1/oauth/token';
@@ -72,6 +73,8 @@ export const notionProvider: ConnectProvider = {
         encoding: 'json',
         params: { grant_type: 'authorization_code', code, redirect_uri: redirectUri },
         basicAuth: { clientId: Env.NOTION_CLIENT_ID ?? '', clientSecret: Env.NOTION_CLIENT_SECRET ?? '' },
+        // Notion's API reference marks this header required on the token endpoint.
+        extraHeaders: { 'Notion-Version': DEFAULT_NOTION_VERSION },
       });
     } catch (error) {
       const reason = error instanceof TokenRequestError ? error.code : 'token_exchange_failed';

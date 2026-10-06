@@ -15,7 +15,8 @@ import type { RefreshedTokens } from '../loginGrant';
 import type { ConnectProvider } from '../provider';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
-import { grantExpiresAt, postTokenRequest, TokenRequestError } from '../loginGrant';
+import { grantExpiresAt } from '../loginGrant';
+import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 /** Apollo's consent page is a hash route: the query string goes AFTER `#/oauth/authorize?`. */
 const AUTHORIZE_BASE = 'https://app.apollo.io/#/oauth/authorize';

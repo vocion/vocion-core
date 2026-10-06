@@ -15,13 +15,13 @@
  * would strand the stored one.
  */
 
-import { Buffer } from 'node:buffer';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { claimLoginRefresh, releaseLoginRefresh, updateLoginCredentialValues } from '@/services/ApiTokenService';
 import { getCredentialsForConnector, updateCredentialValuesForConnector } from '@/services/SourceCredentialService';
+import { refusalMeansLoginIsGone, TokenRequestError } from './tokenRequest';
 
 export type LoginGrant = Record<string, unknown> & { accessToken: string; refreshToken: string; expiresAt: string };
 
@@ -40,8 +40,6 @@ export type GrantPersistence
     | { kind: 'never' };
 
 const EXPIRES_EARLY_MS = 5 * 60 * 1000;
-const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
-const SAFE_ERROR_CODE = /^[\w.-]{1,64}$/;
 
 /**
  * Whether a credential bag is a login grant: a non-empty access token,
@@ -82,86 +80,6 @@ export function grantExpiresAt(expiresInSeconds: unknown, fallbackSeconds: numbe
 export function grantIsExpiring(expiresAt: string, now: number = Date.now()): boolean {
   const at = Date.parse(expiresAt);
   return Number.isNaN(at) || at <= now;
-}
-
-/**
- * A token request the vendor refused or never answered. `code` is the
- * vendor's OAuth error code (`invalid_grant`), `http_<status>`, `timeout` or
- * `unreachable`: never the vendor's free text, which can echo what was sent.
- */
-export class TokenRequestError extends Error {
-  readonly code: string;
-  readonly status: number | null;
-
-  constructor(vendor: string, code: string, status: number | null) {
-    super(`${vendor} refused the token request (${code}).`);
-    this.name = 'TokenRequestError';
-    this.code = code;
-    this.status = status;
-  }
-}
-
-/**
- * The OAuth error code of a refusal body, when it is a safe short code.
- * @param body - The parsed response body, if it parsed.
- */
-function vendorErrorCode(body: unknown): string | null {
-  if (!body || typeof body !== 'object') {
-    return null;
-  }
-  const error = (body as Record<string, unknown>).error;
-  return typeof error === 'string' && SAFE_ERROR_CODE.test(error) ? error : null;
-}
-
-/**
- * POST to a vendor's token endpoint and return the parsed body. Bounded by a
- * 15 second timeout. The client secret goes in the body or as HTTP Basic, as
- * the vendor asks; it is never logged.
- * @param input - The request.
- * @param input.vendor - The vendor's name, for the error.
- * @param input.url - The token endpoint.
- * @param input.params - The body parameters.
- * @param input.encoding - `form` (application/x-www-form-urlencoded) or `json`.
- * @param input.basicAuth - Client id and secret to send as HTTP Basic instead of in the body.
- * @param input.basicAuth.clientId - The OAuth client id.
- * @param input.basicAuth.clientSecret - The OAuth client secret.
- */
-export async function postTokenRequest(input: {
-  vendor: string;
-  url: string;
-  params: Record<string, string>;
-  encoding: 'form' | 'json';
-  basicAuth?: { clientId: string; clientSecret: string };
-}): Promise<Record<string, unknown>> {
-  const headers: Record<string, string> = {
-    'accept': 'application/json',
-    'content-type': input.encoding === 'form' ? 'application/x-www-form-urlencoded' : 'application/json',
-  };
-  if (input.basicAuth) {
-    headers.authorization = `Basic ${Buffer.from(`${input.basicAuth.clientId}:${input.basicAuth.clientSecret}`).toString('base64')}`;
-  }
-  let response: Response;
-  try {
-    response = await fetch(input.url, {
-      method: 'POST',
-      headers,
-      body: input.encoding === 'form' ? new URLSearchParams(input.params).toString() : JSON.stringify(input.params),
-      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
-    });
-  } catch (error) {
-    throw new TokenRequestError(input.vendor, error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'unreachable', null);
-  }
-  let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch (error) {
-    // Not JSON: the status below still says what happened.
-    logger.warn('postTokenRequest got a body that is not JSON', { vendor: input.vendor, status: response.status, errorName: error instanceof Error ? error.name : 'unknown' });
-  }
-  if (!response.ok || !body || typeof body !== 'object') {
-    throw new TokenRequestError(input.vendor, vendorErrorCode(body) ?? `http_${response.status}`, response.status);
-  }
-  return body as Record<string, unknown>;
 }
 
 /** The stored grant and the `api_token` row it was read from (null: the install's `source_credential`). */
@@ -444,9 +362,6 @@ async function grantSavedByAnotherRun(input: { orgId: string; sourceId: number; 
   }
 }
 
-/** Vendor answers that mean the login itself is gone, so only logging in again fixes it. */
-const LOGIN_IS_GONE = new Set(['invalid_grant', 'invalid_client', 'unauthorized_client', 'access_denied', 'http_400', 'http_401', 'http_403']);
-
 /**
  * The error a failed refresh ends the run with. A refused login says to log
  * in again; a vendor that did not answer (a timeout, a 5xx) says the next
@@ -458,8 +373,9 @@ const LOGIN_IS_GONE = new Set(['invalid_grant', 'invalid_client', 'unauthorized_
  */
 function refreshFailure(vendor: string, connectorSlug: string, orgId: string, error: unknown): Error {
   const code = error instanceof TokenRequestError ? error.code : 'unknown';
+  const loginIsGone = error instanceof TokenRequestError && refusalMeansLoginIsGone(error);
   logger.warn('refreshLoginGrant: the vendor refused or did not answer the refresh', { orgId, connectorSlug, code, errorName: error instanceof Error ? error.name : 'unknown' });
-  return LOGIN_IS_GONE.has(code)
+  return loginIsGone
     ? new Error(`${vendor} would not refresh the login (${code}). Log in with ${vendor} again on the Connectors page.`)
     : new Error(`${vendor} did not answer the token refresh (${code}). The saved login is unchanged, and the next sync tries again.`);
 }

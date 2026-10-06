@@ -14,7 +14,8 @@
 import type { ConnectProvider } from '../provider';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
-import { grantExpiresAt, postTokenRequest, TokenRequestError } from '../loginGrant';
+import { grantExpiresAt } from '../loginGrant';
+import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';

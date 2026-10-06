@@ -41,8 +41,8 @@ import { z } from 'zod';
 import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
 
 const API_ROOT = 'https://api.notion.com/v1';
-/** Pinned by default: the oldest version whose page/database shapes this code reads. */
-const DEFAULT_NOTION_VERSION = '2022-06-28';
+/** Pinned by default: the oldest version whose page/database shapes this code reads. The login's token calls send it too. */
+export const DEFAULT_NOTION_VERSION = '2022-06-28';
 const DEFAULT_PAGE_SIZE = 100;
 /** How many `next_cursor` search pages one sync may walk before bailing out. */
 const MAX_SEARCH_PAGES = 200;

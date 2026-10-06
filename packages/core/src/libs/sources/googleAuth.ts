@@ -22,12 +22,54 @@
  */
 
 import type { RawCredentials } from '@/services/SourceCredentialService';
+import { postTokenRequest, refusalMeansLoginIsGone, TokenRequestError } from '@/libs/connect/tokenRequest';
 import { Env } from '@/libs/Env';
+import { logger } from '@/libs/Logger';
 
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
 /** access-token cache keyed by refresh token — refreshes are rate-limited by Google. */
 const cache = new Map<string, { token: string; expiresAt: number }>();
+
+/**
+ * Mint an access token from a refresh token, through the token request every
+ * login shares (15 second timeout, only Google's short error code kept).
+ * A refusal becomes a sentence that names the fix: a dead login is logged in
+ * again, a dead paste is pasted again, and an outage waits for the next sync.
+ * Google refuses a refresh token that was revoked, unused for six months, or
+ * issued by an OAuth app still in "Testing" more than 7 days ago.
+ * @param input - The refresh token and the OAuth client it was issued to.
+ * @param input.refreshToken - The stored refresh token.
+ * @param input.clientId - The OAuth client id.
+ * @param input.clientSecret - The OAuth client secret.
+ * @param input.pasted - True when the client was pasted with the token, false for a "Log in with Google" login.
+ */
+async function refreshAccessToken(input: { refreshToken: string; clientId: string; clientSecret: string; pasted: boolean }): Promise<{ access_token: string; expires_in?: number }> {
+  let body: Record<string, unknown>;
+  try {
+    body = await postTokenRequest({
+      vendor: 'Google',
+      url: TOKEN_ENDPOINT,
+      params: { grant_type: 'refresh_token', refresh_token: input.refreshToken, client_id: input.clientId, client_secret: input.clientSecret },
+      encoding: 'form',
+    });
+  } catch (error) {
+    if (!(error instanceof TokenRequestError)) {
+      throw error;
+    }
+    logger.warn('resolveGoogleAccessToken: Google refused or did not answer the refresh', { code: error.code, pasted: input.pasted });
+    if (!refusalMeansLoginIsGone(error)) {
+      throw new Error(`Google did not answer the token refresh (${error.code}). The next sync tries again.`);
+    }
+    throw new Error(input.pasted
+      ? `Google refused the pasted refresh token (${error.code}). Paste a new one, or log in with Google on the Connectors page.`
+      : `Google would not refresh the login (${error.code}). Log in with Google again on the Connectors page.`);
+  }
+  if (typeof body.access_token !== 'string' || !body.access_token) {
+    throw new Error('Google answered the token refresh without an access token. The next sync tries again.');
+  }
+  return { access_token: body.access_token, expires_in: typeof body.expires_in === 'number' ? body.expires_in : undefined };
+}
 
 /**
  * Resolve a usable Google access token from stored credentials.
@@ -59,20 +101,7 @@ export async function resolveGoogleAccessToken(credentials: RawCredentials | und
     if (cached && cached.expiresAt > Date.now() + 5 * 60_000) {
       return cached.token;
     }
-    const res = await fetch(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: clientId,
-        client_secret: clientSecret,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Google token refresh failed: ${res.status} ${await res.text().catch(() => '')}`);
-    }
-    const data = (await res.json()) as { access_token: string; expires_in?: number };
+    const data = await refreshAccessToken({ refreshToken, clientId, clientSecret, pasted: hasPastedClient });
     cache.set(refreshToken, {
       token: data.access_token,
       expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,

@@ -17,8 +17,9 @@ import type { GrantPersistence, LoginGrant, RefreshedTokens } from '../loginGran
 import type { ConnectProvider } from '../provider';
 import { logger } from '@/libs/Logger';
 import { POSTHOG_EU_HOST, POSTHOG_US_HOST } from '@/libs/posthog/client';
-import { grantExpiresAt, isLoginGrant, postTokenRequest, TokenRequestError, usableLoginGrant } from '../loginGrant';
+import { grantExpiresAt, isLoginGrant, usableLoginGrant } from '../loginGrant';
 import { callbackUri, connectOrigin } from '../routes';
+import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://oauth.posthog.com/oauth/authorize/';
 const TOKEN_URL = 'https://oauth.posthog.com/oauth/token/';

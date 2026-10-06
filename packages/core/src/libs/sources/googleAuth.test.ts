@@ -60,6 +60,29 @@ describe('resolveGoogleAccessToken', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('a login Google will not refresh says to log in with Google again, without echoing Google\'s description', async () => {
+    // Google's answer to a revoked refresh token, or one from a "Testing" app older than 7 days.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }), { status: 400 }));
+
+    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-3' }))
+      .rejects
+      .toThrow(/^Google would not refresh the login \(invalid_grant\)\. Log in with Google again on the Connectors page\.$/);
+  });
+
+  it('a pasted refresh token Google refuses asks for a new paste or a login, since the pasted client is not this deployment\'s', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }));
+
+    await expect(resolveGoogleAccessToken({ refreshToken: 'pasted-refresh-4', clientId: 'own_client', clientSecret: 'own_client_key' }))
+      .rejects
+      .toThrow('Google refused the pasted refresh token (invalid_grant). Paste a new one, or log in with Google on the Connectors page.');
+  });
+
+  it('a Google outage says the next sync tries again, not to log in again', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>Service Unavailable</html>', { status: 503 }));
+
+    await expect(resolveGoogleAccessToken({ refreshToken: 'login-refresh-4' })).rejects.toThrow('Google did not answer the token refresh (http_503). The next sync tries again.');
+  });
+
   it('falls back to a raw access token when there is no refresh token', async () => {
     expect(await resolveGoogleAccessToken({ token: 'raw-token' })).toBe('raw-token');
   });

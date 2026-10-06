@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,7 +7,8 @@ const { db } = await import('@/libs/DB');
 const { apiTokenSchema, knowledgeSourceSchema } = await import('@/models/Schema');
 const { storeLoginCredential, updateLoginCredentialValues } = await import('@/services/ApiTokenService');
 const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
-const { postTokenRequest, TokenRequestError, usableLoginGrant } = await import('./loginGrant');
+const { usableLoginGrant } = await import('./loginGrant');
+const { TokenRequestError } = await import('./tokenRequest');
 
 const NOW = Date.parse('2026-10-05T12:00:00.000Z');
 const EXPIRED = '2026-10-05T11:00:00.000Z';
@@ -385,38 +385,5 @@ describe('two callers on one expired login (a sync and an agent tool at once)', 
     })).rejects.toThrow('Zoom did not answer the token refresh (http_503).');
 
     expect(await refreshClaimOn(tokenId)).toBeNull();
-  });
-});
-
-describe('the token request every vendor shares', () => {
-  it('a refusal reports only the vendor\'s short error code, never its description, which can echo what was sent', async () => {
-    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'refresh token r-secret-123 is revoked' }), { status: 400 }));
-
-    const failure = await postTokenRequest({ vendor: 'HubSpot', url: 'https://api.hubapi.com/oauth/v1/token', params: { grant_type: 'refresh_token', refresh_token: 'r-secret-123' }, encoding: 'form' }).catch((error: unknown) => error);
-
-    expect(failure).toBeInstanceOf(TokenRequestError);
-    expect((failure as Error).message).toBe('HubSpot refused the token request (invalid_grant).');
-    expect((failure as Error).message).not.toContain('r-secret-123');
-  });
-
-  it('a gateway page that is not JSON is reported by its status', async () => {
-    vi.stubGlobal('fetch', async () => new Response('<html>Bad gateway</html>', { status: 502 }));
-
-    await expect(postTokenRequest({ vendor: 'Zoom', url: 'https://zoom.us/oauth/token', params: {}, encoding: 'form' })).rejects.toThrow('Zoom refused the token request (http_502).');
-  });
-
-  it('sends the client as HTTP Basic when the vendor asks for it, with the body in the encoding it asks for', async () => {
-    const sent: Array<{ headers: Record<string, string>; body: string }> = [];
-    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
-      sent.push({ headers: init.headers as Record<string, string>, body: String(init.body) });
-      return new Response(JSON.stringify({ access_token: 'a1' }), { status: 200 });
-    });
-
-    const body = await postTokenRequest({ vendor: 'Notion', url: 'https://api.notion.com/v1/oauth/token', params: { grant_type: 'authorization_code', code: 'c1' }, encoding: 'json', basicAuth: { clientId: 'id', clientSecret: 'shh' } });
-
-    expect(body).toEqual({ access_token: 'a1' });
-    expect(sent[0]!.headers.authorization).toBe(`Basic ${Buffer.from('id:shh').toString('base64')}`);
-    expect(sent[0]!.headers['content-type']).toBe('application/json');
-    expect(JSON.parse(sent[0]!.body)).toEqual({ grant_type: 'authorization_code', code: 'c1' });
   });
 });

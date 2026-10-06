@@ -12,7 +12,7 @@ const env: Record<string, string | undefined> = {};
 vi.mock('@/libs/Env', () => ({ Env: env }));
 vi.mock('@/libs/DB');
 
-const { TokenRequestError } = await import('@/libs/connect/loginGrant');
+const { TokenRequestError } = await import('@/libs/connect/tokenRequest');
 const { refreshZoomGrant, zoomProvider } = await import('@/libs/connect/providers/zoom');
 
 type Call = { url: string; init: RequestInit };

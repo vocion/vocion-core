@@ -13,7 +13,8 @@ import type { RefreshedTokens } from '../loginGrant';
 import type { ConnectProvider } from '../provider';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
-import { grantExpiresAt, postTokenRequest, TokenRequestError } from '../loginGrant';
+import { grantExpiresAt } from '../loginGrant';
+import { postTokenRequest, TokenRequestError } from '../tokenRequest';
 
 const AUTHORIZE_URL = 'https://app.hubspot.com/oauth/authorize';
 const TOKEN_URL = 'https://api.hubapi.com/oauth/v1/token';

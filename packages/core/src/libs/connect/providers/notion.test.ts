@@ -7,7 +7,7 @@ vi.mock('@/libs/Env', () => ({ Env: env }));
 vi.mock('@/libs/DB', () => ({ db: {} }));
 
 const { notionProvider } = await import('./notion');
-const { notionConnector } = await import('@/libs/sources/notion');
+const { DEFAULT_NOTION_VERSION, notionConnector } = await import('@/libs/sources/notion');
 
 const REDIRECT = 'https://v.example/api/connect/notion/callback';
 
@@ -69,6 +69,17 @@ describe('notion connect provider', () => {
       credentials: { token: 'ntn_abc', refreshToken: 'ref_1', workspaceId: 'w1', workspaceName: 'Noco', botId: 'b1' },
     });
     expect(result.ok && notionProvider.summarize(result.credentials)).toEqual({ account: 'Noco (Notion workspace)' });
+  });
+
+  it('sends the Notion-Version header Notion\'s token endpoint requires, at the version the sync reads with', async () => {
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({ access_token: 'ntn_abc', bot_id: 'b1', workspace_id: 'w1', workspace_name: 'Noco' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchStub);
+
+    await notionProvider.exchange({ query: { code: 'c0de' }, redirectUri: REDIRECT });
+
+    const headers = (fetchStub.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+
+    expect(headers['Notion-Version']).toBe(DEFAULT_NOTION_VERSION);
   });
 
   it('omits the refresh token when Notion sends null', async () => {
