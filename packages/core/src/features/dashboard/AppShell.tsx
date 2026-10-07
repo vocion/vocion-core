@@ -17,12 +17,14 @@ import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspacePausedBanner } from '@/features/dashboard/WorkspaceOffSwitch';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
+import { installedApps, splitNavByApp } from '@/features/navigation/apps';
 import { NavigationTrail } from '@/features/navigation/cameFrom';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
 import { pluginNav } from '@/features/navigation/pluginNav';
 import { isSurfaceId } from '@/features/navigation/surfaces';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { safeListApps } from '@/libs/workspace/apps';
 import { readWorkspacePages } from '@/libs/workspace/pages';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
@@ -33,6 +35,9 @@ import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/Works
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
+
+/** The rail (3.5rem) beside a 14.5rem nav, and beside the 3.5rem icon nav when collapsed. */
+const SIDEBAR_WIDTHS = { '--sidebar-width': '18rem', '--sidebar-width-icon': '7rem' } as React.CSSProperties;
 
 /**
  * The signed-in application shell — sidebar, header, drift banner. Shared by
@@ -136,6 +141,16 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     pages,
     routes: DASHBOARD_ROUTES,
   });
+  // The rail's apps for this workspace (templates/apps, installed when one of
+  // their plugins is on) and each row handed to the app that owns it; the
+  // core app (Workforce) keeps the rest, in the shape the sidebar always drew.
+  const byApp = splitNavByApp({
+    apps: installedApps(enabledPlugins, enabledSurfaces, safeListApps()),
+    nav,
+    surfaces: enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id)),
+    pages: pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary })),
+    coreRoutes: DASHBOARD_ROUTES,
+  });
   // This workspace's spend vs cap this period — the header avatar's ring and
   // the menu's usage row. Hidden entirely when no budget exists.
   //
@@ -169,17 +184,20 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     // viewport and grey below it (Chris, 2026-09-22, trying to send feedback:
     // "This full screen capture doesn't work. FIX"). A person who cannot
     // capture a page cannot report what is wrong with it.
-    <SidebarProvider defaultOpen={defaultOpen} className="min-h-svh md:h-svh md:overflow-hidden">
+    // The sidebar is the app rail (3.5rem) plus the selected app's nav, so both
+    // widths carry the rail: collapsed, the rail stays and the nav is icons.
+    <SidebarProvider defaultOpen={defaultOpen} className="min-h-svh md:h-svh md:overflow-hidden" style={SIDEBAR_WIDTHS}>
       {/* Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail
           instead of sliding off-canvas; the rail toggle / ⌘B persist it. */}
       <AppSidebar
         collapsible="icon"
         isAdmin={isAdmin}
         enabledPlugins={enabledPlugins}
-        enabledSurfaces={enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id))}
-        pluginNav={nav}
+        enabledSurfaces={byApp.core.surfaces.filter(isSurfaceId)}
+        pluginNav={byApp.core.nav}
         needsYouCount={waiting}
-        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary }))}
+        workspacePages={byApp.core.pages}
+        apps={byApp.apps}
       />
       <SidebarInset className="md:min-h-0 md:overflow-hidden">
         <ShellBarActionsProvider>

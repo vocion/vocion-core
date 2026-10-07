@@ -14,6 +14,7 @@ import {
   remove as removeComment,
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
+import { forUser as appsForUserRoute } from './Apps';
 import {
   featureShare as artifactFeatureShareRoute,
   folders as artifactFoldersRoute,
@@ -227,6 +228,9 @@ export const router = {
     updateName: updateNameRoute,
     updatePhone: updatePhoneRoute,
     changePassword: changePasswordRoute,
+  },
+  apps: {
+    forUser: appsForUserRoute,
   },
   projects: {
     list: listProjects,

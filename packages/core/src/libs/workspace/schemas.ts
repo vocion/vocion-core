@@ -393,6 +393,43 @@ export const PluginManifestSchema = z.object({
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
 /**
+ * App manifest — `templates/apps/<id>/app.yaml`. An app is what a person picks
+ * in the dashboard's left rail: a named set of plugins and the nav sections
+ * their rows sit in. It adds no capability of its own — it is installed in a
+ * workspace exactly when one of its plugins (or surfaces) is on there, so
+ * `project.enabled_plugins` stays the one record of what a workspace has.
+ * The `core` app (Workforce) is installed everywhere and keeps every row no
+ * other app claims. Read by `libs/workspace/apps.ts`, resolved by
+ * `features/navigation/apps.ts`.
+ */
+export const AppManifestSchema = z.object({
+  id: SlugSchema,
+  name: z.string().min(1),
+  /** lucide icon name, resolved by `features/dashboard/iconByName.ts`. */
+  icon: z.string().min(1),
+  /** Position in the rail, lowest first. */
+  order: z.number().default(100),
+  /** The app every workspace has. Exactly one shipped app sets it. */
+  core: z.boolean().default(false),
+  /** A registry slot not offered yet: never installed, never in the rail. */
+  hidden: z.boolean().default(false),
+  description: z.string().min(1).describe('one line: what the app is for'),
+  /** Member plugin slugs. Any one of them on puts the app in the workspace. */
+  plugins: z.array(SlugSchema).default([]),
+  /** Core-registered surfaces (`features/navigation/surfaces.ts`) that belong to the app. */
+  surfaces: z.array(z.string().min(1)).default([]),
+  /** Where picking the app in the rail lands, when that row is there. */
+  entry: z.string().regex(/^\//, 'entry is a dashboard path, e.g. /dashboard/chat'),
+  /**
+   * The nav section labels (`plugin.yaml` / page `nav.section`) this app owns.
+   * A workspace page that joins one of them sits inside the app; a plugin row
+   * in the default section is shown under the first.
+   */
+  nav: z.array(z.string().min(1)).default([]),
+}).refine(a => !a.core || a.plugins.length === 0, { message: 'the core app lists no plugins — it keeps every row no other app claims', path: ['plugins'] });
+export type AppManifest = z.infer<typeof AppManifestSchema>;
+
+/**
  * Team manifest (F1) — workspace/<org>/teams/<slug>.yaml. The team's
  * slug comes from the FILENAME (no `slug:` field), so a team cannot
  * disagree with its own path. Teams are flat by construction: there is

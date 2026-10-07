@@ -102,3 +102,40 @@ describe('WorkspaceSwitcher, open', () => {
     await expect.element(page.getByRole('group', { name: 'Contoso' }).getByRole('option', { name: /Ops/ })).toBeVisible();
   });
 });
+
+/**
+ * An app's workspace picker is this same switcher (Vocion 3.0): handed only
+ * the workspaces that have the app, a placeholder for when the current one is
+ * not among them, and the page each switch lands on.
+ */
+describe('WorkspaceSwitcher as an app\'s picker', () => {
+  const contosoOps: SwitcherProject = { id: 'p-contoso-ops', slug: 'ops', name: 'Ops', agentCount: 1, accountId: 'acct-contoso' };
+
+  it('reads as a prompt, not as the first workspace, when the current one does not have the app', async () => {
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider>
+          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[contosoOps]} activeId="p-contoso-support" placeholder="Pick a workspace" navigate={() => {}} />
+        </SidebarProvider>
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByRole('button', { name: 'Switch workspace' })).toHaveTextContent(/Pick a workspace/);
+    expect(page.getByText('Ops').elements()).toHaveLength(0);
+  });
+
+  it('switches to the page the picker says, through the workspace entry route', async () => {
+    const navigate = vi.fn();
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider>
+          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[PROJECTS[1]!, contosoOps]} activeId="p-contoso-support" defaultOpen side="bottom" targetPath={() => '/dashboard/p/products'} navigate={navigate} />
+        </SidebarProvider>
+      </NextIntlClientProvider>,
+    );
+
+    await page.getByRole('option', { name: /Ops/ }).click();
+
+    expect(navigate).toHaveBeenCalledWith('/w/ops/dashboard/p/products');
+  });
+});

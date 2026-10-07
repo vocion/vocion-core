@@ -1,5 +1,6 @@
 'use client';
 
+import type { WorkspaceDirectory } from './useWorkspaceDirectory';
 import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
 import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
@@ -10,12 +11,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useSidebar } from '@/components/ui/useSidebar';
 import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
-import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
- * Workspace context, bottom-left (ElevenLabs pattern, Chris 2026-09-15): the
+ * Workspace context, at the head of the selected app's nav (Vocion 3.0 —
+ * it was bottom-left before the app rail; ElevenLabs pattern, Chris 2026-09-15): the
  * workspace's initial-avatar in its accent, its name, the account beneath,
  * and a visible ⇄ Switch affordance. Clicking opens the workspace list
  * directly — search, the person's workspaces (name, slug, check on the current
@@ -27,6 +28,11 @@ import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, pro
  * follows the picked workspace (vocion-core#128). The header's
  * avatar menu opens this same popover via {@link OPEN_WORKSPACE_SWITCHER}.
  * Collapsed to the icon rail, the avatar alone is the button.
+ *
+ * It is also every app's workspace picker — one switcher, not one per app
+ * (principle 6): the sidebar hands it only the workspaces that have the
+ * selected app, a `placeholder` for when the current workspace is not one of
+ * them, and `targetPath` to say which page the switch lands on.
  */
 
 export const OPEN_WORKSPACE_SWITCHER = 'vocion:open-workspace-switcher';
@@ -51,6 +57,16 @@ export type WorkspaceSwitcherProps = {
   /** Force the popover open (stories). */
   defaultOpen?: boolean;
   collapsed?: boolean;
+  /**
+   * Shown in place of a name when `activeId` is not in `projects` — an app
+   * picker the current workspace is not listed in. Without it the first
+   * workspace stands in for the active one, as it always has.
+   */
+  placeholder?: string;
+  /** The page a switch to `p` lands on. Default: the page the person is on. */
+  targetPath?: (p: SwitcherProject, pathname: string) => string;
+  /** Which way the list opens. Default: up, as it did from the bottom of the sidebar. */
+  side?: 'top' | 'bottom';
 };
 
 /**
@@ -108,7 +124,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
 
   const loading = props.projects === null;
   const projects = props.projects ?? [];
-  const active = projects.find(p => p.id === props.activeId) ?? projects[0] ?? null;
+  const active = projects.find(p => p.id === props.activeId) ?? (props.placeholder === undefined ? projects[0] ?? null : null);
   const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null }), [projects, query, showEmpty, active]);
   const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null);
   const accounts = props.accounts ?? [];
@@ -122,7 +138,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     }
     const href = workspaceSwitchHref({
       slug: p.slug,
-      pathname,
+      pathname: props.targetPath ? props.targetPath(p, pathname) : pathname,
       search: typeof window === 'undefined' ? '' : window.location.search,
       locale,
       defaultLocale: routing.defaultLocale,
@@ -131,7 +147,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     (props.navigate ?? (h => window.location.assign(h)))(href);
   };
 
-  const name = active?.name ?? (loading ? '' : t('workspace_fallback'));
+  const name = active?.name ?? (loading ? '' : props.placeholder ?? t('workspace_fallback'));
   // The collapsed rail shows no account line, so with two accounts the label
   // names it: two "Support" workspaces on two accounts must not read the same.
   const railLabel = name && accounts.length > 1 && props.account?.name ? `${name} · ${props.account.name}` : name;
@@ -187,7 +203,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
       {/* On a touch device the popover must not hand focus to the search box:
           that raises the keyboard over the list a person opened to TAP
           (Chris, 2026-09-24). A pointer keeps keyboard-first. */}
-      <PopoverContent align="start" side={props.collapsed ? 'right' : 'top'} className="w-72 p-0" onOpenAutoFocus={keepKeyboardDownOnTouch}>
+      <PopoverContent align="start" side={props.collapsed ? 'right' : (props.side ?? 'top')} className="w-72 p-0" onOpenAutoFocus={keepKeyboardDownOnTouch}>
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <Search className="size-4 shrink-0 text-muted-foreground/60" aria-hidden />
           <input
@@ -238,41 +254,43 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
 }
 
 /**
- * The live switcher: loads the account + projects once, reads the active project from the session.
- * @param root0
- * @param root0.onManage
+ * The live switcher: the directory the sidebar loaded, the active project from the session.
+ * @param props - The switcher's inputs.
+ * @param props.directory - What `useWorkspaceDirectory` loaded; null while loading.
+ * @param props.only - Project ids to list (an app's workspaces); omitted lists every one.
+ * @param props.onManage - The "Workspace settings" row's action.
+ * @param props.placeholder - Shown when the current workspace is not in the list.
+ * @param props.targetPath - The page a switch lands on.
  */
-export function WorkspaceSwitcherLive({ onManage }: { onManage?: () => void }) {
+export function WorkspaceSwitcherLive(props: {
+  directory: WorkspaceDirectory | null;
+  only?: readonly string[];
+  onManage?: () => void;
+  placeholder?: string;
+  targetPath?: WorkspaceSwitcherProps['targetPath'];
+}) {
   const { data: session } = useSession();
   const { state } = useSidebar();
-  const [data, setData] = useState<{ projects: SwitcherProject[]; accounts: SwitcherAccount[]; account: { id: string; name: string } | null } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    client.projects.list()
-      .then((r) => {
-        if (!cancelled) {
-          setData({ projects: r.projects, accounts: r.accounts, account: r.account ? { id: r.account.id, name: r.account.name } : null });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setData({ projects: [], accounts: [], account: null });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const data = props.directory;
+  const only = props.only;
+  const projects = useMemo(() => {
+    if (!data) {
+      return null;
+    }
+    return only ? data.projects.filter(p => only.includes(p.id)) : data.projects;
+  }, [data, only]);
 
   return (
     <WorkspaceSwitcher
       account={data?.account ?? null}
       accounts={data?.accounts ?? []}
-      projects={data?.projects ?? null}
+      projects={projects}
       activeId={session?.user?.projectId ?? null}
-      onManage={onManage}
+      onManage={props.onManage}
       collapsed={state === 'collapsed'}
+      placeholder={props.placeholder}
+      targetPath={props.targetPath}
+      side="bottom"
     />
   );
 }

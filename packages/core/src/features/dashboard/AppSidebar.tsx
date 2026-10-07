@@ -1,7 +1,9 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { RailApp } from './nav/AppRail';
 import type { PinnableItem } from './nav/navPins';
+import type { AppNav } from '@/features/navigation/apps';
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { PluginNav } from '@/features/navigation/pluginNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
@@ -14,18 +16,29 @@ import { useSidebar } from '@/components/ui/useSidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
+import { AppRail } from '@/features/dashboard/nav/AppRail';
 import { applyPins, defaultPinDismissal, resolveWorkPins, withoutPins } from '@/features/dashboard/nav/navPins';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
+import { useWorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
-import { OPEN_MANAGE_VIEW, readNavView, writeNavView } from '@/features/dashboard/useNavView';
+import { OPEN_MANAGE_VIEW, readNavApp, readNavView, writeNavApp, writeNavView } from '@/features/dashboard/useNavView';
+import { appOwningPath, resolveActiveApp, workspaceSwitchPath } from '@/features/navigation/apps';
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
 import { groupEnabledSurfaces } from '@/features/navigation/surfaces';
+import { usePathname } from '@/libs/I18nNavigation';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 
 /**
- * Dashboard left sidebar — two views, Linear-settings style:
+ * Dashboard left sidebar — the app rail (Vocion 3.0) and, beside it, the
+ * selected app's nav. Every app's nav opens with the workspace picker (the
+ * one switcher, filtered to the workspaces that have the app). Workforce, the
+ * core app, is the nav below; any other app (Software Factory, GTM) shows
+ * Chat and Review — shared by every app — and then only its own sections
+ * (`features/navigation/apps.ts` splits the rows by app manifest).
+ *
+ * Workforce's nav has two views, Linear-settings style:
  *
  *   WORK (default) — Workspace (the daily driver: Chat, Review queue, Briefings,
  *                    Search), Pinned (this person's pins, in pin order), Pages
@@ -89,7 +102,7 @@ function pluginIcon(url: string, name: string): LucideIcon {
   return DASHBOARD_ROUTES.find(r => r.url === url)?.icon ?? iconByName(name);
 }
 
-export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, apps = [], ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
   /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
@@ -102,6 +115,11 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   workspacePages?: WorkspaceNavPage[];
   /** Open items waiting on a person — shown as a badge on "Review queue" (the inbox PR supplies it). */
   needsYouCount?: number;
+  /**
+   * This workspace's apps (`splitNavByApp(...).apps`), core app included. The
+   * other props hold only the core app's rows. Empty: no rail, the nav as it was.
+   */
+  apps?: AppNav[];
 }) => {
   const t = useTranslations('DashboardLayout');
   const { state } = useSidebar();
@@ -129,6 +147,83 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     setView(v);
     writeNavView(globalThis.localStorage, v);
   };
+
+  // ---- the app rail ----
+  // Which app the nav shows. A page an app owns says its app; a shared page
+  // (Chat, Review, a record) keeps the app the person was last in. That is
+  // tracked here as the newest owning app seen on a navigation, adjusted
+  // while rendering when the path changes, and persisted per browser so a
+  // refresh on a shared page stays put.
+  const pathname = usePathname();
+  const directory = useWorkspaceDirectory();
+  const [lastApp, setLastApp] = useState<string | null>(() => appOwningPath(pathname, apps) ?? null);
+  const [seenPath, setSeenPath] = useState(pathname);
+  const [railPick, setRailPick] = useState<{ appId: string; path: string } | null>(null);
+  if (pathname !== seenPath) {
+    setSeenPath(pathname);
+    const owner = appOwningPath(pathname, apps);
+    if (owner && owner !== lastApp) {
+      setLastApp(owner);
+    }
+  }
+  useEffect(() => {
+    if (lastApp) {
+      writeNavApp(globalThis.localStorage, lastApp);
+    }
+  }, [lastApp]);
+  useEffect(() => {
+    const stored = readNavApp(globalThis.localStorage);
+    if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore, the same as the view above
+      setLastApp(current => current ?? stored);
+    }
+  }, []);
+  const railApps = useMemo<RailApp[]>(() => {
+    const here = new Map(apps.map(a => [a.id, a]));
+    const out: RailApp[] = apps.map(({ sections: _sections, owns: _owns, href, ...summary }) => ({ ...summary, href }));
+    for (const a of directory?.apps ?? []) {
+      if (!here.has(a.id)) {
+        out.push(a);
+      }
+    }
+    return out.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  }, [apps, directory]);
+  const coreAppNav = apps.find(a => a.core);
+  const activeAppId = resolveActiveApp({ pathname, apps, remembered: lastApp, pick: railPick, known: railApps.map(a => a.id) });
+  const activeApp = railApps.find(a => a.id === activeAppId);
+  const activeAppNav = apps.find(a => a.id === activeAppId);
+  const inCoreApp = !activeApp || activeApp.core;
+  // The manage view is the workspace's own configuration — Workforce's —
+  // so its picker lists every workspace, whichever app was open.
+  const pickerForAll = inCoreApp || view === 'manage';
+  const pickApp = (app: RailApp) => {
+    if (app.href) {
+      setRailPick(null);
+      setLastApp(app.id);
+      writeNavApp(globalThis.localStorage, app.id);
+    } else {
+      setRailPick({ appId: app.id, path: pathname });
+    }
+    if (view === 'manage') {
+      pick('work');
+    }
+  };
+  // Each app's picker lists the workspaces that have it; Workforce lists all.
+  const pickerOnly = useMemo(() => (pickerForAll || !activeAppId ? undefined : (directory?.workspacesByApp[activeAppId] ?? []).map(w => w.projectId)), [pickerForAll, activeAppId, directory]);
+  // The apps a workspace has, the core app always (even before the directory loads).
+  const appsOfProject = (projectId: string) => [
+    ...(coreAppNav ? [coreAppNav.id] : []),
+    ...Object.entries(directory?.workspacesByApp ?? {}).filter(([, ws]) => ws.some(w => w.projectId === projectId)).map(([id]) => id),
+  ];
+  const picker = (
+    <WorkspaceSwitcherLive
+      directory={directory}
+      only={pickerOnly}
+      onManage={() => pick('manage')}
+      placeholder={pickerForAll ? undefined : t('pick_workspace')}
+      targetPath={(p, from) => workspaceSwitchPath({ pathname: from, activeApp: activeAppId, hereApps: apps.map(a => a.id), targetApps: appsOfProject(p.id), appEntry: activeApp?.entry, coreEntry: coreAppNav?.href ?? from })}
+    />
+  );
 
   // Sidebar labels come from the registry's i18n keys (typed against en.json);
   // the English title is the fallback for a route that has none yet.
@@ -246,121 +341,174 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
 
   const pinLabels = { moreLabel: t('more_pages'), pinLabel: t('pin'), unpinLabel: t('unpin') };
 
-  return (
-    <Sidebar {...props}>
-      <SidebarHeader className="pt-5">
-        {/* Brand block — mark + wordmark, nothing else. */}
-        <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          {/* eslint-disable-next-line next/no-img-element */}
-          <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
-          {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
-        </div>
+  const manageRow = (
+    <div className="px-2 pb-1 group-data-[collapsible=icon]:px-0">
+      <ManageWorkspaceRow label={t('manage_workspace')} collapsed={collapsed} onOpen={() => pick('manage')} />
+    </div>
+  );
+
+  // A non-core app's nav: Chat and Review (every app shares them), then its
+  // own sections. An app this workspace does not have shows its picker and
+  // one line saying where it is.
+  const appWork = (
+    <>
+      {activeAppNav
+        ? (
+            <>
+              <AppSidebarNav items={workCore.map(i => ({ title: i.title, url: i.url, icon: i.icon, badge: i.badge }))} />
+              {activeAppNav.sections.map(section => (
+                <AppSidebarNav
+                  key={`app:${section.label}`}
+                  label={section.label}
+                  items={section.items.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), ...(i.secondary ? { secondary: true } : {}) }))}
+                  moreLabel={t('more')}
+                />
+              ))}
+            </>
+          )
+        : (
+            <p data-testid="app-not-here" className="px-4 py-3 text-[12px] leading-relaxed text-muted-foreground group-data-[collapsible=icon]:hidden">
+              {t('app_not_in_workspace', { app: activeApp?.name ?? '' })}
+            </p>
+          )}
+      <div className="mt-auto">{manageRow}</div>
+    </>
+  );
+
+  const nav = (
+    <>
+      {/* Every app's nav opens with the workspace picker. */}
+      <SidebarHeader className="pt-4 pb-1 group-data-[collapsible=icon]:px-0">
+        {railApps.length === 0 && (
+          // No rail (a story, or a catalogue that failed to read): the brand
+          // sits here, as it did before the rail.
+          <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+            {/* eslint-disable-next-line next/no-img-element */}
+            <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
+            {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
+          </div>
+        )}
+        <div className="px-0 group-data-[collapsible=icon]:px-0">{picker}</div>
       </SidebarHeader>
 
       <SidebarContent>
-        {view === 'work'
-          ? (
-              <>
-                {/* WORKSPACE — the permanent Vocion pages. */}
-                <PinnableNav
-                  label={t('main_section_label')}
-                  items={workspaceItems}
-                  pins={workPins}
-                  onTogglePin={toggleWorkPin}
-                  max={workShown}
-                  moreLabel={t('more')}
-                  pinLabel={t('pin')}
-                  unpinLabel={t('unpin')}
-                />
-
-                {/* PINNED — this person's pins, in pin order, draggable. */}
-                {pinned.length > 0 && (
+        {view === 'work' && !inCoreApp
+          ? appWork
+          : view === 'work'
+            ? (
+                <>
+                  {/* WORKSPACE — the permanent Vocion pages. */}
                   <PinnableNav
-                    label={t('pinned')}
-                    items={pinned}
+                    label={t('main_section_label')}
+                    items={workspaceItems}
+                    pins={workPins}
+                    onTogglePin={toggleWorkPin}
+                    max={workShown}
+                    moreLabel={t('more')}
+                    pinLabel={t('pin')}
+                    unpinLabel={t('unpin')}
+                  />
+
+                  {/* PINNED — this person's pins, in pin order, draggable. */}
+                  {pinned.length > 0 && (
+                    <PinnableNav
+                      label={t('pinned')}
+                      items={pinned}
+                      pins={prefs.pins}
+                      onTogglePin={prefs.togglePin}
+                      onMovePin={prefs.movePin}
+                      max={99}
+                      reorderable
+                      {...pinLabels}
+                    />
+                  )}
+
+                  {/* PAGES — the workspace's own pages. A page that declared
+                      itself `nav.secondary` sits under "More" however few pages
+                      there are: a factory log, a cost ledger and a decisions
+                      archive are forensic, and hiding them behind a COUNT meant
+                      a six-page workspace showed all six with equal weight.
+                      They are sorted last and the cut is made just above them,
+                      so ordinary overflow still applies to everything else. */}
+                  <PinnableNav
+                    label={t('pages')}
+                    items={pagesPrimaryFirst}
                     pins={prefs.pins}
                     onTogglePin={prefs.togglePin}
-                    onMovePin={prefs.movePin}
-                    max={99}
-                    reorderable
+                    max={Math.min(PAGES_MAX, primaryPageCount)}
                     {...pinLabels}
                   />
-                )}
 
-                {/* PAGES — the workspace's own pages. A page that declared
-                    itself `nav.secondary` sits under "More" however few pages
-                    there are: a factory log, a cost ledger and a decisions
-                    archive are forensic, and hiding them behind a COUNT meant
-                    a six-page workspace showed all six with equal weight.
-                    They are sorted last and the cut is made just above them,
-                    so ordinary overflow still applies to everything else. */}
-                <PinnableNav
-                  label={t('pages')}
-                  items={pagesPrimaryFirst}
-                  pins={prefs.pins}
-                  onTogglePin={prefs.togglePin}
-                  max={Math.min(PAGES_MAX, primaryPageCount)}
-                  {...pinLabels}
-                />
+                  {/* Named sections no app owns: the workspace's surfaces and
+                      plugin sections that belong to no app manifest, one group
+                      per heading. An app's own sections are in that app. */}
+                  {appSections.map(section => (
+                    <AppSidebarNav key={`app:${section.label}`} label={section.label} items={section.items} moreLabel={t('more')} />
+                  ))}
 
-                {/* Named apps: the workspace's surfaces (workspace.yaml `surfaces:`) and
-                    the plugins that belong to the app (plugin.yaml `nav.section: GTM`),
-                    one group per heading. Renders nothing when none are on. */}
-                {appSections.map(section => (
-                  <AppSidebarNav key={`app:${section.label}`} label={section.label} items={section.items} moreLabel={t('more')} />
-                ))}
-
-                {/* Bottom cluster: invite card (dismissible, remembered),
-                    which workspace you're in + the door to its configuration. */}
-                <div className="mt-auto">
-                  {!prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
-                  {/* The visible door to MANAGE — everything configurational is
-                      behind it, so it is a row in the nav, not only a line in a
-                      popover. Icon rail: the gear alone, with a tooltip. */}
-                  <div className="px-2 pb-1 group-data-[collapsible=icon]:px-0">
-                    <ManageWorkspaceRow label={t('manage_workspace')} collapsed={collapsed} onOpen={() => pick('manage')} />
+                  {/* Bottom cluster: invite card (dismissible, remembered) and
+                      the door to the workspace's configuration. */}
+                  <div className="mt-auto">
+                    {!prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
+                    {/* The visible door to MANAGE — everything configurational is
+                        behind it, so it is a row in the nav, not only a line in a
+                        popover. Icon rail: the gear alone, with a tooltip. */}
+                    {manageRow}
                   </div>
-                  {/* Workspace context: avatar · name · account · ⇄ Switch. */}
-                  <div className="px-2 pb-2 group-data-[collapsible=icon]:px-0">
-                    <WorkspaceSwitcherLive onManage={() => pick('manage')} />
+                </>
+              )
+            : (
+                <>
+                  <div className="px-2 pt-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => pick('work')}
+                          aria-label={t('back_to_work')}
+                          className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-surface-hover hover:text-foreground"
+                        >
+                          <ArrowLeft className="size-4 shrink-0" aria-hidden />
+                          <span className="group-data-[collapsible=icon]:hidden">{t('back_to_work')}</span>
+                        </button>
+                      </TooltipTrigger>
+                      {/* The label is hidden in the icon rail; the way out must
+                          not be. */}
+                      <TooltipContent side="right" collisionPadding={8} hidden={!collapsed}>{t('back_to_work')}</TooltipContent>
+                    </Tooltip>
                   </div>
-                </div>
-              </>
-            )
-          : (
-              <>
-                <div className="px-2 pt-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => pick('work')}
-                        aria-label={t('back_to_work')}
-                        className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-surface-hover hover:text-foreground"
-                      >
-                        <ArrowLeft className="size-4 shrink-0" aria-hidden />
-                        <span className="group-data-[collapsible=icon]:hidden">{t('back_to_work')}</span>
-                      </button>
-                    </TooltipTrigger>
-                    {/* The label is hidden in the icon rail; the way out must
-                        not be. */}
-                    <TooltipContent side="right" collisionPadding={8} hidden={!collapsed}>{t('back_to_work')}</TooltipContent>
-                  </Tooltip>
-                </div>
-                {/* MANAGE — who works for you + the shapes their work takes.
-                    Every row is pinnable into the WORK view's Pinned group. */}
-                {pinned.length > 0 && (
-                  <PinnableNav label={t('pinned')} items={pinned} pins={prefs.pins} onTogglePin={prefs.togglePin} onMovePin={prefs.movePin} max={99} reorderable {...pinLabels} />
-                )}
-                {manageSections.map(manageGroup)}
-                <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />
-
-                <div className="mt-auto px-2 pb-2 group-data-[collapsible=icon]:px-0">
-                  <WorkspaceSwitcherLive onManage={() => pick('manage')} />
-                </div>
-              </>
-            )}
+                  {/* MANAGE — who works for you + the shapes their work takes.
+                      Every row is pinnable into the WORK view's Pinned group. */}
+                  {pinned.length > 0 && (
+                    <PinnableNav label={t('pinned')} items={pinned} pins={prefs.pins} onTogglePin={prefs.togglePin} onMovePin={prefs.movePin} max={99} reorderable {...pinLabels} />
+                  )}
+                  {manageSections.map(manageGroup)}
+                  <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />
+                </>
+              )}
       </SidebarContent>
+    </>
+  );
+
+  return (
+    <Sidebar {...props}>
+      {railApps.length > 0
+        ? (
+            <div className="flex min-h-0 flex-1">
+              <AppRail
+                apps={railApps}
+                activeId={view === 'manage' ? coreAppNav?.id : activeAppId}
+                onPick={pickApp}
+                brandMark={BRAND_MARK}
+                label={t('apps')}
+                addLabel={t('add_app')}
+                addHref="/dashboard/marketplace/plugins"
+                elsewhereLabel={t('app_elsewhere')}
+              />
+              <div className="flex min-w-0 flex-1 flex-col">{nav}</div>
+            </div>
+          )
+        : nav}
 
       {/* The © / attribution line lives in the account menu now (B-034b §3). */}
       <SidebarRail />

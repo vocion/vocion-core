@@ -44,3 +44,26 @@ export function openManageView(): void {
   writeNavView(globalThis.localStorage, 'manage');
   window.dispatchEvent(new Event(OPEN_MANAGE_VIEW));
 }
+
+/**
+ * The app the person was last in, per browser — read only on a page no app
+ * owns (Chat, Review, a record), so a refresh there stays in the app they
+ * came from. A page an app owns always says its own app (`features/navigation/apps.ts`).
+ */
+export const NAV_APP_KEY = 'vocion:nav:app';
+
+export function readNavApp(storage: StorageLike | null | undefined): string | null {
+  try {
+    return storage?.getItem(NAV_APP_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeNavApp(storage: StorageLike | null | undefined, appId: string): void {
+  try {
+    storage?.setItem(NAV_APP_KEY, appId);
+  } catch {
+    // private mode / quota — the app still switches for this page load
+  }
+}

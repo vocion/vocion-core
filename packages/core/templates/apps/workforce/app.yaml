@@ -1,0 +1,13 @@
+# The core app. Every workspace has it: the agents, the teams, the knowledge
+# and the workspace's own configuration. It owns the dashboard's built-in
+# sections (features/navigation/dashboardNav.ts DASHBOARD_GROUPS) and every
+# row no other app claims.
+id: workforce
+name: Workforce
+icon: users
+order: 0
+core: true
+description: Your agents and teams, what they know, and how the workspace runs.
+plugins: []
+entry: /dashboard/chat
+nav: [Workspace, Team, Knowledge, Build, Insights, Organization]
