@@ -22,6 +22,17 @@ vi.mock('@/services/AgentService', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/AgentService')>()),
   runAgentDeep: vi.fn(),
 }));
+// Filing a card the asked workspace put up is the action rail's business; here
+// it only has to land as that workspace's pending run.
+vi.mock('@/services/chat/autoPropose', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/services/chat/autoPropose')>()),
+  autoProposeRecommendationDetailed: vi.fn(async ({ orgId, rec }: { orgId: string; rec: { actionId: string; input?: Record<string, unknown> } }) => {
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema } = await import('@/models/Schema');
+    const [run] = await db.insert(actionRunSchema).values({ orgId, actionId: rec.actionId, input: rec.input ?? {}, status: 'pending' }).returning();
+    return { runId: run!.id, status: 'pending' };
+  }),
+}));
 
 const { db } = await import('@/libs/DB');
 const { and, eq } = await import('drizzle-orm');
@@ -39,7 +50,7 @@ const {
 const { runAgentDeep } = await import('@/services/AgentService');
 const { ensurePersonalProject } = await import('@/services/workspace/personalProject');
 const { createConversation, getConversation, listConversations } = await import('@/services/ConversationService');
-const { assistantTools } = await import('./assistant');
+const { assistantTools, raisedCard } = await import('./assistant');
 
 const NORTHWIND = 'acct-asst-northwind';
 const KESTREL = 'acct-asst-kestrel';
@@ -278,7 +289,7 @@ describe('ask_workspace on a workspace the person can act in', () => {
     expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}`);
   });
 
-  it('shows the workspace\'s steps nested under one "Asking …" row', async () => {
+  it('shows the workspace\'s steps nested under one "Asking …" row, which reads "Asked …" once answered', async () => {
     revenueAnswers();
     const ctx = assistantCtx();
     await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Where does the Contoso renewal stand?' });
@@ -286,7 +297,10 @@ describe('ask_workspace on a workspace the person can act in', () => {
     const row = nodes[0]!;
 
     expect(row).toMatchObject({ kind: 'delegate', status: 'start', label: 'Asking Revenue Team' });
-    expect(nodes.at(-1)).toMatchObject({ id: row.id, kind: 'delegate', status: 'done', label: 'Revenue Team answered' });
+    // Both tenses name the ask, so a folded group says "Asked Revenue Team"
+    // rather than "Consulted Revenue Team answered"; who answered is the result.
+    expect(row.labels).toEqual({ running: 'Asking Revenue Team', done: 'Asked Revenue Team' });
+    expect(nodes.at(-1)).toMatchObject({ id: row.id, kind: 'delegate', status: 'done', label: 'Asked Revenue Team', result: 'Revenue Lead answered' });
 
     const inner = nodes.filter(n => n.id !== row.id);
 
@@ -329,5 +343,102 @@ describe('ask_workspace on a workspace the person can act in', () => {
 
     expect(out).toContain('Revenue Team answered');
     expect(vi.mocked(runAgentDeep).mock.calls[0]![0].orgId).toBe(REVENUE);
+  });
+});
+
+/**
+ * 5.0 screen capture: when the asked workspace filed an approval, the person's
+ * own thread said so in words and the card was only in that workspace's
+ * Review. It now comes back as a card in the asking thread, naming the
+ * workspace its run lives in so it is decided there, as the person, while the
+ * run stays that workspace's record.
+ */
+describe('ask_workspace brings what the workspace filed back as cards', () => {
+  it('puts the filed proposal up as a card here, carrying the workspace its run lives in', async () => {
+    const [run] = await db.insert(actionRunSchema).values({
+      orgId: REVENUE,
+      actionId: 'email.send',
+      status: 'pending',
+      invokedBy: 'agent:revenue-lead',
+      input: { to: 'buyer@contoso.example', subject: 'Order form', body: 'Attached.' },
+      proposal: { confidence: 0.82, rationale: 'Legal asked for it on the Sep 14 call.', agentSlug: 'revenue-lead', suggestedDecision: 'approve', suggestedDecisionReason: 'The renewal date is close.' },
+    }).returning();
+    revenueAnswers(run!.id);
+    const ctx = assistantCtx();
+
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form.' }));
+    const cards = ctx.events.filter((e): e is Extract<AgentEvent, { type: 'card' }> => e.type === 'card').map(e => e.card);
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      kind: 'action',
+      runId: run!.id,
+      state: 'filed',
+      workspace: { id: REVENUE, slug: 'revenue', name: 'Revenue Team', accountSlug: 'northwind-asst' },
+      actions: [{ actionId: 'email.send', input: { to: 'buyer@contoso.example', subject: 'Order form', body: 'Attached.' } }],
+      source: { agentSlug: 'revenue-lead', tool: 'ask_workspace' },
+      rationale: 'Legal asked for it on the Sep 14 call.',
+      confidence: 0.82,
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'The renewal date is close.',
+    });
+    expect(cards[0]!.title.length).toBeGreaterThan(0);
+
+    // The run did not move: it is still the workspace's, pending in its Review.
+    const [still] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, run!.id));
+
+    expect(still).toMatchObject({ orgId: REVENUE, status: 'pending' });
+    // The model is told the card is up here, and still gets the link.
+    expect(out).toContain('on a card in this thread now');
+    expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}`);
+  });
+
+  it('titles the card with the words the workspace\'s agent put on it, when it put one up', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(async (opts) => {
+      opts.onEvent?.({ type: 'recommended_action', recommendation: { label: 'Send Contoso the signed order form', actionId: 'email.send', input: { to: 'buyer@contoso.example' } } });
+      opts.onEvent?.({ type: 'response_delta', delta: 'I put up a card to send it.' });
+      return { response: 'I put up a card to send it.', traceId: 'trace-asst-2', toolCalls: [] };
+    });
+    const ctx = assistantCtx();
+    await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form.' });
+    const card = ctx.events.find((e): e is Extract<AgentEvent, { type: 'card' }> => e.type === 'card')?.card;
+    const [filed] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, REVENUE));
+
+    expect(filed).toBeDefined();
+    expect(card).toMatchObject({ title: 'Send Contoso the signed order form', runId: filed!.id, workspace: { id: REVENUE } });
+  });
+
+  it('leaves a filed question as its link: it is answered on its own page there, not as the run that filed it', async () => {
+    const [run] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'ask.file', status: 'done', invokedBy: 'agent:revenue-lead', input: { title: 'Which quarter?' }, result: { askId: 77 } }).returning();
+    revenueAnswers(run!.id);
+    const ctx = assistantCtx();
+
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Anything you need from me?' }));
+
+    expect(ctx.events.some(e => e.type === 'card')).toBe(false);
+    expect(out).toContain('A question for you');
+    expect(out).toContain('these stay there and the person decides them there');
+  });
+
+  it('puts up nothing when the workspace filed nothing', async () => {
+    revenueAnswers();
+    const ctx = assistantCtx();
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Where does the Contoso renewal stand?' }));
+
+    expect(ctx.events.some(e => e.type === 'card')).toBe(false);
+    expect(out).not.toContain('Raised in');
+  });
+});
+
+describe('raisedCard', () => {
+  const where = { id: REVENUE, slug: 'revenue', name: 'Revenue Team' };
+  const base = { id: 9, actionId: 'email.send', status: 'pending', tool: 'propose_action', outcome: null, askId: null, url: null, title: 'Send the order form', input: {}, rationale: null, confidence: null, agentSlug: null, suggestedDecision: null, suggestedDecisionReason: null };
+
+  it('is one card per run, whichever ask brought it back', () => {
+    expect(raisedCard(base, where)?.id).toBe(raisedCard({ ...base, tool: 'recommend_action' }, where)?.id);
+  });
+
+  it('is no card when the run names no action to press', () => {
+    expect(raisedCard({ ...base, actionId: '' }, where)).toBeNull();
   });
 });

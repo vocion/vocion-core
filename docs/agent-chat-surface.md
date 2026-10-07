@@ -29,16 +29,22 @@ never hide truth*).
 - §2.2 — **Asking another workspace** (2026-10-07). A person's own assistant
   (their personal workspace's lead, `templates/personal/agents/assistant.yaml`)
   reaches the shared workspaces they can act in with `ask_workspace`. The ask
-  is one delegate row, "Asking <workspace>…" → "<workspace> answered", and the
-  asked workspace's own steps indent beneath it as they happen, exactly like a
-  specialist's (§9). It is a nested turn, not a subagent: the workspace's lead
+  is one delegate row, "Asking <workspace>…" → "Asked <workspace> · <lead>
+  answered", and the asked workspace's own steps indent beneath it as they
+  happen, exactly like a specialist's (§9). It is a nested turn, not a
+  subagent: the workspace's lead
   runs in that workspace (`runAgentDeep({ orgId: <workspace>, userId: <person> })`),
   and the question and answer land there as a conversation with surface
   `assistant` and `parent_conversation_id` pointing at the asking thread. That
   conversation is the workspace's record, visible to its members; the asking
-  thread stays its owner's alone. Cards and asks the workspace raised stay
-  there, and the answer links them (`workspaceUrl`). See
-  `services/agents/tools/assistant.ts`.
+  thread stays its owner's alone. A proposal the workspace filed comes back
+  as a card in the asking thread (2026-10-07): the same action card, carrying
+  `card.workspace`, so its status, Approve, Defer and Undo go to that
+  workspace's run (`workspaceId` on the review routes, allowed exactly when
+  the person could switch there — `routers/actingWorkspace.ts`), and "Open in
+  <workspace>" opens it there. The run stays that workspace's record, in its
+  Review. A question it filed is answered on its own page there, and the
+  answer links it (`workspaceUrl`). See `services/agents/tools/assistant.ts`.
 
 ## §3 — The dock is a core component
 

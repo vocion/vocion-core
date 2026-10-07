@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardLink, cardShown, describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
+import { cardLink, cardShown, cardWorkspace, describeActionEffect, describeCardState, proposalHref, readRecommendedAction } from './recommendedAction';
 
 /**
  * On 2026-09-15 two `client.review.propose` calls 400'd with "Invalid input:
@@ -195,5 +195,34 @@ describe('in-app links on a card', () => {
 
   it('cardShown leaves keys that were not set absent', () => {
     expect(cardShown({})).toEqual({});
+  });
+});
+
+/**
+ * A card whose run lives in another workspace — one a person's assistant
+ * brought back from a workspace it asked (5.0 screen capture: it showed only
+ * in that workspace's Review). It names the workspace whole, keeps naming it
+ * after a reload, and its review link opens it there.
+ */
+describe('a card from another workspace', () => {
+  const revenue = { id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue', accountSlug: 'northwind' };
+
+  it('names its workspace only when the card names it whole', () => {
+    expect(cardWorkspace(revenue)).toEqual(revenue);
+    expect(cardWorkspace({ id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue' })).toEqual({ id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue' });
+    expect(cardWorkspace({ id: 'proj-revenue', slug: 'revenue' })).toBeUndefined();
+    expect(cardWorkspace('proj-revenue')).toBeUndefined();
+    expect(cardWorkspace(undefined)).toBeUndefined();
+  });
+
+  it('keeps it from the wire and from the stored row alike', () => {
+    expect(cardShown({ kind: 'action', workspace: revenue })).toMatchObject({ workspace: revenue });
+    expect(cardShown({ kind: 'action' })).not.toHaveProperty('workspace');
+  });
+
+  it('opens its proposal in its own workspace, and a card of this one where it always did', () => {
+    expect(proposalHref({ workspace: revenue }, 42)).toBe('/w/revenue/dashboard/inbox/proposal-42?account=northwind');
+    expect(proposalHref({}, 42)).toBe('/dashboard/inbox/proposal-42');
+    expect(proposalHref({}, undefined)).toBe('/dashboard/inbox?kind=proposal');
   });
 });

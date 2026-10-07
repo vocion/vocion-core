@@ -9,6 +9,14 @@ describe('the card contract', () => {
     expect(recommendationFromCard(card)).toEqual({ id: 'card_1', state: 'proposed', actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'Uploads drop on cellular' }, label: 'File this as a request', rationale: 'seven reports', confidence: 0.9, agentSlug: 'product-manager', suggestedDecision: 'approve', suggestedDecisionReason: 'a P1 bug' });
   });
 
+  it('a card may name the workspace its run lives in — whole, or not at all', () => {
+    const base = { id: 'card_run9', kind: 'action', title: 'Send the order form', actions: [{ label: 'Send', actionId: 'email.send' }], runId: 9, state: 'filed' };
+
+    expect(readCard({ ...base, workspace: { id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue' } })).toMatchObject({ ok: true, card: { workspace: { id: 'proj-revenue' } } });
+    expect(readCard({ ...base, workspace: { id: 'proj-revenue' } })).toMatchObject({ ok: false });
+    expect(readCard(base)).toMatchObject({ ok: true });
+  });
+
   it('a recommendation the server already filed is a filed card', () => {
     expect(cardFromRecommendation({ actionId: 'a', input: {}, label: 'x', runId: 3691 }, 'c')).toMatchObject({ runId: 3691, state: 'filed' });
   });

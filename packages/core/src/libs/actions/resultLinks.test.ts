@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
-import { resultLinks } from './resultLinks';
+import { linksInWorkspace, resultLinks } from './resultLinks';
 
 // A workspace whose requests open on a feature page, like the factory's.
 const link = recordLinker({ pages: new Map([['request', '/dashboard/p/feature/{id}']]), workspaceSlug: 'acme' });
@@ -47,5 +47,33 @@ describe('what a done run made, as links (Chris, 2026-09-29: "I expected a path 
     // An id whose only "type" is the action itself is not a record.
     expect(resultLinks({ actionId: 'ask.file', input: {}, result: { id: 3, objectType: 'ask.file' } }, generic)).toEqual([]);
     expect(resultLinks({ actionId: 'x', input: {}, result: { url: 'javascript:alert(1)', requestId: 0, workerRunId: 'abc' } }, generic)).toEqual([]);
+  });
+});
+
+describe('what a run in another workspace made, linked into that workspace', () => {
+  const made = {
+    href: '/dashboard/p/feature/201',
+    links: [
+      { label: 'feature #201', href: '/dashboard/p/feature/201', ref: { type: 'object' as const, id: '201' } },
+      { label: 'Pull request', href: 'https://github.example/northwind/app/pull/7', external: true },
+    ],
+  };
+
+  it('opens each in-app page through that workspace\'s entry route, drops the preview ref, and leaves an external link alone', () => {
+    expect(linksInWorkspace({ slug: 'revenue', accountSlug: 'northwind' }, made)).toEqual({
+      href: '/w/revenue/dashboard/p/feature/201?account=northwind',
+      links: [
+        { label: 'feature #201', href: '/w/revenue/dashboard/p/feature/201?account=northwind' },
+        { label: 'Pull request', href: 'https://github.example/northwind/app/pull/7', external: true },
+      ],
+    });
+  });
+
+  it('re-points a link already written for that workspace rather than nesting it', () => {
+    expect(linksInWorkspace({ slug: 'revenue' }, { href: '/w/revenue/dashboard/p/feature/201', links: [] }).href).toBe('/w/revenue/dashboard/p/feature/201');
+  });
+
+  it('changes nothing for a run in the session\'s own workspace', () => {
+    expect(linksInWorkspace(null, made)).toBe(made);
   });
 });

@@ -661,6 +661,11 @@ export async function runAgentDeep(opts: {
     if (event.type === 'card' && event.card.state === 'proposed') {
       handOffGuard.handOff(event.card.title);
     }
+    // A filed card a tool put up (one the assistant brought back from a
+    // workspace it asked) is on screen: the card pass must not write it again.
+    if (event.type === 'card' && event.card.runId !== undefined && event.card.actions.length > 0) {
+      emittedCards.push(event.card.title);
+    }
     if (event.type === 'record_created') {
       createdRecords.push(event.record);
     }

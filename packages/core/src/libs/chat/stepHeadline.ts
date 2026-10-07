@@ -14,6 +14,13 @@ export type HeadlineStep = {
   /** The step's finished label, e.g. `Read the brand guide`. */
   label: string;
   tool?: string;
+  /**
+   * Both tenses, when the step's producer wrote them. A delegate row that
+   * names its own pair ("Asking Northwind Revenue" / "Asked Northwind
+   * Revenue") already says what was done, so the headline says it as written
+   * instead of wrapping it in "consulted …".
+   */
+  labels?: { running: string; done: string };
 };
 
 const ARTIFACT_TOOLS = new Set(['render_markdown', 'render_document', 'edit_document', 'export_document_pdf', 'render_table', 'render_chart', 'render_record', 'create_artifact', 'update_artifact']);
@@ -27,6 +34,20 @@ function joinPhrases(phrases: string[]): string {
     return phrases[0] ?? '';
   }
   return `${phrases.slice(0, -1).join(', ')} and ${phrases[phrases.length - 1]}`;
+}
+
+/**
+ * What a delegation adds to the headline. A row whose producer named both
+ * tenses says its own past tense ("asked Northwind Revenue"); a subagent row
+ * from the trace emitter is a name with "finished" or a hand-off verb around
+ * it, and reads as consulting that name.
+ * @param s - The delegate step.
+ */
+function delegatePhrase(s: HeadlineStep): string {
+  if (s.labels?.done) {
+    return lower(s.labels.done);
+  }
+  return `consulted ${s.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to /, '').replace(/ finished$/, '')}`;
 }
 
 /**
@@ -53,9 +74,7 @@ export function stepHeadline(steps: HeadlineStep[], sources = 0): string {
     if (s.kind === 'search' || (s.tool && ARTIFACT_TOOLS.has(s.tool))) {
       continue;
     }
-    const phrase = s.kind === 'delegate'
-      ? `consulted ${s.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to /, '').replace(/ finished$/, '')}`
-      : lower(s.label);
+    const phrase = s.kind === 'delegate' ? delegatePhrase(s) : lower(s.label);
     if (!phrases.includes(phrase)) {
       phrases.push(phrase);
     }

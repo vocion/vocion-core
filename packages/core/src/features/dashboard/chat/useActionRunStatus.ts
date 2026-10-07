@@ -70,8 +70,11 @@ export function isRequestRejected(err: unknown): boolean {
  * @param runId - The run to follow.
  * @param nonce - Change it to read the status now rather than on the backoff —
  * after a decision, so the card does not sit on a stale "pending".
+ * @param workspaceId - The workspace the run lives in, when it is not this
+ * one (a card the person's assistant brought back). Its status is read there;
+ * this workspace's live stream carries no notice for it, so it is polled.
  */
-export function useActionRunStatus(runId: number | undefined, nonce = 0): ActionRunStatus | null {
+export function useActionRunStatus(runId: number | undefined, nonce = 0, workspaceId?: string): ActionRunStatus | null {
   const [state, setState] = useState<ActionRunStatus | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Bumped by a live notice: read now, wherever the card was decided.
@@ -82,7 +85,7 @@ export function useActionRunStatus(runId: number | undefined, nonce = 0): Action
   // rule, from another tab, or undone after it ran — and reads its status the
   // moment it changes. Polling below is only the fallback while the stream
   // is down.
-  const { live } = useLive(isPollableRunId(runId) ? [liveTopic.card(runId)] : [], () => setPushed(n => n + 1));
+  const { live } = useLive(isPollableRunId(runId) && !workspaceId ? [liveTopic.card(runId)] : [], () => setPushed(n => n + 1));
 
   useEffect(() => {
     // A run id that is not a positive integer is not a run: polling it just
@@ -98,7 +101,7 @@ export function useActionRunStatus(runId: number | undefined, nonce = 0): Action
 
     const tick = async () => {
       try {
-        const res = await client.review.actionStatus({ id }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null; links?: ResultLink[]; choice?: { label: string; byTrustBar: boolean } | null };
+        const res = await client.review.actionStatus({ id, ...(workspaceId ? { workspaceId } : {}) }) as { status: string; summary?: string | null; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null; recordHref?: string | null; recordHrefLabel?: string | null; links?: ResultLink[]; choice?: { label: string; byTrustBar: boolean } | null };
         if (cancelled) {
           return;
         }
@@ -138,7 +141,7 @@ export function useActionRunStatus(runId: number | undefined, nonce = 0): Action
         clearTimeout(timer.current);
       }
     };
-  }, [runId, nonce, pushed, live]);
+  }, [runId, nonce, pushed, live, workspaceId]);
 
   return state;
 }

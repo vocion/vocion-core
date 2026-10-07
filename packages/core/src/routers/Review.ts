@@ -12,6 +12,7 @@ import {
   submitWorkflowRunFeedback,
   WorkflowRunNotResumableError,
 } from '@/services/WorkflowService';
+import { actingOrgId } from './actingWorkspace';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
@@ -29,6 +30,13 @@ const ListWorkflowRunsInput = z.object({
 });
 
 const RunIdInput = z.object({ id: z.number().int().positive() });
+
+/**
+ * The workspace a card's run lives in, when it is not the session's — a card
+ * the person's assistant brought back from a workspace it asked. Resolved by
+ * `actingOrgId`: never wider than switching to it would be.
+ */
+const ActingWorkspace = z.string().min(1).max(200).optional();
 const ResumeInput = z.object({
   id: z.number().int().positive(),
   /** Human-supplied text for a run paused on an `ask` step (`awaiting_input:<step>`). */
@@ -265,9 +273,10 @@ export const recordSignalRoute = os
  * resolves to the outcome instead of offering a decision that no longer exists.
  */
 export const actionStatusRoute = os
-  .input(z.object({ id: z.number().int().positive() }))
+  .input(z.object({ id: z.number().int().positive(), workspaceId: ActingWorkspace }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const session = await guardAuth();
+    const orgId = await actingOrgId(session, input.workspaceId);
     const { db } = await import('@/libs/DB');
     const { actionRunSchema, userSchema } = await import('@/models/Schema');
     const { and, eq } = await import('drizzle-orm');
@@ -311,17 +320,22 @@ export const actionStatusRoute = os
       : row.status === 'undone' ? undoneSummary({ actionId: row.actionId, result: runResult }) : null;
     // Everything it made — the run it started, the request it planned, the
     // PR — so the settled card opens each in one move (Chris, 2026-09-29).
-    const { resultLinks } = await import('@/libs/actions/resultLinks');
+    const { linksInWorkspace, resultLinks } = await import('@/libs/actions/resultLinks');
     const { recordLinksForOrg } = await import('@/services/objects/recordHref');
     const { recordLinker } = await import('@/libs/workspace/recordHref');
     const recordLinks = row.status === 'done' ? await recordLinksForOrg(orgId) : null;
-    const links = recordLinks
+    const madeLinks = recordLinks
       ? resultLinks({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, recordLinker(recordLinks), recordLinks.codes)
       : [];
+    // A run in another workspace links into THAT workspace: its pages open
+    // through `/w/<slug>/…`, never against the session's.
+    const { workspaceAddressById } = await import('@/services/ProjectService');
+    const there = orgId === session.orgId ? null : await workspaceAddressById(orgId);
+    const { href: recordHrefOut, links } = linksInWorkspace(there, { href: recordLink, links: madeLinks });
     return {
       status: row.status,
       summary,
-      recordHref: recordLink,
+      recordHref: recordHrefOut,
       recordHrefLabel: recordLink ? openLabelFor(recordLink) : null,
       links,
       // A ruling's answer, for the card's settled line ("You chose X · Undo").
@@ -397,9 +411,11 @@ function deriveDedupKey(actionId: string, input: Record<string, unknown>): strin
  * service would refuse.
  */
 export const undoActionRoute = os
-  .input(z.object({ id: z.number().int().positive() }))
+  .input(z.object({ id: z.number().int().positive(), workspaceId: ActingWorkspace }))
   .handler(async ({ input }) => {
-    const { orgId, userId } = await guardAuth();
+    const session = await guardAuth();
+    const { userId } = session;
+    const orgId = await actingOrgId(session, input.workspaceId);
     const { undoAction, ActionError } = await import('@/services/ActionService');
     const { recordActionSignal } = await import('@/services/ReviewService');
     try {
@@ -432,9 +448,12 @@ export const decideActionRoute = os
       subject: z.string().optional(),
       body: z.string().optional(),
     })).optional(),
+    workspaceId: ActingWorkspace,
   }))
   .handler(async ({ input }) => {
-    const { orgId, userId } = await guardAuth();
+    const session = await guardAuth();
+    const { userId } = session;
+    const orgId = await actingOrgId(session, input.workspaceId);
     const { decide } = await import('@/services/ReviewService');
 
     // A run mid-regeneration cannot be decided: an approve would execute the
@@ -720,9 +739,12 @@ export const snoozeActionRoute = os
     /** ISO datetime the item resurfaces at. */
     until: z.string().datetime(),
     note: z.string().max(2000).optional(),
+    workspaceId: ActingWorkspace,
   }))
   .handler(async ({ input }) => {
-    const { orgId, userId } = await guardAuth();
+    const session = await guardAuth();
+    const { userId } = session;
+    const orgId = await actingOrgId(session, input.workspaceId);
     const { snooze } = await import('@/services/ReviewService');
     const until = new Date(input.until);
     if (Number.isNaN(until.getTime()) || until.getTime() <= Date.now()) {

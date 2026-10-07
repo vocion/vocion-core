@@ -1,5 +1,8 @@
 import type { CardDecision, CardField, CardLastAttempt, RecommendedAction } from './types';
+import type { CardWorkspace } from '@/libs/cards/card';
 import { isInAppPath } from '@/libs/connect/inAppPath';
+import { workspaceUrl } from '@/libs/links';
+import { inboxHref } from '@/services/inbox/inboxRef';
 
 /**
  * The event boundary for `recommended_action`.
@@ -50,6 +53,40 @@ function withSafeHref(field: CardField): CardField {
 }
 
 /**
+ * The workspace a card's run lives in, when the card names one whole — an id
+ * to act in, a slug to link to and a name to say. Anything less is no
+ * workspace: the card is then this conversation's, as every card was before.
+ * @param raw - `card.workspace` as it arrived.
+ */
+export function cardWorkspace(raw: unknown): CardWorkspace | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return undefined;
+  }
+  const w = raw as Record<string, unknown>;
+  const id = text(w.id);
+  const slug = text(w.slug);
+  const name = text(w.name);
+  if (!id || !slug || !name) {
+    return undefined;
+  }
+  const accountSlug = text(w.accountSlug);
+  return { id, slug, name, ...(accountSlug ? { accountSlug } : {}) };
+}
+
+/**
+ * The proposal's page in review — in its own workspace when the card's run
+ * lives in another one, opened through that workspace's entry route
+ * (`/w/<slug>/…`), so the link never resolves against the session's.
+ * @param rec - The card.
+ * @param rec.workspace - Where its run lives, when not here.
+ * @param runId - Its run, once there is one.
+ */
+export function proposalHref(rec: { workspace?: CardWorkspace }, runId: number | undefined): string {
+  const path = runId !== undefined ? inboxHref('proposal', runId) : '/dashboard/inbox?kind=proposal';
+  return rec.workspace ? workspaceUrl(rec.workspace.slug, path, { accountSlug: rec.workspace.accountSlug }) : path;
+}
+
+/**
  * Everything a card shows beyond its title and button, copied from a stored
  * card run or a live `card` event onto the client's card — so a reload and
  * the live stream draw the same card. Both links go through `cardLink`, so
@@ -62,10 +99,13 @@ function withSafeHref(field: CardField): CardField {
  * @param card.secondaryHrefLabel
  * @param card.lastAttempt
  * @param card.decision
+ * @param card.workspace - Where the card's run lives, when not here ({@link cardWorkspace}).
  */
-export function cardShown(card: { kind?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision }): Partial<RecommendedAction> {
+export function cardShown(card: { kind?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; workspace?: unknown }): Partial<RecommendedAction> {
   const second = cardLink(card.secondaryHref, card.secondaryHrefLabel);
+  const workspace = cardWorkspace(card.workspace);
   return {
+    ...(workspace ? { workspace } : {}),
     ...(card.kind ? { kind: card.kind } : {}),
     ...(card.body ? { body: card.body } : {}),
     ...(card.fields ? { fields: card.fields.map(withSafeHref) } : {}),

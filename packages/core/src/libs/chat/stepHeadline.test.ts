@@ -28,6 +28,23 @@ describe('stepHeadline', () => {
     expect(stepHeadline([{ kind: 'delegate', status: 'done', label: 'Proposal Writer finished' }])).toBe('Consulted Proposal Writer');
   });
 
+  // 5.0 screen capture: an assistant's ask read "Consulted Northwind Revenue
+  // answered and recommended an action" — the row's own "X answered" wrapped
+  // in "consulted". A delegate row that names both of its tenses already says
+  // what was done.
+  it('a delegate that names its own tenses says them as written', () => {
+    const asked = { kind: 'delegate' as const, status: 'done' as const, label: 'Asked Northwind Revenue', labels: { running: 'Asking Northwind Revenue', done: 'Asked Northwind Revenue' } };
+
+    expect(stepHeadline([asked, { kind: 'draft', status: 'done', label: 'Recommended an action', tool: 'recommend_action' }])).toBe('Asked Northwind Revenue and recommended an action');
+    expect(stepHeadline([{ kind: 'tool', status: 'done', label: 'Listed your workspaces' }, asked])).toBe('Listed your workspaces and asked Northwind Revenue');
+  });
+
+  it('an ask that failed still names what was asked, and counts the failure', () => {
+    const failed = { kind: 'delegate' as const, status: 'error' as const, label: 'Northwind Revenue could not answer', labels: { running: 'Asking Northwind Revenue', done: 'Asked Northwind Revenue' } };
+
+    expect(stepHeadline([failed, { kind: 'tool', status: 'done', label: 'Listed your workspaces' }])).toBe('Asked Northwind Revenue and listed your workspaces · 1 failed');
+  });
+
   it('reasoning alone is said as such', () => {
     expect(stepHeadline([{ kind: 'reason', status: 'done', label: 'Thought through it' }])).toBe('Thought it through');
     expect(stepHeadline([], 4)).toBe('Grounded in 4 sources');

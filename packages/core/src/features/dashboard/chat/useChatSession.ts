@@ -789,7 +789,7 @@ export function useChatSession({
         // The typed form (backlog 025): on the ledger already, on the wire
         // now, filed later if at all — `card_update` carries the proposal id.
         flushDeltas();
-        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: unknown };
+        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: unknown; workspace?: unknown };
         const link = { ...cardLink(c.href, c.hrefLabel), ...cardShown(c) };
         const primary = c.actions?.[0];
         let rec: RecommendedAction;

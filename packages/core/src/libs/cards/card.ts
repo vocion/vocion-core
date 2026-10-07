@@ -30,6 +30,26 @@ export const CardActionSchema = z.object({
 });
 export type CardAction = z.infer<typeof CardActionSchema>;
 
+/**
+ * Where a card's proposal lives, when that is not the conversation's own
+ * workspace: a card a person's assistant brought back from a workspace it
+ * asked (`ask_workspace`). The record stays in that workspace, visible to its
+ * members; the card is decided from the thread it shows in, as the person,
+ * through `actAs` (`routers/actingWorkspace.ts`). Absent: the conversation's
+ * own workspace, as every card was before.
+ */
+export const CardWorkspaceSchema = z.object({
+  /** `project.id` — what the review routes act in. */
+  id: z.string().min(1),
+  /** For the link that opens it there. */
+  slug: z.string().min(1),
+  /** What the card says it is in. */
+  name: z.string().min(1),
+  /** Slugs are unique only inside an account, so a link names it. */
+  accountSlug: z.string().min(1).optional(),
+});
+export type CardWorkspace = z.infer<typeof CardWorkspaceSchema>;
+
 export const CardSchema = z.object({
   id: z.string().min(1),
   kind: z.string().min(1),
@@ -40,6 +60,8 @@ export const CardSchema = z.object({
   source: z.object({ agentSlug: z.string().optional(), tool: z.string().optional() }).default({}),
   /** The proposal this card was filed as, once it was. */
   runId: z.number().int().optional(),
+  /** The workspace that proposal lives in, when it is not this conversation's. */
+  workspace: CardWorkspaceSchema.optional(),
   /** The page of the record the card is about — its title links there. */
   href: z.string().min(1).optional(),
   /** The words on that link: "Open feature". */
