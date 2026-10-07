@@ -14,7 +14,15 @@ vi.mock('@/services/SourceCredentialService', async (importOriginal) => {
   return { ...original, linkSourceToStoredCredential: vi.fn(original.linkSourceToStoredCredential) };
 });
 
+// Schedules land in the in-memory scheduler; the first sync is only recorded, so no test runs a connector or reaches a vendor.
+vi.mock('@/services/SourceScheduleService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/SourceScheduleService')>();
+  return { ...original, startSourceFullSync: vi.fn() };
+});
+
 const { db } = await import('@/libs/DB');
+const { describeSchedule } = await import('@/libs/durable/jobs');
+const { sourceScheduleIdFor } = await import('@/libs/durable/scheduleIds');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, sourceDekSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { sealLoginValues, storeLoginCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const { linkSourceToStoredCredential } = await import('@/services/SourceCredentialService');
@@ -131,6 +139,18 @@ describe('source.connect', () => {
 
     await expect(sourceConnectAction.undo!(asAdmin, githubPick, created)).rejects.toThrow('It has synced since; remove it from Connectors instead');
     expect(await sources()).toHaveLength(1);
+  });
+
+  it('a fresh source picked in chat gets its hourly schedule, and undo takes the schedule away with the source', async () => {
+    await seedLogin();
+    const fresh = await sourceConnectAction.execute(asAdmin, githubPick);
+    const scheduleId = sourceScheduleIdFor(ORG, (await sources())[0]!.slug);
+
+    expect(await describeSchedule(scheduleId)).not.toBeNull();
+
+    await sourceConnectAction.undo!(asAdmin, githubPick, fresh);
+
+    expect(await describeSchedule(scheduleId)).toBeNull();
   });
 
   it('links through the pasted key when the person pasted one instead of logging in', async () => {

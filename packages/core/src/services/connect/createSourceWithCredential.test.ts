@@ -12,11 +12,20 @@ vi.mock('@/services/SourceCredentialService', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/SourceCredentialService')>();
   return { ...original, linkSourceToStoredCredential: vi.fn(original.linkSourceToStoredCredential) };
 });
+// Schedules land in the in-memory scheduler; the first sync is only recorded, so no test runs a connector or reaches a vendor.
+vi.mock('@/services/SourceScheduleService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/SourceScheduleService')>();
+  return { ...original, ensureSourceSchedule: vi.fn(original.ensureSourceSchedule), startSourceFullSync: vi.fn() };
+});
 
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, sourceDekSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { sealLoginValues, storeLoginCredential } = await import('@/services/ApiTokenService');
 const { linkSourceToStoredCredential } = await import('@/services/SourceCredentialService');
+const { describeSchedule } = await import('@/libs/durable/jobs');
+const { resetMemorySchedules } = await import('@/libs/durable/memory');
+const { sourceScheduleIdFor } = await import('@/libs/durable/scheduleIds');
+const { ensureSourceSchedule, startSourceFullSync } = await import('@/services/SourceScheduleService');
 const { createSourceWithCredential } = await import('./createSourceWithCredential');
 
 const ORG = 'org_one_step';
@@ -40,6 +49,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   vi.mocked(linkSourceToStoredCredential).mockClear();
+  vi.mocked(startSourceFullSync).mockClear();
+  resetMemorySchedules();
   await db.delete(knowledgeSourceSchema);
   await db.delete(apiTokenSchema);
   await db.delete(sourceDekSchema);
@@ -200,5 +211,27 @@ describe('createSourceWithCredential', () => {
     expect(rows.find(row => row.id === storedBefore!.id)).toMatchObject({ revokedAt: null });
     expect(editedSource.apiTokenId).not.toBe(storedBefore!.id);
     expect(rows.find(row => row.id === editedSource.apiTokenId)).toMatchObject({ obtainedVia: 'paste', platform: 'hubspot' });
+  });
+});
+
+describe('a source saved from the Connectors page starts syncing', () => {
+  it('a new GitHub source gets its hourly schedule and its first full sync is started', async () => {
+    await seedGithubLogin();
+    const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'github', config: { repos: ['northwind/portal'] }, credential: { keepStored: true } });
+    const saved = (await sources())[0]!;
+
+    expect(result).toMatchObject({ ok: true, firstSync: 'started' });
+    expect(await describeSchedule(sourceScheduleIdFor(ORG, saved.slug))).toMatchObject({ cron: `${saved.id % 60} * * * *` });
+    expect(startSourceFullSync).toHaveBeenCalledWith({ orgId: ORG, sourceId: saved.id, sourceSlug: saved.slug });
+  });
+
+  it('a scheduler that is down does not undo the save: the source stands, firstSync says failed, and no sync starts', async () => {
+    await seedGithubLogin();
+    vi.mocked(ensureSourceSchedule).mockRejectedValueOnce(new Error('scheduler unreachable'));
+    const result = await createSourceWithCredential({ orgId: ORG, actorUserId: ADMIN, connector: 'github', config: { repos: ['northwind/portal'] }, credential: { keepStored: true } });
+
+    expect(result).toMatchObject({ ok: true, firstSync: 'failed' });
+    expect(await sources()).toHaveLength(1);
+    expect(startSourceFullSync).not.toHaveBeenCalled();
   });
 });

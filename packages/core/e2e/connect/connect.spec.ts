@@ -191,7 +191,13 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   await expect(page.getByRole('button', { name: 'Show', exact: true })).toHaveCount(0);
 
   await page.getByLabel(/repositor/i).fill('northwind/portal');
+  // Saving asks for the new source's schedule and first sync, and says whether they started. This
+  // server runs no job executor (no VOCION_SCHEDULE_OWNER), so here it is "failed" and the save
+  // must still succeed: a scheduler that is down never costs the person their source.
+  const saveResponse = page.waitForResponse(response => /addConnector|saveSource/.test(response.url()));
   await page.locator('form').getByRole('button', { name: 'Add connector' }).click();
+
+  expect(JSON.stringify(await (await saveResponse).json())).toMatch(/"ok":true,"sourceId":\d+,"firstSync":"(started|failed)"/);
 
   await expect.poll(() => listedConnectors(page)).toContain('github');
 
