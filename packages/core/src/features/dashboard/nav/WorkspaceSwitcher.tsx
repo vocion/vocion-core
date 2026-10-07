@@ -136,10 +136,13 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
       setOpen(false);
       return;
     }
+    const target = props.targetPath ? props.targetPath(p, pathname) : pathname;
     const href = workspaceSwitchHref({
       slug: p.slug,
-      pathname: props.targetPath ? props.targetPath(p, pathname) : pathname,
-      search: typeof window === 'undefined' ? '' : window.location.search,
+      pathname: target,
+      // The query belongs to the page: kept when the switch stays on it, dropped when an app's
+      // picker lands somewhere else (a filter on one page means nothing on another).
+      search: typeof window === 'undefined' || target !== pathname ? '' : window.location.search,
       locale,
       defaultLocale: routing.defaultLocale,
       accountSlug: crossAccountSlug(p, props.account?.id, accounts),
