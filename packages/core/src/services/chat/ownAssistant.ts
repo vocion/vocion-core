@@ -1,5 +1,5 @@
 /**
- * ONE NUMBER, EVERYONE'S OWN ASSISTANT (Vocion 3.0, phase 2b).
+ * ONE NUMBER, EVERYONE'S OWN ASSISTANT (Vocion 5.0, phase 2b).
  *
  * A number bound to a workspace answers as that workspace's agent, whoever
  * texts it. An account that wants each person to reach THEIR OWN assistant

@@ -3,7 +3,7 @@ import process from 'node:process';
 import { SMS_MAX, smsText } from '@/libs/surfaces/sms';
 
 /**
- * TEXT MESSAGE (Vocion 3.0) — a notification as a text to the mobile number on
+ * TEXT MESSAGE (Vocion 5.0) — a notification as a text to the mobile number on
  * the person's profile (`user.phone`, kept by `me.set_phone`), sent from the
  * number the workspace texts from: the account's shared number when it has one
  * (`answers: "sender"`, so a reply reaches the person's own assistant), else

@@ -1,5 +1,5 @@
 /**
- * NEEDS YOU, ACROSS YOUR WORKSPACES (Vocion 3.0, phase 2b).
+ * NEEDS YOU, ACROSS YOUR WORKSPACES (Vocion 5.0, phase 2b).
  *
  * The review queue answers "what is waiting in this workspace". A person who
  * works in several (and now has one of their own) asks "what is waiting on

@@ -1,5 +1,5 @@
 /**
- * A PERSON'S OWN ASSISTANT REACHES THEIR WORKSPACES (Vocion 3.0, phase 2a).
+ * A PERSON'S OWN ASSISTANT REACHES THEIR WORKSPACES (Vocion 5.0, phase 2a).
  *
  * The assistant lives in the person's personal workspace. These two tools are
  * how it works anywhere else:

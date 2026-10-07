@@ -393,7 +393,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const threadFiles = (inbound.files?.length ?? 0) === 0 && inThread && inbound.surface === 'slack' ? await deps.threadPictures(inbound).catch(() => []) : [];
   const fetched = await fetchPictures(inbound.files?.length ? inbound.files : threadFiles, deps.fetchFile);
   const routePictures = fetched.flatMap(p => p.got && p.got.bytes.byteLength <= MAX_IMAGE_BYTES ? [{ contentType: p.got.contentType, base64: Buffer.from(p.got.bytes).toString('base64') }] : []);
-  // A SHARED NUMBER (Vocion 3.0): a binding whose agent is `*` answers each sender with their
+  // A SHARED NUMBER (Vocion 5.0): a binding whose agent is `*` answers each sender with their
   // own assistant, in their personal workspace (`chat/ownAssistant.ts`). Anything else routes
   // among the binding's workspaces as before, and the sender travels with the mention: it may
   // only go to workspaces they can act in.

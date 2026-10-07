@@ -1,5 +1,5 @@
 /**
- * YOUR DAY — the personal brief (Vocion 3.0, phase 2b).
+ * YOUR DAY — the personal brief (Vocion 5.0, phase 2b).
  *
  * A workspace brief says how one workspace is doing. A person in several wants
  * one page: what is waiting on them, everywhere, and what each workspace's own
