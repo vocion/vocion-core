@@ -3,7 +3,7 @@
 import type { ConnectInfo } from './ConnectByLogin';
 import type { ConnectorTile, Source } from './connectors/connectorRows';
 import type { ConnectOutcome } from './connectOutcome';
-import type { FirstSyncWatch, SyncOutcome } from './firstSyncWatch';
+import type { FirstSyncWatch, SavedSource, SyncOutcome } from './firstSyncWatch';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
 import {
   CheckCircle2,
@@ -32,7 +32,7 @@ import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, fai
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
-import { firstSyncNotice, firstSyncWatchAfter, firstSyncWatchAfterSave, newestSourceId, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
+import { firstSyncNotice, firstSyncRunOf, firstSyncWatchAfter, firstSyncWatchAfterSave, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
 
 /** How often to re-read the list while a sync is running somewhere. */
 const RUNNING_SYNC_POLL_MS = 5000;
@@ -181,7 +181,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
   // take the "started" notice down once the run ends (`firstSyncWatch.ts`).
   const [firstSyncWatch, setFirstSyncWatch] = useState<FirstSyncWatch>('off');
   const [firstSyncSourceId, setFirstSyncSourceId] = useState<number | null>(null);
-  const firstSyncRunStatus = sources.find(source => source.id === firstSyncSourceId)?.sync?.status ?? null;
+  const firstSyncRunStatus = firstSyncRunOf(sources, firstSyncSourceId);
   const keepPolling = someoneIsSyncing || firstSyncWatch === 'waiting';
   useEffect(() => {
     if (!keepPolling) {
@@ -323,12 +323,12 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
               connectInfo={connectInfo[addingKind]}
               pasteFirst={pasteFirst}
               onClose={() => setAddingKind(null)}
-              onAdded={async (firstSync) => {
+              onAdded={async (saved) => {
                 setAddingKind(null);
-                const listed = await refresh();
-                setSyncOutcome(firstSyncNotice(firstSync));
-                setFirstSyncSourceId(newestSourceId(listed));
-                setFirstSyncWatch(firstSyncWatchAfterSave(firstSync));
+                await refresh();
+                setSyncOutcome(firstSyncNotice(saved?.firstSync));
+                setFirstSyncSourceId(saved?.sourceId ?? null);
+                setFirstSyncWatch(firstSyncWatchAfterSave(saved?.firstSync));
               }}
             />
           )
@@ -1199,11 +1199,11 @@ async function startSyncingAfterCredential(sourceId: number): Promise<string> {
  * @param input.existing - The source being edited, or null when adding.
  * @param input.kind - Connector slug.
  * @param input.config - The connector's config blob.
- * @returns The server's message on failure (null on success), and the new source's `firstSync`.
+ * @returns The server's message on failure (null on success), the source, and a new one's `firstSync`.
  */
-async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<{ error: string | null; firstSync: string | null }> {
+async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<{ error: string | null } & SavedSource> {
   if (input.existing) {
-    return { error: await updateSourceConfig(input.existing.id, input.config), firstSync: null };
+    return { error: await updateSourceConfig(input.existing.id, input.config), sourceId: input.existing.id, firstSync: null };
   }
   return createSource(input.kind, input.config);
 }
@@ -1248,9 +1248,9 @@ async function deleteSourceById(sourceId: number): Promise<string | null> {
  * @param kind - Connector slug.
  * @param configJson - The connector's own config blob.
  */
-async function createSource(kind: string, configJson: Record<string, unknown>): Promise<{ error: string | null; firstSync: string | null }> {
-  const { error, firstSync } = await createSourceReturningId(kind, configJson);
-  return { error, firstSync };
+async function createSource(kind: string, configJson: Record<string, unknown>): Promise<{ error: string | null } & SavedSource> {
+  const { id, error, firstSync } = await createSourceReturningId(kind, configJson);
+  return { error, sourceId: id, firstSync };
 }
 
 /**
@@ -1457,7 +1457,7 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
   /** The source being edited, or null when adding a new one. */
   existing: Source | null;
   onClose: () => void;
-  onAdded: (firstSync?: string | null) => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const existingConfig = (existing?.config ?? {}) as {
     urls?: string[];
@@ -1478,13 +1478,13 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
         ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
         : { urls: [url] };
       const saved = existing
-        ? { error: await updateSourceConfig(existing.id, configJson), firstSync: null }
+        ? { error: await updateSourceConfig(existing.id, configJson), sourceId: existing.id, firstSync: null }
         : await createSource(kind, configJson);
       if (saved.error) {
         setError(saved.error);
         return;
       }
-      await onAdded(saved.firstSync);
+      await onAdded({ sourceId: saved.sourceId, firstSync: saved.firstSync });
     } finally {
       setSubmitting(false);
     }
@@ -1706,7 +1706,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
   connectInfo?: ConnectInfo;
   pasteFirst?: boolean;
   onClose: () => void;
-  onAdded: (firstSync?: string | null) => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
     existing
@@ -1745,8 +1745,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
       // The connector and its credential are one request and one transaction; a
       // refusal throws with the sentence the server wrote and is shown as it is.
       if (credentialInputs.length > 0) {
-        const firstSync = await addConnectorWithCredential(kind, config, credential);
-        await onAdded(firstSync);
+        await onAdded(await addConnectorWithCredential(kind, config, credential));
         return;
       }
       const saved = await savePastedOrEdited({ existing, kind, config });
@@ -1754,7 +1753,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
         setError(saved.error);
         return;
       }
-      await onAdded(saved.firstSync);
+      await onAdded({ sourceId: saved.sourceId, firstSync: saved.firstSync });
     } catch (err) {
       // A network failure throws rather than returning a message. Without this
       // the dialog sat on a spinner that never resolved and said nothing.
@@ -1991,7 +1990,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
   /** The source being edited, or null when adding a new one. */
   existing: Source | null;
   onClose: () => void;
-  onAdded: (firstSync?: string | null) => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const existingConfig = (existing?.config ?? {}) as {
     baseUrl?: string;
@@ -2225,7 +2224,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
           return;
         }
         if (!willWriteCredential) {
-          await onAdded(created.firstSync);
+          await onAdded({ sourceId: created.id, firstSync: created.firstSync });
           return;
         }
         const credentialError = await storeSourceCredential(
@@ -2242,7 +2241,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
           setError(credentialError);
           return;
         }
-        await onAdded(await startSyncingAfterCredential(created.id));
+        await onAdded({ sourceId: created.id, firstSync: await startSyncingAfterCredential(created.id) });
         return;
       }
       await onAdded();
@@ -2532,7 +2531,7 @@ function AddSourceDialog({
   pasteFirst?: boolean;
   onClose: () => void;
   /** Called after a save. */
-  onAdded: (firstSync?: string | null) => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const connectorName = connector?.name ?? kind;
   const source = existing ?? null;

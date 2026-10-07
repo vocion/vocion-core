@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_SYNC_NOT_SEEN, firstSyncNotice, firstSyncWatchAfter, firstSyncWatchAfterSave, newestSourceId, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
+import { FIRST_SYNC_NOT_SEEN, firstSyncNotice, firstSyncRunOf, firstSyncWatchAfter, firstSyncWatchAfterSave, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
 
 describe('the Connectors page after a save starts a first sync', () => {
   it('watches only a sync that started: a save that started nothing never polls the list', () => {
@@ -23,9 +23,17 @@ describe('the Connectors page after a save starts a first sync', () => {
     expect(firstSyncWatchAfter('waiting', 'failed')).toBe('off');
   });
 
-  it('watches the source the save made, the newest on the list', () => {
-    expect(newestSourceId([{ id: 4 }, { id: 11 }, { id: 9 }])).toBe(11);
-    expect(newestSourceId([])).toBeNull();
+  it('reads only the saved source\'s run, so another source\'s run ending says nothing about it', () => {
+    const list = [{ id: 4, sync: { status: 'completed' } }, { id: 11, sync: null }];
+
+    expect(firstSyncRunOf(list, 11)).toBeNull();
+    expect(firstSyncWatchAfter('waiting', firstSyncRunOf(list, 11))).toBe('waiting');
+  });
+
+  it('ends the watch when the saved source is deleted mid-sync, so the notice does not stay forever', () => {
+    const list = [{ id: 4, sync: { status: 'completed' } }];
+
+    expect(firstSyncWatchAfter('running', firstSyncRunOf(list, 11))).toBe('off');
   });
 
   it('takes the "started" notice down once the sync ends, so it never sits above a row that says the sync failed', () => {

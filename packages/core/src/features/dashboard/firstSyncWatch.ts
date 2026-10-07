@@ -13,6 +13,12 @@
 /** A line above the list, after a save or a Sync now. */
 export type SyncOutcome = { message: string; hadErrors: boolean };
 
+/** What an add form reports once it has saved: the new source, and whether its first sync started. */
+export type SavedSource = { sourceId: number | null; firstSync: string | null };
+
+/** The watched source's state when it has left the list (deleted while its first sync ran). */
+const SOURCE_GONE = 'source_gone';
+
 /**
  * Where the page is in following a just-saved source's first sync:
  * `waiting` for its run to appear, `running` while it does, `off` otherwise.
@@ -67,12 +73,18 @@ export function firstSyncWatchAfter(watch: FirstSyncWatch, runStatus: string | n
 }
 
 /**
- * The source a page save just made: the newest row once the list reloads,
- * since every save there creates a source.
- * @param sources - The reloaded list.
+ * The watched source's latest run status: null before it has a run (or when
+ * no source is watched), and a status that is not `running` once the source
+ * has left the list, so a source deleted mid-sync ends the watch too.
+ * @param sources - The list on the page.
+ * @param sourceId - The source the save made.
  */
-export function newestSourceId(sources: Array<{ id: number }>): number | null {
-  return sources.length === 0 ? null : Math.max(...sources.map(source => source.id));
+export function firstSyncRunOf(sources: Array<{ id: number; sync: { status: string } | null }>, sourceId: number | null): string | null {
+  if (sourceId === null) {
+    return null;
+  }
+  const source = sources.find(row => row.id === sourceId);
+  return source ? (source.sync?.status ?? null) : SOURCE_GONE;
 }
 
 /**
