@@ -1,6 +1,6 @@
 'use client';
 
-import { Mail, Pencil, Plug, Slack } from 'lucide-react';
+import { Mail, Pencil, Plug, Slack, Sparkles } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { InlineTitle } from '@/components/ui/inline-title';
@@ -9,7 +9,8 @@ import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
 // `mcp`: a conversation an MCP client opened with ask_workspace (`services/chat/workspaceTurn.ts`).
-const SURFACE_ICON = { email: Mail, slack: Slack, mcp: Plug } as const;
+// `assistant`: a person's own assistant asked this workspace on their behalf (`services/agents/tools/assistant.ts`).
+const SURFACE_ICON = { email: Mail, slack: Slack, mcp: Plug, assistant: Sparkles } as const;
 
 /**
  * One thread on /dashboard/conversations. The row is a link into the thread;
@@ -23,7 +24,7 @@ const SURFACE_ICON = { email: Mail, slack: Slack, mcp: Plug } as const;
  * @param props.snippet - The matched text, when the list is a search.
  * @param props.meta - "3 messages · about a record".
  * @param props.time - When it was last touched, already formatted.
- * @param props.surface - Where it began ('app', 'email', 'slack', 'mcp'); anything but the app gets an icon.
+ * @param props.surface - Where it began ('app', 'email', 'slack', 'mcp', 'assistant'); anything but the app gets an icon.
  */
 export function ConversationListRow({ id, title, snippet, meta, time, surface }: {
   id: number;

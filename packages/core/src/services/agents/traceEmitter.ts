@@ -47,6 +47,15 @@ export type RawStreamEvent = {
 /** Tools that are runtime plumbing, not worth a user-facing trace node. */
 const PLUMBING_TOOLS = new Set(['write_todos', 'ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file']);
 
+/**
+ * Tools that draw their own row, because only they know what it should say
+ * and what hangs beneath it: `ask_workspace` is a delegate row named for the
+ * workspace it asks, with that workspace's steps nested under it
+ * (`tools/assistant.ts`). A generic row from here would be a second line for
+ * the same step.
+ */
+const SELF_TRACED_TOOLS = new Set(['ask_workspace']);
+
 function nsOf(ev: RawStreamEvent): string {
   const cp = ev.metadata?.checkpoint_ns;
   if (typeof cp === 'string') {
@@ -626,7 +635,7 @@ export class TraceEmitter {
 
       case 'on_tool_start': {
         const tool = ev.name ?? 'tool';
-        if (PLUMBING_TOOLS.has(tool)) {
+        if (PLUMBING_TOOLS.has(tool) || SELF_TRACED_TOOLS.has(tool)) {
           return [];
         }
         const args = parseJsonArgs(ev.data?.input);
@@ -692,7 +701,7 @@ export class TraceEmitter {
 
       case 'on_tool_end': {
         const tool = ev.name ?? 'tool';
-        if (PLUMBING_TOOLS.has(tool)) {
+        if (PLUMBING_TOOLS.has(tool) || SELF_TRACED_TOOLS.has(tool)) {
           return [];
         }
         const kind = kindFor(tool);
@@ -780,7 +789,7 @@ export class TraceEmitter {
         // failed delegation reached the person as one "Delegating…" line and
         // nothing else.
         const tool = ev.name ?? 'tool';
-        if (PLUMBING_TOOLS.has(tool)) {
+        if (PLUMBING_TOOLS.has(tool) || SELF_TRACED_TOOLS.has(tool)) {
           return [];
         }
         const kind = kindFor(tool);

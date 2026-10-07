@@ -5,9 +5,11 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { InboxControls } from '@/features/dashboard/inbox/InboxControls';
 import { InboxList } from '@/features/dashboard/inbox/InboxList';
 import { contextLine } from '@/features/dashboard/inbox/inboxMeta';
+import { InboxScope } from '@/features/dashboard/inbox/InboxScope';
 import { defaultSortFor } from '@/features/dashboard/inbox/searchParams';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { INBOX_SORTS, INBOX_TABS, isInboxKind, listInbox } from '@/services/InboxService';
 
 /**
@@ -22,11 +24,15 @@ import { INBOX_SORTS, INBOX_TABS, isInboxKind, listInbox } from '@/services/Inbo
  * headline (Chris, 2026-09-15: "probably the only context we need"). What
  * changed is said by the toast that follows each decision, not by a
  * standing column.
+ *
+ * `?scope=all` is the same queue across every workspace the person reaches,
+ * their own rows first (`services/inbox/acrossWorkspaces.ts`), with one chip
+ * per workspace (`?workspace=<id>`). Rows from another workspace open there.
  */
 
 export const dynamic = 'force-dynamic';
 
-type Params = { tab?: string; q?: string; sort?: string; kind?: string; actionKind?: string; agents?: string };
+type Params = { tab?: string; q?: string; sort?: string; kind?: string; actionKind?: string; agents?: string; scope?: string; workspace?: string };
 
 function list(value: string | undefined): string[] {
   return (value ?? '').split(',').map(s => s.trim()).filter(Boolean);
@@ -42,6 +48,11 @@ export default async function InboxPage(props: {
   const { orgId } = await auth();
   if (!orgId) {
     return <TitleBar title="Review queue" description="Sign in to an organization to see what is waiting on you." />;
+  }
+
+  if (sp.scope === 'all') {
+    const { userId } = await auth();
+    return <AllWorkspaces userId={userId ?? ''} orgId={orgId} workspace={sp.workspace?.trim() || undefined} />;
   }
 
   const tab = ((INBOX_TABS as readonly string[]).includes(sp.tab ?? '') ? sp.tab : 'open') as InboxTab;
@@ -61,7 +72,8 @@ export default async function InboxPage(props: {
     <div className="mx-auto w-full max-w-5xl">
       <TitleBar title="Review queue" description={<span data-testid="inbox-context">{contextLine(tab, open, oldest, inbox.total)}</span>} />
 
-      <div className="mb-4">
+      <div className="mb-4 space-y-3">
+        <InboxScope scope="here" />
         <InboxControls tab={tab} q={q} sort={sort} kinds={kinds} actionKinds={actionKinds} agents={agents} facets={inbox.facets} counts={inbox.counts} tabs={inbox.tabs} />
       </div>
 
@@ -81,6 +93,41 @@ export default async function InboxPage(props: {
             />
           )
         : <InboxList inbox={inbox} tab={tab} />}
+    </div>
+  );
+}
+
+/**
+ * The queue across every workspace the person reaches: the open tab only, their
+ * own rows first, each tagged with its workspace.
+ * @param props
+ * @param props.userId - The person.
+ * @param props.orgId - The workspace the page runs in; its rows still decide in place.
+ * @param props.workspace - The workspace chip that is on, if any.
+ */
+async function AllWorkspaces({ userId, orgId, workspace }: { userId: string; orgId: string; workspace?: string }) {
+  const cross = await listInboxForUser(userId, workspace ? { workspaceId: workspace } : {});
+  const places = cross.workspaces.filter(w => w.count > 0).length;
+  const line = cross.total === 0
+    ? 'Nothing is waiting on you in any workspace.'
+    : `${cross.total} ${cross.total === 1 ? 'decision' : 'decisions'} across ${places} ${places === 1 ? 'workspace' : 'workspaces'}${cross.yours > 0 ? `, ${cross.yours} yours` : ''}.`;
+  return (
+    <div className="mx-auto w-full max-w-5xl">
+      <TitleBar title="Review queue" description={<span data-testid="inbox-context">{line}</span>} />
+      <div className="mb-4">
+        <InboxScope scope="all" workspace={workspace} total={cross.total} workspaces={cross.workspaces.map(w => ({ id: w.id, name: w.name, count: w.count, kind: w.kind }))} />
+      </div>
+      {cross.unavailable.length > 0 && (
+        <p role="status" className="mb-3 text-[13px] text-muted-foreground">
+          {`Could not read ${cross.unavailable.map(u => `${u.workspace.name} (${u.reason})`).join(', ')}; the list leaves them out.`}
+        </p>
+      )}
+      {cross.items.length === 0
+        ? <EmptyState icon={InboxIcon} title="All clear" description="Nothing is waiting on you in these workspaces right now." />
+        : <InboxList inbox={cross} tab="open" workspaceId={orgId} />}
+      {cross.workspaces.some(w => w.capped && (!workspace || w.id === workspace)) && (
+        <p className="mt-3 text-[13px] text-muted-foreground">Busy workspaces show their first rows here; open a workspace for the rest.</p>
+      )}
     </div>
   );
 }

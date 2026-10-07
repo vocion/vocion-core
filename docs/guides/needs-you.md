@@ -68,6 +68,27 @@ verbs on hover. Several proposals about one record collapse into one sheet
 row ("Northwind — 4 proposals"); several asks under one `groupKey` collapse
 into one decision sheet.
 
+### Across your workspaces
+
+*All workspaces* (`?scope=all`) is the same open queue gathered from every
+workspace you can switch to — your personal workspace included, nobody else's
+— each row tagged with its workspace and linking to it there
+(`/w/<slug>/dashboard/inbox/…?account=<account>`). Your own rows come first:
+anything in your personal workspace, a proposal assigned to you, an ask your
+own turn raised. Then the oldest. One chip per workspace narrows it
+(`?workspace=<id>`); the counts stay whole.
+
+A row from another workspace opens there and is never decided from this list,
+because the decide endpoints act in the workspace the request runs in. Each
+workspace's queue is read a few at a time and capped at 50 rows (yours kept
+first); a capped workspace says so, and a workspace that could not be read is
+named with its reason rather than left out. `inbox.mine` and `inbox.mineCount`
+are the RPC forms of the list and its badge.
+
+"Your day" (`briefings.personal`) is built on it: the queue, then each
+workspace's latest brief by its headline, kept as a brief in your personal
+workspace (`services/briefings/personal.ts`).
+
 ## The detail, by kind
 
 Every detail screen wears the same chrome so the eye lands in the same place
@@ -216,6 +237,8 @@ proposal, `AskService.decideAsk` for an ask, `LearningCandidateService
 - **Service:** `services/InboxService.ts` — `listInbox` (tabs, kinds, search,
   sort, facets), `listProposalQueue` (Up-next order), `needsYouCount` (the
   sidebar badge). Read-only aggregation; nothing here decides anything.
+- **Across workspaces:** `services/inbox/acrossWorkspaces.ts` —
+  `listInboxForUser`, `needsYouCountForUser`, over `needsYouItems` per workspace.
 - **Refs:** `services/inbox/inboxRef.ts`; **one proposal for its screen:**
   `services/inbox/pendingAction.ts`.
 - **UI:** `app/[locale]/(auth)/dashboard/inbox/` (list, `[id]`, `g/`, `r/`);

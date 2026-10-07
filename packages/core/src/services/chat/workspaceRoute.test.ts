@@ -107,3 +107,33 @@ describe('a channel has its workspaces', () => {
     expect(p).toContain('Product manager (Owns the loop from the ask)');
   });
 });
+
+describe('who is asking decides where a mention may go (2026-10-07)', () => {
+  it('resolves the sender and offers the candidates their reach, keeping the binding\'s and the channel\'s own', async () => {
+    const d = deps({ sender: vi.fn(async () => 'usr-dana') });
+    await routeToWorkspace(CHANNEL, { text: 'x', scopeRef: 'slack:C42:10', channelId: 'C42', externalUserId: 'U123' }, d);
+
+    const reach = (d.candidates as unknown as { mock: { calls: Array<[string, { sender: () => Promise<string | null>; keep: string[] }]> } }).mock.calls[0]![1];
+
+    expect(reach.keep).toEqual(['org_factory', 'org_revenue']);
+    expect(await reach.sender()).toBe('usr-dana');
+    expect(d.sender).toHaveBeenCalledWith(CHANNEL, 'U123');
+  });
+
+  it('a sender Vocion does not know is offered only what the channel already holds', async () => {
+    const d = deps({ sender: vi.fn(async () => null) });
+    await routeToWorkspace(CATCH_ALL, { text: 'x', scopeRef: 'slack:C9:11', channelId: 'C9', externalUserId: 'U999' }, d);
+
+    const reach = (d.candidates as unknown as { mock: { calls: Array<[string, { sender: () => Promise<string | null>; keep: string[] }]> } }).mock.calls[0]![1];
+
+    expect(reach.keep).toEqual(['org_workforce']);
+    expect(await reach.sender()).toBeNull();
+  });
+
+  it('a mention whose sender reaches one workspace keeps the binding with no read', async () => {
+    const d = deps({ sender: vi.fn(async () => null), candidates: vi.fn(async () => CANDIDATES.slice(0, 1)) });
+
+    expect(await routeToWorkspace(CATCH_ALL, { text: 'x', scopeRef: 'slack:C9:12', channelId: 'C9', externalUserId: 'U999' }, d)).toMatchObject({ orgId: 'org_workforce', routed: 'binding' });
+    expect(d.read).not.toHaveBeenCalled();
+  });
+});

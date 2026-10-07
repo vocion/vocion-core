@@ -29,6 +29,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { projectSlugProblem } from '@/libs/links';
 import { accountMembershipSchema, projectMemberSchema, projectSchema } from '@/models/Schema';
+import { ensurePersonalAssistant } from './personalAssistant';
 
 /** What a personal workspace is called. The switcher groups it under its account. */
 export const PERSONAL_PROJECT_NAME = 'Personal';
@@ -87,6 +88,19 @@ async function ensureOwnerRow(project: PersonalProject, userId: string): Promise
 }
 
 /**
+ * Everything a personal workspace holds from the moment it exists: its owner's
+ * member row and the person's own assistant (`personalAssistant.ts`), which is
+ * also the workspace's lead. Both idempotent, so every sign-in heals a
+ * workspace made before either existed.
+ * @param project - The personal workspace.
+ * @param userId - Its owner.
+ */
+async function furnish(project: PersonalProject, userId: string): Promise<void> {
+  await ensureOwnerRow(project, userId);
+  await ensurePersonalAssistant(project.id);
+}
+
+/**
  * The person's personal workspace on this account, created if it does not
  * exist yet. Idempotent and safe to call concurrently: every caller gets the
  * same row back.
@@ -101,7 +115,7 @@ async function ensureOwnerRow(project: PersonalProject, userId: string): Promise
 export async function ensurePersonalProject(userId: string, accountId: string): Promise<PersonalProject> {
   const existing = await findPersonalProject(userId, accountId);
   if (existing) {
-    await ensureOwnerRow(existing, userId);
+    await furnish(existing, userId);
     return existing;
   }
 
@@ -127,7 +141,7 @@ export async function ensurePersonalProject(userId: string, accountId: string): 
       .onConflictDoNothing();
     const created = await findPersonalProject(userId, accountId);
     if (created) {
-      await ensureOwnerRow(created, userId);
+      await furnish(created, userId);
       return created;
     }
     // Nothing of ours came back, so a different workspace holds this slug.

@@ -33,15 +33,19 @@ import { withMinimumPending } from './pending';
  * the breadcrumb. The briefing's "Needs your decision" cards are these rows
  * with their why-now attached (docs/specs/briefing-v2.md §2) — the same
  * decision, the same row, the same place it goes.
+ * @param props.workspaceId - The workspace the page runs in. A row tagged with
+ * another workspace (a list across workspaces) is opened there, never decided
+ * from here: the decide endpoints act in the workspace the request runs in.
  */
-export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; why?: string }) {
+export function InboxRow({ item, tab, why, workspaceId }: { item: InboxItem; tab: InboxTab; why?: string; workspaceId?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // A released hand-off's one verb is Mark done, with a note; the row opens
   // the detail rather than offering an Approve the service would refuse.
-  const verbs = tab === 'decided' || item.status === 'awaiting_execution' || !canQuickDecide(item) ? [] : rowVerbs(item.kind, item.shape);
+  const elsewhere = item.workspace !== undefined && item.workspace.id !== workspaceId;
+  const verbs = tab === 'decided' || elsewhere || item.status === 'awaiting_execution' || !canQuickDecide(item) ? [] : rowVerbs(item.kind, item.shape);
   const opensHere = item.href.startsWith('/dashboard/inbox');
   const meta = INBOX_KIND_META[item.kind];
   // What the row would DO, not how it is decided: on a real queue almost every
@@ -71,7 +75,7 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
   // Done for you → put it back. The other half of a run that executed
   // without a person (`libs/actions/autoAccept.ts`): one click, from the row
   // where the claim is read.
-  const undoable = tab === 'decided' && item.undoable === true && item.reviewId !== undefined;
+  const undoable = tab === 'decided' && !elsewhere && item.undoable === true && item.reviewId !== undefined;
   async function undo() {
     setBusy('undo');
     setError(null);
@@ -122,6 +126,7 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
             <Subline
               separator="›"
               segments={[
+                item.workspace ? item.workspace.name : null,
                 item.shape === 'sheet' && item.kind !== 'proposal' ? 'Decision sheet' : meta.label,
                 item.subline,
                 tab === 'decided' && item.decision

@@ -1770,7 +1770,7 @@
             }
           }
         },
-        "description": "Bind a channel to an agent. `channelId: \"*\"` with a `teamId` is the workspace catch-all (DMs).\n`displayName` + `iconUrl` are the optional persona the replies wear; omitting them posts\nunder the app's own name and icon.",
+        "description": "Bind a channel to an agent. `channelId: \"*\"` with a `teamId` is the workspace catch-all (DMs).\n`answers: \"sender\"` (stored as the agent `*`) binds a SHARED channel instead — an account's one\ntext number: each sender is answered by their own assistant, in their personal workspace on\nthis account (`services/chat/ownAssistant.ts`). It needs a surface that can tell who a sender is.\n`displayName` + `iconUrl` are the optional persona the replies wear; omitting them posts\nunder the app's own name and icon.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1780,6 +1780,9 @@
                 "description": "The fields this endpoint reads.",
                 "properties": {
                   "agentSlug": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "answers": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "channelId": {

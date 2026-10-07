@@ -23,6 +23,8 @@ export type ProjectSummary = {
   slug: string;
   name: string;
   description: string | null;
+  /** `personal` for the person's own workspace (only ever their own), `shared` otherwise. */
+  kind: 'shared' | 'personal';
   /** Agents registered in the project — 0 means "nothing lives here yet" (the switcher hides those by default). */
   agentCount: number;
 };
@@ -59,6 +61,7 @@ const summaryColumns = {
   slug: projectSchema.slug,
   name: projectSchema.name,
   description: projectSchema.description,
+  kind: projectSchema.kind,
   // Qualified by hand: inside the subquery drizzle would render `"id"`, which
   // resolves to agent.id (integer), not project.id.
   agentCount: sql<number>`(select count(*)::int from "agent" a where a."org_id" = "project"."id")`.as('agent_count'),

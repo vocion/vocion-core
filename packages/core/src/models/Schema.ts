@@ -1620,6 +1620,14 @@ export const conversationSchema = pgTable(
      */
     surface: text('surface').default('app').notNull(),
     /**
+     * The conversation this one was asked FROM (migration 0171), when a
+     * person's assistant asked this workspace on their behalf
+     * (`ask_workspace`, surface `'assistant'`). The parent usually sits in the
+     * person's personal workspace and stays private to them; this row is the
+     * shared workspace's record. NULL for a conversation a person started.
+     */
+    parentConversationId: integer('parent_conversation_id').references((): AnyPgColumn => conversationSchema.id, { onDelete: 'set null' }),
+    /**
      * Where the conversation STARTED: the page context of its first turn
      * (path, title, the record the page was about, the highlighted passage).
      * Set once; later turns carry their own context on the wire only. Null
