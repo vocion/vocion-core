@@ -21,7 +21,7 @@ const mockAuth = vi.mocked(auth);
 const mockResolve = vi.mocked(resolveProjectForUser);
 const mockActive = vi.mocked(activeWorkspaceForUser);
 
-const WORKFORCE = { id: 'proj-workforce', accountId: 'acct-metacto', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 };
+const WORKFORCE = { id: 'proj-workforce', accountId: 'acct-metacto', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, kind: 'shared' as const, agentCount: 3 };
 
 /** The origin the Next server itself answers on, behind the public one. */
 const SERVER_ORIGIN = 'http://0.0.0.0:3000';

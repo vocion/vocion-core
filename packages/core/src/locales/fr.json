@@ -252,7 +252,12 @@
     "filter_type": "Type",
     "filter_agent": "Agent",
     "filter_placeholder": "Filtrer ou rechercher…",
-    "filter_searching": "les affaires, contacts et agents"
+    "filter_searching": "les affaires, contacts et agents",
+    "scope_label": "Quels espaces de travail",
+    "scope_here": "Cet espace de travail",
+    "scope_all": "Tous les espaces de travail",
+    "scope_personal": "Personnel",
+    "filter_workspace": "Filtrer par espace de travail"
   },
   "Review": {
     "all": "Tout",

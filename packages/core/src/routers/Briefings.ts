@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/briefings/instructions';
+import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -59,4 +60,23 @@ export const latestRoute = os
       .orderBy(desc(briefingSchema.createdAt))
       .limit(1);
     return row ? { id: row.id } : null;
+  });
+
+/**
+ * briefings.personal — "your day": the person's own brief across the
+ * workspaces they reach in this account, composed now and kept in their
+ * personal workspace (`services/briefings/personal.ts`). Asking twice inside
+ * the republish window is one brief, not two.
+ */
+export const personalRoute = os
+  .input(z.object({ timeZone: z.string().max(64).optional() }).default({}))
+  .handler(async ({ input }) => {
+    const { userId, accountId } = await guardAuth();
+    if (!accountId) {
+      throw ApiError.unauthorized();
+    }
+    const { publishPersonalBrief } = await import('@/services/briefings/personal');
+    const { resolveTimeZone } = await import('@/libs/time/zone');
+    const out = await publishPersonalBrief(userId, accountId, { timeZone: resolveTimeZone(input.timeZone) });
+    return { id: out.id, href: out.href, replaced: out.replaced, title: out.brief.title, markdown: out.brief.markdown, waiting: { total: out.brief.waiting.total, yours: out.brief.waiting.yours }, workspaces: out.brief.workspaces, unavailable: out.brief.unavailable };
   });
