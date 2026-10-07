@@ -440,7 +440,7 @@ async function proposeActionInTurn(input: {
   try {
     decision = enforce(
       input.principal,
-      { kind: 'action', action: action.grant, external: action.external, scope: { orgId: input.orgId } },
+      { kind: 'action', action: action.grant, external: action.external, approvalRequired: action.approvalRequired, scope: { orgId: input.orgId } },
       'mutate',
     );
   } catch (e) {
@@ -817,7 +817,7 @@ export async function willExecuteOnItsOwn(opts: { orgId: string; actionId: strin
   }
   let decision;
   try {
-    decision = enforce(opts.principal, { kind: 'action', action: action.grant, external: action.external, scope: { orgId: opts.orgId } }, 'mutate');
+    decision = enforce(opts.principal, { kind: 'action', action: action.grant, external: action.external, approvalRequired: action.approvalRequired, scope: { orgId: opts.orgId } }, 'mutate');
   } catch {
     return false;
   }

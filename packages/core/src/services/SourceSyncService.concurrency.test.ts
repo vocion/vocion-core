@@ -751,6 +751,20 @@ describe('a sync superseded by an edit', () => {
     expect(checkpoint?.since).toBeNull();
   }, 30_000);
 
+  it('stops a run whose source is deleted under it, instead of reading on into a source that is gone', async () => {
+    registerFixtureConnector('fixture-deleted-under-run', 200);
+    const sourceId = await createSource('fixture-deleted-under-run');
+    schedulingLog.durationFor = () => 400;
+
+    const run = runSync({ orgId: ORG_ID, sourceId });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2200);
+    });
+    await db.delete(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, sourceId));
+
+    await expect(run).rejects.toThrow(SyncSupersededError);
+  }, 30_000);
+
   it('lets the replacement run claim the source straight away', async () => {
     registerFixtureConnector('fixture-supersede-then-run', 2);
     const sourceId = await createSource('fixture-supersede-then-run');

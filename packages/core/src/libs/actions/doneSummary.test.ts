@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doneSummary } from './doneSummary';
+import { doneSummary, undoneSummary } from './doneSummary';
 
 describe('what a done run did, in one clause (Chris, 2026-09-28: "Done for you Â· Undo" did not say what ran)', () => {
   it('a change names the record and the fields it wrote, from the run\'s result', () => {
@@ -37,5 +37,21 @@ describe('what a done run did, in one clause (Chris, 2026-09-28: "Done for you Â
     expect(doneSummary({ actionId: 'gmail.send', input: { to: 'a@northwind.example' }, result: {} })).toBeNull();
     // `refOf` falls back to the action id as a "type"; that is not a record.
     expect(doneSummary({ actionId: 'ask.file', input: {}, result: { id: 3 } }, { type: 'ask.file', id: 3 })).toBeNull();
+  });
+});
+
+describe('what a source connect did and what its Undo took back (#1080)', () => {
+  it('a saved source says its sync started, or that it did not and what to press', () => {
+    expect(doneSummary({ actionId: 'source.connect', input: {}, result: { created: true, firstSync: 'started' } })).toBe('saved the source and started its sync');
+    expect(doneSummary({ actionId: 'source.connect', input: {}, result: { created: false, firstSync: 'failed' } })).toBe('added the pick to the source; its sync could not start, so press Sync now on Connectors');
+  });
+
+  it('Undo of a new source says its documents went with it; Undo of a pick says the old picks are back', () => {
+    expect(undoneSummary({ actionId: 'source.connect', result: { created: true } })).toBe('removed the source and the documents it had read');
+    expect(undoneSummary({ actionId: 'source.connect', result: { created: false } })).toBe('put the source\'s earlier picks back and started a fresh sync');
+  });
+
+  it('says nothing more for other kinds, whose Undone is enough', () => {
+    expect(undoneSummary({ actionId: 'gmail.send', result: {} })).toBeNull();
   });
 });

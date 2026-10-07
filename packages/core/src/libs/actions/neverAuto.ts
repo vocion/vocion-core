@@ -19,6 +19,10 @@
  *   - `objects.propose_candidate` — approving an extracted record is what lets
  *     it be published outside; the moderation loop exists so a human sees
  *     every candidate.
+ *   - `source.connect` — approving it saves a source and starts reading the
+ *     vendor's data into the workspace at once, then every hour. Undo removes
+ *     the source, but not the reads and embeddings already paid for, so a
+ *     person confirms which repositories or projects it reads (#1080).
  *
  * Deliberately not configurable. Fails safe — it can only keep an item in the
  * review queue, never release it.
@@ -28,6 +32,7 @@ export const NEVER_AUTO_ACTION_IDS: ReadonlySet<string> = new Set([
   'discovery.review_proposal',
   'personalization.enroll',
   'objects.propose_candidate',
+  'source.connect',
 ]);
 
 /** Grants that put an action on the never-auto list whatever its id. */

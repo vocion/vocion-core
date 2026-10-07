@@ -155,8 +155,9 @@ function maskedTail(hint: string): string {
  * @param config - What the person filled in.
  * @param draft - The credential choice.
  */
-export async function addConnectorWithCredential(connector: string, config: Record<string, unknown>, draft: CredentialDraft): Promise<void> {
-  await client.connect.addConnector({ connector, config, credential: credentialChoiceOf(draft) });
+export async function addConnectorWithCredential(connector: string, config: Record<string, unknown>, draft: CredentialDraft): Promise<{ sourceId: number | null; firstSync: string | null }> {
+  const saved = await client.connect.addConnector({ connector, config, credential: credentialChoiceOf(draft) });
+  return { sourceId: saved.sourceId, firstSync: saved.firstSync };
 }
 
 /**

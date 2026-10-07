@@ -13,6 +13,7 @@
  */
 
 import type { StoredCredential } from './createSourceOnLogin';
+import type { FirstSync } from './newSourceSync';
 import type { DbTransaction } from '@/libs/DbTransaction';
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
@@ -24,6 +25,7 @@ import { insertSealedPlatformKey, sealPlatformKey } from '@/services/ApiTokenSer
 import { ConnectorCredentialError, CredentialInUseError } from '@/services/SourceCredentialService';
 import { adminCheck, configProblem, connectorLabel, newestLiveCredential, resolveTarget, saveWithin } from './createSourceOnLogin';
 import { loginCannotServe } from './loginCannotServe';
+import { startSourceSyncing } from './newSourceSync';
 
 /** Where the new source's credential comes from: the workspace's stored login or key, or values typed into the form. */
 export type CredentialChoice
@@ -40,7 +42,7 @@ export type CreateSourceWithCredentialInput = {
 };
 
 export type CreateSourceWithCredentialOutcome
-  = | { ok: true; sourceId: number; slug: string }
+  = | { ok: true; sourceId: number; slug: string; firstSync?: FirstSync }
     | { ok: false; reason: string };
 
 const NOT_SAVED = 'The connector could not be saved, so nothing was added. Try again.';
@@ -144,12 +146,13 @@ export async function createSourceWithCredential(input: CreateSourceWithCredenti
   if (target.kind === 'refuse') {
     return { ok: false, reason: target.reason };
   }
+  let saved: { sourceId: number; slug: string };
   try {
     // Sealed before the transaction opens: sealing reads the org's key through the pool.
     const sealed = 'values' in input.credential
       ? await sealPlatformKey({ orgId: input.orgId, platform: platform.id, values: typedValues(input.credential.values) })
       : null;
-    const saved = await db.transaction(async (tx) => {
+    saved = await db.transaction(async (tx) => {
       let credential = stored;
       if (sealed) {
         await refuseIfSavedKeyIsInUse(tx, input.orgId, platform);
@@ -165,8 +168,9 @@ export async function createSourceWithCredential(input: CreateSourceWithCredenti
       }
       return saveWithin(tx, { orgId: input.orgId, actorUserId: input.actorUserId, connector: input.connector, config: input.config, createNew: true }, target, credential!);
     });
-    return { ok: true, ...saved };
   } catch (error) {
     return { ok: false, reason: reasonFor(error, input.connector) };
   }
+  const firstSync = await startSourceSyncing({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
+  return { ok: true, ...saved, firstSync };
 }

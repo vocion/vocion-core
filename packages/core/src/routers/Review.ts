@@ -304,8 +304,11 @@ export const actionStatusRoute = os
     // A type is only a record type when the run named one; an action's own id is not.
     const recordLink = made && made.type !== row.actionId ? await recordHref(orgId, { objectType: made.type, id: made.id }).catch(() => null) : null;
     // What it did, from its own result — the words a done card reads.
-    const { chosenOption, doneSummary } = await import('@/libs/actions/doneSummary');
-    const summary = row.status === 'done' ? doneSummary({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: row.result as Record<string, unknown> | null }, made) : null;
+    const { chosenOption, doneSummary, undoneSummary } = await import('@/libs/actions/doneSummary');
+    const runResult = row.result as Record<string, unknown> | null;
+    const summary = row.status === 'done'
+      ? doneSummary({ actionId: row.actionId, input: (row.input ?? {}) as Record<string, unknown>, result: runResult }, made)
+      : row.status === 'undone' ? undoneSummary({ actionId: row.actionId, result: runResult }) : null;
     // Everything it made — the run it started, the request it planned, the
     // PR — so the settled card opens each in one move (Chris, 2026-09-29).
     const { resultLinks } = await import('@/libs/actions/resultLinks');

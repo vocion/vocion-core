@@ -204,7 +204,7 @@ export type CardStateInput = {
   approvedByAgent?: boolean;
   /** The turn tried to file the card and could not (`card_update` state `unfiled`); nothing is in Review. */
   unfiled?: boolean;
-  /** What a done run did, from its result — "changed request #124: outcome, mainRisk". */
+  /** What a done run did, or what Undo took back, from its result — "changed request #124: outcome, mainRisk". */
   summary?: string | null;
   /** The filing misses its type's bar; nothing is filed until a draft is written. */
   draft?: boolean;
@@ -256,7 +256,8 @@ export function describeCardState(s: CardStateInput, time: (iso: string) => stri
     case 'rejected':
       return { label: `Rejected${by}${at}`, tone: 'red' };
     case 'undone':
-      return { label: `Undone${by}${at}`, tone: 'muted' };
+      // What Undo took back, when it was more than the card shows (a source and its documents).
+      return { label: `Undone${by}${at}${did}`, tone: 'muted' };
     case 'closed':
       // The review sweep closed it: nobody decided, its reason was gone.
       return { label: `Closed — no longer needed${at}`, tone: 'muted' };

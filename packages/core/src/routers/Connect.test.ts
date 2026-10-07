@@ -65,10 +65,10 @@ beforeEach(() => {
 
 describe('connect.saveSource', () => {
   it('saves, always as a new source, for the signed-in person in their workspace and returns the new source id', async () => {
-    vi.mocked(createSourceOnLogin).mockResolvedValue({ ok: true, sourceId: 42, slug: 'github', created: true });
+    vi.mocked(createSourceOnLogin).mockResolvedValue({ ok: true, sourceId: 42, slug: 'github', created: true, firstSync: 'started' });
     const result = await call(parseInput({ connector: 'github', config: { repos: ['northwind/portal'] } }));
 
-    expect(result).toEqual({ ok: true, sourceId: 42 });
+    expect(result).toEqual({ ok: true, sourceId: 42, firstSync: 'started' });
     expect(createSourceOnLogin).toHaveBeenCalledWith({
       orgId: ORG,
       actorUserId: 'usr-9',
@@ -96,10 +96,10 @@ describe('connect.addConnector', () => {
   const pasted = { connector: 'hubspot', config: {}, credential: { values: { token: 'pat-na1-route-test' } } };
 
   it('hands the signed-in person, workspace and the pasted values to the one-step save and returns the source id', async () => {
-    vi.mocked(createSourceWithCredential).mockResolvedValue({ ok: true, sourceId: 8, slug: 'hubspot' });
+    vi.mocked(createSourceWithCredential).mockResolvedValue({ ok: true, sourceId: 8, slug: 'hubspot', firstSync: 'failed' });
     const result = await call(pasted, addConnectorRoute);
 
-    expect(result).toEqual({ ok: true, sourceId: 8 });
+    expect(result).toEqual({ ok: true, sourceId: 8, firstSync: 'failed' });
     expect(createSourceWithCredential).toHaveBeenCalledWith({ orgId: ORG, actorUserId: 'usr-9', ...pasted });
   });
 
