@@ -108,6 +108,7 @@ describe('describeCardState', () => {
   });
 
   it('names one state, never two at once', () => {
+    expect(describeCardState({ status: 'undone', decidedBy: 'Sam Okafor', summary: 'removed the source and the documents it had read' }, time).label).toBe('Undone by Sam Okafor — removed the source and the documents it had read');
     expect(describeCardState({ status: null }, time).label).toBe('Waiting on you');
     // Meant to be filed and not: nothing is waiting on anyone (conversation 349).
     expect(describeCardState({ status: null, unfiled: true }, time)).toEqual({ label: 'Not filed', tone: 'red' });

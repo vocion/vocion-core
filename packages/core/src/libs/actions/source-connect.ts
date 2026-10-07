@@ -61,6 +61,8 @@ export const sourceConnectAction: Action<typeof sourceConnectInput> = {
   inputSchema: sourceConnectInput,
   grant: 'manage_workspace',
   external: false,
+  // Saving starts a sync, so a person approves every one (also on the never-auto list).
+  approvalRequired: true,
   dedupKeyFor: input => `source.connect:${input.connector}:${input.sourceSlug ?? ''}:${stableJson(input.config)}`,
   async precheck(ctx: ActionContext, input: SourceConnectInput) {
     // A person who proposes is checked now, so a member never gets a card that fails at Approve.
@@ -81,7 +83,7 @@ export const sourceConnectAction: Action<typeof sourceConnectInput> = {
       system: label,
       summary: `Save ${label} as a source with what you picked.`,
       fields: Object.entries(input.config).map(([key, value]) => ({ label: FIELD_LABELS[key] ?? key, value: displayValue(value) })),
-      nextAction: 'Approving adds this to the source (nothing already there is removed). Its first sync starts as soon as you approve. Undo removes it, with anything it has read so far.',
+      nextAction: 'Approving saves this source, or adds the pick to the one already there (nothing in it is removed), and starts its first sync. Undo removes a new source with what it has read, or puts an existing one\'s earlier picks back.',
       verbs: { approve: 'Connect', reject: 'Not now' },
     };
   },

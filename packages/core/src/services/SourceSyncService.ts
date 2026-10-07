@@ -387,7 +387,7 @@ export class SyncAlreadyRunningError extends Error {
  */
 export class SyncSupersededError extends Error {
   constructor(sourceId: number) {
-    super(`the settings for source ${sourceId} changed, so this sync stopped`);
+    super(`source ${sourceId} was changed or deleted, so this sync stopped`);
     this.name = 'SyncSupersededError';
   }
 }
@@ -1087,7 +1087,11 @@ export async function runSync(opts: {
       .from(sourceSyncCheckpointSchema)
       .where(eq(sourceSyncCheckpointSchema.sourceId, opts.sourceId))
       .limit(1);
-    if (checkpoint && checkpoint.status !== 'running') {
+    // No checkpoint means the source itself was deleted under the run (Delete
+    // on the Connectors page, Undo in chat), taking its checkpoint with it.
+    // Carrying on would embed every remaining document only for each insert
+    // to fail against a source that is gone.
+    if (!checkpoint || checkpoint.status !== 'running') {
       throw new SyncSupersededError(opts.sourceId);
     }
   };

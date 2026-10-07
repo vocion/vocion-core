@@ -75,4 +75,18 @@ describe('startSourceSyncing', () => {
     expect(await outcome).toBe('failed');
     expect(startSourceFullSync).not.toHaveBeenCalled();
   });
+
+  it('a scheduler that answers after the save said failed starts no sync behind it, so the page stays right', async () => {
+    vi.useFakeTimers();
+    vi.mocked(ensureSourceSchedule).mockReturnValueOnce(new Promise<void>(resolve => setTimeout(resolve, 6_000)));
+    const outcome = startSourceSyncing(notionSource);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await outcome).toBe('failed');
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(ensureSourceReconcileSchedule).not.toHaveBeenCalled();
+    expect(startSourceFullSync).not.toHaveBeenCalled();
+  });
 });

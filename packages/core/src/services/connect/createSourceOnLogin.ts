@@ -14,6 +14,7 @@ import { and, asc, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { loginIsEnough, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { isDeclaredInWorkspaceFile } from '@/libs/sources/manifestDir';
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
@@ -179,6 +180,11 @@ async function uniqueSlug(orgId: string, base: string): Promise<string> {
  * be one of this connector's in this workspace. Unnamed, the candidates are the
  * connector's sources on the same site (or all of them, when the pick names no
  * site): none means create, one means add to it, several means ask.
+ *
+ * A source declared in the workspace file is never added to: the next apply
+ * rewrites its config and schedules from the file, so the pick would vanish.
+ * Named, it is refused with where to change it; unnamed, it is not a
+ * candidate, and the pick makes a source of its own beside it.
  * @param input - The pick.
  */
 export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
@@ -195,20 +201,25 @@ export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
   }
   if (input.sourceSlug) {
     const named = all.find(row => row.slug === input.sourceSlug);
+    if (named && isDeclaredInWorkspaceFile(named.configJson)) {
+      return { kind: 'refuse', reason: `${named.slug} is set in the workspace file, so change it there; a change saved here would be undone by the next apply` };
+    }
     return named
       ? { kind: 'merge', slug: named.slug, existing: { ...named.configJson } }
       : { kind: 'refuse', reason: `${input.sourceSlug} isn't a ${label} source in this workspace` };
   }
+  const addable = all.filter(row => !isDeclaredInWorkspaceFile(row.configJson));
   const candidates = site
-    ? all.filter(row => typeof row.configJson?.baseUrl === 'string' && safeHost(row.configJson.baseUrl) === site)
-    : all;
+    ? addable.filter(row => typeof row.configJson?.baseUrl === 'string' && safeHost(row.configJson.baseUrl) === site)
+    : addable;
   if (candidates.length > 1) {
     return { kind: 'refuse', reason: `${label} has ${candidates.length} sources (${candidates.map(row => row.slug).join(', ')}); say which one with sourceSlug` };
   }
   if (candidates[0]) {
     return { kind: 'merge', slug: candidates[0].slug, existing: { ...candidates[0].configJson } };
   }
-  return { kind: 'create', slug: site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector };
+  // Unique, because a source this pick may not join (one from the workspace file) can hold the usual slug.
+  return { kind: 'create', slug: await uniqueSlug(input.orgId, site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector) };
 }
 
 /**
@@ -364,9 +375,15 @@ export async function createSourceOnLogin(input: CreateSourceInput): Promise<Cre
   try {
     saved = await db.transaction(tx => saveWithin(tx, input, target, credential));
   } catch (error) {
+    logger.error('a source picked on a login could not be saved', { orgId: input.orgId, connector: input.connector, target: target.kind, reason: error instanceof Error ? error.message : String(error) });
     return { ok: false, reason: error instanceof Error ? error.message : 'The source could not be saved.' };
   }
-  // A pick added to an existing source changed its config, so it syncs again too.
+  // A pick added to an existing source changed its config, so it syncs again
+  // too. A run still reading the old config is stopped first: left going, it
+  // would hold the source and the new full sync would be skipped.
+  if (target.kind === 'merge') {
+    await supersedeRunningSync(input.orgId, saved.sourceId, 'A new pick was added to this source');
+  }
   const firstSync = await startSourceSyncing({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
   return target.kind === 'merge'
     ? { ok: true, ...saved, created: false, before: target.existing, firstSync }
@@ -395,6 +412,7 @@ export async function undoCreatedSource(orgId: string, result: { sourceId: numbe
   }
   if (!result.created) {
     await db.update(knowledgeSourceSchema).set({ configJson: result.before ?? {} }).where(where);
+    await supersedeRunningSync(orgId, result.sourceId, 'The pick was undone in chat');
     await startSourceSyncing({ orgId, sourceId: result.sourceId, sourceSlug: row.slug, connectorSlug: result.connector });
     return;
   }

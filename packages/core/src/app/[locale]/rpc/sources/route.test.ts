@@ -202,6 +202,38 @@ describe('POST /rpc/sources', () => {
     expect(startSourceSyncing).toHaveBeenCalledWith({ orgId: 'org_1', sourceId: 14, sourceSlug: 'web-docs', connectorSlug: 'web' });
   });
 
+  it('a save whose first sync could not start still answers 200 with the saved source, so the page keeps it and offers Sync now', async () => {
+    vi.mocked(addSource).mockResolvedValue({ id: 15, slug: 'web-help' });
+    vi.mocked(startSourceSyncing).mockResolvedValue('failed');
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://help.example' } }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ source: { id: 15, slug: 'web-help' }, firstSync: 'failed' });
+  });
+
+  it('refuses a member: nothing is saved and nothing starts syncing', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...signedIn, role: 'member', workspaceRole: 'member' } as never);
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://docs.example' } }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(403);
+    expect(addSource).not.toHaveBeenCalled();
+    expect(startSourceSyncing).not.toHaveBeenCalled();
+  });
+
+  it('holds the first sync when the caller stores a credential next, so it never starts without one', async () => {
+    vi.mocked(addSource).mockResolvedValue({ id: 16, slug: 'strapi' });
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'strapi', configJson: { collections: ['articles'] }, startSyncing: false }) });
+
+    const body = await (await POST(request)).json();
+
+    expect(body).toEqual({ source: { id: 16, slug: 'strapi' }, firstSync: null });
+    expect(startSourceSyncing).not.toHaveBeenCalled();
+  });
+
   it('a source the connector refuses is not saved, so nothing is scheduled', async () => {
     vi.mocked(addSource).mockRejectedValue(new Error('baseUrl is required'));
     const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: {} }) });

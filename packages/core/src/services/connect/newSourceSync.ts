@@ -52,19 +52,47 @@ export function newSourceSyncPlan(connectorSlug: string, sourceId: number): NewS
 }
 
 /**
- * A promise that rejects once the scheduler has had `ms` to answer.
- * @param ms - How long to wait.
- * @param timer - Receives the handle, so the caller can clear it.
- * @param timer.handle - The pending timeout.
+ * How far a save's scheduler calls got, shared between the calls and the
+ * deadline racing them.
  */
-function schedulerDeadline(ms: number, timer: { handle?: ReturnType<typeof setTimeout> }): Promise<never> {
+type SchedulerProgress = {
+  /** The step in flight, for the log. */
+  step: string;
+  /** Set when the deadline fired: the save has answered `failed`, so nothing more may start. */
+  timedOut: boolean;
+  /** The pending deadline, so it can be cleared. */
+  timer?: ReturnType<typeof setTimeout>;
+};
+
+/**
+ * The deadline firing: mark the save as answered, then fail the race.
+ * @param progress - The save's progress.
+ * @param reject - Fails the deadline's promise.
+ * @param ms - How long the scheduler had.
+ */
+function expireSchedulerDeadline(progress: SchedulerProgress, reject: (reason: Error) => void, ms: number): void {
+  progress.timedOut = true;
+  reject(new Error(`the scheduler did not answer within ${ms}ms`));
+}
+
+/**
+ * A promise that rejects once the scheduler has had `ms` to answer. The
+ * Promise constructor's executor is the one callback here: it has no
+ * module-level form, since `reject` only exists inside it.
+ * @param ms - How long to wait.
+ * @param progress - Receives the timer, and is marked when it fires.
+ */
+function schedulerDeadline(ms: number, progress: SchedulerProgress): Promise<never> {
   return new Promise<never>((_, reject) => {
-    timer.handle = setTimeout(reject, ms, new Error(`the scheduler did not answer within ${ms}ms`));
+    progress.timer = setTimeout(expireSchedulerDeadline, ms, progress, reject, ms);
   });
 }
 
 /**
  * The scheduler calls, in order, each step named so a failure says which.
+ * Once the deadline has fired the save has already told the person the sync
+ * could not start, so a scheduler that answers late gets no further: the
+ * step in flight may still land, but the next one, and the sync, never start.
  * The scheduler module is loaded here rather than at the top, as every other
  * caller does, so importing the save path does not load the durable engine.
  * @param spec - The source.
@@ -72,30 +100,58 @@ function schedulerDeadline(ms: number, timer: { handle?: ReturnType<typeof setTi
  * @param spec.sourceId - Its row.
  * @param spec.sourceSlug - Its slug, which names its schedules.
  * @param plan - Its schedules.
- * @param progress - Records the step reached, for the log.
- * @param progress.step - The step in flight.
+ * @param progress - Records the step reached, and whether the deadline fired.
  */
 async function scheduleAndStart(
   spec: { orgId: string; sourceId: number; sourceSlug: string },
   plan: NewSourceSyncPlan,
-  progress: { step: string },
+  progress: SchedulerProgress,
 ): Promise<void> {
   const { ensureSourceReconcileSchedule, ensureSourceSchedule, startSourceFullSync } = await import('@/services/SourceScheduleService');
   progress.step = 'hourly schedule';
   await ensureSourceSchedule({ ...spec, cron: plan.incrementalCron });
-  if (plan.reconcileCron) {
+  if (plan.reconcileCron && !progress.timedOut) {
     progress.step = 'nightly full-pass schedule';
     await ensureSourceReconcileSchedule({ ...spec, cron: plan.reconcileCron });
+  }
+  if (progress.timedOut) {
+    return;
   }
   progress.step = 'first full sync';
   await startSourceFullSync(spec);
 }
 
 /**
+ * Log a scheduler call that failed after the save stopped waiting for it.
+ * The race already logged the timeout, but this failure says why, and nothing
+ * else would ever see it.
+ * @param source - The saved source.
+ * @param source.orgId - The workspace.
+ * @param source.sourceId - Its row.
+ * @param source.connectorSlug - Its connector.
+ * @param progress - The save's progress.
+ * @param error - What the late call threw.
+ */
+function logLateSchedulerFailure(source: { orgId: string; sourceId: number; connectorSlug: string }, progress: SchedulerProgress, error: unknown): void {
+  if (!progress.timedOut) {
+    return;
+  }
+  logger.error('a scheduler call failed after the save stopped waiting for it', {
+    orgId: source.orgId,
+    sourceId: source.sourceId,
+    connector: source.connectorSlug,
+    step: progress.step,
+    reason: error instanceof Error ? error.message : String(error),
+  });
+}
+
+/**
  * Give a saved source its schedules and start a full sync of it. Never throws
  * and never waits on the scheduler longer than SCHEDULER_TIMEOUT_MS: a
  * scheduler that is down or hung is logged with the step it failed at and
- * reported as `failed`, and the source keeps its Sync now button.
+ * reported as `failed`, and the source keeps its Sync now button. A scheduler
+ * that answers after that is not cancelled, but it starts nothing more, so
+ * `failed` stays true: no sync begins behind it.
  * @param source - The source that was just saved.
  * @param source.orgId - The workspace.
  * @param source.sourceId - Its row.
@@ -103,15 +159,16 @@ async function scheduleAndStart(
  * @param source.connectorSlug - Its connector.
  */
 export async function startSourceSyncing(source: { orgId: string; sourceId: number; sourceSlug: string; connectorSlug: string }): Promise<FirstSync> {
-  const progress = { step: 'plan' };
-  const timer: { handle?: ReturnType<typeof setTimeout> } = {};
+  const progress: SchedulerProgress = { step: 'plan', timedOut: false };
   try {
     const plan = newSourceSyncPlan(source.connectorSlug, source.sourceId);
     if (!plan) {
       return 'not_a_syncing_connector';
     }
     const spec = { orgId: source.orgId, sourceId: source.sourceId, sourceSlug: source.sourceSlug };
-    await Promise.race([scheduleAndStart(spec, plan, progress), schedulerDeadline(SCHEDULER_TIMEOUT_MS, timer)]);
+    const scheduling = scheduleAndStart(spec, plan, progress);
+    scheduling.catch(error => logLateSchedulerFailure(source, progress, error));
+    await Promise.race([scheduling, schedulerDeadline(SCHEDULER_TIMEOUT_MS, progress)]);
     return 'started';
   } catch (error) {
     logger.error('a source was saved but its schedule or sync could not be started', {
@@ -123,6 +180,6 @@ export async function startSourceSyncing(source: { orgId: string; sourceId: numb
     });
     return 'failed';
   } finally {
-    clearTimeout(timer.handle);
+    clearTimeout(progress.timer);
   }
 }

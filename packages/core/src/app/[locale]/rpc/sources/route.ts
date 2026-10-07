@@ -4,7 +4,8 @@
  *   GET  → { sources, connectors }
  *           - `sources`: this org's configured rows, each with its latest sync run
  *           - `connectors`: built-in picker tiles (web, drive, ...)
- *   POST → create a new source row from { kind, slug?, configJson }.
+ *   POST → create a new source row from { kind, slug?, configJson, startSyncing? }
+ *           (admins only); it starts syncing unless `startSyncing` is false.
  *
  * The Sources page reads `GET` to populate the table; the
  * Add-Source dialog posts here.
@@ -95,11 +96,27 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { orgId } = await auth();
+  const { orgId, role } = await auth();
   if (!orgId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  let body: { kind?: string; slug?: string; configJson?: Record<string, unknown> };
+  // A new source reads a vendor's data into the workspace and syncs it every
+  // hour, so adding one is an admin's call, as it is on every other way in
+  // (the login, the chat card, the credential form).
+  if (role !== 'admin') {
+    return Response.json({ error: 'Only admins can add a source' }, { status: 403 });
+  }
+  let body: {
+    kind?: string;
+    slug?: string;
+    configJson?: Record<string, unknown>;
+    /**
+     * False when the caller stores the source's credential next: the first
+     * sync then waits for it (`POST /rpc/sources/:id/start-syncing`) instead
+     * of starting with no credential and being skipped.
+     */
+    startSyncing?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
@@ -115,6 +132,9 @@ export async function POST(req: Request) {
       slug: body.slug,
       configJson: body.configJson,
     });
+    if (body.startSyncing === false) {
+      return Response.json({ source: created, firstSync: null });
+    }
     // Like a source saved by logging in, it gets its schedules and starts reading now.
     const firstSync = await startSourceSyncing({ orgId, sourceId: created.id, sourceSlug: created.slug, connectorSlug: body.kind });
     return Response.json({ source: created, firstSync });

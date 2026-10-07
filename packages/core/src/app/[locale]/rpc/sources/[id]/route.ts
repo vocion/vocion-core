@@ -37,9 +37,13 @@ export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string; locale: string }> },
 ) {
-  const { orgId } = await auth();
+  const { orgId, role } = await auth();
   if (!orgId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // Changing what a source reads is an admin's call, like adding one.
+  if (role !== 'admin') {
+    return Response.json({ error: 'Only admins can change a source' }, { status: 403 });
   }
   const sourceId = await readSourceId(ctx);
   if (sourceId === null) {
@@ -82,9 +86,13 @@ export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string; locale: string }> },
 ) {
-  const { orgId } = await auth();
+  const { orgId, role } = await auth();
   if (!orgId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // Deleting a source deletes every document read from it, for everyone.
+  if (role !== 'admin') {
+    return Response.json({ error: 'Only admins can delete a source' }, { status: 403 });
   }
   const sourceId = await readSourceId(ctx);
   if (sourceId === null) {

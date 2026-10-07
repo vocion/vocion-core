@@ -198,7 +198,7 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   await page.locator('form').getByRole('button', { name: 'Add connector' }).click();
 
   expect(JSON.stringify(await (await saveResponse).json())).toMatch(/"ok":true,"sourceId":\d+,"firstSync":"failed"/);
-  await expect(page.getByText('Saved, but its first sync could not start. Press Sync now on its row.')).toBeVisible();
+  await expect(page.getByText('Saved, but its first sync could not start. Press Sync now on its row to try again.')).toBeVisible();
 
   await expect.poll(() => listedConnectors(page)).toContain('github');
 
