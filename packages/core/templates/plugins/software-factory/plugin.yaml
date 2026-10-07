@@ -408,8 +408,8 @@ name: Software factory
 #   plugin declares what set up means (`setup:` below: GitHub connected, a
 #   product and a repository on record); core turns that into the first chip
 #   in an unconfigured workspace and the `describe_setup` tool, and the PM's
-#   `set-up-the-factory` skill walks a person through it with one link per
-#   step, the login being the approval. When GitHub connects (`source.connected`), `finish-setup` has the PM
+#   `set-up-the-factory` skill walks a person through it with one connect
+#   card per step (`offer_connection`, #1080), the login being the approval. When GitHub connects (`source.connected`), `finish-setup` has the PM
 #   file the product and repository records from the grant. When a repository
 #   record lands, `map-the-codebase` has the Release seat read the repository
 #   whole (`repo_read_tree`) and file the product's architecture — a typed

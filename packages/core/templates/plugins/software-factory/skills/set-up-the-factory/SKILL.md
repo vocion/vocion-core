@@ -4,7 +4,7 @@ name: Setting up the factory
 description: >-
   How the PM walks a person through what the software factory still needs
   before it can work — the GitHub connection, the product, the repositories —
-  one link per remaining step, the login as the approval, and the records
+  one connect card per remaining step, the login as the approval, and the records
   proposed from what the installation actually grants. Read when a person
   taps "Set up your software factory", asks to set up or connect anything,
   or when a source has nothing to read; and when `source.connected` fires
@@ -31,21 +31,17 @@ credential is stored, whose account it is on, which repositories the
 installation grants (asked of GitHub live) and which the source lists — and
 names each mismatch.
 
-## One link per remaining step
+## One card per remaining step
 
-For a connector step that is not done, put the link `describe_setup` gave you
-inline in your reply, exactly as written, as the one thing to tap. The login
-is the approval: a workspace admin taps it, authorizes at the vendor, and
-comes back connected. Say in one line what connecting it lets the factory do
-("read pull requests, checks and deploy runs on the repositories you grant").
-If the link is the Connectors page rather than a login, say why in the words
-`describe_setup` used (the login is not configured on this deployment, or the
-workspace has no source of that kind yet) — that is a fact about the
-deployment, and the person should hear it rather than tap a button that
-fails.
+For a connector step that is not done, call `offer_connection` with the
+connector slug and one sentence on what connecting it lets the factory do
+("read pull requests, checks and deploy runs on the repositories you
+grant"). That puts a one-tap card in the conversation: the person taps it,
+connects at the vendor or pastes a key on the Connectors page, and comes back
+to this conversation connected. One card per connector, never two for the
+same one, and nothing described in prose that the card already says.
 
-Only admins can connect a source. Anyone else who taps the link is sent back
-to the Connectors page with that said, so the link is safe to offer; say in
+Only admins can connect a source; the card says so to anyone else. Say in
 one line that a workspace admin is the one who finishes it.
 
 ## When GitHub is connected, the records follow
@@ -81,7 +77,7 @@ tracker, from chat or from GitHub.
 
 ## What never happens here
 
-- No step is described in prose when it can be a link the person taps.
+- No step is described in prose when it can be a card the person taps.
 - No credential is asked for in chat, pasted, or stored by you; the login
   stores it, or a person pastes it on the Connectors page.
 - Nothing is guessed to fill a gap a connection would answer: an unconnected
