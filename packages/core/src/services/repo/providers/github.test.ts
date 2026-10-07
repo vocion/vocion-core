@@ -50,6 +50,36 @@ describe('the GitHub provider', () => {
     expect(pull).toMatchObject({ title: 'Fix the report', author: 'worker', headBranch: 'factory/41', headSha: 'abc123def456', baseBranch: 'main', merged: false, labels: ['factory'], files: [{ path: 'src/report.ts', status: 'modified' }], reviews: [{ reviewer: 'qa', state: 'APPROVED' }], checks: [{ name: 'ci', conclusion: 'success' }] });
   });
 
+  it('refuses a file path that leaves the repository, before any request is made', async () => {
+    call.mockClear();
+    for (const bad of ['../../installation/repositories', 'src/../../x', 'src//x', '.', '']) {
+      await expect(gh.readFile('org_1', ref.repo, bad)).rejects.toThrow(/is not a path inside the repository/);
+    }
+
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it('reads the whole tree at a ref in one call, on the default branch the host names when no ref is given', async () => {
+    call.mockImplementation(async (_gh: unknown, path: string) => {
+      if (path === '') {
+        return { ok: true, status: 200, data: { default_branch: 'develop', private: true } };
+      }
+      if (path === '/git/trees/develop?recursive=1') {
+        return { ok: true, status: 200, data: { sha: 'abc', truncated: true, tree: [{ path: 'src', type: 'tree', sha: '1' }, { path: 'src/index.ts', type: 'blob', size: 12, sha: '2' }, { path: 'lib', type: 'commit', sha: '3' }, { type: 'blob' }] } };
+      }
+      if (path === '/git/trees/factory%2F41?recursive=1') {
+        return { ok: true, status: 200, data: { sha: 'def', truncated: false, tree: [{ path: 'README.md', type: 'blob', size: 3 }] } };
+      }
+      return { ok: false, status: 404, message: 'HTTP 404: Not Found' };
+    });
+
+    await expect(gh.readTree('org_1', ref.repo)).resolves.toEqual({ repo: ref.repo, ref: 'develop', truncated: true, entries: [{ path: 'src', type: 'tree' }, { path: 'src/index.ts', type: 'blob', size: 12 }] });
+    expect(call.mock.calls.map(c => c[1])).toEqual(['', '/git/trees/develop?recursive=1']);
+
+    await expect(gh.readTree('org_1', ref.repo, 'factory/41')).resolves.toEqual({ repo: ref.repo, ref: 'factory/41', truncated: false, entries: [{ path: 'README.md', type: 'blob', size: 3 }] });
+    await expect(gh.readTree('org_1', ref.repo, 'gone')).rejects.toThrow(/tree of Acme\/northwind-core @ gone could not be read: HTTP 404.*does not exist/);
+  });
+
   it('posts a comment and deletes it; submits a review with its inline findings and dismisses it', async () => {
     call.mockResolvedValueOnce({ ok: true, status: 201, data: { id: 501, html_url: `${ref.url}#issuecomment-501` } });
 

@@ -280,6 +280,36 @@ connector's first voice), under its avatar, and the feature page offers
 Recording | Narrated (`services/jobs/narrateRecording.ts`,
 `services/artifacts/narrate.ts`).
 
+## Setup — what a plugin needs before it works
+
+A plugin that is on is not necessarily set up: the software factory with no
+GitHub connected has seats, missions and pages and nothing to read. A plugin
+says once what "set up" means for it:
+
+```yaml
+# plugin.yaml
+setup:
+  connectors: [github] # connector slugs a person must connect
+  records: [product, repo] # object types that must hold at least one record
+```
+
+Core turns that into a state (`services/plugins/setupState.ts`): a connector
+step is done when a live credential exists for it in the workspace (a vendor
+login, an app installation or a pasted key alike); a record step is done when
+the type has an active record. While any step is undone the workspace's chat
+leads with one chip, "Set up your <plugin>", routed to the lead; every agent
+can read the same steps with `describe_setup`, each with the link a person
+taps — the Connectors page's add flow for that connector, the same one the
+`offer_connection` card opens from chat, which runs the vendor login where the
+deployment has one (the login is the approval) and takes a pasted key
+otherwise. The chip goes away on its own when the last step is done. Core names no connector and no type here: a plugin that declares
+no `setup:` has no setup state.
+
+When a credential is stored, core emits `source.connected` (connector,
+install id, credential id, who, when), so a plugin automation can carry setup
+on from the login — the software factory's `finish-setup` has the PM file the
+product and repository records from what the GitHub installation grants.
+
 ## Factory types — the roles a factory plugin's records play
 
 Core's factory services (`services/factory/`, `libs/actions/factory*`) name no

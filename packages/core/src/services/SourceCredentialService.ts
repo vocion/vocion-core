@@ -154,7 +154,45 @@ export async function storeCredentialForSource(input: {
     raw: input.raw,
     userId: input.userId,
   });
+  await announceConnected(input.orgId, {
+    connector: input.sourceSlug,
+    installId,
+    credentialId,
+    connectedBy: input.userId ?? 'system',
+    connectedAt: new Date().toISOString(),
+  });
   return { installId, credentialId };
+}
+
+/**
+ * Tell the workspace a connector was connected (`source.connected`), so a
+ * plugin automation can carry setup on from here. Best-effort and after the
+ * write: the credential is stored whether or not anyone hears about it, and
+ * a failure to announce is logged, never thrown into the connect flow.
+ * @param orgId - Tenant.
+ * @param payload - The event payload.
+ */
+async function announceConnected(orgId: string, payload: import('@/services/EventService').SourceConnectedPayload): Promise<void> {
+  try {
+    const { emitEvent, SOURCE_CONNECTED } = await import('@/services/EventService');
+    await emitEvent({
+      orgId,
+      type: SOURCE_CONNECTED,
+      payload,
+      dedupeKey: `source-connected:${payload.credentialId}`,
+      invokedBy: 'source-connect',
+      // The connect callback is a request, and a subscribed mission check is
+      // an agent pass: `auto` answers the redirect first and runs the pass
+      // after the response; the CLI and the deploy seed run it inline.
+      dispatchMode: 'auto',
+    });
+  } catch (err) {
+    console.error('[source-credential] stored, but source.connected could not be dispatched', {
+      orgId,
+      connector: payload.connector,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**

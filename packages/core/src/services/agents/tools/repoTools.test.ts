@@ -1,6 +1,6 @@
 /**
- * The repo family's reads: the three pull-request reads for any agent with a
- * code-host source in scope, the two pipeline reads granted-only by either
+ * The repo family's reads: the four reads for any agent with a code-host
+ * source in scope, the two pipeline reads granted-only by either
  * their name or their former name (backlog 049). The host is mocked at the
  * provider seam; the repository is invented.
  */
@@ -16,7 +16,29 @@ const provider = {
   readPull: vi.fn(async () => ({ title: 'Fix the report', headSha: 'abc123', files: [{ path: 'src/report.ts' }] })),
   readPullDiff: vi.fn(async () => 'diff --git a/src/report.ts b/src/report.ts\n@@\ndiff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n@@\n'),
   readCompareDiff: vi.fn(async () => 'diff --git a/README.md b/README.md\n@@\n'),
-  readFile: vi.fn(async (_o: string, repo: string, path: string, ref: string | null) => ({ repo, path, ref, size: 5, text: 'hello', truncated: false })),
+  readFile: vi.fn(async (_o: string, repo: string, path: string, ref: string | null) => {
+    if (path === 'CLAUDE.md') {
+      throw new Error(`${repo}/${path} @ ${ref} could not be read: HTTP 404`);
+    }
+    const text = path === 'README.md' ? 'R'.repeat(1200) : 'hello';
+    return { repo, path, ref, size: text.length, text, truncated: false };
+  }),
+  readTree: vi.fn(async (_o: string, repo: string, ref: string | null) => ({
+    repo,
+    ref: ref ?? 'main',
+    truncated: false,
+    entries: [
+      { path: 'README.md', type: 'blob' as const, size: 1200 },
+      { path: 'CLAUDE.md', type: 'blob' as const, size: 5 },
+      { path: 'package.json', type: 'blob' as const, size: 5 },
+      { path: 'Dockerfile', type: 'blob' as const, size: 5 },
+      { path: 'src', type: 'tree' as const },
+      { path: 'src/report.ts', type: 'blob' as const, size: 10 },
+      { path: 'infra', type: 'tree' as const },
+      { path: 'infra/main.tf', type: 'blob' as const, size: 10 },
+      { path: 'node_modules/left-pad/index.js', type: 'blob' as const, size: 10 },
+    ],
+  })),
 };
 vi.mock('@/services/repo/provider', async () => {
   const actual = await vi.importActual<typeof import('@/services/repo/provider')>('@/services/repo/provider');
@@ -42,16 +64,21 @@ const toolNamed = (ctx: RuntimeContext, name: string) => (repoTools(ctx) as unkn
 describe('which repo tools a turn has', () => {
   it('the three reads need a code-host source in scope; a source of another kind, or one the person\'s ACL excludes, gives none', () => {
     expect(names(ctxFor())).toEqual([]);
-    expect(names(ctxFor({ sources: ['github'] }))).toEqual(['repo_read_pull', 'repo_read_diff', 'repo_read_file']);
-    expect(names(ctxFor({ sources: ['noco-code'], kinds: { 'noco-code': 'github' } }))).toEqual(['repo_read_pull', 'repo_read_diff', 'repo_read_file']);
+    expect(names(ctxFor({ sources: ['github'] }))).toEqual(['repo_read_pull', 'repo_read_diff', 'repo_read_file', 'repo_read_tree']);
+    expect(names(ctxFor({ sources: ['noco-code'], kinds: { 'noco-code': 'github' } }))).toEqual(['repo_read_pull', 'repo_read_diff', 'repo_read_file', 'repo_read_tree']);
     expect(names(ctxFor({ sources: ['hubspot'] }))).toEqual([]);
     expect(names(ctxFor({ sources: ['github'], allowed: ['jira'] }))).toEqual([]);
+  });
+
+  it('the tree read is also granted by name, so a seat with no source of its own can map a repository', () => {
+    expect(names(ctxFor({ grants: ['repo_read_tree'] }))).toEqual(['repo_read_tree']);
+    expect(names(ctxFor({ sources: ['github'], grants: ['repo_read_tree'] }))).toEqual(['repo_read_pull', 'repo_read_diff', 'repo_read_file', 'repo_read_tree']);
   });
 
   it('the pipeline reads are there only when granted, by their name or their former name', () => {
     expect(names(ctxFor({ grants: ['repo_read_pipeline_runs'] }))).toEqual(['repo_read_pipeline_runs']);
     expect(names(ctxFor({ grants: ['github_read_check_logs', 'github_read_workflow_runs'] }))).toEqual(['repo_read_check_logs', 'repo_read_pipeline_runs']);
-    expect(names(ctxFor({ sources: ['github'], grants: ['repo_read_check_logs'] }))).toEqual(['repo_read_pull', 'repo_read_diff', 'repo_read_file', 'repo_read_check_logs']);
+    expect(names(ctxFor({ sources: ['github'], grants: ['repo_read_check_logs'] }))).toEqual(['repo_read_pull', 'repo_read_diff', 'repo_read_file', 'repo_read_tree', 'repo_read_check_logs']);
   });
 });
 
@@ -86,6 +113,37 @@ describe('the reads', () => {
     const out = JSON.parse(await toolNamed(ctx, 'repo_read_file').invoke({ repo: 'Acme/northwind-core', path: '.github/workflows/ci.yml', ref: 'main' }));
 
     expect(out).toMatchObject({ ok: true, host: 'GitHub', path: '.github/workflows/ci.yml', ref: 'main', text: 'hello' });
+  });
+
+  it('repo_read_tree reads the tree once, summarises it, and reads the manifests at the same ref inside one budget', async () => {
+    const out = JSON.parse(await toolNamed(ctx, 'repo_read_tree').invoke({ repo: 'Acme/northwind-core', maxManifestChars: 1000 }));
+
+    expect(provider.readTree).toHaveBeenLastCalledWith('org_1', 'Acme/northwind-core', null);
+    expect(out).toMatchObject({ ok: true, host: 'GitHub', repo: 'Acme/northwind-core', ref: 'main', truncated: false, fileCount: 6, directoryCount: 2 });
+    expect(out.topLevel.map((t: { path: string }) => t.path)).toEqual(['infra/', 'src/', 'CLAUDE.md', 'Dockerfile', 'README.md', 'package.json']);
+    expect(out.excluded).toEqual({ files: 1, directories: ['node_modules'], lockfiles: [] });
+    expect(out.manifests.map((m: { path: string; kind: string }) => [m.path, m.kind])).toEqual([['README.md', 'readme'], ['package.json', 'package'], ['CLAUDE.md', 'agent-notes'], ['Dockerfile', 'container'], ['infra', 'deploy']]);
+    // Every manifest file is read at the ref the tree came from, in reading order; the folder is named, not read.
+    expect(provider.readFile.mock.calls.slice(-4).map(c => [c[2], c[3]])).toEqual([['README.md', 'main'], ['package.json', 'main'], ['CLAUDE.md', 'main'], ['Dockerfile', 'main']]);
+    expect(out.manifestFiles.map((f: { path: string; truncated: boolean; kind: string }) => [f.path, f.truncated, f.kind])).toEqual([['README.md', true, 'readme'], ['package.json', false, 'package'], ['Dockerfile', false, 'container']]);
+    expect(out.manifestFiles.reduce((n: number, f: { text: string }) => n + f.text.length, 0)).toBeLessThanOrEqual(1000);
+    expect(out.manifestsSkipped).toEqual([
+      { path: 'infra', reason: expect.stringContaining('a folder') },
+      { path: 'CLAUDE.md', reason: expect.stringContaining('HTTP 404') },
+    ]);
+    expect(out.note).toMatch(/README\.md.*repo_read_file at ref main/);
+
+    const bare = JSON.parse(await toolNamed(ctx, 'repo_read_tree').invoke({ repo: 'Acme/northwind-core', ref: 'factory/41', manifests: false }));
+
+    expect(provider.readTree).toHaveBeenLastCalledWith('org_1', 'Acme/northwind-core', 'factory/41');
+    expect(bare).toMatchObject({ ok: true, ref: 'factory/41', manifestFiles: [], manifestsSkipped: [] });
+    expect(bare.note).toMatch(/manifests: false/);
+  });
+
+  it('repo_read_tree returns a host refusal as a value', async () => {
+    provider.readTree.mockRejectedValueOnce(new Error('the tree of Acme/northwind-core @ gone could not be read: HTTP 404'));
+
+    expect(JSON.parse(await toolNamed(ctx, 'repo_read_tree').invoke({ repo: 'Acme/northwind-core', ref: 'gone' }))).toEqual({ ok: false, error: expect.stringContaining('HTTP 404') });
   });
 
   it('repo_read_pipeline_runs names each run\'s jobs and the step that failed, and points at the family\'s actions', async () => {

@@ -43,7 +43,7 @@ export type WorkspaceChip = {
   /** Which agent/lead this should route to, when known. */
   agentSlug?: string;
   /** Provenance — for telemetry + graceful-degradation notes. */
-  source: 'urgency' | 'capability';
+  source: 'setup' | 'urgency' | 'capability';
 };
 
 /** Minimal agent shape the chip builder needs — a subset of the chat AgentOption. */
@@ -64,6 +64,30 @@ export type ChipAgent = {
 const MAX_CHIPS = 6;
 /** Briefings older than this aren't "what needs my attention today". */
 const URGENCY_WINDOW_DAYS = 3;
+
+/**
+ * (0) Setup signal — a plugin that is on and not yet set up. Outranks every
+ * other chip: a workspace that cannot read anything has no "What should I
+ * do?" worth asking yet, and the one thing a person can do is finish setup.
+ * One chip per plugin, from the plugin's own declaration
+ * (`services/plugins/setupState.ts`); gone on its own once every step is done.
+ * The prompt is a plain sentence — structure belongs in the agent's skill,
+ * not in the chip (see `synthesis.ts`).
+ * @param orgId - Active project/org id.
+ * @param coordinatorSlug - The lead the setup turn routes to.
+ */
+async function setupChips(orgId: string, coordinatorSlug?: string): Promise<WorkspaceChip[]> {
+  const { setupStateForOrg } = await import('@/services/plugins/setupState');
+  const setups = await setupStateForOrg(orgId);
+  return setups
+    .filter(s => !s.complete)
+    .map(s => ({
+      label: `Set up your ${s.name.toLowerCase()}`,
+      prompt: `Set up my ${s.name.toLowerCase()}`,
+      agentSlug: coordinatorSlug,
+      source: 'setup' as const,
+    }));
+}
 
 /**
  * (a) Urgency signal — fresh briefings + work parked in the review queue.
@@ -219,26 +243,30 @@ export async function buildWorkspaceChips(opts: {
 
   // (a) urgency + (b) synthesized capability — both best-effort and gathered
   // in parallel; a DB or model hiccup must never break the empty state.
-  const [urgencyResult, synthesizedResult] = await Promise.allSettled([
+  const [setupResult, urgencyResult, synthesizedResult] = await Promise.allSettled([
+    setupChips(opts.orgId, coordinatorSlug),
     urgencyChips(opts.orgId, coordinatorSlug),
     synthesizedCapabilityChips(opts.orgId, opts.agents),
   ]);
+  const setup = setupResult.status === 'fulfilled' ? setupResult.value : [];
   const urgency = urgencyResult.status === 'fulfilled' ? urgencyResult.value.slice(0, 2) : [];
   const synthesized = synthesizedResult.status === 'fulfilled' ? synthesizedResult.value : [];
 
   // (b-fallback) YAML capability chips — fill only what synthesis left empty.
   const capability = capabilityChips(opts.agents);
 
-  // Order: synthesized chips FIRST — their head is the two constant-label
-  // anchors ("What should I do?" / "What can you do?"), which are the only
-  // chips visible before "More" — then urgency, then YAML filler, all behind
-  // the caret. De-dupe by prompt AND by label — two chips can carry different
+  // Order: a setup chip FIRST when a plugin is on and not set up (it takes
+  // one of the two visible slots and pushes "What can you do?" behind the
+  // caret, which is the right ranking for a workspace that cannot read
+  // anything yet) — then synthesized chips, whose head is the two
+  // constant-label anchors ("What should I do?" / "What can you do?") —
+  // then urgency, then YAML filler, all behind the caret. De-dupe by prompt AND by label — two chips can carry different
   // prompts under the same visible label (e.g. multiple leads' anchors), and
   // a duplicated chip label reads as a bug regardless of what it sends; the
   // first (coordinator lead's) wins.
   const seen = new Set<string>();
   const merged: WorkspaceChip[] = [];
-  for (const chip of [...synthesized, ...urgency, ...capability]) {
+  for (const chip of [...setup, ...synthesized, ...urgency, ...capability]) {
     const promptKey = `p:${chip.prompt.trim().toLowerCase()}`;
     const labelKey = `l:${chip.label.trim().toLowerCase()}`;
     if (seen.has(promptKey) || seen.has(labelKey)) {

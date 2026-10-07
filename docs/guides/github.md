@@ -252,6 +252,7 @@ private repository answers):
 | `repo_read_pull` | one pull request, live: title, description, author, branches, head commit, files changed, reviews, check conclusions, labels | any agent with a repo source in `connectorSources` |
 | `repo_read_diff` | the unified diff of a pull request or of two refs, the files it touches, and with `task_id` the files outside the task's `allowedPaths` | same |
 | `repo_read_file` | a file at a ref, whole (cut at 60k) | same |
+| `repo_read_tree` | the whole tree at a ref in one call (the default branch when none is given): top-level folders with file counts and extensions, paths to three levels, the manifest files found, and the text of up to eight of them in one character budget | same |
 | `repo_read_check_logs` | each failing check, its annotations, the failing step's log tail; whether the base branch is red too (formerly `github_read_check_logs`) | granted (`harness.grantTools`), by either name |
 | `repo_read_pipeline_runs` | a repository's pipeline runs, newest first, each with its jobs and the step that failed (formerly `github_read_workflow_runs`) | granted, by either name |
 

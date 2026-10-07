@@ -402,7 +402,20 @@ name: Software factory
 #   waiting on a person, live); `asker-follow` says it once in the app's chat
 #   and the Slack thread alike, replacing `slack-thread-follow` and
 #   `conversation-follow`. The filing reply is written for the agent to send.
-version: 3.30.0
+# 3.31.0 — a factory that is on but not set up says so, and maps what it
+#   builds (Jamie, 2026-10-07, of the DeliveryStack workspace's first chat:
+#   "the first action in chat should be 'set up your software factory'"). The
+#   plugin declares what set up means (`setup:` below: GitHub connected, a
+#   product and a repository on record); core turns that into the first chip
+#   in an unconfigured workspace and the `describe_setup` tool, and the PM's
+#   `set-up-the-factory` skill walks a person through it with one connect
+#   card per step (`offer_connection`, #1080), the login being the approval. When GitHub connects (`source.connected`), `finish-setup` has the PM
+#   file the product and repository records from the grant. When a repository
+#   record lands, `map-the-codebase` has the Release seat read the repository
+#   whole (`repo_read_tree`) and file the product's architecture — a typed
+#   graph the platform draws (`draw_architecture`), shown on the product page —
+#   and `map-codebase-sweep` redraws it when a repository moves on.
+version: 3.31.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []
@@ -414,6 +427,15 @@ recommend:
     - a person asks what is in flight, what is stuck, and what nobody has answered for a week
     - bug reports, store reviews and support emails about the same product are tracked in different places, or nowhere
   connectors: []
+# What "set up" means for this plugin (core: services/plugins/setupState.ts).
+# A workspace with the plugin on and any step undone gets "Set up your
+# software factory" as its first chat chip, and `describe_setup` names the
+# steps. GitHub is the one connector the loop cannot run without; a tracker
+# and a chat are read when connected and never required. One product and one
+# repository record are the least the factory can plan against.
+setup:
+  connectors: [github]
+  records: [product, repo]
 # The plugin's rows sit under their own heading (its pages already say so); a core
 # route it offers — Evals, the reference sets — sits under that heading's "More ›".
 nav: {section: Software factory, order: 0}

@@ -62,6 +62,7 @@ playbooks:
   - naming-the-work
   - designing-a-surface
 skills:
+  - set-up-the-factory
   - surface-an-ask-as-a-card
   - triage-request
   - write-architecture-plan

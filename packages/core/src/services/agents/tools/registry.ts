@@ -33,9 +33,11 @@ import { crmTools } from './crm';
 import { dataRoomTools } from './dataRooms';
 import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
+import { describeSetupTool } from './describeSetup';
 import { describeSourcesTool } from './describeSources';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
+import { drawArchitectureTools } from './drawArchitecture';
 import { drawMockupTools } from './drawMockup';
 import { editArtifactTools } from './editArtifacts';
 import { fetchImageTool } from './fetchImage';
@@ -182,11 +184,18 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // repositories do you have access to?" is this call, not a search of the
     // index or a guess from the operating intent (Noco, 2026-09-30).
     describeSourcesTool(ctx),
+    // What a plugin that is on still needs before it works, from the plugin's
+    // own `setup:` declaration, with the link for each step — the same answer
+    // the "Set up your <plugin>" chip is built from. Read-only.
+    describeSetupTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     // A mockup is the real screen with only the change drawn in, filed on the
     // request it is for (request #224, 2026-09-29). For agents with requests.
     ...drawMockupTools(ctx),
+    // A product's architecture, as a typed graph the platform draws and files
+    // on the product (plugin 3.31.0). Granted to the seat that maps the code.
+    ...drawArchitectureTools(ctx),
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),

@@ -179,6 +179,11 @@ export async function resolveArtifactFile(opts: {
       'Content-Disposition': disposition,
       'Cache-Control': 'private, max-age=0, must-revalidate',
       'X-Content-Type-Options': 'nosniff',
+      // An SVG is a document: opened directly (not as an <img>) a script in
+      // it would run in the app's origin. Three writers produce SVG from
+      // model text (charts, fetched images, the architecture diagram), each
+      // escaping; this closes the class whatever a future one does.
+      ...(contentType === 'image/svg+xml' ? { 'Content-Security-Policy': 'default-src \'none\'; style-src \'unsafe-inline\'; sandbox' } : {}),
     },
   };
 }

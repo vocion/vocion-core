@@ -2,6 +2,7 @@ import type { PageRow } from './pageFields';
 import type { HealthReading } from './productBoard';
 import type { RecordLinker } from './recordHref';
 import type { ReleaseLinked } from './releaseFeed';
+import { ARCHITECTURE_FIELD } from '@/libs/factory/architectureDiagram';
 import { groupTabKey } from './pageFields';
 import { dependencyLine, healthReading, latestRelease, lifecycleLabel, plural, productWork, releasesFor } from './productBoard';
 import { genericRecordLinker } from './recordHref';
@@ -136,10 +137,10 @@ export type OverviewProposal = {
   blocked: string | null;
 };
 
-/** A picture of the product: a mockup of work underway, or what QA saw live. */
+/** A picture of the product: its architecture, a mockup of work underway, or what QA saw live. */
 export type OverviewPicture = {
   artifactId: number;
-  label: 'Mockup' | 'Live';
+  label: 'Architecture' | 'Mockup' | 'Live';
   caption: string;
   /** Who or what it came from, and where it opens. */
   source: { text: string; ref: { type: 'object'; id: string } };
@@ -215,13 +216,51 @@ export type ProductOverview = {
     incumbent: { name: string | null; plan: string | null; price: string | null; checkedOn: string | null; sourceUrl: string | null } | null;
     builtOn: string | null;
     notes: string | null;
+    /**
+     * What the Release seat mapped from the repositories (`draw_architecture`):
+     * the one-paragraph summary kept on the record, when, and from which
+     * repositories — dated, so a stale map reads as stale (principle 10).
+     */
+    architecture: OverviewArchitecture | null;
   };
   activity: Array<{ id: string | number; title: string; line: string | null; href: string | null }>;
   technical: { facts: OverviewFact[]; other: OverviewFact[] };
 };
 
+/** The product's mapped architecture, as the About section and the carousel read it. */
+export type OverviewArchitecture = {
+  summary: string | null;
+  mappedAt: string | null;
+  /** The repositories it was read from, as owner/name. */
+  mappedFrom: string[];
+  diagramArtifactId: number | null;
+  summaryArtifactId: number | null;
+};
+
 function meta(row: PageRow): Record<string, unknown> {
   return row.meta ?? {};
+}
+
+/**
+ * The record's `architecture` field read into what the page shows, or null
+ * when nothing has been mapped. Tolerant of a partial write: a summary with
+ * no picture still reads.
+ * @param raw - `meta.architecture`.
+ */
+export function architectureOf(raw: unknown): OverviewArchitecture | null {
+  const a = obj(raw);
+  if (Object.keys(a).length === 0) {
+    return null;
+  }
+  const id = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null);
+  const out: OverviewArchitecture = {
+    summary: str(a.summary),
+    mappedAt: str(a.mappedAt),
+    mappedFrom: Array.isArray(a.mappedFrom) ? a.mappedFrom.map(x => str(obj(x).repo)).filter((x): x is string => x !== null) : [],
+    diagramArtifactId: id(a.diagramArtifactId),
+    summaryArtifactId: id(a.summaryArtifactId),
+  };
+  return out.summary || out.diagramArtifactId || out.summaryArtifactId ? out : null;
 }
 
 function str(v: unknown): string | null {
@@ -257,6 +296,7 @@ const RECOMMENDATION: Record<string, string> = {
  */
 const DRAWN = new Set([
   'slug',
+  ARCHITECTURE_FIELD,
   'name',
   'tagline',
   'icon',
@@ -721,6 +761,12 @@ export function buildProductOverview(input: {
   // PICTURES: a mockup for each piece of work in flight or proposed, then
   // what QA saw on the live product for the newest releases.
   const pictures: OverviewPicture[] = [];
+  // The architecture first: the one picture of the product itself, drawn
+  // from its repositories, rather than of a piece of work on it.
+  const architecture = architectureOf(m[ARCHITECTURE_FIELD]);
+  if (architecture?.diagramArtifactId) {
+    pictures.push({ artifactId: architecture.diagramArtifactId, label: 'Architecture', caption: `${product.title}: how it is built${architecture.mappedAt ? `, mapped ${architecture.mappedAt.slice(0, 10)}` : ''}`, source: { text: architecture.mappedFrom.length > 0 ? `Mapped from ${architecture.mappedFrom.join(', ')}` : 'Mapped from the repositories', ref: { type: 'object', id: String(product.id) } } });
+  }
   for (const r of [...progress, ...proposalRows]) {
     const id = typeof r.meta.visual === 'number' ? r.meta.visual : null;
     if (id) {
@@ -849,6 +895,7 @@ export function buildProductOverview(input: {
         : null,
       builtOn: dependencyLine(product, input.products),
       notes: str(m.notes),
+      architecture,
     },
     activity: done.slice(0, 8).map(r => ({ id: r.id, title: r.title, line: str(r.meta.workLine), href: links.record({ objectType: T.request, id: r.id }) })),
     technical: { facts, other },

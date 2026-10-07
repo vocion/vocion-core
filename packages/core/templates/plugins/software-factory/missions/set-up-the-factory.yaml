@@ -1,0 +1,32 @@
+# THE FACTORY IS CONNECTED TO WHAT IT BUILDS (Jamie, 2026-10-07, of the
+# DeliveryStack workspace's first chat, where the PM found the gap for itself:
+# "the first action in chat should be 'set up your software factory'"). The
+# PM's standing responsibility while any setup step the plugin declares
+# (plugin.yaml `setup:`) is undone: GitHub connected, a product and its
+# repositories on record. Started by the person from the setup chip, and by
+# `source.connected` when GitHub connects, so the records follow the login
+# without a person coming back to ask. Over the moment every step is done.
+slug: set-up-the-factory
+name: The factory is connected to what it builds
+description: >-
+  The PM's standing responsibility until setup is complete: walk a person
+  through what the factory still needs — one connect card per step, the login
+  as the approval — and, once GitHub is connected, file the product and repository
+  records from what the installation grants, for a person to accept.
+goal: >-
+  Every setup step the plugin declares is done, by the shortest path: the
+  person connects GitHub from the card in front of them, the product and
+  repository records are proposed from the repositories the installation
+  actually grants (never guessed), a person accepts them, and the first
+  architecture map follows on its own. Nothing is asked twice, and nothing is
+  invented to fill a gap a connection would have answered.
+agent: product-manager
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - A person who taps "Set up your software factory" sees every remaining step as a connect card to tap, and nothing that is already done
+  - Within minutes of GitHub connecting, a product record and one repository record per granted repository are proposed from describe_sources, with the default branch and URL read from GitHub, never typed from memory
+  - A repository the installation grants but the source does not list, or the reverse, is named to the person as the mismatch it is, with the fix on each side
+  - Once every step is done the setup chip is gone and the PM says what the factory can now do, in two lines
+desiredArtifacts:
+  - The product and repository records a person accepted, each with the repository URL and default branch GitHub reported

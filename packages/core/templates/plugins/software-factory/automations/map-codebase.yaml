@@ -1,0 +1,44 @@
+# A REPOSITORY ENTERED SCOPE; MAP WHAT IT BELONGS TO. A repository record is
+# the factory's statement that a repository is in scope (plugin 3.31.0). The
+# Release seat reads it whole (repo_read_tree), reads the other repositories
+# on the same product, and files the product's architecture with
+# draw_architecture — a typed graph the platform draws, never a painted
+# picture. The run must end in draw_architecture: a map that was not filed
+# is a run that did nothing. Several repositories filed together redraw the
+# same product several times; each redraw is a new version of one artifact,
+# so the last one standing is the current map.
+slug: map-codebase
+name: Map the product a repository joined
+label: Mapped the architecture
+doing: Mapping the architecture
+description: >-
+  When a repository record is created, the Release seat reads the repository
+  and its siblings on the same product and files the product's architecture
+  diagram and summary.
+status: active
+when:
+  event: object.created
+  filter:
+    objectType: repo
+  # One: several repositories accepted together redraw one product; the first
+  # fires at once and the rest coalesce into one redraw after the window.
+  maxFiresPer10m: 1
+do:
+  checkMission: map-the-codebase
+  requireTool: draw_architecture
+  prompt: >-
+    The trigger payload names a repository record that was just created
+    (objectId, title, and the names of the fields it was born with). Read the
+    record (read_object) for its url, defaultBranch and product, then every
+    repository record on the same product. For
+    each, call repo_read_tree once (owner/name from its url; the default
+    branch as ref) and read what the tree and manifests show: the services,
+    apps, packages, databases, queues, storage and external systems that are
+    actually there, and how they talk — a client that calls an API, a worker
+    that reads a queue, a deploy workflow that puts a service somewhere. A
+    repository you cannot read is a node with a note saying so, never a
+    guess. Then call draw_architecture once for the product with the graph
+    (one node per component, its repo set, its kind), the relationships you
+    saw, a summary in prose of what the system is, and mappedFrom naming each
+    repository with the ref you read. Report in two lines: the product mapped
+    and from which repositories, and anything you could not establish.

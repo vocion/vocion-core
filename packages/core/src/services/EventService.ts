@@ -107,6 +107,34 @@ export type SourceSyncCompletedPayload = {
 };
 
 /**
+ * A credential was stored for a connector: a vendor login finished, a GitHub
+ * App installation was recorded, or a person pasted a key. Emitted from the
+ * one place every path goes through (`storeCredentialForSource`), so a plugin
+ * can carry setup on from here — file the records the connection makes
+ * possible, start the first read — instead of waiting for a person to come
+ * back to chat. Not emitted for a token refresh, which changes nothing a
+ * person did.
+ */
+export const SOURCE_CONNECTED = 'source.connected';
+
+/**
+ * Payload of a `source.connected` event. Scalars only, as with every event
+ * payload: a `when.filter` compares with `===`.
+ */
+export type SourceConnectedPayload = {
+  /** Connector slug the install is keyed by, e.g. `github`, `jira`, `slack`. */
+  connector: string;
+  /** `source_install.id` the credential hangs off. */
+  installId: number;
+  /** `source_credential.id` of the row just written. */
+  credentialId: number;
+  /** The person who connected it, or `system` for a seeded credential. */
+  connectedBy: string;
+  /** ISO timestamp of the write. */
+  connectedAt: string;
+};
+
+/**
  * A lead that was enrolled in a sequence has done something a person should
  * pick up: replied to a send, or booked a meeting. Emitted by
  * `HandoffTriggerService` after a HubSpot contacts sync moves the lead's

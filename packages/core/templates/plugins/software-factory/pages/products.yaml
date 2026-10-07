@@ -105,6 +105,10 @@ fields:
   - {key: deps, label: Built on, from: meta.dependencyLine}
   # Behind the product's overview, not on the card.
   - {key: owner, label: Accountable, from: meta.accountableUser, detail: true}
+  # The architecture the Release seat read from the repositories (3.31.0):
+  # the diagram artifact, resolved to its picture (core: services/workspace/pageImages.ts).
+  - {key: architecture, label: Architecture, from: meta.architecture.diagramArtifactId, format: image, detail: true}
+  - {key: mappedAt, label: Architecture read, from: meta.architecture.mappedAt, format: relative, detail: true}
   - key: price
     label: Our price
     from: meta.ourPrice
