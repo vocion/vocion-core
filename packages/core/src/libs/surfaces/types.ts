@@ -150,6 +150,8 @@ export type ChatSurfaceAdapter = {
    * platform did not say.
    */
   reply: (target: ChatReplyTarget, message: string | ChatMessage, opts?: { fetchImage?: ChatImageFetcher }) => Promise<ChatPostRef | null>;
+  /** How an answer on this surface is written, said to the agent with the message (a text: short and plain). */
+  answerStyle?: string;
   /** Take a post back, such as the line that said Vocion was working once the answer is in. */
   retract?: (post: ChatPostRef) => Promise<void>;
   /** Change a post's words in place, such as the working line as the turn moves from step to step. */

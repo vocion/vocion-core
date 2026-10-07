@@ -23,6 +23,7 @@ import { githubRevertPullAction } from './github-revert';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
+import { meSetPhoneAction } from './me-set-phone';
 import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { objectsRenameAction } from './objects-rename';
@@ -119,6 +120,8 @@ registerAction(objectProposeCandidateAction);
 // record's write history is these runs.
 registerAction(objectsUpdateMetaAction);
 registerAction(objectsRenameAction);
+// A person keeps their own mobile number from chat, so a text from it is theirs (`me-set-phone.ts`).
+registerAction(meSetPhoneAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);

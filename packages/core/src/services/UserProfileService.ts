@@ -15,11 +15,13 @@ import { userSchema } from '@/models/Schema';
 export type UserProfile = {
   name: string | null;
   email: string;
+  /** Mobile number in E.164, for texts (`me.set_phone` sets it from chat too). */
+  phone: string | null;
 };
 
 export async function getProfile(userId: string): Promise<UserProfile | null> {
   const [user] = await db
-    .select({ name: userSchema.name, email: userSchema.email })
+    .select({ name: userSchema.name, email: userSchema.email, phone: userSchema.phone })
     .from(userSchema)
     .where(eq(userSchema.id, userId))
     .limit(1);
@@ -35,6 +37,31 @@ export async function updateProfile(opts: { userId: string; name: string }): Pro
     .update(userSchema)
     .set({ name })
     .where(eq(userSchema.id, opts.userId));
+}
+
+/**
+ * Keep, change or clear the person's mobile number. Empty clears it; anything else must read as a
+ * phone number, and one another member holds is refused.
+ * @param opts - Who, and the number as typed.
+ * @param opts.userId
+ * @param opts.phone
+ * @returns The number kept, in E.164, or null when cleared.
+ */
+export async function updatePhone(opts: { userId: string; phone: string }): Promise<string | null> {
+  const { toE164 } = await import('@/libs/phone');
+  const typed = opts.phone.trim();
+  const phone = typed ? toE164(typed) : null;
+  if (typed && !phone) {
+    throw new Error('That is not a phone number Vocion can text. Include the country code (+1 for the US).');
+  }
+  if (phone) {
+    const [holder] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.phone, phone)).limit(1);
+    if (holder && holder.id !== opts.userId) {
+      throw new Error('That number is already on another member\'s profile.');
+    }
+  }
+  await db.update(userSchema).set({ phone }).where(eq(userSchema.id, opts.userId));
+  return phone;
 }
 
 export async function changePassword(opts: {
