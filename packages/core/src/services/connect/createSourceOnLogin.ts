@@ -4,9 +4,11 @@
  * call this, so the admin check, the config check and the credential link are
  * one rule, not two copies.
  *
- * Nothing here talks to the vendor. The first sync is the schedule's job.
+ * Nothing here talks to the vendor. Once the save commits, a new source gets
+ * its schedules and its first sync from `newSourceSync.ts`.
  */
 
+import type { FirstSync } from './newSourceSync';
 import type { DbTransaction } from '@/libs/DbTransaction';
 import { and, asc, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -15,9 +17,11 @@ import { loginIsEnough, platformForConnectorSlug } from '@/libs/platforms/regist
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
+import { removeSourceSchedules } from '@/services/SourceScheduleService';
 import { addSource } from '@/services/SourceSyncService';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 import { sourceIsOfConnector } from './connectorSources';
+import { startNewSourceSync } from './newSourceSync';
 
 export type CreateSourceInput = {
   orgId: string;
@@ -36,7 +40,7 @@ export type CreateSourceInput = {
 };
 
 export type CreateSourceOutcome
-  = | { ok: true; sourceId: number; slug: string; created: boolean; before?: Record<string, unknown> }
+  = | { ok: true; sourceId: number; slug: string; created: boolean; before?: Record<string, unknown>; firstSync?: FirstSync }
     | { ok: false; reason: string };
 
 /** A live row of the credential store, as the Connectors form needs it: never the secret, only the masked tail. */
@@ -357,14 +361,17 @@ export async function createSourceOnLogin(input: CreateSourceInput): Promise<Cre
   if (target.kind === 'refuse') {
     return { ok: false, reason: target.reason };
   }
+  let saved: { sourceId: number; slug: string };
   try {
-    const saved = await db.transaction(tx => saveWithin(tx, input, target, credential));
-    return target.kind === 'merge'
-      ? { ok: true, ...saved, created: false, before: target.existing }
-      : { ok: true, ...saved, created: true };
+    saved = await db.transaction(tx => saveWithin(tx, input, target, credential));
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : 'The source could not be saved.' };
   }
+  if (target.kind === 'merge') {
+    return { ok: true, ...saved, created: false, before: target.existing };
+  }
+  const firstSync = await startNewSourceSync({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
+  return { ok: true, ...saved, created: true, firstSync };
 }
 
 /**
@@ -384,7 +391,7 @@ export async function undoCreatedSource(orgId: string, result: { sourceId: numbe
     await db.update(knowledgeSourceSchema).set({ configJson: result.before ?? {} }).where(where);
     return null;
   }
-  const [row] = await db.select({ lastSyncedAt: knowledgeSourceSchema.lastSyncedAt }).from(knowledgeSourceSchema).where(where).limit(1);
+  const [row] = await db.select({ slug: knowledgeSourceSchema.slug, lastSyncedAt: knowledgeSourceSchema.lastSyncedAt }).from(knowledgeSourceSchema).where(where).limit(1);
   if (!row) {
     return null;
   }
@@ -392,7 +399,23 @@ export async function undoCreatedSource(orgId: string, result: { sourceId: numbe
     return 'It has synced since; remove it from Connectors instead';
   }
   await db.delete(knowledgeSourceSchema).where(where);
+  await removeSchedulesOfDeletedSource(orgId, row.slug);
   return null;
+}
+
+/**
+ * Stop the schedules a new source was given, once its row is gone. Logged
+ * and swallowed: the delete already happened, and a schedule left behind
+ * only fires a run that finds no source and does nothing.
+ * @param orgId - The workspace.
+ * @param sourceSlug - The deleted source's slug.
+ */
+async function removeSchedulesOfDeletedSource(orgId: string, sourceSlug: string): Promise<void> {
+  try {
+    await removeSourceSchedules(orgId, sourceSlug);
+  } catch (error) {
+    logger.warn('an undone source was deleted but its schedules could not be removed', { orgId, sourceSlug, reason: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 /**

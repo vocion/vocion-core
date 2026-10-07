@@ -8,6 +8,11 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+// Schedules land in the in-memory scheduler; the first sync is only recorded, so no test runs a connector or reaches a vendor.
+vi.mock('@/services/SourceScheduleService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/SourceScheduleService')>();
+  return { ...original, startSourceFullSync: vi.fn() };
+});
 vi.mock('@/services/WorkspaceAccessService', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/WorkspaceAccessService')>();
   return { ...original, memberWorkspace: vi.fn(original.memberWorkspace) };

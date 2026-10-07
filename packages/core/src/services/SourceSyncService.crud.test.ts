@@ -17,6 +17,9 @@ const { db } = await import('@/libs/DB');
 const { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } = await import('@/models/Schema');
 const { registerConnector } = await import('@/libs/sources/registry');
 const { addSource, deleteSource, latestSyncStateForOrg, updateSourceConfig } = await import('@/services/SourceSyncService');
+const { describeSchedule } = await import('@/libs/durable/jobs');
+const { sourceReconcileScheduleIdFor, sourceScheduleIdFor } = await import('@/libs/durable/scheduleIds');
+const { ensureSourceReconcileSchedule, ensureSourceSchedule } = await import('@/services/SourceScheduleService');
 
 /**
  * Long enough ago that a run still marked running counts as abandoned — the
@@ -154,6 +157,18 @@ describe('deleteSource', () => {
     const remaining = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, sourceId));
 
     expect(remaining).toHaveLength(0);
+  });
+
+  it('stops both of its schedules, so nothing keeps firing at the deleted source', async () => {
+    const sourceId = await makeSource({ _connector: 'crud-fixture', baseUrl: 'https://old.example' });
+    const [{ slug }] = await db.select({ slug: knowledgeSourceSchema.slug }).from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, sourceId)) as [{ slug: string }];
+    await ensureSourceSchedule({ orgId: ORG, sourceId, sourceSlug: slug, cron: '5 * * * *' });
+    await ensureSourceReconcileSchedule({ orgId: ORG, sourceId, sourceSlug: slug, cron: '0 4 * * *' });
+
+    await deleteSource(ORG, sourceId);
+
+    expect(await describeSchedule(sourceScheduleIdFor(ORG, slug))).toBeNull();
+    expect(await describeSchedule(sourceReconcileScheduleIdFor(ORG, slug))).toBeNull();
   });
 
   it('takes the documents with it', async () => {

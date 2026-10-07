@@ -38,7 +38,8 @@ export const saveSourceRoute = os
       // The service words its refusals for a person; the form shows them as they are.
       throw ApiError.badRequest(saved.reason);
     }
-    return { ok: true as const, sourceId: saved.sourceId };
+    // `firstSync` says whether the new source's first sync started, so the page and the e2e can tell.
+    return { ok: true as const, sourceId: saved.sourceId, firstSync: saved.firstSync ?? null };
   });
 
 /**
@@ -68,7 +69,8 @@ export const addConnectorRoute = os
     if (!saved.ok) {
       throw ApiError.badRequest(saved.reason);
     }
-    return { ok: true as const, sourceId: saved.sourceId };
+    // `firstSync` says whether the new source's first sync started, so the page and the e2e can tell.
+    return { ok: true as const, sourceId: saved.sourceId, firstSync: saved.firstSync ?? null };
   });
 
 /** What an admin reads when Show fails for any reason other than the vault's own. */
