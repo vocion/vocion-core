@@ -27,13 +27,19 @@ export const RETIRED_FOLLOW_JOBS = ['conversation-follow', 'slack-thread-follow'
 export type WaitingCard = { verbs: { approve: string; reject: string }; video: { url: string; caption: string } | null; mockups?: TellFile[] };
 
 /** The record as the line reads it. */
-export type AskedRecord = { conversationId: number | null; title: string; reopenedAt: string | null };
+export type AskedRecord = {
+  /** The conversations to tell: the one it was asked in, then the ones that acted on it since (`objects/followers.ts`). */
+  conversationIds: number[];
+  title: string;
+  reopenedAt: string | null;
+};
 
 export type AskerFollowDeps = {
   record: (orgId: string, recordId: number) => Promise<AskedRecord | null>;
   pageHref: (orgId: string, typeSlug: string | null, recordId: number) => Promise<string | null>;
   shareUrl: (orgId: string, recordId: number) => Promise<string | null>;
-  waitingCard: (orgId: string, conversationId: number) => Promise<WaitingCard | null>;
+  /** The card waiting on a person here: one this conversation filed, or one about this record. */
+  waitingCard: (orgId: string, conversationId: number, recordId: number) => Promise<WaitingCard | null>;
   tell: (orgId: string, conversationId: number, text: string, opts: { key: string; files?: TellFile[]; threadOnly?: boolean; url?: string | null }) => Promise<TellResult>;
   markTold: (orgId: string, recordId: number, told: { at: string; channel: string; what: string; status: string }) => Promise<void>;
   captionOf: (orgId: string, artifactId: number) => Promise<string | null>;
@@ -92,7 +98,9 @@ const defaultDeps: AskerFollowDeps = {
     const meta = (row.meta ?? {}) as Record<string, unknown>;
     const { recordOrigin } = await import('@/services/objects/related');
     const origin = await recordOrigin(orgId, { id: recordId, meta, reviewActionRunId: row.reviewActionRunId });
-    return { conversationId: origin?.conversationId ?? null, title: row.title, reopenedAt: typeof meta.reopenedAt === 'string' && meta.reopenedAt ? meta.reopenedAt : null };
+    const { followersOf } = await import('@/services/objects/followers');
+    const conversationIds = [...new Set([...(origin?.conversationId ? [origin.conversationId] : []), ...followersOf(meta)])];
+    return { conversationIds, title: row.title, reopenedAt: typeof meta.reopenedAt === 'string' && meta.reopenedAt ? meta.reopenedAt : null };
   },
   async pageHref(orgId, typeSlug, recordId) {
     const base = appBaseUrl();
@@ -115,9 +123,9 @@ const defaultDeps: AskerFollowDeps = {
     const state = await featureShareOf(orgId, recordId).catch(() => null);
     return state?.shared && state.path ? `${base}${state.path}` : null;
   },
-  async waitingCard(orgId, conversationId) {
+  async waitingCard(orgId, conversationId, recordId) {
     const { defaultThreadApprovalDeps } = await import('@/services/chat/slackApproval');
-    const [card] = await defaultThreadApprovalDeps.pending(orgId, conversationId);
+    const [card] = await defaultThreadApprovalDeps.pending(orgId, conversationId, recordId);
     if (!card) {
       return null;
     }
@@ -163,31 +171,41 @@ export async function askerFollow(orgId: string, input: Record<string, unknown>,
     return { said: false, reason: 'the type tells the asker nothing for this move' };
   }
   const record = await deps.record(orgId, recordId);
-  if (!record?.conversationId) {
+  if (!record || record.conversationIds.length === 0) {
     return { said: false, reason: 'the record was not asked for in a conversation' };
   }
   const groupRole = typeof input.groupRole === 'string' ? input.groupRole : '';
   const done = groupRole === 'done';
   const typeSlug = typeof input.typeSlug === 'string' && input.typeSlug ? input.typeSlug : null;
   const line = typeof input.line === 'string' ? input.line : '';
-  const [href, shareUrl, waiting] = await Promise.all([
+  const [href, shareUrl] = await Promise.all([
     deps.pageHref(orgId, typeSlug, recordId),
     done ? deps.shareUrl(orgId, recordId) : Promise.resolve(null),
-    input.needsYou === true ? deps.waitingCard(orgId, record.conversationId).catch(() => null) : Promise.resolve(null),
   ]);
-  const text = askerLine(template, { line, title: record.title }, { href, shareUrl, waiting });
-  // The card's demo and the request's mockups go up under the words, so the thread approves
-  // something seen working against what was drawn.
-  const files: TellFile[] = [...(waiting?.video ? [waiting.video] : []), ...(waiting?.mockups ?? [])];
-  const told = await deps.tell(orgId, record.conversationId, text, { key: askerKey(recordId, value, groupRole, line, record.reopenedAt), files, url: href });
-  if (!told.said) {
-    return told;
+  // Every conversation that asked or acted hears it once, each with how to decide from there.
+  let first: { channel: 'chat' | 'slack'; text: string } | null = null;
+  const reasons: string[] = [];
+  for (const conversationId of record.conversationIds) {
+    const waiting = input.needsYou === true ? await deps.waitingCard(orgId, conversationId, recordId).catch(() => null) : null;
+    const text = askerLine(template, { line, title: record.title }, { href, shareUrl, waiting });
+    // The card's demo and the request's mockups go up under the words, so the thread approves
+    // something seen working against what was drawn.
+    const files: TellFile[] = [...(waiting?.video ? [waiting.video] : []), ...(waiting?.mockups ?? [])];
+    const told = await deps.tell(orgId, conversationId, text, { key: askerKey(recordId, value, groupRole, line, record.reopenedAt), files, url: href });
+    if (told.said) {
+      first ??= { channel: told.channel, text };
+    } else {
+      reasons.push(told.reason);
+    }
+  }
+  if (!first) {
+    return { said: false, reason: reasons[0] ?? 'nothing was said' };
   }
   if (done) {
     const at = typeof input.at === 'string' && input.at ? input.at : new Date().toISOString();
-    await deps.markTold(orgId, recordId, { at, channel: told.channel, what: text, status: 'sent' }).catch(() => undefined);
+    await deps.markTold(orgId, recordId, { at, channel: first.channel, what: first.text, status: 'sent' }).catch(() => undefined);
   }
-  return { said: true, channel: told.channel, text, told: done };
+  return { said: true, channel: first.channel, text: first.text, told: done };
 }
 
 /**
@@ -226,17 +244,20 @@ export async function askerRecording(orgId: string, input: Record<string, unknow
   const seen = new Set<number>();
   for (const recordId of recordIds) {
     const record = await deps.record(orgId, recordId);
-    if (!record?.conversationId || seen.has(record.conversationId)) {
+    const fresh = (record?.conversationIds ?? []).filter(c => !seen.has(c));
+    if (fresh.length === 0) {
       out.skipped.push(`record ${recordId} has no conversation of its own to tell`);
       continue;
     }
-    seen.add(record.conversationId);
     const caption = (await deps.captionOf(orgId, artifactId).catch(() => null)) ?? 'A recording was filed.';
-    const told = await deps.tell(orgId, record.conversationId, caption, { key: `recording:${url}`, files: [{ url, caption, artifactId }], threadOnly: true, url });
-    if (told.said) {
-      out.posted += 1;
-    } else {
-      out.skipped.push(`record ${recordId}: ${told.reason}`);
+    for (const conversationId of fresh) {
+      seen.add(conversationId);
+      const told = await deps.tell(orgId, conversationId, caption, { key: `recording:${url}`, files: [{ url, caption, artifactId }], threadOnly: true, url });
+      if (told.said) {
+        out.posted += 1;
+      } else {
+        out.skipped.push(`record ${recordId}: ${told.reason}`);
+      }
     }
   }
   return out;

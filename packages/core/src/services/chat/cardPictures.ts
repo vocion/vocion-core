@@ -4,7 +4,7 @@ import type { TellFile } from './tellConversation';
  * THE MOCKUP GOES WITH THE ASK (Chris, 2026-10-06: "put mocks in Slack when asking for review").
  * A card that waits on a person in a thread (a Build card, a merge) is about a request; the
  * request's mockups are what the person approves against, so they go up with the ask, not one
- * click away. The request is the card's own `requestId`, or its task's.
+ * click away. The request is the card's own `requestId`, or its plan's or task's (`actionRecord`).
  */
 
 /** How many mockups go up with one ask. */
@@ -23,13 +23,9 @@ export async function cardMockups(orgId: string, input: Record<string, unknown>)
     import('drizzle-orm'),
     import('@/models/Schema'),
   ]);
-  let requestId = Number(input.requestId);
-  if (!Number.isInteger(requestId) || requestId <= 0) {
-    const taskId = Number(input.taskId);
-    const task = Number.isInteger(taskId) && taskId > 0 ? await readRecord(orgId, taskId) : null;
-    requestId = Number(task?.meta.requestId);
-  }
-  if (!Number.isInteger(requestId) || requestId <= 0) {
+  const { actionRecord } = await import('@/services/objects/followers');
+  const requestId = await actionRecord(orgId, input);
+  if (!requestId) {
     return [];
   }
   const request = await readRecord(orgId, requestId);

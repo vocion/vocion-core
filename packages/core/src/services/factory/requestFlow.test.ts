@@ -319,6 +319,20 @@ describe('the software-factory request flow owns a request from Build to live (b
     expect(h.dispatches.map(from)).toEqual(['build', 'plan']);
   });
 
+  it('a plan that waits on a person is waited for, not stopped at three hours (FE-133: PL-484 waited on Chris)', async () => {
+    const h = harness([{ kind: 'planning', line: 'three packages' }, { kind: 'building', workerRunId: 711, taskId: 7 }], {});
+    await ask(46);
+    const id = await start(h.name, 46);
+    await until(id, 'planning');
+    await emit('factory.plan_waits', { requestId: 46, planId: 484, actionRunId: 7542 });
+    // The person approves; the plan asks for the build.
+    await ask(46, { by: 'factory:plan', byPerson: false, from: 'plan', planId: 484, trigger: 'plan' });
+    await until(id, 'building');
+
+    expect(h.stops).toEqual([]);
+    expect(h.dispatches.map(d => [from(d), d.planId ?? null])).toEqual([['build', null], ['plan', 484]]);
+  });
+
   it('planning is not an attempt: the plan\'s ask starts attempt 1', async () => {
     const h = harness([{ kind: 'planning', line: 'three packages' }, { kind: 'building', workerRunId: 701, taskId: 7 }], {});
     await ask(43);

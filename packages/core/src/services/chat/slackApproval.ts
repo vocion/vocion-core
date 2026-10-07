@@ -25,7 +25,7 @@ export type PendingCard = { runId: number; actionId: string; input: Record<strin
 
 export type ThreadApprovalDeps = {
   /** Cards still pending whose origin is this conversation, newest first. */
-  pending: (orgId: string, conversationId: number) => Promise<PendingCard[]>;
+  pending: (orgId: string, conversationId: number, recordId?: number) => Promise<PendingCard[]>;
   /** The card's decision as one sentence, for the consent read. */
   decisionSentence: (orgId: string, card: PendingCard, verb: 'approve' | 'reject') => Promise<string>;
   /** The model's reading of the person's words against that sentence. */
@@ -77,14 +77,19 @@ export async function approvalFromThread(orgId: string, inbound: ChatInbound, co
 }
 
 export const defaultThreadApprovalDeps: ThreadApprovalDeps = {
-  async pending(orgId, conversationId) {
+  async pending(orgId, conversationId, recordId) {
     const { db } = await import('@/libs/DB');
-    const { and, desc, eq, sql } = await import('drizzle-orm');
-    const { actionRunSchema } = await import('@/models/Schema');
+    const { and, desc, eq, or, sql } = await import('drizzle-orm');
+    const { actionRunSchema, businessObjectSchema } = await import('@/models/Schema');
+    // Cards this conversation filed, and cards about a record it follows (FE-133: the plan card
+    // the factory filed after a Build from the thread could not be decided from the thread).
+    const followed = sql`(${actionRunSchema.input} ->> 'requestId' in (select ${businessObjectSchema.id}::text from ${businessObjectSchema} where ${businessObjectSchema.orgId} = ${orgId} and ${businessObjectSchema.metadata} -> 'followConversations' @> ${JSON.stringify([conversationId])}::jsonb)
+      or ${actionRunSchema.input} ->> 'planId' in (select p.id::text from ${businessObjectSchema} p join ${businessObjectSchema} r on r.id::text = p.metadata ->> 'requestId' and r.org_id = p.org_id where p.org_id = ${orgId} and r.metadata -> 'followConversations' @> ${JSON.stringify([conversationId])}::jsonb))`;
+    const about = recordId ? sql`(${actionRunSchema.input} ->> 'requestId' = ${String(recordId)} or ${actionRunSchema.input} ->> 'planId' in (select ${businessObjectSchema.id}::text from ${businessObjectSchema} where ${businessObjectSchema.orgId} = ${orgId} and ${businessObjectSchema.metadata} ->> 'requestId' = ${String(recordId)}))` : null;
     const rows = await db
       .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, input: actionRunSchema.input })
       .from(actionRunSchema)
-      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending'), sql`${actionRunSchema.proposal} -> 'origin' ->> 'conversationId' = ${String(conversationId)}`))
+      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending'), or(sql`${actionRunSchema.proposal} -> 'origin' ->> 'conversationId' = ${String(conversationId)}`, followed), ...(about ? [about] : [])))
       .orderBy(desc(actionRunSchema.id))
       .limit(5);
     return rows.map(r => ({ runId: r.id, actionId: r.actionId, input: r.input ?? {}, title: typeof r.input?.title === 'string' ? r.input.title : `${r.actionId} #${r.id}` }));

@@ -1242,6 +1242,15 @@ export async function reviewFiledPlan(orgId: string, payload: Partial<ObjectCrea
   const approver = out.ok && out.res.status === 'pending' ? await planApprover(orgId, request) : null;
   const waiting = approver ? `Planning — ${planName} is written and waiting for ${approver} to approve it.` : null;
   await updateRecovery(orgId, requestId, s => logLine(s.stage === 'planning' ? { ...s, line: waiting ?? s.line, ...(waiting && approver ? { waitingOn: { who: approver, line: waiting, actionRunId: out.ok ? out.res.runId : null } } : {}) } : s, line, at));
+  if (out.ok && out.res.status === 'pending') {
+    // THE PLAN WAITS ON A PERSON, SAID AS SUCH (FE-133, 2026-10-06: PL-484 was written for Chris
+    // and nobody asked him; three hours later the request stopped, "the plan did not arrive").
+    // The status says whose move it is, which tells the asker and every conversation following
+    // the request (`x-tell`), and the event tells the request's workflow to wait for the person.
+    await markStatus(orgId, requestId, 'plan_waits', { line: waiting ?? line, at });
+    const { emitEvent } = await import('@/services/EventService');
+    await emitEvent({ orgId, type: 'factory.plan_waits', payload: { requestId, planId, actionRunId: out.res.runId }, dedupeKey: `factory.plan_waits:${planId}:${out.res.runId}`, invokedBy: `factory:${PM}`, dispatchMode: 'auto' }).catch(() => undefined);
+  }
   return { requestId, did: out.ok ? `approve_plan:${out.res.status}` : 'approve_plan:refused', line };
 }
 
