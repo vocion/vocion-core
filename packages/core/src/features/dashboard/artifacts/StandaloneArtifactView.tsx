@@ -41,7 +41,9 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug, conver
     return () => window.removeEventListener(ARTIFACT_EVENT, onArtifact);
   }, [current.id, current.version]);
   return (
-    <div className="rounded-2xl">
+    // A stretching flex child: without it the section beside an open rail took its content height
+    // and a document frame inside collapsed to a hairline (2026-10-07, the blank Kickoff deck).
+    <div className="flex min-h-0 flex-1 flex-col rounded-2xl">
       <ArtifactPane
         key={`${current.id}:${current.version}`}
         artifact={current}
