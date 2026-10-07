@@ -121,6 +121,23 @@ export type InboxItem = {
    * about which agent asked (`services/inbox/decisionContract.ts`).
    */
   contract?: DecisionContract;
+  /**
+   * The person a proposal is assigned to (`review_assignment.assigned_to`),
+   * when one is. What lets a list that spans workspaces put a person's own
+   * decisions first (`services/inbox/acrossWorkspaces.ts`).
+   */
+  assignedTo?: string | null;
+  /**
+   * Who raised an ask (`ask.created_by`): a user id when a person's own turn
+   * filed it, `agent:<slug>` and the like otherwise.
+   */
+  raisedBy?: string | null;
+  /**
+   * Set only on a list that spans workspaces: the workspace this row is in.
+   * A row from another workspace opens there and is never decided in place,
+   * because the decide endpoints act in the workspace the request runs in.
+   */
+  workspace?: { id: string; slug: string; name: string; kind: 'shared' | 'personal' };
 };
 
 export type InboxFacets = {
@@ -196,6 +213,7 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
           : undefined,
     reviewId: r.id,
     actionId: r.actionId,
+    assignedTo: r.assignedTo,
     confidence: r.described.confidence,
     amount: r.described.amount,
     currency: r.described.currency,
@@ -277,6 +295,8 @@ function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
       groupKey: g.key,
       count: g.rows.length,
       actionId: g.rows[0]!.actionId,
+      // A sheet is someone's when any proposal in it is assigned to them.
+      assignedTo: g.rows.find(r => r.assignedTo)?.assignedTo ?? null,
       confidence: confidences.length > 0 ? Math.min(...confidences) : null,
       amount,
       currency: g.rows.find(r => r.described.amount !== null)?.described.currency ?? null,
@@ -324,6 +344,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       detail: `${group.length} questions`,
       groupKey,
       count: group.length,
+      raisedBy: oldest.createdBy,
     });
   }
   for (const chain of chainReAsks(standalone)) {
@@ -346,6 +367,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       at: a.createdAt,
       href: inboxHref('ask', a.id),
       askId: a.id,
+      raisedBy: a.createdBy,
       // The count is the rows this one replaced, so the page can say the
       // question was asked eight times without printing it eight times.
       count: chain.chases.length > 0 ? chain.chases.length + 1 : undefined,
@@ -795,7 +817,18 @@ export async function listProposalQueue(orgId: string, query: InboxQuery = {}): 
  * @param orgId
  */
 export async function needsYouCount(orgId: string): Promise<number> {
-  return admitted(await openItems(orgId)).items.length;
+  return (await needsYouItems(orgId)).length;
+}
+
+/**
+ * The open tab's rows after the admission bar, unsorted and unfiltered: what
+ * the badge counts and what a list across workspaces gathers from each one.
+ * Reads the open rows only — none of the snoozed or decided history `listInbox`
+ * loads for its tab counts.
+ * @param orgId - The workspace.
+ */
+export async function needsYouItems(orgId: string): Promise<InboxItem[]> {
+  return admitted(await openItems(orgId)).items;
 }
 
 /**

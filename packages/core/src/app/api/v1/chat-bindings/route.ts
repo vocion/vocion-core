@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { listSurfaces } from '@/libs/surfaces/registry';
+import { channelBySurface } from '@/services/chat/channels';
+import { SENDERS_OWN_ASSISTANT } from '@/services/chat/ownAssistant';
 import { createBinding, listBindings } from '@/services/ChatSurfaceService';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../_shared';
 
@@ -17,8 +19,11 @@ export async function GET(req: Request) {
 }
 
 /**
- * POST /api/v1/chat-bindings  { surface, channelId, agentSlug, teamId?, displayName?, iconUrl? }
+ * POST /api/v1/chat-bindings  { surface, channelId, agentSlug | answers: "sender", teamId?, displayName?, iconUrl? }
  * Bind a channel to an agent. `channelId: "*"` with a `teamId` is the workspace catch-all (DMs).
+ * `answers: "sender"` (stored as the agent `*`) binds a SHARED channel instead — an account's one
+ * text number: each sender is answered by their own assistant, in their personal workspace on
+ * this account (`services/chat/ownAssistant.ts`). It needs a surface that can tell who a sender is.
  * `displayName` + `iconUrl` are the optional persona the replies wear; omitting them posts
  * under the app's own name and icon.
  * @param req - Request.
@@ -34,7 +39,8 @@ export async function POST(req: Request) {
   }
   const surface = typeof body.surface === 'string' ? body.surface : '';
   const channelId = typeof body.channelId === 'string' ? body.channelId.trim() : '';
-  const agentSlug = typeof body.agentSlug === 'string' ? body.agentSlug.trim() : '';
+  const bySender = body.answers === 'sender';
+  const agentSlug = bySender ? SENDERS_OWN_ASSISTANT : typeof body.agentSlug === 'string' ? body.agentSlug.trim() : '';
   const teamId = typeof body.teamId === 'string' && body.teamId.trim() ? body.teamId.trim() : null;
   const displayName = typeof body.displayName === 'string' && body.displayName.trim() ? body.displayName.trim() : null;
   const iconUrl = typeof body.iconUrl === 'string' && body.iconUrl.trim() ? body.iconUrl.trim() : null;
@@ -42,7 +48,10 @@ export async function POST(req: Request) {
     return jsonError('VALIDATION_FAILED', `surface must be one of ${listSurfaces().map(s => s.id).join('|')}`, 400);
   }
   if (!channelId || !agentSlug) {
-    return jsonError('VALIDATION_FAILED', 'channelId and agentSlug are required', 400);
+    return jsonError('VALIDATION_FAILED', 'channelId and agentSlug (or answers: "sender") are required', 400);
+  }
+  if (bySender && !channelBySurface(surface)) {
+    return jsonError('VALIDATION_FAILED', `answers: "sender" needs a surface that can tell who a sender is; ${surface} cannot`, 400);
   }
   if (channelId === '*' && !teamId) {
     return jsonError('VALIDATION_FAILED', 'a "*" catch-all binding needs a teamId', 400);

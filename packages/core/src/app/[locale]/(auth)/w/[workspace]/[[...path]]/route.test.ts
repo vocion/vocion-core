@@ -27,7 +27,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: 'user-chris' } } as never);
   mockResolve.mockImplementation(async (_userId, selector) =>
     'slug' in selector && selector.slug.toLowerCase() === 'vocion-workforce'
-      ? { id: 'proj-workforce', accountId: 'acct-metacto', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 }
+      ? { id: 'proj-workforce', accountId: 'acct-metacto', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, kind: 'shared' as const, agentCount: 3 }
       : null,
   );
 });

@@ -73,7 +73,7 @@ afterEach(() => {
   }
 });
 
-const ALL_SERVER = { ios: true, web: true, email: true, slack: true };
+const ALL_SERVER = { ios: true, web: true, email: true, slack: true, sms: true };
 
 describe('planDeliveries', () => {
   const now = new Date('2026-09-30T18:00:00Z');

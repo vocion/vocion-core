@@ -6,7 +6,7 @@
  */
 
 /** Where a notification can be delivered. `in_app` is the notification row itself. */
-export const NOTIFICATION_CHANNELS = ['in_app', 'ios', 'web', 'email', 'slack'] as const;
+export const NOTIFICATION_CHANNELS = ['in_app', 'ios', 'web', 'email', 'slack', 'sms'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** What a person reads for each channel, in settings and on a delivery line. */
@@ -16,6 +16,7 @@ export const CHANNEL_LABELS: Readonly<Record<NotificationChannel, string>> = {
   web: 'Chrome',
   email: 'Email',
   slack: 'Slack',
+  sms: 'Text message',
 };
 
 /**
@@ -23,7 +24,9 @@ export const CHANNEL_LABELS: Readonly<Record<NotificationChannel, string>> = {
  * bell is where every notification is kept. Push to iPhone and Chrome is on,
  * and reaches a device only once that device registered, so the default is
  * "on for the devices you asked for". Email and Slack are off until a person
- * turns them on (Chris, 2026-09-30).
+ * turns them on (Chris, 2026-09-30). So is a text message: it goes to the
+ * mobile number on the person's profile, and a phone that buzzes for every
+ * kind is a phone that gets muted.
  */
 export const CHANNEL_DEFAULTS: Readonly<Record<NotificationChannel, boolean>> = {
   in_app: true,
@@ -31,6 +34,7 @@ export const CHANNEL_DEFAULTS: Readonly<Record<NotificationChannel, boolean>> = 
   web: true,
   email: false,
   slack: false,
+  sms: false,
 };
 
 /** Channels a person may switch. In-app is the record and cannot be turned off. */
