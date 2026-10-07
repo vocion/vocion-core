@@ -7,7 +7,7 @@
  * action itself knows no product. Which source, which endpoint and which
  * arguments all arrive in the input; the method, the path, the body template
  * and the review wording come off the source's declaration
- * (`libs/rest/spec.ts`); the base URL and bearer token come from that
+ * (`libs/rest/spec.ts`); the base URL and token come from that
  * source's vault entry, resolved per input through `sourceSlugFor`.
  *
  * `external: true` — it changes a system outside Vocion, so an agent's
@@ -211,7 +211,7 @@ export const restRequestAction: Action<typeof restRequestInput> = {
   async execute(ctx, input) {
     const credentials = restCredentialsOf(ctx.credentials);
     if (!credentials) {
-      throw new Error(`rest.request needs a connected credential (base URL and bearer token) for the "${input.sourceSlug}" source — connect one on the Connectors page.`);
+      throw new Error(`rest.request needs a connected credential (base URL and token) for the "${input.sourceSlug}" source — connect one on the Connectors page.`);
     }
     const resolved = await resolveEndpoint(ctx.orgId, input);
     if (!resolved.ok) {

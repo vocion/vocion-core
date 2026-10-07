@@ -72,6 +72,16 @@ describe('inspect', () => {
 
   it('refuses at the dialog without a base URL and a token', async () => {
     await expect(restConnector.inspect!({ config: {}, credentials: { baseUrl: 'api.example', token: 't' }, options: {} })).rejects.toBeInstanceOf(InspectInputError);
-    await expect(restConnector.inspect!({ config: {}, credentials: { baseUrl: 'https://api.example' }, options: {} })).rejects.toThrow(/bearer token/);
+    await expect(restConnector.inspect!({ config: {}, credentials: { baseUrl: 'https://api.example' }, options: {} })).rejects.toThrow(/and a token are required/);
+    await expect(restConnector.inspect!({ config: {}, credentials: { baseUrl: 'https://api.example', token: 't', headerName: 'Content-Type' }, options: {} })).rejects.toThrow(/header name/);
+  });
+
+  it('tests with the header the credential names, and says which header was accepted', async () => {
+    const f = vi.fn(async () => res(200, { id: 1 }));
+    vi.stubGlobal('fetch', f);
+    const out = await restConnector.inspect!({ config: { healthPath: '/me' }, credentials: { ...CREDS, headerName: 'X-Auth-Token' }, options: {} }) as Awaited<ReturnType<typeof inspectRestApi>>;
+
+    expect(((f.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>)['X-Auth-Token']).toBe('tok-fixture');
+    expect(out.checks[1]).toMatchObject({ key: 'auth', label: 'X-Auth-Token header accepted', ok: true });
   });
 });

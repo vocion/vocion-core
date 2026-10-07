@@ -34,6 +34,7 @@
 
 import type { LLMProviderName } from '@vocion/sdk';
 import type { ConnectProviderId } from '@/libs/connect/provider';
+import { AUTH_SCHEME_PATTERN, HEADER_NAME_PATTERN } from '@/libs/rest/authHeader';
 
 /** Every platform id this build understands. */
 export type CredentialPlatformId
@@ -867,7 +868,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'rest',
-    label: 'REST API (bearer token)',
+    label: 'REST API (token)',
     keySource: 'supplied',
     // `many`, like `strapi`, and for the same reason: the credential is a token
     // plus the base URL it was issued for, so it names one API and a workspace
@@ -877,14 +878,16 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // platform reads a second save as a rotation. Each source names the
     // credential it uses through `knowledge_source.api_token_id`.
     //
-    // The token is sent as `Authorization: Bearer <token>` on every call; there
-    // is no other header scheme, on purpose — one shape, and the first API to
-    // need another can add a `headerName` field beside these two.
+    // The token is sent as `Authorization: Bearer <token>` unless the
+    // credential names another header (`X-Auth-Token`) or scheme (`Token`,
+    // or `none` for a bare token). Both live on the credential, not the
+    // source, because they are facts about how this API accepts this token,
+    // and they rotate with it. One header, built in `libs/rest/client.ts`.
     credentialsPerOrg: 'many',
     connectorSlugs: ['rest'],
     howToConnect: {
       paste: {
-        credential: 'Bearer token',
+        credential: 'API token',
         access: ['Read rights for the read tools', 'Write rights only for the endpoints the source declares as actions'],
       },
     },
@@ -892,8 +895,8 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     llmProvider: null,
     toolProvider: null,
     keyPattern: null,
-    keyShapeHint: 'an API base URL plus its bearer token',
-    helpText: 'A bearer token for a REST API of your own, and the base URL it was issued for. The token goes out as "Authorization: Bearer <token>" on every call: read rights for the read tools, write rights only for the endpoints the source declares as actions.',
+    keyShapeHint: 'an API base URL plus its token',
+    helpText: 'A token for a REST API of your own, and the base URL it was issued for. By default it goes out as "Authorization: Bearer <token>"; an API that wants another header, such as X-Auth-Token, or another scheme, such as Token, names it below. Read rights for the read tools, write rights only for the endpoints the source declares as actions.',
     fields: [
       {
         name: 'baseUrl',
@@ -907,10 +910,28 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       },
       {
         name: 'token',
-        label: 'Bearer token',
+        label: 'API token',
         pattern: null,
         shapeHint: 'is any non-empty token',
         secret: true,
+      },
+      {
+        name: 'headerName',
+        label: 'Header name',
+        pattern: HEADER_NAME_PATTERN,
+        shapeHint: 'is one HTTP header name, such as X-Auth-Token; leave it blank for Authorization',
+        // How the token is sent, not a secret: shown in full so the form and
+        // the credential list say which header an API gets.
+        secret: false,
+        optional: true,
+      },
+      {
+        name: 'scheme',
+        label: 'Scheme',
+        pattern: AUTH_SCHEME_PATTERN,
+        shapeHint: 'is one word, such as Token; blank sends Bearer on Authorization and the bare token on any other header, and "none" sends it bare on Authorization too',
+        secret: false,
+        optional: true,
       },
     ],
   },

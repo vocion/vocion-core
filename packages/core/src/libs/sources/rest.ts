@@ -1,6 +1,8 @@
 /**
- * REST connector — any bearer-token REST API, queried live, with the
- * endpoints declared by the workspace rather than by this file.
+ * REST connector — any token-authenticated REST API, queried live, with the
+ * endpoints declared by the workspace rather than by this file. The token
+ * goes as `Authorization: Bearer <token>` unless the credential names another
+ * header or scheme (`X-Auth-Token`, `Token`); see `libs/rest/client.ts`.
  *
  * Built for a delivery-team workspace that needed live reads and gated writes
  * against its own internal API, and generalised on the way in: the paths, the
@@ -14,7 +16,7 @@
  *
  * Like Apollo, this connector ingests nothing: there is no roster to mirror
  * and no embedding to keep fresh. Registering it buys the tile on the
- * Connectors page, a place in the vault for the base URL and bearer token
+ * Connectors page, a place in the vault for the base URL and token
  * (the `rest` credential platform), a slug an agent carries in
  * `connectorSources`, and — through `inspect` — a Test connection button
  * that GETs the declared `healthPath` and reports what came back.
@@ -27,7 +29,7 @@ import type { ConnectorCheck, ConnectorInspection } from './inspect';
 import type { SourceConnector, SourceContext } from './types';
 import type { RestCredentials } from '@/libs/rest/client';
 import type { IngestDoc } from '@/services/IngestionService';
-import { restCall, restCredentialsOf } from '@/libs/rest/client';
+import { describeAuth, restCall, restCredentialsOf } from '@/libs/rest/client';
 import { restConfigSchema, toolPrefixFor } from '@/libs/rest/spec';
 import { InspectInputError } from './inspect';
 
@@ -57,7 +59,7 @@ export async function inspectRestApi(input: { credentials: RestCredentials; conf
   const rejected = !result.ok && (result.error === 'http_401' || result.error === 'http_403');
   const checks: ConnectorCheck[] = [
     check('reachable', `GET ${healthPath} answers`, !unreachable, result.ok ? `Answered ${result.status}.` : result.message),
-    check('auth', 'Bearer token accepted', !unreachable && !rejected, rejected ? result.message : (result.ok ? 'The API accepted the token.' : (unreachable ? 'Not established — the API did not answer.' : `The API answered ${(result as { status: number | null }).status ?? 'no status'} — not a token refusal, but check the health path.`))),
+    check('auth', `${describeAuth(input.credentials)} accepted`, !unreachable && !rejected, rejected ? result.message : (result.ok ? 'The API accepted the token.' : (unreachable ? 'Not established — the API did not answer.' : `The API answered ${(result as { status: number | null }).status ?? 'no status'} — not a token refusal, but check the health path.`))),
   ];
   if (parsed.success) {
     // The prefix is the slug unless the config says otherwise, and no row
@@ -84,7 +86,7 @@ export async function inspectRestApi(input: { credentials: RestCredentials; conf
 export const restConnector: SourceConnector<typeof restConfigSchema> = {
   slug: 'rest',
   name: 'REST API',
-  description: 'Any REST API with a bearer token, queried live — nothing is indexed. Read endpoints declared in the source become agent tools; write endpoints become proposals on the review queue. To index a Strapi instance into search instead, use Strapi.',
+  description: 'Any REST API with a token (Bearer by default, or your own header), queried live — nothing is indexed. Read endpoints declared in the source become agent tools; write endpoints become proposals on the review queue. To index a Strapi instance into search instead, use Strapi.',
   icon: 'Plug',
   authKind: 'apikey',
   syncless: true,
@@ -94,7 +96,7 @@ export const restConnector: SourceConnector<typeof restConfigSchema> = {
   async inspect({ config, credentials }) {
     const resolved = restCredentialsOf(credentials);
     if (!resolved) {
-      throw new InspectInputError('A base URL starting with http:// or https:// and a bearer token are required.');
+      throw new InspectInputError('A base URL starting with http:// or https:// and a token are required. A header name, if given, must be a plain HTTP header name other than Accept, Content-Type or Host; a scheme, if given, one word.');
     }
     return inspectRestApi({ credentials: resolved, config });
   },
