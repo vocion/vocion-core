@@ -230,7 +230,7 @@ describe('workspace access', () => {
     });
 
     it('lets a workspace choose the account only for someone who is a member of it', async () => {
-      expect(await memberWorkspace(ALEX, KESTREL_DEALS)).toEqual({ projectId: KESTREL_DEALS, slug: 'deals', accountId: OTHER_ACCOUNT, accountRole: 'admin' });
+      expect(await memberWorkspace(ALEX, KESTREL_DEALS)).toEqual({ projectId: KESTREL_DEALS, slug: 'deals', accountId: OTHER_ACCOUNT, accountRole: 'admin', kind: 'shared' });
       expect(await memberWorkspace(BRIT, KESTREL_DEALS)).toBeNull();
     });
 

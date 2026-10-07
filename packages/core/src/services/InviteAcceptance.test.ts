@@ -5,7 +5,7 @@
  * accounts own a `sales` workspace, so the landing URL has to name Contoso.
  * Real rows in PGlite.
  */
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -135,11 +135,16 @@ describe('acceptInviteAsExistingUser', () => {
     expect(await acceptInviteAsExistingUser('user-sam', 'tok-nothing')).toEqual({ ok: false, status: 404, error: 'Invalid invite token.' });
   });
 
-  it('with access enforced, joins a new member who holds no workspace yet and names no URL, rather than one that would 404', async () => {
+  it('with access enforced, opens a new member\'s own workspace when they hold no shared one yet, rather than one that would 404', async () => {
     await db.insert(inviteSchema).values(invite({ token: 'tok-enforced' }));
     process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
     try {
-      expect(await acceptInviteAsExistingUser('user-sam', 'tok-enforced')).toEqual({ ok: true, accountId: 'acct-contoso', openPath: null });
+      const result = await acceptInviteAsExistingUser('user-sam', 'tok-enforced');
+      const [personal] = await db.select().from(projectSchema).where(and(eq(projectSchema.ownerUserId, 'user-sam'), eq(projectSchema.accountId, 'acct-contoso'), eq(projectSchema.kind, 'personal')));
+
+      expect(personal).toBeDefined();
+      expect(result).toMatchObject({ ok: true, accountId: 'acct-contoso' });
+      expect(result.ok && result.openPath).toContain(`/w/${personal!.slug}/dashboard`);
     } finally {
       delete process.env.VOCION_ENFORCE_WORKSPACE_ACCESS;
     }

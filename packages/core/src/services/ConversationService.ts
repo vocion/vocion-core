@@ -133,24 +133,52 @@ export async function setConversationContextIfEmpty(opts: { orgId: string; id: n
     .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id), isNull(conversationSchema.contextJson)));
 }
 
+/**
+ * The condition that keeps a personal workspace's conversations with its
+ * owner: true unless the conversation's workspace is personal and `viewerId`
+ * is not the person it belongs to.
+ *
+ * The request's `orgId` already comes from a resolver that refuses another
+ * person's personal workspace, so this is the second wall, not the first: it
+ * holds when an `orgId` arrives some other way (a link, a header, a
+ * cross-workspace read) without trusting how it got there. One `NOT EXISTS`
+ * in the same query, so a refused conversation is simply not found.
+ * @param viewerId - The person reading.
+ */
+function visibleToViewer(viewerId: string) {
+  return sql`not exists (
+    select 1 from "project" p
+     where p."id" = ${conversationSchema.orgId}
+       and p."kind" = 'personal'
+       and p."owner_user_id" is distinct from ${viewerId}
+  )`;
+}
+
+/**
+ * Conversations in a workspace, most recently active first.
+ * @param opts - What to list.
+ * @param opts.orgId - The workspace.
+ * @param opts.agentSlug - Only threads with this agent.
+ * @param opts.limit - At most this many (default 50).
+ * @param opts.viewerId - The person listing. When given, a personal
+ *  workspace's conversations list for its owner only. Pass it from every path
+ *  a person reads through; system callers (jobs, the worker) omit it.
+ */
 export async function listConversations(opts: {
   orgId: string;
   agentSlug?: string;
   limit?: number;
+  viewerId?: string;
 }) {
   const limit = opts.limit ?? 50;
-  if (opts.agentSlug) {
-    return db
-      .select()
-      .from(conversationSchema)
-      .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.agentSlug, opts.agentSlug)))
-      .orderBy(desc(conversationSchema.updatedAt))
-      .limit(limit);
-  }
   return db
     .select()
     .from(conversationSchema)
-    .where(eq(conversationSchema.orgId, opts.orgId))
+    .where(and(
+      eq(conversationSchema.orgId, opts.orgId),
+      opts.agentSlug ? eq(conversationSchema.agentSlug, opts.agentSlug) : undefined,
+      opts.viewerId ? visibleToViewer(opts.viewerId) : undefined,
+    ))
     .orderBy(desc(conversationSchema.updatedAt))
     .limit(limit);
 }
@@ -183,11 +211,26 @@ export async function latestConversationForScope(opts: {
   return row ?? null;
 }
 
-export async function getConversation(opts: { orgId: string; id: number }) {
+/**
+ * One conversation, or null — for a conversation in another workspace, and,
+ * when `viewerId` is given, for one in a personal workspace that is not the
+ * viewer's. Callers turn null into a 404, so "not yours" and "no such thread"
+ * are one answer.
+ * @param opts - What to read.
+ * @param opts.orgId - The workspace the conversation must be in.
+ * @param opts.id - The conversation.
+ * @param opts.viewerId - The person reading. Pass it from every path a person
+ *  reads through; system callers (jobs, the worker) omit it.
+ */
+export async function getConversation(opts: { orgId: string; id: number; viewerId?: string }) {
   const [row] = await db
     .select()
     .from(conversationSchema)
-    .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)));
+    .where(and(
+      eq(conversationSchema.orgId, opts.orgId),
+      eq(conversationSchema.id, opts.id),
+      opts.viewerId ? visibleToViewer(opts.viewerId) : undefined,
+    ));
   return row ?? null;
 }
 

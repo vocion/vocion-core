@@ -66,7 +66,7 @@ export async function POST(request: Request): Promise<Response> {
   const allowedSourceSlugsRead = started(import('@/services/SourceAccessService').then(m => m.allowedSourceSlugsForUser(orgId, userId)));
   const rosterRead = started(listAgents(orgId));
   const leadRead = started(import('@/services/TeamService').then(m => m.getWorkspaceLead(orgId)));
-  const existingRead = started(conversationIdAsked !== null ? getConversation({ orgId, id: conversationIdAsked }) : Promise.resolve(null));
+  const existingRead = started(conversationIdAsked !== null ? getConversation({ orgId, id: conversationIdAsked, viewerId: userId }) : Promise.resolve(null));
   // The thread's log is read before this turn's message is appended below,
   // so it is the history up to, not including, this turn.
   const historyRead = started(conversationIdAsked !== null
