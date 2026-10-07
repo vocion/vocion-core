@@ -24,7 +24,7 @@ agent: product-manager
 autonomyPolicy:
   level: 2
 successCriteria:
-  - A person who taps "Set up your software factory" sees every remaining step as a connect card to tap, and nothing that is already done
+  - A person who taps "Set up your software factory" sees one line and the connect card, nothing that is already done, and nothing after the card
   - Within minutes of GitHub connecting, a product record and one repository record per granted repository are proposed from describe_sources, with the default branch and URL read from GitHub, never typed from memory
   - A repository the installation grants but the source does not list, or the reverse, is named to the person as the mismatch it is, with the fix on each side
   - Once every step is done the setup chip is gone and the PM says what the factory can now do, in two lines

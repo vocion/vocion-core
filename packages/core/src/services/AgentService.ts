@@ -29,6 +29,7 @@ import { flatHistory, historyMessages, withLiveCardState } from '@/services/chat
 import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
+import { HandOffGateCallback, HandOffGuard } from './agents/handOff';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
@@ -632,6 +633,10 @@ export async function runAgentDeep(opts: {
   const changedFields = new Map<string, string[]>();
   // The record the person's page shows, when it is one (`/p/feature/201` is request 201).
   const pageRecordRef = opts.pageContext?.record?.type === 'object' && /^\d+$/.test(opts.pageContext.record.id) ? { type: 'object' as const, id: opts.pageContext.record.id, label: opts.pageContext.record.label } : null;
+  // The turn ends where it asked a person to act (`agents/handOff.ts`): the
+  // emit below marks each card, the guard is armed once the turn is known to
+  // be a person's, and its signal joins the turn's.
+  const handOffGuard = new HandOffGuard();
   const emit = (event: import('./agents/types').AgentEvent): void => {
     if (event.type === 'documents' && activeSpecialist) {
       for (const d of event.documents) {
@@ -642,6 +647,12 @@ export async function runAgentDeep(opts: {
     }
     if (event.type === 'recommended_action') {
       emittedCards.push(event.recommendation.label);
+      handOffGuard.handOff(event.recommendation.label);
+    }
+    // A card that waits on a person (a connection to make, state `proposed`)
+    // hands them the next move: the turn ends before the model speaks again.
+    if (event.type === 'card' && event.card.state === 'proposed') {
+      handOffGuard.handOff(event.card.title);
     }
     if (event.type === 'record_created') {
       createdRecords.push(event.record);
@@ -811,7 +822,7 @@ export async function runAgentDeep(opts: {
       dropped.abort(new HeadStartDropped());
     }
   }, () => {});
-  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline, dropped.signal, ...(opts.signal ? [opts.signal] : [])]);
+  const turnSignal = AbortSignal.any([budgetGuard.signal, handOffGuard.signal, deadline, dropped.signal, ...(opts.signal ? [opts.signal] : [])]);
 
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
@@ -979,6 +990,7 @@ export async function runAgentDeep(opts: {
     : Promise.resolve(NO_INTENT);
   boundCtx.turnIntent = intentP;
   const personTurn = Boolean(opts.userId) && !opts.missionRunId && !opts.userId!.startsWith('token:');
+  handOffGuard.arm(personTurn);
   const turn: TurnScope = { readOnly: false, writes: 0 };
   // The model starts before the intent read and the router have answered;
   // every tool waits here for both (`agents/turnGate.ts`), and so does
@@ -1049,7 +1061,7 @@ export async function runAgentDeep(opts: {
   const runGraphPass = (graphInput: typeof input): Promise<void> => asRootRun(async () => {
     const stream = await compiled.graph.streamEvents(graphInput as never, {
       version: 'v2',
-      callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard), new TurnGateCallback(toolsReady)],
+      callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard), new HandOffGateCallback(handOffGuard), new TurnGateCallback(toolsReady)],
       signal: turnSignal,
       ...stepLimitStreamConfig(maxSteps),
     } as never);
@@ -1350,69 +1362,77 @@ export async function runAgentDeep(opts: {
     if (opts.signal?.aborted) {
       throw new TurnStopped();
     }
-    let err: unknown = caught;
-    let recovered = false;
-    // A MALFORMED TOOL CALL IS NOT THE END OF THE TURN. deepagents' own tools
-    // throw on a schema miss and the throw leaves the graph (verified live,
-    // harness.ts); production turn 614 (2026-09-24) died on `read_file`
-    // called with no arguments — the person saw one preamble and "incomplete".
-    // The error goes back to the model once, as the instruction, tools on.
-    if (isToolInputError(caught) && !toolErrorRetried) {
-      toolErrorRetried = true;
-      const detail = (caught as Error).message.replace(/\s+/g, ' ').slice(0, 300);
-      console.warn('agent turn: malformed tool call, continuing once', { orgId: opts.orgId, agentSlug: opts.agentSlug, detail });
-      try {
-        const soFar = normalizeAnswerHtml(finalText).trim();
-        await runGraph({
-          ...input,
-          messages: continueWith(`Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.`, [...input.messages, ...(soFar ? [{ role: 'assistant', content: soFar }] : [])]),
-        } as typeof input);
-        recovered = true;
-      } catch (again) {
-        err = again;
-      }
-    }
-    if (!recovered) {
-    // A budget stop ends the turn as a refusal carrying the cap that was hit —
-    // whatever the aborted stream threw on its way out. A step-limit stop is
-    // reworded for the person; anything else keeps its own message.
-      const budgetStop = budgetGuard.stopError();
-      if (budgetStop) {
-      // Almost always the abort itself; logged in case something else broke
-      // as the stop landed, since the person only sees the budget message.
-        console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
-      }
-      if (!budgetStop && deadline.aborted) {
-        console.warn('agent turn: ran past the deadline and was stopped', { orgId: opts.orgId, agentSlug: opts.agentSlug, deadlineMs, toolCalls: toolCallLog.length, textChars: finalText.length });
-      }
-      const { message, rethrow } = budgetStop
-        ? { message: budgetStop.message, rethrow: budgetStop }
-        : deadline.aborted
-          ? { message: `the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped; what it said so far is kept`, rethrow: new Error(`the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped`) }
-          : describeTurnFailure(err, maxSteps);
-      // The run died. Close anything still open as a FAILURE first, so the
-      // persisted trace carries a terminal node instead of stopping at
-      // "Delegating to <specialist>" — the exact trace this turn used to leave.
-      const stillDelegating = tracer.openDelegationNames();
-      for (const node of tracer.closeDelegations(message)) {
-        emit(node);
-      }
-      for (const name of stillDelegating) {
-        if (!failedDelegations.some(f => f.name === name)) {
-          failedDelegations.push({ name, message });
+    if (handOffGuard.stopped) {
+      // ENDED WHERE IT ASKED. A card a person has to act on is up, and the
+      // turn stopped before the model could say more; what it said before
+      // the card is the answer, and the card is the next move. Not a
+      // failure: no notice, no error node, no continuation pass.
+      console.warn('agent turn: ended at a card a person acts on', { orgId: opts.orgId, agentSlug: opts.agentSlug, cards: handOffGuard.handedOff, toolCalls: toolCallLog.length, textChars: finalText.length });
+    } else {
+      let err: unknown = caught;
+      let recovered = false;
+      // A MALFORMED TOOL CALL IS NOT THE END OF THE TURN. deepagents' own tools
+      // throw on a schema miss and the throw leaves the graph (verified live,
+      // harness.ts); production turn 614 (2026-09-24) died on `read_file`
+      // called with no arguments — the person saw one preamble and "incomplete".
+      // The error goes back to the model once, as the instruction, tools on.
+      if (isToolInputError(caught) && !toolErrorRetried) {
+        toolErrorRetried = true;
+        const detail = (caught as Error).message.replace(/\s+/g, ' ').slice(0, 300);
+        console.warn('agent turn: malformed tool call, continuing once', { orgId: opts.orgId, agentSlug: opts.agentSlug, detail });
+        try {
+          const soFar = normalizeAnswerHtml(finalText).trim();
+          await runGraph({
+            ...input,
+            messages: continueWith(`Your last tool call was rejected: ${detail}. Call it again with valid arguments, or do without it — and answer. Do not stop.`, [...input.messages, ...(soFar ? [{ role: 'assistant', content: soFar }] : [])]),
+          } as typeof input);
+          recovered = true;
+        } catch (again) {
+          err = again;
         }
-        emit({ type: 'tool_error', tool: 'task', message });
       }
-      // There will be no answer, so the words have to go into the transcript
-      // here — a badge in the trace is not the person being told.
-      const notice = delegationFailureNotice(failedDelegations);
-      if (notice) {
-        emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
+      if (!recovered) {
+        // A budget stop ends the turn as a refusal carrying the cap that was hit —
+        // whatever the aborted stream threw on its way out. A step-limit stop is
+        // reworded for the person; anything else keeps its own message.
+        const budgetStop = budgetGuard.stopError();
+        if (budgetStop) {
+          // Almost always the abort itself; logged in case something else broke
+          // as the stop landed, since the person only sees the budget message.
+          console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
+        }
+        if (!budgetStop && deadline.aborted) {
+          console.warn('agent turn: ran past the deadline and was stopped', { orgId: opts.orgId, agentSlug: opts.agentSlug, deadlineMs, toolCalls: toolCallLog.length, textChars: finalText.length });
+        }
+        const { message, rethrow } = budgetStop
+          ? { message: budgetStop.message, rethrow: budgetStop }
+          : deadline.aborted
+            ? { message: `the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped; what it said so far is kept`, rethrow: new Error(`the turn ran past the ${Math.round(deadlineMs / 60_000)}-minute limit and was stopped`) }
+            : describeTurnFailure(err, maxSteps);
+        // The run died. Close anything still open as a FAILURE first, so the
+        // persisted trace carries a terminal node instead of stopping at
+        // "Delegating to <specialist>" — the exact trace this turn used to leave.
+        const stillDelegating = tracer.openDelegationNames();
+        for (const node of tracer.closeDelegations(message)) {
+          emit(node);
+        }
+        for (const name of stillDelegating) {
+          if (!failedDelegations.some(f => f.name === name)) {
+            failedDelegations.push({ name, message });
+          }
+          emit({ type: 'tool_error', tool: 'task', message });
+        }
+        // There will be no answer, so the words have to go into the transcript
+        // here — a badge in the trace is not the person being told.
+        const notice = delegationFailureNotice(failedDelegations);
+        if (notice) {
+          emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
+        }
+        emit({ type: 'error', message });
+        trace.update({ output: { error: message } });
+        await flushTraces();
+        throw rethrow;
       }
-      emit({ type: 'error', message });
-      trace.update({ output: { error: message } });
-      await flushTraces();
-      throw rethrow;
     }
   }
 
@@ -1590,7 +1610,8 @@ export async function runAgentDeep(opts: {
   // sees what's already carded and only tops up the missing ones.
   const backstopOn = (compiled.agentRow.harnessConfig as { recommendActionBackstop?: boolean } | null)?.recommendActionBackstop === true;
   // A question gets its answer, never cards beside it (CHAT-423).
-  if (backstopOn && !turn.readOnly && emittedCards.length < 3 && finalText.length > 300) {
+  // A turn that ended at a card already handed the person its move; nothing is added behind it.
+  if (backstopOn && !turn.readOnly && !handOffGuard.stopped && emittedCards.length < 3 && finalText.length > 300) {
     try {
       // TWO STEPS, IN SECONDS (services/agents/cardBackstop.ts): a fast call
       // lists the decisions the answer names, then one call per card writes

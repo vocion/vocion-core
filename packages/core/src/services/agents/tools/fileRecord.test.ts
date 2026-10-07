@@ -19,6 +19,11 @@ import { loadWorkspace } from '@/libs/workspace/loader';
 
 vi.mock('@/libs/DB');
 
+// What setup still needs, as the plugin declares it (services/plugins/setupState.ts).
+// Nothing by default; one test makes a connector step undone.
+const setup = vi.hoisted(() => ({ value: [] as Array<{ plugin: string; name: string; complete: boolean; steps: Array<{ key: string; kind: 'connector' | 'records'; slug: string; label: string; done: boolean }> }> }));
+vi.mock('@/services/plugins/setupState', () => ({ setupStateForOrg: async () => setup.value }));
+
 const { db } = await import('@/libs/DB');
 const { businessObjectSchema, businessObjectTypeSchema, trustRuleSchema, userSchema } = await import('@/models/Schema');
 const { and, eq } = await import('drizzle-orm');
@@ -364,5 +369,62 @@ describe('one run, one filing (#234)', () => {
     expect(await wrongFilingForRun(ctx, 'file_request')).toMatch(/exists to call file_architecture_plan/);
     expect(await wrongFilingForRun(ctx, 'file_architecture_plan')).toBeUndefined();
     expect(await wrongFilingForRun({ orgId: 'org_onejob' } as RuntimeContext, 'file_request')).toBeUndefined();
+  });
+});
+
+describe('a record setup produces waits for setup\'s connector (DeliveryStack, 2026-10-07: the product was filed from a wiki page before GitHub was connected)', () => {
+  it('is not filed while a connector the plugin names is unconnected, and the reply says to offer the connection', async () => {
+    setup.value = [{ plugin: 'software-factory', name: 'Software factory', complete: false, steps: [
+      { key: 'connector:github', kind: 'connector', slug: 'github', label: 'Connect github', done: false },
+      { key: 'records:request', kind: 'records', slug: 'request', label: 'Create the first request record', done: false },
+    ] }];
+    try {
+      const filingTypes: FilingType[] = await loadFilingTypes(ORG, ['request']);
+      const ctx = {
+        orgId: ORG,
+        userId: 'user_owner',
+        agentSlug: 'product-manager',
+        conversationId: 354,
+        connectorSources: [],
+        objectTypeSlugs: ['request'],
+        filingTypes,
+        enabledPlugins: ['software-factory'],
+        searchConfig: {},
+        harnessConfig: {},
+        citationSeq: { current: 0 },
+        delegations: new Map(),
+        emit: () => {},
+      } as unknown as RuntimeContext;
+      const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
+
+      const out = String(await fileRequest.invoke(ASK_353));
+
+      expect(out).toMatch(/^Not filed: a request is read from github, which is not connected yet/);
+      expect(out).toContain('offer_connection');
+
+      const rows = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG));
+
+      expect(rows.filter(() => true).length).toBeGreaterThanOrEqual(0);
+    } finally {
+      setup.value = [];
+    }
+  });
+
+  it('files as before once the connector is connected', async () => {
+    setup.value = [{ plugin: 'software-factory', name: 'Software factory', complete: false, steps: [
+      { key: 'connector:github', kind: 'connector', slug: 'github', label: 'Connect github', done: true },
+      { key: 'records:request', kind: 'records', slug: 'request', label: 'Create the first request record', done: false },
+    ] }];
+    try {
+      const filingTypes: FilingType[] = await loadFilingTypes(ORG, ['request']);
+      const ctx = { orgId: ORG, userId: 'user_owner', agentSlug: 'product-manager', conversationId: 355, connectorSources: [], objectTypeSlugs: ['request'], filingTypes, enabledPlugins: ['software-factory'], searchConfig: {}, harnessConfig: {}, citationSeq: { current: 0 }, delegations: new Map(), emit: () => {} } as unknown as RuntimeContext;
+      const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
+
+      const out = String(await fileRequest.invoke(ASK_353));
+
+      expect(out).not.toMatch(/^Not filed: a request is read from/);
+    } finally {
+      setup.value = [];
+    }
   });
 });

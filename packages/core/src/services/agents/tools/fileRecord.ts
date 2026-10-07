@@ -678,6 +678,28 @@ async function askedByPerson(ctx: RuntimeContext, spec: FilingType, fields: Reco
 }
 
 /**
+ * Why a record of this type is not filed yet, or null when it may be: the
+ * type is one a plugin's `setup.records` names, and a connector in that
+ * plugin's `setup.connectors` has no live credential. The record would be
+ * written from memory, not from what the connector shows.
+ * @param orgId - Tenant.
+ * @param typeSlug - The type being filed.
+ */
+async function setupNotReady(orgId: string, typeSlug: string): Promise<string | null> {
+  const { setupStateForOrg } = await import('@/services/plugins/setupState');
+  for (const plugin of await setupStateForOrg(orgId)) {
+    if (!plugin.steps.some(step => step.kind === 'records' && step.slug === typeSlug)) {
+      continue;
+    }
+    const missing = plugin.steps.filter(step => step.kind === 'connector' && !step.done).map(step => step.slug);
+    if (missing.length > 0) {
+      return `Not filed: a ${typeSlug.replace(/_/g, ' ')} is read from ${missing.join(' and ')}, which ${missing.length === 1 ? 'is' : 'are'} not connected yet, so there is nothing to read it from. Offer the connection (offer_connection) and stop; file this once it is connected.`;
+    }
+  }
+  return null;
+}
+
+/**
  * The typed filing tool for one type.
  * @param ctx - The turn.
  * @param spec - The filing type.
@@ -691,6 +713,16 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       const offJob = await wrongFilingForRun(ctx, spec.toolName).catch(() => undefined);
       if (offJob) {
         return offJob;
+      }
+      // A RECORD THE PLUGIN SAYS SETUP PRODUCES WAITS FOR SETUP'S CONNECTOR.
+      // The DeliveryStack factory (2026-10-07) filed its product from a wiki
+      // page before GitHub was connected: no repository had been read, so
+      // the record said what the model remembered. A plugin's `setup:` names
+      // the connectors its first records are read from; while one of those
+      // is not connected, the record is not filed from here.
+      const unready = await setupNotReady(ctx.orgId, spec.slug).catch(() => null);
+      if (unready) {
+        return unready;
       }
       const { title, fields: named } = await nameLongTitle(ctx.orgId, spec, filingInputOf(spec, args));
       const fields = await askedByPerson(ctx, spec, named);
