@@ -1,4 +1,6 @@
 import type { EmailInboundMeta, ReceivedEmail } from '@/libs/surfaces/email';
+import type { ChatInbound } from '@/libs/surfaces/types';
+import type { ThreadApproval } from '@/services/chat/slackApproval';
 import { randomUUID } from 'node:crypto';
 import process from 'node:process';
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
@@ -160,6 +162,8 @@ export type EmailHandlerDeps = {
   preflight: typeof preflightCheck;
   fetchEmail: (id: string) => Promise<ReceivedEmail>;
   send: typeof sendMail;
+  /** A reply that decides a card waiting on this thread (`chat/slackApproval.ts`), or null to answer as a turn. */
+  approval: (orgId: string, inbound: ChatInbound, conversationId: number) => Promise<ThreadApproval>;
 };
 
 function defaultDeps(): EmailHandlerDeps {
@@ -168,6 +172,10 @@ function defaultDeps(): EmailHandlerDeps {
     preflight: preflightCheck,
     fetchEmail: id => fetchReceivedEmail(id, process.env.RESEND_API_KEY?.trim() ?? ''),
     send: sendMail,
+    approval: async (orgId, inbound, conversationId) => {
+      const { approvalFromThread, defaultThreadApprovalDeps } = await import('@/services/chat/slackApproval');
+      return approvalFromThread(orgId, inbound, conversationId, defaultThreadApprovalDeps);
+    },
   };
 }
 
@@ -308,6 +316,30 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
   const messageText = `${body || '(empty message)'}${attachmentNote}`;
   const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
   await appendMessage({ orgId, conversationId, role: 'user', content: messageText, userId: `email:${meta.from}` });
+
+  // A REPLY THAT DECIDES, BY MAIL (Chris, 2026-10-06: "answers via message … extendable to email"):
+  // a card waiting on this thread, and words a model reads as the decision, from an address Vocion
+  // knows as a member, are decided here and said back, the same read as a Slack reply.
+  const decided = await deps.approval(orgId, { surface: 'email', teamId: null, channelId: box.address, threadRef: inboundMessageId, messageRef: inboundMessageId, externalUserId: meta.from, text: body, isDirect: false }, conversationId).catch(() => null);
+  if (decided) {
+    await appendMessage({ orgId, conversationId, role: 'assistant', content: decided.reply, status: 'complete' });
+    let mailId: string | null = null;
+    if (mailEnabled()) {
+      const outId = outboundMessageId(domain);
+      const sent = await deps.send({
+        from,
+        to: meta.from,
+        subject: replySubject(meta.subject),
+        text: decided.reply,
+        html: `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#0b1020;white-space:pre-wrap">${escapeHtml(decided.reply)}</div>`,
+        headers: { 'Message-ID': `<${outId}>`, 'In-Reply-To': `<${inboundMessageId}>`, 'References': [...referenced, inboundMessageId].map(id => `<${id}>`).join(' ') },
+        tags: { surface: 'email', kind: 'decision' },
+      });
+      mailId = sent.skipped ? null : sent.id;
+      await db.insert(emailThreadSchema).values({ orgId, conversationId, messageId: outId, direction: 'out', fromAddress: box.address, subject: replySubject(meta.subject) });
+    }
+    return { outcome: 'replied', orgId, agentSlug, conversationId, created, text: decided.reply, mailId };
+  }
 
   try {
     // What the turn spent is counted while it runs and written with the

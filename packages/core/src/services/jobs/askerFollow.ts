@@ -84,7 +84,7 @@ export function askerKey(recordId: number, value: string, groupRole: string, lin
   return `record:${recordId}:${value}:${(h >>> 0).toString(36)}`;
 }
 
-export type AskerFollowResult = { said: true; channel: 'chat' | 'slack'; text: string; told: boolean } | { said: false; reason: string };
+export type AskerFollowResult = { said: true; channel: string; text: string; told: boolean } | { said: false; reason: string };
 
 const defaultDeps: AskerFollowDeps = {
   async record(orgId, recordId) {
@@ -183,7 +183,7 @@ export async function askerFollow(orgId: string, input: Record<string, unknown>,
     done ? deps.shareUrl(orgId, recordId) : Promise.resolve(null),
   ]);
   // Every conversation that asked or acted hears it once, each with how to decide from there.
-  let first: { channel: 'chat' | 'slack'; text: string } | null = null;
+  let first: { channel: string; text: string } | null = null;
   const reasons: string[] = [];
   for (const conversationId of record.conversationIds) {
     const waiting = input.needsYou === true ? await deps.waitingCard(orgId, conversationId, recordId).catch(() => null) : null;
