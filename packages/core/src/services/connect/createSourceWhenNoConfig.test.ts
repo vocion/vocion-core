@@ -86,6 +86,18 @@ describe('createSourceWhenNoConfigNeeded', () => {
     expect(await sources()).toHaveLength(0);
   });
 
+  it('links a login that needs no picks to the Slack source the workspace file declares, instead of making a second one beside it', async () => {
+    const loginId = await seedLogin('slack');
+    const [declared] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'slack', kind: 'plugin', configJson: { _connector: 'slack', _manifestDir: '/workspaces/northwind' } }).returning();
+
+    await createSourceWhenNoConfigNeeded({ orgId: ORG, userId: ADMIN, connector: 'slack', linkedSourceIds: [] });
+
+    const rows = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, ORG));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: declared!.id, apiTokenId: loginId });
+  });
+
   it('does not add a second source when the login already linked one', async () => {
     await seedLogin('slack');
     const [existing] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'slack', kind: 'plugin', configJson: { _connector: 'slack' } }).returning();

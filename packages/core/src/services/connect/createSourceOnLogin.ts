@@ -181,10 +181,12 @@ async function uniqueSlug(orgId: string, base: string): Promise<string> {
  * connector's sources on the same site (or all of them, when the pick names no
  * site): none means create, one means add to it, several means ask.
  *
- * A source declared in the workspace file is never added to: the next apply
- * rewrites its config and schedules from the file, so the pick would vanish.
- * Named, it is refused with where to change it; unnamed, it is not a
- * candidate, and the pick makes a source of its own beside it.
+ * A pick with settings (repositories, projects) is never added to a source
+ * declared in the workspace file: the next apply rewrites its config from
+ * the file, so the pick would vanish. Named, that source is refused with
+ * where to change it; unnamed, it is not a candidate, and the pick makes a
+ * source of its own beside it. A login that needs no picks still lands on
+ * it: that save only links the credential, which an apply leaves alone.
  * @param input - The pick.
  */
 export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
@@ -199,16 +201,17 @@ export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
     const created = site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector;
     return { kind: 'create', slug: await uniqueSlug(input.orgId, created) };
   }
+  const pickChangesConfig = Object.keys(input.config).length > 0;
   if (input.sourceSlug) {
     const named = all.find(row => row.slug === input.sourceSlug);
-    if (named && isDeclaredInWorkspaceFile(named.configJson)) {
+    if (named && pickChangesConfig && isDeclaredInWorkspaceFile(named.configJson)) {
       return { kind: 'refuse', reason: `${named.slug} is set in the workspace file, so change it there; a change saved here would be undone by the next apply` };
     }
     return named
       ? { kind: 'merge', slug: named.slug, existing: { ...named.configJson } }
       : { kind: 'refuse', reason: `${input.sourceSlug} isn't a ${label} source in this workspace` };
   }
-  const addable = all.filter(row => !isDeclaredInWorkspaceFile(row.configJson));
+  const addable = pickChangesConfig ? all.filter(row => !isDeclaredInWorkspaceFile(row.configJson)) : all;
   const candidates = site
     ? addable.filter(row => typeof row.configJson?.baseUrl === 'string' && safeHost(row.configJson.baseUrl) === site)
     : addable;
