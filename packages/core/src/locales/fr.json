@@ -70,7 +70,12 @@
     "profile": "Profil",
     "marketplace": "Place de marché",
     "plugins": "Plugins",
-    "agents_for_hire": "Agents à recruter"
+    "agents_for_hire": "Agents à recruter",
+    "apps": "Applications",
+    "add_app": "Ajouter une application",
+    "app_elsewhere": "dans un autre espace de travail",
+    "pick_workspace": "Choisir un espace de travail",
+    "app_not_in_workspace": "{app} n'est pas dans cet espace de travail. Choisissez ci-dessus un espace qui l'a, ou ajoutez-la depuis la marketplace."
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
@@ -318,6 +323,8 @@
     "none_body": "Ce déploiement a été livré sans le catalogue d'agents. Les agents peuvent toujours être définis directement dans l'espace de travail.",
     "hire": "Recruter",
     "hired": "{name} fait partie de votre équipe",
-    "hire_failed": "Impossible de recruter cet agent. Actualisez et réessayez."
+    "hire_failed": "Impossible de recruter cet agent. Actualisez et réessayez.",
+    "installed_apps": "Applications installées",
+    "more_apps": "Autres applications"
   }
 }

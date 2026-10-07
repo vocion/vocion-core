@@ -103,6 +103,46 @@ pinned by default. A plugin names a section only when it is part of a named
 app: `proposals` says `nav: {section: GTM}` and sits under GTM with the
 workspace's own Personalization and Discovery surfaces, one heading.
 
+## Apps — plugins as a person picks them
+
+The dashboard's far-left **app rail** lists apps: Workforce first, then the
+prebuilt apps (Software Factory, GTM), then "Add app", which opens the
+marketplace. An app is a manifest at `packages/core/templates/apps/<id>/app.yaml`
+(`AppManifestSchema`, loaded by `libs/workspace/apps.ts`), not new capability:
+
+```yaml
+id: software-factory
+name: Software Factory
+icon: git-branch # a lucide name the sidebar can draw (features/dashboard/iconByName.ts)
+order: 2 # rail position
+description: Requests become approved work, verified changes and releases.
+plugins: [software-factory, production-watch] # member plugins
+surfaces: [] # core surfaces that belong to it
+entry: /dashboard/p/products # where picking it lands, when that row is there
+nav: [Software factory, Production Watch] # the nav.section labels it owns
+```
+
+- **Installed per workspace, derived.** An app is in a workspace exactly when
+  one of its plugins (or surfaces) is on there — read from
+  `project.enabled_plugins`, so turning a plugin on is still the one way to add
+  capability, and there is no app column to keep in step. The app marked
+  `core: true` (Workforce) is in every workspace. `hidden: true` holds a slot
+  (Assistants) that is never installed until it ships.
+- **Each row has one app.** `features/navigation/apps.ts` `splitNavByApp`
+  hands every row to the app that lists its plugin, else to the app that owns
+  its section; a plugin row in the default `Workspace` section sits under the
+  app's first section. Everything no app owns stays with Workforce, exactly
+  where it was. A workspace page that names an app's section is a
+  customisation of that app and sits inside it — never an app of its own.
+- **The URL says the app.** A page an app owns (its pages, its surfaces, a core
+  route its plugin owns) opens in that app, so a link or a refresh lands right.
+  Shared pages — Chat, Review, the wiki, a record — keep the app you were in.
+- **One picker.** Every app's nav starts with the workspace switcher, listing
+  only the workspaces that have that app (`apps.forUser` RPC); switching keeps
+  the app when the target has it and falls back to Workforce when it does not.
+  The marketplace's plugin list is grouped the same way: installed apps, each
+  with its plugins as its features, then the apps this workspace lacks.
+
 ## Anatomy of a plugin
 
 ```

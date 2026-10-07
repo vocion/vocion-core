@@ -1,7 +1,12 @@
+import type { PluginInfo } from '@/libs/workspace/plugins';
 import { Blocks } from 'lucide-react';
+import { getTranslations } from 'next-intl/server';
 import { Column, ListEmpty, ListRow, ListRows, Subline } from '@/components/patterns';
 import { StatusPill } from '@/components/ui/status-pill';
+import { iconByName } from '@/features/dashboard/iconByName';
 import { PluginToggle } from '@/features/dashboard/plugins/PluginToggle';
+import { groupPluginsByApp, installedApps } from '@/features/navigation/apps';
+import { safeListApps } from '@/libs/workspace/apps';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { loadProject } from '@/routers/AuthGuards';
 import { workspaceFolderForProject } from '@/routers/Workspace';
@@ -21,12 +26,18 @@ import { enabledPluginsForOrg, pluginWriteTarget } from '@/services/PluginServic
  * dependents warning and the same read-only blocker (principle 6 — one shape).
  * Reads the filesystem catalogue and the project's enabled list itself, so a
  * caller only hands it the org.
+ *
+ * Grouped by app (Vocion 5.0): "Installed apps" first — Workforce, which
+ * keeps the plugins no app lists, and every app with a plugin on here — then
+ * the apps this workspace does not have yet. An app's plugins are its
+ * features; turning one on is how the app arrives, with the same toggle.
  * @param props
  * @param props.orgId - The project whose enabled plugins and workspace are read.
  * @param props.isAdmin - Whether this viewer may flip a switch.
  */
 export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: boolean }) {
-  const [plugins, enabled, project, folder] = await Promise.all([
+  const [t, plugins, enabled, project, folder] = await Promise.all([
+    getTranslations('Marketplace'),
     Promise.resolve(listPlugins()),
     enabledPluginsForOrg(orgId),
     loadProject(orgId),
@@ -52,9 +63,9 @@ export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: b
     );
   }
 
-  return (
-    <ListRows>
-      {plugins.map((p) => {
+  const rows = (list: readonly PluginInfo[]) => (
+    <ListRows className="border-y border-border/70">
+      {list.map((p) => {
         const on = enabled.includes(p.manifest.slug);
         const c = p.contents;
         return (
@@ -77,5 +88,39 @@ export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: b
         );
       })}
     </ListRows>
+  );
+
+  const apps = safeListApps();
+  // A catalogue of apps that failed to read leaves the flat list, as before.
+  if (apps.length === 0) {
+    return rows(plugins);
+  }
+  const bySlug = new Map(plugins.map(p => [p.manifest.slug, p]));
+  const installed = new Set(installedApps(enabled, project?.enabledSurfaces ?? [], apps).map(a => a.id));
+  const groups = groupPluginsByApp(plugins.map(p => p.manifest.slug), apps);
+  const part = (heading: string, list: typeof groups) => list.length > 0 && (
+    <section className="mt-8 first:mt-2">
+      <h2 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{heading}</h2>
+      {list.map(({ app, plugins: slugs }) => {
+        const Icon = iconByName(app.icon);
+        return (
+          <div key={app.id} data-testid={`marketplace-app-${app.id}`} className="mt-4">
+            <div className="flex items-center gap-2 py-1.5">
+              <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <h3 className="text-sm font-semibold">{app.name}</h3>
+              <span className="truncate text-[13px] text-muted-foreground">{app.description}</span>
+            </div>
+            {rows(slugs.map(s => bySlug.get(s)!))}
+          </div>
+        );
+      })}
+    </section>
+  );
+
+  return (
+    <>
+      {part(t('installed_apps'), groups.filter(g => installed.has(g.app.id)))}
+      {part(t('more_apps'), groups.filter(g => !installed.has(g.app.id)))}
+    </>
   );
 }
