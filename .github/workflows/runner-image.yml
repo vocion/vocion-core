@@ -7,11 +7,11 @@
 #                  and carries the browser QA needs. Nothing is pushed.
 #   push to a release line (main, next, N.x)
 #                  build linux/amd64 and linux/arm64 and push ghcr.io/<owner>/vocion-runner with
-#                  sha-<commit> (what a target pins) and the line's own tag: next, or N.x.
+#                  sha-<commit> (what a target pins) and the line's own tag: `next`, `N.x`, or
+#                  MAIN_LINE_TAG for main (the current major, 5.x).
 #                  `main` is a 4.x alias and never moves to a newer major, because an install we
-#                  cannot see may still pull it: only the branch named in MAIN_ALIAS_BRANCH
-#                  moves it. Today that is main (the 4.x line); at 5.0 GA it becomes 4.x.
-#                  See docs/deployment/release-lines.md.
+#                  cannot see may still pull it: only the branch named in MAIN_ALIAS_BRANCH (4.x)
+#                  moves it. See docs/deployment/release-lines.md.
 name: Runner image
 on:
   pull_request:
@@ -36,8 +36,10 @@ defaults:
     shell: bash
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/vocion-runner
-  # The one branch allowed to move the `main` tag. Change to 4.x on the day next merges into main.
-  MAIN_ALIAS_BRANCH: main
+  # The one branch allowed to move the `main` tag: the 4.x line, since main became 5.x.
+  MAIN_ALIAS_BRANCH: 4.x
+  # The line tag main's builds carry. Change it with the major.
+  MAIN_LINE_TAG: 5.x
 jobs:
   image:
     runs-on: ubuntu-latest
@@ -96,7 +98,7 @@ jobs:
             echo "list<<EOF"
             echo "${IMAGE}:sha-${GITHUB_SHA}"
             if [ "${GITHUB_REF_NAME}" = "${MAIN_ALIAS_BRANCH}" ]; then echo "${IMAGE}:main"; fi
-            if [ "${GITHUB_REF_NAME}" != "main" ]; then echo "${IMAGE}:${GITHUB_REF_NAME}"; fi
+            if [ "${GITHUB_REF_NAME}" = "main" ]; then echo "${IMAGE}:${MAIN_LINE_TAG}"; else echo "${IMAGE}:${GITHUB_REF_NAME}"; fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

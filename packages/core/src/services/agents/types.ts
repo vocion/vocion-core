@@ -504,6 +504,13 @@ export type RuntimeContext = {
    * when their plugin is; `list_capabilities` reads it to say what is off.
    */
   enabledPlugins?: string[];
+  /**
+   * What kind of workspace the agent runs in (`project.kind`), resolved once at
+   * graph build. A personal workspace's agent works on one person's behalf
+   * across their shared workspaces (`tools/assistant.ts`), so the tools that
+   * reach another workspace are present only there. Absent reads as shared.
+   */
+  workspaceKind?: 'shared' | 'personal';
   /** Per-agent retrieval tuning. */
   searchConfig: SearchConfig;
   /**

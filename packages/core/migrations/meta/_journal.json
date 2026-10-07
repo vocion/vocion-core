@@ -1191,6 +1191,20 @@
       "when": 1791000120000,
       "tag": "0169_api_token_refresh_claim",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1791000180000,
+      "tag": "0170_personal_project_per_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1791000240000,
+      "tag": "0171_conversation_parent",
+      "breakpoints": true
     }
   ]
 }

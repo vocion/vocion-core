@@ -373,6 +373,12 @@ export const projectSchema = pgTable(
   },
   table => [
     uniqueIndex('project_account_slug_idx').on(table.accountId, table.slug),
+    // One personal workspace per person per account (migration 0170). What
+    // `ensurePersonalProject` relies on to stay single-row under concurrent
+    // sign-ins.
+    uniqueIndex('project_personal_owner_uq')
+      .on(table.accountId, table.ownerUserId)
+      .where(sql`${table.kind} = 'personal'`),
   ],
 );
 
@@ -1613,6 +1619,14 @@ export const conversationSchema = pgTable(
      * envelope chip on a thread that began as a mail — never authorisation.
      */
     surface: text('surface').default('app').notNull(),
+    /**
+     * The conversation this one was asked FROM (migration 0171), when a
+     * person's assistant asked this workspace on their behalf
+     * (`ask_workspace`, surface `'assistant'`). The parent usually sits in the
+     * person's personal workspace and stays private to them; this row is the
+     * shared workspace's record. NULL for a conversation a person started.
+     */
+    parentConversationId: integer('parent_conversation_id').references((): AnyPgColumn => conversationSchema.id, { onDelete: 'set null' }),
     /**
      * Where the conversation STARTED: the page context of its first turn
      * (path, title, the record the page was about, the highlighted passage).

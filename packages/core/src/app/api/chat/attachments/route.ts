@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   const rawConv = form.get('conversation_id');
   let conversationId: number | null = null;
   if (typeof rawConv === 'string' && /^\d+$/.test(rawConv)) {
-    const conv = await getConversation({ orgId, id: Number(rawConv) });
+    const conv = await getConversation({ orgId, id: Number(rawConv), viewerId: userId });
     conversationId = conv?.id ?? null;
   }
 

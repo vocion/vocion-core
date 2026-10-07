@@ -67,8 +67,8 @@ async function agentRow() {
 }
 
 describe('workspaceScope', () => {
-  it('reads the plugins the workspace has on and its zone', async () => {
-    await expect(workspaceScope(ORG)).resolves.toEqual({ enabledPlugins: ['wiki'], defaultTimeZone: 'Europe/Paris' });
+  it('reads the plugins the workspace has on, its zone and its kind', async () => {
+    await expect(workspaceScope(ORG)).resolves.toEqual({ enabledPlugins: ['wiki'], defaultTimeZone: 'Europe/Paris', workspaceKind: 'shared' });
   });
 
   it('answers for a workspace that does not exist rather than throwing', async () => {
@@ -76,6 +76,8 @@ describe('workspaceScope', () => {
 
     expect(scope.enabledPlugins).toEqual([]);
     expect(typeof scope.defaultTimeZone).toBe('string');
+    // A workspace that cannot be read is shared: that only withholds tools.
+    expect(scope.workspaceKind).toBe('shared');
   });
 });
 

@@ -14,7 +14,7 @@ import type { SQL } from 'drizzle-orm';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
-import { accessibleProjectIds, effectiveRole, enforcementEnabled, resolveActiveWorkspace } from '@/services/WorkspaceAccessService';
+import { accessibleProjectIds, effectiveRole, enforcementEnabled, resolveActiveWorkspace, visibleWorkspace } from '@/services/WorkspaceAccessService';
 
 export type ProjectSummary = {
   id: string;
@@ -23,6 +23,8 @@ export type ProjectSummary = {
   slug: string;
   name: string;
   description: string | null;
+  /** `personal` for the person's own workspace (only ever their own), `shared` otherwise. */
+  kind: 'shared' | 'personal';
   /** Agents registered in the project — 0 means "nothing lives here yet" (the switcher hides those by default). */
   agentCount: number;
 };
@@ -59,6 +61,7 @@ const summaryColumns = {
   slug: projectSchema.slug,
   name: projectSchema.name,
   description: projectSchema.description,
+  kind: projectSchema.kind,
   // Qualified by hand: inside the subquery drizzle would render `"id"`, which
   // resolves to agent.id (integer), not project.id.
   agentCount: sql<number>`(select count(*)::int from "agent" a where a."org_id" = "project"."id")`.as('agent_count'),
@@ -102,13 +105,17 @@ export async function accountsForUser(userId: string): Promise<AccountSummary[]>
  * Every project the user can open, across every account they belong to — what
  * the switcher lists. Each carries its `accountId` so the switcher can group
  * them and knows when a switch crosses accounts.
+ *
+ * Another person's personal workspace is never listed, with enforcement on or
+ * off: the account owns it, but only its owner may know it is there.
  * @param userId - Auth.js user id.
  */
 export async function listProjectsForUser(userId: string): Promise<ProjectSummary[]> {
   const all = await db
     .select(summaryColumns)
     .from(projectSchema)
-    .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId));
+    .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId))
+    .where(visibleWorkspace(userId));
   if (!enforcementEnabled()) {
     return all;
   }
@@ -128,8 +135,9 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
  * else the account they joined first. If they cannot open the workspace on
  * that account, the answer is null — never a quiet move to a same-named
  * workspace in a different client's account. Returns null when the project
- * does not exist or belongs to an account the user is not a member of — the
- * caller cannot tell the two apart, on purpose.
+ * does not exist, belongs to an account the user is not a member of, or is
+ * someone else's personal workspace (enforced or not) — the caller cannot
+ * tell those apart, on purpose.
  * @param userId - Auth.js user id.
  * @param selector - `{ id }` or `{ slug }`.
  * @param preference - Which account wins when a slug is on several of them.
@@ -144,7 +152,7 @@ export async function resolveProjectForUser(
     : eq(sql`lower(${projectSchema.slug})`, selector.slug.trim().toLowerCase());
   // Account slugs travel in links people retype, like workspace slugs.
   const namedAccount = preference.accountSlug?.trim().toLowerCase();
-  const conditions: SQL[] = [match];
+  const conditions: SQL[] = [match, visibleWorkspace(userId)];
   if (namedAccount) {
     conditions.push(eq(sql`lower(${tenantAccountSchema.slug})`, namedAccount));
   }
