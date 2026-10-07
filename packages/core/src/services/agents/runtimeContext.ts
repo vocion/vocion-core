@@ -46,6 +46,8 @@ export type WorkspaceScope = {
   enabledPlugins: string[];
   /** The workspace's zone (`project.time_zone`), the fallback when a turn names none. */
   defaultTimeZone: string;
+  /** `project.kind`: a personal workspace's agent may reach the person's other workspaces. Absent reads as shared. */
+  workspaceKind?: 'shared' | 'personal';
 };
 
 /** The workspace facts plus the agent's own resolved tool inputs. */
@@ -65,11 +67,27 @@ export type AgentScope = WorkspaceScope & Pick<RuntimeContext, 'filingTypes' | '
 export async function workspaceScope(orgId: string): Promise<WorkspaceScope> {
   const { enabledPluginsForOrg } = await import('@/services/PluginService');
   const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
-  const [enabledPlugins, defaultTimeZone] = await Promise.all([
+  const [enabledPlugins, defaultTimeZone, workspaceKind] = await Promise.all([
     enabledPluginsForOrg(orgId).catch(() => [] as string[]),
     workspaceTimeZone(orgId),
+    workspaceKindOf(orgId),
   ]);
-  return { enabledPlugins, defaultTimeZone };
+  return { enabledPlugins, defaultTimeZone, workspaceKind };
+}
+
+/**
+ * `project.kind` for the workspace. A workspace that cannot be read is shared:
+ * that answer only withholds tools, never grants them.
+ * @param orgId - The workspace.
+ */
+async function workspaceKindOf(orgId: string): Promise<'shared' | 'personal'> {
+  try {
+    const [{ db }, { eq }, { projectSchema }] = await Promise.all([import('@/libs/DB'), import('drizzle-orm'), import('@/models/Schema')]);
+    const [row] = await db.select({ kind: projectSchema.kind }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
+    return row?.kind === 'personal' ? 'personal' : 'shared';
+  } catch {
+    return 'shared';
+  }
 }
 
 /**
@@ -147,6 +165,7 @@ export function runtimeContextFromScope(
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     enabledPlugins: scope.enabledPlugins,
+    workspaceKind: scope.workspaceKind,
     filingTypes: scope.filingTypes,
     restSources: scope.restSources,
     sourceKinds: scope.sourceKinds,

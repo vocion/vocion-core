@@ -94,6 +94,10 @@ export async function createConversation(opts: {
    * email subject, a caller naming the thread) so it is kept.
    */
   titleSource?: ConversationTitleSource;
+  /** Where it started (`'app'` when omitted): `'slack'`, `'email'`, `'mcp'`, `'assistant'`. */
+  surface?: string;
+  /** The conversation a person's assistant asked this one from (`ask_workspace`). */
+  parentConversationId?: number;
 }) {
   const title = (opts.initialTitle ?? DEFAULT_TITLE).trim() || DEFAULT_TITLE;
   const [row] = await db
@@ -106,6 +110,8 @@ export async function createConversation(opts: {
       createdBy: opts.createdBy ?? null,
       scopeRef: opts.scopeRef ?? null,
       contextJson: opts.context ?? null,
+      ...(opts.surface ? { surface: opts.surface } : {}),
+      ...(opts.parentConversationId !== undefined ? { parentConversationId: opts.parentConversationId } : {}),
     })
     .returning();
   if (opts.createdBy) {

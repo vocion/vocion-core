@@ -26,6 +26,7 @@
 
 import type { RoutingDecision } from '@/services/agents/router';
 import type { AgentEvent } from '@/services/agents/types';
+import type { RunCostScope } from '@/services/budget/runCost';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { WorkspaceAddress } from '@/services/ProjectService';
 import process from 'node:process';
@@ -34,11 +35,12 @@ import { db } from '@/libs/DB';
 import { appBaseUrl, workspaceUrl } from '@/libs/links';
 import { readModelPrefs } from '@/libs/llm/modelPrefs';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
-import { actionRunSchema, conversationSchema } from '@/models/Schema';
+import { actionRunSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
 import { routableFromRow, routeFirstTurn } from '@/services/agents/router';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
+import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
 import { autoProposeRecommendationDetailed } from '@/services/chat/autoPropose';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
@@ -144,6 +146,24 @@ export type AskWorkspaceInput = {
   title?: string;
   /** Test seam; production reads {@link turnTimeLimitMs}. */
   timeLimitMs?: number;
+  /**
+   * Who is reaching the workspace, as the conversation records it: `'mcp'`
+   * (the default) for a client over MCP, `'assistant'` for a person's own
+   * assistant asking on their behalf (`tools/assistant.ts`).
+   */
+  surface?: 'mcp' | 'assistant';
+  /** The conversation this one is asked from, in the asker's own workspace (`conversation.parent_conversation_id`). */
+  parentConversationId?: number;
+  /**
+   * The note under the message telling the agent how it is being reached.
+   * Absent, the MCP note: there is no screen beside the reply.
+   */
+  note?: string;
+  /**
+   * Every event of the turn, as it happens, after this function has recorded
+   * it — for a caller that shows the work live (the assistant's thread).
+   */
+  onEvent?: (event: AgentEvent) => void;
 };
 
 export type AskWorkspaceResult = {
@@ -259,8 +279,15 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   if (!conversation) {
     // A caller that names the thread chose those words; they are kept.
     const named = input.title?.trim() || undefined;
-    conversation = await createConversation({ orgId, agentSlug, createdBy: actorId, initialTitle: named, ...(named ? { titleSource: 'person' as const } : {}) });
-    await db.update(conversationSchema).set({ surface: 'mcp' }).where(eq(conversationSchema.id, conversation.id));
+    conversation = await createConversation({
+      orgId,
+      agentSlug,
+      createdBy: actorId,
+      initialTitle: named,
+      ...(named ? { titleSource: 'person' as const } : {}),
+      surface: input.surface ?? 'mcp',
+      ...(input.parentConversationId !== undefined ? { parentConversationId: input.parentConversationId } : {}),
+    });
   }
   const conversationId = conversation.id;
   const modelPrefs = readModelPrefs(conversation);
@@ -283,7 +310,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   const filed: FiledRun[] = [];
   const pending: Promise<void>[] = [];
   let traceId: string | null = null;
-  const onEvent = (event: AgentEvent): void => {
+  const record = (event: AgentEvent): void => {
     switch (event.type) {
       case 'response_delta':
         collector.onTextDelta(event.delta);
@@ -339,18 +366,29 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
       }
     }
   };
+  const onEvent = (event: AgentEvent): void => {
+    record(event);
+    input.onEvent?.(event);
+  };
 
-  const run = deps.runAgent({
-    orgId,
-    agentSlug,
-    message: `${message}${surfaceNote(actorId)}`,
-    userId: actorId,
-    allowedSourceSlugs,
-    conversationId,
-    conversationHistory: history,
-    timeZone,
-    modelPrefs,
-    onEvent,
+  // What this turn spent is the workspace's, counted on its own conversation
+  // (`budget/runCost.ts`): a scope of its own, so a caller's turn this runs
+  // inside — the assistant's — does not count it as its own as well.
+  const spent: { scope: RunCostScope | null } = { scope: null };
+  const run = withRunCost({ conversationId }, (scope) => {
+    spent.scope = scope;
+    return deps.runAgent({
+      orgId,
+      agentSlug,
+      message: `${message}${input.note ?? surfaceNote(actorId)}`,
+      userId: actorId,
+      allowedSourceSlugs,
+      conversationId,
+      conversationHistory: history,
+      timeZone,
+      modelPrefs,
+      onEvent,
+    });
   });
 
   const limit = input.timeLimitMs ?? turnTimeLimitMs();
@@ -429,6 +467,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
     status: stalled ? 'stalled' : 'complete',
     ...(stalled ? { statusReason: `the turn ran ${trace.length} step${trace.length === 1 ? '' : 's'} and ended without answering` } : {}),
     agentSlug,
+    ...(spent.scope ? { cost: { tokens: spent.scope.tokens, microCents: spent.scope.microCents } } : {}),
   });
   if (!stalled && reply.trim()) {
     scheduleConversationTitle({ orgId, conversationId });

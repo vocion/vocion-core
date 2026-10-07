@@ -31,6 +31,12 @@ who holds the link.
   `VOCION_ENFORCE_WORKSPACE_ACCESS` is on: only its owner can list, open or land on
   it. The flag still governs shared workspaces; it is off by default today and
   release 5.x will default it on.
+- **Slack routing follows the sender's reach** (`services/chat/workspaceRoute.ts`).
+  A mention is routed only among the channel's own workspaces and the shared
+  workspaces its sender — the Vocion member behind the Slack profile's email —
+  could open; a sender Vocion does not know stays with the channel. Nobody's
+  personal workspace is ever a candidate. A person's own assistant picks among
+  their workspaces with the same read (`ask_workspace` with no workspace named).
 - **Protected** in the auth proxy (`src/proxy.ts`, `PROTECTED_SEGMENTS`) so an unsigned
   reader gets sign-in with a `callbackUrl` that round-trips the `/w/…` URL.
 - **One helper** `libs/links.ts` — `workspaceUrl(slug, path, { absolute })` — builds

@@ -225,7 +225,7 @@ export const WORKING_LINE = 'Looking into it…';
 /** Dependency seam so the handler is testable without a model or a network. */
 export type ChatHandlerDeps = {
   /** Which workspace a catch-all mention is for (`chat/workspaceRoute.ts`). */
-  route: (binding: ChatChannelBinding, inbound: { text: string; scopeRef: string; channelId?: string; pictures?: readonly import('./chat/workspaceRoute').RoutePicture[] }) => Promise<import('./chat/workspaceRoute').RoutedWorkspace>;
+  route: (binding: ChatChannelBinding, inbound: { text: string; scopeRef: string; channelId?: string; externalUserId?: string; pictures?: readonly import('./chat/workspaceRoute').RoutePicture[] }) => Promise<import('./chat/workspaceRoute').RoutedWorkspace>;
   runAgent: typeof runAgentDeep;
   preflight: typeof preflightCheck;
   /** Builds the thread context. Injected so the tests need no Slack. */
@@ -384,7 +384,8 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const threadFiles = (inbound.files?.length ?? 0) === 0 && inThread && inbound.surface === 'slack' ? await deps.threadPictures(inbound).catch(() => []) : [];
   const fetched = await fetchPictures(inbound.files?.length ? inbound.files : threadFiles, deps.fetchFile);
   const routePictures = fetched.flatMap(p => p.got && p.got.bytes.byteLength <= MAX_IMAGE_BYTES ? [{ contentType: p.got.contentType, base64: Buffer.from(p.got.bytes).toString('base64') }] : []);
-  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId, ...(routePictures.length > 0 ? { pictures: routePictures } : {}) });
+  // The sender travels with the mention: it may only go to workspaces they can act in.
+  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId, externalUserId: inbound.externalUserId, ...(routePictures.length > 0 ? { pictures: routePictures } : {}) });
   const binding = route.routed === 'model' || route.routed === 'thread'
     ? { ...bound, orgId: route.orgId, agentSlug: route.agentSlug, displayName: null, iconUrl: null }
     : bound;

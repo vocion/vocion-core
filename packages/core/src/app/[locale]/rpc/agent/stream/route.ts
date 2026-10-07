@@ -122,7 +122,18 @@ export async function POST(request: Request): Promise<Response> {
   // The first turn's model read, when nothing structural decided. Not awaited
   // here: the lead's turn starts while it reads (`headStart` below).
   let routerRead: Promise<import('@/services/agents/router').RoutingDecision | null> | null = null;
-  const roster = await rosterRead;
+  let roster = await rosterRead;
+  let leadNow = leadRead;
+  // A personal workspace with no agent yet gets its assistant now
+  // (`services/workspace/personalAssistant.ts`): one made before the assistant
+  // existed heals on its first turn rather than answering "no agents".
+  if (roster.length === 0) {
+    const { ensurePersonalAssistant } = await import('@/services/workspace/personalAssistant');
+    if (await ensurePersonalAssistant(orgId).catch(() => false)) {
+      roster = await listAgents(orgId);
+      leadNow = import('@/services/TeamService').then(m => m.getWorkspaceLead(orgId));
+    }
+  }
   if (!agentSlug || body.route === true) {
     const agents = roster;
     if (agents.length === 0) {
@@ -131,7 +142,7 @@ export async function POST(request: Request): Promise<Response> {
         { status: 404 },
       );
     }
-    const lead = await leadRead;
+    const lead = await leadNow;
     if (body.route === true && typeof message === 'string' && message.trim()) {
       const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router

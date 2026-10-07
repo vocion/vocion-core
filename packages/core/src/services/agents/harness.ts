@@ -243,6 +243,8 @@ type AgentBlueprint = {
   hasMounts: boolean;
   /** The workspace's enabled plugin slugs; plugin-owned tools are built only with their plugin. */
   enabledPlugins: string[];
+  /** `project.kind`; a personal workspace's agent reaches the person's other workspaces (`tools/assistant.ts`). */
+  workspaceKind?: 'shared' | 'personal';
   /** The agent's types filed through their own typed tool (`tools/fileRecord.ts`). */
   filingTypes?: FilingType[];
   /** The agent's `rest` sources with their declared endpoints (`tools/restDirect.ts`). */
@@ -318,7 +320,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
   // tool (`file_<slug>`), references resolved to this workspace's record
   // slugs; and the REST sources it holds with the endpoints each declares.
   // An apply resets the blueprint cache, so a toggle reaches the next turn.
-  const { enabledPlugins, defaultTimeZone, filingTypes, restSources } = await agentScope(orgId, row);
+  const { enabledPlugins, defaultTimeZone, filingTypes, restSources, workspaceKind } = await agentScope(orgId, row);
   // The workspace's stated operating intent, once per blueprint, from the
   // column the applier writes. `null` is "nobody has told this factory
   // anything", which the note says out loud rather than treating as permission.
@@ -467,7 +469,7 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     });
   }
 
-  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes, restSources };
+  return { agentRow: row, systemPrompt, subagentSpecs, defaultTimeZone, enabledPlugins, filingTypes, restSources, workspaceKind };
 }
 
 async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
