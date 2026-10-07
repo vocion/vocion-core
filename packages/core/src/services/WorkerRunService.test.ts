@@ -248,7 +248,7 @@ describe('WorkerRunService — what a run cost lands on the record it ran for', 
     // proves objects/request/type.yaml and objects/release/type.yaml say
     // what the README says they say.
     dir = mkdtempSync(join(tmpdir(), 'worker-run-cost-'));
-    writeFileSync(join(dir, 'workspace.yaml'), 'version: 1\norgId: t\nname: t\nplugins: [software-factory]\n');
+    writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: t\nplugins: [software-factory]\n`);
     process.env.WORKSPACE_PATH = dir;
     await db.delete(businessObjectSchema);
     await db.delete(businessObjectTypeSchema);

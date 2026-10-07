@@ -1,32 +1,11 @@
-import type { MountVerdict } from '@/libs/workspace/mounted-project';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { getCurrentWorkspaceVersion } from '@/libs/workspace/current-version';
-import { judgeMountedFolder, readManifestOrgId } from '@/libs/workspace/mounted-project';
-import { workspaceFolderForProject } from '@/libs/workspace/project-path';
+import { mountOwnership, workspaceFolderForProject } from '@/libs/workspace/project-path';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { projectSchema, workspaceVersionSchema } from '@/models/Schema';
-
-/**
- * The DB half of {@link judgeMountedFolder}: read the project's last applied
- * version and the folder's manifest, then judge. One indexed read (cached
- * 60s with the sha the skill runs already read).
- * @param orgId - The project asking.
- * @param folder - The folder in question, absolute or repo-relative; `explicit` when `VOCION_WORKSPACE_MAP` named it for this project.
- * @param folder.path
- * @param folder.explicit
- */
-export async function mountOwnership(orgId: string, folder: { path: string; explicit?: boolean }): Promise<MountVerdict> {
-  const abs = fromRepoRoot(folder.path);
-  return judgeMountedFolder({
-    projectId: orgId,
-    folder: { path: abs, manifestOrgId: readManifestOrgId(abs), explicit: folder.explicit },
-    applied: await getCurrentWorkspaceVersion(orgId),
-  });
-}
 
 /**
  * Whether the folder on `WORKSPACE_PATH` is this project's — what the shell

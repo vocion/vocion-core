@@ -19,7 +19,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { getWorkspacePath } from '@/libs/workspace/reader';
 import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
 const Hex = z.string().regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i, 'a hex colour like #F18700');
@@ -123,9 +122,14 @@ export function brandCssRoot(brand: BrandManifest): string {
 
 /**
  * Read `brand.yaml` from a workspace directory.
- * @param root - The workspace root; default `WORKSPACE_PATH`.
+ *
+ * The root is required, and deliberately has no default: the brand is one
+ * company's, and the process-wide `WORKSPACE_PATH` is one company's folder on
+ * a host that serves several. A caller resolves the project's OWN folder
+ * (`workspacePathForProject`) and passes it, or null for none.
+ * @param root - The project's own workspace root, or null when it has none here.
  */
-export function readWorkspaceBrand(root: string | null = getWorkspacePath()): { brand: LoadedBrand | null; issues: BrandLoadIssue[] } {
+export function readWorkspaceBrand(root: string | null): { brand: LoadedBrand | null; issues: BrandLoadIssue[] } {
   if (!root) {
     return { brand: null, issues: [] };
   }

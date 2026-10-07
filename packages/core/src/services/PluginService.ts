@@ -33,9 +33,10 @@ import { applyWorkspace, invalidateCurrentContextShaCache, loadWorkspace } from 
 import { readManifestOrgId } from '@/libs/workspace/mounted-project';
 import { readWorkspacePage } from '@/libs/workspace/pages';
 import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/plugins';
+import { mountOwnership } from '@/libs/workspace/project-path';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
-import { folderOwner, mountedWorkspaceIsProjects, mountOwnership, projectPagesFolder } from '@/services/WorkspaceMountService';
+import { folderOwner, mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
 
 /**
  * The plugins this org's project has on, in load order. Empty for an org with

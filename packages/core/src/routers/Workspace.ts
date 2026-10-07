@@ -5,8 +5,8 @@ import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
 import { logger } from '@/libs/Logger';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
-import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, getCurrentWorkspaceVersion, getWorkspacePath, invalidateCurrentContextShaCache, isDeployManaged, judgeMountedFolder, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
-import { workspaceFolderForProject, workspacePathForProject } from '@/libs/workspace/project-path';
+import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, getCurrentWorkspaceVersion, invalidateCurrentContextShaCache, isDeployManaged, judgeMountedFolder, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
+import { ownWorkspaceFolder, workspaceFolderForProject, workspacePathForProject } from '@/libs/workspace/project-path';
 import { invalidateChipCache } from '@/services/chat/synthesis';
 import { folderOwner } from '@/services/WorkspaceMountService';
 import { pauseWorkspace, readWorkspacePauseWithName, resumeWorkspace, WorkspaceNotFoundError, WorkspacePauseStateError } from '@/services/workspacePause';
@@ -50,12 +50,29 @@ const ReadOutput = z.object({
   editInGitPath: z.string(),
 });
 
-function requireWorkspacePath(): string {
-  const p = getWorkspacePath();
-  if (!p) {
-    throw new ORPCError('NOT_FOUND', { message: 'no workspace configured — WORKSPACE_PATH is not set' });
+/**
+ * The caller's own workspace folder — never the process-wide mount as such.
+ *
+ * One host serves several companies, and `WORKSPACE_PATH` is ONE of their
+ * folders. Reading it for whoever asked handed every signed-in user another
+ * company's agent prompts and skills; writing it and applying the result
+ * replaced the caller's project with another company's workspace. The folder
+ * is resolved for the caller's project and judged the way the drift banner
+ * judges it (`ownWorkspaceFolder`); anything that is not this project's own
+ * is refused with the reason.
+ * @param projectId - The caller's project.
+ * @param route - Which route is asking, for the log line.
+ */
+async function requireOwnWorkspacePath(projectId: string, route: string): Promise<string> {
+  const folder = await ownWorkspaceFolder(projectId);
+  if (folder.own) {
+    return folder.path;
   }
-  return p;
+  if (folder.path === null) {
+    throw new ORPCError('NOT_FOUND', { message: `${folder.reason}. Its files are edited in its workspace repo and applied from there.` });
+  }
+  logger.warn(`${route} refused: the mounted workspace folder is not the caller's project`, { projectId, folder: folder.path, reason: folder.reason });
+  throw new ORPCError('FORBIDDEN', { message: `Refusing: ${folder.reason}. Edit this project's own workspace in its repo and apply it from there.` });
 }
 
 function slugToDirname(slug: string): string {
@@ -144,10 +161,10 @@ export const readPrimitive = os
   .input(ReadInput)
   .output(ReadOutput)
   .handler(async ({ input }) => {
-    await guardAuth();
+    const { projectId } = await guardAuth();
     const { kind, slug } = input;
     const dirName = slugToDirname(slug);
-    const workspacePath = requireWorkspacePath();
+    const workspacePath = await requireOwnWorkspacePath(projectId!, 'workspace.readPrimitive');
     const base = fromRepoRoot(workspacePath);
 
     if (!existsSync(base)) {
@@ -225,7 +242,7 @@ export const readPrimitive = os
   });
 
 const WriteInput = z.object({
-  path: z.string().min(1).describe('repo-relative path under WORKSPACE_PATH, e.g. workspace/<org>/skills/discovery-summary/prompt.md'),
+  path: z.string().min(1).describe('repo-relative path under the project\'s own workspace folder, e.g. workspace/<org>/skills/discovery-summary/prompt.md'),
   content: z.string(),
 });
 
@@ -244,14 +261,18 @@ export const writeFile = os
   .input(WriteInput)
   .output(WriteOutput)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    // Admin-only: a write is applied, and an apply rewrites the project's
+    // agents, skills and missions — the same act the drift banner's Apply
+    // gates on the admin role.
+    const { orgId, projectId } = await guardRole(ORG_ROLE.ADMIN);
     const repoRoot = getRepoRoot();
-    const workspacePath = requireWorkspacePath();
+    const workspacePath = await requireOwnWorkspacePath(projectId!, 'workspace.writeFile');
     const contextBase = fromRepoRoot(workspacePath);
     const absTarget = fromRepoRoot(input.path);
 
-    // Containment guard: target must be inside the configured WORKSPACE_PATH.
-    // Prevents path traversal (../../etc/passwd) and cross-tenant writes.
+    // Containment guard: target must be inside the caller's own workspace
+    // folder. Prevents path traversal (../../etc/passwd) and, with the folder
+    // resolved per project above, cross-tenant writes.
     // This is a string comparison on the path we built by hand — it says
     // nothing about a symlink sitting inside that path, which is what the
     // realpath check below is for.
@@ -322,11 +343,13 @@ export const writeFile = os
 
     writeFileSync(absTarget, input.content, 'utf-8');
 
-    // Apply to DB so the dashboard reflects the change immediately.
+    // Apply to DB so the dashboard reflects the change immediately. The
+    // folder is the caller's own (`requireOwnWorkspacePath`), so this never
+    // applies another project's workspace onto the caller's.
     let applied: { versionId: number | null; sha: string | null } = { versionId: null, sha: null };
     try {
       const loaded = loadWorkspace(workspacePath);
-      const result = await applyWorkspace(loaded, { orgId });
+      const result = await applyWorkspace(loaded, { orgId: orgId!, appliedBy: 'workspace.writeFile' });
       applied = { versionId: result.versionId, sha: loaded.sha };
     } catch (err) {
       // Write succeeded; apply failed. Return the write but surface the error.

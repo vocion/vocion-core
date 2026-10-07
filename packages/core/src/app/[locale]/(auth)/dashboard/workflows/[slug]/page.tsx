@@ -12,6 +12,7 @@ import { getWorkflowActivity } from '@/libs/activity';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent } from '@/services/AgentService';
 import { getWorkflow } from '@/services/WorkflowService';
@@ -32,8 +33,10 @@ export default async function WorkflowDetailPage(props: {
   }
 
   const owner = workflow.agent ? await getAgent(orgId, workflow.agent) : null;
-  const sourceFiles = readPrimitiveFiles('workflow', slug);
-  const dirtyState = getWorkspaceDirtyState();
+  // This project's own folder, never the host's mount as such (another company's on a shared host).
+  const ownWorkspace = await workspacePathForProject(orgId);
+  const sourceFiles = readPrimitiveFiles('workflow', slug, ownWorkspace);
+  const dirtyState = getWorkspaceDirtyState(ownWorkspace);
   const activity = await getWorkflowActivity(orgId, slug);
 
   return (

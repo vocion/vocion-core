@@ -38,14 +38,15 @@ vi.mock('./AuthGuards', () => ({
   loadProject: vi.fn(),
 }));
 
-const { guardAuth } = await import('./AuthGuards');
+const { guardAuth, guardRole } = await import('./AuthGuards');
 const { readPrimitive, writeFile } = await import('./Workspace');
 
 const ORG = 'org_workspace_router_test';
 
 /**
- * Point the mocked session at a signed-in admin — neither route under test
- * branches on role, but `guardAuth` must resolve to something shaped right.
+ * Point the mocked session at a signed-in admin of the project whose folder
+ * is mounted (`writeFile` is admin-only; who may write is
+ * `Workspace.tenant.test.ts`'s business, containment is this file's).
  */
 function signedIn() {
   vi.mocked(guardAuth).mockResolvedValue({
@@ -56,6 +57,7 @@ function signedIn() {
     role: 'admin',
     has: () => true,
   } as unknown as Awaited<ReturnType<typeof guardAuth>>);
+  vi.mocked(guardRole).mockResolvedValue({ orgId: ORG, projectId: ORG, accountId: 'acct-1' } as unknown as Awaited<ReturnType<typeof guardRole>>);
 }
 
 /**
@@ -92,6 +94,10 @@ const ACME = join(ROOT, 'workspace-acme');
 const BETA = join(ROOT, 'workspace-beta');
 const OUTSIDE = join(ROOT, 'outside-any-workspace');
 
+// The mounted folder is this test project's own (its workspace.yaml names
+// it), so the routes get past the ownership check to the containment guards.
+mkdirSync(ACME, { recursive: true });
+writeFileSync(join(ACME, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: Acme\n`);
 mkdirSync(join(ACME, 'skills', 'real-skill'), { recursive: true });
 writeFileSync(join(ACME, 'skills', 'real-skill', 'SKILL.yaml'), 'name: Real Skill\n');
 writeFileSync(join(ACME, 'skills', 'real-skill', 'prompt.md'), '# Prompt\n\nDo the thing.\n');
