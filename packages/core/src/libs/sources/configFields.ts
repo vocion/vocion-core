@@ -275,6 +275,13 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'Same search wording the Gmail search box takes, e.g. from:client.com.',
     },
     {
+      key: 'attachments',
+      label: 'Read PDF and Word attachments',
+      type: 'boolean',
+      defaultValue: false,
+      help: 'Makes the text of each PDF and .docx attachment (up to 25 MB) searchable. Scanned PDFs have no text to read; there is no OCR.',
+    },
+    {
       key: 'baseUrl',
       label: 'API base URL',
       type: 'url',
