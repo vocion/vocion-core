@@ -1,9 +1,10 @@
 import type { ChatSurfaceAdapter } from './types';
 import { slackSurface } from './slack';
+import { smsSurface } from './sms';
 
 /**
  * Chat surface registry — the same Map + register/get/list trio as
- * `libs/sources/registry.ts`. One entry today; Teams would be the second.
+ * `libs/sources/registry.ts`. Slack and text messages (Twilio); Teams would be another.
  */
 const registry = new Map<string, ChatSurfaceAdapter>();
 
@@ -20,3 +21,4 @@ export function listSurfaces(): ChatSurfaceAdapter[] {
 }
 
 registerSurface(slackSurface);
+registerSurface(smsSurface);

@@ -71,6 +71,11 @@ export const userSchema = pgTable('user', {
   image: text('image'),
   /** bcrypt hash for the Credentials provider. NULL for OAuth-only users. */
   passwordHash: text('password_hash'),
+  /**
+   * The person's mobile number in E.164 (`+19705550100`), set on their profile. A text from this
+   * number is theirs: the SMS channel answers it and a reply decides a card as them.
+   */
+  phone: text('phone'),
   updatedAt: timestamp('updated_at', { mode: 'date' })
     .defaultNow()
     .$onUpdate(() => new Date())

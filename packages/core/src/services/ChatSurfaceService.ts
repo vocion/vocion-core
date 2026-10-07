@@ -381,7 +381,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   // The pictures are read first, because a screenshot often says which product it is before any
   // word does. A mention that brought none, in a thread, brings the thread's (Chris, 2026-10-05).
   const inThread = inbound.threadRef !== inbound.messageRef;
-  const threadFiles = (inbound.files?.length ?? 0) === 0 && inThread ? await deps.threadPictures(inbound).catch(() => []) : [];
+  const threadFiles = (inbound.files?.length ?? 0) === 0 && inThread && inbound.surface === 'slack' ? await deps.threadPictures(inbound).catch(() => []) : [];
   const fetched = await fetchPictures(inbound.files?.length ? inbound.files : threadFiles, deps.fetchFile);
   const routePictures = fetched.flatMap(p => p.got && p.got.bytes.byteLength <= MAX_IMAGE_BYTES ? [{ contentType: p.got.contentType, base64: Buffer.from(p.got.bytes).toString('base64') }] : []);
   const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId, ...(routePictures.length > 0 ? { pictures: routePictures } : {}) });
@@ -396,7 +396,8 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   // "Working…" and a stop button) that is it, and the steps go up as a line once there is one;
   // elsewhere a working line goes up at once. Either is taken back when the answer is posted.
   const native = adapter.session ? await adapter.session(target, 'working').catch(() => false) : false;
-  let working = native ? null : await adapter.reply(target, WORKING_LINE).catch(() => null);
+  // A working line goes up only where it can be taken back: a text cannot be unsent.
+  let working = native || !adapter.retract ? null : await adapter.reply(target, WORKING_LINE).catch(() => null);
   // The line names the turn's steps as they happen (`chat/workingLine.ts`), then goes when the answer lands.
   const progress = followTurn(native ? '' : WORKING_LINE, async (text) => {
     if (working) {
@@ -454,7 +455,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     await appendMessage({ orgId, conversationId, role: 'assistant', content: approval.reply, status: 'complete' });
     await doneWorking();
     const posted = await adapter.reply(target, absoluteAppLinks(approval.reply));
-    await recordSlackPost({ orgId, teamId: inbound.teamId, channelId: inbound.channelId, ts: tsOf(posted), threadTs: inbound.threadRef, kind: 'reply', agentSlug, text: approval.reply, createdBy: approval.decided ? `decision:${approval.verb}:${approval.runId}` : 'system:slack-approval' }).catch(() => {});
+    if (inbound.surface === 'slack') {
+      await recordSlackPost({ orgId, teamId: inbound.teamId, channelId: inbound.channelId, ts: tsOf(posted), threadTs: inbound.threadRef, kind: 'reply', agentSlug, text: approval.reply, createdBy: approval.decided ? `decision:${approval.verb}:${approval.runId}` : 'system:slack-approval' }).catch(() => {});
+    }
     return { outcome: 'replied', orgId, agentSlug, conversationId, text: approval.reply };
   }
 
@@ -465,8 +468,10 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   // on both surfaces, and the `page_context` tool answers instead of saying
   // there is none.
   const workspace = await workspaceFor(orgId);
-  const thread = await deps.buildThreadContext(inbound, workspace, { token: process.env.SLACK_BOT_TOKEN }).catch(() => null);
-  const permalink = await deps.permalink({ channelId: inbound.channelId, messageTs: inbound.messageRef }).catch(() => null);
+  // The thread's context and a permalink are Slack's to give; another medium has neither.
+  const onSlack = inbound.surface === 'slack';
+  const thread = onSlack ? await deps.buildThreadContext(inbound, workspace, { token: process.env.SLACK_BOT_TOKEN }).catch(() => null) : null;
+  const permalink = onSlack ? await deps.permalink({ channelId: inbound.channelId, messageTs: inbound.messageRef }).catch(() => null) : null;
   const pageContext = thread ? threadPageContext(thread) : null;
 
   // Is this feedback about the product? Decided by a cheap pure function; the
@@ -479,6 +484,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     feedbackNote(signal),
     permalink ? `\n\nPermalink to this message, for anything you file: ${permalink}` : '',
     pictures.unread.length > 0 ? `\n\nA picture was attached that could not be read (${pictures.unread.join(', ')}); say so if it matters to the ask.` : '',
+    adapter.answerStyle ? `\n\n--- how I am reaching you ---\n${adapter.answerStyle}` : '',
   ].filter(Boolean).join('');
 
   try {
@@ -524,19 +530,22 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     const mockups = asked ? await deps.cardPictures(orgId, asked.input).catch(() => []) : [];
     const pictured = mockups.length > 0 ? tellImages(orgId, mockups) : null;
     const posted = await adapter.reply(target, pictured ? { text: out, images: pictured.images } : out, pictured ? { fetchImage: pictured.fetchImage } : undefined);
-    await recordSlackPost({
-      orgId,
-      projectId: orgId,
-      teamId: inbound.teamId,
-      channelId: inbound.channelId,
-      ts: posted?.ts ?? '',
-      threadTs,
-      kind: 'reply',
-      agentSlug,
-      text: out,
-      degradedNotice: sayGap,
-      createdBy,
-    });
+    // Slack's own record of what was said (thread follow-ups, the once-only rules); other media keep the conversation.
+    if (inbound.surface === 'slack') {
+      await recordSlackPost({
+        orgId,
+        projectId: orgId,
+        teamId: inbound.teamId,
+        channelId: inbound.channelId,
+        ts: posted?.ts ?? '',
+        threadTs,
+        kind: 'reply',
+        agentSlug,
+        text: out,
+        degradedNotice: sayGap,
+        createdBy,
+      });
+    }
     return { outcome: 'replied', orgId, agentSlug, conversationId, text, ...(thread ? { thread } : {}) };
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);

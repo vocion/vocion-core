@@ -1,6 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { changePassword, getProfile, updateProfile } from '@/services/UserProfileService';
+import { changePassword, getProfile, updatePhone, updateProfile } from '@/services/UserProfileService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
@@ -23,6 +23,17 @@ export const updateNameRoute = os
       throw ApiError.badRequest(e instanceof Error ? e.message : 'Could not update profile.');
     }
     return { ok: true };
+  });
+
+export const updatePhoneRoute = os
+  .input(z.object({ phone: z.string().max(40) }))
+  .handler(async ({ input }) => {
+    const { userId } = await guardAuth();
+    try {
+      return { ok: true, phone: await updatePhone({ userId, phone: input.phone }) };
+    } catch (e) {
+      throw ApiError.badRequest(e instanceof Error ? e.message : 'Could not save the number.');
+    }
   });
 
 export const changePasswordRoute = os

@@ -23,11 +23,19 @@ Two things go through it, so every medium behaves the same:
 |---|---|---|---|
 | Slack (`slackChannel.ts`) | `slack:<channel>:<thread ts>` | uploaded under the post | the member with the email on the Slack profile |
 | Email (`emailChannel.ts`) | `email:<first Message-ID>`, threaded by `In-Reply-To` / `References` | links into Vocion | the member with the address written from |
+| Text (`smsChannel.ts`, Twilio) | `sms:<workspace number>:<their number>` | links into Vocion | the member whose profile holds the number (`user.phone`) |
 
-## Adding a medium (SMS)
+## Text messages (Twilio)
 
-1. **Inbound:** a route that verifies the provider's signature, finds the workspace by the number written to, and answers through the same turn path as email (`EmailSurfaceService.handleInboundEmail` is the pattern: `approval` first, then the agent turn). The conversation's `scopeRef` is `sms:<the person's number>`.
-2. **The channel:** `smsChannel.ts` with `owns` (scopeRef starts with `sms:`), `say` (send a text from the workspace's number; files as links, or MMS), `alreadySaid` (`saidInConversation`), `memberOf` (the member whose verified phone is this number), and `signInHint`.
-3. **Register it** in `services/chat/channels.ts`.
+- **Server:** `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` in the app's environment. The webhook (`/api/webhooks/twilio/sms`) checks Twilio's signature against `NEXT_PUBLIC_APP_URL`, so that must be the address Twilio calls.
+- **A number per workspace:** bind it like a Slack channel, `POST /api/v1/chat-bindings {"surface":"sms","channelId":"+19704894702","agentSlug":"product-manager"}`. In Twilio, set the number's "A message comes in" webhook to `https://<app>/api/webhooks/twilio/sms` (HTTP POST).
+- **Who is texting:** a member's mobile number on their profile. They set it on the profile page, or tell any agent in chat ("my mobile is …"); the agent proposes `me.set_phone`, which only ever sets the asker's own number. A text from a number nobody holds gets one line saying how to become known, and no agent runs.
+- **Carriers:** US carriers filter application texts from a local number until the sender is registered for A2P 10DLC (a brand and a campaign on a Messaging Service, in the Twilio Console under Messaging → Regulatory Compliance).
+
+## Adding another medium
+
+1. **Inbound:** a route that verifies the provider's signature and hands a `ChatInbound` to `handleInbound` (`app/api/webhooks/twilio/sms/route.ts` is the smallest example), or, for a medium with its own threading, a handler like `EmailSurfaceService.handleInboundEmail` that runs `approval` first and then the turn.
+2. **The channel:** a file beside `smsChannel.ts` with `owns`, `say`, `alreadySaid`, `memberOf` and `signInHint`.
+3. **Register it** in `services/chat/channels.ts`, and its surface adapter in `libs/surfaces/registry.ts`.
 
 Nothing else changes: `x-tell`, followers, the asker's updates and deciding by reply all work through the channel.

@@ -95,3 +95,44 @@ export async function saidInConversation(conversationId: number, text: string): 
   const rows = await db.select({ content: conversationMessageSchema.content }).from(conversationMessageSchema).where(and(eq(conversationMessageSchema.conversationId, conversationId), eq(conversationMessageSchema.role, 'assistant'))).orderBy(desc(conversationMessageSchema.id)).limit(40);
   return rows.some(r => r.content === text);
 }
+
+/**
+ * The workspace member with this mobile number (`user.phone`, E.164).
+ * @param orgId - The workspace.
+ * @param phone - The number, as a text came from.
+ */
+export async function memberByPhone(orgId: string, phone: string | null): Promise<ChannelMember> {
+  const { toE164 } = await import('@/libs/phone');
+  const number = toE164(phone);
+  if (!number) {
+    return { userId: null, email: null };
+  }
+  const [{ db }, { eq }, { userSchema }] = await Promise.all([import('@/libs/DB'), import('drizzle-orm'), import('@/models/Schema')]);
+  const [user] = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.phone, number)).limit(1);
+  return user ? memberByEmail(orgId, user.email) : { userId: null, email: null };
+}
+
+/**
+ * The Vocion person behind a turn's actor: a user id as it is, or a sender on a medium
+ * (`slack:U…`, `email:dana@…`, `sms:+1…`) resolved through that medium's channel. Null when
+ * the actor is not a person Vocion knows.
+ * @param orgId - The workspace.
+ * @param actor - `ActionContext.invokedBy`, a conversation's `createdBy`.
+ */
+export async function personBehind(orgId: string, actor: string | null | undefined): Promise<{ userId: string; name: string; email: string } | null> {
+  const who = (actor ?? '').trim();
+  if (!who || /^(?:agent|factory|token|system|workflow|job):/.test(who)) {
+    return null;
+  }
+  const at = who.indexOf(':');
+  if (at > 0) {
+    const { channelBySurface } = await import('./channels');
+    const channel = channelBySurface(who.slice(0, at));
+    const member = channel ? await channel.memberOf(orgId, who.slice(at + 1)) : null;
+    return member && member.userId ? member : null;
+  }
+  const [{ db }, { eq }, { userSchema }] = await Promise.all([import('@/libs/DB'), import('drizzle-orm'), import('@/models/Schema')]);
+  const [user] = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, who)).limit(1);
+  const member = user ? await memberByEmail(orgId, user.email) : null;
+  return member && member.userId ? member : null;
+}

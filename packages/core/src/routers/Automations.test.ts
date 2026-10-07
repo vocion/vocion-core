@@ -46,7 +46,7 @@ function call<T = unknown>(route: unknown, input: unknown): Promise<T> {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getProfile).mockResolvedValue({ name: 'Chris', email: 'chris@example.com' });
+  vi.mocked(getProfile).mockResolvedValue({ name: 'Chris', email: 'chris@example.com', phone: null });
 });
 
 describe('pause', () => {
@@ -61,7 +61,7 @@ describe('pause', () => {
 
   it('falls back to the email when the person has not set a name', async () => {
     signedIn('usr-chris');
-    vi.mocked(getProfile).mockResolvedValue({ name: null, email: 'chris@example.com' });
+    vi.mocked(getProfile).mockResolvedValue({ name: null, email: 'chris@example.com', phone: null });
     vi.mocked(pauseAutomation).mockResolvedValue({ by: { id: 'usr-chris', name: 'chris@example.com' }, at: new Date(), note: null });
 
     await call(pause, { slug: 'hourly-sweep' });
@@ -110,7 +110,7 @@ describe('pause', () => {
 describe('resume', () => {
   it('names the actor from the session and passes the note through', async () => {
     signedIn('usr-sam');
-    vi.mocked(getProfile).mockResolvedValue({ name: 'Sam', email: 'sam@example.com' });
+    vi.mocked(getProfile).mockResolvedValue({ name: 'Sam', email: 'sam@example.com', phone: null });
     vi.mocked(resumeAutomation).mockResolvedValue(undefined);
 
     const res = await call(resume, { slug: 'hourly-sweep', note: 'sync is back' });

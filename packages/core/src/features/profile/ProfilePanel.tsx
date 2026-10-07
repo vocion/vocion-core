@@ -29,6 +29,7 @@ export function ProfilePanel() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [nameStatus, setNameStatus] = useState<Status | null>(null);
 
@@ -42,6 +43,7 @@ export function ProfilePanel() {
     try {
       const profile = await client.profile.get();
       setName(profile.name ?? '');
+      setPhone(profile.phone ?? '');
       setEmail(profile.email);
       setLoadError(null);
     } catch {
@@ -62,6 +64,8 @@ export function ProfilePanel() {
     setNameStatus(null);
     try {
       await client.profile.updateName({ name });
+      const saved = await client.profile.updatePhone({ phone });
+      setPhone(saved.phone ?? '');
       setNameStatus({ ok: true, message: 'Profile saved.' });
     } catch (err) {
       setNameStatus({
@@ -129,6 +133,20 @@ export function ProfilePanel() {
             <Input id="profile-email" type="email" value={email} readOnly disabled />
             <p className="text-xs text-muted-foreground">
               Your email is your sign-in identity and cannot be changed here.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="profile-phone">Mobile number</Label>
+            <Input
+              id="profile-phone"
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="+1 970 555 0100"
+              autoComplete="tel"
+            />
+            <p className="text-xs text-muted-foreground">
+              Texts from this number are yours: Vocion answers them, and a text reply can approve a card. You can also tell any agent in chat.
             </p>
           </div>
           <StatusLine status={nameStatus} />
