@@ -56,6 +56,7 @@ function deps(over: Partial<EmailHandlerDeps> & { email?: Partial<ReceivedEmail>
       return { response: 'Pushed to Sep 30. Anything else?' } as never;
     }) as never,
     preflight: vi.fn(async () => ({ ok: true })) as never,
+    approval: vi.fn(async () => null),
     fetchEmail: async id => ({ id, from: 'Chris <chris@example.com>', to: [ADDRESS], subject: 'Q4 pipeline', text: 'Can you push the close date?\n\nOn Mon wrote:\n> old', html: null, headers: {}, message_id: '<m1@example.com>', ...over.email }),
     send: vi.fn(async (m) => {
       sent.push(m);
@@ -228,5 +229,17 @@ describe('handleInboundEmail', () => {
     expect(out.outcome).toBe('over_budget');
     expect(d.runs).toHaveLength(0);
     expect(d.sent[0]!.text).toContain('over its cents budget');
+  });
+
+  it('a reply that decides a card waiting on the thread is decided and said back by mail, with no turn (Chris, 2026-10-06)', async () => {
+    await seed();
+    const approval = vi.fn(async () => ({ decided: true as const, verb: 'approve' as const, runId: 7542, reply: 'Approved by Chris: "Approve PL-484". It ran; Undo is in Vocion.' }));
+    const d = deps({ approval, email: { text: 'Yes, approve the plan.' } });
+    const out = await svc.handleInboundEmail(meta({ receivedEmailId: 're_decide_1', messageId: 'decide-1@example.com' }), d);
+
+    expect(out).toMatchObject({ outcome: 'replied', text: 'Approved by Chris: "Approve PL-484". It ran; Undo is in Vocion.' });
+    expect(approval).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ surface: 'email', externalUserId: 'chris@example.com', text: 'Yes, approve the plan.' }), expect.any(Number));
+    expect(d.runs).toEqual([]);
+    expect(d.sent.at(-1)).toMatchObject({ text: 'Approved by Chris: "Approve PL-484". It ran; Undo is in Vocion.' });
   });
 });
