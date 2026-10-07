@@ -13,7 +13,7 @@ function deps(over: Partial<AskerFollowDeps> = {}) {
   const told: Array<{ text: string; key: string; files: number; threadOnly?: boolean }> = [];
   const marked: Array<{ channel: string; status: string }> = [];
   const d: AskerFollowDeps = {
-    record: async () => ({ conversationId: 77, title: 'Opened by N', reopenedAt: null }),
+    record: async () => ({ conversationIds: [77], title: 'Opened by N', reopenedAt: null }),
     pageHref: async () => 'https://vocion.example/w/sq/dashboard/p/feature/478',
     shareUrl: async () => null,
     waitingCard: async () => null,
@@ -58,9 +58,18 @@ describe('askerFollow', () => {
   });
 
   it('says nothing for a record that was not asked in a conversation', async () => {
-    const { d } = deps({ record: async () => ({ conversationId: null, title: 'x', reopenedAt: null }) });
+    const { d } = deps({ record: async () => ({ conversationIds: [], title: 'x', reopenedAt: null }) });
 
     expect(await askerFollow('org_sq', move(), d)).toMatchObject({ said: false, reason: expect.stringMatching(/not asked for in a conversation/) });
+  });
+
+  it('tells the conversation it was asked in and the ones that acted on it since, each once (FE-133: Build pressed in a Slack thread)', async () => {
+    const tell = vi.fn(async () => ({ said: true as const, channel: 'slack' as const }));
+    const { d } = deps({ record: async () => ({ conversationIds: [12, 501], title: 'Send Word', reopenedAt: null }), tell });
+
+    await askerFollow('org_sq', move({ value: 'stopped', groupRole: 'progress', needsYou: true, transition: 'stopped', line: 'No worker', tell: 'Blocked, and it needs you: {line}' }), d);
+
+    expect(tell.mock.calls.map(c => (c as unknown[])[1])).toEqual([12, 501]);
   });
 
   it('keys the end once until a reopen, and a waiting move by its sentence', () => {

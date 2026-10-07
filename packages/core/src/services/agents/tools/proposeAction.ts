@@ -225,6 +225,12 @@ export async function runProposal(
     // A self-improvement kind also says so in the transcript, where the
     // work happened, with Undo on the chip.
     emitSelfUpdate(ctx, { actionId: action_id, input: action_input, res });
+    // The conversation that acts on a record follows it, so it hears what the record tells its
+    // asker (FE-133: Build pressed in a Slack thread, everything told to a chat from Sep 25).
+    if (ctx.conversationId && action_input && typeof action_input === 'object') {
+      const { followFromAction } = await import('@/services/objects/followers');
+      await followFromAction(ctx.orgId, action_input as Record<string, unknown>, ctx.conversationId);
+    }
     // Each outcome reads differently on purpose. An agent that re-reads a
     // page has to be able to tell a person "nothing new here" — with one
     // shared sentence it would report every second pass as fresh work.
