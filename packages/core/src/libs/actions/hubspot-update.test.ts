@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { hubspotUpdateAction } from './hubspot-update';
+
+// The token is resolved through the `hubspot` source row when one exists
+// (#1080: a login is refreshed and saved to it). These runs carry a pasted
+// token and no source row, so the lookup finds nothing and the token is used
+// as stored — against the in-memory database, not a connection to :5432.
+vi.mock('@/libs/DB');
+
+const { hubspotUpdateAction } = await import('./hubspot-update');
 
 function res(body: unknown, ok = true): Response {
   return { ok, status: ok ? 200 : 400, json: async () => body, text: async () => 'err' } as unknown as Response;

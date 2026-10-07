@@ -1,5 +1,6 @@
 'use client';
 
+import type { ConnectInfo } from './ConnectByLogin';
 import type { ConnectorTile, Source } from './connectors/connectorRows';
 import type { ConnectOutcome } from './connectOutcome';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { connectStartHref, returnUrl, safeReturnPath } from '@/libs/connect/returnTo';
 import {
   buildConfigFromFields,
   configFieldsFor,
@@ -24,6 +26,8 @@ import {
   fieldValuesFromConfig,
   initialFieldValues,
 } from '@/libs/sources/configFields';
+import { withArticle } from '@/utils/withArticle';
+import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, failedAttempts, initialCredentialDraft, missingCredentialLabels } from './ConnectByLogin';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
@@ -81,7 +85,12 @@ export function describeSyncResult(result: SyncResult | undefined): SyncOutcome 
   };
 }
 
-export function SourcesPanel() {
+export function SourcesPanel({ connectInfo = {}, timeZone }: {
+  /** Per connector: the login in this workspace and the last failed attempt, from the server. */
+  connectInfo?: Record<string, ConnectInfo>;
+  /** IANA zone for dates; the browser's by default. */
+  timeZone?: string;
+}) {
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,27 +107,52 @@ export function SourcesPanel() {
   // sent the person to (`?connect=ok|error&reason=…&source=…`) and then
   // cleared from the address bar so a reload does not repeat it.
   const [connectOutcome, setConnectOutcome] = useState<ConnectOutcome | null>(null);
+  // Where a chat connect card started (`?returnTo=`), so connecting lands back
+  // in the conversation instead of staying here (#1080).
+  const [returnTo, setReturnTo] = useState<string | null>(null);
+  // `?paste=1` opens the add form with the first credential input focused.
+  const [pasteFirst, setPasteFirst] = useState(false);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const back = safeReturnPath(params.get('returnTo'));
+    if (back) {
+      setReturnTo(back);
+    }
+    const add = params.get('add');
+    if (add) {
+      setAddingKind(add);
+    }
+    const pasteRequested = params.get('paste') === '1';
+    if (pasteRequested) {
+      setPasteFirst(true);
+    }
     const outcome = readConnectOutcome(window.location.search);
-    if (!outcome) {
+    if (!outcome && !add && !back && !pasteRequested) {
       return;
     }
-    setConnectOutcome(outcome);
+    if (outcome) {
+      setConnectOutcome(outcome);
+    }
     const url = new URL(window.location.href);
+    url.searchParams.delete('add');
+    url.searchParams.delete('returnTo');
     url.searchParams.delete('connect');
     url.searchParams.delete('reason');
     url.searchParams.delete('source');
+    url.searchParams.delete('connector');
+    url.searchParams.delete('paste');
     window.history.replaceState(null, '', url.toString());
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<Source[]> => {
     setLoading(true);
     try {
       const res = await fetch('/rpc/sources');
       const data = await res.json();
       setSources(data.sources ?? []);
       setConnectors(data.connectors ?? []);
+      return data.sources ?? [];
     } finally {
       setLoading(false);
     }
@@ -203,7 +237,7 @@ export function SourcesPanel() {
                 : 'flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'}
             >
               <CircleAlert className="mt-0.5 size-4 shrink-0" />
-              <span className="flex-1">{connectOutcomeMessage(connectOutcome)}</span>
+              <span className="flex-1">{connectOutcomeMessage({ ...connectOutcome, source: connectorNameFor(connectors, connectOutcome.source) })}</span>
               <button type="button" onClick={() => setConnectOutcome(null)} className="text-xs underline-offset-2 hover:underline">
                 Dismiss
               </button>
@@ -244,6 +278,8 @@ export function SourcesPanel() {
               rows={rows}
               syncingId={syncingId}
               searchRef={searchRef}
+              lastAttempts={failedAttempts(connectInfo)}
+              timeZone={timeZone}
               onConnectNew={slug => setAddingKind(slug)}
               onSync={s => void handleSync(s.id)}
               onTest={setTestingSource}
@@ -258,6 +294,8 @@ export function SourcesPanel() {
             <AddSourceDialog
               kind={addingKind}
               connector={connectors.find(c => c.slug === addingKind) ?? null}
+              connectInfo={connectInfo[addingKind]}
+              pasteFirst={pasteFirst}
               onClose={() => setAddingKind(null)}
               onAdded={async () => {
                 setAddingKind(null);
@@ -304,9 +342,14 @@ export function SourcesPanel() {
         ? (
             <ConnectCredentialDialog
               source={connectingSource}
+              returnTo={returnTo}
               onClose={() => setConnectingSource(null)}
               onConnected={async () => {
                 setConnectingSource(null);
+                if (returnTo) {
+                  window.location.assign(returnUrl('', { ok: true }, { source: connectingSource.slug, returnTo }));
+                  return;
+                }
                 await refresh();
               }}
             />
@@ -600,11 +643,13 @@ export function initialCredentialChoice(
  * grants are still per-install.
  * @param props - Component props.
  * @param props.source - The source being connected.
+ * @param props.returnTo - Where the connect started in chat, when it did; the vendor flow lands there.
  * @param props.onClose - Called when the dialog is dismissed.
  * @param props.onConnected - Called after a credential is stored or picked.
  */
-function ConnectCredentialDialog({ source, onClose, onConnected }: {
+function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
   source: Source;
+  returnTo: string | null;
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
@@ -708,7 +753,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                       and the credential is stored for this source. Nothing to paste.
                     </p>
                     <a
-                      href={`/api/connect/${connect.provider}/start?source=${encodeURIComponent(source.slug)}`}
+                      href={connectStartHref({ provider: connect.provider, source: source.slug, returnTo })}
                       className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
                     >
                       <KeyRound className="size-3" />
@@ -733,7 +778,9 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                     {' '}
                     <span className="font-mono">{connect.requiredEnv.join(', ')}</span>
                     {' '}
-                    on the server. Until then, paste a token below.
+                    on the server
+                    {connect.bringYourOwnApp ? `, or ${withArticle(`${connect.label} login app`)} an admin saves on the Developers page` : ''}
+                    . Until then, paste a token below.
                   </p>
                 )
               : null}
@@ -1080,6 +1127,31 @@ async function createSourceReturningId(
   }
   const newId = data.source?.id;
   return { id: typeof newId === 'number' ? newId : null, error: null };
+}
+
+/**
+ * Save a connector that has no credential in its add form: an edit patches the
+ * source, an add creates one.
+ * @param input - What to save.
+ * @param input.existing - The source being edited, or null when adding.
+ * @param input.kind - Connector slug.
+ * @param input.config - The connector's config blob.
+ * @returns The server's message on failure, null on success.
+ */
+async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<string | null> {
+  if (input.existing) {
+    return updateSourceConfig(input.existing.id, input.config);
+  }
+  return createSource(input.kind, input.config);
+}
+
+/**
+ * The name a person knows a connector by, for the line after a login.
+ * @param connectors - The tiles the page loaded.
+ * @param slug - The connector slug from the URL.
+ */
+function connectorNameFor(connectors: ConnectorTile[], slug: string | null): string | null {
+  return slug === null ? null : (connectors.find(tile => tile.slug === slug)?.name ?? slug);
 }
 
 /**
@@ -1557,14 +1629,18 @@ function SourceConfigInput({ field, value, onChange }: {
  * @param props.title - Dialog heading.
  * @param props.fields - The fields this connector asks for.
  * @param props.existing - The source being edited, or null when adding a new one.
+ * @param props.connectInfo
+ * @param props.pasteFirst
  * @param props.onClose - Called when the dialog is dismissed.
  * @param props.onAdded - Called after the source is saved.
  */
-function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, onAdded }: {
+function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInfo, pasteFirst, onClose, onAdded }: {
   kind: string;
   title: string;
   fields: ConfigField[];
   existing: Source | null;
+  connectInfo?: ConnectInfo;
+  pasteFirst?: boolean;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
@@ -1577,6 +1653,11 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, o
   const [advancedShown, setAdvancedShown] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Only a NEW source asks for a credential here; an edit keeps the one it has.
+  const choosing = !existing;
+  const [credential, setCredential] = useState(() => initialCredentialDraft(connectInfo));
+  const credentialInputs = choosing ? credentialInputsFor(kind) : [];
+  const credentialMissing = missingCredentialLabels(credentialInputs, credential);
 
   // The saved config goes in so an edit carries through settings this form has
   // no input for, instead of deleting them.
@@ -1591,17 +1672,22 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, o
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (missingLabels.length > 0) {
+    if (missingLabels.length > 0 || credentialMissing.length > 0) {
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const message = existing
-        ? await updateSourceConfig(existing.id, config)
-        : await createSource(kind, config);
-      if (message) {
-        setError(message);
+      // The connector and its credential are one request and one transaction; a
+      // refusal throws with the sentence the server wrote and is shown as it is.
+      if (credentialInputs.length > 0) {
+        await addConnectorWithCredential(kind, config, credential);
+        await onAdded();
+        return;
+      }
+      const saved = await savePastedOrEdited({ existing, kind, config });
+      if (saved) {
+        setError(saved);
         return;
       }
       await onAdded();
@@ -1619,14 +1705,15 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, o
     <AddSourceDialogFrame
       title={title}
       error={error}
-      requirement={describeMissingFields(missingLabels)}
+      requirement={describeMissingFields([...credentialMissing, ...missingLabels])}
       submitLabel={existing ? 'Save changes' : 'Add connector'}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
-      canSubmit={missingLabels.length === 0}
+      canSubmit={missingLabels.length === 0 && credentialMissing.length === 0}
       onClose={onClose}
       onSubmit={submit}
     >
+      {choosing ? <ConnectCredential connector={kind} info={connectInfo} draft={credential} setDraft={setCredential} focusFirst={pasteFirst === true} /> : null}
       {everydayFields.map(field => (
         <SourceConfigInput
           key={field.key}
@@ -2346,6 +2433,8 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
  * @param root0.kind
  * @param root0.connector
  * @param root0.existing
+ * @param root0.connectInfo
+ * @param root0.pasteFirst
  * @param root0.onClose
  * @param root0.onAdded
  */
@@ -2353,6 +2442,8 @@ function AddSourceDialog({
   kind,
   connector,
   existing,
+  connectInfo,
+  pasteFirst = false,
   onClose,
   onAdded,
 }: {
@@ -2360,7 +2451,12 @@ function AddSourceDialog({
   connector: ConnectorTile | null;
   /** The source being edited, or null when adding a new one. */
   existing?: Source | null;
+  /** What the server says about this connector's login and stored credential, for the add form. */
+  connectInfo?: ConnectInfo;
+  /** Open with the first credential input focused. */
+  pasteFirst?: boolean;
   onClose: () => void;
+  /** Called after a save. */
   onAdded: () => Promise<void> | void;
 }) {
   const connectorName = connector?.name ?? kind;
@@ -2380,7 +2476,18 @@ function AddSourceDialog({
   }
   // Every other connector describes its own fields, so one form renders them all.
   const fields = configFieldsFor(kind);
-  return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
+  return (
+    <AddConfigurableSourceDialog
+      kind={kind}
+      title={title}
+      fields={fields}
+      existing={source}
+      connectInfo={connectInfo}
+      pasteFirst={pasteFirst}
+      onClose={onClose}
+      onAdded={onAdded}
+    />
+  );
 }
 
 /** What `/rpc/sources/:id/credentials` says about connecting at the vendor. */
@@ -2389,6 +2496,8 @@ type ConnectOption = {
   label: string;
   configured: boolean;
   requiredEnv: string[];
+  /** Whether a workspace may save its own login app for this vendor; absent from an older server. */
+  bringYourOwnApp?: boolean;
 };
 
 /**

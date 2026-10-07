@@ -16,9 +16,12 @@
 
 import type { RuntimeContext } from '../types';
 import type { ApolloClient, ApolloFailure } from '@/libs/apollo/client';
+import type { GrantPersistence } from '@/libs/connect/loginGrant';
 import { and, eq, or, sql } from 'drizzle-orm';
-import { createApolloClient, keyFromCredentials, noApolloCredentials } from '@/libs/apollo/client';
+import { createApolloClient, noApolloCredentials } from '@/libs/apollo/client';
 import { db } from '@/libs/DB';
+import { logger } from '@/libs/Logger';
+import { resolveApolloAuth } from '@/libs/sources/apollo';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
@@ -104,17 +107,35 @@ export async function apolloClientForCtx(ctx: RuntimeContext): Promise<ApolloCtx
   if (sources.length === 0) {
     return noApolloCredentials('No Apollo source is connected in this workspace, so live Apollo reads are unavailable. Say that rather than guessing.');
   }
+  let lastRefreshFailure: string | undefined;
   for (const source of sources) {
     const credentials = await getCredentialsForSource(ctx.orgId, source.slug);
-    const apiKey = keyFromCredentials(credentials as Record<string, unknown> | undefined);
-    if (apiKey) {
+    const persistence: GrantPersistence = {
+      kind: 'persist',
+      orgId: ctx.orgId,
+      sourceId: source.id,
+      warn: message => logger.warn(message, { orgId: ctx.orgId, sourceId: source.id }),
+    };
+    let auth: Awaited<ReturnType<typeof resolveApolloAuth>>;
+    try {
+      auth = await resolveApolloAuth(credentials as Record<string, unknown> | undefined, persistence);
+    } catch (error) {
+      // A login that will not refresh is data for the model, not a thrown turn.
+      lastRefreshFailure = error instanceof Error ? error.message : 'The Apollo login could not be refreshed.';
+      logger.warn('Apollo login could not be refreshed for a live tool', { orgId: ctx.orgId, sourceId: source.id, reason: lastRefreshFailure });
+      continue;
+    }
+    if (auth) {
       const baseUrl = typeof source.configJson?.baseUrl === 'string' ? source.configJson.baseUrl : undefined;
       return {
         ok: true,
-        client: createApolloClient({ apiKey, baseUrl, orgId: ctx.orgId }),
+        client: createApolloClient({ ...auth, baseUrl, orgId: ctx.orgId }),
         sourceSlug: source.slug,
       };
     }
+  }
+  if (lastRefreshFailure) {
+    return noApolloCredentials(lastRefreshFailure);
   }
   return noApolloCredentials();
 }

@@ -109,6 +109,40 @@ describe('ConnectorList', () => {
     expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }));
   });
 
+  it('a row whose login died offers Reconnect right on the row, so "log in with HubSpot again" has a button to press', async () => {
+    const onConnect = vi.fn();
+    const dead = source({
+      id: 9,
+      slug: 'hubspot-crm',
+      config: { _connector: 'hubspot' },
+      sync: { status: 'failed', startedAt: '2026-09-18T14:00:00.000Z', completedAt: '2026-09-18T14:00:01.000Z', error: 'HubSpot would not refresh the login (invalid_grant). An admin needs to log in with HubSpot again on the Connectors page.', counts: {} },
+    });
+    renderList([dead], { onConnect });
+
+    await expect.element(page.getByText(/An admin needs to log in with HubSpot again/).first()).toBeVisible();
+
+    await userEvent.click(page.getByRole('button', { name: 'Reconnect' }));
+
+    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+  });
+
+  it('a connected Apollo row always offers Reconnect, since it never syncs and no failed run will say its login died', async () => {
+    const onConnect = vi.fn();
+    const rows = buildConnectorRows([tile('apollo', 'Apollo', { syncless: true, inspectable: true })], [source({ id: 11, slug: 'apollo', config: { _connector: 'apollo' }, syncless: true, inspectable: true })]);
+    render(<ConnectorList rows={rows} syncingId={null} onConnectNew={() => {}} onSync={() => {}} onTest={() => {}} onEdit={() => {}} onDelete={() => {}} onConnect={onConnect} />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Reconnect' }));
+
+    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
+  });
+
+  it('a healthy row offers no Reconnect beside its actions', async () => {
+    renderList([source({ id: 9, slug: 'hubspot-crm', config: { _connector: 'hubspot' } })]);
+
+    await expect.element(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+    expect(page.getByRole('button', { name: 'Reconnect' }).elements()).toHaveLength(0);
+  });
+
   it('names the account a grant is on and marks each listed repository against what it granted', async () => {
     const GITHUB = tile('github', 'GitHub');
     const rows = buildConnectorRows([GITHUB], [source({

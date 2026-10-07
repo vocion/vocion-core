@@ -73,6 +73,10 @@
       "description": "Endpoints under /api/v1/live."
     },
     {
+      "name": "login-apps",
+      "description": "Endpoints under /api/v1/login-apps."
+    },
+    {
       "name": "mission-runs",
       "description": "Endpoints under /api/v1/mission-runs."
     },
@@ -3496,6 +3500,240 @@
             "in": "query",
             "required": false,
             "description": "epoch milliseconds; replay what changed since then (a first connection, up to two minutes back).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/login-apps": {
+      "get": {
+        "operationId": "get_login_apps",
+        "summary": "List the workspace's vendor login apps, saved or not.",
+        "tags": [
+          "login-apps"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "List the workspace's vendor login apps, saved or not.\n\nOne entry per vendor that takes one (Google, Slack, Atlassian, HubSpot,\nNotion, Zoom, Apollo):\n`{ loginApps: [{ provider, vendor, saved, name, keyHint, savedAt, redirectUrl }] }`.\n`keyHint` is the saved client ID, masked; the secret is never returned.\n`redirectUrl` is the callback to register at the vendor, null when the\nserver has no public address (NEXT_PUBLIC_APP_URL).\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session."
+      }
+    },
+    "/api/v1/login-apps/{provider}": {
+      "put": {
+        "operationId": "put_login_apps_provider",
+        "summary": "Save the workspace's own OAuth login app for one vendor, replacing the one saved before.",
+        "tags": [
+          "login-apps"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `CONFLICT`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on our side. Codes: `LOGIN_APP_SAVE_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Save the workspace's own OAuth login app for one vendor, replacing the one\nsaved before. New logins with that vendor then run on this app, with no\nserver redeploy. The login itself stays a click in the dashboard: this\nsaves the app, it does not log in.\n\nBody: `{ clientId, clientSecret, name? }`. `clientId` and `clientSecret` are\nstrings of up to 8192 characters, trimmed; `name` is 1 to 80 characters and\ndefaults to `<Vendor> login app`. A 400 names the field in\n`error.details.field`.\n\nAnswers `{ loginApp: { provider, vendor, name, keyHint, redirectUrl,\nreplaced, loginsNeedLoggingInAgain, note } }`. `keyHint` is the client ID,\nmasked to its last characters; the secret is never returned. `redirectUrl`\nis the callback to register at the vendor, null when the server has no\npublic address (NEXT_PUBLIC_APP_URL). `replaced` says an app was saved\nbefore. `loginsNeedLoggingInAgain` is true only when the client ID changed:\nlogins made with the old app then need an admin to log in again, and `note`\nsays so; a new secret for the same app leaves them working.\n\n`provider` is one of google, slack, atlassian, hubspot, notion, zoom,\napollo. GitHub and PostHog take no login app. A 409 means another save of\nthe same app kept landing at the same moment; send it again.\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session.",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "The provider from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "clientId": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "clientSecret": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "name": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_login_apps_provider",
+        "summary": "Revoke the workspace's login app for one vendor.",
+        "tags": [
+          "login-apps"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke the workspace's login app for one vendor. New logins go back to the\nserver's app, if it has one, and logins made with this app need an admin to\nlog in again. Answers `{ revoked }`: false when none was saved, so running\nit twice is safe.\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session.",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "The provider from the URL.",
             "schema": {
               "type": "string"
             }

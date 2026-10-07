@@ -108,6 +108,8 @@ describe('POST /rpc/connectors/[slug]/inspect', () => {
     expect(storeCredentialForSource).not.toHaveBeenCalled();
     expect(linkSourceToStoredCredential).not.toHaveBeenCalled();
     expect(addSource).not.toHaveBeenCalled();
+    // Typed values name no source, so no connector saves a renewed login from them.
+    expect(inspectHook.mock.calls[0]![0]).not.toHaveProperty('savedSource', expect.anything());
   });
 
   it('hands a connector-shaped payload straight through, whatever its shape', async () => {
@@ -212,10 +214,13 @@ describe('re-testing a connected source', () => {
 
     expect(res.status).toBe(200);
     expect(getCredentialsForConnector).toHaveBeenCalledWith({ orgId: 'org_1', connectorSlug: 'apollo', apiTokenId: 'cred_1' });
+    // The source rides along, so a connector with no Sync now (Apollo) can
+    // save a login it renews while testing.
     expect(inspectHook).toHaveBeenCalledWith({
       config: { _connector: 'apollo', baseUrl: 'https://api.apollo.io' },
       credentials: { token: 'vaulted-key' },
       options: {},
+      savedSource: { orgId: 'org_1', sourceId: 7 },
     });
   });
 

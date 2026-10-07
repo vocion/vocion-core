@@ -36,10 +36,18 @@ import type { SourceConnector, SourceContext } from './types';
 import type { PosthogClient, PosthogCredentials, PosthogFailure } from '@/libs/posthog/client';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { isLoginGrant, renewedLoginNote, testConnectionPersistence } from '@/libs/connect/loginGrant';
+import { withFreshPosthogGrant } from '@/libs/connect/providers/posthog';
 import { createPosthogClient, credentialsFrom, projectPath } from '@/libs/posthog/client';
 import { InspectInputError } from './inspect';
 
 const posthogConfigSchema = z.object({
+  /**
+   * The project to read, for a PostHog login that covers several projects.
+   * A pasted key, and a login that covers one project, name their own; theirs
+   * wins over this.
+   */
+  projectId: z.union([z.string().regex(/^\d+$/), z.number().int().positive().transform(String)]).optional(),
   /** How the project is named in document titles. Defaults to the product, then to the project id. */
   projectName: z.string().min(1).optional(),
   /**
@@ -59,6 +67,22 @@ const posthogConfigSchema = z.object({
 });
 
 type PosthogConfig = z.infer<typeof posthogConfigSchema>;
+
+/**
+ * The credential bag with the project the source settings pick, when the bag
+ * names none. A pasted key stores its project id beside it; a login that
+ * covers several projects cannot, so the source's `projectId` setting picks
+ * one. The bag's own id wins, because it is the project the key was made for.
+ * @param credentials - The decrypted, refreshed bag.
+ * @param cfg - The source's parsed settings.
+ */
+function withProjectFromSettings(credentials: Record<string, unknown> | undefined, cfg: PosthogConfig): Record<string, unknown> | undefined {
+  const bagNamesProject = credentials?.projectId !== undefined && credentials.projectId !== null && String(credentials.projectId).trim() !== '';
+  if (!credentials || bagNamesProject || !cfg.projectId) {
+    return credentials;
+  }
+  return { ...credentials, projectId: cfg.projectId };
+}
 
 /** Events read from the project when the workspace pins none. */
 const MAX_DEFAULT_EVENTS = 50;
@@ -406,22 +430,35 @@ async function resolveEvents(client: PosthogClient, cfg: PosthogConfig): Promise
 /**
  * Run the checklist behind Test connection: is the key a personal key, does it
  * read this project, what does the project define, does one day of counts
- * come back, and is the error tracking API there. Nothing is saved.
+ * come back, and is the error tracking API there. Nothing is saved, except a
+ * login renewed while re-testing a connected source.
  * @param input - The credential as typed, and the connector settings.
  * @param input.credentials - Decrypted or as-typed credential bag.
  * @param input.config - Source config, possibly partial.
  * @param input.now - The clock, for "yesterday".
+ * @param input.savedSource - The connected source being re-tested, if it is one.
+ * @param input.savedSource.orgId
+ * @param input.savedSource.sourceId
  */
 export async function inspectPosthog(input: {
   credentials: Record<string, unknown>;
   config: Record<string, unknown>;
   now?: Date;
+  savedSource?: { orgId: string; sourceId: number };
 }): Promise<ConnectorInspection> {
-  const resolved = credentialsFrom(input.credentials);
+  // An expiring login is renewed only when re-testing a connected source,
+  // which has a row to save the rotated token to.
+  let credentials: Record<string, unknown> | undefined;
+  try {
+    credentials = await withFreshPosthogGrant(input.credentials, testConnectionPersistence('posthog', input.savedSource));
+  } catch (error) {
+    throw new InspectInputError(error instanceof Error ? error.message : String(error));
+  }
+  const cfg = posthogConfigSchema.parse(input.config);
+  const resolved = credentialsFrom(withProjectFromSettings(credentials, cfg));
   if (!resolved.ok) {
     throw new InspectInputError(resolved.message);
   }
-  const cfg = posthogConfigSchema.parse(input.config);
   const client = createPosthogClient(resolved.credentials);
   const checks: ConnectorCheck[] = [];
   const check = (key: string, label: string, ok: boolean, detail: string | null): void => {
@@ -495,9 +532,21 @@ export async function inspectPosthog(input: {
     reachable: true,
     authorized: true,
     checks,
-    note: 'Nothing was saved by this test: no source row, no credential, no vault write. The key was used for these reads and dropped.',
+    note: loginWasRenewed(input.credentials, credentials)
+      ? renewedLoginNote('PostHog')
+      : 'Nothing was saved by this test: no source row, no credential, no vault write. The key was used for these reads and dropped.',
     error: null,
   };
+}
+
+/**
+ * Whether Test connection renewed the login it was given, so its note can say
+ * so rather than claim nothing was saved.
+ * @param given - The credential bag the test started with.
+ * @param used - The bag it called PostHog with.
+ */
+function loginWasRenewed(given: Record<string, unknown>, used: Record<string, unknown> | undefined): boolean {
+  return isLoginGrant(given) && isLoginGrant(used) && used.accessToken !== given.accessToken;
 }
 
 export const posthogConnector: SourceConnector<typeof posthogConfigSchema> = {
@@ -507,15 +556,21 @@ export const posthogConnector: SourceConnector<typeof posthogConfigSchema> = {
   icon: 'Activity',
   authKind: 'apikey',
   configSchema: posthogConfigSchema,
-  inspectNote: 'Reads the project, its event definitions and one day of counts through the Query API. Read-only and free. Nothing is saved.',
+  inspectNote: 'Reads the project, its event definitions and one day of counts through the Query API. Read-only and free. Nothing is saved, except an expired login it renews for a connected source.',
 
-  async inspect({ config, credentials }) {
-    return inspectPosthog({ config, credentials });
+  async inspect({ config, credentials, savedSource }) {
+    return inspectPosthog({ config, credentials, savedSource });
   },
 
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = posthogConfigSchema.parse(ctx.config);
-    const resolved = credentialsFrom(ctx.credentials);
+    const credentials = await withFreshPosthogGrant(ctx.credentials, {
+      kind: 'persist',
+      orgId: ctx.orgId,
+      sourceId: ctx.sourceId,
+      warn: message => ctx.onProgress?.({ kind: 'error', message }),
+    });
+    const resolved = credentialsFrom(withProjectFromSettings(credentials, cfg));
     if (!resolved.ok) {
       throw new Error(`PostHog connector: ${resolved.message}`);
     }

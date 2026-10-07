@@ -91,17 +91,19 @@ function messageBody(msg: GmailMessage): string {
  * Requires the gmail.readonly (or broader) scope on the stored credentials —
  * the metadata-only sync may have been consented with less.
  * @param opts
+ * @param opts.orgId - The workspace the credential belongs to, to refresh a login on its own app.
  * @param opts.credentials
  * @param opts.threadId
  * @param opts.baseUrl
  */
 export async function fetchGmailThreadDoc(opts: {
+  orgId: string;
   credentials: Record<string, unknown> | undefined;
   threadId: string;
   baseUrl?: string;
 }): Promise<IngestDoc | null> {
   const base = opts.baseUrl ?? 'https://gmail.googleapis.com/gmail/v1';
-  const token = await resolveGoogleAccessToken(opts.credentials);
+  const token = await resolveGoogleAccessToken(opts.credentials, opts.orgId);
   const res = await fetch(
     `${base}/users/me/threads/${encodeURIComponent(opts.threadId)}?format=full`,
     { headers: { authorization: `Bearer ${token}` } },
@@ -161,17 +163,19 @@ export async function fetchGmailThreadDoc(opts: {
  * Resolve the thread a message belongs to (for `get_gmail_thread` called
  * with only a message id). `null` when Gmail doesn't know the message.
  * @param opts
+ * @param opts.orgId - The workspace the credential belongs to, to refresh a login on its own app.
  * @param opts.credentials
  * @param opts.messageId
  * @param opts.baseUrl
  */
 export async function resolveThreadIdForMessage(opts: {
+  orgId: string;
   credentials: Record<string, unknown> | undefined;
   messageId: string;
   baseUrl?: string;
 }): Promise<string | null> {
   const base = opts.baseUrl ?? 'https://gmail.googleapis.com/gmail/v1';
-  const token = await resolveGoogleAccessToken(opts.credentials);
+  const token = await resolveGoogleAccessToken(opts.credentials, opts.orgId);
   const res = await fetch(
     `${base}/users/me/messages/${encodeURIComponent(opts.messageId)}?format=minimal`,
     { headers: { authorization: `Bearer ${token}` } },
@@ -197,7 +201,7 @@ export const gmailConnector: SourceConnector<typeof gmailConfigSchema> = {
     const cfg = gmailConfigSchema.parse(ctx.config);
     // Durable path: refresh-token exchange (see googleAuth); legacy fallback
     // accepts a raw short-lived credentials.token.
-    const token = await resolveGoogleAccessToken(ctx.credentials);
+    const token = await resolveGoogleAccessToken(ctx.credentials, ctx.orgId);
     const headers = { authorization: `Bearer ${token}` };
     const q = ctx.since
       ? `${cfg.query} after:${Math.floor(ctx.since.getTime() / 1000)}`

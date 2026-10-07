@@ -16,9 +16,11 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 
+const replaceUrl = vi.hoisted(() => vi.fn());
+
 vi.mock('@/libs/I18nNavigation', () => ({
   // The surfaces read the router for `/history`, `?new=1` and the preview's chat CTA — a stub is enough here.
-  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  useRouter: () => ({ push: () => {}, replace: replaceUrl }),
   usePathname: () => '/dashboard/chat',
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
     <a href={href} {...rest}>{children}</a>
@@ -56,6 +58,14 @@ function CrumbStandIn() {
   return useShellBarTitleClaimed() ? null : <span data-testid="crumb">Squatch Factory</span>;
 }
 
+/**
+ * The user-message bubbles that say this text. The thread title repeats it in a span, which is not a message.
+ * @param text - What was sent.
+ */
+function sentBubbles(text: string) {
+  return page.getByText(text).elements().filter(element => element.tagName === 'DIV');
+}
+
 const AGENTS = [
   { slug: 'orchestrator', name: 'GTM Orchestrator', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
   { slug: 'specialist', name: 'Pipeline Analyst', icon: 'bot' as const, placeholder: 'Ask…', role: 'specialist' as const },
@@ -69,6 +79,7 @@ beforeEach(() => {
   vi.mocked(client.chat.suggestions).mockReset().mockResolvedValue([]);
   vi.mocked(client.conversations.get).mockReset();
   vi.mocked(client.conversations.create).mockReset();
+  replaceUrl.mockReset();
   vi.mocked(client.conversations.list).mockReset().mockResolvedValue([]);
 });
 
@@ -192,5 +203,43 @@ describe('ChatShell', () => {
 
     await expect.element(page.getByRole('button', { name: 'Bellwater Hall booking' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Acme renewal terms' })).toBeVisible();
+  });
+
+  it('after a login sends the prepared message exactly once, then takes the connect params off the URL', async () => {
+    // The turn's network call never answers: the user's own message is what is under test.
+    const fetchSpy = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 7 } as never);
+    window.history.replaceState(null, '', '/dashboard/chat?conversation=7&connect=ok&connector=github&source=github');
+    const message = 'I connected github. What\'s next?';
+    const screen = await render(wrap(<ChatShell agents={AGENTS} connectReturnPrompt={message} />));
+
+    // The thread's title repeats the text; the message bubble is the div.
+    await vi.waitFor(() => expect(sentBubbles(message)).toHaveLength(1));
+    await vi.waitFor(() => expect(replaceUrl).toHaveBeenCalledTimes(1));
+
+    expect(replaceUrl).toHaveBeenCalledWith('/dashboard/chat?conversation=7');
+
+    // Re-rendering with the prompt still present (a state change, a refresh of the server tree) must not send it again.
+    await screen.rerender(wrap(<ChatShell agents={AGENTS} connectReturnPrompt={message} />));
+
+    expect(sentBubbles(message)).toHaveLength(1);
+    expect(replaceUrl).toHaveBeenCalledTimes(1);
+
+    window.history.replaceState(null, '', '/dashboard/chat');
+    vi.unstubAllGlobals();
+  });
+
+  it('sends nothing when the page was opened without a connect outcome', async () => {
+    const fetchSpy = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetchSpy);
+    await render(wrap(<ChatShell agents={AGENTS} />));
+
+    await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(replaceUrl).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });

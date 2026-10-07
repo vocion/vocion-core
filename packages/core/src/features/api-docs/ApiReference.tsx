@@ -43,6 +43,11 @@ export function ApiReference(props: { documentUrl: string }) {
     <div className="api-reference">
       <SwaggerUI
         url={props.documentUrl}
+        // swagger-ui-react is pinned to 5.31.0: 5.33.x renders only the first
+        // tag of a document whose tags and operations together reach 150 and
+        // shows no error (bisected 2026-10-07 against this document, which
+        // crossed that line at 34 tags and 116 operations). Bump when a
+        // release renders the whole document again; e2e/api-docs is the check.
         docExpansion="list"
         defaultModelsExpandDepth={-1}
         supportedSubmitMethods={[...SAFE_SUBMIT_METHODS]}

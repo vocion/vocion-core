@@ -24,8 +24,9 @@ import { RecommendedActionCard } from './RecommendedActionCard';
  * paginate cards."). A phone keeps the swipe and the dots.
  * @param root0 - The stack's props.
  * @param root0.recs - The turn's recommended actions, in order.
+ * @param root0.replyInProgress - True while the reply holding the cards is still streaming.
  */
-export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) {
+export function RecommendedActionStack({ recs, replyInProgress = false }: { recs: RecommendedAction[]; replyInProgress?: boolean }) {
   const [idx, setIdx] = useState(0);
 
   // The strip is a native scroll-snap row: the card follows the finger and
@@ -71,7 +72,7 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
   }, [recs.length, scrollToCard]);
 
   if (recs.length <= 1) {
-    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
+    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} replyInProgress={replyInProgress} />)}</>;
   }
 
   return (
@@ -105,7 +106,7 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
           // `flex` so the card stretches to the row's height: the row is as
           // tall as its tallest card, and so is every card in it.
           <div key={i} data-testid="recommended-action-slide" className="flex w-[calc(100%-1.5rem)] min-w-0 shrink-0 snap-start snap-always last:w-full [&>*]:min-w-0 [&>*]:flex-1" aria-hidden={i !== idx ? true : undefined}>
-            <RecommendedActionCard rec={rec} />
+            <RecommendedActionCard rec={rec} replyInProgress={replyInProgress} />
           </div>
         ))}
       </div>

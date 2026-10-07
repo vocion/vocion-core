@@ -25,7 +25,7 @@ describe('slack connect provider', () => {
   });
 
   it('sends the person to Slack with the source scopes, the callback and the state', () => {
-    const url = new URL(slackProvider.authorizeUrl({ state: 'st.ate', redirectUri: 'https://v.example/api/connect/slack/callback' }));
+    const url = new URL(slackProvider.authorizeUrl({ state: 'st.ate', redirectUri: 'https://v.example/api/connect/slack/callback', connector: 'slack' }));
 
     expect(url.origin + url.pathname).toBe('https://slack.com/oauth/v2/authorize');
     expect(url.searchParams.get('client_id')).toBe('client_1');

@@ -1,7 +1,8 @@
 /**
  * Shared Apollo API client — the one place that knows how to talk to
  * api.apollo.io. Every Apollo agent tool and the Sources-page entitlement
- * probe consume it, so the `x-api-key` header, rate-limit handling and error
+ * probe consume it, so the auth header (`x-api-key` for a pasted key,
+ * `Authorization: Bearer` for a login), rate-limit handling and error
  * shaping exist exactly once.
  *
  * Errors are DATA, never throws, exactly as the HubSpot client has it: a tool
@@ -57,7 +58,9 @@ export type ApolloClient = {
 export const APOLLO_BASE_URL = 'https://api.apollo.io';
 
 /**
- * The vaulted API key, whichever field name the vault entry used.
+ * The vaulted API key, whichever field name the vault entry used. A login
+ * grant stores `accessToken`, which is deliberately not read here: it is a
+ * Bearer token, not an API key, and `resolveApolloAuth` handles it.
  * @param credentials - The decrypted credential bag for the apollo source.
  */
 export function keyFromCredentials(credentials?: Record<string, unknown>): string | undefined {
@@ -103,7 +106,7 @@ async function shapeFailure(res: Response, path: string): Promise<ApolloFailure>
       ok: false,
       error: 'apollo_unauthorized',
       status: 401,
-      message: `Apollo rejected the API key (401): ${text.slice(0, 300) || 'no message returned'}. Check the key on the Sources page — Test connection reports whether it is valid.`,
+      message: `Apollo rejected the credential (401): ${text.slice(0, 300) || 'no message returned'}. Check the API key or login on the Sources page — Test connection reports whether it is valid.`,
     };
   }
   if (res.status === 403) {
@@ -115,7 +118,7 @@ async function shapeFailure(res: Response, path: string): Promise<ApolloFailure>
       ok: false,
       error: 'apollo_unauthorized',
       status: 403,
-      message: `Apollo refused this call (403): ${text.slice(0, 300) || 'no message returned'}. The key is valid but this plan does not open this endpoint.`,
+      message: `Apollo refused this call (403): ${text.slice(0, 300) || 'no message returned'}. The credential is valid but this plan does not open this endpoint.`,
     };
   }
   if (res.status === 429) {
@@ -233,19 +236,31 @@ export function resetObservedRateSnapshots(): void {
 }
 
 /**
- * A client for one Apollo API key.
+ * How a client proves itself to Apollo: a pasted API key (`x-api-key`) or a
+ * login's access token (`Authorization: Bearer`). Exactly one of the two.
+ */
+export type ApolloAuth = { apiKey: string; accessToken?: undefined } | { accessToken: string; apiKey?: undefined };
+
+/**
+ * The headers that carry the credential.
+ * @param auth - The pasted key or the login's access token.
+ */
+export function apolloAuthHeaders(auth: ApolloAuth): Record<string, string> {
+  return auth.accessToken === undefined ? { 'x-api-key': auth.apiKey } : { authorization: `Bearer ${auth.accessToken}` };
+}
+
+/**
+ * A client for one Apollo credential.
  * @param opts - How to reach Apollo.
- * @param opts.apiKey - The workspace's vaulted Apollo API key.
+ * @param opts.apiKey - The workspace's vaulted Apollo API key (a pasted key).
+ * @param opts.accessToken - A login's access token, sent as a Bearer token instead of the key.
  * @param opts.baseUrl - Override for the API host, for tests.
  * @param opts.orgId - Org whose observed rate-limit snapshot this client updates.
- * @param opts.apiKey
- * @param opts.baseUrl
- * @param opts.orgId
  */
-export function createApolloClient(opts: { apiKey: string; baseUrl?: string; orgId?: string }): ApolloClient {
+export function createApolloClient(opts: ApolloAuth & { baseUrl?: string; orgId?: string }): ApolloClient {
   const baseUrl = opts.baseUrl ?? APOLLO_BASE_URL;
   const headers = {
-    'x-api-key': opts.apiKey,
+    ...apolloAuthHeaders(opts),
     'content-type': 'application/json',
     'accept': 'application/json',
     // Apollo caches aggressively on some endpoints; the tools read live.

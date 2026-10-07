@@ -20,6 +20,14 @@ vi.mock('./AuthGuards', () => ({
   loadProject: vi.fn(),
 }));
 
+// The public origin is the one input the redirect URL depends on; mocking it
+// avoids touching the validated Env. The callback path builder stays real.
+const connectOriginMock = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/connect/routes', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/connect/routes')>();
+  return { ...actual, connectOrigin: connectOriginMock };
+});
+
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema } = await import('@/models/Schema');
 const { guardAuth } = await import('./AuthGuards');
@@ -27,6 +35,7 @@ const { sourceDekSchema } = await import('@/models/Schema');
 const { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } = await import('./ApiTokens');
 const { issueToken } = await import('@/services/ApiTokenService');
 const { resetCredentialVault } = await import('@/libs/crypto/credentialVault');
+const { logger } = await import('@/libs/Logger');
 
 const ORG = 'org_router_test';
 
@@ -203,6 +212,69 @@ describe('platform key routes', () => {
     const aws = options.find(option => option.id === 'aws');
 
     expect(aws?.fields.map(field => field.name)).toEqual(['accessKeyId', 'secretAccessKey']);
+  });
+
+  it('saves a login app the way the API does: one live app, and an audit line naming the admin and whether old logins end', async () => {
+    signedInAs('admin');
+    const audit = vi.spyOn(logger, 'info');
+
+    await call(createPlatformKeyRoute, { name: 'Acme Google', platform: 'google-login-app', values: { clientId: 'ws-google-old', clientSecret: 'not-a-real-secret-0001' } });
+    await call(createPlatformKeyRoute, { name: 'Acme Google', platform: 'google-login-app', values: { clientId: 'ws-google-new', clientSecret: 'not-a-real-secret-0002' } });
+
+    const live = (await db.select().from(apiTokenSchema)).filter(row => row.platform === 'google-login-app' && row.revokedAt === null);
+
+    expect(live.map(row => row.createdBy)).toEqual(['usr-1']);
+    expect(audit).toHaveBeenLastCalledWith('[login-apps] login app saved', expect.objectContaining({ orgId: ORG, provider: 'google', savedBy: 'usr-1', replaced: true, loginsNeedLoggingInAgain: true }));
+
+    audit.mockRestore();
+  });
+
+  it('refuses half a login app with the form\'s sentence', async () => {
+    signedInAs('admin');
+
+    await expect(call(createPlatformKeyRoute, { name: 'Acme Google', platform: 'google-login-app', values: { clientId: 'ws-google-client' } })).rejects.toThrow('Enter the Client secret.');
+  });
+
+  it('writes an audit line naming the admin who revoked a credential', async () => {
+    signedInAs('admin');
+    const audit = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, { name: 'Acme OpenAI', platform: 'openai', values: { apiKey: OPENAI_KEY } });
+
+    await call(revokeTokenRoute, { tokenId: saved.id });
+
+    expect(audit).toHaveBeenCalledWith('[apiTokens.revoke] credential revoked', { orgId: ORG, userId: 'usr-1', tokenId: saved.id });
+
+    audit.mockRestore();
+  });
+
+  it('tells a login app the callback URL to register at the vendor, and every other platform nothing', async () => {
+    signedInAs('admin');
+    connectOriginMock.mockReturnValue('https://app.example.com');
+    const options = await call<Array<{ id: string; redirectUrl: string | null }>>(listPlatformsRoute, undefined);
+
+    expect(options.find(option => option.id === 'slack-login-app')?.redirectUrl)
+      .toBe('https://app.example.com/api/connect/slack/callback');
+    expect(options.find(option => option.id === 'atlassian-login-app')?.redirectUrl)
+      .toBe('https://app.example.com/api/connect/atlassian/callback');
+    expect(options.find(option => option.id === 'openai')?.redirectUrl).toBeNull();
+  });
+
+  it('gives no redirect URL to any platform when the server has no public origin', async () => {
+    signedInAs('admin');
+    connectOriginMock.mockReturnValue(null);
+    const options = await call<Array<{ id: string; redirectUrl: string | null }>>(listPlatformsRoute, undefined);
+
+    expect(options.find(option => option.id === 'slack-login-app')).toBeDefined();
+    expect(options.every(option => option.redirectUrl === null)).toBe(true);
+  });
+
+  it('marks exactly the login apps, so the form warns that replacing or revoking one ends its logins', async () => {
+    signedInAs('admin');
+    const options = await call<Array<{ id: string; loginApp: boolean }>>(listPlatformsRoute, undefined);
+
+    expect(options.filter(option => option.loginApp).map(option => option.id).sort()).toEqual(
+      ['apollo-login-app', 'atlassian-login-app', 'google-login-app', 'hubspot-login-app', 'notion-login-app', 'slack-login-app', 'zoom-login-app'],
+    );
   });
 
   it('stores a key for an admin and returns only the masked hint', async () => {

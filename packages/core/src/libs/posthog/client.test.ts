@@ -54,7 +54,7 @@ describe('credentialsFrom', () => {
   it('reads the three fields the platform descriptor stores', () => {
     expect(credentialsFrom(CREDS)).toEqual({
       ok: true,
-      credentials: { apiKey: 'phx_fixture_key_0001', host: 'https://eu.posthog.com', projectId: '4242' },
+      credentials: { apiKey: 'phx_fixture_key_0001', host: 'https://eu.posthog.com', projectId: '4242', viaLogin: false },
     });
   });
 
@@ -122,6 +122,55 @@ describe('createPosthogClient', () => {
 
     expect(out).toMatchObject({ ok: false, error: 'posthog_unauthorized', status: 403 });
     expect(!out.ok && out.message).toMatch(/query:read/);
+  });
+
+  // PostHog's live answer to a dead token, 2026-10-06: a 401 on most endpoints, a 403 on the Query API.
+  const INVALID_TOKEN = { type: 'authentication_error', code: 'authentication_failed', detail: 'Invalid access token.' };
+
+  it('a login whose token PostHog refuses says to log in with PostHog again, on the Query API\'s 403 as on a 401', async () => {
+    const login = { ...CREDS, apiKey: 'pha_fixture_token_0001', viaLogin: true };
+    vi.stubGlobal('fetch', vi.fn(async () => res(401, INVALID_TOKEN)));
+
+    const listed = await createPosthogClient(login).get('/api/projects/4242/');
+
+    vi.stubGlobal('fetch', vi.fn(async () => res(403, INVALID_TOKEN)));
+
+    const queried = await createPosthogClient(login).query({ kind: 'HogQLQuery', query: 'SELECT 1' });
+
+    for (const out of [listed, queried]) {
+      expect(!out.ok && out.message).toMatch(/An admin needs to log in with PostHog again on the Connectors page/);
+      expect(!out.ok && out.message).not.toMatch(/personal API key|lacks a read scope/);
+    }
+  });
+
+  it('a login PostHog really denies a project says to log in again and grant it, not to fix a key', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res(403, { type: 'authentication_error', code: 'permission_denied', detail: 'You do not have permission to perform this action.' })));
+
+    const out = await createPosthogClient({ ...CREDS, apiKey: 'pha_fixture_token_0001', viaLogin: true }).query({ kind: 'HogQLQuery', query: 'SELECT 1' });
+
+    expect(!out.ok && out.message).toMatch(/An admin needs to log in with PostHog again and grant this project/);
+    expect(!out.ok && out.message).not.toMatch(/The key is valid/);
+  });
+
+  it('a stored login is marked as one, so its refusals say to log in again whatever its token looks like', () => {
+    const out = credentialsFrom({ accessToken: 'pha_fixture_token_0001', refreshToken: 'phr_fixture_0001', expiresAt: '2030-01-01T00:00:00Z', host: 'https://eu.posthog.com', projectId: '4242' });
+
+    expect(out.ok && out.credentials.viaLogin).toBe(true);
+  });
+
+  it('a stored login with no usable access token says an admin must log in again, never to check a key', () => {
+    const out = credentialsFrom({ accessToken: 'not-a-posthog-token', refreshToken: 'phr_fixture_0001', expiresAt: '2030-01-01T00:00:00Z', host: 'https://eu.posthog.com', projectId: '4242' });
+
+    expect(!out.ok && out.message).toBe('The stored PostHog login does not hold a valid access token. An admin needs to log in with PostHog again on the Connectors page.');
+  });
+
+  it('a personal key PostHog calls invalid on the Query API is a rejected key, not a missing scope', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res(403, INVALID_TOKEN)));
+
+    const out = await createPosthogClient(CREDS).query({ kind: 'HogQLQuery', query: 'SELECT 1' });
+
+    expect(!out.ok && out.message).toMatch(/rejected the personal API key/);
+    expect(!out.ok && out.message).not.toMatch(/query:read/);
   });
 
   it('shapes a 404 as a wrong project or region', async () => {

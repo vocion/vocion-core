@@ -19,6 +19,7 @@ import { tool } from '@langchain/core/tools';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { logger } from '@/libs/Logger';
 import { fetchZoomMeetingTranscript, listZoomRecordings } from '@/libs/sources/zoom';
 import { dayKey, DEFAULT_TIME_ZONE, formatDateTime } from '@/libs/time/zone';
 import {
@@ -143,6 +144,7 @@ export function zoomTools(ctx: RuntimeContext) {
       const fetched = await fetchZoomMeetingTranscript({
         credentials: credentialed.credentials,
         meetingId: meeting,
+        persistence: { kind: 'persist', orgId: ctx.orgId, sourceId: credentialed.source.id, warn: message => logger.warn(message, { orgId: ctx.orgId, sourceId: credentialed.source.id }) },
       });
       if (!fetched) {
         return `Zoom has no cloud recording for meeting "${meeting}" — check the meeting UUID or numeric id.`;
@@ -191,7 +193,7 @@ export function zoomTools(ctx: RuntimeContext) {
       };
       const cfg = (credentialed.source as { config?: { apiBaseUrl?: string; authBaseUrl?: string; users?: string[] } }).config ?? {};
       try {
-        const { hits, missingScopes } = await listZoomRecordings({ credentials: credentialed.credentials, from: shift(centre, -span), to: shift(centre, span), apiBaseUrl: cfg.apiBaseUrl, authBaseUrl: cfg.authBaseUrl, users: cfg.users });
+        const { hits, missingScopes } = await listZoomRecordings({ credentials: credentialed.credentials, from: shift(centre, -span), to: shift(centre, span), apiBaseUrl: cfg.apiBaseUrl, authBaseUrl: cfg.authBaseUrl, users: cfg.users, persistence: { kind: 'persist', orgId: ctx.orgId, sourceId: credentialed.source.id, warn: message => logger.warn(message, { orgId: ctx.orgId, sourceId: credentialed.source.id }) } });
         if (missingScopes.length > 0) {
           return `Zoom refused to list recordings: the connected app lacks the scopes ${missingScopes.join(', ')}. Say that plainly and link the person to the Zoom row on /dashboard/connectors to add the scopes and reconnect — do NOT conclude that no recording exists.`;
         }

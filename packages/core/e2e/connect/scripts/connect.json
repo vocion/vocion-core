@@ -1,0 +1,70 @@
+{
+  "providers": {
+    "github": {
+      "outcome": "ok",
+      "displayName": "GitHub — northwind",
+      "credentials": {
+        "installationId": "1",
+        "account": "northwind",
+        "accountType": "Organization",
+        "repositorySelection": "selected",
+        "repositories": ["northwind/portal"]
+      }
+    },
+    "slack": {
+      "outcome": "ok",
+      "displayName": "Slack — Northwind",
+      "credentials": {
+        "token": "scripted-bot-token-not-real",
+        "teamId": "T0NORTHWIND",
+        "teamName": "Northwind",
+        "botUserId": "U0SCRIPTED",
+        "appId": "A0SCRIPTED",
+        "scope": "channels:read,channels:history,groups:read,groups:history"
+      }
+    },
+    "atlassian": { "outcome": "refuse", "reason": "access_denied" },
+    "google": {
+      "outcome": "ok",
+      "displayName": "Google — ops@northwind.example",
+      "credentials": {
+        "accessToken": "scripted-google-access-not-real",
+        "refreshToken": "scripted-google-refresh-not-real",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "scope": "openid email https://www.googleapis.com/auth/gmail.readonly",
+        "email": "ops@northwind.example"
+      }
+    },
+    "notion": {
+      "outcome": "ok",
+      "displayName": "Notion — Northwind",
+      "credentials": {
+        "token": "scripted-notion-token-not-real",
+        "workspaceId": "ws-northwind",
+        "workspaceName": "Northwind",
+        "botId": "bot-scripted"
+      }
+    },
+    "zoom": {
+      "outcome": "ok",
+      "displayName": "Zoom — ops@northwind.example",
+      "credentials": {
+        "accessToken": "scripted-zoom-access-not-real",
+        "refreshToken": "scripted-zoom-refresh-not-real",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "email": "ops@northwind.example",
+        "accountId": "acct-scripted"
+      }
+    },
+    "apollo": {
+      "outcome": "ok",
+      "displayName": "Apollo — ops@northwind.example",
+      "credentials": {
+        "accessToken": "scripted-apollo-access-not-real",
+        "refreshToken": "scripted-apollo-refresh-not-real",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "account": "ops@northwind.example"
+      }
+    }
+  }
+}

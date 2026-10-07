@@ -33,6 +33,7 @@
  */
 
 import type { LLMProviderName } from '@vocion/sdk';
+import type { ConnectProviderId } from '@/libs/connect/provider';
 
 /** Every platform id this build understands. */
 export type CredentialPlatformId
@@ -78,7 +79,17 @@ export type CredentialPlatformId
   // calls the way it already does on model calls.
     | 'tavily'
     | 'brave'
-    | 'firecrawl';
+    | 'firecrawl'
+  // Login apps (#1080). A workspace's own OAuth app at a vendor, so its "Log
+  // in with <vendor>" runs on the workspace's client ID and secret instead of
+  // the server's env. One live per vendor: saving a new one replaces the old.
+    | 'slack-login-app'
+    | 'atlassian-login-app'
+    | 'google-login-app'
+    | 'hubspot-login-app'
+    | 'notion-login-app'
+    | 'zoom-login-app'
+    | 'apollo-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -141,6 +152,21 @@ export type CredentialField = {
    * a workspace fills in only if it syncs Ads.
    */
   optional?: boolean;
+};
+
+/** How one connector logs in: see `CredentialPlatform['howToConnect']`. */
+export type LoginDeclaration = {
+  /** The connect provider that runs it (`libs/connect/registry.ts`). */
+  provider: ConnectProviderId;
+  /** The access the login asks for, one line each, in the vendor's words. */
+  access: readonly string[];
+  /**
+   * The settings the source still needs after the login, by config key, each with the
+   * name a person knows it by. Empty means login alone is enough and the login makes the
+   * source itself. This is the one answer: the callback, the form, the chat card and the
+   * agent's next step all read it.
+   */
+  settingsAfterLogin: readonly { key: string; label: string }[];
 };
 
 export type CredentialPlatform = {
@@ -206,6 +232,40 @@ export type CredentialPlatform = {
    * platforms have exactly one; AWS has two.
    */
   fields: readonly CredentialField[];
+  /**
+   * Set on a login-app platform only: the connect provider whose logins run on
+   * the OAuth app this credential holds. `libs/connect/loginClient.ts` reads
+   * it to prefer the workspace's own app over the server's env.
+   */
+  loginAppFor?: ConnectProviderId;
+  /**
+   * How a person connects this platform (#1080). The Connectors form and the
+   * chat card read this instead of special-casing providers. Declared on every
+   * platform that backs a connector. It stays free of runtime imports so client
+   * UI can read it; `howToConnect.test.ts` holds the login half to the connect
+   * registry and the provider scope constants.
+   */
+  howToConnect?: {
+    /** Present when a provider login can fetch the credential itself. */
+    login?: LoginDeclaration;
+    /**
+     * For a platform whose connectors log in differently, each connector's own
+     * login, in place of `login`. Google needs it: Gmail, Drive, Calendar and
+     * Analytics each ask for their own scope, and Google Ads cannot log in at
+     * all. A connector left out of it has no login. `howToConnectFor` folds
+     * the connector's entry into `login`, so callers never read this.
+     */
+    loginByConnector?: Readonly<Record<string, LoginDeclaration>>;
+    /** Pasting is always possible. What to paste, and where to get one by hand. */
+    paste: {
+      /** The kind of credential, named the way the vendor names it: "Personal access token", "API token", "Bot token". */
+      credential: string;
+      /** The access the pasted credential needs, one line each. */
+      access: readonly string[];
+      /** Where to make one by hand. Only a URL the vendor documents. Leave it out rather than guess. */
+      getItAt?: { url: string; steps: readonly string[] };
+    };
+  };
 };
 
 /**
@@ -217,6 +277,54 @@ export type CredentialPlatform = {
 function singleKeyField(label: string, pattern: RegExp | null, shapeHint: string): readonly CredentialField[] {
   return [{ name: 'apiKey', label, pattern, shapeHint, secret: true }];
 }
+
+/**
+ * A login-app platform: a workspace's own OAuth app at one vendor. A login
+ * with that vendor runs on its client ID and secret instead of the server's
+ * env, so a workspace can bring its own app without a redeploy. It is not a
+ * connector credential: no source points at it, and the logins it runs are
+ * stored on the connectors' own platforms as before.
+ * @param id - The platform id, `<provider>-login-app`.
+ * @param provider - The connect provider whose logins it runs.
+ * @param vendor - The vendor's name, as the form shows it.
+ */
+function loginAppPlatform(id: CredentialPlatformId, provider: ConnectProviderId, vendor: string): CredentialPlatform {
+  return {
+    id,
+    label: `${vendor} login app`,
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a client ID and a client secret',
+    helpText: `Your own ${vendor} OAuth app. Logins with ${vendor} in this workspace use it instead of the server's, so it works without a redeploy. Saving a new app replaces the old one, and logins made with the old app need logging in again.`,
+    fields: [
+      { name: 'clientId', label: 'Client ID', pattern: null, shapeHint: `the Client ID from your ${vendor} app's settings`, secret: false },
+      { name: 'clientSecret', label: 'Client secret', pattern: null, shapeHint: `the Client secret from the same page`, secret: true },
+    ],
+    loginAppFor: provider,
+  };
+}
+
+/**
+ * The login apps a workspace can bring, one per connect provider whose login
+ * is a plain client ID and secret. GitHub is left out because its login is a
+ * GitHub App (an app id, a private key and a webhook the server receives), and
+ * PostHog because its client is a public document this server publishes
+ * (CIMD), with no secret to bring.
+ */
+const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
+  loginAppPlatform('google-login-app', 'google', 'Google'),
+  loginAppPlatform('slack-login-app', 'slack', 'Slack'),
+  loginAppPlatform('atlassian-login-app', 'atlassian', 'Atlassian'),
+  loginAppPlatform('hubspot-login-app', 'hubspot', 'HubSpot'),
+  loginAppPlatform('notion-login-app', 'notion', 'Notion'),
+  loginAppPlatform('zoom-login-app', 'zoom', 'Zoom'),
+  loginAppPlatform('apollo-login-app', 'apollo', 'Apollo'),
+];
 
 /**
  * The platform table. `vocion` is first because it is the default selection
@@ -366,6 +474,17 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // cap waits for the first workspace that actually needs two.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['apollo'],
+    howToConnect: {
+      login: {
+        provider: 'apollo',
+        access: ['read_user_profile', 'app_scopes'],
+        settingsAfterLogin: [],
+      },
+      paste: {
+        credential: 'API key',
+        access: [],
+      },
+    },
     credentialsShareable: false,
     toolProvider: null,
     llmProvider: null,
@@ -388,6 +507,14 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // its repository list, so several github sources share the one credential.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['github'],
+    howToConnect: {
+      login: { provider: 'github', access: ['The repositories you choose during install'], settingsAfterLogin: [{ key: 'repos', label: 'repositories' }] },
+      paste: {
+        credential: 'Personal access token',
+        access: ['pull_requests:read', 'checks:read', 'contents:read', 'metadata:read', 'actions:read (for run.failed on the deploy branch)'],
+        getItAt: { url: 'https://github.com/settings/personal-access-tokens/new', steps: ['Make a fine-grained personal access token', 'Grant it the repositories the source lists', 'Give it the read-only permissions listed above'] },
+      },
+    },
     credentialsShareable: true,
     llmProvider: null,
     toolProvider: null,
@@ -408,6 +535,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['granola'],
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: [],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -424,6 +557,17 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['hubspot'],
+    howToConnect: {
+      login: {
+        provider: 'hubspot',
+        access: ['oauth', 'crm.objects.contacts.read', 'crm.objects.companies.read', 'crm.objects.deals.read'],
+        settingsAfterLogin: [],
+      },
+      paste: {
+        credential: 'Private-app token',
+        access: ['CRM object read access'],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -441,6 +585,14 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['jira'],
+    howToConnect: {
+      login: { provider: 'atlassian', access: ['read:jira-work', 'read:jira-user', 'offline_access'], settingsAfterLogin: [{ key: 'baseUrl', label: 'site' }, { key: 'projectKeys', label: 'project keys' }] },
+      paste: {
+        credential: 'API token',
+        access: [],
+        getItAt: { url: 'https://id.atlassian.com/manage-profile/security/api-tokens', steps: ['Make an API token', 'Paste it with the Atlassian account email it was issued to'] },
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -480,6 +632,20 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // the cap waits for the workspace that actually needs two.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['notion'],
+    howToConnect: {
+      // Notion has no scopes: the person picks the pages on Notion's consent
+      // screen, and the integration's registered capabilities say what it may do.
+      login: {
+        provider: 'notion',
+        access: ['The pages and databases you pick on Notion\'s consent screen'],
+        settingsAfterLogin: [],
+      },
+      paste: {
+        credential: 'Internal integration token',
+        access: ['Pages and databases shared with the integration, from the page\'s Connections menu'],
+        getItAt: { url: 'https://notion.so/my-integrations', steps: ['Make an internal integration', 'Share the pages and databases it should see from the page\'s Connections menu'] },
+      },
+    },
     // One integration token reads every page shared with it, and a source
     // narrows by search term rather than by credential, so a workspace running
     // several Notion sources types the token once.
@@ -506,6 +672,19 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // credential rather than needing its own.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['posthog'],
+    howToConnect: {
+      // A login that covers one project stores its id; one that covers
+      // several needs it picked, so the form always offers the field.
+      login: {
+        provider: 'posthog',
+        access: ['query:read', 'event_definition:read', 'project:read'],
+        settingsAfterLogin: [{ key: 'projectId', label: 'project id' }],
+      },
+      paste: {
+        credential: 'Personal API key',
+        access: ['query:read', 'event_definition:read'],
+      },
+    },
     // One personal key reads every project its owner can see, so several
     // posthog sources — one per product filter — type it once.
     credentialsShareable: true,
@@ -552,6 +731,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // reads every project of the organization it was made in.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['sentry'],
+    howToConnect: {
+      paste: {
+        credential: 'Auth token',
+        access: ['org:read', 'project:read', 'event:read'],
+      },
+    },
     credentialsShareable: true,
     llmProvider: null,
     toolProvider: null,
@@ -594,6 +779,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // asked for with no row id in hand.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['slate'],
+    howToConnect: {
+      paste: {
+        credential: 'Session token',
+        access: [],
+      },
+    },
     credentialsShareable: true,
     llmProvider: null,
     toolProvider: null,
@@ -619,6 +810,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // one key speaks in every voice of the account.
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['elevenlabs'],
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: ['Text to Speech', 'Voices (read)', 'User (read) if Test connection should show the characters left'],
+      },
+    },
     credentialsShareable: true,
     llmProvider: null,
     toolProvider: null,
@@ -634,6 +831,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['strapi'],
+    howToConnect: {
+      paste: {
+        credential: 'API token',
+        access: ['Read-only'],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -679,6 +882,12 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // need another can add a `headerName` field beside these two.
     credentialsPerOrg: 'many',
     connectorSlugs: ['rest'],
+    howToConnect: {
+      paste: {
+        credential: 'Bearer token',
+        access: ['Read rights for the read tools', 'Write rights only for the endpoints the source declares as actions'],
+      },
+    },
     credentialsShareable: false,
     llmProvider: null,
     toolProvider: null,
@@ -711,6 +920,23 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
+    howToConnect: {
+      // Each connector asks Google for its own read scope. A login also
+      // carries the scopes the person granted this app before
+      // (`include_granted_scopes`), so logging in for Gmail after Drive adds
+      // Gmail rather than replacing Drive. Google Ads has no login: its API
+      // also needs a developer token, which no login can issue.
+      loginByConnector: {
+        'gmail': { provider: 'google', access: ['https://www.googleapis.com/auth/gmail.readonly'], settingsAfterLogin: [] },
+        'drive': { provider: 'google', access: ['https://www.googleapis.com/auth/drive.readonly'], settingsAfterLogin: [] },
+        'google-calendar': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.readonly'], settingsAfterLogin: [] },
+        'ga4': { provider: 'google', access: ['https://www.googleapis.com/auth/analytics.readonly'], settingsAfterLogin: [{ key: 'propertyId', label: 'Analytics property' }] },
+      },
+      paste: {
+        credential: 'OAuth client and refresh token',
+        access: [],
+      },
+    },
     // One OAuth consent covers every Google connector the workspace ticked, so
     // the same credential is meant to be pointed at by several sources.
     credentialsShareable: true,
@@ -762,6 +988,14 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['slack'],
+    howToConnect: {
+      login: { provider: 'slack', access: ['channels:read', 'channels:history', 'groups:read', 'groups:history'], settingsAfterLogin: [] },
+      paste: {
+        credential: 'Bot token',
+        access: ['channels:history', 'channels:read', 'The bot has to be in each channel you sync'],
+        getItAt: { url: 'https://api.slack.com/apps', steps: ['Open your Slack app', 'Copy the bot token from OAuth & Permissions'] },
+      },
+    },
     // A bot token reads every channel it was invited to, and one source syncs
     // one channel, so a workspace watching several channels shares one token.
     credentialsShareable: true,
@@ -780,6 +1014,19 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['zoom'],
+    howToConnect: {
+      // Zoom sends no scope in the login URL: the scopes are the ones the
+      // Marketplace app is registered with, listed here as Zoom names them.
+      login: {
+        provider: 'zoom',
+        access: ['user:read:user', 'cloud_recording:read:list_user_recordings', 'cloud_recording:read:list_recording_files', 'cloud_recording:read:meeting_transcript'],
+        settingsAfterLogin: [],
+      },
+      paste: {
+        credential: 'Server-to-server OAuth app credentials',
+        access: ['user:read:admin', 'cloud_recording:read:admin'],
+      },
+    },
     // A server-to-server app authenticates for the whole Zoom account, so
     // several sources scoped to different people share one set.
     credentialsShareable: true,
@@ -961,6 +1208,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       },
     ],
   },
+  ...LOGIN_APP_PLATFORMS,
   {
     id: 'custom',
     label: 'Other platform',
@@ -1148,6 +1396,23 @@ export function platformForToolProvider(provider: string): CredentialPlatform | 
 }
 
 /**
+ * Every vendor login-app platform, one per connect provider that takes a
+ * workspace's own client ID and secret.
+ */
+export function loginAppPlatforms(): readonly CredentialPlatform[] {
+  return LOGIN_APP_PLATFORMS;
+}
+
+/**
+ * The login-app platform for a connect provider, or `null` when a workspace
+ * cannot bring its own app for it (GitHub, PostHog).
+ * @param provider - A connect provider id, e.g. `google`.
+ */
+export function loginAppPlatformFor(provider: ConnectProviderId): CredentialPlatform | null {
+  return PLATFORMS.find(platform => platform.loginAppFor === provider) ?? null;
+}
+
+/**
  * The non-secret fields of a platform's credential, in form order. These are
  * the values safe to show in full — an instance URL, an account email — and so
  * the ones that tell two credentials for the same platform apart.
@@ -1180,4 +1445,61 @@ export function keyHint(key: string): string {
     return '…';
   }
   return `…${key.slice(-KEY_HINT_CHARS)}`;
+}
+
+/**
+ * How to connect the platform behind a connector, or null when no platform
+ * claims the connector. The Connectors form and the chat connect card read
+ * this rather than special-casing providers (#1080).
+ *
+ * On a platform that declares `loginByConnector`, the connector's own entry
+ * comes back as `login`, and a connector with no entry comes back with no
+ * login, so Gmail gets Gmail's scope and Google Ads gets paste only.
+ * @param connectorSlug - A source's connector slug, e.g. `jira`.
+ */
+export function howToConnectFor(connectorSlug: string): Omit<NonNullable<CredentialPlatform['howToConnect']>, 'loginByConnector'> | null {
+  const howToConnect = platformForConnectorSlug(connectorSlug)?.howToConnect;
+  if (!howToConnect) {
+    return null;
+  }
+  const { loginByConnector, ...declaration } = howToConnect;
+  if (!loginByConnector) {
+    return declaration;
+  }
+  const login = Object.hasOwn(loginByConnector, connectorSlug) ? loginByConnector[connectorSlug] : undefined;
+  return { paste: declaration.paste, ...(login ? { login } : {}) };
+}
+
+/** Google writes its scopes as URLs; people know them by the part after this. */
+const GOOGLE_SCOPE_PREFIX = 'https://www.googleapis.com/auth/';
+
+/**
+ * A login's access as the form and the chat card show it: Google's scope URLs
+ * shrink to their names (`gmail.readonly`), and every other vendor's scopes
+ * are short already.
+ * @param access - The login's `access` lines.
+ */
+export function accessForDisplay(access: readonly string[]): string {
+  return access.map(line => (line.startsWith(GOOGLE_SCOPE_PREFIX) ? line.slice(GOOGLE_SCOPE_PREFIX.length) : line)).join(', ');
+}
+
+/**
+ * Whether logging in is all it takes: the connector declares a login and
+ * names no setting the source still needs.
+ * @param connectorSlug - A source's connector slug, e.g. `slack`.
+ */
+export function loginIsEnough(connectorSlug: string): boolean {
+  const login = howToConnectFor(connectorSlug)?.login;
+  return Boolean(login) && login!.settingsAfterLogin.length === 0;
+}
+
+/**
+ * What happens after the login, in a person's words, from the declaration:
+ * the one sentence the form and the chat card both show.
+ * @param settings - The login's `settingsAfterLogin`.
+ */
+export function afterLoginText(settings: readonly { label: string }[]): string {
+  return settings.length === 0
+    ? 'Logging in is all it takes; the source is added for you.'
+    : `After logging in you choose: ${settings.map(setting => setting.label).join(', ')}.`;
 }

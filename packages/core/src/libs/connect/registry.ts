@@ -5,18 +5,45 @@
  */
 
 import type { ConnectProvider } from './provider';
+import { loginAppPlatformFor } from '@/libs/platforms/registry';
+import { loginOffered } from './loginClient';
+import { apolloProvider } from './providers/apollo';
 import { atlassianProvider } from './providers/atlassian';
 import { githubProvider } from './providers/github';
+import { googleProvider } from './providers/google';
+import { hubspotProvider } from './providers/hubspot';
+import { notionProvider } from './providers/notion';
+import { posthogProvider } from './providers/posthog';
 import { slackProvider } from './providers/slack';
+import { zoomProvider } from './providers/zoom';
+import { connectScriptEnabled, scriptedProviders } from './scripted';
 
-export const connectProviders: readonly ConnectProvider[] = [slackProvider, atlassianProvider, githubProvider];
+const realProviders: readonly ConnectProvider[] = [
+  slackProvider,
+  atlassianProvider,
+  githubProvider,
+  googleProvider,
+  hubspotProvider,
+  notionProvider,
+  zoomProvider,
+  posthogProvider,
+  apolloProvider,
+];
+
+/**
+ * Every provider, the real ones, or their scripted stand-ins when
+ * `VOCION_CONNECT_SCRIPT` is set (e2e only; refused in production).
+ */
+export function connectProviders(): readonly ConnectProvider[] {
+  return connectScriptEnabled() ? scriptedProviders(realProviders) : realProviders;
+}
 
 /**
  * The provider with this id, or null when the URL names none.
  * @param id - The `[provider]` URL segment.
  */
 export function providerFor(id: string): ConnectProvider | null {
-  return connectProviders.find(provider => provider.id === id) ?? null;
+  return connectProviders().find(provider => provider.id === id) ?? null;
 }
 
 /**
@@ -25,20 +52,25 @@ export function providerFor(id: string): ConnectProvider | null {
  * @param connectorSlug - A source's connector slug, e.g. `jira`.
  */
 export function providerForConnector(connectorSlug: string): ConnectProvider | null {
-  return connectProviders.find(provider => provider.connectorSlugs.includes(connectorSlug)) ?? null;
+  return connectProviders().find(provider => provider.connectorSlugs.includes(connectorSlug)) ?? null;
 }
 
 /**
  * What the browser may know about a connector's connect option: enough to
- * draw the button or say what the server is missing, never an env value.
+ * draw the button or say what is missing, never an env value or a client.
+ * `configured` is true when the server's env or the workspace's own login app
+ * (`loginOffered`) sets the login up; `bringYourOwnApp` says whether a
+ * workspace may save its own app for this vendor at all.
+ * @param orgId - The workspace being shown the option.
  * @param connectorSlug - A source's connector slug.
  */
-export function connectOptionFor(connectorSlug: string): {
+export async function connectOptionFor(orgId: string, connectorSlug: string): Promise<{
   provider: ConnectProvider['id'];
   label: string;
   configured: boolean;
   requiredEnv: readonly string[];
-} | null {
+  bringYourOwnApp: boolean;
+} | null> {
   const provider = providerForConnector(connectorSlug);
   if (!provider) {
     return null;
@@ -46,7 +78,8 @@ export function connectOptionFor(connectorSlug: string): {
   return {
     provider: provider.id,
     label: provider.label,
-    configured: provider.configured(),
+    configured: await loginOffered(orgId, provider),
     requiredEnv: provider.requiredEnv,
+    bringYourOwnApp: loginAppPlatformFor(provider.id) !== null,
   };
 }

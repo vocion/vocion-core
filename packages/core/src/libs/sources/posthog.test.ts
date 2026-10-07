@@ -398,6 +398,33 @@ describe('a failed range', () => {
   });
 });
 
+describe('a PostHog login that covers several projects', () => {
+  const LOGIN = { accessToken: 'pha_fixture_login_0001', refreshToken: 'phr_fixture_0001', expiresAt: '2026-09-20T18:00:00.000Z', host: 'https://us.posthog.com' };
+
+  it('reads the project the source settings pick, because the login names none', async () => {
+    const { fetchMock, calls } = posthogFetch({ totals: { '2026-09-19': [3, 1] } });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await inspectPosthog({ config: { projectId: '777' }, credentials: LOGIN, now: NOW });
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every(call => call.url.includes('/api/projects/777/'))).toBe(true);
+  });
+
+  it('keeps the project the login was made for over a setting that names another', async () => {
+    const { fetchMock, calls } = posthogFetch({ totals: { '2026-09-19': [3, 1] } });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await inspectPosthog({ config: { projectId: '777' }, credentials: { ...LOGIN, projectId: '4242' }, now: NOW });
+
+    expect(calls.every(call => call.url.includes('/api/projects/4242/'))).toBe(true);
+  });
+
+  it('with no project anywhere, asks for the project id instead of guessing one', async () => {
+    await expect(inspectPosthog({ config: {}, credentials: LOGIN, now: NOW })).rejects.toThrow(/set the PostHog project id/);
+  });
+});
+
 describe('Test connection', () => {
   it('asks for a usable credential before probing', async () => {
     await expect(posthogConnector.inspect!({ config: {}, credentials: { apiKey: 'phc_public_token_0001', host: CREDS.host, projectId: '4242' }, options: {} }))

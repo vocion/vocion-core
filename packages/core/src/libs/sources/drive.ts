@@ -50,7 +50,7 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
     const cfg = driveConfigSchema.parse(ctx.config);
     // Durable path: refresh-token exchange (see googleAuth); legacy fallback
     // accepts a raw short-lived credentials.token.
-    const token = await resolveGoogleAccessToken(ctx.credentials);
+    const token = await resolveGoogleAccessToken(ctx.credentials, ctx.orgId);
     const headers = { authorization: `Bearer ${token}` };
     const q = ctx.since
       ? `${cfg.query} and modifiedTime > '${ctx.since.toISOString()}'`

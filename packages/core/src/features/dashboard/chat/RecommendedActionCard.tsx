@@ -13,6 +13,7 @@ import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
+import { ConnectLinkCard, isConnectLinkCard } from './ConnectLinkCard';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionEffect, describeCardState } from './recommendedAction';
 import { answerInput, rulingChoices } from './rulingChoices';
@@ -52,13 +53,27 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
+type CardProps = {
   rec: RecommendedAction;
   /** Whether to offer the inline Approve. The server still authorizes the decision. */
   canApprove?: boolean;
   /** Fired once the run exists (tap or server-filed) so a stack can count it. */
   onProposed?: (runId: number) => void;
-}) {
+  /** True while the reply holding the card is still streaming; the connect card's login waits for it. */
+  replyInProgress?: boolean;
+};
+
+/**
+ * One card in the answer. The connect card (`offer_connection`, #1080) has its
+ * own component; every other card is the action card below. The split is here,
+ * above every hook, so neither card ever calls a different set of hooks.
+ * @param props - The card and how it behaves.
+ */
+export function RecommendedActionCard(props: CardProps) {
+  return isConnectLinkCard(props.rec) ? <ConnectLinkCard rec={props.rec} replyInProgress={props.replyInProgress} /> : <ActionCard {...props} />;
+}
+
+function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
   const [drafting, setDrafting] = useState(false);
   // The decision goes into the conversation as a typed user turn (backlog
@@ -335,7 +350,8 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
   // 2026-09-28: "I want to click through to the feature detail page").
   const recordLink = live?.recordHref
     ? { href: live.recordHref, label: live.recordHrefLabel ?? 'Open record' }
-    : rec.href ? { href: rec.href, label: rec.hrefLabel ?? 'Open record' } : null;
+    // An href with no actionId is a link card, drawn by its own button below: only recommend_action sets href, and only with an action_id.
+    : rec.href && rec.actionId ? { href: rec.href, label: rec.hrefLabel ?? 'Open record' } : null;
   const draft = rec.draft && phase.runId === undefined ? rec.draft : null;
   // What the run made, each one move away — the record link above already
   // names one of them when it is the same page.
@@ -613,73 +629,76 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                     )}
                   </>
                 )
-              : deferredUntil || !rec.actionId
-              // A card that names no action has nothing to approve (red team,
-              // 2026-09-26: "Approve build" whose Approve answered "This
-              // recommendation named no action"). It reads as a note; no button
-              // that can only fail.
+              : deferredUntil
                 ? null
-                : (
-                    <>
-                      {/* One click when the suggestion is already right. Approving
+                : !rec.actionId
+                  // A card that names no action has nothing to approve (red team,
+                  // 2026-09-26: "Approve build" whose Approve answered "This
+                  // recommendation named no action"). It reads as a note; no button
+                  // that can only fail. The connect link card (offer_connection,
+                  // #1080) never reaches here: ConnectLinkCard draws it.
+                    ? null
+                    : (
+                        <>
+                          {/* One click when the suggestion is already right. Approving
                     used to mean "Prepare for review", then find the card again,
                     then "Approve" — two clicks and a context switch to agree
                     with something you had already read. Chris, 2026-09-17:
                     *"I wanted to approve. I shouldn't have to click twice."*
                     Preparing is still offered, for when you want to look first
                     or edit the draft. */}
-                      {canApprove && !isDraft && choiceButtons}
-                      {canApprove && !isDraft && !choiceButtons && (
-                        <button
-                          type="button"
-                          onClick={() => void prepareAndApprove()}
-                          disabled={busy || deciding !== null}
-                          data-testid="recommended-approve-now"
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                        >
-                          {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
-                          {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
-                        </button>
-                      )}
-                      {canApprove && !isDraft && choiceButtons
-                        ? (
-                            // A ruling's review is one quiet icon: it files the
-                            // question into review without answering it.
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button type="button" onClick={prepare} disabled={busy} aria-label="Decide in review" data-testid="ruling-review-link" className={QUIET_ICON}>
-                                  {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowRight className="size-4" aria-hidden />}
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>Decide in review</TooltipContent>
-                            </Tooltip>
-                          )
-                        : canApprove && !isDraft
-                          ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
+                          {canApprove && !isDraft && choiceButtons}
+                          {canApprove && !isDraft && !choiceButtons && (
+                            <button
+                              type="button"
+                              onClick={() => void prepareAndApprove()}
+                              disabled={busy || deciding !== null}
+                              data-testid="recommended-approve-now"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                            >
+                              {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+                              {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
+                            </button>
+                          )}
+                          {canApprove && !isDraft && choiceButtons
+                            ? (
+                          // A ruling's review is one quiet icon: it files the
+                          // question into review without answering it.
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button type="button" onClick={prepare} disabled={busy} aria-label="Decide in review" data-testid="ruling-review-link" className={QUIET_ICON}>
+                                      {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowRight className="size-4" aria-hidden />}
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Decide in review</TooltipContent>
+                                </Tooltip>
+                              )
+                            : canApprove && !isDraft
+                              ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button type="button" onClick={prepare} disabled={busy} aria-label={busy ? 'Preparing…' : 'Review first'} className={QUIET_ICON}>
+                                        {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Review first</TooltipContent>
+                                  </Tooltip>
+                                )
+                              : (
+                            // The only way forward on this card, so it keeps its words.
+                                  <button
+                                    type="button"
+                                    onClick={prepare}
+                                    disabled={busy}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                                  >
                                     {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                                    {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
                                   </button>
-                                </TooltipTrigger>
-                                <TooltipContent>Review first</TooltipContent>
-                              </Tooltip>
-                            )
-                          : (
-                        // The only way forward on this card, so it keeps its words.
-                              <button
-                                type="button"
-                                onClick={prepare}
-                                disabled={busy}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                              >
-                                {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                                {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
-                              </button>
-                            )}
-                      {canApprove && !choiceButtons && deferButton}
-                    </>
-                  )}
+                                )}
+                          {canApprove && !choiceButtons && deferButton}
+                        </>
+                      )}
         {isDraft && phase.status !== 'proposed' && (
           <span className="text-[11px] text-muted-foreground">saves to Gmail Drafts — nothing sends without you</span>
         )}

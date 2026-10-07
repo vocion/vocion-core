@@ -80,7 +80,7 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   async execute(ctx, input) {
     // Durable path: refresh-token exchange (see googleAuth); falls back to a
     // raw short-lived credentials.token.
-    const token = await resolveGoogleAccessToken(ctx.credentials);
+    const token = await resolveGoogleAccessToken(ctx.credentials, ctx.orgId);
     const raw = toRfc822(input);
     const headers = { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' };
 

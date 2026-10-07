@@ -8,7 +8,8 @@ approve at the vendor, and come back with the credential stored. Nothing is
 pasted and the token never crosses the browser.
 
 The mechanism is one pair of routes and one descriptor per vendor. This guide
-is the mechanism; each vendor's guide says what to create on its side.
+is the mechanism; [login-apps.md](login-apps.md) says what to create at each
+vendor and where its client ID and secret go.
 
 ## What a person sees
 
@@ -57,16 +58,59 @@ person clicks Connect with Slack
   names an org or a person other than the admin signed in is refused with a
   short code (`state_expired`, `wrong_workspace`, `wrong_person`, `not_admin`,
   `signed_out`), and no exchange is attempted.
+- **Return path.** The start route also accepts `returnTo`, a `/dashboard`
+  path (for example the chat the person was in). It is signed into the state,
+  and the callback lands there with `connect`, `reason` and `source` appended
+  to its own query. Anything that is not a plain `/dashboard` path (another
+  host, a `//` or backslash, `..`, over 500 characters) is dropped at start and
+  refused on verify, and the landing falls back to `/dashboard/sources`.
 - **Exchange** is the provider's. It gets every query parameter but `state`
   and this deployment's callback URL, and returns either a credential bag
   with a display name, or a refusal reason.
-- **Storage** is `storeCredentialForSource`: the bag is AES-256-GCM encrypted
-  under the workspace's key and attached to the workspace's install of the
-  **connector** (`config._connector`), the same row a pasted token lands in
-  and the row sync resolves. One grant serves every source of that kind in
-  the workspace: connect Slack once and every `slack` source reads with it.
-  If the source that started the connect had been pointed at a pasted
-  workspace credential, that link is cleared so the grant is what resolves.
+- **Storage.** The bag is a row in the workspace credential store
+  (`api_token`, `obtained_via = login`), encrypted under the workspace's key,
+  with its account and a masked hint, so it shows on Developers and can be
+  revoked there like a pasted key. The source points at it through
+  `api_token_id`. One login serves every source of that connector.
+- **PKCE.** A provider that asks for it (`pkce: true`, PostHog) gets a code
+  challenge at start and the verifier at the callback. The verifier is
+  derived from the signed state (`HMAC(AUTH_SECRET, 'pkce:' + state)`), so
+  nothing is stored between the two.
+- **Refresh.** A login whose tokens expire (`accessToken`, `refreshToken`,
+  `expiresAt`) is refreshed by the sync that reads it, through
+  `libs/connect/loginGrant.ts`. It refreshes from the refresh token stored
+  now, not the one the run loaded, and saves compare-and-swap, so two syncs
+  never fight over a rotated refresh token: the loser uses the winner's
+  grant. A row shows Sync now or, for a connector that ingests nothing,
+  Test connection. Apollo is the one such connector with a login, so
+  re-testing a connected Apollo source renews an expiring login and saves it,
+  like a sync (PostHog's inspect does the same when called with a
+  `sourceId`). A renewal the test could not save fails the test. A test of
+  values typed into a form has no row to save to, so it never refreshes,
+  and says to save the connector and renew from its row. Jira's Atlassian
+  grant is never refreshed by a test.
+- **Only when set up.** The Connectors form and the chat card offer a login
+  only when there is an app to run it on: the server's (its client ID in the
+  env) or the workspace's own login app, saved on Developers. Otherwise they
+  offer paste alone, rather than a button that can only fail.
+- **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom
+  and Apollo, a workspace admin can save the vendor's client ID and secret as
+  a `<provider>-login-app` credential (`libs/connect/loginClient.ts`). A new
+  login runs on it in preference to the server's. Each login records the
+  client ID it ran on (`loginClientId`), and every refresh finds that same app
+  again, since a refresh token only works with the client that issued it. A
+  login whose app was replaced or removed asks for a new login
+  (`login_app_changed`). Setup is in [login-apps.md](login-apps.md).
+- **A login that lacks a connector's access is not reused for it.** One
+  Google login can serve Gmail, Drive, Calendar and Analytics, but only for
+  the scopes it was granted. Keeping a Drive login for Gmail is refused with a
+  way to log in again, and the new login adds Gmail's scope to the old ones
+  (`include_granted_scopes`).
+- **After the login**, a connector that needs nothing more (Slack) gets its
+  source from the callback (`createSourceWhenNoConfigNeeded`). One that needs
+  picks (GitHub repos, a Jira site and project keys) lands back where the
+  person started; in chat the agent asks for the picks and saves them with
+  `source.connect`, on the Connectors page the form asks.
 - **Landing** carries only `connect=ok|error`, a short `reason` code, and the
   source slug. A code, a token or free text from the vendor never reaches a
   URL or a log line; a vendor's refusal reaches the landing URL only as its
@@ -86,13 +130,42 @@ forwarded host of the request.
 
 | Provider | Connects | Env vars | Callback to register |
 |---|---|---|---|
-| `slack` | the `slack` source | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `/api/connect/slack/callback` |
-| `atlassian` | the `jira` source | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | `/api/connect/atlassian/callback` |
-| `github` | the `github` source | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64` (plus `GITHUB_WEBHOOK_SECRET` for the app's webhook) | `/api/connect/github/callback` (the GitHub App's Setup URL) |
+| `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `/api/connect/slack/callback` |
+| `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | `/api/connect/atlassian/callback` |
+| `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64` (plus `GITHUB_WEBHOOK_SECRET` for the app's webhook) | `/api/connect/github/callback` (the GitHub App's Setup URL) |
+| `google` | `gmail`, `drive`, `google-calendar`, `ga4` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/api/connect/google/callback` |
+| `hubspot` | `hubspot` | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` | `/api/connect/hubspot/callback` |
+| `notion` | `notion` | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | `/api/connect/notion/callback` |
+| `zoom` | `zoom` | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (a user-managed app; the server-to-server paste keeps working) | `/api/connect/zoom/callback` |
+| `posthog` | `posthog` | None. `NEXT_PUBLIC_APP_URL` must be public `https`, because PostHog reads our client from `/api/connect-client/posthog` (CIMD). | `/api/connect/posthog/callback` |
+| `apollo` | `apollo` | `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET` | `/api/connect/apollo/callback` |
 
-All of them are optional. A deployment that sets none keeps the paste forms
-it had. The Atlassian and GitHub providers land in their own pull requests;
-until then their entries answer "not configured".
+All of them are optional. A provider with no env set is not offered, and its
+connector keeps its paste form. Step-by-step setup for each vendor's app is in
+[login-apps.md](login-apps.md).
+
+Before going live with each vendor:
+
+- **Google.** Gmail and Drive read scopes are restricted: Google verifies the
+  app, with a security assessment, before workspaces outside the app's own
+  Google Workspace can use them. While the app's publishing status is
+  "Testing", Google expires every refresh token it issues after 7 days, so each
+  Google login stops working a week after it was made and the person sees "An
+  admin needs to log in with Google again". Move the app to "In production"
+  before customers use it.
+- **Zoom.** Add the scopes listed on the Zoom connector to the Marketplace
+  app, plus their `:admin` variants so admins can read every user's
+  recordings. Zoom sends no scope in the login URL.
+- **Apollo.** Apollo approves partner OAuth apps before issuing a client ID.
+  Confirm the scopes (`read_user_profile`, `app_scopes`) against the app
+  Apollo registers.
+- **PostHog.** Local dev needs a public `https` tunnel set as
+  `NEXT_PUBLIC_APP_URL`.
+- **Notion.** Register a public integration with read content only.
+
+Sentry has no login: its install redirect does not carry our signed `state`,
+so the callback cannot tell which workspace and admin started it. Paste a
+Sentry auth token instead.
 
 ## Adding a provider
 
@@ -107,12 +180,7 @@ refusal reasons are short codes a person can be shown.
 
 ## What it does not do, yet
 
-- **Refresh.** A provider whose access tokens expire (Atlassian) stores what it
-  needs to refresh; the connector reading it is what refreshes. Slack bot
-  tokens do not expire unless token rotation is switched on for the app, which
-  this flow does not request.
 - **Revoke at the vendor.** Revoking a credential in Vocion stops Vocion using
   it; it does not uninstall the app at the vendor.
-- **Workspace-level grants.** The credential lands on the connector's install,
-  as Google's grant does today, not on the workspace credential list, so it
-  is not rotated or revoked from API credentials.
+- **Several accounts of one connector**, told apart by the vendor's username
+  or email (#1173).
