@@ -1,0 +1,10 @@
+# Software Factory: requests become verified releases. Installed in a
+# workspace when any of its plugins is on there.
+id: software-factory
+name: Software Factory
+icon: git-branch
+order: 2
+description: Requests become approved work, verified changes and releases the asker hears about.
+plugins: [software-factory, production-watch]
+entry: /dashboard/p/products
+nav: [Software factory, Production Watch]

@@ -49,8 +49,8 @@ function rethrow(err: unknown): never {
 export const listForConversation = os
   .input(z.object({ conversationId: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    const conv = await getConversation({ orgId, id: input.conversationId });
+    const { orgId, userId } = await guardAuth();
+    const conv = await getConversation({ orgId, id: input.conversationId, viewerId: userId });
     if (!conv) {
       throw ApiError.notFound({ conversationId: input.conversationId });
     }

@@ -6,6 +6,7 @@ import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
 import { inviteProblem } from '@/services/inviteRules';
+import { ensurePersonalProjectsForUser } from '@/services/workspace/personalProject';
 
 /**
  * Registration endpoint. Accepting an invite is the ONLY way to create an
@@ -78,5 +79,8 @@ export async function POST(req: Request) {
       .set({ acceptedAt: new Date() })
       .where(and(eq(inviteSchema.id, invite.id)));
   });
+  // Their own workspace in the account the invite joined them to. Never
+  // throws, so it cannot fail a sign-up; sign-in retries it.
+  await ensurePersonalProjectsForUser(userId);
   return NextResponse.json({ ok: true, userId, mode: 'invite-accept' });
 }

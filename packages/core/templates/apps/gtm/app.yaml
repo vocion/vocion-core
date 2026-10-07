@@ -1,0 +1,12 @@
+# Go-to-market: engagements, proposals and the growth loop, with the GTM
+# surfaces a workspace switches on. Installed in a workspace when any of its
+# plugins or surfaces is on there.
+id: gtm
+name: GTM
+icon: target
+order: 3
+description: Engagements, their data rooms and proposals, and growth work judged on what it returned.
+plugins: [proposals, data-rooms, growth-loop]
+surfaces: [personalization, discovery, proposals]
+entry: /gtm/proposals
+nav: [GTM, Growth]

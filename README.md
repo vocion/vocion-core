@@ -28,6 +28,16 @@ builder, Vocion is more machinery than you need. It assumes you run Postgres, yo
 configuration in git, and you want a human in the loop on actions that matter. `@vocion/core` is
 not published to npm — you install it by cloning this repository and running it yourself.
 
+## Versions and release lines
+
+`main` is **Vocion 5.x**. The previous major, **4.x**, is maintained on the `4.x` branch and keeps
+getting fixes. Every release is a git tag (`v5.y.z`, `v4.y.z`) on its line, and an installation pins
+a release's commit, never a moving branch head.
+
+To stay on 4.x, pin a `v4.y.z` commit from the `4.x` branch, set `VOCION_RUNNER_IMAGE` to that
+commit's runner (`sha-…`, or `:4.x`), and point any pin-bumping automation at `4.x` or `latest-4`.
+The exact commands are in [`docs/deployment/release-lines.md`](./docs/deployment/release-lines.md).
+
 ## What this is
 
 Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author your work — **Sources, Objects, Skills, Playbooks, Workflows, Missions, Automations, Agents, and Teams** — as YAML + markdown in git, apply it to the database, and get a typed runtime with a unified human-review queue, observability, and a plugin ecosystem.

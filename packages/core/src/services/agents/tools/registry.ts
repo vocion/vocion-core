@@ -22,6 +22,7 @@ import { apolloCompanyTools } from './apolloCompanies';
 import { apolloInScope } from './apolloDirect';
 import { apolloListTools } from './apolloLists';
 import { apolloPeopleTools } from './apolloPeople';
+import { assistantTools } from './assistant';
 import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { calendarTools } from './calendarEvents';
@@ -302,6 +303,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...personalizationTools(ctx),
     // Granted-only: reference-based kit verification + the Rekognition second opinion.
     ...kitVisionTools(ctx),
+    // Personal workspaces only: the person's own assistant lists and asks the
+    // shared workspaces they can act in (list_my_workspaces, ask_workspace).
+    ...assistantTools(ctx),
   ] as StructuredToolInterface[];
 }
 

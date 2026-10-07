@@ -49,7 +49,7 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
       </div>
     );
   }
-  const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId }) : null;
+  const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId, viewerId: userId ?? undefined }) : null;
 
   // One scroll: the shell gives this page exactly the window's height, the
   // pane fills it, and the one thing that scrolls is inside the pane.

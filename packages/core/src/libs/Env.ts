@@ -53,6 +53,10 @@ export const Env = createEnv({
      * Off by default deliberately. Turning it on can lock a live deployment's
      * people out of workspaces they use daily, so it is switched on per
      * deployment after the backfill has been checked against real rows.
+     * Release 5.x will default it on; set it to `1` now to find out early.
+     *
+     * Personal workspaces do not wait for it: another person's personal
+     * workspace is invisible and unreachable with the flag on or off.
      */
     VOCION_ENFORCE_WORKSPACE_ACCESS: z.string().optional(),
     /**

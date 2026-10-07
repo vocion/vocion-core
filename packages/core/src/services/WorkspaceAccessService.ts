@@ -24,15 +24,20 @@
  * "does not exist": a 404, never a 403. `resolveProjectForUser` already does
  * this for the wrong-account case and says why.
  *
- * NOTHING CALLS THIS YET. It ships dark, and `ProjectService` and
- * `resolveTenancyForUser` start consulting it behind
- * `VOCION_ENFORCE_WORKSPACE_ACCESS` in a later release, so the query is proven
- * against production data before it can lock anyone out.
+ * `ProjectService` and `resolveTenancyForUser` consult the grant rules behind
+ * `VOCION_ENFORCE_WORKSPACE_ACCESS`, so the query is proven against production
+ * data before it can lock anyone out of a SHARED workspace.
+ *
+ * Personal workspaces do not wait for the flag. Hiding someone's own mail from
+ * their colleagues is not a rollout decision, so every lookup here and in
+ * `ProjectService` refuses another person's personal workspace with the flag
+ * on or off ({@link visibleWorkspace}).
  */
 
+import type { SQL } from 'drizzle-orm';
 import type { WorkspaceRole } from '@/services/authz';
 import process from 'node:process';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
   accountMembershipSchema,
@@ -88,6 +93,21 @@ export function enforcementEnabled(): boolean {
   return process.env.VOCION_ENFORCE_WORKSPACE_ACCESS === '1';
 }
 
+/**
+ * The SQL condition every project lookup for a person carries: a shared
+ * workspace, or a personal one they own. Another person's personal workspace
+ * fails it whatever the enforcement flag says, so it is never listed, never
+ * resolved by slug or id, and never landed on — and the caller cannot tell it
+ * from a workspace that does not exist.
+ *
+ * A personal row with no owner (its owner was deleted, `ON DELETE set null`)
+ * fails it too: `owner_user_id = $1` is NULL there, and NULL is not true.
+ * @param userId - The person asking.
+ */
+export function visibleWorkspace(userId: string): SQL {
+  return or(ne(projectSchema.kind, 'personal'), eq(projectSchema.ownerUserId, userId))!;
+}
+
 type Membership = { accountId: string; role: 'admin' | 'member' };
 
 /**
@@ -120,7 +140,14 @@ export async function membershipsFor(userId: string): Promise<Membership[]> {
 }
 
 /** A workspace together with the membership that lets this person into its account. */
-export type MemberWorkspace = { projectId: string; slug: string; accountId: string; accountRole: 'admin' | 'member' };
+export type MemberWorkspace = {
+  projectId: string;
+  slug: string;
+  accountId: string;
+  accountRole: 'admin' | 'member';
+  /** `'personal'` only ever for the person's OWN personal workspace: anyone else's is not returned. */
+  kind: 'shared' | 'personal';
+};
 
 /**
  * A workspace, when it sits in an account this person belongs to; otherwise
@@ -132,20 +159,42 @@ export type MemberWorkspace = { projectId: string; slug: string; accountId: stri
  * workspace" is only trusted when the person is actually a member of that
  * account. One query: the project joined to this person's membership in the
  * project's own account.
+ *
+ * Another person's personal workspace is null here as well, with enforcement
+ * on or off: being in the account does not put anyone in someone's own
+ * workspace.
  * @param userId - The signed-in person.
  * @param projectId - The workspace they picked.
  */
 export async function memberWorkspace(userId: string, projectId: string): Promise<MemberWorkspace | null> {
   const [row] = await db
-    .select({ projectId: projectSchema.id, slug: projectSchema.slug, accountId: projectSchema.accountId, accountRole: accountMembershipSchema.role })
+    .select({ projectId: projectSchema.id, slug: projectSchema.slug, accountId: projectSchema.accountId, accountRole: accountMembershipSchema.role, kind: projectSchema.kind })
     .from(projectSchema)
     .innerJoin(accountMembershipSchema, and(
       eq(accountMembershipSchema.accountId, projectSchema.accountId),
       eq(accountMembershipSchema.userId, userId),
     ))
-    .where(eq(projectSchema.id, projectId))
+    .where(and(eq(projectSchema.id, projectId), visibleWorkspace(userId)))
     .limit(1);
   return row ? { ...row, accountRole: row.accountRole as 'admin' | 'member' } : null;
+}
+
+/**
+ * The role a person holds in a workspace `memberWorkspace` already let them
+ * into — the one rule behind both `resolveActiveWorkspace` and `actAs`.
+ *
+ * Enforced, it is `effectiveRole`. Unenforced, a shared workspace still runs
+ * on the account role, exactly as before the flag existed; a personal one is
+ * always `effectiveRole`, which is `admin` for its owner (the only person
+ * `memberWorkspace` returns it to).
+ * @param userId - The person.
+ * @param workspace - What `memberWorkspace` returned for them.
+ */
+export async function roleInMemberWorkspace(userId: string, workspace: MemberWorkspace): Promise<WorkspaceRole | null> {
+  if (enforcementEnabled() || workspace.kind === 'personal') {
+    return effectiveRole(userId, workspace.projectId);
+  }
+  return workspace.accountRole;
 }
 
 /** The account and workspace a request runs in. */
@@ -193,7 +242,7 @@ export async function resolveActiveWorkspace(userId: string, pickedProjectId?: s
   const picked = pickedId ? await memberWorkspace(userId, pickedId) : null;
   const enforced = enforcementEnabled();
   if (picked) {
-    const workspaceRole = enforced ? await effectiveRole(userId, picked.projectId) : picked.accountRole;
+    const workspaceRole = await roleInMemberWorkspace(userId, picked);
     if (workspaceRole) {
       return { accountId: picked.accountId, accountRole: picked.accountRole, projectId: picked.projectId, workspaceRole };
     }
@@ -209,7 +258,7 @@ export async function resolveActiveWorkspace(userId: string, pickedProjectId?: s
     : memberships;
   const landing = enforced
     ? await firstHeldWorkspace(userId, searchOrder)
-    : await firstWorkspaceOnAccounts(searchOrder);
+    : await firstWorkspaceOnAccounts(userId, searchOrder);
   if (landing) {
     return landing;
   }
@@ -218,22 +267,26 @@ export async function resolveActiveWorkspace(userId: string, pickedProjectId?: s
 }
 
 /**
- * Unenforced landing: every member reaches every workspace on an account, so
- * the answer is the oldest workspace on the first account that has one. One
- * row per account (`DISTINCT ON`), ordered so the landing workspace does not
- * change between requests.
+ * Unenforced landing: every member reaches every shared workspace on an
+ * account, so the answer is the oldest workspace on the first account that has
+ * one — never another person's personal workspace. One row per account
+ * (`DISTINCT ON`), ordered so the landing workspace does not change between
+ * requests.
+ * @param userId - The person landing.
  * @param searchOrder - The person's memberships, in the order to try them.
  */
-async function firstWorkspaceOnAccounts(searchOrder: readonly Membership[]): Promise<ActiveWorkspace | null> {
+async function firstWorkspaceOnAccounts(userId: string, searchOrder: readonly Membership[]): Promise<ActiveWorkspace | null> {
   const oldestPerAccount = await db
-    .selectDistinctOn([projectSchema.accountId], { id: projectSchema.id, accountId: projectSchema.accountId })
+    .selectDistinctOn([projectSchema.accountId], { id: projectSchema.id, accountId: projectSchema.accountId, kind: projectSchema.kind })
     .from(projectSchema)
-    .where(inArray(projectSchema.accountId, searchOrder.map(m => m.accountId)))
+    .where(and(inArray(projectSchema.accountId, searchOrder.map(m => m.accountId)), visibleWorkspace(userId)))
     .orderBy(asc(projectSchema.accountId), asc(projectSchema.createdAt), asc(projectSchema.id));
   for (const membership of searchOrder) {
     const first = oldestPerAccount.find(p => p.accountId === membership.accountId);
     if (first) {
-      return { accountId: membership.accountId, accountRole: membership.role, projectId: first.id, workspaceRole: membership.role };
+      // Their own personal workspace: they own it, whatever their account role.
+      const workspaceRole = first.kind === 'personal' ? 'admin' : membership.role;
+      return { accountId: membership.accountId, accountRole: membership.role, projectId: first.id, workspaceRole };
     }
   }
   return null;

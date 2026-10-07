@@ -70,7 +70,12 @@
     "profile": "Profile",
     "marketplace": "Marketplace",
     "plugins": "Plugins",
-    "agents_for_hire": "Agents for hire"
+    "agents_for_hire": "Agents for hire",
+    "apps": "Apps",
+    "add_app": "Add app",
+    "app_elsewhere": "in another workspace",
+    "pick_workspace": "Pick a workspace",
+    "app_not_in_workspace": "{app} is not in this workspace. Pick a workspace that has it above, or add it from the marketplace."
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",
@@ -252,7 +257,12 @@
     "filter_type": "Type",
     "filter_agent": "Agent",
     "filter_placeholder": "Filter or search…",
-    "filter_searching": "deals, contacts and agents"
+    "filter_searching": "deals, contacts and agents",
+    "scope_label": "Which workspaces",
+    "scope_here": "This workspace",
+    "scope_all": "All workspaces",
+    "scope_personal": "Personal",
+    "filter_workspace": "Filter by workspace"
   },
   "Review": {
     "all": "All",
@@ -313,6 +323,8 @@
     "none_body": "This deployment shipped without the agent catalog. Agents can still be authored directly in the workspace.",
     "hire": "Hire",
     "hired": "{name} is on your team",
-    "hire_failed": "Could not hire that agent. Refresh and try again."
+    "hire_failed": "Could not hire that agent. Refresh and try again.",
+    "installed_apps": "Installed apps",
+    "more_apps": "More apps"
   }
 }

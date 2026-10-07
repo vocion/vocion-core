@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NAV_VIEW_KEY, OPEN_MANAGE_VIEW, openManageView, readNavView, writeNavView } from './useNavView';
+import { NAV_APP_KEY, NAV_VIEW_KEY, OPEN_MANAGE_VIEW, openManageView, readNavApp, readNavView, writeNavApp, writeNavView } from './useNavView';
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const m = new Map(Object.entries(initial));
@@ -67,5 +67,30 @@ describe('openManageView', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('the last app, per browser', () => {
+  it('round-trips the app and reads nothing when nothing was stored', () => {
+    const s = memoryStorage();
+
+    expect(readNavApp(s)).toBeNull();
+
+    writeNavApp(s, 'factory');
+
+    expect(s.dump()).toEqual({ [NAV_APP_KEY]: 'factory' });
+    expect(readNavApp(s)).toBe('factory');
+  });
+
+  it('swallows storage failures (private mode)', () => {
+    const throwing = { getItem: () => {
+      throw new Error('denied');
+    }, setItem: () => {
+      throw new Error('denied');
+    } };
+
+    expect(readNavApp(throwing)).toBeNull();
+    expect(() => writeNavApp(throwing, 'factory')).not.toThrow();
+    expect(readNavApp(null)).toBeNull();
   });
 });

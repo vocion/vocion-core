@@ -4,8 +4,9 @@ import { db } from '@/libs/DB';
 import { appBaseUrl } from '@/libs/links';
 import { apnsConfig, sendApns } from '@/libs/notifications/apns';
 import { sendSlack, slackToken } from '@/libs/notifications/slack';
+import { sendSmsNotification } from '@/libs/notifications/sms';
 import { sendWebPush, vapidConfig } from '@/libs/notifications/webPush';
-import { chatChannelBindingSchema, notificationDeliverySchema, notificationSchema, projectSchema, pushSubscriptionSchema } from '@/models/Schema';
+import { chatChannelBindingSchema, notificationDeliverySchema, notificationSchema, projectSchema, pushSubscriptionSchema, userSchema } from '@/models/Schema';
 import { contactsOf } from './people';
 import { getPreferences } from './preferences';
 
@@ -196,7 +197,26 @@ export type Senders = {
   ios: (sub: Subscription, message: NotificationMessage) => Promise<ChannelOutcome>;
   slack: (c: Claimed, message: NotificationMessage, ctx: DeliveryContext) => Promise<ChannelOutcome>;
   email: (first: Claimed, notifications: Notification[], ctx: DeliveryContext) => Promise<ChannelOutcome>;
+  sms: (c: Claimed, message: NotificationMessage) => Promise<ChannelOutcome>;
 };
+
+/**
+ * Who a text goes to and the number it comes from, or why there is none.
+ * @param orgId - The workspace the notification is about.
+ * @param userId - The person.
+ */
+export async function smsTargetFor(orgId: string, userId: string): Promise<{ from: string; to: string } | { error: string }> {
+  const [user] = await db.select({ phone: userSchema.phone }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
+  if (!user?.phone) {
+    return { error: 'this person has no mobile number on their profile — in Vocion chat, say "my mobile number is …"' };
+  }
+  const { textingNumberFor } = await import('@/services/chat/smsChannel');
+  const from = await textingNumberFor(orgId);
+  if (!from) {
+    return { error: 'no text number is bound to this workspace or its account — bind one (`answers: "sender"` makes it the account\'s shared number)' };
+  }
+  return { from, to: user.phone };
+}
 
 function defaultSenders(): Senders {
   return {
@@ -220,6 +240,10 @@ function defaultSenders(): Senders {
       }
       const email = ctx.contacts.get(c.userId)?.email;
       return email ? sendSlack({ dmEmail: email }, message, slackToken()) : { status: 'failed', error: 'this person has no email to find them in Slack by' };
+    },
+    sms: async (c, message) => {
+      const target = await smsTargetFor(c.orgId, c.userId);
+      return 'error' in target ? { status: 'failed', error: target.error } : sendSmsNotification(target, message);
     },
     email: async (first, notifications, ctx) => {
       const { mailEnabled, sendMail } = await import('@/libs/mail');
@@ -250,6 +274,9 @@ async function sendOne(c: Claimed, n: Notification, ctx: DeliveryContext, sender
   }
   if (c.channel === 'slack') {
     return senders.slack(c, message, ctx);
+  }
+  if (c.channel === 'sms') {
+    return senders.sms(c, message);
   }
   if (c.channel === 'in_app') {
     return { status: 'sent' };

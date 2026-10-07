@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
+import type { AppNav } from '@/features/navigation/apps';
 import { SessionProvider } from 'next-auth/react';
 import { NextIntlClientProvider } from 'next-intl';
 import { useEffect } from 'react';
@@ -22,6 +23,35 @@ import en from '@/locales/en.json';
  * sections (Team · Knowledge · Build · Insights · Organization) and the WORK
  * rows both come from `features/navigation/dashboardNav.ts`.
  */
+/**
+ * The app rail (Vocion 5.0) for a workspace with the Software Factory on:
+ * Workforce, the core app, then the factory with its own sections. In the
+ * story runner the directory RPC is absent, so the rail shows this
+ * workspace's apps only and every picker lists nothing.
+ */
+const APPS: AppNav[] = [
+  { id: 'workforce', name: 'Workforce', icon: 'users', order: 0, core: true, entry: '/dashboard/chat', href: '/dashboard/chat', sections: [], owns: [] },
+  {
+    id: 'software-factory',
+    name: 'Software Factory',
+    icon: 'git-branch',
+    order: 2,
+    core: false,
+    entry: '/dashboard/p/products',
+    href: '/dashboard/p/products',
+    owns: ['/dashboard/p/products', '/dashboard/p/work', '/dashboard/p/releases', '/dashboard/p/incidents'],
+    sections: [
+      { label: 'Software factory', items: [
+        { title: 'Products', url: '/dashboard/p/products', icon: 'layout-dashboard' },
+        { title: 'Work', url: '/dashboard/p/work', icon: 'list-checks' },
+        { title: 'Releases', url: '/dashboard/p/releases', icon: 'rocket' },
+        { title: 'Evals', url: '/dashboard/evals', icon: 'test-tube', secondary: true },
+      ] },
+      { label: 'Production Watch', items: [{ title: 'Incidents', url: '/dashboard/p/incidents', icon: 'siren' }] },
+    ],
+  },
+];
+
 /**
  * Enough of a session for `useSession()`. The switcher only needs an
  * authenticated one; the tenancy fields are what this app's `Session` type
@@ -52,7 +82,7 @@ const PAGES = [
   { title: 'Backlinks', url: '/dashboard/p/backlinks', section: 'Pages' },
 ];
 
-function Frame({ defaultOpen, needsYouCount, withPages = true, manage = false }: { defaultOpen: boolean; needsYouCount?: number; withPages?: boolean; manage?: boolean }) {
+function Frame({ defaultOpen, needsYouCount, withPages = true, manage = false, withApps = true }: { defaultOpen: boolean; needsYouCount?: number; withPages?: boolean; manage?: boolean; withApps?: boolean }) {
   // The manage view is a sidebar mode restored from localStorage after mount;
   // the story asks for it the way the header's avatar menu does.
   useEffect(() => {
@@ -68,9 +98,9 @@ function Frame({ defaultOpen, needsYouCount, withPages = true, manage = false }:
     // /api/auth/session, which does not exist under the story runner.
     <SessionProvider session={STORY_SESSION}>
       <NextIntlClientProvider locale="en" messages={en}>
-        <SidebarProvider defaultOpen={defaultOpen}>
+        <SidebarProvider defaultOpen={defaultOpen} style={{ '--sidebar-width': '18rem', '--sidebar-width-icon': '7rem' } as React.CSSProperties}>
           <div className="flex h-[640px] w-[900px] overflow-hidden rounded-xl border border-border">
-            <AppSidebar collapsible="icon" isAdmin needsYouCount={needsYouCount} workspacePages={withPages ? PAGES : []} className="relative! h-full" />
+            <AppSidebar collapsible="icon" isAdmin needsYouCount={needsYouCount} workspacePages={withPages ? PAGES : []} apps={withApps ? APPS : []} className="relative! h-full" />
             <SidebarInset className="p-10 text-[13px] text-muted-foreground">Page content</SidebarInset>
           </div>
         </SidebarProvider>
@@ -98,3 +128,12 @@ export const ManageView: Story = { args: { defaultOpen: true, needsYouCount: 3, 
 
 /** The manage view in the icon rail — tooltips carry every label, exits included. */
 export const ManageViewIconRail: Story = { args: { defaultOpen: false, needsYouCount: 3, manage: true } };
+
+/** The Software Factory picked in the rail: Chat and Review, then only the factory's sections. */
+export const SoftwareFactoryApp: Story = {
+  args: { defaultOpen: true, needsYouCount: 3 },
+  parameters: { nextjs: { appDirectory: true, navigation: { pathname: '/dashboard/p/products' } } },
+};
+
+/** No app catalogue: no rail, the brand at the head of the nav, as before 3.0. */
+export const WithoutRail: Story = { args: { defaultOpen: true, needsYouCount: 3, withApps: false } };

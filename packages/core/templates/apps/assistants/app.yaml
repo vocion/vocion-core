@@ -1,0 +1,10 @@
+# A registry slot for Assistants, which arrives in a later phase. Hidden, so
+# it never shows in the rail or the marketplace until it ships its plugins.
+id: assistants
+name: Assistants
+icon: bot
+order: 1
+hidden: true
+description: Personal assistants that work beside each person.
+plugins: []
+entry: /dashboard/chat

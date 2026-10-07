@@ -14,6 +14,7 @@ import {
   remove as removeComment,
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
+import { forUser as appsForUserRoute } from './Apps';
 import {
   featureShare as artifactFeatureShareRoute,
   folders as artifactFoldersRoute,
@@ -33,7 +34,7 @@ import {
 } from './Artifacts';
 import { pause as pauseAutomationRoute, resume as resumeAutomationRoute } from './Automations';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
-import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
+import { latestRoute as briefingsLatestRoute, personalRoute as briefingsPersonalRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
@@ -88,6 +89,7 @@ import {
   setGrant as setGroupGrantRoute,
   setMember as setGroupMemberRoute,
 } from './Groups';
+import { mineCountRoute as inboxMineCountRoute, mineRoute as inboxMineRoute } from './Inbox';
 import {
   add as addLearning,
   check as checkLearning,
@@ -228,6 +230,9 @@ export const router = {
     updatePhone: updatePhoneRoute,
     changePassword: changePasswordRoute,
   },
+  apps: {
+    forUser: appsForUserRoute,
+  },
   projects: {
     list: listProjects,
     setActive: setActiveProject,
@@ -359,6 +364,11 @@ export const router = {
   briefings: {
     regenerate: briefingsRegenerateRoute,
     latest: briefingsLatestRoute,
+    personal: briefingsPersonalRoute,
+  },
+  inbox: {
+    mine: inboxMineRoute,
+    mineCount: inboxMineCountRoute,
   },
   scorecard: {
     agents: scorecardAgentsRoute,
