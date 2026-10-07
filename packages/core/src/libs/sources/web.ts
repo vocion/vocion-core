@@ -45,6 +45,7 @@ import { load } from 'cheerio';
 import { z } from 'zod';
 import { dayKey, dayPlus, instantInZone, isoInZone, isValidTimeZone } from '@/libs/time/zone';
 import { JSON_LD_BLOCK_CAP, pageMetadata } from './pageMetadata';
+import { politeTurn } from './robots';
 
 const urlsFromSchema = z.object({
   url: z.string().url(),
@@ -470,6 +471,13 @@ async function fetchPage(
   const report = (message: string): void => {
     ctx.onProgress?.({ kind: opts.probe ? 'skipped' : 'error', uri: target, message });
   };
+  if (ctx.politeness) {
+    const turn = await politeTurn(ctx, ctx.politeness, target, USER_AGENT);
+    if (!turn.allowed) {
+      runNote(ctx, target, turn.reason);
+      return null;
+    }
+  }
   try {
     const res = await fetch(target, {
       headers: { 'User-Agent': USER_AGENT },
