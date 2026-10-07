@@ -393,7 +393,12 @@ Encryption at rest is `VOCION_CREDENTIAL_VAULT`: `local` (wrapping key in
 only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`). On `local` with
 `NODE_ENV=production`, an unset `VOCION_CREDENTIAL_VAULT_KEY` throws rather than
 falling back to a per-process ephemeral key, which would orphan every
-credential stored under the previous one.
+credential stored under the previous one. On `kms` each org's DEK is wrapped
+under the EncryptionContext `{ orgId }`, and a read made for an org the DEK row
+does not belong to is refused before KMS is called (`kmsVault.ts`). DEKs
+wrapped before the context landed still open and are re-wrapped in place on
+first read, which needs `kms:ReEncryptFrom` + `kms:ReEncryptTo` beside
+`kms:GenerateDataKey` and `kms:Decrypt`.
 
 ## Multi-Tenancy
 
