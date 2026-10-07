@@ -6,7 +6,7 @@ import { newCardId } from '@/libs/cards/card';
 import { lastConnectAttempts } from '@/libs/connect/attempts';
 import { connectOptionFor } from '@/libs/connect/registry';
 import { connectStartHref } from '@/libs/connect/returnTo';
-import { accessForDisplay, afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { connectorHasLiveSource, newestLiveCredential } from '@/services/connect/createSourceOnLogin';
 import { loginCannotServe } from '@/services/connect/loginCannotServe';
@@ -59,7 +59,7 @@ function pasteBody(paste: { credential: string; access: readonly string[]; getIt
  * @param ctx - The turn's runtime context.
  * @param input - The connector slug and one sentence on why.
  * @param input.connector - Connector slug.
- * @param input.why - Shown on the card as its rationale line.
+ * @param input.why - The agent's reason, for its own words above the card; not drawn on it.
  * @returns The text the model reads.
  */
 async function offerConnection(ctx: RuntimeContext, input: { connector: string; why: string }): Promise<string> {
@@ -89,7 +89,7 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     // with no declaration keeps the plain Connectors link.
     const href = how ? pasteHref(connector.slug, ctx.conversationId) : connectHref(connector.slug, ctx.conversationId);
     const body = how ? { body: pasteBody(how.paste) } : {};
-    const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, rationale: input.why, ...body, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
+    const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, ...body, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
     ctx.emit({ type: 'card', card });
     return connectedWording(name, href, null);
   }
@@ -109,12 +109,14 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
   const href = connectStartHref({ provider: login.provider, connector: connector.slug, returnTo, conversationId: ctx.conversationId, cardId });
   const failed = (await lastConnectAttempts(ctx.orgId)).get(connector.slug);
   const lastAttempt = failed && !failed.ok && failed.summary ? { at: failed.at.toISOString(), reason: failed.reason ?? 'unknown', summary: failed.summary } : undefined;
+  // THE CARD IS ITS TITLE AND ITS BUTTONS (Jamie, 2026-10-07, crossing out
+  // the paragraph under "Connect GitHub"). What the login asks for is on the
+  // vendor's own consent page, where the person reads it anyway; why it is
+  // offered is in the words the agent wrote above the card.
   const card: Card = {
     id: cardId,
     kind: 'link',
     title: `Connect ${name}`,
-    rationale: input.why,
-    body: `${login.access.length > 0 ? `Asks for: ${accessForDisplay(login.access)}. ` : ''}${afterLoginText(login.settingsAfterLogin)}`,
     actions: [],
     source,
     href,

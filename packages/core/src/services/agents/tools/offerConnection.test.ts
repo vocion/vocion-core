@@ -88,9 +88,10 @@ describe('offer_connection', () => {
       secondaryHrefLabel: 'Paste a token',
       actions: [],
       state: 'proposed',
-      rationale: 'So the factory can read Northwind\'s repos.',
     });
-    expect(card.body).toMatch(/^Asks for: .+\. After logging in you choose: repositories\.$/);
+    // Title and buttons only: what the login asks for is on the vendor's consent page.
+    expect(card.rationale).toBeUndefined();
+    expect(card.body).toBeUndefined();
     expect(card.lastAttempt).toBeUndefined();
     expect(JSON.stringify(card)).not.toMatch(/approve/i);
     expect(String(out)).toContain('Do not claim it is connected');
@@ -183,7 +184,8 @@ describe('offer_connection', () => {
     const jira = vi.fn();
     const jiraText = String(await offerConnectionTool(ctxWith(jira)).invoke({ connector: 'jira', why: 'x' }));
 
-    expect(jira.mock.calls[0]![0].card.body).toContain('After logging in you choose: site, project keys.');
+    // The card itself says nothing of it: what the login then needs is in the words the agent reads.
+    expect(jira.mock.calls[0]![0].card.body).toBeUndefined();
     expect(jiraText).toContain('ask which site and project keys they want');
 
     const slack = vi.fn();
@@ -191,7 +193,7 @@ describe('offer_connection', () => {
     await db.update(apiTokenSchema).set({ revokedAt: new Date() }).where(eq(apiTokenSchema.id, source!.apiTokenId!));
     const slackText = String(await offerConnectionTool(ctxWith(slack)).invoke({ connector: 'slack', why: 'x' }));
 
-    expect(slack.mock.calls[0]![0].card.body).toContain('Logging in is all it takes');
+    expect(slack.mock.calls[0]![0].card.body).toBeUndefined();
     expect(slackText).toContain('the login creates its source');
 
     await db.update(apiTokenSchema).set({ revokedAt: null }).where(eq(apiTokenSchema.id, source!.apiTokenId!));

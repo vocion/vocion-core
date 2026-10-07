@@ -59,7 +59,7 @@ export function ConnectLinkCard({ rec, replyInProgress = false, timeZone }: { re
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold break-words">{rec.label}</div>
-          {rec.rationale && <p className="mt-0.5 text-xs break-words text-muted-foreground" data-testid="recommended-action-why">{rec.rationale}</p>}
+          {/* A login card is its title and its buttons; a paste card keeps the one line saying which key. */}
           {rec.body && <p className="mt-0.5 text-xs break-words text-muted-foreground" data-testid="connect-card-body">{rec.body}</p>}
         </div>
       </div>
