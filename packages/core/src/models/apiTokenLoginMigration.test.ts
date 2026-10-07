@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 const MIGRATION_SQL = readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0167_api_token_login.sql'),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../migrations/0168_api_token_login.sql'),
   'utf8',
 );
 
