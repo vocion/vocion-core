@@ -633,7 +633,7 @@ instead. Copy the parent form, not this one.
 
 ## Pinning `vocion-core`
 
-Three rules, each earned the hard way:
+Five rules, each earned the hard way:
 
 1. **Take the SHA from `git ls-remote`, never a local checkout.** This repo's
    history was rewritten on 2026-08-31 after the PolinRider compromise, and a
@@ -660,6 +660,12 @@ Three rules, each earned the hard way:
    Empty diff, the container is current. Any output, every environment needs
    `deploy-runtime.sh` as well — and every environment separately, since each
    has its own ECR repository and runtime.
+5. **Prove the deploy from outside.** End the deploy job with
+   `vocion-core/infra/aws/verify-full.sh` (`HOST`, `PIN`, `QA_EMAIL`,
+   `QA_PASSWORD`, `VERIFY_PAGE_PATH`): the build is the pin, a QA account signs
+   in and loads a page, and one chat turn answers. A green health gate with a
+   broken session or a dead model key is what it catches. See
+   [release lines](./release-lines.md#after-the-deploy-prove-it-from-outside).
 
 ---
 

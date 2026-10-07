@@ -191,6 +191,25 @@ own workspace tree and points `WORKSPACE_PATH` at it; apply changes with
 installed, or through the in-product workspace editor. See
 [docs/workspace.md](../../docs/workspace.md).
 
+## After a deploy: verify-full.sh
+
+`update.sh` and a parent's health gate prove the new build answers.
+`verify-full.sh` proves a person can use it: `/version.txt` is the build the
+deploy pinned, a QA account signs in and loads a page, and one chat turn
+comes back with an answer. Each failure exits 1 with its reason on one
+`::error::verify-full:` line.
+
+```bash
+HOST=app.example.com PIN=<release, e.g. v5.1.0, or the pinned commit> \
+QA_EMAIL=... QA_PASSWORD=... VERIFY_PAGE_PATH=/w/<workspace>/dashboard \
+  bash infra/aws/verify-full.sh
+```
+
+The parameters are documented at the top of the script and in
+[release lines](../../docs/deployment/release-lines.md#after-the-deploy-prove-it-from-outside).
+It runs from anywhere with `curl` and `jq` (a CI runner, an operator's
+machine), not on the box.
+
 ## Testing the deploy scripts
 
 ```bash
@@ -209,6 +228,10 @@ fake `curl`, so the tests check its checksum and failure handling without
 downloading anything. `pull-app-image.sh` and `push-app-image.sh` run against
 fake `aws` and `docker`, covering the ECR login, pull retries, the app-URL
 check, the refusals, and that a deploy given an image never builds.
+
+`verify-full.sh` has its own unit test
+(`packages/core/src/scripts/verifyFull.test.ts`), which runs it against a
+local server that answers the way the app does.
 
 Those fakes don't build anything. `.github/workflows/app-image.yml` does:
 on a pull request that touches the Dockerfile or either image script, it
