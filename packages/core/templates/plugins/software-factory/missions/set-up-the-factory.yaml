@@ -3,9 +3,9 @@
 # "the first action in chat should be 'set up your software factory'"). The
 # PM's standing responsibility while any setup step the plugin declares
 # (plugin.yaml `setup:`) is undone: GitHub connected, a product and its
-# repositories on record. Started by the person from the setup chip, and by
-# `source.connected` when GitHub connects, so the records follow the login
-# without a person coming back to ask. Over the moment every step is done.
+# repositories on record. Started by the person from the setup chip; the
+# connect card brings them back to the conversation, where the PM asks which
+# repositories to include. Over the moment every step is done.
 slug: set-up-the-factory
 name: The factory is connected to what it builds
 description: >-
@@ -15,17 +15,17 @@ description: >-
   records from what the installation grants, for a person to accept.
 goal: >-
   Every setup step the plugin declares is done, by the shortest path: the
-  person connects GitHub from the card in front of them, the product and
-  repository records are proposed from the repositories the installation
-  actually grants (never guessed), a person accepts them, and the first
-  architecture map follows on its own. Nothing is asked twice, and nothing is
+  person connects GitHub from the card in front of them, says which of the
+  granted repositories the factory should include, the product and
+  repository records are filed for those (never guessed, never all by
+  default), and the first architecture map follows on its own. Nothing is asked twice, and nothing is
   invented to fill a gap a connection would have answered.
 agent: product-manager
 autonomyPolicy:
   level: 2
 successCriteria:
   - A person who taps "Set up your software factory" sees one line and the connect card, nothing that is already done, and nothing after the card
-  - Within minutes of GitHub connecting, a product record and one repository record per granted repository are proposed from describe_sources, with the default branch and URL read from GitHub, never typed from memory
+  - Once GitHub is connected the person is asked, as a numbered list, which of the granted repositories the factory should include; records are filed for the ones they name, with the default branch and URL read from GitHub, never typed from memory, and never for all by default
   - A repository the installation grants but the source does not list, or the reverse, is named to the person as the mismatch it is, with the fix on each side
   - Once every step is done the setup chip is gone and the PM says what the factory can now do, in two lines
 desiredArtifacts:

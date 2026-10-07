@@ -128,10 +128,10 @@ product and a repository on record); while any of it is undone the
 workspace's chat leads with "Set up your software factory", and the PM's
 `set-up-the-factory` skill walks the person through it — `describe_setup` for
 the steps, one connect card per remaining step (`offer_connection`; the GitHub
-login is the approval), nothing asked that a connection would answer. When GitHub connects
-(`source.connected`), `finish-setup` has the PM read the grant with
-`describe_sources` and propose the product and one repository record per
-granted repository, for a person to accept.
+login is the approval), nothing asked that a connection would answer. When GitHub connects, the
+card brings the person back to the conversation and the PM asks, as a
+numbered list, which of the granted repositories the factory should include;
+records are filed for the ones they name, never for all by default.
 
 Then the map. A repository record landing (`map-codebase`, on
 `object.created`) has the Release seat read every repository on the product in

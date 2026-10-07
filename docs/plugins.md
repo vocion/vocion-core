@@ -347,8 +347,9 @@ no `setup:` has no setup state.
 
 When a credential is stored, core emits `source.connected` (connector,
 install id, credential id, who, when), so a plugin automation can carry setup
-on from the login — the software factory's `finish-setup` has the PM file the
-product and repository records from what the GitHub installation grants.
+on from the login. The software factory does not file anything on it: which
+of the granted repositories the factory includes is the person's choice, asked
+in the conversation the connect card returns them to.
 
 ## Factory types — the roles a factory plugin's records play
 

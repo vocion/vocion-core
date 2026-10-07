@@ -51,25 +51,33 @@ same one, and nothing described in prose that the card already says.
 Only admins can connect a source; the card says so to anyone else. Say in
 one line that a workspace admin is the one who finishes it.
 
-## When GitHub is connected, the records follow
+## When GitHub is connected, ask which repositories
 
-The product and its repositories are records a person accepts, because a
-repository record is the contract QA verifies against. Propose them; do not
-wait to be asked.
+The installation grants a set of repositories. Which of them the factory
+builds is the person's choice, never assumed (Jamie, 2026-10-07: "it should
+ask which repos I want to include, not assume all").
 
-- **One product**, with `file_product`, unless the repositories plainly
-  belong to different products — then say so and file one per product. Its
-  slug is the key every request names it by; its name is what it is called
-  in prose. Read what the repositories are from their names and READMEs
-  (`repo_read_tree` on each, when the source lists it); never from memory.
-- **One repository record per granted repository**, with `file_repo`: the
-  URL and the default branch as GitHub reports them, the product's slug, and
-  the checks the repository runs if its workflows are visible. A repository
-  the installation grants but the source does not list cannot be read, and
-  the reverse cannot be written to — name the mismatch and the fix on each
-  side (add it to the source's list; grant it on GitHub).
-- A record that already exists is left alone. `describe_setup` says whether
-  the record steps are done.
+1. Call `describe_sources` for the github source: it names the repositories
+   the installation grants, and any mismatch with the source's own list.
+2. Ask, in one short message: the granted repositories as a numbered list,
+   then "Which should the factory include? Name them, or say all." Nothing
+   else in that message — no tree reads, no README reads, no records. The
+   turn ends on the question.
+3. When they answer, file what they named, on their word:
+   - **One product**, with `file_product`, unless the chosen repositories
+     plainly belong to different products — then say so and file one per
+     product. Its slug is the key every request names it by; its name is
+     what it is called in prose, taken from the repository names. Do not
+     read the repositories to describe it: the Release seat maps them next
+     and writes what the system is.
+   - **One repository record per chosen repository**, with `file_repo`: the
+     URL and the default branch as GitHub reports them, the product's slug,
+     and the checks the repository runs if its workflows are visible.
+   - A chosen repository the source does not list cannot be read, and one the
+     source lists but the installation does not grant cannot be written to —
+     name the mismatch and the fix on each side (the source's list in the
+     workspace files; the grant on GitHub).
+   - A record that already exists is left alone.
 
 Mapping is not yours: once a repository record lands, the Release seat reads
 it and files the product's architecture on its own (`map-the-codebase`). Say
@@ -89,6 +97,8 @@ tracker, from chat or from GitHub.
   stores it, or a person pastes it on the Connectors page.
 - Nothing is guessed to fill a gap a connection would answer: an unconnected
   GitHub means "connect it", never a product filed from the workspace's name.
+- No repository is included because it was granted. Granted is what the
+  factory MAY read; included is what the person said.
   The platform refuses the record while GitHub is unconnected ("Not filed: a
   product is read from github…"); when you see that, offer the connection
   and stop — do not file it another way.

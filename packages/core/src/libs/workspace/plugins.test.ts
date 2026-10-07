@@ -66,7 +66,7 @@ describe('the shipped catalogue', () => {
     // Plus two standing responsibilities around the loop (3.31.0): the factory
     // is connected to what it builds (PM), and what it builds is mapped (Release).
     expect(factory.missions).toEqual(['close-the-gap', 'keep-the-pipeline-answered', 'map-the-codebase', 'prove-the-contract', 'set-up-the-factory', 'show-it-first', 'tell-the-requester']);
-    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'finish-setup', 'incident-deploy-caused', 'map-codebase', 'map-codebase-sweep', 'narrate-recording', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-feature-demo', 'release-live-check', 'release-live-check-ended', 'slack-thread-recording', 'tell-the-asker-in-chat', 'tell-the-requester-check']);
+    expect(factory.automations).toEqual(['contract-red-team-evidence', 'contract-red-team-proposal', 'deploy-run-failed', 'design-mockup', 'design-mockup-default', 'design-mockup-ended', 'design-mockup-sweep', 'environment-deployed', 'environment-health', 'factory-ci-failure', 'factory-contract-changed', 'factory-decision-landed', 'factory-plan-approved', 'factory-plan-filed', 'factory-plan-request', 'factory-planning-ended', 'factory-reconcile', 'factory-recover-stuck', 'factory-recovery-answered', 'factory-request-filed', 'factory-request-intake', 'factory-run-failed', 'incident-deploy-caused', 'map-codebase', 'map-codebase-sweep', 'narrate-recording', 'pipeline-fix', 'pipeline-fix-ended', 'release-announcement-draft', 'release-feature-demo', 'release-live-check', 'release-live-check-ended', 'slack-thread-recording', 'tell-the-asker-in-chat', 'tell-the-requester-check']);
     // Three pages a product exec decides from, plus the hidden work item.
     expect(factory.pages).toEqual(['configure', 'feature', 'products', 'releases', 'runs', 'work']);
     expect(factory.hasTrust).toBe(true);
@@ -301,7 +301,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'naming-the-work']);
     // Two measures: what a person accepted, and who heard back inside a week. Performance is later.
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toEqual(['tasks_accepted', 'answered_within_seven_days']);
-    expect(ws.sha).toContain('+software-factory@3.31.1');
+    expect(ws.sha).toContain('+software-factory@3.31.2');
     // A re-run of a red CI's failed jobs is done for you: it changes no code (backlog 049).
     expect(ws.trust?.rules.find(r => r.action === 'repo.rerun_failed_checks')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', risk: 'low' });
     // The pipeline's owner opens its own fix, and it merges on green (plugin 2.33.0).
