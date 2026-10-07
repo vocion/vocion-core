@@ -7,7 +7,7 @@
 
 export type DashboardLinkKind
   = 'agent' | 'team' | 'mission' | 'mission-run' | 'ask' | 'briefing' | 'object' | 'room' | 'review' | 'learning'
-    | 'eval' | 'connector' | 'workflow' | 'team-report' | 'chat' | 'page';
+    | 'eval' | 'connector' | 'connect' | 'workflow' | 'team-report' | 'chat' | 'page';
 
 export type DashboardLink = {
   /** The path to navigate to (locale prefix stripped, same origin). */
@@ -18,6 +18,12 @@ export type DashboardLink = {
 };
 
 const RULES: Array<[RegExp, DashboardLinkKind]> = [
+  // A vendor login for a source (`/api/connect/<provider>/start?source=…`):
+  // the one link in an answer that IS the action — tapping it is the
+  // approval (libs/connect). A chip, so a setup step reads as a button and
+  // not as a URL; it must navigate in the same tab, since the route answers
+  // with a redirect to the vendor.
+  [/^\/api\/connect\/([^/?#]+)\/start(?:[?#]|$)/, 'connect'],
   [/^\/dashboard\/agents\/([^/?#]+)/, 'agent'],
   [/^\/dashboard\/teams\/([^/?#]+)/, 'team'],
   [/^\/dashboard\/missions\/runs\/([^/?#]+)/, 'mission-run'],
@@ -56,6 +62,9 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
     path = href.slice(origin.length);
   }
   if (!path.startsWith('/')) {
+    return null;
+  }
+  if (path.startsWith('/api/') && !path.startsWith('/api/connect/')) {
     return null;
   }
   // Locale prefix (`/en/dashboard/...`) reads the same as the bare route.

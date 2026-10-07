@@ -7,11 +7,12 @@
  * repository answers and a repository the workspace did not connect answers
  * nothing. Reads that the factory already had (`readCheckLogs`,
  * `listWorkflowRuns`, `cancelWorkflowRuns`) stay where they are; this file
- * adds the pull request as a summary, the diffs, a file at a ref, the
- * comment, the review and its dismissal, and the re-run of a whole run.
+ * adds the pull request as a summary, the diffs, a file at a ref, the whole
+ * tree at a ref, the comment, the review and its dismissal, and the re-run of
+ * a whole run.
  */
 
-import type { PipelineRunRef, PullRequestRef, PullRequestSummary, RepoFile, RepoProvider, ReviewInput } from '../provider';
+import type { PipelineRunRef, PullRequestRef, PullRequestSummary, RepoFile, RepoProvider, RepoTree, RepoTreeEntry, ReviewInput } from '../provider';
 import type { GithubCheckRun, GithubPullRequest, GithubReview } from '@/libs/github/events';
 import { parsePullUrl } from '@/services/agents/tools/githubPullRead';
 import { call, cancelWorkflowRuns, ghFor, parseRunUrl } from '@/services/factory/githubChecks';
@@ -29,6 +30,8 @@ const REVIEW_EVENT: Record<ReviewInput['event'], 'APPROVE' | 'REQUEST_CHANGES' |
 };
 
 type PullFile = { filename: string; status: string; additions?: number; deletions?: number };
+/** `GET /git/trees/:ref?recursive=1`: `commit` is a submodule, which is neither a file nor a folder here. */
+type GitTree = { sha?: string; truncated?: boolean; tree?: Array<{ path?: string; type?: 'blob' | 'tree' | 'commit' | string; size?: number }> };
 type PullFull = GithubPullRequest & { body?: string | null; additions?: number; deletions?: number; changed_files?: number; labels?: Array<{ name?: string }> };
 
 /**
@@ -122,13 +125,58 @@ async function readCompareDiff(orgId: string, repo: string, base: string, head: 
 async function readFile(orgId: string, repo: string, path: string, ref?: string | null): Promise<RepoFile> {
   const gh = await ghFor(orgId, repo);
   const clean = path.replace(/^\.?\//, '');
+  // A path is segments under the repository root and nothing else: `..`
+  // survives encodeURIComponent and URL normalisation folds it, so a crafted
+  // path could otherwise reach any API route with the installation token
+  // (`../../installation/repositories`), outside the source's repository list.
+  const segments = clean.split('/');
+  if (clean.length === 0 || segments.some(s => s.length === 0 || s === '.' || s === '..')) {
+    throw new Error(`${repo}: "${path}" is not a path inside the repository`);
+  }
   const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
-  const res = await callText(gh, `/contents/${clean.split('/').map(encodeURIComponent).join('/')}${query}`, 'application/vnd.github.raw+json', 20_000);
+  const res = await callText(gh, `/contents/${segments.map(encodeURIComponent).join('/')}${query}`, 'application/vnd.github.raw+json', 20_000);
   if (!res.ok) {
     throw new Error(`${repo}/${clean}${ref ? ` @ ${ref}` : ''} could not be read: ${res.message}${res.status === 404 ? ' (a path that is a folder, or a private repository the credential was not granted, also answers 404)' : ''}`);
   }
   const truncated = res.text.length > FILE_MAX;
   return { repo, path: clean, ref: ref ?? null, size: res.text.length, text: truncated ? res.text.slice(0, FILE_MAX) : res.text, truncated };
+}
+
+/**
+ * The whole tree at a ref in one call (the Git Trees API, recursive), on the
+ * repository's default branch when no ref is given — the branch the host
+ * names as default, not the source's `deployBranch`, which is where deploys
+ * run and not necessarily where the code is read. GitHub answers at most
+ * about 100k entries and says `truncated` past that; the flag is passed on
+ * so a summary can say the listing is partial.
+ * @param orgId - The workspace.
+ * @param repo - `owner/name`.
+ * @param ref - A branch, tag or commit; the default branch when omitted.
+ */
+async function readTree(orgId: string, repo: string, ref?: string | null): Promise<RepoTree> {
+  const gh = await ghFor(orgId, repo);
+  let at = ref?.trim() || null;
+  if (!at) {
+    const meta = await call<{ default_branch?: string }>(gh, '');
+    if (!meta.ok) {
+      throw new Error(`${repo} could not be read: ${meta.message}${meta.status === 404 ? ' (a repository the credential was not granted also answers 404)' : ''}`);
+    }
+    at = meta.data?.default_branch?.trim() || null;
+    if (!at) {
+      throw new Error(`${repo} names no default branch (an empty repository?); ask for a ref.`);
+    }
+  }
+  const res = await call<GitTree>(gh, `/git/trees/${encodeURIComponent(at)}?recursive=1`);
+  if (!res.ok) {
+    throw new Error(`the tree of ${repo} @ ${at} could not be read: ${res.message}${res.status === 404 ? ' (a ref that does not exist, or a private repository the credential was not granted, also answers 404)' : ''}`);
+  }
+  const entries: RepoTreeEntry[] = [];
+  for (const e of res.data?.tree ?? []) {
+    if (typeof e?.path === 'string' && e.path && (e.type === 'blob' || e.type === 'tree')) {
+      entries.push({ path: e.path, type: e.type, ...(typeof e.size === 'number' ? { size: e.size } : {}) });
+    }
+  }
+  return { repo, ref: at, truncated: res.data?.truncated === true, entries };
 }
 
 async function commentPull(orgId: string, ref: PullRequestRef, body: string): Promise<{ commentId: number; url: string }> {
@@ -216,6 +264,7 @@ export const githubRepoProvider: RepoProvider = {
   readPullDiff,
   readCompareDiff,
   readFile,
+  readTree,
   commentPull,
   deletePullComment,
   submitReview,

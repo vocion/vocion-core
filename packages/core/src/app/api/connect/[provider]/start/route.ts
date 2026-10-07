@@ -13,51 +13,46 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { providerFor, providerForConnector } from '@/libs/connect/registry';
-import { callbackUri, connectOrigin } from '@/libs/connect/routes';
+import { callbackUri, connectOrigin, returnUrl } from '@/libs/connect/routes';
 import { findSourceBySlug } from '@/libs/connect/sources';
 import { signState } from '@/libs/connect/state';
 import { Env } from '@/libs/Env';
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
+  // This route is a link a person follows — from the Connectors page, or a
+  // chip in chat — so a refusal lands them back in the app with the reason
+  // said (the same `returnUrl` the callback uses), never on a JSON body in
+  // the tab they were reading in.
+  const sourceSlug = req.nextUrl.searchParams.get('source')?.trim() ?? '';
+  const land = (reason: string) => NextResponse.redirect(new URL(returnUrl('', { ok: false, reason }, sourceSlug || undefined), req.nextUrl.origin), 302);
   const { orgId, userId, role } = await auth();
   if (!orgId || !userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return land('signed_out');
   }
   if (role !== 'admin') {
-    return NextResponse.json({ error: 'Only admins can connect a source' }, { status: 403 });
+    return land('not_admin');
   }
   const { provider: providerId } = await ctx.params;
   const provider = providerFor(providerId);
   if (!provider) {
-    return NextResponse.json({ error: 'Unknown provider' }, { status: 404 });
+    return land('unknown_provider');
   }
-  const sourceSlug = req.nextUrl.searchParams.get('source')?.trim() ?? '';
   if (!sourceSlug) {
-    return NextResponse.json({ error: 'Missing source' }, { status: 400 });
+    return land('source_missing');
   }
   const source = await findSourceBySlug(orgId, sourceSlug);
   if (!source) {
-    return NextResponse.json({ error: 'Source not found' }, { status: 404 });
+    return land('source_missing');
   }
   if (providerForConnector(source.connectorSlug)?.id !== provider.id) {
-    return NextResponse.json({ error: `${source.slug} is not a ${provider.label} source` }, { status: 400 });
+    return land('wrong_provider');
   }
   if (!provider.configured()) {
-    return NextResponse.json(
-      { error: `Connecting with ${provider.label} needs ${provider.requiredEnv.join(', ')} on the server.` },
-      { status: 400 },
-    );
+    return land('not_configured');
   }
   const origin = connectOrigin();
-  const missing = [
-    ...(Env.AUTH_SECRET ? [] : ['AUTH_SECRET']),
-    ...(origin ? [] : ['NEXT_PUBLIC_APP_URL']),
-  ];
-  if (missing.length > 0 || !origin) {
-    return NextResponse.json(
-      { error: `Connecting at a vendor needs ${missing.join(', ')} on the server.` },
-      { status: 500 },
-    );
+  if (!Env.AUTH_SECRET || !origin) {
+    return land('server_unconfigured');
   }
   const state = signState({ provider: provider.id, orgId, sourceSlug: source.slug, userId });
   return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id) }), 302);

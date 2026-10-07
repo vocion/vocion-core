@@ -1,0 +1,35 @@
+# WHAT IT BUILDS IS MAPPED (Jamie, 2026-10-07: "build in a codebase mapping
+# feature that runs after the auth flow and generates an architecture diagram
+# for the product page"). The Release seat's standing responsibility: it owns
+# where each product runs, so it owns what each product is made of. Fired when
+# a repository record lands (`map-codebase`) and swept daily
+# (`map-codebase-sweep`) for products whose repositories moved on since the
+# map was read. The deliverable is a typed graph the platform draws
+# (draw_architecture) — never a picture the model painted, never a diagram
+# in a code fence nothing renders.
+slug: map-the-codebase
+name: Every product carries a current map of what it is made of
+description: >-
+  The Release seat's standing responsibility. When a repository enters scope,
+  read it whole with repo_read_tree, read its siblings on the same product,
+  and file the product's architecture with draw_architecture: the components
+  that exist in the repositories, how they talk, where each runs. Redraw when
+  a repository moves on.
+goal: >-
+  Every product shows, on its own page, an architecture diagram and a written
+  summary read from its repositories within minutes of the first repository
+  record landing, and never older than the repositories it was read from by
+  more than a day. Every component on the map is something the repositories
+  contain; every relationship is one a manifest, a config or a call site
+  shows. A repository that could not be read says so on the product rather
+  than appearing as a guess.
+agent: release-engineer
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Within minutes of a repository record landing, its product carries an architecture diagram and summary filed by draw_architecture, or the reason it could not be read written on the record
+  - Every node on the diagram names a component the repository tree or a manifest shows; every edge is a relationship a config, a client, a deploy workflow or a schema shows
+  - The map names which repositories, at which ref and commit, it was read from
+  - A map older than a repository's default branch is redrawn by the daily sweep as a new version, not a second picture
+desiredArtifacts:
+  - The product's architecture diagram (SVG, role architecture-diagram) and its written summary (markdown, role architecture-summary), filed by draw_architecture

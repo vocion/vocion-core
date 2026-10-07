@@ -1,0 +1,30 @@
+# A MAP OLDER THAN THE CODE IS REDRAWN. The filing event is the first chance
+# (map-codebase); this is the second, once a day, for products whose
+# repositories moved on since the map was read, whose map failed the first
+# time, or that gained a repository before the rule existed. Same deliverable,
+# same tool. One pass a day: a map a day old is current enough, and a redraw
+# costs a read of every repository on the product.
+slug: map-codebase-sweep
+name: Products whose map is older than their repositories
+label: Redrew the architecture
+doing: Redrawing the architecture
+description: >-
+  Once a day, the Release seat compares each product's architecture map
+  against its repositories' default branches and redraws the ones that moved
+  on, or that have repositories and no map.
+status: active
+when:
+  schedule: '20 6 * * *'
+do:
+  checkMission: map-the-codebase
+  prompt: >-
+    For each product with at least one repository record: read its
+    architecture block (mappedAt, mappedFrom). If it has none, or any
+    repository on it is missing from mappedFrom, or repo_read_tree on a
+    repository's default branch reports a different head than mappedFrom
+    recorded, or mappedAt is more than seven days old, redraw it: read each
+    repository with repo_read_tree and file the product's architecture with
+    draw_architecture exactly as the map-the-codebase mission describes. A
+    product whose repositories have not moved is left alone and not
+    mentioned. Report one line per product redrawn, and one line saying how
+    many were current.

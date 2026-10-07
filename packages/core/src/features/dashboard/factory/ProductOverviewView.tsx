@@ -392,7 +392,8 @@ function About({ o }: { o: ProductOverview }) {
         </p>
       )
     : null;
-  if (!price && c.promises.length === 0 && !c.notes && !c.builtOn) {
+  const arch = c.architecture;
+  if (!price && c.promises.length === 0 && !c.notes && !c.builtOn && !arch) {
     return null;
   }
   return (
@@ -411,6 +412,26 @@ function About({ o }: { o: ProductOverview }) {
           </p>
         )}
         {c.builtOn && <p className="text-[13px] text-muted-foreground">{c.builtOn}</p>}
+        {arch && (
+          <div className="flex items-start gap-2" data-testid="product-architecture">
+            <div className="min-w-0 flex-1">
+              {arch.summary && <p className="text-[13px]">{arch.summary}</p>}
+              <p className="mt-0.5 text-[12px] text-muted-foreground">
+                {[
+                  `Architecture${shortDay(arch.mappedAt) ? ` mapped ${shortDay(arch.mappedAt)}` : ''}`,
+                  arch.mappedFrom.length > 0 ? `from ${arch.mappedFrom.join(', ')}` : null,
+                ].filter(Boolean).join(' ')}
+                {arch.diagramArtifactId && (
+                  <>
+                    {' · '}
+                    <a href="#look" className="hover:text-foreground">diagram</a>
+                  </>
+                )}
+              </p>
+            </div>
+            {arch.summaryArtifactId && <OpenInPreview recordRef={{ type: 'artifact', id: String(arch.summaryArtifactId) }} label="Open the architecture summary in preview" />}
+          </div>
+        )}
         {c.notes && (
           <details className="text-[13px]">
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Notes</summary>

@@ -8,10 +8,11 @@
  * host Vocion connects, but none of that is GitHub's: Bitbucket and Azure
  * DevOps call the same thing a pull request, GitLab a merge request; a check
  * is a pipeline step there, a workflow run a pipeline. So the agent's tools
- * are `repo_read_pull`, `repo_read_diff`, `repo_read_check_logs`, and the
- * actions `repo.comment_pull`, `repo.submit_review`, `repo.open_pull`, and
- * the vendor is a provider behind this interface, chosen from the URL's host
- * or from the source a workspace connected for the repository.
+ * are `repo_read_pull`, `repo_read_diff`, `repo_read_file`, `repo_read_tree`,
+ * `repo_read_check_logs`, and the actions `repo.comment_pull`,
+ * `repo.submit_review`, `repo.open_pull`, and the vendor is a provider behind
+ * this interface, chosen from the URL's host or from the source a workspace
+ * connected for the repository.
  *
  * A later host plugs in as another `providers/<host>.ts` implementing
  * `RepoProvider`, registered in `repoProviderFor`; nothing an agent is told,
@@ -57,6 +58,16 @@ export type PullRequestSummary = {
 /** A file at a ref, read through the host credential. */
 export type RepoFile = { repo: string; path: string; ref: string | null; size: number; text: string; truncated: boolean };
 
+/** One entry of a repository's tree: a file (`blob`) or a directory (`tree`), by its path from the root. */
+export type RepoTreeEntry = { path: string; type: 'blob' | 'tree'; size?: number };
+
+/**
+ * A repository's whole tree at a ref, read through the host credential in one
+ * call. `ref` is the one actually read (the default branch when none was
+ * asked for); `truncated` when the host cut the listing short.
+ */
+export type RepoTree = { repo: string; ref: string; truncated: boolean; entries: RepoTreeEntry[] };
+
 /** A review submitted on a pull request. */
 export type ReviewInput = {
   event: 'approve' | 'request_changes' | 'comment';
@@ -82,6 +93,8 @@ export type RepoProvider = {
   /** The unified diff between two refs (`base...head`). */
   readCompareDiff: (orgId: string, repo: string, base: string, head: string) => Promise<string>;
   readFile: (orgId: string, repo: string, path: string, ref?: string | null) => Promise<RepoFile>;
+  /** Every path in the repository at a ref — the default branch when omitted — as one listing. */
+  readTree: (orgId: string, repo: string, ref?: string | null) => Promise<RepoTree>;
   /** A comment on the pull request's conversation. */
   commentPull: (orgId: string, ref: PullRequestRef, body: string) => Promise<{ commentId: number; url: string }>;
   deletePullComment: (orgId: string, repo: string, commentId: number) => Promise<void>;

@@ -67,11 +67,11 @@ with an Undo, at the rung `trust.yaml` gives it.
 | Seat | Reads | Writes (actions) | Skills |
 |---|---|---|---|
 | every seat | `repo_read_pull`, `repo_read_diff`, `repo_read_file`, `tracker_read_issue`, `tracker_search_issues`, `chat_read_thread`, `lookup_person` | — | — |
-| PM | the above | `tracker.create_issue`, `tracker.transition_issue`, `tracker.update_issue`, `tracker.comment` (a person sends), `chat.reply_in_thread` (a person sends), `chat.add_reaction`, `chat.post_message` (a person sends) | `intake-from-chat`, `intake-from-the-tracker`, `mirror-the-tracker`, `tell-the-requester` |
+| PM | the above, `describe_setup` | `tracker.create_issue`, `tracker.transition_issue`, `tracker.update_issue`, `tracker.comment` (a person sends), `chat.reply_in_thread` (a person sends), `chat.add_reaction`, `chat.post_message` (a person sends) | `set-up-the-factory`, `intake-from-chat`, `intake-from-the-tracker`, `mirror-the-tracker`, `tell-the-requester` |
 | Design | `chat_read_file`, `tracker_read_attachment` | `tracker.attach_file`, `tracker.comment`, `chat.post_message` | `draw-from-the-ask`, `close-with-the-after-shot` |
 | Eng | `repo_read_check_logs` (granted) | `repo.comment_pull` | `read-the-ask-whole`, `report-on-the-pull` |
 | QA | `repo_read_check_logs` (granted); no chat, on purpose | `repo.submit_review` (filed by `record_verdict` as the verdict's mirror) | `review-on-the-pull`, `judge-the-checks` |
-| Release | `repo_read_check_logs`, `repo_read_pipeline_runs` (granted) | `repo.rerun_failed_checks`, `repo.open_pull`, `repo.dispatch_pipeline`, `repo.revert_pull`, `repo.cancel_pipeline_run`, `repo.comment_pull`, `chat.post_message` (a person sends) | `explain-a-red-check`, `incident-update` |
+| Release | `repo_read_check_logs`, `repo_read_pipeline_runs`, `repo_read_tree` (granted); `draw_architecture` (granted, files the product's map) | `repo.rerun_failed_checks`, `repo.open_pull`, `repo.dispatch_pipeline`, `repo.revert_pull`, `repo.cancel_pipeline_run`, `repo.comment_pull`, `chat.post_message` (a person sends) | `explain-a-red-check`, `incident-update`, `map-the-codebase` |
 
 The four GitHub actions and `slack.post_message` kept their former ids as
 aliases (`Action.aliases`): a run recorded, a rule a workspace wrote or a
@@ -119,6 +119,29 @@ ask (`factory-recovery-answered` takes the answer). `factory-recover-stuck`
 carries on, hourly, requests that were already stuck. The feature page and the
 Work row say Planning, Recovering (attempt N of 3) or Stopped, each with what
 happens next; every step is a line on the feature's Activity and on the run.
+
+## Setting up, and the map (3.31.0)
+
+A factory that is on but not set up says so before anything else. The plugin
+declares what set up means (`plugin.yaml` `setup:`: GitHub connected, a
+product and a repository on record); while any of it is undone the
+workspace's chat leads with "Set up your software factory", and the PM's
+`set-up-the-factory` skill walks the person through it — `describe_setup` for
+the steps, one link per remaining step (the GitHub login is the approval),
+nothing asked that a connection would answer. When GitHub connects
+(`source.connected`), `finish-setup` has the PM read the grant with
+`describe_sources` and propose the product and one repository record per
+granted repository, for a person to accept.
+
+Then the map. A repository record landing (`map-codebase`, on
+`object.created`) has the Release seat read every repository on the product in
+one call each (`repo_read_tree`: layout, manifests, workflows) and file the
+product's architecture with `draw_architecture` — a typed graph of the
+components and relationships the trees actually show, which the platform lays
+out into an SVG and files on the product as a versioned artifact beside a
+written summary. The product page shows both; `map-codebase-sweep` redraws,
+once a day, the products whose repositories moved on. Nothing is painted by a
+model, and no diagram lives in a code fence nothing renders.
 
 ## Trust
 

@@ -36,6 +36,8 @@ afterEach(() => {
 
 /** Events this product actually raises. Anything else is fiction. */
 const REAL_EVENTS = new Set([
+  // A credential stored for a connector (services/SourceCredentialService.ts).
+  'source.connected',
   'automation_run.completed',
   'mission_run.completed',
   'pr.checks_completed',

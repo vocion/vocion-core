@@ -377,6 +377,18 @@ export const PluginManifestSchema = z.object({
    * until a plugin needs more.
    */
   settings: z.record(z.string().regex(/^[a-z]\w*$/i, 'a setting key is one word, e.g. narrateRecordings'), PluginSettingSchema).optional(),
+  /**
+   * What the plugin needs before it does anything: the connectors a person
+   * must connect (connector slugs, e.g. `github`) and the object types that
+   * must hold at least one record (type slugs the plugin ships). Read by
+   * `services/plugins/setupState.ts`, which is behind the chat's
+   * "Set up your <plugin>" chip and the `describe_setup` tool, so core names
+   * no connector and no type: a plugin says what "set up" means for it.
+   */
+  setup: z.object({
+    connectors: z.array(z.string().min(1)).default([]),
+    records: z.array(SlugSchema).default([]),
+  }).default({ connectors: [], records: [] }),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 

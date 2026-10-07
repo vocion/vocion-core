@@ -33,6 +33,7 @@ skills:
   - rubric-release-engineer
   - explain-a-red-check
   - incident-update
+  - map-the-codebase
 objectTypes:
   - engineering_task
   - request
@@ -67,4 +68,10 @@ harness:
     - repo.revert_pull
     - repo.rerun_failed_checks
     - repo.cancel_pipeline_run
+    # The map of what each product is (plugin 3.31.0): a repository read whole
+    # in one call, and the product's architecture filed as a typed graph the
+    # platform draws. This seat owns where each product runs, so it owns what
+    # each product is made of.
+    - repo_read_tree
+    - draw_architecture
 systemPromptFile: ./release-engineer.system-prompt.md

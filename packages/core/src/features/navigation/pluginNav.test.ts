@@ -15,6 +15,7 @@ function plugin(over: Partial<PluginManifest> & { slug: string }): PluginManifes
     nav: { section: 'Workspace', order: 0 },
     recommend: { when: [], connectors: [] },
     notifications: [],
+    setup: { connectors: [], records: [] },
     ...over,
   };
 }

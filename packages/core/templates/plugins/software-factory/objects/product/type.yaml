@@ -51,12 +51,20 @@ schema:
     # page tagged with its slug or named <slug>-… (send-standards for send).
     # The product page previews each; the Related block links them.
     - {key: wiki, label: Wiki, from: wiki, field: capabilitiesPage, match: slug, limit: 6}
+    # The architecture the Release seat filed from the repositories (plugin
+    # 3.31.0): one diagram artifact, redrawn as a new version when a
+    # repository moves on, so the product page always shows the current one.
+    - {key: architecture, label: Architecture, from: artifacts, role: architecture-diagram, limit: 1}
   # DERIVED (core: libs/workspace/related.ts): `urls` and `repos` are read
   # from those records at read time — the page and read_object show these —
   # and a stored value that disagrees is shown as drift, never preferred.
   x-derived:
     urls: {relation: environments, value: url, keyBy: surface, where: {stage: production}, keys: {site: marketing, app: web, api: api}}
     repos: {relation: repos, value: slug}
+  # The PM may file a product (plugin 3.31.0): setup's first record, from the
+  # repositories GitHub grants, proposed for a person to accept. One per slug.
+  x-agent-file:
+    dedupOn: [slug]
   properties:
     slug:
       x-display: {label: Slug, format: mono, group: Identity}
@@ -283,6 +291,33 @@ schema:
       x-display: {label: Notes, role: prose, order: 5}
       type: string
       description: Standing knowledge about the product — positioning, who it is for, what was decided and when. Markdown.
+
+    architecture:
+      x-display: {label: Architecture, role: prose, format: steps, order: 9}
+      type: object
+      description: >-
+        What the system is, as read from its repositories (plugin 3.31.0).
+        Written by draw_architecture — the Release seat hands over a typed
+        graph of components and relationships and the platform draws it —
+        never by hand. The diagram and the summary are artifacts (the nouns
+        that version, preview and can be cited); this block points at them
+        and says when and from what they were read. Redrawn as a new version
+        of the same artifact when a repository moves on, so a stale map is a
+        date a person can see, not a second picture.
+      properties:
+        diagramArtifactId: {type: integer, description: 'The SVG diagram, a file artifact at role architecture-diagram.'}
+        summaryArtifactId: {type: integer, description: 'The written architecture, a markdown artifact at role architecture-summary: components, what each is, how they talk.'}
+        summary: {type: string, description: 'The architecture in a paragraph, for the card and for search.'}
+        mappedAt: {type: string, format: date-time, description: When the repositories were last read for this.}
+        mappedFrom:
+          type: array
+          description: 'Which repositories, at which ref and commit, the map was read from — the evidence under the picture.'
+          items:
+            type: object
+            properties:
+              repo: {type: string}
+              ref: {type: string}
+              sha: {type: string}
 
 # Counted from the request and release records themselves, on every write
 # that touches one, so a line on the board cannot go stale between ticks.

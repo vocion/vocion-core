@@ -4,7 +4,7 @@ import type { DashboardLinkKind } from './links';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
 import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
-import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Plug, Rocket, Target, Users } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -49,6 +49,7 @@ const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'learning': FileText,
   'eval': ClipboardCheck,
   'connector': LayoutDashboard,
+  'connect': Plug,
   'workflow': Rocket,
   'team-report': Users,
   'chat': MessageSquare,
@@ -458,6 +459,21 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                             const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
                             if (inApp) {
                               const Icon = LINK_ICON[inApp.kind];
+                              if (inApp.kind === 'connect') {
+                                // The login route answers with a redirect to
+                                // the vendor: a plain same-tab navigation, not
+                                // a client-side route change.
+                                return (
+                                  <a
+                                    href={inApp.href}
+                                    data-link-kind={inApp.kind}
+                                    className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
+                                  >
+                                    <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                                    <span className="truncate">{children}</span>
+                                  </a>
+                                );
+                              }
                               return (
                                 <Link
                                   href={inApp.href}

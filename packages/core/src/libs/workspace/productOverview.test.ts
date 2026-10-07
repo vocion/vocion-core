@@ -182,6 +182,54 @@ describe('product context is readable, and the machinery is behind technical det
   });
 });
 
+describe('the mapped architecture is a picture of the product and a dated line about it', () => {
+  const ARCHITECTURE = {
+    diagramArtifactId: 71,
+    summaryArtifactId: 72,
+    summary: 'Send is a web and iPhone client on one REST API, with a worker that sends the opened notifications.',
+    mappedAt: '2026-10-07T10:00:00Z',
+    mappedFrom: [{ repo: 'northwind/send-web', ref: 'main' }, { repo: 'northwind/send-api', ref: 'main', sha: 'abcdef1234567890' }],
+  };
+
+  it('puts the diagram first among the pictures, sourced to the product itself', () => {
+    const o = build({ product: { ...SEND, meta: { ...SEND.meta, architecture: ARCHITECTURE } } });
+
+    expect(o.pictures[0]).toEqual({
+      artifactId: 71,
+      label: 'Architecture',
+      caption: 'Send: how it is built, mapped 2026-10-07',
+      source: { text: 'Mapped from northwind/send-web, northwind/send-api', ref: { type: 'object', id: '2' } },
+    });
+  });
+
+  it('reads the summary, when, and from where into the context, and keeps the raw field out of technical details', () => {
+    const o = build({ product: { ...SEND, meta: { ...SEND.meta, architecture: ARCHITECTURE } } });
+
+    expect(o.context.architecture).toEqual({
+      summary: ARCHITECTURE.summary,
+      mappedAt: '2026-10-07T10:00:00Z',
+      mappedFrom: ['northwind/send-web', 'northwind/send-api'],
+      diagramArtifactId: 71,
+      summaryArtifactId: 72,
+    });
+    expect(o.technical.other.map(f => f.label)).not.toContain('Architecture');
+  });
+
+  it('has nothing to say about a product nobody has mapped', () => {
+    const o = build();
+
+    expect(o.context.architecture).toBeNull();
+    expect(o.pictures.map(p => p.label)).not.toContain('Architecture');
+  });
+
+  it('still reads a summary with no picture, and never points at a picture that is not a number', () => {
+    const o = build({ product: { ...SEND, meta: { ...SEND.meta, architecture: { summary: 'Words only', diagramArtifactId: 'seventy-one' } } } });
+
+    expect(o.context.architecture).toMatchObject({ summary: 'Words only', diagramArtifactId: null });
+    expect(o.pictures.map(p => p.label)).not.toContain('Architecture');
+  });
+});
+
 describe('a card\'s subtitle breaks into lines', () => {
   const f = (key: string, breakBefore?: boolean) => ({ key, from: `meta.${key}`, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true, breakBefore }) as never;
 

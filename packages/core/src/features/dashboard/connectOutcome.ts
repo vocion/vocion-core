@@ -47,6 +47,9 @@ export function connectOutcomeMessage(outcome: ConnectOutcome): string {
     source_missing: 'The source this authorization was for no longer exists.',
     store_failed: 'The vendor authorized Vocion but the credential could not be stored. Try again; if it repeats, check the server log.',
     not_implemented: 'This provider is not available on this server yet.',
+    unknown_provider: 'That link named a provider this server does not have.',
+    wrong_provider: 'That link paired a source with the wrong provider. Start again from Connect.',
+    not_configured: 'This server has no login configured for that provider; paste a credential here instead.',
   };
   return `Could not connect${which}: ${reasons[outcome.reason] ?? `the vendor refused (${outcome.reason}).`}`;
 }

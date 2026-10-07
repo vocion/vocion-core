@@ -60,56 +60,50 @@ beforeEach(() => {
 });
 
 describe('GET /api/connect/[provider]/start', () => {
-  it('refuses a signed-out request', async () => {
+  // A refusal is a link's answer: back to Sources in the same tab with the
+  // reason in the URL (the callback's shape), never a JSON body — a person
+  // tapped this from the Connectors page or a chip in chat.
+  const landedWith = (res: Response, reason: string, source = 'slack') => {
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(`https://agents.example/dashboard/sources?connect=error&reason=${reason}&source=${source}`);
+  };
+
+  it('sends a signed-out request back with the reason', async () => {
     vi.mocked(clerkAuth).mockResolvedValue({ ...admin, orgId: null, userId: null });
 
-    const res = await GET(request(), context());
-
-    expect(res.status).toBe(401);
+    landedWith(await GET(request(), context()), 'signed_out');
   });
 
-  it('refuses a member: connecting is an admin act, like pasting a key', async () => {
+  it('sends a member back: connecting is an admin act, like pasting a key', async () => {
     vi.mocked(clerkAuth).mockResolvedValue({ ...admin, role: 'member' });
 
-    const res = await GET(request(), context());
+    landedWith(await GET(request(), context()), 'not_admin');
 
-    expect(res.status).toBe(403);
+    expect(signState).not.toHaveBeenCalled();
   });
 
-  it('answers 404 for a provider that does not exist', async () => {
-    const res = await GET(request(), context('nope'));
-
-    expect(res.status).toBe(404);
+  it('sends back a link naming a provider that does not exist', async () => {
+    landedWith(await GET(request(), context('nope')), 'unknown_provider');
   });
 
-  it('refuses a source the provider does not connect', async () => {
+  it('sends back a source the provider does not connect', async () => {
     vi.mocked(findSourceBySlug).mockResolvedValue({ id: 8, slug: 'kb-strapi', connectorSlug: 'strapi' });
 
-    const res = await GET(request('?source=kb-strapi'), context());
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({ error: 'kb-strapi is not a Slack source' });
+    landedWith(await GET(request('?source=kb-strapi'), context()), 'wrong_provider', 'kb-strapi');
   });
 
-  it('names the missing env vars when the server is not configured', async () => {
+  it('sends back when the server has no login configured for the provider', async () => {
     configured.value = false;
 
-    const res = await GET(request(), context());
-
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({
-      error: 'Connecting with Slack needs SLACK_CLIENT_ID, SLACK_CLIENT_SECRET on the server.',
-    });
+    landedWith(await GET(request(), context()), 'not_configured');
   });
 
   it('fails closed when the server cannot sign a state or name its own origin', async () => {
     env.AUTH_SECRET = undefined;
     env.NEXT_PUBLIC_APP_URL = undefined;
 
-    const res = await GET(request(), context());
+    landedWith(await GET(request(), context()), 'server_unconfigured');
 
-    expect(res.status).toBe(500);
-    await expect(res.json()).resolves.toEqual({ error: 'Connecting at a vendor needs AUTH_SECRET, NEXT_PUBLIC_APP_URL on the server.' });
     expect(signState).not.toHaveBeenCalled();
   });
 
