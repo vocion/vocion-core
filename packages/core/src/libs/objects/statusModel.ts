@@ -27,6 +27,7 @@
  *         - {key: archived, label: Archived, role: archived, in: [out_of_scope, …]}
  *       x-needs-you: [awaiting_merge, …]
  *       x-transitions: {building: building, 'state:shipped': shipped, …}
+ *       x-tell: {stopped: 'Blocked, needs you: {line}', live: 'Done: {title} is live. {line}', …}
  *
  * A null or unknown value belongs to the group marked `default` (Chris: "Stick
  * nulls together with the in progress column").
@@ -56,6 +57,11 @@ export type StatusModel = {
   needsYou: ReadonlySet<string>;
   /** Transition name → value, in declared order (the first match wins when a write fires several). */
   transitions: Array<[string, string]>;
+  /**
+   * Transition name → what the person who asked is told, where they asked (`x-tell`). `{line}` is
+   * the step's sentence and `{title}` the record's. A transition not named here is not said.
+   */
+  tell: Record<string, string>;
 };
 
 /** Where a value stands: its group, its words and its tone. */
@@ -105,7 +111,8 @@ export function readStatusModel(schema: unknown): StatusModel | null {
     const labels = Object.fromEntries(Object.entries(obj(prop['x-labels'])).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
     const tones = Object.fromEntries(Object.entries(obj(obj(prop['x-display']).tones)).filter(([, v]) => TONES.has(v as StatusTone))) as Record<string, StatusTone>;
     const transitions = Object.entries(obj(prop['x-transitions'])).filter((e): e is [string, string] => typeof e[1] === 'string');
-    return { field, groups, labels, tones, needsYou: new Set(strings(prop['x-needs-you'])), transitions };
+    const tell = Object.fromEntries(Object.entries(obj(prop['x-tell'])).filter(([, v]) => typeof v === 'string' && v.trim() !== '')) as Record<string, string>;
+    return { field, groups, labels, tones, needsYou: new Set(strings(prop['x-needs-you'])), transitions, tell };
   }
   return null;
 }

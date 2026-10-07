@@ -1242,6 +1242,15 @@ export async function reviewFiledPlan(orgId: string, payload: Partial<ObjectCrea
   const approver = out.ok && out.res.status === 'pending' ? await planApprover(orgId, request) : null;
   const waiting = approver ? `Planning — ${planName} is written and waiting for ${approver} to approve it.` : null;
   await updateRecovery(orgId, requestId, s => logLine(s.stage === 'planning' ? { ...s, line: waiting ?? s.line, ...(waiting && approver ? { waitingOn: { who: approver, line: waiting, actionRunId: out.ok ? out.res.runId : null } } : {}) } : s, line, at));
+  if (out.ok && out.res.status === 'pending') {
+    // THE PLAN WAITS ON A PERSON, SAID AS SUCH (FE-133, 2026-10-06: PL-484 was written for Chris
+    // and nobody asked him; three hours later the request stopped, "the plan did not arrive").
+    // The status says whose move it is, which tells the asker and every conversation following
+    // the request (`x-tell`), and the event tells the request's workflow to wait for the person.
+    await markStatus(orgId, requestId, 'plan_waits', { line: waiting ?? line, at });
+    const { emitEvent } = await import('@/services/EventService');
+    await emitEvent({ orgId, type: 'factory.plan_waits', payload: { requestId, planId, actionRunId: out.res.runId }, dedupeKey: `factory.plan_waits:${planId}:${out.res.runId}`, invokedBy: `factory:${PM}`, dispatchMode: 'auto' }).catch(() => undefined);
+  }
   return { requestId, did: out.ok ? `approve_plan:${out.res.status}` : 'approve_plan:refused', line };
 }
 
@@ -2209,24 +2218,76 @@ async function intakeHeard(orgId: string, objectType: string): Promise<boolean> 
 }
 
 /**
- * WHAT FILING STARTED, for the filing's own answer (run 2, 2026-10-01). A
- * person's request builds by default: intake started FE-298's build as the
- * person's action 1.7 s after it was filed, and the PM, which never heard,
- * answered "Here's the dispatch card" about a card that did not exist. The
- * filing tool now waits briefly for intake's typed mark (`readIntake`) and
- * says what it did, so the answer describes what happened rather than
- * offering to do it. The agent's words are its own; this is what it is told.
- *
- * Null at once when the type has no intake here, and null when intake has
- * not marked the record within `waitMs`: the filing's own receipt stands.
+ * The first lines of what "done" means, short enough for a chat message: each acceptance line cut
+ * at its first sentence or clause, at most `max`, and how many more the feature page holds.
+ * @param acceptance - The request's `acceptance` (strings, or `{statement}`).
+ * @param max - How many to show.
+ */
+export function doneMeans(acceptance: unknown, max = 3): { lines: string[]; more: number } {
+  const all = (Array.isArray(acceptance) ? acceptance : [])
+    .map(a => (typeof a === 'string' ? a : a && typeof a === 'object' && typeof (a as { statement?: unknown }).statement === 'string' ? (a as { statement: string }).statement : ''))
+    .map(t => t.trim())
+    .filter(Boolean);
+  const short = (t: string) => {
+    const first = t.split(/(?<=[.;:])\s/)[0]!.replace(/[.;:]$/, '');
+    return first.length > 110 ? `${first.slice(0, 107).replace(/\s+\S*$/, '')}…` : first;
+  };
+  return { lines: all.slice(0, max).map(short), more: Math.max(0, all.length - max) };
+}
+
+/**
+ * THE FILING REPLY, WRITTEN (Chris, 2026-10-06: "confirming the response, letting me know that it
+ * was getting to work, linking to the feature page, and summarizing some of the requirements in a
+ * chat appropriate sized message"). The agent sends this as it stands, so every filing says the
+ * same true things: where it stands, the link, what done means, and what the person will hear
+ * next and where (`x-tell` says the rest in this conversation: blocked, a merge waiting on them,
+ * live in production).
+ * @param outcome - What intake did.
+ * @param f - The record as the person reads it.
+ * @param f.name - Its code (`FE-478`).
+ * @param f.href - Its page.
+ * @param f.acceptance - Its acceptance lines.
+ * @param f.mergeHeld - Whether its product holds every merge for a person.
+ * @param f.why - Why it could not start, when it could not.
+ */
+export function filedLine(outcome: IntakeMark['outcome'], f: { name: string; href: string | null; acceptance: unknown; mergeHeld: boolean; why?: string | null }): string | null {
+  const link = f.href ? `[${f.name}](${f.href})` : f.name;
+  const { lines, more } = doneMeans(f.acceptance);
+  const done = lines.length > 0 ? ['', '**Done means:**', ...lines.map(l => `- ${l}`), ...(more > 0 ? [`- …and ${more} more on the feature page`] : [])] : [];
+  const next = f.mergeHeld
+    ? 'I\'ll update you here if it\'s blocked, when the merge needs your approval, and when it\'s live in production and ready to review.'
+    : 'I\'ll update you here if it\'s blocked, and when it\'s live in production and ready to review. No merge approval is needed: it goes to production once QA passes.';
+  switch (outcome) {
+    case 'started':
+    case 'planning':
+      return [`On it: filed as ${link}, and the build has started${outcome === 'planning' ? ' with a plan' : ''}.`, ...done, '', next].join('\n');
+    case 'card':
+      return [`Filed as ${link}. It waits on you to start it: approve the Build card on the feature page.`, ...done].join('\n');
+    case 'held':
+      return [`Filed as ${link} and held, as you asked: approve the Build card when you're ready.`, ...done].join('\n');
+    case 'blocked':
+    case 'refused':
+      return [`Filed as ${link}, but the build could not start yet${f.why ? `: ${f.why.replace(/\.$/, '')}` : ''}.`, ...done].join('\n');
+    default:
+      return null;
+  }
+}
+
+/**
+ * What the filing tool tells the agent once intake has acted: the message to send the person, as
+ * written ({@link filedLine}), and what the request's log says. Null for a record that is not a
+ * request, or one intake has not read within `waitMs`.
  * @param orgId - The workspace.
  * @param record - The record just filed.
- * @param record.objectType - Its type slug.
- * @param record.id - Its id.
+ * @param record.objectType
+ * @param record.id
+ * @param shown - How the person reads it: its code and page.
+ * @param shown.name
+ * @param shown.href
  * @param waitMs - How long to wait for intake.
  * @param settleMs - How long to wait after the mark for the lines it writes next (planning first, the dispatch).
  */
-export async function filingReceipt(orgId: string, record: { objectType: string; id: number }, waitMs = 8_000, settleMs = 1_500): Promise<string | null> {
+export async function filingReceipt(orgId: string, record: { objectType: string; id: number }, shown: { name: string; href: string | null } = { name: `#${record.id}`, href: null }, waitMs = 8_000, settleMs = 1_500): Promise<string | null> {
   if (record.objectType !== (await factoryTypes(orgId)).request || !(await intakeHeard(orgId, record.objectType))) {
     return null;
   }
@@ -2247,20 +2308,14 @@ export async function filingReceipt(orgId: string, record: { objectType: string;
     await new Promise(r => setTimeout(r, settleMs));
   }
   const fresh = await readRecord(orgId, record.id);
-  const lines = readRecovery(fresh?.meta ?? {}).log.map(l => l.text.trim()).filter(Boolean).slice(-4);
-  const said = lines.length > 0 ? ` What the request says: ${lines.map(l => `"${l}"`).join(' ')}` : '';
-  switch (mark.outcome) {
-    case 'started':
-    case 'planning':
-      return `The factory already acted on it: the build started as the person's own action, because they asked for it (Undo on the request cancels it until a worker claims it).${said} There is no card and nothing is left to dispatch or confirm: say it has started and what happens next, and link the request.`;
-    case 'card':
-      return `The build did not start on its own: a Build card is waiting for a person to approve.${said} Say that in one line, with the request's link.`;
-    case 'held':
-      return `Held, as the person asked: nothing is building, and the Build card waits for them.${said} Say that in one line.`;
-    case 'blocked':
-    case 'refused':
-      return `The build could not start yet${mark.why ? `: ${mark.why}` : ''}.${said} Say what holds it and who it waits on, in one line, with the request's link.`;
-    default:
-      return null;
+  const meta = fresh?.meta ?? {};
+  const lines = readRecovery(meta).log.map(l => l.text.trim()).filter(Boolean).slice(-4);
+  const said = lines.length > 0 ? `\n\nWhat the request's log says, for you (not to repeat): ${lines.map(l => `"${l}"`).join(' ')}` : '';
+  const { productMergeHold } = await import('./mergeHold');
+  const mergeHeld = Boolean(await productMergeHold(orgId, { productSlug: typeof meta.product === 'string' ? meta.product : null }).catch(() => null));
+  const message = filedLine(mark.outcome, { name: shown.name, href: shown.href, acceptance: meta.acceptance, mergeHeld, why: mark.why ?? null });
+  if (!message) {
+    return null;
   }
+  return `Reply to the person with this message, as written. If they asked something else too, answer that in one sentence before it; do not restate the request or the plan.\n\n${message}${said}`;
 }

@@ -447,6 +447,11 @@ describe('the capture pass, end to end in a real browser', async () => {
     assert.match(r.markdown, /duplicate of document page/);
     assert.match(r.summary, /not evidence/);
     assert.ok(logs.some(l => l.phase === 'qa.shot.duplicate' && l.duplicate_of === 'document page'));
+    // A duplicate is said in the table and kept off the task's evidence: nothing stored, nothing to show twice.
+    const dupEvidence = r.evidence.find(e => e.flow === 'Reminder listed' && e.side === 'after');
+    assert.equal(dupEvidence.url, '');
+    assert.equal(dupEvidence.artifactId, undefined);
+    assert.equal(dupEvidence.duplicate_of, 'document page');
     fs.rmSync(repoDir, { recursive: true, force: true });
   });
 });

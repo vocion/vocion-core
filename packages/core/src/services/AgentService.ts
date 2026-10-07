@@ -10,6 +10,7 @@ import type { LangfuseTurnUsage } from '@/libs/Langfuse';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
+import { asRootRun } from '@/libs/agents/rootRun';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { lastAnswerOf } from '@/libs/chat/lastAnswer';
 import { appendRecordLinks } from '@/libs/chat/recordLinks';
@@ -33,7 +34,7 @@ import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
-import { HeadStartDropped, TurnGateCallback } from './agents/turnGate';
+import { HeadStartDropped, TurnGateCallback, TurnStopped } from './agents/turnGate';
 import { asksForAct, NO_INTENT, readIntent } from './agents/turnJudge';
 import { TurnRefusedError } from './agents/turnRefusal';
 import { inTurn } from './agents/turnScope';
@@ -567,6 +568,8 @@ export async function runAgentDeep(opts: {
    * the other harnesses wait for the answer before they are called.
    */
   hold?: Promise<boolean>;
+  /** A person's stop (Slack's stop button): the turn ends at once with `TurnStopped`. */
+  signal?: AbortSignal;
   /**
    * Run this ONE turn on a named model instead of the agent's own. The
    * model-upgrade test (`services/evals/modelUpgradeTest.ts`) is the caller.
@@ -808,7 +811,7 @@ export async function runAgentDeep(opts: {
       dropped.abort(new HeadStartDropped());
     }
   }, () => {});
-  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline, dropped.signal]);
+  const turnSignal = AbortSignal.any([budgetGuard.signal, deadline, dropped.signal, ...(opts.signal ? [opts.signal] : [])]);
 
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
@@ -1042,7 +1045,8 @@ export async function runAgentDeep(opts: {
 
   // The loop, as a function, so the one structural continuation below can
   // re-enter it with the turn's own messages.
-  const runGraphPass = async (graphInput: typeof input): Promise<void> => {
+  // Its own root run, never a child of whatever turn started it (`asRootRun`).
+  const runGraphPass = (graphInput: typeof input): Promise<void> => asRootRun(async () => {
     const stream = await compiled.graph.streamEvents(graphInput as never, {
       version: 'v2',
       callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard), new TurnGateCallback(toolsReady)],
@@ -1223,7 +1227,7 @@ export async function runAgentDeep(opts: {
     // Note: per-actor citations ride on the `trace_node` events (so the trace
     // can show "found by <specialist>"); the Sources drawer keeps using the
     // richer `documents` event the search tool emits via ctx.emit.
-  };
+  });
   // Every pass runs inside the turn's scope: a question's turn writes nothing,
   // and what does land is counted (`agents/turnScope.ts`).
   const runGraph = (graphInput: typeof input): Promise<void> => inTurn(turn, () => runGraphPass(graphInput));
@@ -1342,6 +1346,9 @@ export async function runAgentDeep(opts: {
     // A head start that was not picked ends here: no recovery pass, no answer.
     if (dropped.signal.aborted) {
       throw new HeadStartDropped();
+    }
+    if (opts.signal?.aborted) {
+      throw new TurnStopped();
     }
     let err: unknown = caught;
     let recovered = false;

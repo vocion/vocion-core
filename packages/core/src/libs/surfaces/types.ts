@@ -31,6 +31,13 @@ export type ChatInbound = {
    * bot's token when the message is handled, never here.
    */
   files?: ChatInboundFile[];
+  /**
+   * A reply in a thread that did not mention the bot. Answered only in a
+   * thread Vocion is already in (it posted there), the way a person keeps
+   * talking to whoever answered them (Chris, 2026-10-06: "Do that" in the
+   * thread went unanswered because it carried no @mention).
+   */
+  followUp?: boolean;
 };
 
 /** One picture on an inbound message, as the platform describes it. */
@@ -66,7 +73,11 @@ export type ChatParse
   = | { kind: 'challenge'; challenge: string }
     | { kind: 'message'; inbound: ChatInbound }
     | { kind: 'joined'; join: ChatJoin }
+    | { kind: 'stop'; stop: ChatStop }
     | { kind: 'ignore'; reason: string };
+
+/** A person pressed stop on the agent's work in a thread (Slack's agent session). */
+export type ChatStop = { surface: string; channelId: string; threadRef: string; externalUserId: string | null };
 
 /** An image a message carries: something a reader can open, and what it shows. */
 export type ChatImage = {
@@ -139,6 +150,16 @@ export type ChatSurfaceAdapter = {
    * platform did not say.
    */
   reply: (target: ChatReplyTarget, message: string | ChatMessage, opts?: { fetchImage?: ChatImageFetcher }) => Promise<ChatPostRef | null>;
+  /** How an answer on this surface is written, said to the agent with the message (a text: short and plain). */
+  answerStyle?: string;
   /** Take a post back, such as the line that said Vocion was working once the answer is in. */
   retract?: (post: ChatPostRef) => Promise<void>;
+  /** Change a post's words in place, such as the working line as the turn moves from step to step. */
+  edit?: (post: ChatPostRef, text: string) => Promise<void>;
+  /**
+   * The platform's own "working" state on a thread (Slack's agent session: "Working…" and a stop
+   * button). True when the platform took it; false where the app is not set up for it, and the
+   * caller says it is working in words instead.
+   */
+  session?: (target: Pick<ChatReplyTarget, 'channelId' | 'threadRef'>, state: 'working' | 'idle') => Promise<boolean>;
 };

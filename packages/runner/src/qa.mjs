@@ -1541,6 +1541,8 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
   const evidence = [];
   // sha256 of each after shot -> the flow that took it first (see duplicateOf).
   const seenShots = new Map();
+  // Each flow's own pictures, so its closing shot is not stored again when it is its last `shoot`.
+  const seenInFlow = new Map();
   // A flow the engineer wrote that the worker refused is a named failure in the report, not a gap.
   for (const m of refusedFlows) {
     failures.push({ scope: 'engineer flow refused', message: m });
@@ -1746,7 +1748,19 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
     seq += 1;
     let dup = '';
     if (file && side === 'after' && fs.existsSync(file)) {
-      dup = duplicateOf(seenShots, crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'), flow.name);
+      const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+      // ONE PICTURE ONCE (Chris, 2026-10-06: "a lot of duplicate screenshots"). A flow's own
+      // closing shot is the page at rest, byte-for-byte its last `shoot` when that one ended the
+      // flow: the same picture twice in a row is not a second piece of evidence. Not recorded.
+      const own = `${flow.name}/${viewport}/${side}`;
+      const mine = seenInFlow.get(own) ?? new Set();
+      if (mine.has(hash)) {
+        log('qa.shot.repeat', { flow: flow.name, viewport, side });
+        return;
+      }
+      mine.add(hash);
+      seenInFlow.set(own, mine);
+      dup = duplicateOf(seenShots, hash, flow.name);
       if (dup) {
         notEvidence = notEvidence || `duplicate of ${dup}`;
         if (!notEvidence.includes('duplicate of')) {
@@ -1758,6 +1772,14 @@ export async function captureEvidence({ qa, taskId, runId, recordId, repoDir, ou
     }
     if (notEvidence) {
       note = [note, notEvidence].filter(Boolean).join(' · ');
+    }
+    // A shot that is another flow's picture is said in the report table and kept off the task's
+    // evidence: stored, it filled the feature page's slides with the same image (FE-472: 8 shots,
+    // 4 pictures).
+    if (dup) {
+      rows.push({ flow: flow.name, viewport, side, url: '', note: note || `duplicate of ${dup}`, duplicate_of: dup, not_evidence: notEvidence || undefined });
+      evidence.push({ role: 'qa-screenshot', flow: flow.name, viewport, side, url: '', caption: note || `duplicate of ${dup}`, duplicate_of: dup, not_evidence: notEvidence || `duplicate of ${dup}`, ...(flow.criterion ? { criterion: flow.criterion } : {}) });
+      return;
     }
     if (file && canUpload) {
       try {

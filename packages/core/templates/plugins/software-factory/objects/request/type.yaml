@@ -352,15 +352,28 @@ schema:
     # triaged`, a person's Dismiss), first declared match first. A null or
     # unknown status reads as In progress.
     status:
-      x-display: {label: Status, format: badge, group: Triage, tones: {new: muted, triaged: muted, deciding: warn, queued: muted, deferred: muted, planning: info, building: info, in_qa: info, changes_asked: warn, awaiting_merge: warn, deploying: info, stopped: bad, shipped: ok, seen_live: ok, answered: muted, out_of_scope: muted, duplicate: muted}}
-      x-labels: {new: Not triaged, triaged: Triaged, deciding: Decide, queued: Queued, deferred: Deferred, planning: Planning, building: Building, in_qa: In QA, changes_asked: Changes asked, awaiting_merge: Waiting on your merge, deploying: Deploying, stopped: Stopped · needs you, shipped: Shipped, seen_live: Shipped · seen live, answered: Answered, out_of_scope: Out of scope, duplicate: Duplicate}
+      x-display: {label: Status, format: badge, group: Triage, tones: {new: muted, triaged: muted, deciding: warn, queued: muted, deferred: muted, planning: info, awaiting_plan: warn, building: info, in_qa: info, changes_asked: warn, awaiting_merge: warn, deploying: info, stopped: bad, shipped: ok, seen_live: ok, answered: muted, out_of_scope: muted, duplicate: muted}}
+      x-labels: {new: Not triaged, triaged: Triaged, deciding: Decide, queued: Queued, deferred: Deferred, planning: Planning, awaiting_plan: Waiting on your plan approval, building: Building, in_qa: In QA, changes_asked: Changes asked, awaiting_merge: Waiting on your merge, deploying: Deploying, stopped: Stopped · needs you, shipped: Shipped, seen_live: Shipped · seen live, answered: Answered, out_of_scope: Out of scope, duplicate: Duplicate}
       x-groups:
-        - {key: progress, label: In progress, role: progress, default: true, in: [planning, building, in_qa, changes_asked, awaiting_merge, deploying, stopped]}
+        - {key: progress, label: In progress, role: progress, default: true, in: [planning, awaiting_plan, building, in_qa, changes_asked, awaiting_merge, deploying, stopped]}
         - {key: proposed, label: Proposed, role: proposed, in: [new, triaged, deciding, queued, deferred], last: [deferred]}
         - {key: done, label: Done, role: done, in: [shipped, seen_live, answered]}
         - {key: archived, label: Archived, role: archived, in: [out_of_scope, duplicate]}
       # Whose move it is: these lead their tab, and the product page counts them.
-      x-needs-you: [deciding, changes_asked, awaiting_merge, stopped]
+      x-needs-you: [deciding, awaiting_plan, changes_asked, awaiting_merge, stopped]
+      # WHAT THE ASKER HEARS, WHERE THEY ASKED (Chris, 2026-10-06): the filing reply says it has
+      # started; after that only what needs them and the end. A send-back that retries by itself,
+      # QA, the merge on a trust rule and the deploy stay quiet. Keyed by transition; `{line}` is
+      # the step's sentence and `{title}` the request's. The feature page follows every line.
+      x-tell:
+        stopped: 'Blocked, and it needs you: {line}'
+        plan_waits: 'The plan is ready, and it waits on your approval. {line}'
+        merge_waits: 'Ready to merge, and the merge waits on you. {line}'
+        live: 'Done ✅ "{title}" is live in production and checked. {line}'
+        live_seen: 'Done ✅ "{title}" is live in production and checked. {line}'
+        live_unconfirmed: 'Live in production: "{title}". The live check could not confirm all of it. {line}'
+        live_unchecked: 'Live in production: "{title}". It could not be checked live yet. {line}'
+        resolved: 'Answered: {line}'
       x-transitions:
         # Filed, recommended, a Build card up.
         created: new
@@ -382,6 +395,8 @@ schema:
         qa_reject: changes_asked
         live_changes: changes_asked
         merge_waits: awaiting_merge
+        # A plan written for a person to approve (FE-133: PL-484 waited thirteen hours unasked).
+        plan_waits: awaiting_plan
         merge_running: deploying
         shipped: shipped
         live_seen: seen_live
@@ -409,7 +424,7 @@ schema:
         scope, duplicate). Written by the factory at each transition and by a
         person's own actions; agents do not set it by hand. `statusLine` says
         what is happening in a sentence, `statusAt` when it was written.
-      enum: [new, triaged, deciding, queued, deferred, planning, building, in_qa, changes_asked, awaiting_merge, deploying, stopped, shipped, seen_live, answered, out_of_scope, duplicate]
+      enum: [new, triaged, deciding, queued, deferred, planning, awaiting_plan, building, in_qa, changes_asked, awaiting_merge, deploying, stopped, shipped, seen_live, answered, out_of_scope, duplicate]
     statusLine:
       x-display: {hidden: true}
       type: string

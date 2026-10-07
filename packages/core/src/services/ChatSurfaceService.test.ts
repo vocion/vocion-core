@@ -141,6 +141,78 @@ describe('handleInbound', () => {
     expect(adapter.replies[1]!.text).toBe('history=2');
   });
 
+  it('uses the platform\'s own working state where it has one, and a person\'s stop ends the turn (Slack agent session)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const states: string[] = [];
+    adapter.session = async (_t, state) => {
+      states.push(state);
+      return true;
+    };
+    const quick = await svc.handleInbound(adapter, inbound, { runAgent: vi.fn(async () => ({ response: 'Up 12%.', traceId: 't', toolCalls: [] })) as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect(quick.outcome).toBe('replied');
+    // No "Looking into it…" line: the session said it, and goes idle with the answer.
+    expect(adapter.retracted).toEqual([]);
+    expect(adapter.replies.map(r => r.text)).toEqual(['Up 12%.']);
+    expect(states).toEqual(['working', 'idle']);
+
+    const { TurnStopped } = await import('@/services/agents/turnGate');
+    const slow = vi.fn((opts: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+      opts.signal?.addEventListener('abort', () => reject(new TurnStopped()));
+    }));
+    const pending = svc.handleInbound(adapter, { ...inbound, messageRef: '100.3', text: 'and the next one?' }, { runAgent: slow as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+    await vi.waitFor(() => expect(slow).toHaveBeenCalled());
+
+    expect(await svc.stopThreadTurn(adapter, { surface: 'slack', channelId: 'C1', threadRef: '100.1', externalUserId: 'U42' })).toBe(true);
+    expect(await pending).toMatchObject({ outcome: 'failed' });
+    expect(adapter.replies.at(-1)!.text).toBe('Stopped, as you asked.');
+    expect(states.at(-1)).toBe('idle');
+    // Nothing running there any more: a second stop only settles the state.
+    expect(await svc.stopThreadTurn(adapter, { surface: 'slack', channelId: 'C1', threadRef: '100.1', externalUserId: 'U42' })).toBe(false);
+  });
+
+  it('a reply that put up a card for the person carries the request\'s mockups, and only for that card (Chris, 2026-10-06)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    let cards: Array<{ runId: number; input: Record<string, unknown> }> = [{ runId: 7, input: { requestId: 1 } }];
+    const runAgent = vi.fn(async () => {
+      cards = [{ runId: 9, input: { requestId: 133 } }, ...cards];
+      return { response: 'The Build card for FE-133 is below.', traceId: 't', toolCalls: [] };
+    });
+    const cardPictures = vi.fn(async (_o: string, input: Record<string, unknown>) => (input.requestId === 133 ? [{ url: '/api/artifacts/m1/m1.png', caption: 'Mockup: upload page', artifactId: 41 }] : []));
+    const deps = { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), cardsWaiting: async () => cards, cardPictures };
+
+    await svc.handleInbound(adapter, inbound, deps);
+
+    expect(cardPictures).toHaveBeenCalledWith(ORG, { requestId: 133 });
+    expect(adapter.replies.at(-1)).toMatchObject({ text: 'The Build card for FE-133 is below.', images: [{ url: '/api/artifacts/m1/m1.png', caption: 'Mockup: upload page' }] });
+
+    // The next reply, with no new card, carries none.
+    runAgent.mockImplementationOnce(async () => ({ response: 'It is waiting on you.', traceId: 't', toolCalls: [] }));
+    await svc.handleInbound(adapter, { ...inbound, messageRef: '100.4', text: 'status?' }, deps);
+
+    expect(adapter.replies.at(-1)).toEqual({ channelId: 'C1', threadRef: '100.1', text: 'It is waiting on you.' });
+  });
+
+  it('answers a reply with no mention only in a thread it is already in (Chris, 2026-10-06: "Do that")', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const runAgent = vi.fn(async () => ({ response: 'On it.', traceId: 't', toolCalls: [] }));
+    const followUp = { ...inbound, messageRef: '100.9', text: 'Do that', followUp: true };
+
+    const elsewhere = await svc.handleInbound(adapter, followUp, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), inThread: async () => false });
+
+    expect(elsewhere).toEqual({ outcome: 'not_ours' });
+    expect(adapter.replies).toEqual([]);
+    expect(runAgent).not.toHaveBeenCalled();
+
+    const ours = await svc.handleInbound(adapter, followUp, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: true as const })), inThread: async () => true });
+
+    expect(ours.outcome).toBe('replied');
+    expect(adapter.replies.at(-1)).toEqual({ channelId: 'C1', threadRef: '100.1', text: 'On it.' });
+  });
+
   it('hands the pictures on the mention to the agent as attachments, kept as upload artifacts; an unreadable one is said, not dropped (backlog 057)', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();

@@ -13,6 +13,7 @@ function deps(over: Partial<ThreadApprovalDeps> = {}): ThreadApprovalDeps {
     consent: vi.fn(async (_o: string, _w: string, decision: string) => ({ said: decision.startsWith('approve'), quote: 'ship it' })),
     member: vi.fn(async () => ({ userId: 'usr-1', name: 'Chris', email: 'chris@northwind.example' })),
     decide: vi.fn(async () => ({ ok: true, what: 'It ran; Undo is in Vocion.' })),
+    signInHint: (_surface: string, email: string | null) => `the email on your Slack profile (${email})`,
     ...over,
   };
 }
@@ -41,5 +42,16 @@ describe('a reply in the Slack thread decides the card waiting there (backlog 05
     expect(await approvalFromThread('org_n', { ...inbound, text: 'hold it' }, 474, hold)).toMatchObject({ decided: true, verb: 'reject' });
     expect(await approvalFromThread('org_n', { ...inbound, text: 'what does this change?' }, 474, deps({ consent: vi.fn(async () => ({ said: false, quote: null })) }))).toBeNull();
     expect(await approvalFromThread('org_n', inbound, 474, deps({ pending: vi.fn(async () => []) }))).toBeNull();
+  });
+});
+
+describe('the same reply on another medium', () => {
+  it('asks the medium who the sender is, and says how to become known there (email)', async () => {
+    const member = vi.fn(async () => ({ userId: null, email: 'dana@northwind.example' }));
+    const d = deps({ member, signInHint: (surface, email) => `${surface}:${email}` });
+    const out = await approvalFromThread('org_a', { ...inbound, surface: 'email', externalUserId: 'dana@northwind.example' }, 12, d);
+
+    expect(member).toHaveBeenCalledWith('org_a', 'dana@northwind.example', 'email');
+    expect(out).toMatchObject({ decided: false, reply: expect.stringContaining('email:dana@northwind.example') });
   });
 });

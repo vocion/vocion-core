@@ -40,7 +40,7 @@ import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMis
 import { captureEvidence, collectRepoTestShots, collectRepoTestVideos, containerCredentials, excludeShotsDir, otherTasksShots, productionBase, publishArtifact, qaReportMarkdown, reportArtifact, surfaceOf, uploadEvidence } from './qa.mjs';
 import { recordableFlows, repoName, taskClaimed, taskCompleted, taskFailed } from './record.mjs';
 import { repairBrief, repairDecision, repairRecord, repairsLine } from './repair.mjs';
-import { resumeConflictNote } from './resume.mjs';
+import { resumeNote } from './resume.mjs';
 import { checkPlan, serviceSpec } from './services.mjs';
 import { usageDelta, withUsage } from './usage.mjs';
 
@@ -121,7 +121,7 @@ function num(v, d) {
 
 // `record` is the task record the run was queued for (run.input.record, { type, id }, set by the
 // dispatch); null for a run queued bare, which then reports to nothing.
-const state = { runId: cfg.runId || null, phase: 'boot', note: '', counts: {}, pendingUsage: null, model: null, costUsd: 0, stopped: false, stopReason: '', killReason: '', paused: false, lostLease: false, claude: null, services: [], serviceEnv: {}, kept: null, record: null, task: null, runLogs: null, held: false };
+const state = { runId: cfg.runId || null, phase: 'boot', note: '', counts: {}, pendingUsage: null, model: null, costUsd: 0, stopped: false, stopReason: '', killReason: '', paused: false, lostLease: false, claude: null, services: [], serviceEnv: {}, kept: null, record: null, task: null, runLogs: null, held: false, resumeMain: null };
 
 // The run's own step log, small enough to ride heartbeat/complete/fail (backlog 036, the fixed
 // contract): one event per phase this worker logs, plus claude.tool / claude.tool.result from the
@@ -771,6 +771,9 @@ function prepareRepo(task, run) {
   if (resumedFrom && !resumedFrom.conflicts) {
     log('resumed', resumedFrom);
   }
+  // What main was when this resume started: the kept branch's commits are folded back into the
+  // working tree against it before the work is checked (`foldResumedWork`).
+  state.resumeMain = resumedFrom ? (resumedFrom.rebased_onto || resumedFrom.main || null) : null;
   // The repo's own QA tests may write screenshots under the shots directory for the worker to pick
   // up after the checks run (see collectRepoTestShots). They prove a line to QA, not a change to
   // ship: excluded here, before the engineer's first commit, so `git status` never offers them to
@@ -1128,8 +1131,26 @@ function changedFiles() {
   return [...new Set(files.filter(Boolean))];
 }
 
+/**
+ * A RESUMED ATTEMPT'S WORK IS ITS CHANGE (walk 27, FE-478: attempt 2 started from the kept branch
+ * whose commits already held the work, made nothing more, and failed "Claude produced no changes
+ * in the working tree"). The kept branch's commits, and a merge of main the engineer made, are
+ * folded into the working tree as changes against main, so the checks, the landing commit and
+ * the pull request all see everything the attempt carries. Idempotent: a repair pass folds again.
+ */
+function foldResumedWork() {
+  if (!state.resumeMain) {
+    return;
+  }
+  const r = sh('git', ['reset', '--quiet', '--mixed', state.resumeMain]);
+  if (r.code !== 0) {
+    log('resumed.fold_failed', { main: state.resumeMain, error: (r.stderr || r.stdout).trim().slice(-300) });
+  }
+}
+
 async function verify(task) {
   setPhase('verify');
+  foldResumedWork();
   const files = changedFiles();
   const owns = f => humanOwned(f, task.human_owned);
   const owned = files.filter(owns);
@@ -1843,7 +1864,7 @@ async function main() {
   if (prepared.resumedFrom) {
     log('task.resumed', { task_id: task.task_id, resumedFrom: prepared.resumedFrom, attempt: prepared.attempt, branch: prepared.branch });
   }
-  const conflictNote = resumeConflictNote(prepared.resumedFrom);
+  const conflictNote = resumeNote(prepared.resumedFrom);
   if (conflictNote) {
     task = { ...task, notes: task.notes ? `${conflictNote}\n\n${task.notes}` : conflictNote };
   }

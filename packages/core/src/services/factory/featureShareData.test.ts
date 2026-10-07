@@ -28,6 +28,8 @@ const ORG = 'org_share_northwind';
 const OTHER = 'org_share_kestrel';
 const ADA = 'user_ada_northwind';
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+// Another picture: the page shows one picture once, so QA's shot is not the mockup's bytes.
+const QA_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const prevSecret = process.env.AUTH_SECRET;
 
 let requestId = 0;
@@ -88,7 +90,7 @@ beforeAll(async () => {
   mockup = await picture(ORG, requestId, null);
   chatUpload = await picture(ORG, requestId, 'reported');
   otherPicture = await picture(ORG, otherRequestId, null);
-  qaShot = await picture(ORG, taskId, 'qa-screenshot', { title: 'Library · desktop · after', url: null, spec: { href: '#', title: 'x', contentType: 'image/png', caption: 'Rows with dates', url: PNG } });
+  qaShot = await picture(ORG, taskId, 'qa-screenshot', { title: 'Library · desktop · after', url: null, spec: { href: '#', title: 'x', contentType: 'image/png', caption: 'Rows with dates', url: QA_PNG } });
   recording = await picture(ORG, taskId, 'qa-live-video', { kind: 'link', url: '/api/media/live/live-check-aaaaaaaaaaaaaaaa.webm', spec: { href: '#', title: 'x', contentType: 'video/webm', caption: 'Live check' } });
   const meta = {
     body: 'I cannot tell which file is newest. Email dana@northwind.example.',

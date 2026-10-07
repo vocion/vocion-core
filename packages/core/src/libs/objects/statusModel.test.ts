@@ -24,7 +24,7 @@ describe('the request type declares one status', () => {
     ]);
     expect(MODEL.labels.awaiting_merge).toBe('Waiting on your merge');
     expect(MODEL.tones.stopped).toBe('bad');
-    expect([...MODEL.needsYou]).toEqual(['deciding', 'changes_asked', 'awaiting_merge', 'stopped']);
+    expect([...MODEL.needsYou]).toEqual(['deciding', 'awaiting_plan', 'changes_asked', 'awaiting_merge', 'stopped']);
   });
 
   it('puts every enum value in exactly one group, with a label and a tone', () => {
@@ -46,6 +46,20 @@ describe('the request type declares one status', () => {
     for (const [name, value] of MODEL.transitions) {
       expect(values.has(value), `${name} → ${value}`).toBe(true);
     }
+  });
+
+  it('tells the asker only what needs them and the end, each on a transition it declares (Chris, 2026-10-06)', () => {
+    const names = new Set(MODEL.transitions.map(([name]) => name));
+
+    expect(Object.keys(MODEL.tell).sort()).toEqual(['live', 'live_seen', 'live_unchecked', 'live_unconfirmed', 'merge_waits', 'plan_waits', 'resolved', 'stopped']);
+
+    for (const name of Object.keys(MODEL.tell)) {
+      expect(names.has(name), name).toBe(true);
+    }
+
+    // A send-back retries by itself; nobody is needed, so nobody is told.
+    expect(MODEL.tell.live_changes).toBeUndefined();
+    expect(MODEL.tell.qa_changes).toBeUndefined();
   });
 
   it('is what the browser tests read', () => {

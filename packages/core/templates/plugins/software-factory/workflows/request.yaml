@@ -123,20 +123,46 @@ steps:
                     attempt: {add: [{from: vars.attempt}, -1]}
                     automatic: {add: [{from: vars.automatic}, -1]}
                 - status: {stage: planning, line: 'Planning first: {{vars.dispatched.result.why}}.'}
+                # The plan is written within 3 hours or the planning failed. A plan written for a
+                # person to approve is theirs to answer, and is waited on as long as it takes
+                # (FE-133: PL-484 waited on Chris and the request stopped at 3 hours, "the plan
+                # did not arrive"). The request's own status already says it waits on them.
                 - wait_event:
                     any:
                       - types: [factory.build_requested]
+                        match: {requestId: '{{input.requestId}}'}
+                      - types: [factory.plan_waits]
                         match: {requestId: '{{input.requestId}}'}
                     timeout: 10800
                     since: '{{vars.dispatchedAt}}'
                   as: planned
                 - when:
+                    - if: {path: vars.planned.type, equals: factory.plan_waits}
+                      then:
+                        - wait_event:
+                            any:
+                              - types: [factory.build_requested]
+                                match: {requestId: '{{input.requestId}}'}
+                            timeout: 2592000
+                            since: '{{vars.dispatchedAt}}'
+                          as: approved
+                        - when:
+                            - if: {path: vars.approved, exists: true}
+                              then:
+                                - set: {intent: {from: vars.approved.payload}}
+                                - next: true
+                        - set:
+                            why: The plan waited 30 days for its approval.
+                        - do: factory.stop_request
+                          input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
+                        - status: {stage: stopped, line: '{{vars.why}}'}
+                        - next: true
                     - if: {path: vars.planned, exists: true}
                       then:
                         - set: {intent: {from: vars.planned.payload}}
                         - next: true
                 - set:
-                    why: The plan did not arrive within 3 hours.
+                    why: The plan was not written within 3 hours.
                 - do: factory.stop_request
                   input: {requestId: '{{input.requestId}}', why: '{{vars.why}}'}
                 - status: {stage: stopped, line: '{{vars.why}}'}
