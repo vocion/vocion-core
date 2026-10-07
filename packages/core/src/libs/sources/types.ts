@@ -15,6 +15,7 @@
 
 import type { z } from 'zod';
 import type { InspectInput } from './inspect';
+import type { CrawlPoliteness } from './robots';
 import type { IngestDoc } from '@/services/IngestionService';
 
 export type SourceAuthKind = 'none' | 'apikey' | 'oauth';
@@ -40,6 +41,12 @@ export type SourceContext = {
    *  so the UI can show "12 / 47 documents".
    */
   onProgress?: (event: { kind: 'fetched' | 'skipped' | 'error'; uri?: string; message?: string }) => void;
+  /**
+   * How a connector that reads other people's websites paces itself and obeys
+   * their robots.txt (`libs/sources/robots.ts`). The sync runner sets it on
+   * every real run; without it a connector fetches unpaced.
+   */
+  politeness?: CrawlPoliteness;
 };
 
 export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
