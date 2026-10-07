@@ -396,15 +396,35 @@ describe('a record setup produces waits for setup\'s connector (DeliveryStack, 2
         emit: () => {},
       } as unknown as RuntimeContext;
       const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
+      const before = (await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG))).length;
 
       const out = String(await fileRequest.invoke(ASK_353));
 
       expect(out).toMatch(/^Not filed: a request is read from github, which is not connected yet/);
       expect(out).toContain('offer_connection');
 
-      const rows = await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG));
+      const after = (await db.select({ id: businessObjectSchema.id }).from(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG))).length;
 
-      expect(rows.filter(() => true).length).toBeGreaterThanOrEqual(0);
+      expect(after).toBe(before);
+    } finally {
+      setup.value = [];
+    }
+  });
+
+  it('files on the person\'s own word, with the gap written on the record as advice (checks inform, never hard-stop a person)', async () => {
+    setup.value = [{ plugin: 'software-factory', name: 'Software factory', complete: false, steps: [
+      { key: 'connector:github', kind: 'connector', slug: 'github', label: 'Connect github', done: false },
+      { key: 'records:request', kind: 'records', slug: 'request', label: 'Create the first request record', done: false },
+    ] }];
+    try {
+      const filingTypes: FilingType[] = await loadFilingTypes(ORG, ['request']);
+      // The person asked for the filing: the turn's intent reads `file`.
+      const ctx = { orgId: ORG, userId: 'user_owner', agentSlug: 'product-manager', conversationId: 356, connectorSources: [], objectTypeSlugs: ['request'], filingTypes, enabledPlugins: ['software-factory'], searchConfig: {}, harnessConfig: {}, citationSeq: { current: 0 }, delegations: new Map(), turnIntent: Promise.resolve({ asks: 'file' }), emit: () => {} } as unknown as RuntimeContext;
+      const fileRequest = buildDomainTools(ctx).find(t => t.name === 'file_request')!;
+
+      const out = String(await fileRequest.invoke({ ...ASK_353, title: 'Filed on the person\'s word with GitHub down' }));
+
+      expect(out).not.toMatch(/^Not filed/);
     } finally {
       setup.value = [];
     }

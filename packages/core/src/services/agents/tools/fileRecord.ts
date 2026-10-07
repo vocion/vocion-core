@@ -720,8 +720,12 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       // the record said what the model remembered. A plugin's `setup:` names
       // the connectors its first records are read from; while one of those
       // is not connected, the record is not filed from here.
+      // On the person's own word ("file the product anyway") it files, with
+      // the gap written on the record as advice; refused only when filing
+      // was the agent's own idea (CLAUDE.md: checks inform, never hard-stop
+      // a person).
       const unready = await setupNotReady(ctx.orgId, spec.slug).catch(() => null);
-      if (unready) {
+      if (unready && !(await filingOnPersonsWord(ctx))) {
         return unready;
       }
       const { title, fields: named } = await nameLongTitle(ctx.orgId, spec, filingInputOf(spec, args));
@@ -741,6 +745,10 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       const confidence = typeof c === 'number' && c >= 0 && c <= 1 ? c : 0.8;
       const r = ENVELOPE[1] in spec.properties ? undefined : args.rationale;
       const rationale = typeof r === 'string' && r.trim() ? r.trim() : `Filing the ${label} asked for in this conversation.`;
+      const advice = [
+        ...(toCheck && onPersonsWord ? [`${toCheck.recordTitle}'s capabilities page (${toCheck.pageRef}) was not checked yet; it says: ${toCheck.excerpt.slice(0, 1_200)}`] : []),
+        ...(unready ? [unready.replace(/^Not filed: /, 'Filed on the person\'s word: ')] : []),
+      ];
       return runProposal(ctx, {
         actionId: 'objects.propose_candidate',
         // dedupOn is the TYPE's, never the model's: the call that forgot it
@@ -753,7 +761,7 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       }, {
         tool: spec.toolName,
         refused: (code, message) => `Refused: nothing was filed (${code}). ${message} Call ${spec.toolName} again with those fields.`,
-        ...(toCheck && onPersonsWord ? { advice: [`${toCheck.recordTitle}'s capabilities page (${toCheck.pageRef}) was not checked yet; it says: ${toCheck.excerpt.slice(0, 1_200)}`] } : {}),
+        ...(advice.length > 0 ? { advice } : {}),
       });
     },
     {

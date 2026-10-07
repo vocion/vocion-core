@@ -439,6 +439,31 @@ Three fixes, all structural:
    into `runs_json` as a failed step, and `ConversationRun.state` is persisted
    so a reload still tells a step that failed from one that worked.
 
+## A card a person acts on ends the turn (2026-10-07)
+
+The DeliveryStack workspace's first setup turn (Jamie, 2026-10-07) put the
+connect card at the bottom of three paragraphs and went on: a product record
+filed from a wiki page before GitHub was connected, more words after the card.
+The skill had said "offer the card and stop"; the prompt could not hold it, so
+the loop does (`services/agents/handOff.ts`, wired in `runAgentDeep`).
+
+A card that waits on a person — a `card` event with `state: 'proposed'` (the
+connect card `offer_connection` puts up) or a `recommended_action` — marks the
+hand-off as it is emitted. The guard stops the turn before the **next** model
+call, the way the budget guard does: every card the same step asked for still
+lands, and the words written before them are the answer. The stop is not a
+failure: no error node, no notice, no "one more pass", no answer pass and no
+card backstop behind the card; a specialist that was mid-way closes as ended,
+not failed. Armed only on a person's turn inside a conversation; a mission
+run, a briefing, an eval or a workflow has nobody waiting at a card and runs
+on. The in-process loop only: an agent on `harness.runsOn: agentcore-container`
+runs its loop in the container.
+
+Beside it, `file_<type>` refuses a record of a type a plugin's `setup.records`
+names while a connector in that plugin's `setup.connectors` is unconnected —
+there is nothing to read it from — unless the person themselves asked for the
+filing, in which case it files with the gap written on the record as advice.
+
 ## The page's artifacts are canonical (2026-09-16)
 
 `PageContext` gained two fields, and one of them closes a trust hole rather

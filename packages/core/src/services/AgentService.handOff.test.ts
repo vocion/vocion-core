@@ -75,7 +75,11 @@ function stream(cardAfter: number, card: unknown, config: StreamConfig): AsyncIt
       modelCallsStarted += 1;
       yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: `model_request:m${call}` }, data: { chunk: { content: [{ type: 'text', text: `part${call} ` }] } } };
       if (call === cardAfter) {
+        // The card tool runs as the step's tool: its end event is what the
+        // loop logs as a tool call, and it emits the card through the turn.
+        yield { event: 'on_tool_start', name: 'offer_connection', run_id: 'run-offer', metadata: { checkpoint_ns: 'tools:t1' }, data: { input: { connector: 'github' } } };
         turnEmit.fn!(card);
+        yield { event: 'on_tool_end', name: 'offer_connection', run_id: 'run-offer', metadata: { checkpoint_ns: 'tools:t1' }, data: { input: { connector: 'github' }, output: { content: 'Card up.', status: 'success' } } };
       }
     }
   } };
@@ -87,6 +91,7 @@ async function run(opts: { userId?: string; missionRunId?: number } = {}) {
     orgId: ORG,
     agentSlug: 'product-manager',
     message: 'Set up my software factory',
+    conversationId: 91,
     onEvent: e => void events.push(e),
     ...opts,
   }).then(result => ({ result, error: null }), (error: unknown) => ({ result: null, error }));
@@ -110,8 +115,25 @@ describe('a turn that puts a card in front of a person', () => {
     expect(modelCallsStarted).toBe(1);
     expect(result?.response).toContain('part1');
     expect(result?.response).not.toContain('part2');
+    expect(result?.toolCalls.map(c => c.tool)).toEqual(['offer_connection']);
     expect(events.some(e => e.type === 'card')).toBe(true);
-    expect(events.some(e => e.type === 'error')).toBe(false);
+    expect(events.some(e => e.type === 'error' || e.type === 'tool_error')).toBe(false);
+    // The turn ended on a tool, which usually owes an answer; behind a card
+    // nothing composes one, so no second model writes under it.
+    expect(events.some(e => e.type === 'status' && /Writing the answer/.test(e.label))).toBe(false);
+
+    const done = events.find(e => e.type === 'done') as { response: string } | undefined;
+
+    expect(done?.response).toBe(result?.response);
+  });
+
+  it('is not armed for a person\'s turn outside a conversation (a briefing, an eval, a workflow)', async () => {
+    streamEvents.mockReset().mockImplementation(async (_input: unknown, config: StreamConfig) => stream(1, CONNECT_CARD, config));
+
+    const { error } = await runAgentDeep({ orgId: ORG, agentSlug: 'product-manager', message: 'Set up my software factory', userId: 'eval-runner', onEvent: () => {} }).then(() => ({ error: null }), (e: unknown) => ({ error: e }));
+
+    expect(error).toBeNull();
+    expect(modelCallsStarted).toBe(3);
   });
 
   it('treats a recommended action the same way', async () => {

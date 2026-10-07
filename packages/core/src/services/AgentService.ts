@@ -238,6 +238,11 @@ export type TurnGuaranteeInput = {
   endedOnTool?: boolean;
   /** The model declined the request (its typed stop reason): nothing composes an answer for it. */
   refused?: boolean;
+  /**
+   * The turn ended at a card a person acts on (`agents/handOff.ts`): the words
+   * before the card are the answer, and nothing composes more behind it.
+   */
+  handedOff?: boolean;
   failures: ReadonlyArray<TurnFailure>;
   failedDelegations: ReadonlyArray<FailedDelegation>;
   systemPrompt?: string;
@@ -302,6 +307,8 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
   // A refusal is said, and no other model is asked to answer in its place.
   if (input.refused) {
     append(REFUSAL_NOTICE);
+  } else if (input.handedOff) {
+    // The card is the answer's end. No second model writes under it.
   } else {
     try {
       // The answer streams as it is written: the first delta opens the
@@ -990,7 +997,10 @@ export async function runAgentDeep(opts: {
     : Promise.resolve(NO_INTENT);
   boundCtx.turnIntent = intentP;
   const personTurn = Boolean(opts.userId) && !opts.missionRunId && !opts.userId!.startsWith('token:');
-  handOffGuard.arm(personTurn);
+  // Armed only where a person is reading a conversation as it happens: a
+  // person's turn that has a conversation. A briefing, an eval, a workflow or
+  // the mission planner has a userId too, and nobody waiting at a card.
+  handOffGuard.arm(personTurn && opts.conversationId !== undefined);
   const turn: TurnScope = { readOnly: false, writes: 0 };
   // The model starts before the intent read and the router have answered;
   // every tool waits here for both (`agents/turnGate.ts`), and so does
@@ -1367,7 +1377,13 @@ export async function runAgentDeep(opts: {
       // turn stopped before the model could say more; what it said before
       // the card is the answer, and the card is the next move. Not a
       // failure: no notice, no error node, no continuation pass.
-      console.warn('agent turn: ended at a card a person acts on', { orgId: opts.orgId, agentSlug: opts.agentSlug, cards: handOffGuard.handedOff, toolCalls: toolCallLog.length, textChars: finalText.length });
+      console.warn('agent turn: ended at a card a person acts on', { orgId: opts.orgId, agentSlug: opts.agentSlug, cards: handOffGuard.handedOff, toolCalls: toolCallLog.length, textChars: finalText.length, thrown: caught instanceof Error ? caught.message : String(caught) });
+      // A specialist that was mid-way when the card went up stopped with the
+      // turn; its node closes as ended, not as a failure, so the trace has a
+      // terminal node and the person is told nothing went wrong.
+      for (const node of tracer.closeDelegations('stopped at a card a person acts on', 'done')) {
+        emit(node);
+      }
     } else {
       let err: unknown = caught;
       let recovered = false;
@@ -1502,6 +1518,7 @@ export async function runAgentDeep(opts: {
     toolCalls: toolCallLog,
     cardsShown: emittedCards.length,
     endedOnTool: toolCallLog.length > 0 && !answeredSinceTool,
+    handedOff: handOffGuard.stopped,
     refused,
     failures,
     failedDelegations,
