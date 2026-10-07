@@ -11,13 +11,6 @@ describe('classifyDashboardLink', () => {
     expect(classifyDashboardLink('/dashboard/missions/new')).toMatchObject({ kind: 'page' });
   });
 
-  it('knows a vendor login for a source, and nothing else under /api', () => {
-    expect(classifyDashboardLink('/api/connect/github/start?source=github')).toEqual({ href: '/api/connect/github/start?source=github', kind: 'connect', id: 'github' });
-    expect(classifyDashboardLink('https://agents.metacto.com/api/connect/atlassian/start?source=jira', 'https://agents.metacto.com')).toMatchObject({ kind: 'connect', id: 'atlassian' });
-    expect(classifyDashboardLink('/api/connect/github/callback?code=1')).toBeNull();
-    expect(classifyDashboardLink('/api/v1/objects/1')).toBeNull();
-  });
-
   it('leaves external and non-dashboard links alone', () => {
     expect(classifyDashboardLink('https://hubspot.com/deal/1', 'https://agents.metacto.com')).toBeNull();
     expect(classifyDashboardLink('https://other.example/dashboard/agents/x', 'https://agents.metacto.com')).toBeNull();

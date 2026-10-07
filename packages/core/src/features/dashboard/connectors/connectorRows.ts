@@ -131,6 +131,27 @@ export function parseMissingScopes(error: string | null | undefined): string[] {
 }
 
 /**
+ * Whether a row with a working credential offers Reconnect beside its other
+ * actions: when its last sync failed, and always on a connector that never
+ * syncs. A refused login says "An admin needs to log in with HubSpot again
+ * on the Connectors page", and Edit never runs a login again, so without
+ * this the row would name a fix it has no button for. It shows for any
+ * failed sync, since the row cannot tell a dead credential from a vendor
+ * outage, and connecting again over a good credential loses nothing. A
+ * connector that never syncs (Apollo) records no failed run at all; Test
+ * connection is where it finds a dead login, so Reconnect has to be there
+ * already. A revoked or expired credential counts as not connected, so its
+ * row already shows Connect.
+ * @param source - The configured row.
+ */
+export function offersReconnect(source: Source): boolean {
+  if (source.authKind === 'none' || !source.credentialConnected) {
+    return false;
+  }
+  return source.syncless || source.sync?.status === 'failed';
+}
+
+/**
  * Why a connected row needs a person, or null when it does not.
  * @param sources - The connector's configured rows.
  */

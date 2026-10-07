@@ -18,7 +18,7 @@
  *
  * Two rules shape every handler here:
  *
- * 1. **Admins only.** A token acts with the `owner` workspace role, so issuing
+ * 1. **Admins only.** A token acts with the `admin` workspace role, so issuing
  *    one is a privilege escalation for anybody who isn't already an admin.
  * 2. **Session only, never a token.** These procedures run behind the dashboard
  *    session (oRPC has no bearer path), so a leaked token cannot mint a fresh
@@ -28,9 +28,11 @@
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { callbackUri, connectOrigin } from '@/libs/connect/routes';
 import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
-import { CredentialValidationError, DEFAULT_PLATFORM_ID, isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
+import { CredentialValidationError, DEFAULT_PLATFORM_ID, getPlatform, isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
 import { issueToken, listTokens, revealPlatformCredential, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
+import { LoginAppSaveConflictError, saveLoginApp } from '@/services/connect/loginApps';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -75,6 +77,41 @@ function readExpiry(raw: string | null): Date | null {
     throw ApiError.badRequest(`Expiry cannot be more than ${MAX_EXPIRY_YEARS} years out. Choose "never" instead.`);
   }
   return expiresAt;
+}
+
+/**
+ * Save a credential an admin pasted. A login app goes through `saveLoginApp`,
+ * the same path `/api/v1/login-apps` takes, so a save from either place writes
+ * the same audit line and recovers the same way from two saves at once. Every
+ * other platform goes straight to `storePlatformKey`.
+ * @param input - What to save.
+ * @param input.orgId - The workspace.
+ * @param input.userId - The admin saving it.
+ * @param input.name - What to call it.
+ * @param input.platform - Which platform it belongs to.
+ * @param input.values - Field values keyed by the platform's field names.
+ */
+async function storeSuppliedCredential(input: { orgId: string; userId: string; name: string; platform: CredentialPlatformId; values: Record<string, string> }): Promise<{ id: string; keyHint: string }> {
+  const platform = getPlatform(input.platform);
+  if (platform.loginAppFor) {
+    // A missing field arrives blank, and `storePlatformKey` refuses a blank
+    // one with the sentence the form shows.
+    return saveLoginApp({ orgId: input.orgId, platform, name: input.name, clientId: input.values.clientId ?? '', clientSecret: input.values.clientSecret ?? '', savedBy: input.userId, origin: null });
+  }
+  return storePlatformKey({
+    orgId: input.orgId,
+    name: input.name,
+    platform: input.platform,
+    values: input.values,
+    createdBy: input.userId,
+    // A supplied key never carries an expiry of ours. The platform that
+    // issued it owns its lifetime — OpenAI decides when an `sk-` key stops
+    // working — so a second expiry here could only ever be wrong: it would
+    // stop us using a key that is still perfectly valid at the vendor, and
+    // the person who set it has no way to see that is what happened.
+    // Revoking or replacing is how a supplied key ends.
+    expiresAt: null,
+  });
 }
 
 export const listTokensRoute = os
@@ -123,10 +160,13 @@ export const createTokenRoute = os
 export const revokeTokenRoute = os
   .input(z.object({ tokenId: z.string().min(1) }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardTokenAdmin();
+    const { orgId, userId } = await guardTokenAdmin();
     // Scoped by orgId inside the service, so one tenant cannot revoke
     // another's credential by guessing an id.
     await revokeToken(orgId, input.tokenId);
+    // The audit line for who revoked what; `warn` for the same reason as the
+    // reveal's line below: the lint rule lets only warn and error through.
+    console.warn('[apiTokens.revoke] credential revoked', { orgId, userId, tokenId: input.tokenId });
     return { ok: true };
   });
 
@@ -139,6 +179,7 @@ export const revokeTokenRoute = os
  */
 export const listPlatformsRoute = os.handler(async () => {
   await guardAuth();
+  const origin = connectOrigin();
   return listPlatforms().map(platform => ({
     id: platform.id,
     label: platform.label,
@@ -149,6 +190,13 @@ export const listPlatformsRoute = os.handler(async () => {
     credentialsPerOrg: platform.credentialsPerOrg,
     keyShapeHint: platform.keyShapeHint,
     helpText: platform.helpText,
+    // A login app has to be registered at the vendor with this server's
+    // callback, so the form shows the exact URL to copy. Null for every other
+    // platform, and when the server has no NEXT_PUBLIC_APP_URL to build it from.
+    redirectUrl: platform.loginAppFor && origin ? callbackUri(origin, platform.loginAppFor) : null,
+    // A login app's replace and revoke break the logins made with it, which
+    // the form has to say; a key's do not.
+    loginApp: Boolean(platform.loginAppFor),
     // RegExp does not survive the wire, so the form gets the human hint and
     // the server stays the only place the shape is actually enforced.
     fields: platform.fields.map(field => ({
@@ -185,29 +233,16 @@ export const createPlatformKeyRoute = os
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardTokenAdmin();
     try {
-      const { id, keyHint } = await storePlatformKey({
-        orgId,
-        name: input.name,
-        platform: input.platform as CredentialPlatformId,
-        values: input.values,
-        createdBy: userId,
-        // A supplied key never carries an expiry of ours. The platform that
-        // issued it owns its lifetime — OpenAI decides when an `sk-` key stops
-        // working — so a second expiry here could only ever be wrong: it would
-        // stop us using a key that is still perfectly valid at the vendor, and
-        // the person who set it has no way to see that is what happened.
-        // Revoking or replacing is how a supplied key ends.
-        expiresAt: null,
-      });
+      const { id, keyHint } = await storeSuppliedCredential({ orgId, userId, name: input.name, platform: input.platform as CredentialPlatformId, values: input.values });
       return { id, name: input.name, platform: input.platform, keyHint };
     } catch (error) {
-      // Only `CredentialValidationError` is safe to show. Every one of those
-      // messages is authored in the platform registry, describes something the
-      // person can fix, and names no secret. Anything else came from the
-      // database or the vault and can carry a constraint detail, a connection
-      // string or a KMS error in its message, so it is logged here and
-      // replaced with a message that says nothing.
-      const isSafeToShow = error instanceof CredentialValidationError;
+      // Only `CredentialValidationError` and `LoginAppSaveConflictError` are
+      // safe to show. Every one of those messages is authored here, describes
+      // something the person can fix, and names no secret. Anything else came
+      // from the database or the vault and can carry a constraint detail, a
+      // connection string or a KMS error in its message, so it is logged here
+      // and replaced with a message that says nothing.
+      const isSafeToShow = error instanceof CredentialValidationError || error instanceof LoginAppSaveConflictError;
       console.error('[apiTokens.createPlatformKey] could not store key', {
         platform: input.platform,
         message: error instanceof Error ? error.message : String(error),

@@ -3,7 +3,7 @@ import type { ApiCaller } from '@/services/writeApi';
 import { NextResponse } from 'next/server';
 import { clerkAuth } from '@/libs/Auth';
 import { authenticateBearer } from '@/services/ApiTokenService';
-import { AuthzDeniedError, enforce } from '@/services/authz';
+import { AuthzDeniedError, enforce, normalizeWorkspaceRole } from '@/services/authz';
 import { WriteApiError } from '@/services/writeApi';
 
 /**
@@ -81,7 +81,6 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
  *   (`/api/v1/sources`, `/api/v1/sources/:slug/sync`) and read agent budgets
  *   (`/api/v1/budgets`). Nothing grants it by role, so a tenant token driving
  *   the registry must carry `manage_sources` or `*` in its grants.
- *
  * Note that this is a grant check in mode `'mutate'`: an owner/PM token and any
  * `['*']` token pass whatever the string, and a narrow-grant token is refused
  * the plain reads too. That asymmetry is deliberate, the registry says which
@@ -99,6 +98,23 @@ export function requireCapability(caller: ApiCaller, action: string): NextRespon
     }
     throw e;
   }
+}
+
+/**
+ * Refuse a caller who is not a workspace admin, returning a 403 body, or
+ * `null` for an admin. A grant check (`requireCapability`) lets a member's
+ * session through, since members hold `*`, and an admin token passes any grant
+ * check, so a route that only admins may use on the dashboard checks the role
+ * instead. A token's role is the one it was minted with. Its grants are not
+ * consulted: they add to what the role allows and never narrow it
+ * (`hasGrant` in `authz.ts`), so they cannot make a member an admin.
+ * @param caller - The authenticated caller.
+ * @param what - What the caller tried, for the message, e.g. `save a login app`.
+ */
+export function requireWorkspaceAdmin(caller: ApiCaller, what: string): NextResponseType | null {
+  return normalizeWorkspaceRole(caller.principal.role) === 'admin'
+    ? null
+    : jsonError('FORBIDDEN', `Only a workspace admin can ${what}.`, 403);
 }
 
 /**
@@ -178,7 +194,9 @@ export async function readJsonBody(req: Request): Promise<Record<string, unknown
     }
     return body as Record<string, unknown>;
   } catch (error) {
-    console.error('[api/v1] request body was not valid JSON', error);
+    // The error's name only: a JSON parse error quotes a slice of the body it
+    // could not read, and a body can carry a secret (`/api/v1/login-apps`).
+    console.error('[api/v1] request body was not valid JSON', { errorName: error instanceof Error ? error.name : 'unknown' });
     return jsonError('VALIDATION_FAILED', 'Request body must be JSON', 400);
   }
 }

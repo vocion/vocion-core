@@ -13,7 +13,7 @@
  * it has is revoked ones.
  */
 import { ORPCError } from '@orpc/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 
@@ -240,6 +240,119 @@ describe('saving a second credential for a platform', () => {
     await openCreateFormFor(STRAPI_PLATFORM);
 
     await expect.element(page.getByText(/can hold several Strapi credentials/)).toBeVisible();
+  });
+});
+
+describe('the redirect URL a login app must register', () => {
+  const REDIRECT_URL = 'https://app.example.com/api/connect/slack/callback';
+  const SLACK_LOGIN_APP_PLATFORM = {
+    id: 'slack-login-app',
+    label: 'Slack login app',
+    keySource: 'supplied' as const,
+    credentialsPerOrg: 'one-live' as const,
+    keyShapeHint: 'a client ID and secret',
+    helpText: 'Your own Slack OAuth app.',
+    redirectUrl: REDIRECT_URL,
+    loginApp: true,
+    fields: [
+      { name: 'clientId', label: 'Client ID', shapeHint: 'any non-empty id', secret: false },
+      { name: 'clientSecret', label: 'Client secret', shapeHint: 'any non-empty secret', secret: true },
+    ],
+  };
+
+  /**
+   * Open the create form with the given platforms on offer and one selected.
+   * @param platforms - What `apiTokens.listPlatforms` answers with.
+   * @param selectedId - The platform to choose in the form.
+   */
+  async function openCreateForm(platforms: unknown[], selectedId: string) {
+    list.mockResolvedValue([tokenRow({})]);
+    listPlatforms.mockResolvedValue(platforms);
+    render(<ApiTokensPanel />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Add credential' }));
+    await userEvent.selectOptions(page.getByLabelText('Platform'), selectedId);
+  }
+
+  it('shows the exact URL to register at the vendor, with a copy button', async () => {
+    await openCreateForm([VOCION_PLATFORM, SLACK_LOGIN_APP_PLATFORM], 'slack-login-app');
+
+    await expect.element(page.getByText('Redirect URL to register at the vendor:')).toBeVisible();
+    await expect.element(page.getByText(REDIRECT_URL, { exact: true })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Copy redirect URL' })).toBeVisible();
+  });
+
+  it('shows no redirect line for a platform without one', async () => {
+    await openCreateForm([VOCION_PLATFORM, { ...OPENAI_PLATFORM, redirectUrl: null }], 'openai');
+
+    await expect.element(page.getByText('Redirect URL to register at the vendor:')).not.toBeInTheDocument();
+  });
+
+  it('says why there is no redirect URL when the server does not know its own address, instead of leaving the admin to guess', async () => {
+    await openCreateForm([VOCION_PLATFORM, { ...SLACK_LOGIN_APP_PLATFORM, redirectUrl: null }], 'slack-login-app');
+
+    await expect.element(page.getByText(/NEXT_PUBLIC_APP_URL is not set/)).toBeVisible();
+    await expect.element(page.getByText('Redirect URL to register at the vendor:')).not.toBeInTheDocument();
+  });
+});
+
+/** A saved HubSpot login app, as `apiTokens.listPlatforms` describes it. */
+const HUBSPOT_LOGIN_APP_PLATFORM = {
+  id: 'hubspot-login-app',
+  label: 'HubSpot login app',
+  keySource: 'supplied' as const,
+  credentialsPerOrg: 'one-live' as const,
+  keyShapeHint: 'a client ID and a client secret',
+  helpText: 'Your own HubSpot OAuth app.',
+  redirectUrl: 'https://app.example.com/api/connect/hubspot/callback',
+  loginApp: true,
+  fields: [
+    { name: 'clientId', label: 'Client ID', shapeHint: 'the Client ID from your HubSpot app\'s settings', secret: false },
+    { name: 'clientSecret', label: 'Client secret', shapeHint: 'the Client secret from the same page', secret: true },
+  ],
+};
+
+/**
+ * Render the panel with a HubSpot login app already saved, and wait for its row.
+ */
+async function renderWithSavedLoginApp() {
+  list.mockResolvedValue([tokenRow({ id: 'app-1', name: 'Acme HubSpot app', platform: 'hubspot-login-app', keyHint: '…cret', revealable: false })]);
+  listPlatforms.mockResolvedValue([VOCION_PLATFORM, HUBSPOT_LOGIN_APP_PLATFORM]);
+  render(<ApiTokensPanel />);
+
+  await expect.element(page.getByText('Acme HubSpot app')).toBeVisible();
+}
+
+describe('replacing or revoking a login app ends the logins made with it', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('warns before saving over a login app that its logins will need to log in again, and asks again on save', async () => {
+    await renderWithSavedLoginApp();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await userEvent.click(page.getByRole('button', { name: 'Add credential' }));
+    await userEvent.selectOptions(page.getByLabelText('Platform'), 'hubspot-login-app');
+
+    await expect.element(page.getByText(/logins made with the old app will need to log in again/)).toBeVisible();
+    await expect.element(page.getByText(/whose bill it lands on/)).not.toBeInTheDocument();
+
+    await userEvent.fill(page.getByLabelText('Name'), 'Acme HubSpot app 2');
+    await userEvent.fill(page.getByLabelText('Client ID'), 'new-client');
+    await userEvent.fill(page.getByLabelText('Client secret'), 'new-secret');
+    await userEvent.click(page.getByRole('button', { name: 'Replace key' }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Logins made with the old app stop refreshing'));
+  });
+
+  it('says revoking a login app ends its logins, not that the workspace goes back to a server key', async () => {
+    await renderWithSavedLoginApp();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    await userEvent.click(page.getByRole('button', { name: 'Revoke' }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('logins made with this app will need to log in again'));
+    expect(confirm).not.toHaveBeenCalledWith(expect.stringContaining('Vocion server key'));
   });
 });
 

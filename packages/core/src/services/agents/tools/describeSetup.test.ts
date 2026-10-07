@@ -1,50 +1,31 @@
 /**
- * The link a setup step carries: the vendor login when the deployment has
- * it configured and the workspace has a source to scope it to; the Connectors
- * page otherwise, with the reason said.
+ * The link a setup step carries: the Connectors page's add flow for the
+ * connector, back to the conversation — the one connect path (#1080), the
+ * same one `offer_connection`'s card opens — and a note when the workspace
+ * has no source of the kind yet.
  */
 import { describe, expect, it, vi } from 'vitest';
 
-const option = vi.hoisted(() => ({ value: null as null | { provider: string; label: string; configured: boolean; requiredEnv: string[] } }));
-vi.mock('@/libs/connect/registry', () => ({ connectOptionFor: () => option.value }));
 vi.mock('@/services/plugins/setupState', () => ({ setupStateForOrg: async () => [] }));
 
 const { connectorStepHref } = await import('./describeSetup');
 
 describe('connectorStepHref', () => {
-  it('points at the vendor login, scoped to the first declared source, when the login is configured', () => {
-    option.value = { provider: 'github', label: 'GitHub', configured: true, requiredEnv: [] };
-
-    expect(connectorStepHref({ slug: 'github', sources: ['github'] })).toEqual({
-      href: '/api/connect/github/start?source=github',
-      how: 'log in with GitHub (a workspace admin; the login is the approval)',
+  it('points at the Connectors add flow for the connector, returning to the conversation', () => {
+    expect(connectorStepHref({ slug: 'github', sources: ['github'] }, 42)).toEqual({
+      href: '/dashboard/connectors?add=github&returnTo=%2Fdashboard%2Fchat%3Fconversation%3D42',
+      how: 'connect it on the Connectors page (a workspace admin; the login or the pasted key is the approval), or offer it as a card with offer_connection',
     });
   });
 
-  it('falls back to the Connectors page and says the login is not configured', () => {
-    option.value = { provider: 'atlassian', label: 'Atlassian', configured: false, requiredEnv: ['ATLASSIAN_CLIENT_ID'] };
-
-    const out = connectorStepHref({ slug: 'jira', sources: ['jira'] });
-
-    expect(out.href).toBe('/dashboard/connectors');
-    expect(out.how).toContain('not configured');
+  it('returns to chat itself when the turn has no conversation', () => {
+    expect(connectorStepHref({ slug: 'jira', sources: ['jira'] }, null).href).toBe('/dashboard/connectors?add=jira&returnTo=%2Fdashboard%2Fchat');
   });
 
-  it('says when the workspace has no source of the kind yet, even with a login configured', () => {
-    option.value = { provider: 'github', label: 'GitHub', configured: true, requiredEnv: [] };
+  it('says when the workspace has no source of the kind yet', () => {
+    const out = connectorStepHref({ slug: 'github', sources: [] }, 7);
 
-    const out = connectorStepHref({ slug: 'github', sources: [] });
-
-    expect(out.href).toBe('/dashboard/connectors');
+    expect(out.href).toContain('add=github');
     expect(out.how).toContain('declares no source');
-  });
-
-  it('is the Connectors page for a connector with no vendor login', () => {
-    option.value = null;
-
-    expect(connectorStepHref({ slug: 'granola', sources: ['granola'] })).toEqual({
-      href: '/dashboard/connectors',
-      how: 'paste a credential on the Connectors page',
-    });
   });
 });

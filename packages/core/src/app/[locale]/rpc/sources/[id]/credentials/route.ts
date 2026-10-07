@@ -114,7 +114,7 @@ export async function GET(
       // Whether this connector can be authorized at the vendor with a click
       // instead of a pasted key, and if the server is missing what that
       // needs, the env var names — never their values.
-      connect: connectOptionFor(connectorSlug),
+      connect: await connectOptionFor(orgId, connectorSlug),
     });
   } catch (err) {
     // Two different failures land here. A credential the install points at but

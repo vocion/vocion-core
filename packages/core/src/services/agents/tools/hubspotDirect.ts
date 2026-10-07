@@ -16,10 +16,14 @@
  */
 
 import type { RuntimeContext } from '../types';
+import type { GrantPersistence } from '@/libs/connect/loginGrant';
 import type { HubspotClient, HubspotFailure } from '@/libs/hubspot/client';
 import { and, eq, or, sql } from 'drizzle-orm';
+import { isLoginGrant } from '@/libs/connect/loginGrant';
 import { db } from '@/libs/DB';
 import { createHubspotClient, noHubspotCredentials, tokenFromCredentials } from '@/libs/hubspot/client';
+import { logger } from '@/libs/Logger';
+import { resolveHubspotToken } from '@/libs/sources/hubspot';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 import { hasHubspotSource } from './crm';
@@ -79,6 +83,50 @@ export type CtxClient = {
 };
 
 /**
+ * The bearer token for one HubSpot source's stored credentials: a pasted
+ * token as stored, a login refreshed first when its 30-minute access token
+ * is expiring, with the refreshed login saved to this source's row.
+ * @param orgId - The workspace.
+ * @param sourceId - The `knowledge_source` row the credentials belong to.
+ * @param credentials - The decrypted bag.
+ * @throws {Error} When there is no token, or the login cannot be refreshed.
+ */
+export async function hubspotTokenForSource(orgId: string, sourceId: number, credentials: Record<string, unknown> | undefined): Promise<string> {
+  const persistence: GrantPersistence = {
+    kind: 'persist',
+    orgId,
+    sourceId,
+    warn: message => logger.warn(message, { orgId, sourceId }),
+  };
+  return resolveHubspotToken(credentials, persistence);
+}
+
+/**
+ * The bearer token for an action's credentials, which arrive without a source
+ * row id: the row is found by org and slug so a refreshed login is saved to
+ * it. With no such row the login is used only if still fresh. Returns
+ * undefined when the bag holds neither a pasted token nor a login.
+ * @param orgId - The workspace.
+ * @param sourceSlug - The action's `sourceSlug`, e.g. `hubspot`.
+ * @param credentials - The decrypted bag the action ran with.
+ * @throws {Error} When the login cannot be refreshed.
+ */
+export async function hubspotTokenForActionSlug(orgId: string, sourceSlug: string, credentials: Record<string, unknown> | undefined): Promise<string | undefined> {
+  if (!tokenFromCredentials(credentials)) {
+    return undefined;
+  }
+  const [row] = await db
+    .select({ id: knowledgeSourceSchema.id })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, sourceSlug)))
+    .limit(1);
+  if (row) {
+    return hubspotTokenForSource(orgId, row.id, credentials);
+  }
+  return resolveHubspotToken(credentials, { kind: 'never' });
+}
+
+/**
  * Resolve a live HubSpot client for this org from the first credentialed
  * hubspot source. `{ok:false}` results are returned to the model verbatim.
  * @param ctx
@@ -97,13 +145,25 @@ export async function hubspotClientForOrg(orgId: string): Promise<CtxClient | Hu
   if (sources.length === 0) {
     return noHubspotCredentials('No HubSpot source is connected in this workspace, so live HubSpot reads are unavailable. Say that rather than guessing.');
   }
+  let lastRefreshFailure: string | undefined;
   for (const source of sources) {
-    const credentials = await getCredentialsForSource(orgId, source.slug);
-    const token = tokenFromCredentials(credentials as Record<string, unknown> | undefined);
-    if (token) {
+    const credentials = await getCredentialsForSource(orgId, source.slug) as Record<string, unknown> | undefined;
+    // A source with nothing stored is skipped; resolveHubspotToken would throw for it.
+    if (!tokenFromCredentials(credentials) && !isLoginGrant(credentials)) {
+      continue;
+    }
+    try {
+      const token = await hubspotTokenForSource(orgId, source.id, credentials);
       const baseUrl = typeof source.configJson?.baseUrl === 'string' ? source.configJson.baseUrl : undefined;
       return { ok: true, client: createHubspotClient({ token, baseUrl }), sourceSlug: source.slug, sources };
+    } catch (error) {
+      // A login that will not refresh is data for the model, not a thrown turn.
+      lastRefreshFailure = error instanceof Error ? error.message : 'The HubSpot login could not be refreshed.';
+      logger.warn('HubSpot login could not be refreshed for a live tool', { orgId, sourceId: source.id, reason: lastRefreshFailure });
     }
+  }
+  if (lastRefreshFailure) {
+    return noHubspotCredentials(lastRefreshFailure);
   }
   return noHubspotCredentials();
 }

@@ -575,7 +575,7 @@ function responsesOf(handler: ts.Node): DocumentedResponse[] {
   if (called.has('authApi')) {
     addErrorCode(byStatus, 401, 'UNAUTHORIZED');
   }
-  if (called.has('requireCapability')) {
+  if (called.has('requireCapability') || called.has('requireWorkspaceAdmin')) {
     addErrorCode(byStatus, 403, 'FORBIDDEN');
   }
   if (called.has('readJsonBody') || called.has('readIdParam')) {

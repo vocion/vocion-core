@@ -299,9 +299,10 @@ login, an app installation or a pasted key alike); a record step is done when
 the type has an active record. While any step is undone the workspace's chat
 leads with one chip, "Set up your <plugin>", routed to the lead; every agent
 can read the same steps with `describe_setup`, each with the link a person
-taps — the vendor login where the deployment has it configured, which is the
-approval, or the Connectors page. The chip goes away on its own when the last
-step is done. Core names no connector and no type here: a plugin that declares
+taps — the Connectors page's add flow for that connector, the same one the
+`offer_connection` card opens from chat, which runs the vendor login where the
+deployment has one (the login is the approval) and takes a pasted key
+otherwise. The chip goes away on its own when the last step is done. Core names no connector and no type here: a plugin that declares
 no `setup:` has no setup state.
 
 When a credential is stored, core emits `source.connected` (connector,

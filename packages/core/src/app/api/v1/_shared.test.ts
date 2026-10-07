@@ -11,6 +11,7 @@ import {
   readJsonBody,
   readPagination,
   requireCapability,
+  requireWorkspaceAdmin,
   writeApiErrorResponse,
 } from './_shared';
 
@@ -227,6 +228,36 @@ describe('requireCapability', () => {
     };
 
     expect(() => requireCapability(callerWith(owner), 'approve')).toThrow('authz table unreachable');
+  });
+});
+
+describe('requireWorkspaceAdmin', () => {
+  const callerWith = (principal: Principal) => ({ orgId: 'org1', actorId: principal.id, principal, source: 'token' as const });
+
+  it('lets an admin through, including a role stored under its old name', () => {
+    expect(requireWorkspaceAdmin(callerWith({ kind: 'user', id: 'u1', role: 'admin', scope: { orgId: 'org1' } }), 'save a login app')).toBeNull();
+    // `owner` is the name tokens minted before the two-role model still carry.
+    expect(requireWorkspaceAdmin(callerWith({ kind: 'user', id: 'u2', role: 'owner' as never, scope: { orgId: 'org1' } }), 'save a login app')).toBeNull();
+  });
+
+  it('refuses a member, a role it does not know and no role at all, naming what was refused', async () => {
+    const callers: Principal[] = [
+      { kind: 'user', id: 'u3', role: 'member', scope: { orgId: 'org1' } },
+      { kind: 'user', id: 'u4', role: 'pm' as never, scope: { orgId: 'org1' } },
+      { kind: 'user', id: 'u5', scope: { orgId: 'org1' } },
+    ];
+    for (const principal of callers) {
+      const denied = requireWorkspaceAdmin(callerWith(principal), 'save a login app') as unknown as Response;
+
+      expect(denied.status).toBe(403);
+      expect((await denied.json()).error.message).toBe('Only a workspace admin can save a login app.');
+    }
+  });
+
+  it('refuses a member token that carries every grant: grants add actions, they never make a member an admin', () => {
+    const memberWithEverything: Principal = { kind: 'user', id: 'token:t1', role: 'member', scope: { orgId: 'org1' }, grants: ['*'] };
+
+    expect((requireWorkspaceAdmin(callerWith(memberWithEverything), 'revoke a login app') as unknown as Response).status).toBe(403);
   });
 });
 

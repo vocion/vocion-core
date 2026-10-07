@@ -29,6 +29,7 @@
  *           { "tool": "render_document", "args": { "title": "…", "html": { "$file": "northwind-v1.html" } } }
  *         ],
  *         "reply": "The proposal is open beside you: 6 sheets, verified.",
+ *         "pauseBeforeReplyMs": 3000,                // optional: hold the reply, as a model writing it would
  *         "fails": { "after": "half a sentence", "reason": "connection reset" }
  *       }
  *     ],
@@ -70,6 +71,11 @@ const TurnSchema = z.object({
   match: z.string().min(1),
   steps: z.array(StepSchema).default([]),
   reply: z.string().default('Done.'),
+  // A real model takes seconds to write its answer after a tool runs, and the
+  // tool's card is on screen all that time. A test that needs that window
+  // (pressing a card before its reply is saved) asks for it here. Capped so a
+  // typo cannot hang a suite.
+  pauseBeforeReplyMs: z.number().int().min(0).max(30_000).optional(),
   fails: FailureSchema.optional(),
 });
 export const ScriptSchema = z.object({
@@ -268,6 +274,9 @@ export class ScriptedChatModel extends BaseChatModel {
         tool_calls: [{ id: `scripted-${toolResults + 1}-${Date.now()}`, name: step.tool, args, type: 'tool_call' }],
       });
       return { generations: [{ text: '', message }] };
+    }
+    if (turn.pauseBeforeReplyMs) {
+      await new Promise(resolve => setTimeout(resolve, turn.pauseBeforeReplyMs));
     }
     return reply(turn.reply);
   }

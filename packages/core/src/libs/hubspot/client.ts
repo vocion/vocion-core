@@ -39,7 +39,9 @@ export type HubspotClient = {
 };
 
 /**
- * The vaulted private-app token, whichever field name the vault entry used.
+ * The vaulted token, whichever field name the vault entry used: `token` for a
+ * pasted private-app token, `accessToken` for a login grant (which this does
+ * not refresh; `resolveHubspotToken` in `sources/hubspot.ts` does).
  * @param credentials
  */
 export function tokenFromCredentials(credentials?: Record<string, unknown>): string | undefined {
@@ -51,12 +53,12 @@ export function noHubspotCredentials(detail?: string): HubspotFailure {
   return {
     ok: false,
     error: 'no_hubspot_credentials',
-    message: detail ?? 'No HubSpot credentials are stored in the vault for this workspace. Connect the hubspot source (private-app token) before calling live HubSpot tools.',
+    message: detail ?? 'No HubSpot credentials are stored in the vault for this workspace. Connect the hubspot source (log in with HubSpot or paste a private-app token) before calling live HubSpot tools.',
   };
 }
 
 /**
- * A 403 means the private-app token exists but lacks a scope — name the scope
+ * A 403 means the token (private-app or login) exists but lacks a scope — name the scope
  * so the fix is actionable. HubSpot's MISSING_SCOPES body lists them under
  * errors[].context.required(Granular)Scopes.
  * @param bodyText
@@ -86,7 +88,7 @@ async function shapeFailure(res: Response): Promise<HubspotFailure> {
       ok: false,
       error: 'missing_scope',
       scope,
-      message: `HubSpot returned 403: the private-app token is missing the "${scope}" scope. ${detail}`.trim(),
+      message: `HubSpot returned 403: the HubSpot token is missing the "${scope}" scope. ${detail}`.trim(),
     };
   }
   return {

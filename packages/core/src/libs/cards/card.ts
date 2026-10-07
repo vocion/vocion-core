@@ -10,7 +10,7 @@ import type { RecommendedActionPayload } from '@/services/agents/types';
  *
  * Kinds are registered by descriptor — a schema for the payload and the name
  * of a renderer — so a plugin adds a kind without touching this file. Core
- * ships `action` (today's recommendation), `decision`, `ask` and `record`.
+ * ships `action` (today's recommendation), `decision`, `ask`, `record` and `link`.
  * A card is emitted INTO this contract by exactly three producers: the
  * `recommend_action`/`put_card` tool, a tool's result-to-card descriptor, and
  * the gated backstop. Tools are the door, not the feature.
@@ -44,6 +44,19 @@ export const CardSchema = z.object({
   href: z.string().min(1).optional(),
   /** The words on that link: "Open feature". */
   hrefLabel: z.string().min(1).optional(),
+  /**
+   * A second way in, beside `href`: "Paste a token" next to "Connect with
+   * GitHub". Same rule as `href` — a path inside the app.
+   */
+  secondaryHref: z.string().min(1).optional(),
+  /** The words on that second link. */
+  secondaryHrefLabel: z.string().min(1).optional(),
+  /**
+   * The last connect attempt that failed, already worded for a person
+   * ("GitHub denied access"). `at` is an ISO time so the card can say the
+   * date it happened; `reason` is the short code the log carries.
+   */
+  lastAttempt: z.object({ at: z.string(), reason: z.string(), summary: z.string() }).optional(),
   /** The record the card's action created when it ran — the id the next turn needs. */
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),
@@ -101,6 +114,7 @@ registerCardKind({ kind: 'action', renderer: 'action', refine: c => (c.actions.l
 registerCardKind({ kind: 'decision', renderer: 'decision', refine: c => (c.actions.length < 2 ? 'a decision card offers at least two ways to decide' : null) });
 registerCardKind({ kind: 'ask', renderer: 'ask' });
 registerCardKind({ kind: 'record', renderer: 'record' });
+registerCardKind({ kind: 'link', renderer: 'link', refine: c => (c.href ? null : 'a link card names where it opens (href)') });
 
 export type CardCheck = { ok: true; card: Card } | { ok: false; reason: string };
 

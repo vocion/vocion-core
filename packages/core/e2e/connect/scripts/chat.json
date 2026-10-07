@@ -1,0 +1,25 @@
+{
+  "turns": [
+    {
+      "match": "connect github",
+      "steps": [
+        { "tool": "offer_connection", "args": { "connector": "github", "why": "So the team can watch pull requests on your repositories." } }
+      ],
+      "reply": "The Connect GitHub card is above."
+    },
+    {
+      "match": "I connected github",
+      "steps": [],
+      "reply": "You are logged in to GitHub as northwind. Which repositories should I watch?"
+    },
+    {
+      "match": "connect jira",
+      "steps": [
+        { "tool": "offer_connection", "args": { "connector": "jira", "why": "So the team can follow the tickets behind each request." } }
+      ],
+      "reply": "The Connect Jira card is above.",
+      "pauseBeforeReplyMs": 3000
+    }
+  ],
+  "fallback": "This scripted model has no line for that message."
+}

@@ -17,6 +17,8 @@
  * a crawl toggle that hides its own depth control, a live instance inspection.
  */
 
+import { withArticle } from '@/utils/withArticle';
+
 /** How one setting is typed in, which decides both the input and the parsing. */
 export type ConfigFieldType = 'text' | 'url' | 'number' | 'boolean' | 'select' | 'stringArray';
 
@@ -594,6 +596,14 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
 
   'posthog': [
     {
+      key: 'projectId',
+      label: 'Project id',
+      type: 'number',
+      min: 1,
+      placeholder: '12345',
+      help: 'The number in the PostHog URL after /project/. Only needed when you logged in with PostHog and gave it more than one project; a pasted key names its own.',
+    },
+    {
       key: 'projectName',
       label: 'Name in document titles',
       type: 'text',
@@ -908,17 +918,4 @@ export function describeMissingFields(missingLabels: string[]): string | null {
   }
   const last = named[named.length - 1];
   return `${named.slice(0, -1).join(', ')} and ${last}`;
-}
-
-/**
- * A field name with the right article in front, or none where an article would
- * read wrongly. "Project keys" asks for several, so "a project keys" is not
- * English; "an AWS region" needs "an" rather than "a".
- * @param name - The field's label, already lowercased.
- */
-function withArticle(name: string): string {
-  if (name.endsWith('s') && !name.endsWith('ss')) {
-    return name;
-  }
-  return /^[aeiou]/.test(name) ? `an ${name}` : `a ${name}`;
 }

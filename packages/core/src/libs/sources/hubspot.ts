@@ -4,7 +4,10 @@
  * (firsthq/docs/teams/revenue-operations.md) and the connector-pack kickoff on
  * the durable-ingestion pipeline.
  *
- * Auth: a HubSpot private-app token in `ctx.credentials.token` (Bearer).
+ * Auth: a HubSpot private-app token in `ctx.credentials.token` (Bearer), or a
+ * "Connect with HubSpot" login grant (`accessToken` + `refreshToken`, 30 minute
+ * access token). A sync refreshes an expiring grant and saves the new one; see
+ * `resolveHubspotToken`.
  * Incremental: when `ctx.since` is set, fetch only records modified since via
  * the CRM Search API filtered on the object type's last-modified property;
  * otherwise list all (both paginate via the opaque `after` cursor).
@@ -19,9 +22,12 @@
  */
 
 import type { SourceConnector, SourceContext } from './types';
+import type { GrantPersistence } from '@/libs/connect/loginGrant';
 import type { StageInfo } from '@/libs/hubspot/client';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { isLoginGrant, usableLoginGrant } from '@/libs/connect/loginGrant';
+import { refreshHubspotGrant } from '@/libs/connect/providers/hubspot';
 import { createHubspotClient, hubspotNumeric, tokenFromCredentials } from '@/libs/hubspot/client';
 import { DEFAULT_NURTURE_SLOTS, nurtureSlotsSchema } from '@/libs/hubspot/nurtureSlots';
 
@@ -223,6 +229,27 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
   };
 }
 
+/**
+ * The bearer token to call HubSpot with. A login grant yields its access
+ * token, refreshed first when it is expiring (a sync saves the refreshed
+ * grant; `persistence: never` refuses to refresh and says so). A pasted
+ * private-app token is returned as stored: it has no expiry.
+ * @param credentials - The decrypted credential bag.
+ * @param persistence - Where a refreshed grant is saved, or `never`.
+ * @throws {Error} Error when there is no token, or the login cannot be refreshed.
+ */
+export async function resolveHubspotToken(credentials: Record<string, unknown> | undefined, persistence: GrantPersistence): Promise<string> {
+  if (isLoginGrant(credentials)) {
+    const grant = await usableLoginGrant({ vendor: 'HubSpot', provider: 'hubspot', connectorSlug: 'hubspot', grant: credentials, persistence, refresh: refreshHubspotGrant });
+    return grant.accessToken;
+  }
+  const token = tokenFromCredentials(credentials);
+  if (!token) {
+    throw new Error('HubSpot connector needs a HubSpot login (Connect with HubSpot) or a private-app token in credentials.token');
+  }
+  return token;
+}
+
 export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   slug: 'hubspot',
   name: 'HubSpot',
@@ -232,10 +259,12 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   configSchema: hubspotConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = hubspotConfigSchema.parse(ctx.config);
-    const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
-    if (!token) {
-      throw new Error('HubSpot connector requires a private-app token in credentials.token');
-    }
+    const token = await resolveHubspotToken(ctx.credentials, {
+      kind: 'persist',
+      orgId: ctx.orgId,
+      sourceId: ctx.sourceId,
+      warn: message => ctx.onProgress?.({ kind: 'error', message }),
+    });
     // The handoff signals ride along for contacts whatever the pinned list
     // says: a workspace that enumerates its properties must not silently
     // starve the watcher.

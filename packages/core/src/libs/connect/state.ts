@@ -11,16 +11,31 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Env } from '@/libs/Env';
+import { safeReturnPath } from './returnTo';
 
 export type ConnectStatePayload = {
   v: 1;
   provider: string;
   orgId: string;
-  sourceSlug: string;
+  /** The source the login started from. Absent when it started from a connector alone (#1080). */
+  sourceSlug?: string;
+  /** The connector the login is for. Absent on a state signed before connectors could start a login. */
+  connectorSlug?: string;
   userId: string;
   nonce: string;
+  /** The chat conversation and card the login came from, so the callback can mark the card. */
+  conversationId?: number;
+  cardId?: string;
+  /** Where to land afterwards: a `/dashboard` path, re-checked on verify. */
+  returnTo?: string;
+  /**
+   * The client ID of the app the start sent the person to, so the callback
+   * trades the code on that same app even if an admin changed the login app
+   * in between. Not a secret: the vendor's authorize URL carries it too.
+   */
+  loginClientId?: string;
   /** Unix milliseconds. */
   exp: number;
 };
@@ -28,6 +43,15 @@ export type ConnectStatePayload = {
 export type ConnectStateRefusal = 'malformed' | 'bad_signature' | 'expired';
 
 const TTL_MS = 10 * 60 * 1000;
+
+/**
+ * When a state was signed. The state carries only its expiry, and the lifetime
+ * is fixed, so the start is the expiry minus the lifetime.
+ * @param payload - A verified state.
+ */
+export function stateIssuedAt(payload: Pick<ConnectStatePayload, 'exp'>): Date {
+  return new Date(payload.exp - TTL_MS);
+}
 
 function secret(): string {
   const value = Env.AUTH_SECRET;
@@ -46,20 +70,40 @@ function sign(payload: string): string {
  * @param input - Who is connecting what.
  * @param input.provider - Provider id, e.g. `slack`.
  * @param input.orgId - The workspace the credential will belong to.
- * @param input.sourceSlug - The source being connected.
+ * @param input.sourceSlug - The source being connected, when the login started from one.
+ * @param input.connectorSlug - The connector being connected, when it started from a connector.
+ * @param input.conversationId - The chat the login came from, if any.
+ * @param input.cardId - The chat card the login came from, if any.
  * @param input.userId - The person who started it.
+ * @param input.returnTo - Optional `/dashboard` path to land on afterwards.
+ * @param input.loginClientId - The client ID of the app the login runs on, when it runs on one.
  * @param now - Injected for tests.
  */
 export function signState(
-  input: { provider: string; orgId: string; sourceSlug: string; userId: string },
+  input: {
+    provider: string;
+    orgId: string;
+    sourceSlug?: string;
+    connectorSlug?: string;
+    userId: string;
+    returnTo?: string;
+    conversationId?: number;
+    cardId?: string;
+    loginClientId?: string;
+  },
   now: number = Date.now(),
 ): string {
   const payload: ConnectStatePayload = {
     v: 1,
     provider: input.provider,
     orgId: input.orgId,
-    sourceSlug: input.sourceSlug,
+    ...(input.sourceSlug ? { sourceSlug: input.sourceSlug } : {}),
+    ...(input.connectorSlug ? { connectorSlug: input.connectorSlug } : {}),
     userId: input.userId,
+    ...(input.returnTo ? { returnTo: input.returnTo } : {}),
+    ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
+    ...(input.cardId ? { cardId: input.cardId } : {}),
+    ...(input.loginClientId ? { loginClientId: input.loginClientId } : {}),
     nonce: randomBytes(16).toString('hex'),
     exp: now + TTL_MS,
   };
@@ -107,15 +151,45 @@ export function verifyState(
     payload?.v !== 1
     || typeof payload.provider !== 'string'
     || typeof payload.orgId !== 'string'
-    || typeof payload.sourceSlug !== 'string'
+    || (payload.sourceSlug !== undefined && typeof payload.sourceSlug !== 'string')
+    || (payload.connectorSlug !== undefined && typeof payload.connectorSlug !== 'string')
+    || (payload.sourceSlug === undefined && payload.connectorSlug === undefined)
+    || (payload.conversationId !== undefined && !Number.isSafeInteger(payload.conversationId))
+    || (payload.cardId !== undefined && typeof payload.cardId !== 'string')
+    || (payload.loginClientId !== undefined && typeof payload.loginClientId !== 'string')
     || typeof payload.userId !== 'string'
     || typeof payload.nonce !== 'string'
     || typeof payload.exp !== 'number'
   ) {
     return { ok: false, reason: 'malformed' };
   }
+  if (payload.returnTo !== undefined && safeReturnPath(payload.returnTo) === null) {
+    return { ok: false, reason: 'malformed' };
+  }
   if (payload.exp <= now) {
     return { ok: false, reason: 'expired' };
   }
   return { ok: true, payload };
+}
+
+/**
+ * The PKCE code verifier for one login, derived from its signed state: an
+ * HMAC of the state under AUTH_SECRET, base64url (43 characters, within
+ * PKCE's 43 to 128). The start and the callback both hold the state, so both
+ * reach the same verifier without storing it anywhere. Only the S256
+ * challenge leaves the server; the verifier goes to the vendor's token
+ * endpoint, server to server, and someone holding the state and the code
+ * still cannot compute it without AUTH_SECRET.
+ * @param state - The signed state, exactly as signed and as the vendor returned it.
+ */
+export function pkceVerifierFor(state: string): string {
+  return createHmac('sha256', secret()).update(`pkce:${state}`).digest('base64url');
+}
+
+/**
+ * The S256 code challenge for a verifier: base64url(SHA-256(verifier)).
+ * @param verifier - From `pkceVerifierFor`.
+ */
+export function pkceChallengeFor(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url');
 }

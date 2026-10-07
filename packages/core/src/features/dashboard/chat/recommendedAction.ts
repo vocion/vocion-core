@@ -1,4 +1,5 @@
-import type { RecommendedAction } from './types';
+import type { CardDecision, CardField, CardLastAttempt, RecommendedAction } from './types';
+import { isInAppPath } from '@/libs/connect/inAppPath';
 
 /**
  * The event boundary for `recommended_action`.
@@ -32,10 +33,46 @@ function text(v: unknown): string {
  */
 export function cardLink(href: unknown, label: unknown): { href: string; hrefLabel?: string } | Record<string, never> {
   const h = text(href);
-  if (!h.startsWith('/') || h.startsWith('//')) {
+  if (!isInAppPath(h)) {
     return {};
   }
   return { href: h, ...(text(label) ? { hrefLabel: text(label) } : {}) };
+}
+
+/**
+ * A field with its link kept only when the link stays inside the app; the
+ * label and value are kept either way.
+ * @param field - One field of a card.
+ */
+function withSafeHref(field: CardField): CardField {
+  const { href, ...rest } = field;
+  return typeof href === 'string' && isInAppPath(href) ? { ...rest, href } : rest;
+}
+
+/**
+ * Everything a card shows beyond its title and button, copied from a stored
+ * card run or a live `card` event onto the client's card — so a reload and
+ * the live stream draw the same card. Both links go through `cardLink`, so
+ * neither can leave the product. Absent keys stay absent.
+ * @param card - A stored card run or the card from the wire.
+ * @param card.kind
+ * @param card.body
+ * @param card.fields
+ * @param card.secondaryHref
+ * @param card.secondaryHrefLabel
+ * @param card.lastAttempt
+ * @param card.decision
+ */
+export function cardShown(card: { kind?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision }): Partial<RecommendedAction> {
+  const second = cardLink(card.secondaryHref, card.secondaryHrefLabel);
+  return {
+    ...(card.kind ? { kind: card.kind } : {}),
+    ...(card.body ? { body: card.body } : {}),
+    ...(card.fields ? { fields: card.fields.map(withSafeHref) } : {}),
+    ...('href' in second ? { secondaryHref: second.href, ...(second.hrefLabel ? { secondaryHrefLabel: second.hrefLabel } : {}) } : {}),
+    ...(card.lastAttempt ? { lastAttempt: card.lastAttempt } : {}),
+    ...(card.decision ? { decision: card.decision } : {}),
+  };
 }
 
 /**

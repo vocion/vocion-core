@@ -31,6 +31,7 @@
  */
 
 import type { IngestDoc, IngestResult, ProcessorRunMark } from './IngestionService';
+import type { DbTransaction } from '@/libs/DbTransaction';
 import type { SyncBudget, SyncBudgetLimits } from '@/libs/processors/budget';
 import type { RegisteredProcessor } from '@/libs/processors/registry';
 import type { ProcessorRunsOn, ProcessorSyncContext } from '@/libs/processors/types';
@@ -79,6 +80,8 @@ export type AddSourceInput = {
   /** Per-source slug the user picks. Falls back to a generated one. */
   slug?: string;
   configJson: Record<string, unknown>;
+  /** The caller's transaction, when the row must land with other writes. */
+  tx?: DbTransaction;
 };
 
 export async function addSource(input: AddSourceInput): Promise<{ id: number; slug: string }> {
@@ -101,6 +104,7 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
     slug,
     kind: 'plugin',
     configJson: { ...input.configJson, _connector: input.kind },
+    tx: input.tx,
   });
   return { id: ref.sourceId, slug };
 }

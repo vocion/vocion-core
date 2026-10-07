@@ -1711,7 +1711,7 @@ export const conversationMessageSchema = pgTable('conversation_message', {
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; ref?: { type: string; id: number }; href?: string; hrefLabel?: string }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; decision?: { action: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
   >>(),
   /**
@@ -3259,6 +3259,25 @@ export const apiTokenSchema = pgTable(
      * legitimate choice the person issuing it gets to make.
      */
     expiresAt: timestamp('expires_at', { mode: 'date' }),
+    /**
+     * How the credential reached us: pasted by a person, or granted by a
+     * provider login (GitHub App install, Atlassian or Slack OAuth). A login's
+     * bag is never shown back on screen.
+     */
+    obtainedVia: text('obtained_via').default('paste').notNull().$type<'paste' | 'login'>(),
+    /**
+     * The non-secret identity a login belongs to (a GitHub org, an Atlassian
+     * site, a Slack team). Keeps one row per account across re-logins. Null on
+     * a pasted key.
+     */
+    account: text('account'),
+    /**
+     * Set while one caller refreshes this login, so a second caller waits for
+     * the new token instead of spending the same refresh token, which vendors
+     * that rotate refresh tokens refuse. Runs out on its own; null when no
+     * refresh is underway. See `claimLoginRefresh`.
+     */
+    refreshingUntil: timestamp('refreshing_until', { mode: 'date' }),
   },
   table => [
     index('api_token_org_idx').on(table.orgId),

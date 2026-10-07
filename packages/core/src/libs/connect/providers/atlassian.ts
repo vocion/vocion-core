@@ -26,8 +26,8 @@ export const atlassianProvider: ConnectProvider = {
   requiredEnv: ATLASSIAN_ENV,
   configured: () => atlassianClient() !== null,
 
-  authorizeUrl({ state, redirectUri }) {
-    const client = atlassianClient();
+  authorizeUrl({ state, redirectUri, client: chosen }) {
+    const client = atlassianClient(chosen);
     if (!client) {
       // The start route checks `configured()` first; this is the backstop, so
       // an unconfigured deployment never sends a person to a URL with an empty
@@ -45,7 +45,7 @@ export const atlassianProvider: ConnectProvider = {
     return url.toString();
   },
 
-  async exchange({ query, redirectUri }) {
+  async exchange({ query, redirectUri, client: chosen }) {
     if (query.error) {
       // Atlassian's own reason (`access_denied` when the person declined), never the code.
       return { ok: false, reason: query.error_description ?? query.error };
@@ -56,7 +56,7 @@ export const atlassianProvider: ConnectProvider = {
     }
     let token: Awaited<ReturnType<typeof exchangeAuthorizationCode>>;
     try {
-      token = await exchangeAuthorizationCode({ code, redirectUri });
+      token = await exchangeAuthorizationCode({ code, redirectUri, client: chosen });
     } catch (err) {
       return { ok: false, reason: err instanceof Error ? err.message : 'token_exchange_failed' };
     }

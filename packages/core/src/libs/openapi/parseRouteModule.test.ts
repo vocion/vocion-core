@@ -150,6 +150,20 @@ describe('parseRouteModule', () => {
     ]);
   });
 
+  it('documents the 403 of a handler that only admins may call', () => {
+    const [save] = parseRouteModule(
+      `export async function PUT(req: Request) {
+        const caller = await authApi(req);
+        const notAdmin = requireWorkspaceAdmin(caller, 'save a login app');
+        if (notAdmin) { return notAdmin; }
+        return NextResponse.json({ ok: true });
+      }`,
+      '/api/v1/login-apps/{provider}',
+    );
+
+    expect(save?.responses.find(response => response.status === 403)?.errorCodes).toEqual(['FORBIDDEN']);
+  });
+
   it('falls back to the method and path when a handler has no doc comment', () => {
     const [bare] = parseRouteModule(`export async function GET() { return null; }`, '/api/v1/budgets');
 

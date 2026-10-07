@@ -136,7 +136,7 @@ describe('useChatSession', () => {
 
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    expect(result.current.messages[1]?.recommendations).toEqual([{ id: 'card_1', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, label: 'File this as a request', runId: 3691, state: 'filed' }]);
+    expect(result.current.messages[1]?.recommendations).toEqual([{ id: 'card_1', kind: 'action', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, label: 'File this as a request', runId: 3691, state: 'filed' }]);
   });
 
   it('resumes the thread the URL names (`?conversation=<id>`) even on a fresh session', async () => {
@@ -490,6 +490,53 @@ describe('useChatSession', () => {
 
       expect(result.current.contextRefs).toEqual([]);
     });
+  });
+
+  it('a link card keeps its why and its href live and after a reload (#1080)', async () => {
+    const why = 'So the factory can read Northwind\'s repos.';
+    const href = '/dashboard/connectors?add=github&returnTo=%2Fdashboard%2Fchat';
+    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 32 } as never);
+    const encoder = new TextEncoder();
+    const card = { id: 'card_link', kind: 'link', title: 'Connect GitHub', actions: [], source: { agentSlug: 'workspace-lead' }, rationale: why, href, hrefLabel: 'Connect GitHub', state: 'proposed' };
+    const frames = [`data: ${JSON.stringify({ type: 'card', card })}\n\n`, 'data: {"type":"done","response":"ok"}\n\n'];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const f of frames) {
+            controller.enqueue(encoder.encode(f));
+          }
+          controller.close();
+        },
+      }),
+    }));
+
+    const live = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(live.result.current.booted).toBe(true));
+    await live.result.current.sendMessage('set up');
+    await vi.waitFor(() => expect(live.result.current.messages).toHaveLength(2));
+
+    expect(live.result.current.messages[1]!.recommendations![0]).toMatchObject({ label: 'Connect GitHub', rationale: why, href, hrefLabel: 'Connect GitHub' });
+
+    // The same card as the run ledger stores it, read back on reload.
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 9, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '9');
+    vi.mocked(client.conversations.get).mockResolvedValue({
+      id: 9,
+      orgId: 'org_1',
+      agentSlug: 'orchestrator',
+      title: 'Connect GitHub',
+      messageCount: 1,
+      messages: [
+        { id: 3, conversationId: 9, role: 'assistant', content: 'Connect it.', runsJson: [{ type: 'card', id: 'card_link', kind: 'link', label: 'Connect GitHub', actionId: '', rationale: why, href, hrefLabel: 'Connect GitHub', state: 'proposed' }], createdAt: new Date(), status: 'complete' },
+      ],
+    } as never);
+
+    const reloaded = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(reloaded.result.current.messages).toHaveLength(1));
+
+    expect(reloaded.result.current.messages[0]!.recommendations![0]).toMatchObject({ label: 'Connect GitHub', rationale: why, href, hrefLabel: 'Connect GitHub' });
   });
 
   /**

@@ -189,6 +189,15 @@ test.describe('the platform selector decides which controls exist', () => {
       'Firecrawl',
       // A sign-in to an app the workspace builds, for its QA (2026-09-30).
       'App sign-in',
+      // The login apps (#1080): one per vendor a connector can log in to,
+      // holding the app's own client id and secret for this deployment.
+      'Google login app',
+      'Slack login app',
+      'Atlassian login app',
+      'HubSpot login app',
+      'Notion login app',
+      'Zoom login app',
+      'Apollo login app',
       'Other platform',
     ]);
   });

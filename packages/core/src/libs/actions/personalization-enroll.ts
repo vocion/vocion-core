@@ -713,14 +713,16 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       ));
   },
   async execute(ctx, input) {
-    const { createHubspotClient, tokenFromCredentials } = await import('@/libs/hubspot/client');
+    const { createHubspotClient } = await import('@/libs/hubspot/client');
+    const { hubspotTokenForActionSlug } = await import('@/services/agents/tools/hubspotDirect');
     const hubspotId = input.contactRef.split(':')[1];
     if (!hubspotId) {
       throw new Error(`contactRef "${input.contactRef}" carries no HubSpot id`);
     }
     // The `hubspot` source's vault token, or any credentialed hubspot-family
     // source (the workspace splits contacts/deals/companies into slugs).
-    const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
+    // A login's 30-minute token is refreshed first and saved to the source row.
+    const token = await hubspotTokenForActionSlug(ctx.orgId, 'hubspot', ctx.credentials);
     let client = token ? createHubspotClient({ token }) : null;
     if (!client) {
       const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');

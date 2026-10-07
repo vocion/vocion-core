@@ -1,8 +1,30 @@
 import { NextIntlClientProvider } from 'next-intl';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { describeSyncResult, filterConnectors, initialCredentialChoice, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
+
+const addConnector = vi.fn();
+vi.mock('@/libs/Orpc', () => ({
+  client: { connect: { addConnector: (...args: unknown[]) => addConnector(...args) } },
+  noStoreClient: { connect: { revealStoredCredential: vi.fn() } },
+}));
+
+beforeEach(() => {
+  addConnector.mockReset();
+  addConnector.mockResolvedValue({ ok: true, sourceId: 1 });
+});
+
+/**
+ * A connector's add box asks for its credential too (#1080): fill what Jira
+ * needs so the test can get on with the settings it is about.
+ */
+async function fillJiraCredential() {
+  await userEvent.fill(page.getByLabelText('Atlassian account email', { exact: true }), 'sam@acme.example');
+  await userEvent.fill(page.getByLabelText('API token', { exact: true }), 'jira-token-1');
+}
+
+const JIRA_CREDENTIAL = { values: { email: 'sam@acme.example', apiToken: 'jira-token-1' } };
 
 /**
  * The Sources panel has two jobs a reviewer would notice being wrong: the
@@ -170,6 +192,8 @@ function stubSourcesApi(
     linkedCredentialId?: string;
     /** Credentials the workspace already holds for this platform. */
     available?: { id: string; name: string; keyHint: string | null; expiresAt: string | null }[];
+    /** The vendor-login option the credential read reports, when the connector has one. */
+    connect?: Record<string, unknown>;
   } = {},
 ) {
   const posts: { url: string; body: Record<string, unknown> }[] = [];
@@ -208,6 +232,7 @@ function stubSourcesApi(
           credentials: stored,
           available: options.available ?? [],
           linkedCredentialId: options.linkedCredentialId ?? null,
+          ...(options.connect === undefined ? {} : { connect: options.connect }),
           platform: 'strapi',
           platformLabel: 'Strapi',
           helpText: 'A Strapi API token.',
@@ -1491,26 +1516,26 @@ describe('a form built from the connector\'s own fields', () => {
   });
 
   it('sends what was typed, shaped the way the connector schema expects', async () => {
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG, OPS');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
-    const created = posts.find(post => post.url === '/rpc/sources')!;
-
-    expect(created.body).toEqual({
-      kind: 'jira',
-      configJson: {
+    expect(addConnector).toHaveBeenCalledWith({
+      connector: 'jira',
+      config: {
         baseUrl: 'https://acme.atlassian.net',
         projectKeys: ['ENG', 'OPS'],
         doneWindowDays: 90,
         includeDescription: true,
       },
+      credential: JIRA_CREDENTIAL,
     });
   });
 
@@ -1519,15 +1544,16 @@ describe('a form built from the connector\'s own fields', () => {
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
-    await expect.element(page.getByText(/a site url and project keys/i)).toBeVisible();
+    await expect.element(page.getByText(/Still needed:.*api token.*site url and project keys/i)).toBeVisible();
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
 
     await expect.element(page.getByText(/Still needed: project keys/i)).toBeVisible();
   });
 
   it('offers HubSpot its record types as a choice rather than a free-text box', async () => {
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('HubSpot');
 
@@ -1536,13 +1562,12 @@ describe('a form built from the connector\'s own fields', () => {
     await expect.element(recordType).toBeVisible();
 
     await recordType.selectOptions('deals');
+    await userEvent.fill(page.getByLabelText('Private-app token', { exact: true }), 'pat-na1-test');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
-    const created = posts.find(post => post.url === '/rpc/sources')!;
-
-    expect(created.body.configJson).toEqual({ objectType: 'deals', baseUrl: 'https://api.hubapi.com' });
+    expect(addConnector).toHaveBeenCalledWith({ connector: 'hubspot', config: { objectType: 'deals', baseUrl: 'https://api.hubapi.com' }, credential: { values: { token: 'pat-na1-test' } } });
   });
 
   it('keeps base-URL overrides out of the way until they are asked for', async () => {
@@ -1561,17 +1586,11 @@ describe('a form built from the connector\'s own fields', () => {
     // Before this the submit had no catch: a network failure left the dialog on
     // a spinner that never resolved and said nothing.
     stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
-    const reachable = globalThis.fetch;
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url === '/rpc/sources' && init?.method === 'POST') {
-        throw new TypeError('Failed to fetch');
-      }
-      return reachable(input, init);
-    }));
+    addConnector.mockRejectedValue(new TypeError('Failed to fetch'));
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
@@ -1581,37 +1600,37 @@ describe('a form built from the connector\'s own fields', () => {
   });
 
   it('sends what a checkbox and a number box were changed to', async () => {
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await page.getByLabelText(/Include the issue description/).click();
     await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '14');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+    await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
-    const created = posts.find(post => post.url === '/rpc/sources')!;
-
-    expect(created.body.configJson).toMatchObject({ includeDescription: false, doneWindowDays: 14 });
+    expect(addConnector.mock.calls[0]![0].config).toMatchObject({ includeDescription: false, doneWindowDays: 14 });
   });
 
   it('refuses to submit a number below the field\'s floor', async () => {
     // The bound is on the input, so the browser stops the submit before the
     // server ever sees a zero. `buildConfigFromFields` clamps as well, for the
     // paths that do not go through a form.
-    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
+    await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '0');
     await page.getByRole('button', { name: 'Add connector' }).last().click();
 
-    expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(0);
+    expect(addConnector).not.toHaveBeenCalled();
     await expect.element(page.getByLabelText(/Keep finished issues for/)).toBeInvalid();
   });
 
@@ -1780,5 +1799,46 @@ describe('testing a connection', () => {
     await page.getByRole('button', { name: /^Test connection$/ }).last().click();
 
     await expect.element(page.getByText('An Apollo API key is required.')).toBeVisible();
+  });
+});
+
+describe('the unconfigured vendor login line in the connect dialog', () => {
+  const UNCONFIGURED_LOGIN = {
+    provider: 'slack',
+    label: 'Slack',
+    configured: false,
+    requiredEnv: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
+  };
+
+  /**
+   * Open the connect dialog for an unconnected source whose credential read reports `connect`.
+   * @param connect - The vendor-login option the read returns.
+   */
+  async function openEditWithConnect(connect: Record<string, unknown>) {
+    stubSourcesApi(CONNECTORS, [], { sources: [{ ...sourceRow(null), credentialConnected: false }], connect });
+    renderPanel();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+
+    await expect.element(page.getByText('Connect strapi-cms')).toBeVisible();
+  }
+
+  it('points an admin at the Developers page when a workspace may bring its own app', async () => {
+    await openEditWithConnect({ ...UNCONFIGURED_LOGIN, bringYourOwnApp: true });
+
+    await expect.element(page.getByText(/or a Slack login app an admin saves on the Developers page/)).toBeVisible();
+    await expect.element(page.getByText(/SLACK_CLIENT_ID, SLACK_CLIENT_SECRET/)).toBeVisible();
+  });
+
+  it('does not offer a login app when the provider cannot take one', async () => {
+    await openEditWithConnect({ ...UNCONFIGURED_LOGIN, bringYourOwnApp: false });
+
+    await expect.element(page.getByText(/Connecting with Slack/)).toBeVisible();
+    await expect.element(page.getByText(/login app an admin saves/)).not.toBeInTheDocument();
+  });
+
+  it('does not offer a login app when an older server omits the flag', async () => {
+    await openEditWithConnect(UNCONFIGURED_LOGIN);
+
+    await expect.element(page.getByText(/login app an admin saves/)).not.toBeInTheDocument();
   });
 });

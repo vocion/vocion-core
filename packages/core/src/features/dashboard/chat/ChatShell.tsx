@@ -32,6 +32,7 @@ import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
+import { useSendOnConnectReturn } from './useSendOnConnectReturn';
 
 /**
  * ChatShell — the full-page chat surface.
@@ -73,6 +74,11 @@ export type ChatShellProps = {
   greeting?: { eyebrow?: string; workspace: string };
   /** A thread the URL names (`?conversation=<id>`) — resume it instead of starting fresh (§9). */
   conversationId?: number | null;
+  /**
+   * The message a finished connect prepared ("I connected github. What's next?"). Sent once
+   * automatically when the thread has settled, then the connect params leave the URL.
+   */
+  connectReturnPrompt?: string;
   /** `?new=1` — forget this browser session's thread and start fresh (⌘⇧O from a page with no surface). */
   startNew?: boolean;
 };
@@ -101,6 +107,7 @@ export type ChatShellProps = {
  * @param props.greeting - Empty-state greeting.
  * @param props.conversationId
  * @param props.startNew
+ * @param props.connectReturnPrompt - Sent once automatically after a connect.
  */
 export function ChatShell({
   agents,
@@ -110,6 +117,7 @@ export function ChatShell({
   greeting,
   conversationId = null,
   startNew = false,
+  connectReturnPrompt,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -124,6 +132,7 @@ export function ChatShell({
       greeting={greeting}
       conversationId={conversationId}
       startNew={startNew}
+      connectReturnPrompt={connectReturnPrompt}
     />
   );
 }
@@ -155,6 +164,7 @@ function ChatShellInner({
   greeting,
   conversationId = null,
   startNew = false,
+  connectReturnPrompt,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
   const router = useRouter();
@@ -284,6 +294,8 @@ function ChatShellInner({
     focusAgentComposer(null);
     router.replace(`${pathname}${qs ? `?${qs}` : ''}`);
   }, [startNew, session.booted, router, pathname]);
+  // Back from a login: the agent carries on by itself, once, and the URL is cleaned so a reload never repeats it.
+  useSendOnConnectReturn({ prompt: connectReturnPrompt, ready: session.booted, send: session.sendMessage, pathname, replaceUrl: router.replace });
   const queueProps = useComposerQueueProps(session);
   // `@` and `(+)` offer the same list: the artifact contract, then the records
   // this surface knows. The full page is not on a record, so there is no page
