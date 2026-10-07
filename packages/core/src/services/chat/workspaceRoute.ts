@@ -74,7 +74,8 @@ export type WorkspaceRouteDeps = {
 /** A picture on the ask, as bytes the model reads: a screenshot often names the product before any word does. */
 export type RoutePicture = { contentType: string; base64: string };
 
-export type RoutedWorkspace = { orgId: string; agentSlug: string; routed: 'binding' | 'thread' | 'model'; reason: string; added?: boolean };
+/** `sender`: a shared binding sent it to the sender's own assistant (`chat/ownAssistant.ts`). */
+export type RoutedWorkspace = { orgId: string; agentSlug: string; routed: 'binding' | 'thread' | 'model' | 'sender'; reason: string; added?: boolean };
 
 /**
  * A direct message has no channel to remember workspaces on.

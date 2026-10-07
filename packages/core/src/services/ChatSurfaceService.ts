@@ -1,5 +1,6 @@
 import type { ChatImageFetcher, ChatInbound, ChatInboundFile, ChatJoin, ChatPostRef, ChatReplyTarget, ChatStop, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import type { LoadedAttachment } from '@/services/chat/attachments';
+import type { OwnAssistantRoute } from '@/services/chat/ownAssistant';
 import type { ThreadApproval } from '@/services/chat/slackApproval';
 import type { SlackThreadContext } from '@/services/chat/slackThread';
 import { Buffer } from 'node:buffer';
@@ -18,6 +19,7 @@ import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
 import { acceptUpload, loadedFromArtifact, MAX_IMAGE_BYTES, uploadSpec } from '@/services/chat/attachments';
 import { classifyFeedback, feedbackNote } from '@/services/chat/feedbackSignal';
+import { routesBySender, routeToOwnAssistant } from '@/services/chat/ownAssistant';
 import { withPageContext } from '@/services/chat/pageContext';
 import { approvalFromThread, defaultThreadApprovalDeps } from '@/services/chat/slackApproval';
 import { ourPostsInThread, recordSlackPost, threadAlreadyNoticed, tsOf } from '@/services/chat/slackPosts';
@@ -177,6 +179,9 @@ export async function deleteBinding(orgId: string, id: number): Promise<boolean>
  * @param binding - The binding that will answer this channel.
  */
 function introductionText(binding: Pick<ChatChannelBinding, 'agentSlug' | 'displayName'>): string {
+  if (routesBySender(binding)) {
+    return `I'm ${binding.displayName ?? 'Vocion'}. Each of you reaches your own assistant here — mention me and yours will reply in the thread.`;
+  }
   const name = binding.displayName ?? binding.agentSlug;
   return `I'm ${name}, a Vocion agent. I answer here as \`${binding.agentSlug}\` — mention me and I'll reply in the thread.`;
 }
@@ -244,6 +249,8 @@ export type ChatHandlerDeps = {
   cardsWaiting: (orgId: string, conversationId: number) => Promise<Array<{ runId: number; input: Record<string, unknown> }>>;
   /** What a card's request was drawn as: its mockups, to go up with the ask. */
   cardPictures: (orgId: string, input: Record<string, unknown>) => Promise<import('./chat/tellConversation').TellFile[]>;
+  /** Where a text on a shared binding goes: the sender's own assistant (`chat/ownAssistant.ts`). */
+  ownAssistant: (binding: ChatChannelBinding, inbound: ChatInbound) => Promise<OwnAssistantRoute>;
 };
 
 /** Picture types read from a thread; the same set the adapter reads off a mention. */
@@ -281,6 +288,7 @@ const defaultDeps: ChatHandlerDeps = {
   inThread: async (channelId, threadRef) => (await ourPostsInThread(channelId, threadRef)).length > 0,
   cardsWaiting: (orgId, conversationId) => defaultThreadApprovalDeps.pending(orgId, conversationId),
   cardPictures: async (orgId, input) => (await import('./chat/cardPictures')).cardMockups(orgId, input),
+  ownAssistant: (binding, inbound) => routeToOwnAssistant(binding, inbound),
 };
 
 /** A picture on the ask with its bytes, or null bytes when it could not be read. */
@@ -362,6 +370,7 @@ const runningTurns = new Map<string, AbortController>();
 export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatInbound, overrides: Partial<ChatHandlerDeps> = {}): Promise<
   | { outcome: 'unbound' }
   | { outcome: 'not_ours' }
+  | { outcome: 'not_routed'; why: 'unknown_sender' | 'no_assistant' }
   | { outcome: 'over_budget'; agentSlug: string }
   | { outcome: 'replied'; orgId: string; agentSlug: string; conversationId: number; text: string; thread?: SlackThreadContext }
   | { outcome: 'failed'; orgId: string; agentSlug: string; error: string }
@@ -384,8 +393,18 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const threadFiles = (inbound.files?.length ?? 0) === 0 && inThread && inbound.surface === 'slack' ? await deps.threadPictures(inbound).catch(() => []) : [];
   const fetched = await fetchPictures(inbound.files?.length ? inbound.files : threadFiles, deps.fetchFile);
   const routePictures = fetched.flatMap(p => p.got && p.got.bytes.byteLength <= MAX_IMAGE_BYTES ? [{ contentType: p.got.contentType, base64: Buffer.from(p.got.bytes).toString('base64') }] : []);
-  const route = await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId, ...(routePictures.length > 0 ? { pictures: routePictures } : {}) });
-  const binding = route.routed === 'model' || route.routed === 'thread'
+  // A SHARED NUMBER (Vocion 3.0): a binding whose agent is `*` answers each sender with their
+  // own assistant, in their personal workspace (`chat/ownAssistant.ts`). Anything else routes
+  // among the binding's workspaces as before.
+  const route = routesBySender(bound)
+    ? await deps.ownAssistant(bound, inbound)
+    : await deps.route(bound, { text: inbound.text, scopeRef: `${inbound.surface}:${inbound.channelId}:${inbound.threadRef}`, channelId: inbound.channelId, ...(routePictures.length > 0 ? { pictures: routePictures } : {}) });
+  if (route.routed === null) {
+    // No one to answer as: said in one line, where the person is, and nothing runs.
+    await adapter.reply({ channelId: inbound.channelId, threadRef: inbound.threadRef }, route.reply).catch(() => null);
+    return { outcome: 'not_routed', why: route.why };
+  }
+  const binding = route.routed === 'model' || route.routed === 'thread' || route.routed === 'sender'
     ? { ...bound, orgId: route.orgId, agentSlug: route.agentSlug, displayName: null, iconUrl: null }
     : bound;
   const { orgId, agentSlug } = binding;

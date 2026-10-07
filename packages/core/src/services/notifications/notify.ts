@@ -5,6 +5,7 @@ import { apnsConfig } from '@/libs/notifications/apns';
 import { channelsFor } from '@/libs/notifications/preferences';
 import { quietUntil } from '@/libs/notifications/quietHours';
 import { slackToken } from '@/libs/notifications/slack';
+import { smsConfigured } from '@/libs/notifications/sms';
 import { vapidConfig } from '@/libs/notifications/webPush';
 import { notificationDeliverySchema, notificationSchema, pushSubscriptionSchema } from '@/models/Schema';
 import { getPreferences } from './preferences';
@@ -43,12 +44,12 @@ export type NotifyResult = { created: number[]; deduped: number };
 /** Email waits this long so several notifications landing together are one mail. */
 export const EMAIL_GROUP_MS = 60_000;
 
-export type ServerChannels = { ios: boolean; web: boolean; email: boolean; slack: boolean };
+export type ServerChannels = { ios: boolean; web: boolean; email: boolean; slack: boolean; sms: boolean };
 
 /** Which outbound channels this server can send at all. */
 export async function serverChannels(): Promise<ServerChannels> {
   const { mailEnabled } = await import('@/libs/mail');
-  return { ios: apnsConfig() !== null, web: vapidConfig() !== null, email: mailEnabled(), slack: slackToken() !== null };
+  return { ios: apnsConfig() !== null, web: vapidConfig() !== null, email: mailEnabled(), slack: slackToken() !== null, sms: smsConfigured() };
 }
 
 type PlannedDelivery = {
@@ -65,6 +66,7 @@ const NOT_CONFIGURED: Record<Exclude<NotificationChannel, 'in_app'>, string> = {
   web: 'not configured: this server has no VAPID keys (VOCION_VAPID_PUBLIC_KEY, VOCION_VAPID_PRIVATE_KEY)',
   email: 'not configured: outbound mail is off on this server (VOCION_MAIL_ENABLED)',
   slack: 'not configured: this server has no Slack app (SLACK_BOT_TOKEN)',
+  sms: 'not configured: this server has no Twilio account (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)',
 };
 
 /**

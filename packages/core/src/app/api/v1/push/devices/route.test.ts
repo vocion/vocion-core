@@ -132,7 +132,7 @@ describe('notifications: list, mark read, preferences', () => {
     const after = await put.json() as { preferences: { channels: Record<string, Record<string, boolean>> }; channels: Array<{ id: string; default: boolean }> };
 
     expect(after.preferences.channels).toEqual({ released: { email: true } });
-    expect(after.channels.map(c => [c.id, c.default])).toEqual([['in_app', true], ['ios', true], ['web', true], ['email', false], ['slack', false]]);
+    expect(after.channels.map(c => [c.id, c.default])).toEqual([['in_app', true], ['ios', true], ['web', true], ['email', false], ['slack', false], ['sms', false]]);
     expect((await prefs.PUT(req('/api/v1/notifications/preferences', 'PUT', { quietHours: { start: 'late', end: 'early', timeZone: 'UTC' } }))).status).toBe(400);
   });
 });

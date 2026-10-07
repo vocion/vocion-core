@@ -8,6 +8,7 @@
 import type { McpConfig } from '../config';
 import type { Principal } from '@/services/authz';
 import { z } from 'zod';
+import { NOTIFICATION_CHANNELS } from '@/libs/notifications/types';
 import { mcpCaller } from './review-tools';
 
 type ToolModule = {
@@ -18,7 +19,7 @@ type ToolModule = {
   handler: (input: Record<string, unknown>) => Promise<unknown>;
 };
 
-const channel = z.enum(['in_app', 'ios', 'web', 'email', 'slack']);
+const channel = z.enum(NOTIFICATION_CHANNELS);
 
 /**
  * @param config - MCP runtime config.

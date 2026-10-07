@@ -10,6 +10,10 @@ import { handleInbound, resolveBinding } from '@/services/ChatSurfaceService';
  * number's agent, through the same handler as a Slack message: a reply that decides a waiting
  * card first, else a turn. A number Vocion does not know hears how to become known, and no
  * agent runs. Twilio is answered at once with an empty reply; the answer goes out as its own text.
+ *
+ * A SHARED number (bound with `answers: "sender"`, the agent `*`) is the account's one number:
+ * the member who texted is found on the binding's account, as above, and their own assistant
+ * answers in their personal workspace (`services/chat/ownAssistant.ts`).
  */
 const EMPTY = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 const twiml = (status = 200) => new NextResponse(EMPTY, { status, headers: { 'content-type': 'text/xml' } });
