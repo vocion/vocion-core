@@ -32,7 +32,7 @@ import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, fai
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
-import { firstSyncNotice, firstSyncWatchAfter, firstSyncWatchAfterSave, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
+import { firstSyncNotice, firstSyncWatchAfter, firstSyncWatchAfterSave, newestSourceId, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
 
 /** How often to re-read the list while a sync is running somewhere. */
 const RUNNING_SYNC_POLL_MS = 5000;
@@ -180,6 +180,8 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
   // shows up (then the running poll above takes over) or for two minutes, and
   // take the "started" notice down once the run ends (`firstSyncWatch.ts`).
   const [firstSyncWatch, setFirstSyncWatch] = useState<FirstSyncWatch>('off');
+  const [firstSyncSourceId, setFirstSyncSourceId] = useState<number | null>(null);
+  const firstSyncRunStatus = sources.find(source => source.id === firstSyncSourceId)?.sync?.status ?? null;
   const keepPolling = someoneIsSyncing || firstSyncWatch === 'waiting';
   useEffect(() => {
     if (!keepPolling) {
@@ -191,7 +193,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
     return () => clearInterval(timer);
   }, [keepPolling, refreshQuietly]);
   useEffect(() => {
-    const next = firstSyncWatchAfter(firstSyncWatch, someoneIsSyncing);
+    const next = firstSyncWatchAfter(firstSyncWatch, firstSyncRunStatus);
     if (next === firstSyncWatch) {
       return;
     }
@@ -199,7 +201,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
     if (next === 'off') {
       setSyncOutcome(withoutStartedNotice);
     }
-  }, [firstSyncWatch, someoneIsSyncing]);
+  }, [firstSyncWatch, firstSyncRunStatus]);
   useEffect(() => {
     if (firstSyncWatch !== 'waiting') {
       return;
@@ -323,8 +325,9 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
               onClose={() => setAddingKind(null)}
               onAdded={async (firstSync) => {
                 setAddingKind(null);
-                await refresh();
+                const listed = await refresh();
                 setSyncOutcome(firstSyncNotice(firstSync));
+                setFirstSyncSourceId(newestSourceId(listed));
                 setFirstSyncWatch(firstSyncWatchAfterSave(firstSync));
               }}
             />
@@ -1177,9 +1180,16 @@ async function createSourceReturningId(
  * @returns What the server reported, or `failed` when the request itself failed.
  */
 async function startSyncingAfterCredential(sourceId: number): Promise<string> {
-  const res = await fetch(`/rpc/sources/${sourceId}/start-syncing`, { method: 'POST' });
-  const data = await res.json();
-  return res.ok && typeof data.firstSync === 'string' ? data.firstSync : 'failed';
+  // The source and its credential are saved by now, so a failure here only
+  // means the page says to press Sync now: it must not throw the save away.
+  try {
+    const res = await fetch(`/rpc/sources/${sourceId}/start-syncing`, { method: 'POST' });
+    const data = await res.json();
+    return res.ok && typeof data.firstSync === 'string' ? data.firstSync : 'failed';
+  } catch (error) {
+    console.error('[SourcesPanel] could not start the new source syncing', { sourceId, error });
+    return 'failed';
+  }
 }
 
 /**
@@ -2224,6 +2234,11 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
           linkedCredentialId,
         );
         if (credentialError) {
+          // Take the half-made source back, so trying again makes one source, not a second.
+          const removeError = await deleteSourceById(created.id);
+          if (removeError) {
+            console.error('[AddStrapiSourceDialog] could not remove a source whose token was refused', { sourceId: created.id, removeError });
+          }
           setError(credentialError);
           return;
         }

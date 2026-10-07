@@ -293,10 +293,11 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   /** Touches the outside world → the autonomy gate can require approval. */
   external: boolean;
   /**
-   * A person approves every run, whoever proposed it and at any autonomy:
-   * the gate asks even for internal work and for a person's own proposal.
-   * For a kind whose run costs something Undo cannot give back, such as
-   * `source.connect`, whose save starts reading a vendor's data at once.
+   * Every run an agent proposes waits for a person, at any autonomy and even
+   * for internal work. A person invoking it themselves (a tap, their own
+   * token) is that approval and runs. For a kind whose run costs something
+   * Undo cannot give back, such as `source.connect`, whose save starts
+   * reading a vendor's data at once.
    */
   approvalRequired?: boolean;
   /**

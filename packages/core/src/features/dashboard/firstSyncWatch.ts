@@ -3,10 +3,11 @@
  * first sync (#1080). Pure, so the rules are tested without a browser.
  *
  * The save answers before the sync's run exists, so the page polls until the
- * run shows up, follows it while it runs, and then takes its own "started"
- * notice down, because the row now says how the sync ended. A run that never
- * shows up gets a different notice after two minutes instead of a promise
- * that stays on screen.
+ * saved source's run shows up, follows it while it runs, and then takes its
+ * own "started" notice down, because the row now says how the sync ended. A
+ * run that never shows up gets a different notice after two minutes instead
+ * of a promise that stays on screen. Only the saved source's run counts: a
+ * run of another source ending says nothing about this one.
  */
 
 /** A line above the list, after a save or a Sync now. */
@@ -51,18 +52,27 @@ export function firstSyncWatchAfterSave(firstSync: string | null | undefined): F
 }
 
 /**
- * The next step of the watch, from whether a run is in progress on the page.
+ * The next step of the watch, from the saved source's latest run. A source
+ * saved on the Connectors page is always new, so any run on it is its first:
+ * none yet means keep waiting, a running one is followed, and one that has
+ * ended, however quickly, ends the watch.
  * @param watch - Where the watch is.
- * @param someoneIsSyncing - Whether any row shows a running sync.
+ * @param runStatus - The saved source's latest run status, or null before it has one.
  */
-export function firstSyncWatchAfter(watch: FirstSyncWatch, someoneIsSyncing: boolean): FirstSyncWatch {
-  if (watch === 'waiting' && someoneIsSyncing) {
-    return 'running';
+export function firstSyncWatchAfter(watch: FirstSyncWatch, runStatus: string | null): FirstSyncWatch {
+  if (watch === 'off' || runStatus === null) {
+    return watch;
   }
-  if (watch === 'running' && !someoneIsSyncing) {
-    return 'off';
-  }
-  return watch;
+  return runStatus === 'running' ? 'running' : 'off';
+}
+
+/**
+ * The source a page save just made: the newest row once the list reloads,
+ * since every save there creates a source.
+ * @param sources - The reloaded list.
+ */
+export function newestSourceId(sources: Array<{ id: number }>): number | null {
+  return sources.length === 0 ? null : Math.max(...sources.map(source => source.id));
 }
 
 /**
