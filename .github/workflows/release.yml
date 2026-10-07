@@ -1,3 +1,22 @@
+# A release is the commit CI just passed on a push to a release line, and nothing else.
+#
+# This runs when CI completes. Until 5.1 it released whatever it found: a workflow_run checks out
+# the default branch's current HEAD, and semantic-release (env-ci) reads the branch from
+# GITHUB_REF, which on this event always names the default branch. So a tag could land on a commit
+# whose own CI was still running, a failed CI run still released, and a green run on `next` or a
+# maintenance line released `main`. Now:
+#
+#   - only a CI run that concluded `success` on a `push` releases; a pull request's CI never does;
+#   - the job checks out that run's head_sha and tells semantic-release that run's head_branch;
+#   - semantic-release publishes only while that commit is still the branch's tip. When the line
+#     has moved on, it says so and stops, and the newer commit's own green CI releases it, so a
+#     tag never lands on a commit CI has not passed;
+#   - one release per line at a time (a newer one waiting replaces an older one waiting).
+#
+# After a release, `runner-image` gives it its runner image: ghcr.io/<owner>/vocion-runner:vX.Y.Z,
+# the same image as the sha- tag with the release's runner source (scripts/tag-runner-image.sh).
+# Run this workflow by hand with a release tag to give one made before that existed its image.
+# See docs/deployment/release-lines.md.
 name: Release
 
 on:
@@ -9,36 +28,119 @@ on:
       - main
       - next
       - '[0-9]+.x'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: A release tag (v5.0.0) to give its runner image tag. Releases nothing.
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   release:
-    strategy:
-      matrix:
-        node-version: [22.x]
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
 
-    name: Create a new release
+    name: Release the commit CI passed
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: release-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
 
     permissions:
       contents: write # to be able to publish a GitHub release
       issues: write # to be able to comment on released issues
       pull-requests: write # to be able to comment on released pull requests
 
+    outputs:
+      tag: ${{ steps.released.outputs.tag }}
+
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      RELEASE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Set up Node.js environment
         uses: ./.github/actions/setup-project
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22.x
 
       - name: Verify the integrity of provenance attestations and registry signatures for installed dependencies
         run: npm audit signatures
 
       - name: Release
-        run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "${RELEASE_BRANCH}" in
+            main | next | [0-9]*.x) ;;
+            *) echo "::error::${RELEASE_BRANCH} is not a release line"; exit 1 ;;
+          esac
+          [ "$(git rev-parse HEAD)" = "${RELEASE_SHA}" ] \
+            || { echo "::error::checked out $(git rev-parse HEAD), not the commit CI passed (${RELEASE_SHA})"; exit 1; }
+          # env-ci takes the branch from GITHUB_REF and the commit from GITHUB_SHA. On a
+          # workflow_run both name the default branch's head, so hand it the run's own.
+          GITHUB_REF="refs/heads/${RELEASE_BRANCH}" GITHUB_SHA="${RELEASE_SHA}" npx semantic-release
+
+      - name: Say what was released
+        id: released
+        run: |
+          tag=$(git tag --points-at "${RELEASE_SHA}" --list 'v*' --sort=-v:refname | head -1)
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release"
+            if [ -n "${tag}" ]; then
+              echo "- \`${tag}\` is ${RELEASE_SHA} on \`${RELEASE_BRANCH}\`"
+            else
+              echo "- nothing released from ${RELEASE_SHA} on \`${RELEASE_BRANCH}\`: no releasable commits, or the line has moved past it (its next green CI releases it)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  runner-image:
+    needs: release
+    if: >-
+      !cancelled()
+      && (github.event_name == 'workflow_dispatch'
+        || (needs.release.result == 'success' && needs.release.outputs.tag != ''))
+
+    name: Tag the release's runner image
+    runs-on: ubuntu-latest
+    # Usually seconds. It can wait out the release's own runner build (about ten minutes).
+    timeout-minutes: 75
+
+    permissions:
+      contents: read
+      packages: write # to add the release's tag to the runner image
+      actions: write # to read Runner image runs, and dispatch one when the release needs a build
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point vX.Y.Z at the release's runner image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag || inputs.release }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/vocion-runner
+          REPO: ${{ github.repository }}
+        run: bash scripts/tag-runner-image.sh

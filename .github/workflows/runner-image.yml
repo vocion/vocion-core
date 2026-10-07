@@ -12,6 +12,12 @@
 #                  `main` is a 4.x alias and never moves to a newer major, because an install we
 #                  cannot see may still pull it: only the branch named in MAIN_ALIAS_BRANCH (4.x)
 #                  moves it. See docs/deployment/release-lines.md.
+#   a release       the Release workflow tags vX.Y.Z onto the newest published image with the
+#                  release's runner source (scripts/tag-runner-image.sh), so a deployment pins
+#                  the runner by release name. Nothing is built for that.
+#   workflow_dispatch on a release tag (vX.Y.Z)
+#                  builds that commit and pushes sha-<commit> and vX.Y.Z. The Release workflow
+#                  does this itself when no published image has the release's runner source.
 name: Runner image
 on:
   pull_request:
@@ -97,8 +103,15 @@ jobs:
           {
             echo "list<<EOF"
             echo "${IMAGE}:sha-${GITHUB_SHA}"
-            if [ "${GITHUB_REF_NAME}" = "${MAIN_ALIAS_BRANCH}" ]; then echo "${IMAGE}:main"; fi
-            if [ "${GITHUB_REF_NAME}" = "main" ]; then echo "${IMAGE}:${MAIN_LINE_TAG}"; else echo "${IMAGE}:${GITHUB_REF_NAME}"; fi
+            case "${GITHUB_REF}" in
+              # A release, built on demand: its own name and nothing that moves.
+              refs/tags/v*) echo "${IMAGE}:${GITHUB_REF_NAME}" ;;
+              refs/heads/main) echo "${IMAGE}:${MAIN_LINE_TAG}" ;;
+              *)
+                if [ "${GITHUB_REF_NAME}" = "${MAIN_ALIAS_BRANCH}" ]; then echo "${IMAGE}:main"; fi
+                echo "${IMAGE}:${GITHUB_REF_NAME}"
+                ;;
+            esac
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
