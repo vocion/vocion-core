@@ -194,6 +194,8 @@ function stubSourcesApi(
     available?: { id: string; name: string; keyHint: string | null; expiresAt: string | null }[];
     /** The vendor-login option the credential read reports, when the connector has one. */
     connect?: Record<string, unknown>;
+    /** The error a credential save answers with, when it is refused. */
+    credentialRejection?: string;
   } = {},
 ) {
   const posts: { url: string; body: Record<string, unknown> }[] = [];
@@ -257,7 +259,13 @@ function stubSourcesApi(
     }
     if (/^\/rpc\/sources\/\d+\/credentials$/.test(url) && init?.method === 'POST') {
       posts.push({ url, body: JSON.parse(String(init.body)) });
-      return new Response(JSON.stringify({ credentialId: 'cred-1' }), { status: 200 });
+      return options.credentialRejection === undefined
+        ? new Response(JSON.stringify({ credentialId: 'cred-1' }), { status: 200 })
+        : new Response(JSON.stringify({ error: options.credentialRejection }), { status: 400 });
+    }
+    if (/^\/rpc\/sources\/\d+\/start-syncing$/.test(url) && init?.method === 'POST') {
+      posts.push({ url, body: {} });
+      return new Response(JSON.stringify({ firstSync: 'started' }), { status: 200 });
     }
     return new Response(JSON.stringify({ error: `unstubbed ${init?.method ?? 'GET'} ${url}` }), { status: 500 });
   });
@@ -510,7 +518,7 @@ describe('add Strapi source', () => {
     await expect.element(page.getByRole('checkbox', { name: 'events' })).toBeVisible();
   });
 
-  it('posts only the ticked collections, then stores the token against the new source', async () => {
+  it('posts only the ticked collections, then stores the token against the new source, and only then starts its first sync', async () => {
     const posts = stubSourcesApi(CONNECTORS, [enumerated(['events', 'venues', 'organizers'])]);
     render(<SourcesPanel />);
     await openStrapiForm();
@@ -536,6 +544,7 @@ describe('add Strapi source', () => {
         populate: '*',
         pageSize: 100,
       },
+      startSyncing: false,
     });
 
     const credential = posts.find(post => post.url === '/rpc/sources/7/credentials')!;
@@ -543,6 +552,27 @@ describe('add Strapi source', () => {
     expect(credential.body).toEqual({
       credentials: { baseUrl: 'https://cms.partner.org', token: 'tok-123' },
     });
+
+    // Started after the token, so the first sync never runs without it.
+    await vi.waitFor(() => expect(posts.map(post => post.url)).toContain('/rpc/sources/7/start-syncing'));
+
+    expect(posts.map(post => post.url).indexOf('/rpc/sources/7/start-syncing')).toBeGreaterThan(posts.indexOf(credential));
+  });
+
+  it('takes a new source back when its token is refused, so trying again makes one source, and starts no sync', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], { credentialRejection: 'That token does not work against this instance' });
+    render(<SourcesPanel />);
+    await openStrapiForm();
+    await page.getByRole('button', { name: 'Load collections' }).click();
+    await page.getByRole('checkbox', { name: 'events' }).click();
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await expect.element(page.getByText('That token does not work against this instance')).toBeVisible();
+
+    const urls = posts.map(post => post.url);
+
+    expect(urls).toContain('/rpc/sources/7');
+    expect(urls).not.toContain('/rpc/sources/7/start-syncing');
   });
 
   it('keeps the typed list and reports on each name when the instance cannot be enumerated', async () => {
@@ -779,6 +809,7 @@ describe('add Strapi source', () => {
     expect(posts[0]!.body).toEqual({
       kind: 'web',
       configJson: { crawl: { startUrl: 'https://example.com/docs', maxDepth: 1, maxPages: 20 } },
+      startSyncing: true,
     });
   });
 });

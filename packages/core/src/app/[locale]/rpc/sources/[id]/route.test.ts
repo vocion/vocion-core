@@ -81,6 +81,15 @@ describe('PATCH /rpc/sources/[id]', () => {
     await expect(res.json()).resolves.toMatchObject({ stoppedRunningSync: false });
   });
 
+  it('refuses a member and changes nothing', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...signedIn, role: 'member', workspaceRole: 'member' } as never);
+
+    const res = await PATCH(patchRequest({ configJson: { baseUrl: 'https://cms.example' } }), context('1'));
+
+    expect(res.status).toBe(403);
+    expect(updateSourceConfig).not.toHaveBeenCalled();
+  });
+
   it('refuses a caller with no workspace', async () => {
     vi.mocked(clerkAuth).mockResolvedValue({ ...signedIn, orgId: null });
 
@@ -139,6 +148,15 @@ describe('DELETE /rpc/sources/[id]', () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ documentsDeleted: 3 });
     expect(deleteSource).toHaveBeenCalledWith('org_1', 7);
+  });
+
+  it('refuses a member: the source and every document read from it stay', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...signedIn, role: 'member', workspaceRole: 'member' } as never);
+
+    const res = await DELETE(new Request('http://test', { method: 'DELETE' }), context('7'));
+
+    expect(res.status).toBe(403);
+    expect(deleteSource).not.toHaveBeenCalled();
   });
 
   it('refuses a caller with no workspace', async () => {

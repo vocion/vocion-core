@@ -57,10 +57,12 @@ function displayValue(value: unknown): string {
 export const sourceConnectAction: Action<typeof sourceConnectInput> = {
   id: 'source.connect',
   name: 'Connect a source',
-  description: 'Save a source (GitHub repositories, a Jira site and its projects) from what the person picked, on the login they already made. The pick is ADDED to the existing repositories or projects; nothing is removed. Name sourceSlug when the workspace has several sources of the connector. Reversible until it has synced.',
+  description: 'Save a source (GitHub repositories, a Jira site and its projects) from what the person picked, on the login they already made. The pick is ADDED to the existing repositories or projects; nothing is removed. Name sourceSlug when the workspace has several sources of the connector. Its first sync starts as soon as it is saved. Undo removes a new source and what it has read, or puts an updated one back.',
   inputSchema: sourceConnectInput,
   grant: 'manage_workspace',
   external: false,
+  // Saving starts a sync, so a person approves every one (also on the never-auto list).
+  approvalRequired: true,
   dedupKeyFor: input => `source.connect:${input.connector}:${input.sourceSlug ?? ''}:${stableJson(input.config)}`,
   async precheck(ctx: ActionContext, input: SourceConnectInput) {
     // A person who proposes is checked now, so a member never gets a card that fails at Approve.
@@ -81,7 +83,7 @@ export const sourceConnectAction: Action<typeof sourceConnectInput> = {
       system: label,
       summary: `Save ${label} as a source with what you picked.`,
       fields: Object.entries(input.config).map(([key, value]) => ({ label: FIELD_LABELS[key] ?? key, value: displayValue(value) })),
-      nextAction: 'Approving adds this to the source (nothing already there is removed). Nothing is read from it until its first sync. Undo removes it while it has not synced.',
+      nextAction: 'Approving saves this source, or adds the pick to the one already there (nothing in it is removed), and starts its first sync. Undo removes a new source with what it has read, or puts an existing one\'s earlier picks back.',
       verbs: { approve: 'Connect', reject: 'Not now' },
     };
   },
@@ -93,7 +95,7 @@ export const sourceConnectAction: Action<typeof sourceConnectInput> = {
     const { ok: _ok, ...saved } = outcome;
     return saved;
   },
-  async undo(ctx, _input, result) {
+  async undo(ctx, input, result) {
     // At undo time `reviewedBy` is the person pressing Undo: same admin rule as connecting.
     const notAdmin = await adminCheck(ctx.orgId, ctx.reviewedBy ?? ctx.invokedBy);
     if (notAdmin) {
@@ -103,10 +105,7 @@ export const sourceConnectAction: Action<typeof sourceConnectInput> = {
     if (!Number.isInteger(sourceId) || sourceId <= 0) {
       throw new TypeError('This run recorded no source to undo');
     }
-    const refusal = await undoCreatedSource(ctx.orgId, { sourceId, created: result.created === true, before: result.before as Record<string, unknown> | undefined });
-    if (refusal) {
-      throw new Error(refusal);
-    }
+    await undoCreatedSource(ctx.orgId, { sourceId, connector: input.connector, created: result.created === true, before: result.before as Record<string, unknown> | undefined });
     return { undone: true };
   },
 };

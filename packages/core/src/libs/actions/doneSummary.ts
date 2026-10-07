@@ -91,8 +91,29 @@ export function doneSummary(run: { actionId: string; input: Meta | null; result:
     const workerRunId = positiveInt(result.workerRunId);
     return `started the build${of}${workerRunId !== null ? ` — run #${workerRunId}` : ''}`;
   }
+  if (run.actionId === 'source.connect') {
+    const saved = result.created === true ? 'saved the source' : 'added the pick to the source';
+    return result.firstSync === 'failed' ? `${saved}; its sync could not start, so press Sync now on Connectors` : `${saved} and started its sync`;
+  }
   if (made && made.type !== run.actionId) {
     return run.actionId === 'objects.propose_candidate' ? `filed ${words(made.type)} #${made.id}` : `made ${words(made.type)} #${made.id}`;
+  }
+  return null;
+}
+
+/**
+ * What Undo took back, from the run's own result, for a kind whose undo
+ * removes more than the card shows. Null for every other kind, whose
+ * "Undone" says enough.
+ * @param run - The undone run.
+ * @param run.actionId - Its kind.
+ * @param run.result - What it returned when it ran.
+ */
+export function undoneSummary(run: { actionId: string; result: Meta | null }): string | null {
+  if (run.actionId === 'source.connect') {
+    return run.result?.created === true
+      ? 'removed the source and the documents it had read'
+      : 'put the source\'s earlier picks back and started a fresh sync';
   }
   return null;
 }

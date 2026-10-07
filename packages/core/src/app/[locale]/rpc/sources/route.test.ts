@@ -13,6 +13,7 @@ vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/sources/registry', () => ({ listConnectors: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: vi.fn() }));
 vi.mock('@/libs/connect/summary', () => ({ grantSummaryForSource: vi.fn(async () => null) }));
+vi.mock('@/services/connect/newSourceSync', () => ({ startSourceSyncing: vi.fn() }));
 vi.mock('@/services/SourceSyncService', () => ({
   addSource: vi.fn(),
   chunkCountsForOrg: vi.fn(async () => ({})),
@@ -25,8 +26,9 @@ const { clerkAuth } = await import('@/libs/Auth');
 const { listConnectors } = await import('@/libs/sources/registry');
 const { credentialStatusForOrg } = await import('@/services/SourceCredentialService');
 const { grantSummaryForSource } = await import('@/libs/connect/summary');
-const { documentCountsForOrg, latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
-const { GET } = await import('./route');
+const { startSourceSyncing } = await import('@/services/connect/newSourceSync');
+const { addSource, documentCountsForOrg, latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
+const { GET, POST } = await import('./route');
 
 const signedIn = {
   userId: 'user_1',
@@ -185,5 +187,60 @@ describe('GET /rpc/sources', () => {
 
     expect(res.status).toBe(401);
     expect(listSources).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /rpc/sources', () => {
+  it('a source added from the page starts syncing as soon as it is saved, and says whether it did', async () => {
+    vi.mocked(addSource).mockResolvedValue({ id: 14, slug: 'web-docs' });
+    vi.mocked(startSourceSyncing).mockResolvedValue('started');
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://docs.example' } }) });
+
+    const body = await (await POST(request)).json();
+
+    expect(body).toEqual({ source: { id: 14, slug: 'web-docs' }, firstSync: 'started' });
+    expect(startSourceSyncing).toHaveBeenCalledWith({ orgId: 'org_1', sourceId: 14, sourceSlug: 'web-docs', connectorSlug: 'web' });
+  });
+
+  it('a save whose first sync could not start still answers 200 with the saved source, so the page keeps it and offers Sync now', async () => {
+    vi.mocked(addSource).mockResolvedValue({ id: 15, slug: 'web-help' });
+    vi.mocked(startSourceSyncing).mockResolvedValue('failed');
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://help.example' } }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ source: { id: 15, slug: 'web-help' }, firstSync: 'failed' });
+  });
+
+  it('refuses a member: nothing is saved and nothing starts syncing', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...signedIn, role: 'member', workspaceRole: 'member' } as never);
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://docs.example' } }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(403);
+    expect(addSource).not.toHaveBeenCalled();
+    expect(startSourceSyncing).not.toHaveBeenCalled();
+  });
+
+  it('holds the first sync when the caller stores a credential next, so it never starts without one', async () => {
+    vi.mocked(addSource).mockResolvedValue({ id: 16, slug: 'strapi' });
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'strapi', configJson: { collections: ['articles'] }, startSyncing: false }) });
+
+    const body = await (await POST(request)).json();
+
+    expect(body).toEqual({ source: { id: 16, slug: 'strapi' }, firstSync: null });
+    expect(startSourceSyncing).not.toHaveBeenCalled();
+  });
+
+  it('a source the connector refuses is not saved, so nothing is scheduled', async () => {
+    vi.mocked(addSource).mockRejectedValue(new Error('baseUrl is required'));
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: {} }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    expect(startSourceSyncing).not.toHaveBeenCalled();
   });
 });

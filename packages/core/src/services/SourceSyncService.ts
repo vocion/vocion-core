@@ -219,6 +219,10 @@ export async function updateSourceConfig(input: {
  * have confirmed with the operator first. The stored CREDENTIAL is left alone
  * on purpose: it belongs to the connector, not to this source, so deleting one
  * HubSpot source must not disconnect its siblings.
+ *
+ * Its schedules go too, so nothing keeps firing at the deleted row. That is
+ * best-effort and logged: a schedule left behind only starts a run that finds
+ * no source and does nothing.
  * @param orgId - Org that owns the source.
  * @param sourceId - Source to delete.
  */
@@ -236,9 +240,15 @@ export async function deleteSource(orgId: string, sourceId: number): Promise<{ d
       eq(knowledgeSourceSchema.id, sourceId),
       eq(knowledgeSourceSchema.orgId, orgId),
     ))
-    .returning({ id: knowledgeSourceSchema.id });
+    .returning({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug });
   if (deleted.length === 0) {
     throw new Error(`No source ${sourceId} in this workspace`);
+  }
+  try {
+    const { removeSourceSchedules } = await import('@/services/SourceScheduleService');
+    await removeSourceSchedules(orgId, deleted[0]!.slug);
+  } catch (error) {
+    log('warn', 'a deleted source\'s schedules could not be removed', { orgId, sourceId, reason: error instanceof Error ? error.message : String(error) });
   }
   return { documentsDeleted: Number(documents?.count ?? 0) };
 }
@@ -377,7 +387,7 @@ export class SyncAlreadyRunningError extends Error {
  */
 export class SyncSupersededError extends Error {
   constructor(sourceId: number) {
-    super(`the settings for source ${sourceId} changed, so this sync stopped`);
+    super(`source ${sourceId} was changed or deleted, so this sync stopped`);
     this.name = 'SyncSupersededError';
   }
 }
@@ -1077,7 +1087,11 @@ export async function runSync(opts: {
       .from(sourceSyncCheckpointSchema)
       .where(eq(sourceSyncCheckpointSchema.sourceId, opts.sourceId))
       .limit(1);
-    if (checkpoint && checkpoint.status !== 'running') {
+    // No checkpoint means the source itself was deleted under the run (Delete
+    // on the Connectors page, Undo in chat), taking its checkpoint with it.
+    // Carrying on would embed every remaining document only for each insert
+    // to fail against a source that is gone.
+    if (!checkpoint || checkpoint.status !== 'running') {
       throw new SyncSupersededError(opts.sourceId);
     }
   };

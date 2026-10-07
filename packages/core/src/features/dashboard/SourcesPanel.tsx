@@ -3,6 +3,7 @@
 import type { ConnectInfo } from './ConnectByLogin';
 import type { ConnectorTile, Source } from './connectors/connectorRows';
 import type { ConnectOutcome } from './connectOutcome';
+import type { FirstSyncWatch, SavedSource, SyncOutcome } from './firstSyncWatch';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
 import {
   CheckCircle2,
@@ -31,12 +32,12 @@ import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, fai
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
+import { firstSyncNotice, firstSyncRunOf, firstSyncWatchAfter, firstSyncWatchAfterSave, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
 
 /** How often to re-read the list while a sync is running somewhere. */
 const RUNNING_SYNC_POLL_MS = 5000;
-
-/** What a finished sync run reported back, as the panel states it. */
-type SyncOutcome = { message: string; hadErrors: boolean };
+/** How long the list keeps checking for a just-saved source's first run to show up. */
+const FIRST_SYNC_WAIT_MS = 2 * 60 * 1000;
 
 /** The counts a sync run returns. Mirrors SyncResult on the server. */
 type SyncResult = {
@@ -174,15 +175,40 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
   // this tab doing anything, so poll while one is in flight — and only while,
   // since an idle Sources page has nothing to watch for.
   const someoneIsSyncing = sources.some(source => source.sync?.status === 'running');
+  // A just-saved source's first sync starts in the background, so its run may
+  // not exist yet when the list reloads after the save. Keep checking until it
+  // shows up (then the running poll above takes over) or for two minutes, and
+  // take the "started" notice down once the run ends (`firstSyncWatch.ts`).
+  const [firstSyncWatch, setFirstSyncWatch] = useState<FirstSyncWatch>('off');
+  const [firstSyncSourceId, setFirstSyncSourceId] = useState<number | null>(null);
+  const firstSyncRunStatus = firstSyncRunOf(sources, firstSyncSourceId);
+  const keepPolling = someoneIsSyncing || firstSyncWatch === 'waiting';
   useEffect(() => {
-    if (!someoneIsSyncing) {
+    if (!keepPolling) {
       return;
     }
     const timer = setInterval(() => {
       void refreshQuietly();
     }, RUNNING_SYNC_POLL_MS);
     return () => clearInterval(timer);
-  }, [someoneIsSyncing, refreshQuietly]);
+  }, [keepPolling, refreshQuietly]);
+  useEffect(() => {
+    const next = firstSyncWatchAfter(firstSyncWatch, firstSyncRunStatus);
+    if (next === firstSyncWatch) {
+      return;
+    }
+    setFirstSyncWatch(next);
+    if (next === 'off') {
+      setSyncOutcome(withoutStartedNotice);
+    }
+  }, [firstSyncWatch, firstSyncRunStatus]);
+  useEffect(() => {
+    if (firstSyncWatch !== 'waiting') {
+      return;
+    }
+    const timer = setTimeout(stopWaitingForFirstSync, FIRST_SYNC_WAIT_MS, setFirstSyncWatch, setSyncOutcome);
+    return () => clearTimeout(timer);
+  }, [firstSyncWatch]);
 
   const rows = useMemo(() => buildConnectorRows(connectors, sources), [connectors, sources]);
 
@@ -297,9 +323,12 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
               connectInfo={connectInfo[addingKind]}
               pasteFirst={pasteFirst}
               onClose={() => setAddingKind(null)}
-              onAdded={async () => {
+              onAdded={async (saved) => {
                 setAddingKind(null);
                 await refresh();
+                setSyncOutcome(firstSyncNotice(saved?.firstSync));
+                setFirstSyncSourceId(saved?.sourceId ?? null);
+                setFirstSyncWatch(firstSyncWatchAfterSave(saved?.firstSync));
               }}
             />
           )
@@ -1107,26 +1136,60 @@ export function parseStrapiCollections(raw: string): string[] {
 }
 
 /**
+ * The first sync's watch ran out with no run in sight: stop polling, and turn
+ * the "started" notice into a nudge to press Sync now.
+ * @param setWatch - The panel's watch setter.
+ * @param setOutcome - The panel's notice setter.
+ */
+function stopWaitingForFirstSync(
+  setWatch: (watch: FirstSyncWatch) => void,
+  setOutcome: (update: (outcome: SyncOutcome | null) => SyncOutcome | null) => void,
+): void {
+  setWatch('off');
+  setOutcome(withStartedNoticeExpired);
+}
+
+/**
  * POST a new source row, reporting the new id so a caller can keep working with
  * it — storing a token, say. `error` carries the server's message on failure.
  * @param kind - Connector slug.
  * @param configJson - The connector's own config blob.
+ * @param startSyncing - False when a credential is stored next, so the first sync waits for it.
  */
 async function createSourceReturningId(
   kind: string,
   configJson: Record<string, unknown>,
-): Promise<{ id: number | null; error: string | null }> {
+  startSyncing = true,
+): Promise<{ id: number | null; error: string | null; firstSync: string | null }> {
   const res = await fetch('/rpc/sources', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind, configJson }),
+    body: JSON.stringify({ kind, configJson, startSyncing }),
   });
   const data = await res.json();
   if (!res.ok) {
-    return { id: null, error: data.error ?? 'Failed to create connector' };
+    return { id: null, error: data.error ?? 'Failed to create connector', firstSync: null };
   }
   const newId = data.source?.id;
-  return { id: typeof newId === 'number' ? newId : null, error: null };
+  return { id: typeof newId === 'number' ? newId : null, error: null, firstSync: typeof data.firstSync === 'string' ? data.firstSync : null };
+}
+
+/**
+ * Start a new source's first sync once its credential is stored.
+ * @param sourceId - The source.
+ * @returns What the server reported, or `failed` when the request itself failed.
+ */
+async function startSyncingAfterCredential(sourceId: number): Promise<string> {
+  // The source and its credential are saved by now, so a failure here only
+  // means the page says to press Sync now: it must not throw the save away.
+  try {
+    const res = await fetch(`/rpc/sources/${sourceId}/start-syncing`, { method: 'POST' });
+    const data = await res.json();
+    return res.ok && typeof data.firstSync === 'string' ? data.firstSync : 'failed';
+  } catch (error) {
+    console.error('[SourcesPanel] could not start the new source syncing', { sourceId, error });
+    return 'failed';
+  }
 }
 
 /**
@@ -1136,11 +1199,11 @@ async function createSourceReturningId(
  * @param input.existing - The source being edited, or null when adding.
  * @param input.kind - Connector slug.
  * @param input.config - The connector's config blob.
- * @returns The server's message on failure, null on success.
+ * @returns The server's message on failure (null on success), the source, and a new one's `firstSync`.
  */
-async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<string | null> {
+async function savePastedOrEdited(input: { existing: Source | null; kind: string; config: Record<string, unknown> }): Promise<{ error: string | null } & SavedSource> {
   if (input.existing) {
-    return updateSourceConfig(input.existing.id, input.config);
+    return { error: await updateSourceConfig(input.existing.id, input.config), sourceId: input.existing.id, firstSync: null };
   }
   return createSource(input.kind, input.config);
 }
@@ -1180,13 +1243,14 @@ async function deleteSourceById(sourceId: number): Promise<string | null> {
 }
 
 /**
- * POST a new source row. Returns the server's message on failure, null on success.
+ * POST a new source row. Returns the server's message on failure (null on
+ * success) and whether its first sync started.
  * @param kind - Connector slug.
  * @param configJson - The connector's own config blob.
  */
-async function createSource(kind: string, configJson: Record<string, unknown>): Promise<string | null> {
-  const { error } = await createSourceReturningId(kind, configJson);
-  return error;
+async function createSource(kind: string, configJson: Record<string, unknown>): Promise<{ error: string | null } & SavedSource> {
+  const { id, error, firstSync } = await createSourceReturningId(kind, configJson);
+  return { error, sourceId: id, firstSync };
 }
 
 /**
@@ -1393,7 +1457,7 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
   /** The source being edited, or null when adding a new one. */
   existing: Source | null;
   onClose: () => void;
-  onAdded: () => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const existingConfig = (existing?.config ?? {}) as {
     urls?: string[];
@@ -1413,14 +1477,14 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
       const configJson = crawl
         ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
         : { urls: [url] };
-      const message = existing
-        ? await updateSourceConfig(existing.id, configJson)
+      const saved = existing
+        ? { error: await updateSourceConfig(existing.id, configJson), sourceId: existing.id, firstSync: null }
         : await createSource(kind, configJson);
-      if (message) {
-        setError(message);
+      if (saved.error) {
+        setError(saved.error);
         return;
       }
-      await onAdded();
+      await onAdded({ sourceId: saved.sourceId, firstSync: saved.firstSync });
     } finally {
       setSubmitting(false);
     }
@@ -1642,7 +1706,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
   connectInfo?: ConnectInfo;
   pasteFirst?: boolean;
   onClose: () => void;
-  onAdded: () => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
     existing
@@ -1681,16 +1745,15 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
       // The connector and its credential are one request and one transaction; a
       // refusal throws with the sentence the server wrote and is shown as it is.
       if (credentialInputs.length > 0) {
-        await addConnectorWithCredential(kind, config, credential);
-        await onAdded();
+        await onAdded(await addConnectorWithCredential(kind, config, credential));
         return;
       }
       const saved = await savePastedOrEdited({ existing, kind, config });
-      if (saved) {
-        setError(saved);
+      if (saved.error) {
+        setError(saved.error);
         return;
       }
-      await onAdded();
+      await onAdded({ sourceId: saved.sourceId, firstSync: saved.firstSync });
     } catch (err) {
       // A network failure throws rather than returning a message. Without this
       // the dialog sat on a spinner that never resolved and said nothing.
@@ -1927,7 +1990,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
   /** The source being edited, or null when adding a new one. */
   existing: Source | null;
   onClose: () => void;
-  onAdded: () => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const existingConfig = (existing?.config ?? {}) as {
     baseUrl?: string;
@@ -2152,23 +2215,34 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
           return;
         }
       } else {
-        // A new connector has to exist before a credential can name it.
-        const created = await createSourceReturningId(kind, configJson);
+        // A new connector has to exist before a credential can name it, and
+        // its first sync waits for that credential: started any sooner, it
+        // would find none and be skipped.
+        const created = await createSourceReturningId(kind, configJson, !willWriteCredential);
         if (created.error || created.id === null) {
           setError(created.error ?? 'Failed to create connector');
           return;
         }
-        if (willWriteCredential) {
-          const credentialError = await storeSourceCredential(
-            created.id,
-            { baseUrl: instanceUrl, token: token.trim() },
-            linkedCredentialId,
-          );
-          if (credentialError) {
-            setError(credentialError);
-            return;
-          }
+        if (!willWriteCredential) {
+          await onAdded({ sourceId: created.id, firstSync: created.firstSync });
+          return;
         }
+        const credentialError = await storeSourceCredential(
+          created.id,
+          { baseUrl: instanceUrl, token: token.trim() },
+          linkedCredentialId,
+        );
+        if (credentialError) {
+          // Take the half-made source back, so trying again makes one source, not a second.
+          const removeError = await deleteSourceById(created.id);
+          if (removeError) {
+            console.error('[AddStrapiSourceDialog] could not remove a source whose token was refused', { sourceId: created.id, removeError });
+          }
+          setError(credentialError);
+          return;
+        }
+        await onAdded({ sourceId: created.id, firstSync: await startSyncingAfterCredential(created.id) });
+        return;
       }
       await onAdded();
     } finally {
@@ -2457,7 +2531,7 @@ function AddSourceDialog({
   pasteFirst?: boolean;
   onClose: () => void;
   /** Called after a save. */
-  onAdded: () => Promise<void> | void;
+  onAdded: (saved?: SavedSource) => Promise<void> | void;
 }) {
   const connectorName = connector?.name ?? kind;
   const source = existing ?? null;

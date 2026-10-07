@@ -8,6 +8,11 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+// Schedules land in the in-memory scheduler; the first sync is only recorded, so no test runs a connector or reaches a vendor.
+vi.mock('@/services/SourceScheduleService', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/SourceScheduleService')>();
+  return { ...original, startSourceFullSync: vi.fn() };
+});
 vi.mock('@/services/WorkspaceAccessService', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/WorkspaceAccessService')>();
   return { ...original, memberWorkspace: vi.fn(original.memberWorkspace) };
@@ -79,6 +84,18 @@ describe('createSourceWhenNoConfigNeeded', () => {
 
     expect(result).toEqual({ created: false });
     expect(await sources()).toHaveLength(0);
+  });
+
+  it('links a login that needs no picks to the Slack source the workspace file declares, instead of making a second one beside it', async () => {
+    const loginId = await seedLogin('slack');
+    const [declared] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'slack', kind: 'plugin', configJson: { _connector: 'slack', _manifestDir: '/workspaces/northwind' } }).returning();
+
+    await createSourceWhenNoConfigNeeded({ orgId: ORG, userId: ADMIN, connector: 'slack', linkedSourceIds: [] });
+
+    const rows = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, ORG));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: declared!.id, apiTokenId: loginId });
   });
 
   it('does not add a second source when the login already linked one', async () => {

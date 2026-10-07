@@ -84,6 +84,17 @@ export async function removeSourceReconcileSchedule(orgId: string, sourceSlug: s
 }
 
 /**
+ * Delete both of a source's schedules, for a source that is being deleted, so
+ * nothing keeps firing at a row that is gone. No-op for either that doesn't exist.
+ * @param orgId - Tenant.
+ * @param sourceSlug - The deleted source's slug.
+ */
+export async function removeSourceSchedules(orgId: string, sourceSlug: string): Promise<void> {
+  await removeSourceSchedule(orgId, sourceSlug);
+  await removeSourceReconcileSchedule(orgId, sourceSlug);
+}
+
+/**
  * Start a one-off FULL sync for a source, off the request path.
  *
  * Fired when workspace:apply changes a source's config — a widened project

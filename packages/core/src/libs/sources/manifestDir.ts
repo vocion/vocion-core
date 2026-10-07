@@ -41,6 +41,19 @@ export function withManifestDir(
 }
 
 /**
+ * Whether a stored source was declared in a workspace file. The applier
+ * stamps every source it writes with `_manifestDir` and no other writer does,
+ * so a source without it was added from the Connectors page, chat or the API.
+ * The file owns a declared source: the next apply rewrites its config and its
+ * schedules from the file, so a change saved anywhere else would not last.
+ * @param config - The stored source config.
+ */
+export function isDeclaredInWorkspaceFile(config: Record<string, unknown> | null | undefined): boolean {
+  const declared = config?.[MANIFEST_DIR_KEY];
+  return typeof declared === 'string' && declared.length > 0;
+}
+
+/**
  * The base directory a connector should resolve relative paths against:
  * the declaring manifest's directory when known, else `WORKSPACE_PATH`,
  * else the process cwd.

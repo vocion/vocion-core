@@ -4,20 +4,24 @@
  * call this, so the admin check, the config check and the credential link are
  * one rule, not two copies.
  *
- * Nothing here talks to the vendor. The first sync is the schedule's job.
+ * Nothing here talks to the vendor. Once the save commits, the source gets
+ * its schedules and a full sync from `newSourceSync.ts`.
  */
 
+import type { FirstSync } from './newSourceSync';
 import type { DbTransaction } from '@/libs/DbTransaction';
 import { and, asc, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { loginIsEnough, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { isDeclaredInWorkspaceFile } from '@/libs/sources/manifestDir';
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
-import { addSource } from '@/services/SourceSyncService';
+import { addSource, supersedeRunningSync } from '@/services/SourceSyncService';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 import { sourceIsOfConnector } from './connectorSources';
+import { startSourceSyncing } from './newSourceSync';
 
 export type CreateSourceInput = {
   orgId: string;
@@ -36,7 +40,7 @@ export type CreateSourceInput = {
 };
 
 export type CreateSourceOutcome
-  = | { ok: true; sourceId: number; slug: string; created: boolean; before?: Record<string, unknown> }
+  = | { ok: true; sourceId: number; slug: string; created: boolean; before?: Record<string, unknown>; firstSync?: FirstSync }
     | { ok: false; reason: string };
 
 /** A live row of the credential store, as the Connectors form needs it: never the secret, only the masked tail. */
@@ -176,6 +180,13 @@ async function uniqueSlug(orgId: string, base: string): Promise<string> {
  * be one of this connector's in this workspace. Unnamed, the candidates are the
  * connector's sources on the same site (or all of them, when the pick names no
  * site): none means create, one means add to it, several means ask.
+ *
+ * A pick with settings (repositories, projects) is never added to a source
+ * declared in the workspace file: the next apply rewrites its config from
+ * the file, so the pick would vanish. Named, that source is refused with
+ * where to change it; unnamed, it is not a candidate, and the pick makes a
+ * source of its own beside it. A login that needs no picks still lands on
+ * it: that save only links the credential, which an apply leaves alone.
  * @param input - The pick.
  */
 export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
@@ -190,22 +201,28 @@ export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
     const created = site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector;
     return { kind: 'create', slug: await uniqueSlug(input.orgId, created) };
   }
+  const pickChangesConfig = Object.keys(input.config).length > 0;
   if (input.sourceSlug) {
     const named = all.find(row => row.slug === input.sourceSlug);
+    if (named && pickChangesConfig && isDeclaredInWorkspaceFile(named.configJson)) {
+      return { kind: 'refuse', reason: `${named.slug} is set in the workspace file, so change it there; a change saved here would be undone by the next apply` };
+    }
     return named
       ? { kind: 'merge', slug: named.slug, existing: { ...named.configJson } }
       : { kind: 'refuse', reason: `${input.sourceSlug} isn't a ${label} source in this workspace` };
   }
+  const addable = pickChangesConfig ? all.filter(row => !isDeclaredInWorkspaceFile(row.configJson)) : all;
   const candidates = site
-    ? all.filter(row => typeof row.configJson?.baseUrl === 'string' && safeHost(row.configJson.baseUrl) === site)
-    : all;
+    ? addable.filter(row => typeof row.configJson?.baseUrl === 'string' && safeHost(row.configJson.baseUrl) === site)
+    : addable;
   if (candidates.length > 1) {
     return { kind: 'refuse', reason: `${label} has ${candidates.length} sources (${candidates.map(row => row.slug).join(', ')}); say which one with sourceSlug` };
   }
   if (candidates[0]) {
     return { kind: 'merge', slug: candidates[0].slug, existing: { ...candidates[0].configJson } };
   }
-  return { kind: 'create', slug: site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector };
+  // Unique, because a source this pick may not join (one from the workspace file) can hold the usual slug.
+  return { kind: 'create', slug: await uniqueSlug(input.orgId, site ? `${input.connector}-${site.replace(/\W+/g, '-')}`.slice(0, 60) : input.connector) };
 }
 
 /**
@@ -357,42 +374,72 @@ export async function createSourceOnLogin(input: CreateSourceInput): Promise<Cre
   if (target.kind === 'refuse') {
     return { ok: false, reason: target.reason };
   }
+  let saved: { sourceId: number; slug: string };
   try {
-    const saved = await db.transaction(tx => saveWithin(tx, input, target, credential));
-    return target.kind === 'merge'
-      ? { ok: true, ...saved, created: false, before: target.existing }
-      : { ok: true, ...saved, created: true };
+    saved = await db.transaction(tx => saveWithin(tx, input, target, credential));
   } catch (error) {
+    logger.error('a source picked on a login could not be saved', { orgId: input.orgId, connector: input.connector, target: target.kind, reason: error instanceof Error ? error.message : String(error) });
     return { ok: false, reason: error instanceof Error ? error.message : 'The source could not be saved.' };
   }
+  // A pick added to an existing source changed its config, so it syncs again
+  // too. A run still reading the old config is stopped first: left going, it
+  // would hold the source and the new full sync would be skipped.
+  if (target.kind === 'merge') {
+    await supersedeRunningSync(input.orgId, saved.sourceId, 'A new pick was added to this source');
+  }
+  const firstSync = await startSourceSyncing({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
+  return target.kind === 'merge'
+    ? { ok: true, ...saved, created: false, before: target.existing, firstSync }
+    : { ok: true, ...saved, created: true, firstSync };
 }
 
 /**
- * Take back what `createSourceOnLogin` did. A fresh source that never synced
- * is deleted; an updated one gets its old config back; one that has synced
- * since is left for the Connectors page, because its documents exist now.
+ * Take back what `createSourceOnLogin` did. A new source is deleted with
+ * whatever its first sync has read so far, even once that sync has finished:
+ * the save starts syncing at once, so "only until it syncs" would leave Undo
+ * a window of seconds. Its schedules go first and a run still reading is told
+ * to stop, so nothing fires at the row once it is gone. An updated source gets
+ * its old config back and syncs again, so what the pick added is pruned.
  * @param orgId - The workspace.
  * @param result - What the save returned.
  * @param result.sourceId - The source it saved.
+ * @param result.connector - The connector it was saved for.
  * @param result.created - Whether it was new.
  * @param result.before - The old config, when it was an update.
- * @returns A refusal sentence, or null when it was undone.
  */
-export async function undoCreatedSource(orgId: string, result: { sourceId: number; created: boolean; before?: Record<string, unknown> }): Promise<string | null> {
+export async function undoCreatedSource(orgId: string, result: { sourceId: number; connector: string; created: boolean; before?: Record<string, unknown> }): Promise<void> {
   const where = and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.id, result.sourceId));
+  const [row] = await db.select({ slug: knowledgeSourceSchema.slug }).from(knowledgeSourceSchema).where(where).limit(1);
+  if (!row) {
+    return;
+  }
   if (!result.created) {
     await db.update(knowledgeSourceSchema).set({ configJson: result.before ?? {} }).where(where);
-    return null;
+    await supersedeRunningSync(orgId, result.sourceId, 'The pick was undone in chat');
+    await startSourceSyncing({ orgId, sourceId: result.sourceId, sourceSlug: row.slug, connectorSlug: result.connector });
+    return;
   }
-  const [row] = await db.select({ lastSyncedAt: knowledgeSourceSchema.lastSyncedAt }).from(knowledgeSourceSchema).where(where).limit(1);
-  if (!row) {
-    return null;
-  }
-  if (row.lastSyncedAt) {
-    return 'It has synced since; remove it from Connectors instead';
-  }
+  await removeSchedulesOfUndoneSource(orgId, row.slug);
+  await supersedeRunningSync(orgId, result.sourceId, 'The source was undone in chat');
   await db.delete(knowledgeSourceSchema).where(where);
-  return null;
+}
+
+/**
+ * Stop the schedules a new source was given, before its row goes. Logged and
+ * swallowed: the undo still happens, and a schedule left behind only fires a
+ * run that finds no source and does nothing. Loaded here rather than at the
+ * top, as every other caller does, so the save path does not load the
+ * durable engine.
+ * @param orgId - The workspace.
+ * @param sourceSlug - The undone source's slug.
+ */
+async function removeSchedulesOfUndoneSource(orgId: string, sourceSlug: string): Promise<void> {
+  try {
+    const { removeSourceSchedules } = await import('@/services/SourceScheduleService');
+    await removeSourceSchedules(orgId, sourceSlug);
+  } catch (error) {
+    logger.warn('an undone source\'s schedules could not be removed', { orgId, sourceSlug, reason: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 /**
