@@ -29,15 +29,15 @@ export const list = os
     limit: z.number().int().positive().max(200).default(50),
   }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return listConversations({ orgId, agentSlug: input.agentSlug, limit: input.limit });
+    const { orgId, userId } = await guardAuth();
+    return listConversations({ orgId, agentSlug: input.agentSlug, limit: input.limit, viewerId: userId });
   });
 
 export const get = os
   .input(z.object({ id: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    const conv = await getConversation({ orgId, id: input.id });
+    const { orgId, userId } = await guardAuth();
+    const conv = await getConversation({ orgId, id: input.id, viewerId: userId });
     if (!conv) {
       throw ApiError.notFound({ id: input.id });
     }
@@ -228,7 +228,7 @@ export const recordCardDecision = os
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
-    const conversation = await getConversation({ orgId, id: input.id });
+    const conversation = await getConversation({ orgId, id: input.id, viewerId: userId });
     if (!conversation) {
       throw ApiError.notFound({ id: input.id });
     }

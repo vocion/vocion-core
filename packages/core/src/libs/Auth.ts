@@ -113,6 +113,11 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       // On first sign-in, `user` is set — populate id + resolve tenancy.
       if (user?.id) {
         token.id = user.id;
+        // Everyone has their own workspace in each of their accounts, made the
+        // first time they sign in there. Never throws: a failure is logged and
+        // the next sign-in tries again, so it can never stop a sign-in.
+        const { ensurePersonalProjectsForUser } = await import('@/services/workspace/personalProject');
+        await ensurePersonalProjectsForUser(user.id);
         const tenancy = await resolveTenancyForUser(user.id);
         token.accountId = tenancy.accountId;
         token.projectId = tenancy.projectId;

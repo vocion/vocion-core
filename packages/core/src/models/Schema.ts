@@ -373,6 +373,12 @@ export const projectSchema = pgTable(
   },
   table => [
     uniqueIndex('project_account_slug_idx').on(table.accountId, table.slug),
+    // One personal workspace per person per account (migration 0170). What
+    // `ensurePersonalProject` relies on to stay single-row under concurrent
+    // sign-ins.
+    uniqueIndex('project_personal_owner_uq')
+      .on(table.accountId, table.ownerUserId)
+      .where(sql`${table.kind} = 'personal'`),
   ],
 );
 

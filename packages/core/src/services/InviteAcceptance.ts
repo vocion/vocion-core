@@ -20,6 +20,7 @@ import { WORKSPACE_ACCOUNT_PARAM, workspaceUrl } from '@/libs/links';
 import { accountMembershipSchema, inviteSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
 import { inviteProblem } from '@/services/inviteRules';
 import { activeWorkspaceForUser } from '@/services/ProjectService';
+import { ensurePersonalProjectsForUser } from '@/services/workspace/personalProject';
 
 /**
  * Where a signed-in person stands with an invite link, in the order the page
@@ -193,6 +194,10 @@ export async function acceptInviteAsExistingUser(userId: string, token: string):
   if (joined === 'already-member') {
     return { ok: false, status: 409, error: 'You are already a member of this account.' };
   }
+
+  // Their own workspace in the account they just joined. Never throws, so a
+  // failure here cannot undo an accepted invite; the next sign-in retries.
+  await ensurePersonalProjectsForUser(userId);
 
   return { ok: true, accountId: invite.accountId, openPath: await openPathOnAccount(userId, invite.accountId, invite.accountSlug) };
 }
