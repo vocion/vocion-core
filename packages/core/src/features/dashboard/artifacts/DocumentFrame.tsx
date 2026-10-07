@@ -83,6 +83,11 @@ export function DocumentFrame(props: {
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [host, setHost] = useState<{ width: number; height: number }>({ width: 400, height: 600 });
+  // When nothing above the frame bounds its height (a flex chain with an unbounded link, as on the
+  // standalone artifact page beside an open chat rail), flex-1 + min-h-0 collapses the host to 0px
+  // and the document is a hairline (Chris, 2026-10-07: "when it opens the deck, I don't see any
+  // slides"). Then the host takes the rest of the viewport below its own top instead.
+  const [fallback, setFallback] = useState<number | null>(null);
   const [hit, setHit] = useState<{ text: string; x: number; y: number } | null>(null);
 
   // Fit the 850px layout to whatever the host has, in BOTH axes: the width
@@ -95,13 +100,20 @@ export function DocumentFrame(props: {
       return;
     }
     const measure = () => {
-      setHost({ width: el.clientWidth, height: el.clientHeight });
+      const collapsed = el.clientHeight < 160;
+      const below = Math.max(480, Math.round(window.innerHeight - el.getBoundingClientRect().top - 24));
+      setFallback(f => (collapsed ? below : f !== null && el.clientHeight <= (f ?? 0) + 1 ? f : null));
+      setHost({ width: el.clientWidth, height: collapsed ? below : el.clientHeight });
       setScale(Math.min(1, el.clientWidth / DOCUMENT_FRAME_WIDTH));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
   useEffect(() => {
@@ -151,7 +163,7 @@ export function DocumentFrame(props: {
           and the ONLY scroller in this column is the document's own. Nothing
           sits above the document any more — the verify verdict is one quiet
           line in the artifact header and the findings are a tab. */}
-      <div ref={hostRef} className="relative min-h-0 w-full flex-1 overflow-hidden rounded-md border border-border/70 bg-[#e9e9e4]">
+      <div ref={hostRef} className="relative min-h-0 w-full flex-1 overflow-hidden rounded-md border border-border/70 bg-[#e9e9e4]" style={fallback !== null ? { height: fallback, flex: 'none' } : undefined}>
         <iframe
           title={props.title}
           srcDoc={srcDoc}

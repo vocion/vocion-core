@@ -344,9 +344,9 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
       return props.openHref
         ? (
             <IconAction label="Open this document full screen">
-              <a href={props.openHref} target="_blank" rel="noreferrer" className={ICON_BUTTON} aria-label="Open this document full screen" data-document-open>
+              <Link href={props.openHref} className={ICON_BUTTON} aria-label="Open this document full screen" data-document-open>
                 <ExternalLink className="size-3.5" aria-hidden />
-              </a>
+              </Link>
             </IconAction>
           )
         : null;

@@ -21,11 +21,13 @@
 import type { ChatMessageArtifact } from './types';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/artifacts/kinds';
 import { openPreview } from '@/features/preview/previewState';
+import { useRouter } from '@/libs/I18nNavigation';
 
 export function ArtifactChips({ artifacts, onOpen }: {
   artifacts: ChatMessageArtifact[];
   onOpen?: (id: number) => void;
 }) {
+  const router = useRouter();
   if (artifacts.length === 0) {
     return null;
   }
@@ -43,12 +45,17 @@ export function ArtifactChips({ artifacts, onOpen }: {
           <li key={`${a.id}-${a.version}`} className="max-w-full min-w-0">
             <button
               type="button"
-              onClick={ev => (onOpen
-                ? onOpen(a.id)
-                : openPreview({ type: 'artifact', id: String(a.id) }, ev.currentTarget))}
+              // A document (a deck, a meeting book) is the reveal: it opens full screen, the chat still
+              // beside it, never squeezed into the preview rail (Chris, 2026-10-07). Everything else
+              // previews in place as before.
+              onClick={ev => (a.kind === 'document'
+                ? router.push(`/dashboard/artifacts/${a.id}/open`)
+                : onOpen
+                  ? onOpen(a.id)
+                  : openPreview({ type: 'artifact', id: String(a.id) }, ev.currentTarget))}
               data-artifact-chip={a.id}
               // The page this chip stands for, for a tour that opens it straight there (WorkspaceTour follows data-href).
-              data-href={`/dashboard/artifacts/${a.id}`}
+              data-href={a.kind === 'document' ? `/dashboard/artifacts/${a.id}/open` : `/dashboard/artifacts/${a.id}`}
               className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[12px] font-medium text-foreground/85 transition hover:border-brand-amber/40 hover:text-foreground"
               title={`${ARTIFACT_KIND_LABEL[a.kind]} · ${label}`}
             >
