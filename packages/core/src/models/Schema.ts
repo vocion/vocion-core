@@ -379,6 +379,12 @@ export const projectSchema = pgTable(
     uniqueIndex('project_personal_owner_uq')
       .on(table.accountId, table.ownerUserId)
       .where(sql`${table.kind} = 'personal'`),
+    // One workspace per mailbox address across the deployment (migration
+    // 0178): mail is routed by the address it was sent to, so two holders
+    // would put one company's mail in another's workspace.
+    uniqueIndex('project_mailbox_address_uq')
+      .on(sql`lower(${table.mailboxAddress})`)
+      .where(sql`${table.mailboxEnabled}`),
   ],
 );
 

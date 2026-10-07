@@ -13,10 +13,10 @@
 import type { CredentialPlatform } from '@/libs/platforms/registry';
 import { callbackUri } from '@/libs/connect/routes';
 import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
+import { isUniqueViolation } from '@/libs/dbErrors';
 import { logger } from '@/libs/Logger';
 import { loginAppPlatforms } from '@/libs/platforms/registry';
 import { listTokens, resolvePlatformCredential, revokeLivePlatformCredentials, storePlatformKey } from '@/services/ApiTokenService';
-import { isUniqueViolation } from '@/services/SourceCredentialService';
 
 /**
  * How many times a save is tried when another save of the same vendor's app
