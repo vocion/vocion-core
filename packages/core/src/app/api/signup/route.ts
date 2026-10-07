@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { isOperatorEmail } from '@/libs/operator';
 import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
 import { inviteProblem } from '@/services/inviteRules';
 import { ensurePersonalProjectsForUser } from '@/services/workspace/personalProject';
@@ -49,6 +50,16 @@ export async function POST(req: Request) {
   }
   const { name, email, password, inviteToken } = parsed.data;
   const lowerEmail = email.toLowerCase();
+
+  // An operator's login is made on the instance, never by invite. Otherwise a
+  // client admin could invite a listed address that has no login yet, follow
+  // their own link, and operate every company on the host (`libs/operator.ts`).
+  if (isOperatorEmail(lowerEmail)) {
+    return NextResponse.json(
+      { error: 'This address operates the installation, so its login is created on the instance rather than by invite.' },
+      { status: 403 },
+    );
+  }
 
   // An existing login joins by signing in, never by making a second user.
   const [existingUser] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, lowerEmail)).limit(1);

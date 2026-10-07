@@ -1,3 +1,4 @@
+import process from 'node:process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -142,6 +143,33 @@ describe('POST /api/signup', () => {
     }));
 
     expect(res.status).toBe(403);
+  });
+
+  it('refuses to make a login for an operator address, even with a valid invite for it', async () => {
+    // A client admin can invite any address and follow the link themselves.
+    // An operator's login is made on the instance, so a listed address that
+    // has no login yet must not be claimable that way.
+    const previous = process.env.VOCION_OPERATOR_EMAILS;
+    process.env.VOCION_OPERATOR_EMAILS = 'ops@northwind.example';
+    queryResults = [[], [{ id: 'inv-1', token: 'tok-1', acceptedAt: null, expiresAt: new Date(Date.now() + 60_000), email: 'ops@northwind.example', accountId: 'acct-kestrel', role: 'admin' }]];
+    try {
+      const { db } = await import('@/libs/DB');
+      const res = await POST(signupRequest({
+        name: 'Claimant',
+        email: 'OPS@northwind.example',
+        password: 'password123',
+        inviteToken: 'tok-1',
+      }));
+
+      expect(res.status).toBe(403);
+      expect(db.transaction).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VOCION_OPERATOR_EMAILS;
+      } else {
+        process.env.VOCION_OPERATOR_EMAILS = previous;
+      }
+    }
   });
 
   it('creates the user and consumes the invite when everything matches', async () => {
