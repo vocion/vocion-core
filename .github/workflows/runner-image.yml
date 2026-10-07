@@ -5,17 +5,22 @@
 #
 #   pull_request   build for linux/amd64 and prove the image starts, says it has nothing to do,
 #                  and carries the browser QA needs. Nothing is pushed.
-#   push to main   build linux/amd64 and linux/arm64 and push ghcr.io/<owner>/vocion-runner with
-#                  the tags sha-<commit> (what a target pins) and main (the newest).
+#   push to a release line (main, next, N.x)
+#                  build linux/amd64 and linux/arm64 and push ghcr.io/<owner>/vocion-runner with
+#                  sha-<commit> (what a target pins) and the line's own tag: next, or N.x.
+#                  `main` is a 4.x alias and never moves to a newer major, because an install we
+#                  cannot see may still pull it: only the branch named in MAIN_ALIAS_BRANCH
+#                  moves it. Today that is main (the 4.x line); at 5.0 GA it becomes 4.x.
+#                  See docs/deployment/release-lines.md.
 name: Runner image
 on:
   pull_request:
-    branches: [main]
+    branches: [main, next, '[0-9]+.x']
     paths:
       - packages/runner/**
       - .github/workflows/runner-image.yml
   push:
-    branches: [main]
+    branches: [main, next, '[0-9]+.x']
     paths:
       - packages/runner/**
       - .github/workflows/runner-image.yml
@@ -31,6 +36,8 @@ defaults:
     shell: bash
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/vocion-runner
+  # The one branch allowed to move the `main` tag. Change to 4.x on the day next merges into main.
+  MAIN_ALIAS_BRANCH: main
 jobs:
   image:
     runs-on: ubuntu-latest
@@ -81,7 +88,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build for amd64 and arm64 and push, tagged by the commit
+      - name: Name the tags for this release line
+        if: github.event_name != 'pull_request'
+        id: tags
+        run: |
+          {
+            echo "list<<EOF"
+            echo "${IMAGE}:sha-${GITHUB_SHA}"
+            if [ "${GITHUB_REF_NAME}" = "${MAIN_ALIAS_BRANCH}" ]; then echo "${IMAGE}:main"; fi
+            if [ "${GITHUB_REF_NAME}" != "main" ]; then echo "${IMAGE}:${GITHUB_REF_NAME}"; fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build for amd64 and arm64 and push, tagged by the commit and the line
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
@@ -89,9 +108,7 @@ jobs:
           file: packages/runner/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.IMAGE }}:sha-${{ github.sha }}
-            ${{ env.IMAGE }}:main
+          tags: ${{ steps.tags.outputs.list }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
           build-args: WORKER_VERSION=${{ github.sha }}
@@ -99,6 +116,11 @@ jobs:
 
       - name: Say what was published
         if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.tags.outputs.list }}
         run: |
-          echo "### Runner image" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${IMAGE}:sha-${GITHUB_SHA}\` (also \`:main\`), linux/amd64 and linux/arm64" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Runner image"
+            while read -r tag; do echo "- ${tag}"; done <<< "$TAGS"
+            echo "linux/amd64 and linux/arm64"
+          } >> "$GITHUB_STEP_SUMMARY"
