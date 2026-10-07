@@ -4,8 +4,8 @@
  * call this, so the admin check, the config check and the credential link are
  * one rule, not two copies.
  *
- * Nothing here talks to the vendor. Once the save commits, a new source gets
- * its schedules and its first sync from `newSourceSync.ts`.
+ * Nothing here talks to the vendor. Once the save commits, the source gets
+ * its schedules and a full sync from `newSourceSync.ts`.
  */
 
 import type { FirstSync } from './newSourceSync';
@@ -17,11 +17,10 @@ import { loginIsEnough, platformForConnectorSlug } from '@/libs/platforms/regist
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
-import { removeSourceSchedules } from '@/services/SourceScheduleService';
-import { addSource } from '@/services/SourceSyncService';
+import { addSource, supersedeRunningSync } from '@/services/SourceSyncService';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 import { sourceIsOfConnector } from './connectorSources';
-import { startNewSourceSync } from './newSourceSync';
+import { startSourceSyncing } from './newSourceSync';
 
 export type CreateSourceInput = {
   orgId: string;
@@ -367,54 +366,58 @@ export async function createSourceOnLogin(input: CreateSourceInput): Promise<Cre
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : 'The source could not be saved.' };
   }
-  if (target.kind === 'merge') {
-    return { ok: true, ...saved, created: false, before: target.existing };
-  }
-  const firstSync = await startNewSourceSync({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
-  return { ok: true, ...saved, created: true, firstSync };
+  // A pick added to an existing source changed its config, so it syncs again too.
+  const firstSync = await startSourceSyncing({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
+  return target.kind === 'merge'
+    ? { ok: true, ...saved, created: false, before: target.existing, firstSync }
+    : { ok: true, ...saved, created: true, firstSync };
 }
 
 /**
- * Take back what `createSourceOnLogin` did. A fresh source that never synced
- * is deleted; an updated one gets its old config back; one that has synced
- * since is left for the Connectors page, because its documents exist now.
+ * Take back what `createSourceOnLogin` did. A new source is deleted with
+ * whatever its first sync has read so far, even once that sync has finished:
+ * the save starts syncing at once, so "only until it syncs" would leave Undo
+ * a window of seconds. Its schedules go first and a run still reading is told
+ * to stop, so nothing fires at the row once it is gone. An updated source gets
+ * its old config back and syncs again, so what the pick added is pruned.
  * @param orgId - The workspace.
  * @param result - What the save returned.
  * @param result.sourceId - The source it saved.
+ * @param result.connector - The connector it was saved for.
  * @param result.created - Whether it was new.
  * @param result.before - The old config, when it was an update.
- * @returns A refusal sentence, or null when it was undone.
  */
-export async function undoCreatedSource(orgId: string, result: { sourceId: number; created: boolean; before?: Record<string, unknown> }): Promise<string | null> {
+export async function undoCreatedSource(orgId: string, result: { sourceId: number; connector: string; created: boolean; before?: Record<string, unknown> }): Promise<void> {
   const where = and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.id, result.sourceId));
+  const [row] = await db.select({ slug: knowledgeSourceSchema.slug }).from(knowledgeSourceSchema).where(where).limit(1);
+  if (!row) {
+    return;
+  }
   if (!result.created) {
     await db.update(knowledgeSourceSchema).set({ configJson: result.before ?? {} }).where(where);
-    return null;
+    await startSourceSyncing({ orgId, sourceId: result.sourceId, sourceSlug: row.slug, connectorSlug: result.connector });
+    return;
   }
-  const [row] = await db.select({ slug: knowledgeSourceSchema.slug, lastSyncedAt: knowledgeSourceSchema.lastSyncedAt }).from(knowledgeSourceSchema).where(where).limit(1);
-  if (!row) {
-    return null;
-  }
-  if (row.lastSyncedAt) {
-    return 'It has synced since; remove it from Connectors instead';
-  }
+  await removeSchedulesOfUndoneSource(orgId, row.slug);
+  await supersedeRunningSync(orgId, result.sourceId, 'The source was undone in chat');
   await db.delete(knowledgeSourceSchema).where(where);
-  await removeSchedulesOfDeletedSource(orgId, row.slug);
-  return null;
 }
 
 /**
- * Stop the schedules a new source was given, once its row is gone. Logged
- * and swallowed: the delete already happened, and a schedule left behind
- * only fires a run that finds no source and does nothing.
+ * Stop the schedules a new source was given, before its row goes. Logged and
+ * swallowed: the undo still happens, and a schedule left behind only fires a
+ * run that finds no source and does nothing. Loaded here rather than at the
+ * top, as every other caller does, so the save path does not load the
+ * durable engine.
  * @param orgId - The workspace.
- * @param sourceSlug - The deleted source's slug.
+ * @param sourceSlug - The undone source's slug.
  */
-async function removeSchedulesOfDeletedSource(orgId: string, sourceSlug: string): Promise<void> {
+async function removeSchedulesOfUndoneSource(orgId: string, sourceSlug: string): Promise<void> {
   try {
+    const { removeSourceSchedules } = await import('@/services/SourceScheduleService');
     await removeSourceSchedules(orgId, sourceSlug);
   } catch (error) {
-    logger.warn('an undone source was deleted but its schedules could not be removed', { orgId, sourceSlug, reason: error instanceof Error ? error.message : String(error) });
+    logger.warn('an undone source\'s schedules could not be removed', { orgId, sourceSlug, reason: error instanceof Error ? error.message : String(error) });
   }
 }
 

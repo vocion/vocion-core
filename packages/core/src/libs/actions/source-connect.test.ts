@@ -22,6 +22,8 @@ vi.mock('@/services/SourceScheduleService', async (importOriginal) => {
 
 const { db } = await import('@/libs/DB');
 const { describeSchedule } = await import('@/libs/durable/jobs');
+const { resetMemorySchedules } = await import('@/libs/durable/memory');
+const { startSourceFullSync } = await import('@/services/SourceScheduleService');
 const { sourceScheduleIdFor } = await import('@/libs/durable/scheduleIds');
 const { accountMembershipSchema, apiTokenSchema, knowledgeSourceSchema, projectSchema, sourceDekSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { sealLoginValues, storeLoginCredential, storePlatformKey } = await import('@/services/ApiTokenService');
@@ -48,6 +50,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.mocked(startSourceFullSync).mockClear();
+  resetMemorySchedules();
   await db.delete(knowledgeSourceSchema);
   await db.delete(apiTokenSchema);
   await db.delete(sourceDekSchema);
@@ -121,7 +125,7 @@ describe('source.connect', () => {
     expect((await sources())[0]!.configJson).toMatchObject({ repos: ['northwind/portal', 'northwind/api'] });
   });
 
-  it('undo deletes a fresh source, restores an updated one, and refuses once it has synced', async () => {
+  it('undo deletes a fresh source, restores an updated one, and still deletes one whose first sync has run', async () => {
     await seedLogin();
     const fresh = await sourceConnectAction.execute(asAdmin, githubPick);
     await sourceConnectAction.undo!(asAdmin, githubPick, fresh);
@@ -137,8 +141,27 @@ describe('source.connect', () => {
 
     await db.update(knowledgeSourceSchema).set({ lastSyncedAt: new Date() }).where(eq(knowledgeSourceSchema.id, created.sourceId as number));
 
-    await expect(sourceConnectAction.undo!(asAdmin, githubPick, created)).rejects.toThrow('It has synced since; remove it from Connectors instead');
-    expect(await sources()).toHaveLength(1);
+    await sourceConnectAction.undo!(asAdmin, githubPick, created);
+
+    expect(await sources()).toHaveLength(0);
+  });
+
+  it('a pick starts syncing whether it makes a new source or widens one, and undoing the widening syncs the old config again', async () => {
+    await seedLogin();
+    const created = await createSourceOnLogin({ orgId: ORG, actorUserId: ADMIN, connector: 'github', config: { repos: ['northwind/portal'] } });
+
+    expect(created).toMatchObject({ ok: true, created: true, firstSync: 'started' });
+
+    const widened = await createSourceOnLogin({ orgId: ORG, actorUserId: ADMIN, connector: 'github', config: { repos: ['northwind/api'] } });
+
+    expect(widened).toMatchObject({ ok: true, created: false, firstSync: 'started' });
+    expect(startSourceFullSync).toHaveBeenCalledTimes(2);
+
+    const wider = { connector: 'github', config: { repos: ['northwind/api'] } };
+    await sourceConnectAction.undo!(asAdmin, wider, widened as Record<string, unknown>);
+
+    expect((await sources())[0]!.configJson).toMatchObject({ repos: ['northwind/portal'] });
+    expect(startSourceFullSync).toHaveBeenCalledTimes(3);
   });
 
   it('a fresh source picked in chat gets its hourly schedule, and undo takes the schedule away with the source', async () => {

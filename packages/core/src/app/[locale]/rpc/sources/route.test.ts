@@ -13,6 +13,7 @@ vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/sources/registry', () => ({ listConnectors: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: vi.fn() }));
 vi.mock('@/libs/connect/summary', () => ({ grantSummaryForSource: vi.fn(async () => null) }));
+vi.mock('@/services/connect/newSourceSync', () => ({ startSourceSyncing: vi.fn() }));
 vi.mock('@/services/SourceSyncService', () => ({
   addSource: vi.fn(),
   chunkCountsForOrg: vi.fn(async () => ({})),
@@ -25,8 +26,9 @@ const { clerkAuth } = await import('@/libs/Auth');
 const { listConnectors } = await import('@/libs/sources/registry');
 const { credentialStatusForOrg } = await import('@/services/SourceCredentialService');
 const { grantSummaryForSource } = await import('@/libs/connect/summary');
-const { documentCountsForOrg, latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
-const { GET } = await import('./route');
+const { startSourceSyncing } = await import('@/services/connect/newSourceSync');
+const { addSource, documentCountsForOrg, latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
+const { GET, POST } = await import('./route');
 
 const signedIn = {
   userId: 'user_1',
@@ -185,5 +187,28 @@ describe('GET /rpc/sources', () => {
 
     expect(res.status).toBe(401);
     expect(listSources).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /rpc/sources', () => {
+  it('a source added from the page starts syncing as soon as it is saved, and says whether it did', async () => {
+    vi.mocked(addSource).mockResolvedValue({ id: 14, slug: 'web-docs' });
+    vi.mocked(startSourceSyncing).mockResolvedValue('started');
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: { baseUrl: 'https://docs.example' } }) });
+
+    const body = await (await POST(request)).json();
+
+    expect(body).toEqual({ source: { id: 14, slug: 'web-docs' }, firstSync: 'started' });
+    expect(startSourceSyncing).toHaveBeenCalledWith({ orgId: 'org_1', sourceId: 14, sourceSlug: 'web-docs', connectorSlug: 'web' });
+  });
+
+  it('a source the connector refuses is not saved, so nothing is scheduled', async () => {
+    vi.mocked(addSource).mockRejectedValue(new Error('baseUrl is required'));
+    const request = new Request('http://localhost/rpc/sources', { method: 'POST', body: JSON.stringify({ kind: 'web', configJson: {} }) });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    expect(startSourceSyncing).not.toHaveBeenCalled();
   });
 });

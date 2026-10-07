@@ -14,6 +14,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { grantSummaryForSource } from '@/libs/connect/summary';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
+import { startSourceSyncing } from '@/services/connect/newSourceSync';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { addSource, chunkCountsForOrg, documentCountsForOrg, latestSyncStateForOrg, listSources } from '@/services/SourceSyncService';
 
@@ -114,7 +115,9 @@ export async function POST(req: Request) {
       slug: body.slug,
       configJson: body.configJson,
     });
-    return Response.json({ source: created });
+    // Like a source saved by logging in, it gets its schedules and starts reading now.
+    const firstSync = await startSourceSyncing({ orgId, sourceId: created.id, sourceSlug: created.slug, connectorSlug: body.kind });
+    return Response.json({ source: created, firstSync });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 400 });

@@ -34,6 +34,8 @@ import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
 
 /** How often to re-read the list while a sync is running somewhere. */
 const RUNNING_SYNC_POLL_MS = 5000;
+/** How long the list keeps checking for a just-saved source's first run to show up. */
+const FIRST_SYNC_WAIT_MS = 2 * 60 * 1000;
 
 /** What a finished sync run reported back, as the panel states it. */
 type SyncOutcome = { message: string; hadErrors: boolean };
@@ -174,15 +176,32 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
   // this tab doing anything, so poll while one is in flight — and only while,
   // since an idle Sources page has nothing to watch for.
   const someoneIsSyncing = sources.some(source => source.sync?.status === 'running');
+  // A just-saved source's first sync starts in the background, so its run may
+  // not exist yet when the list reloads after the save. Keep checking until it
+  // shows up (then the running poll above takes over) or for two minutes.
+  const [awaitingFirstSync, setAwaitingFirstSync] = useState(false);
+  const keepPolling = someoneIsSyncing || awaitingFirstSync;
   useEffect(() => {
-    if (!someoneIsSyncing) {
+    if (!keepPolling) {
       return;
     }
     const timer = setInterval(() => {
       void refreshQuietly();
     }, RUNNING_SYNC_POLL_MS);
     return () => clearInterval(timer);
-  }, [someoneIsSyncing, refreshQuietly]);
+  }, [keepPolling, refreshQuietly]);
+  useEffect(() => {
+    if (someoneIsSyncing) {
+      setAwaitingFirstSync(false);
+    }
+  }, [someoneIsSyncing]);
+  useEffect(() => {
+    if (!awaitingFirstSync) {
+      return;
+    }
+    const timer = setTimeout(setAwaitingFirstSync, FIRST_SYNC_WAIT_MS, false);
+    return () => clearTimeout(timer);
+  }, [awaitingFirstSync]);
 
   const rows = useMemo(() => buildConnectorRows(connectors, sources), [connectors, sources]);
 
@@ -297,9 +316,11 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
               connectInfo={connectInfo[addingKind]}
               pasteFirst={pasteFirst}
               onClose={() => setAddingKind(null)}
-              onAdded={async () => {
+              onAdded={async (firstSync) => {
                 setAddingKind(null);
                 await refresh();
+                setSyncOutcome(firstSyncNotice(firstSync));
+                setAwaitingFirstSync(firstSync !== 'failed' && firstSync !== 'not_a_syncing_connector');
               }}
             />
           )
@@ -1130,6 +1151,22 @@ async function createSourceReturningId(
 }
 
 /**
+ * What the page says right after a save about the source's first sync, from
+ * what the save route reported. Null when there is nothing to say: a
+ * connector that does not sync, or a save path that does not report it.
+ * @param firstSync - The save route's `firstSync`.
+ */
+function firstSyncNotice(firstSync: string | null | undefined): SyncOutcome | null {
+  if (firstSync === 'started') {
+    return { message: 'Saved. Its first sync has started, and its documents will show up as it reads them.', hadErrors: false };
+  }
+  if (firstSync === 'failed') {
+    return { message: 'Saved, but its first sync could not start. Press Sync now on its row.', hadErrors: true };
+  }
+  return null;
+}
+
+/**
  * Save a connector that has no credential in its add form: an edit patches the
  * source, an add creates one.
  * @param input - What to save.
@@ -1642,7 +1679,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
   connectInfo?: ConnectInfo;
   pasteFirst?: boolean;
   onClose: () => void;
-  onAdded: () => Promise<void> | void;
+  onAdded: (firstSync?: string | null) => Promise<void> | void;
 }) {
   const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
     existing
@@ -1681,8 +1718,8 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
       // The connector and its credential are one request and one transaction; a
       // refusal throws with the sentence the server wrote and is shown as it is.
       if (credentialInputs.length > 0) {
-        await addConnectorWithCredential(kind, config, credential);
-        await onAdded();
+        const firstSync = await addConnectorWithCredential(kind, config, credential);
+        await onAdded(firstSync);
         return;
       }
       const saved = await savePastedOrEdited({ existing, kind, config });
@@ -2457,7 +2494,7 @@ function AddSourceDialog({
   pasteFirst?: boolean;
   onClose: () => void;
   /** Called after a save. */
-  onAdded: () => Promise<void> | void;
+  onAdded: (firstSync?: string | null) => Promise<void> | void;
 }) {
   const connectorName = connector?.name ?? kind;
   const source = existing ?? null;

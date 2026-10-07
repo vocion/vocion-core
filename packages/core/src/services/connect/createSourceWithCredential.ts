@@ -25,7 +25,7 @@ import { insertSealedPlatformKey, sealPlatformKey } from '@/services/ApiTokenSer
 import { ConnectorCredentialError, CredentialInUseError } from '@/services/SourceCredentialService';
 import { adminCheck, configProblem, connectorLabel, newestLiveCredential, resolveTarget, saveWithin } from './createSourceOnLogin';
 import { loginCannotServe } from './loginCannotServe';
-import { startNewSourceSync } from './newSourceSync';
+import { startSourceSyncing } from './newSourceSync';
 
 /** Where the new source's credential comes from: the workspace's stored login or key, or values typed into the form. */
 export type CredentialChoice
@@ -171,8 +171,6 @@ export async function createSourceWithCredential(input: CreateSourceWithCredenti
   } catch (error) {
     return { ok: false, reason: reasonFor(error, input.connector) };
   }
-  const firstSync = target.kind === 'create'
-    ? await startNewSourceSync({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector })
-    : undefined;
+  const firstSync = await startSourceSyncing({ orgId: input.orgId, sourceId: saved.sourceId, sourceSlug: saved.slug, connectorSlug: input.connector });
   return { ok: true, ...saved, firstSync };
 }
