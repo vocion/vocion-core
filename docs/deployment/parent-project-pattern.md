@@ -639,8 +639,9 @@ Three rules, each earned the hard way:
    history was rewritten on 2026-08-31 after the PolinRider compromise, and a
    plain `git fetch` doesn't clobber stale local tags. A local clone will hand
    you a tag pointing at a different object.
-2. **Use the `v2.x` tags.** An orphan `vocion-v0.5.x` series exists that shares
-   no ancestor with `main`.
+2. **Pin a commit on a release line, never the `vocion-v0.5.x` tags.** That
+   orphan series shares no ancestor with `main`. Which line to follow (`main`,
+   `next`, or a maintenance `N.x` branch) is in [release lines](./release-lines.md).
 3. **Run `node scripts/check-config-integrity.mjs` at the new pin before you
    commit it**, and re-check the pin after every merge — a GitHub merge can move
    a submodule pin backwards.

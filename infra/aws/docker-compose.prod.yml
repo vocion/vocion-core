@@ -76,7 +76,8 @@ services:
   # engineer's tests, and the app's DATABASE_URL must never be. With no runner.env it idles.
   #
   # The image is the core commit's: an installation sets VOCION_RUNNER_IMAGE to
-  # ghcr.io/vocion/vocion-runner:sha-<core commit> when its pin moves.
+  # ghcr.io/vocion/vocion-runner:sha-<core commit> when its pin moves. The `main` fallback
+  # is a 4.x alias that never moves to a newer major (docs/deployment/release-lines.md).
   #
   # Behind the `runner` profile: it ships with the compose, and an installation turns it on
   # (COMPOSE_PROFILES=runner) once runner.env and the image are in place, so a box that cannot

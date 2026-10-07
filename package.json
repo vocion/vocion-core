@@ -86,7 +86,13 @@
   },
   "release": {
     "branches": [
-      "main"
+      "+([0-9])?(.{+([0-9]),x}).x",
+      "main",
+      {
+        "name": "next",
+        "prerelease": "rc",
+        "channel": "next"
+      }
     ],
     "plugins": [
       [
