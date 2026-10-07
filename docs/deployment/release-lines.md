@@ -15,7 +15,7 @@ Companion to [the parent-project pattern](./parent-project-pattern.md).
 | `next` | the next major as prereleases, `v5.0.0-rc.N`, on the `next` channel | `sha-<commit>`, `next` |
 | `N.x` (e.g. `4.x`) | a superseded major that installations still run | `sha-<commit>`, `N.x` |
 
-`next` is where Vocion 3.0 (core 5.x) is built. When it is generally available:
+`next` is where Vocion 5.0 is built. When it is generally available:
 
 1. Cut `4.x` from `main` at the last 4.x release.
 2. In `.github/workflows/runner-image.yml`, set `MAIN_ALIAS_BRANCH: 4.x`, on both `4.x` and `main`.

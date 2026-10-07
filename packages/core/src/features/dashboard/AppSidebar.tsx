@@ -31,7 +31,7 @@ import { usePathname } from '@/libs/I18nNavigation';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 
 /**
- * Dashboard left sidebar — the app rail (Vocion 3.0) and, beside it, the
+ * Dashboard left sidebar — the app rail (Vocion 5.0) and, beside it, the
  * selected app's nav. Every app's nav opens with the workspace picker (the
  * one switcher, filtered to the workspaces that have the app). Workforce, the
  * core app, is the nav below; any other app (Software Factory, GTM) shows

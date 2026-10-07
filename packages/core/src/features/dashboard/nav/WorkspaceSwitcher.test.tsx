@@ -104,7 +104,7 @@ describe('WorkspaceSwitcher, open', () => {
 });
 
 /**
- * An app's workspace picker is this same switcher (Vocion 3.0): handed only
+ * An app's workspace picker is this same switcher (Vocion 5.0): handed only
  * the workspaces that have the app, a placeholder for when the current one is
  * not among them, and the page each switch lands on.
  */

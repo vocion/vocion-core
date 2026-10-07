@@ -15,7 +15,7 @@ import { cn } from '@/utils/Helpers';
 import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
- * Workspace context, at the head of the selected app's nav (Vocion 3.0 —
+ * Workspace context, at the head of the selected app's nav (Vocion 5.0 —
  * it was bottom-left before the app rail; ElevenLabs pattern, Chris 2026-09-15): the
  * workspace's initial-avatar in its accent, its name, the account beneath,
  * and a visible ⇄ Switch affordance. Clicking opens the workspace list

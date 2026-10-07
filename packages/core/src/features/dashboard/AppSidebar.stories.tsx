@@ -24,7 +24,7 @@ import en from '@/locales/en.json';
  * rows both come from `features/navigation/dashboardNav.ts`.
  */
 /**
- * The app rail (Vocion 3.0) for a workspace with the Software Factory on:
+ * The app rail (Vocion 5.0) for a workspace with the Software Factory on:
  * Workforce, the core app, then the factory with its own sections. In the
  * story runner the directory RPC is absent, so the rail shows this
  * workspace's apps only and every picker lists nothing.

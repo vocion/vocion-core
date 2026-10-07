@@ -27,7 +27,7 @@ import { enabledPluginsForOrg, pluginWriteTarget } from '@/services/PluginServic
  * Reads the filesystem catalogue and the project's enabled list itself, so a
  * caller only hands it the org.
  *
- * Grouped by app (Vocion 3.0): "Installed apps" first — Workforce, which
+ * Grouped by app (Vocion 5.0): "Installed apps" first — Workforce, which
  * keeps the plugins no app lists, and every app with a plugin on here — then
  * the apps this workspace does not have yet. An app's plugins are its
  * features; turning one on is how the app arrives, with the same toggle.

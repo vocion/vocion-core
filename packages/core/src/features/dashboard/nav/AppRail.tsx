@@ -17,7 +17,7 @@ export type RailApp = AppSummary & {
 const RAIL_BUTTON = 'grid size-9 place-items-center rounded-lg text-sidebar-foreground outline-hidden transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground [&>svg]:size-[18px] [&>svg]:stroke-[1.5]';
 
 /**
- * The app rail — the dashboard's far-left column (Vocion 3.0). The core app
+ * The app rail — the dashboard's far-left column (Vocion 5.0). The core app
  * (Workforce) first, then every other app the person has in some workspace,
  * in manifest order, then "Add app", which opens the marketplace where a
  * plugin — and with it its app — is turned on.

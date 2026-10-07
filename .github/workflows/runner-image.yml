@@ -10,7 +10,7 @@
 #                  sha-<commit> (what a target pins) and the line's own tag: next, or N.x.
 #                  `main` is a 4.x alias and never moves to a newer major, because an install we
 #                  cannot see may still pull it: only the branch named in MAIN_ALIAS_BRANCH
-#                  moves it. Today that is main (the 4.x line); at 3.0 GA it becomes 4.x.
+#                  moves it. Today that is main (the 4.x line); at 5.0 GA it becomes 4.x.
 #                  See docs/deployment/release-lines.md.
 name: Runner image
 on:
