@@ -415,7 +415,14 @@ name: Software factory
 #   whole (`repo_read_tree`) and file the product's architecture — a typed
 #   graph the platform draws (`draw_architecture`), shown on the product page —
 #   and `map-codebase-sweep` redraws it when a repository moves on.
-version: 3.31.0
+# 3.31.1 — the card is the answer (Jamie, 2026-10-07, of the DeliveryStack
+#   workspace's first setup turn: three paragraphs, a product filed from a wiki
+#   page before GitHub was connected, the card at the bottom). Two things core
+#   now enforces that the skill had only said: a turn a person is on ends at
+#   the card it put up (agents/handOff.ts), and a record the plugin's `setup:`
+#   says is read from a connector is not filed while that connector is
+#   unconnected (tools/fileRecord.ts). The skill leads with the card.
+version: 3.31.1
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

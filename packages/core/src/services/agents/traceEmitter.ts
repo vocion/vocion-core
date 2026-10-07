@@ -565,12 +565,15 @@ export class TraceEmitter {
   }
 
   /**
-   * Close every still-open delegation as a FAILURE. Called when the run itself
-   * throws: the specialist did not finish, and a trace that stops at `start`
-   * says nothing about why.
-   * @param message - What went wrong, already human-readable.
+   * Close every still-open delegation. As a FAILURE when the run itself threw:
+   * the specialist did not finish, and a trace that stops at `start` says
+   * nothing about why. As DONE when the turn stopped on purpose at a
+   * card a person acts on (`handOff.ts`): the specialist was cut short, and
+   * nothing went wrong.
+   * @param message - What happened, already human-readable.
+   * @param status - `error` (the default) or `done`.
    */
-  closeDelegations(message: string): TraceNodeEvent[] {
+  closeDelegations(message: string, status: 'error' | 'done' = 'error'): TraceNodeEvent[] {
     const out: TraceNodeEvent[] = [];
     for (const [id, { actor, parentId, name }] of this.openDelegations) {
       out.push({
@@ -579,8 +582,8 @@ export class TraceEmitter {
         parentId,
         actor,
         kind: 'delegate',
-        status: 'error',
-        label: labelFor('delegate', 'error', name),
+        status,
+        label: labelFor('delegate', status, name),
         result: message.slice(0, 160),
       });
     }

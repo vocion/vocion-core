@@ -31,7 +31,14 @@ credential is stored, whose account it is on, which repositories the
 installation grants (asked of GitHub live) and which the source lists — and
 names each mismatch.
 
-## One card per remaining step
+## The card is the answer
+
+Lead with it. After `describe_setup` (and `describe_sources`, when a
+connector is up and the grant matters), call `offer_connection` at once —
+one sentence before it at most, naming what is missing, and nothing after
+it. The turn ends at the card: the platform stops the model there, so
+anything you meant to say after it is never read. Say it before, in one
+line, or not at all.
 
 For a connector step that is not done, call `offer_connection` with the
 connector slug and one sentence on what connecting it lets the factory do
@@ -82,3 +89,6 @@ tracker, from chat or from GitHub.
   stores it, or a person pastes it on the Connectors page.
 - Nothing is guessed to fill a gap a connection would answer: an unconnected
   GitHub means "connect it", never a product filed from the workspace's name.
+  The platform refuses the record while GitHub is unconnected ("Not filed: a
+  product is read from github…"); when you see that, offer the connection
+  and stop — do not file it another way.
