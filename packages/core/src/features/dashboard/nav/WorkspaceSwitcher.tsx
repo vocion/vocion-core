@@ -12,7 +12,7 @@ import { useSidebar } from '@/components/ui/useSidebar';
 import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
 import { cn } from '@/utils/Helpers';
-import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
+import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, isPersonalProject, projectAccent, slugLine, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
  * Workspace context, at the head of the selected app's nav (Vocion 5.0 —
@@ -32,7 +32,13 @@ import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, pro
  * It is also every app's workspace picker — one switcher, not one per app
  * (principle 6): the sidebar hands it only the workspaces that have the
  * selected app, a `placeholder` for when the current workspace is not one of
- * them, and `targetPath` to say which page the switch lands on.
+ * them, and `targetPath` to say which page the switch lands on. In a picker
+ * nothing is hidden for having no agents yet (`keepEmpty`): every workspace
+ * listed has the app, and one that just installed it is the one being looked
+ * for.
+ *
+ * The person's own workspace reads "Personal", with no slug under it: its
+ * slug is a hash of their id, an address rather than a name.
  */
 
 export const OPEN_WORKSPACE_SWITCHER = 'vocion:open-workspace-switcher';
@@ -67,6 +73,8 @@ export type WorkspaceSwitcherProps = {
   targetPath?: (p: SwitcherProject, pathname: string) => string;
   /** Which way the list opens. Default: up, as it did from the bottom of the sidebar. */
   side?: 'top' | 'bottom';
+  /** An app's picker: list every workspace handed over, none hidden for having no agents. */
+  keepEmpty?: boolean;
 };
 
 /**
@@ -75,9 +83,11 @@ export type WorkspaceSwitcherProps = {
  * @param props.project - The workspace this row switches to.
  * @param props.selected - Whether it is the active workspace.
  * @param props.onPick - Called with the workspace when the row is clicked.
+ * @param props.name - What the row is called ("Personal" for the person's own).
  */
-function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void }) {
+function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void; name: string }) {
   const p = props.project;
+  const slug = slugLine(p);
   return (
     <button
       type="button"
@@ -87,11 +97,11 @@ function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; o
       className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover"
     >
       <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(p.slug) }} aria-hidden>
-        {p.name.charAt(0).toUpperCase()}
+        {props.name.charAt(0).toUpperCase()}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-foreground">{p.name}</span>
-        <span className="block truncate font-mono text-[11px] text-muted-foreground">{p.slug}</span>
+        <span className="block truncate text-[13px] font-medium text-foreground">{props.name}</span>
+        {slug && <span className="block truncate font-mono text-[11px] text-muted-foreground">{slug}</span>}
       </span>
       {props.selected && <Check className="size-4 shrink-0 text-foreground" aria-hidden />}
     </button>
@@ -125,8 +135,11 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const loading = props.projects === null;
   const projects = props.projects ?? [];
   const active = projects.find(p => p.id === props.activeId) ?? (props.placeholder === undefined ? projects[0] ?? null : null);
-  const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null }), [projects, query, showEmpty, active]);
-  const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null);
+  const keepEmpty = props.keepEmpty ?? false;
+  const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null, keepEmpty }), [projects, query, showEmpty, active, keepEmpty]);
+  const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null, keepEmpty);
+  // The person's own workspace is "Personal", whatever its row holds.
+  const nameOf = (p: SwitcherProject) => (isPersonalProject(p) ? t('personal_workspace') : p.name);
   const accounts = props.accounts ?? [];
   const groups = accounts.length > 1 ? groupByAccount(visible, accounts) : null;
   const headingIdPrefix = useId();
@@ -150,7 +163,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     (props.navigate ?? (h => window.location.assign(h)))(href);
   };
 
-  const name = active?.name ?? (loading ? '' : props.placeholder ?? t('workspace_fallback'));
+  const name = active ? nameOf(active) : (loading ? '' : props.placeholder ?? t('workspace_fallback'));
   // The collapsed rail shows no account line, so with two accounts the label
   // names it: two "Support" workspaces on two accounts must not read the same.
   const railLabel = name && accounts.length > 1 && props.account?.name ? `${name} · ${props.account.name}` : name;
@@ -225,10 +238,10 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
             ? groups.map(g => (
                 <div key={g.account.id} role="group" aria-labelledby={`${headingIdPrefix}-${g.account.id}`}>
                   <div id={`${headingIdPrefix}-${g.account.id}`} className="px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">{g.account.name}</div>
-                  {g.projects.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
+                  {g.projects.map(p => <WorkspaceOption key={p.id} project={p} name={nameOf(p)} selected={p.id === active?.id} onPick={go} />)}
                 </div>
               ))
-            : visible.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
+            : visible.map(p => <WorkspaceOption key={p.id} project={p} name={nameOf(p)} selected={p.id === active?.id} onPick={go} />)}
         </div>
         {(hiddenEmpty > 0 || showEmpty) && (
           <label className="flex cursor-pointer items-center gap-2 border-t border-border/70 px-3 py-2 text-[12px] text-muted-foreground">
@@ -283,6 +296,7 @@ export function WorkspaceSwitcherLive(props: {
     return only ? data.projects.filter(p => only.includes(p.id)) : data.projects;
   }, [data, only]);
 
+  // An app's picker (`only`) lists the workspaces that have the app — all of them.
   return (
     <WorkspaceSwitcher
       account={data?.account ?? null}
@@ -293,6 +307,7 @@ export function WorkspaceSwitcherLive(props: {
       collapsed={state === 'collapsed'}
       placeholder={props.placeholder}
       targetPath={props.targetPath}
+      keepEmpty={only !== undefined}
       side="bottom"
     />
   );

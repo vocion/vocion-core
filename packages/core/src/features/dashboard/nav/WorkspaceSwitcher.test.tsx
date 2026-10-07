@@ -139,3 +139,54 @@ describe('WorkspaceSwitcher as an app\'s picker', () => {
     expect(navigate).toHaveBeenCalledWith('/w/ops/dashboard/p/products');
   });
 });
+
+/**
+ * Two 5.0 defects found capturing product screens: the person's own workspace
+ * showed its hashed slug, and an app's picker hid a workspace that had just
+ * installed the app because it had no agents yet.
+ */
+describe('WorkspaceSwitcher, 5.0 fixes', () => {
+  const personal: SwitcherProject = { id: 'p-mine', slug: 'personal-3f9a2c1b', name: 'Personal', agentCount: 1, accountId: 'acct-contoso', kind: 'personal' };
+  const fresh: SwitcherProject = { id: 'p-contoso-fresh', slug: 'field-ops', name: 'Field Ops', agentCount: 0, accountId: 'acct-contoso' };
+
+  it('reads "Personal" for the person\'s own workspace, with no slug, in the list and on the button', async () => {
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider>
+          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[personal, PROJECTS[1]!]} activeId="p-mine" defaultOpen navigate={() => {}} />
+        </SidebarProvider>
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByRole('option', { name: 'Personal', exact: true })).toBeVisible();
+    await expect.element(page.getByRole('option', { name: /Support/ })).toHaveTextContent(/support/);
+    await expect.element(page.getByRole('button', { name: 'Switch workspace' })).toHaveTextContent(/Personal/);
+    expect(page.getByText('personal-3f9a2c1b').elements()).toHaveLength(0);
+  });
+
+  it('lists, in an app\'s picker, a workspace with the app and no agents yet', async () => {
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider>
+          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[PROJECTS[1]!, fresh]} activeId="p-contoso-support" keepEmpty defaultOpen navigate={() => {}} />
+        </SidebarProvider>
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByRole('option', { name: /Field Ops/ })).toBeVisible();
+    expect(page.getByText(/empty project/).elements()).toHaveLength(0);
+  });
+
+  it('still hides it in the plain switcher, behind the empty-projects toggle', async () => {
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider>
+          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[PROJECTS[1]!, fresh]} activeId="p-contoso-support" defaultOpen navigate={() => {}} />
+        </SidebarProvider>
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByText('Show 1 empty project')).toBeVisible();
+    expect(page.getByRole('option', { name: /Field Ops/ }).elements()).toHaveLength(0);
+  });
+});

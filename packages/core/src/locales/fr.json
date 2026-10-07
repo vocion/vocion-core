@@ -46,6 +46,7 @@
     "show_empty_projects": "Afficher {count} {count, plural, one {projet vide} other {projets vides}}",
     "manage_workspace": "Gérer l’espace",
     "workspace_fallback": "Espace",
+    "personal_workspace": "Personnel",
     "current_workspace": "Espace actuel :",
     "developers": "Développeurs",
     "usage_this_period": "Consommation de la période",
