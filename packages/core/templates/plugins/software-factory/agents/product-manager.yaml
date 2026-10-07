@@ -53,6 +53,10 @@ initiative: high
 # three cards, the runtime runs one gated pass that emits the cards the answer
 # already names (harness.recommendActionBackstop — structural, not a prompt
 # line; Chris, 2026-09-24: "I would have expected action cards for this").
+# And A CARD ENDS THE TURN on a person's turn (core agents/handOff.ts; Jamie,
+# 2026-10-07): once a card is up, the model is not asked again, so the cards
+# an answer owes are asked for in ONE step, and the backstop above does not run
+# behind a card. Say the words first, then the cards, then nothing.
 harness:
   recommendActionBackstop: true
   # The product's production URLs and QA sign-in, to plan and check against the live product.

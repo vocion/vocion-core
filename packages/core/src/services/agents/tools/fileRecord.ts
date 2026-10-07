@@ -747,7 +747,8 @@ function fileRecordTool(ctx: RuntimeContext, spec: FilingType): StructuredToolIn
       const rationale = typeof r === 'string' && r.trim() ? r.trim() : `Filing the ${label} asked for in this conversation.`;
       const advice = [
         ...(toCheck && onPersonsWord ? [`${toCheck.recordTitle}'s capabilities page (${toCheck.pageRef}) was not checked yet; it says: ${toCheck.excerpt.slice(0, 1_200)}`] : []),
-        ...(unready ? [unready.replace(/^Not filed: /, 'Filed on the person\'s word: ')] : []),
+        // The gap as a fact on the record, without the instruction the tool gives the model.
+        ...(unready ? [unready.replace(/^Not filed: /, 'Filed on the person\'s word: ').replace(/ Offer the connection.*$/, '')] : []),
       ];
       return runProposal(ctx, {
         actionId: 'objects.propose_candidate',
