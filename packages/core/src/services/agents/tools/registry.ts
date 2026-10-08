@@ -91,6 +91,7 @@ import { sentryTools } from './sentry';
 import { setVoiceTool } from './setVoice';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
+import { waitForAnswersTools } from './waitForAnswers';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
@@ -248,6 +249,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // an agent may interrupt a person unasked. On for every agent.
     fileAskTool(ctx),
     withdrawAskTool(ctx),
+    // In a mission run only: everything left waits on asks, so stop spending
+    // until they are answered (`needsYou/ResumeGateService.ts`).
+    ...waitForAnswersTools(ctx),
     proposeActionTool(ctx),
     withdrawProposalTool(ctx),
     // A person deciding a card by saying so — the card's buttons, from the composer.

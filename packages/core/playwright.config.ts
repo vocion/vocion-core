@@ -167,6 +167,16 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // Needs you: decisions that recommend the same thing, accepted in one
+    // move. Self-seeding like `queue`, with the same 120s for the same reason
+    // (its own admin and seed through `npx` child processes, then a cold
+    // compile of the inbox route). Run with: npx playwright test --project=needs-you
+    {
+      name: 'needs-you',
+      testDir: './e2e/needs-you',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
     // The feedback-to-learning loop end to end. Self-seeding like `queue`.
     // Run with: npx playwright test --project=learning
     {

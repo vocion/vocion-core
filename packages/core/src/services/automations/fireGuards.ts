@@ -61,7 +61,8 @@ export const DEFAULT_MAX_FIRES_PER_10M = 6;
  * from nowhere.
  */
 // `setup_incomplete`: a plugin's schedule ticked before the plugin's setup was done (`plugins/setupGate.ts`).
-export type SkipReason = 'self_trigger' | 'rate_limited' | 'workspace_paused' | 'fire_failed' | 'automation_paused' | 'setup_incomplete';
+// `waiting_on_ask`: a schedule ticked while the automation was parked on its questions (`needsYou/ResumeGateService.ts`).
+export type SkipReason = 'self_trigger' | 'rate_limited' | 'workspace_paused' | 'fire_failed' | 'automation_paused' | 'setup_incomplete' | 'waiting_on_ask';
 
 /**
  * Prepend this fire to the chain that led to it.

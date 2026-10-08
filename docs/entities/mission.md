@@ -50,6 +50,16 @@ desiredArtifacts:
 schedule: '0 13 * * 1'
 ```
 
+## When everything left waits on a person
+
+A mission run whose remaining work is all blocked on asks stops spending rather than checking again
+and again. Its agent calls `wait_for_answers` with the asks it is blocked on
+([agent tools](../guides/agent-tools.md#waiting-on-answers--wait_for_answers)): one gate ask goes on
+Needs you, and the run is `paused` (`pause_reason: waiting_on_asks:<gate>`) before its next task —
+or, for a scheduled check with nothing left after this turn, the automation's ticks are skipped.
+Answering the asks resumes it from that task on a durable job; the mission-run reaper leaves a
+parked run alone however long the answer takes.
+
 ## Mission, workflow, or automation?
 
 | Use | When |

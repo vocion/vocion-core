@@ -27,6 +27,7 @@ agents that hold each tool, so what the page says an agent has is what the agent
 | `recommend_action` | none on emit — the card files `propose_action` when tapped | Nothing until a person taps. | every agent (not over MCP) | — |
 | `file_ask` | `ask.file` | Puts one question on Needs you ([ask](../entities/ask.md)): a ruling, an approval, an input, a credential, a merge, a recommendation, a gate. Owned by the agent, bound to its run, about the records it names. | every agent | low, reversible → done for you at 0.8; Undo withdraws it while open |
 | `withdraw_ask` | `ask.withdraw` | Closes an open question **this agent** filed, as superseded with the reason. | every agent | low, reversible → done for you at 0.8; Undo reopens it |
+| `wait_for_answers` | — parks the run on a resume gate | Stops this mission run (or the scheduled automation whose check this is) spending until the asks it names are answered; files one gate ask. | inside a mission run | — nothing is executed; answering resumes it |
 | `update_object` | `objects.update_meta` | Declared fields on an existing record of an [object type](../entities/object-type.md) the agent works with — a priority, a state, the task that answered a request. Never the title, the lifecycle status or the id. | agents with `objectTypes:` — and only for those types | low, reversible → done for you at 0.8; Undo restores the previous values |
 | `write_wiki_page` | `wiki.write_page` | A page of the workspace wiki. | while the `wiki` plugin is on | self-improving: the learning dial (the plugin sets 0.6) |
 | `update_mission_notes` | `mission.update_notes` | The running mission's working notes. | inside a mission check (not over MCP) | self-improving: the learning dial |
@@ -100,6 +101,22 @@ Why it is on the ladder at all: an agent that asks too much is a cost, and *whet
 interrupt people unasked* is the workspace's call. The default says yes above 0.8 with Undo; a
 `trust.yaml` rule parking `ask.file` at `execute-with-approval` means a person first sees "this
 agent wants to ask you something" and approving it is what files the question.
+
+A question nobody answers does not wait forever: at its `due_at` (or a window by risk) the
+recommended option applies by default where the trust ladder allows it, and otherwise it stays and
+its owner is told again — [deadlines](../entities/ask.md#deadlines-defaults-and-who-hears-about-it).
+So recommend the option you would stand behind, and say how sure you are.
+
+## Waiting on answers — `wait_for_answers`
+
+When everything an agent has left to do is blocked on questions a person has not answered, another
+turn only spends money to find that out again. `wait_for_answers({ ask_ids, waiting_for })` names
+the open asks it is blocked on — by id, never inferred from its words — and one line saying what it
+waits for. Core files ONE gate ask (*Nothing pricing-lead can do until the Northwind tier is
+answered*) and parks what would keep spending: the mission run before its next task, else the
+scheduled automation whose check this is; with nothing more scheduled it parks nothing and says so.
+Answering the asks resumes it on its own (`services/needsYou/ResumeGateService.ts`). Offered only
+inside a mission run; a person's own chat has a person in it.
 
 ## Writing a record — `update_object`
 

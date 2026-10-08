@@ -6,11 +6,13 @@ import { InboxControls } from '@/features/dashboard/inbox/InboxControls';
 import { InboxList } from '@/features/dashboard/inbox/InboxList';
 import { contextLine } from '@/features/dashboard/inbox/inboxMeta';
 import { InboxScope } from '@/features/dashboard/inbox/InboxScope';
+import { RecommendationBatches } from '@/features/dashboard/inbox/RecommendationBatches';
 import { defaultSortFor } from '@/features/dashboard/inbox/searchParams';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { INBOX_SORTS, INBOX_TABS, isInboxKind, listInbox } from '@/services/InboxService';
+import { recommendationBatches } from '@/services/needsYou/batches';
 
 /**
  * Review queue — THE decision surface. Everything waiting on a person, in one
@@ -63,6 +65,9 @@ export default async function InboxPage(props: {
   const q = sp.q?.trim() ?? '';
 
   const inbox = await listInbox(orgId, { tab, q, sort, kinds, actionKinds, agents });
+  // The decisions in view that recommend the same thing, gathered so they
+  // can be accepted in one move (`services/needsYou/batches.ts`).
+  const batches = tab === 'open' ? await recommendationBatches(orgId, inbox.items) : [];
   const open = inbox.tabs.open;
   // The oldest open row regardless of the current sort or filters: the queue's real age.
   const oldest = tab === 'open' ? inbox.items.reduce<Date | undefined>((m, i) => (m === undefined || i.at < m ? i.at : m), undefined) : undefined;
@@ -92,7 +97,12 @@ export default async function InboxPage(props: {
               action={filtered ? { label: 'Clear filters', href: tab === 'open' ? '/dashboard/inbox' : `/dashboard/inbox?tab=${tab}` } : { label: 'See what the team did', href: '/dashboard/activity' }}
             />
           )
-        : <InboxList inbox={inbox} tab={tab} />}
+        : (
+            <>
+              <RecommendationBatches batches={batches} />
+              <InboxList inbox={inbox} tab={tab} />
+            </>
+          )}
     </div>
   );
 }

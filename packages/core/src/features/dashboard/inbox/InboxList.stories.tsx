@@ -51,7 +51,8 @@ function item(over: Partial<InboxItem> & Pick<InboxItem, 'key' | 'kind' | 'title
 const ITEMS: InboxItem[] = [
   item({ key: 'p:1', kind: 'proposal', title: 'Enroll Jamie Smith in the MQL sequence', amount: 12500, currency: 'USD' }),
   item({ key: 'p:2', kind: 'proposal', title: 'Update the Meridian Group deal stage', risk: 'high', confidence: 0.61, amount: 48000, currency: 'USD', at: new Date('2026-09-10T09:00:00.000Z') }),
-  item({ key: 'a:3', kind: 'input', title: 'Which pricing tier should the Orlin proposal quote?', subline: 'Orlin Health › proposal-writer', confidence: null, reviewId: undefined, askId: 3, href: '/dashboard/inbox/3', at: new Date('2026-09-09T09:00:00.000Z') }),
+  item({ key: 'a:3', kind: 'input', title: 'Which pricing tier should the Orlin proposal quote?', subline: 'Orlin Health › proposal-writer', confidence: null, reviewId: undefined, askId: 3, href: '/dashboard/inbox/3', at: new Date('2026-09-09T09:00:00.000Z'), deadline: { at: new Date(Date.now() + 5 * 60 * 60 * 1000), defaultLabel: 'Standard', status: 'open', reason: null } }),
+  item({ key: 'a:5', kind: 'approval', title: 'Renew the Northwind support contract?', subline: 'asked by ops-lead', confidence: null, reviewId: undefined, askId: 5, href: '/dashboard/inbox/5', at: new Date('2026-09-07T09:00:00.000Z'), deadline: { at: new Date('2026-09-08T09:00:00.000Z'), defaultLabel: 'Approve', status: 'held', reason: 'it cannot be undone, and the trust ladder keeps it for a person' } }),
   item({ key: 'l:4', kind: 'learning', title: 'Always name the discovery call date in the first line', subline: 'outreach › from 3 decisions', confidence: 0.74, reviewId: undefined, href: '/dashboard/inbox/learning-4', at: new Date('2026-09-08T09:00:00.000Z') }),
 ];
 

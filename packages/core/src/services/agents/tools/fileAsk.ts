@@ -173,7 +173,7 @@ export function fileAskTool(ctx: RuntimeContext) {
         context_url: z.string().url().optional().describe('The long form — the record, the PR, the run. Defaults to the mission run this turn belongs to.'),
         context_md: z.string().max(20_000).optional().describe('Collapsed Details, markdown: evidence, alternatives considered, what you could not establish.'),
         source_ref: z.string().min(1).max(200).optional().describe('Your own idempotency key. Filing it again updates the open ask instead of asking twice; a decided ask is never reopened.'),
-        due_at: z.string().datetime().optional().describe('ISO timestamp. Informational.'),
+        due_at: z.string().datetime().optional().describe('ISO timestamp: when this must be decided by. If nobody answers by then, your recommended option applies by default where the trust ladder allows it (else it stays and is escalated). Omit it and a window by risk applies — a day low, three days medium, a week high.'),
         confidence: z.number().min(0).max(1).describe('Your confidence this is worth a person\'s minute NOW — that only they can decide it and you have given them what they need. An honest number decides whether it is asked at once or a person first sees the proposal to ask.'),
       }),
     },

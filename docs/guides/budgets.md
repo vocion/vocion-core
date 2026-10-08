@@ -169,6 +169,14 @@ The budget lives on the agent row as `approvalPolicy.proposals`, written by
 `workspace:apply`. `proposalBudgetLine(orgId, agentSlug)` renders
 `open 3/5 · ideas 4/10 this week` for a header or a receipt.
 
+## Waiting costs nothing
+
+A long run whose remaining work is all blocked on a person's answers should not keep paying to find
+that out. A worker run (`POST /api/v1/worker-runs/:id/park`), a mission run or a scheduled
+automation (the agent's `wait_for_answers` tool) **parks**: one gate ask goes on Needs you, and
+nothing more is spent on it — no model calls, no scheduled checks — until the questions are
+answered, when it resumes on its own. See [Needs you](./needs-you.md#runs-that-wait-on-you).
+
 ## Provider spend limits
 
 Your model provider may offer its own spend limits. They are worth setting as

@@ -46,6 +46,43 @@ clear answer without reading a report.
   *agrees with you* score on the sheet, and the evidence the [autonomy ladder](../guides/earned-autonomy.md)
   reads.
 
+## Deadlines, defaults and who hears about it
+
+Vocion's own zero-person company stopped with 24 approvals that nobody approved or rejected:
+an ask had no deadline, no default, nobody it went to when it sat, and no way to be accepted
+alongside the others like it. So every open ask — and every agent proposal — now runs on a
+**clock** (`services/needsYou/DecisionClockService.ts`, swept every five minutes):
+
+- **A deadline.** The asker's `dueAt` when it gave one; otherwise a window by `risk` — a day for
+  `low` (and unset), three days for `medium`, a week for `high`. A decision already older than its
+  window when the clock first sees it is never defaulted on sight: it gets a full notice from now.
+- **A default.** The recommended option. An ask with no recommended option has no default — it
+  can wait, and be escalated, but never be answered on its own.
+- **An escalation before the deadline**, a quarter of the window ahead (never less than an hour),
+  to the person accountable for it: the asking team's accountable human (the ask's `teamSlug`,
+  else the asking agent's team), else the workspace's `accountableUser`, else the workspace's
+  owner, else its admins. One `decision.escalated` event per person per sweep, however many
+  decisions it covers, delivered on the notification path as the core kind **Decisions due**.
+- **At the deadline, the default applies** as a recorded decision — `decidedBy: by-default`, the
+  reason on its note, **Undo** on the Decided tab (it reopens the question, and the default never
+  applies to it again) — but only when that is safe: a plain answer applies because it can be
+  undone, unless the ask is `high` risk or the workspace parked `ask.file` below the default rung;
+  an option that carries an `action` applies only where the trust ladder would let that action run
+  without a person, or the action is reversible and not high-risk. Never for a kind the platform
+  holds, never on a record that holds itself for a person, never while the workspace is paused.
+- **Otherwise it is held**: it stays on Needs you, its row says *past due · waits for you* with the
+  reason, and its owner is told again a day later. Nothing is dropped.
+
+A default that applied is not evidence — the recommendation agreeing with itself teaches nothing —
+so it never lands in the alignment ledger or the learning queue; it does raise `ask.decided` like
+any answer, with `decidedBy: by-default`, so whoever filed the ask acts on it.
+
+**Accept a batch.** Needs you gathers the asks (and proposals) in view whose recommendation reads
+the same — every one that recommends "Approve" — into one line, *Accept all N*: each is decided as
+recommended, by the person, one by one through `decideAsk`, so each is alignment evidence as if
+clicked. An item decided or changed since the person saw it is skipped and named; a decision sheet
+(`groupKey`) is already one move and is left to its own screen.
+
 ## Writing a good ask
 
 The screen clamps whatever arrives — a two-line title, two sentences of body, two lines per option
@@ -130,7 +167,7 @@ decision as it is and says so on the run.
 | `contextUrl` | URL | The long form — the approval file, the PR, the run. `url` is accepted as an alias on POST. |
 | `url` | URL, read-only | Where a person decides this ask: `/w/<workspace>/dashboard/inbox/<id>`, absolute when `NEXT_PUBLIC_APP_URL` is set. Present on every API response; paste this into Slack or an approval file, not a bare `/dashboard/inbox` path. |
 | `contextMd` | markdown | Optional collapsed **Details**. |
-| `dueAt` | timestamp | Informational. |
+| `dueAt` | timestamp | When it must be decided by. At it, the recommended option applies by default where that is safe, else it is held and escalated ([Deadlines](#deadlines-defaults-and-who-hears-about-it)). Unset, a window by `risk` applies. |
 | `notifyAt`, `notified` | timestamp, boolean | Earliest time a notifier may ping about this ask, and whether one has. `AskService.pendingNotifications()` lists what is owed; nothing in core sends yet. |
 | `status` | `open` \| `approved` \| `rejected` \| `done` \| `superseded` | `done` covers an option chosen, an "other" answer, and *Mark done*. |
 | `decision` | string | `approve`, `reject`, `done`, `other`, or an option id. |
@@ -191,3 +228,10 @@ of the API — see [Filed by an agent](#filed-by-an-agent).
   asking agent and the `objectRefs` it was about.
 - **Learning:** `services/feedback/askFeedbackQueue.ts` queues corrections for the classifier;
   `services/alignment/AlignmentService.ts` records every answer as alignment evidence.
+- **Clock:** `decision_deadline`, migration `0184`; the policy in `libs/needsYou/deadlines.ts`, the
+  sweep and Undo in `services/needsYou/DecisionClockService.ts`, the owner in
+  `services/needsYou/owner.ts`, batches in `services/needsYou/batches.ts` (`inbox.acceptBatch`,
+  `inbox.undoDefault`).
+- **Resume gates:** an ask with `kind: gate` and `sourceRef: resume-gate:<id>` is a run saying
+  "nothing I can do until …" — answering what it waits on resumes the run
+  ([Needs you](../guides/needs-you.md#runs-that-wait-on-you)); `resume_gate`, migration `0185`.

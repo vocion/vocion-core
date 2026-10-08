@@ -3,6 +3,7 @@ import { db } from '@/libs/DB';
 import { CHANNEL_LABELS } from '@/libs/notifications/types';
 import { notificationRuleSchema, notificationSchema } from '@/models/Schema';
 import { deliveriesOf } from './delivery';
+import { CORE_NOTIFICATION_RULES } from './rules';
 
 /**
  * The reads a person's notifications need — the bell's count, the list page,
@@ -102,12 +103,17 @@ export type KindView = {
  */
 export async function listKinds(orgId: string): Promise<KindView[]> {
   const rows = await db.select().from(notificationRuleSchema).where(eq(notificationRuleSchema.orgId, orgId));
-  return rows
-    .sort((a, b) => (a.status === b.status ? a.label.localeCompare(b.label) : a.status === 'active' ? -1 : 1))
-    .map(r => ({ kind: r.kind, label: r.label, description: r.description, event: r.event, source: r.source, status: r.status, lastFiredAt: r.lastFiredAt?.toISOString() ?? null, lastNote: r.lastNote }));
+  const declared = new Set(rows.map(r => r.kind));
+  // Core's own kinds (`rules.ts`) are kinds like any other, unless the
+  // workspace declared one of the same name over them.
+  const core: KindView[] = CORE_NOTIFICATION_RULES.filter(r => !declared.has(r.kind)).map(r => ({ kind: r.kind, label: r.label, description: r.description ?? null, event: r.event, source: 'core', status: 'active', lastFiredAt: null, lastNote: null }));
+  return [
+    ...rows.map(r => ({ kind: r.kind, label: r.label, description: r.description, event: r.event, source: r.source, status: r.status, lastFiredAt: r.lastFiredAt?.toISOString() ?? null, lastNote: r.lastNote })),
+    ...core,
+  ].sort((a, b) => (a.status === b.status ? a.label.localeCompare(b.label) : a.status === 'active' ? -1 : 1));
 }
 
 async function kindLabels(orgId: string): Promise<Map<string, string>> {
   const rows = await db.select({ kind: notificationRuleSchema.kind, label: notificationRuleSchema.label }).from(notificationRuleSchema).where(eq(notificationRuleSchema.orgId, orgId));
-  return new Map(rows.map(r => [r.kind, r.label]));
+  return new Map([...CORE_NOTIFICATION_RULES.map(r => [r.kind, r.label] as const), ...rows.map(r => [r.kind, r.label] as const)]);
 }

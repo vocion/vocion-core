@@ -57,6 +57,7 @@ org. Worker-side calls must also present the `workerId` that holds the lease.
 | Complete | `POST /worker-runs/:id/complete { workerId, result?, counts?, summary?, events? }` | Terminal. A run that had been asked to stop is recorded as `cancelled`. `summary` is the worker's own one-paragraph account, shown on the team report. |
 | Fail | `POST /worker-runs/:id/fail { workerId, error, failures?, result?, transcriptArtifactId?, promptArtifactId?, logLinks?, events? }` | Terminal. What the run kept and the links to its logs are stored on `result`. |
 | Cancel | `POST /worker-runs/:id/cancel` | The human kill switch. `queued` cancels now; `running` sets `stopRequested`, which the worker learns on its next heartbeat. |
+| Park | `POST /worker-runs/:id/park { workerId, waitingOn: [askId, …], reason?, cursor?, progress? }` | Everything left waits on these asks, so the run stops spending: ONE resume-gate ask goes on Needs you ("nothing I can do until …"), the run becomes `paused` and holds no lease — the worker exits, the reaper leaves it alone. When no ask it waits on is open, or a person presses Resume, it is `queued` again for any worker to claim with its `cursor`; Stop cancels it. 404 for an ask not in this workspace, 409 when none is still open. |
 
 The heartbeat reply is the only channel back to the worker, so everything rides on it:
 
@@ -111,6 +112,11 @@ it kept — its last progress, its check tails, its failures.
 `queued` → `running` ⇄ `paused` → `completed` | `failed` | `cancelled`. Plus `lost`: the lease
 lapsed without a heartbeat. A `lost` run can be re-claimed; `attempt` increments so the record shows
 how many workers it took. Status is plain text, not an enum.
+
+`paused` is a run [parked on its questions](../guides/needs-you.md#runs-that-wait-on-you): it holds
+no lease (a heartbeat while paused answers `paused: true` and never extends one), so it is never
+reaped, and it goes back to `queued` — not `running` — when it resumes, because whichever worker is
+free picks it up from its `cursor`.
 
 ## Counts — what a worker says about its work
 

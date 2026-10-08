@@ -90,6 +90,7 @@ These are the ones the server raises on its own:
 | `object.created` | A business object is created, from any create path — the dashboard (`source: app`), an agent's approved proposal (`proposal`, carrying the conversation it was proposed in), a worker over `POST /api/v1/objects` (`api`) or a service (`service`). The software factory filters `objectType: request` to start the work a person filed. | `objectId`, `objectType`, `title`, `source`, `conversationId` (or null), `actor`, `byPerson`, `orgId`, `fields` (the fields it was born with, comma-joined) |
 | `plan.approved` | An `architecture_plan` is approved through `factory.approve_plan` — by a person, or within the trust bar. | `planId`, `requestId`, `approvedBy`, `byPerson` |
 | `factory.plan_requested` | A build was gated by the plan rule (or the worker's "plan is required") with no approved plan: the dispatch asks for one instead of sending the contract. | `requestId`, `title`, `why` (the rule's trigger sentences) |
+| `decision.escalated` | The needs-you sweep tells a person about decisions near their deadline, past it and held, or applied by default ([Needs you](../guides/needs-you.md#deadlines-and-defaults)). One per person per sweep; core's own notification kind **Decisions due** delivers it. | `ownerUserId`, `ownerSource` (`team` \| `workspace` \| `owner` \| `admins`), `count`, `dueSoon`, `held`, `applied`, `title`, `body`, `link`, `dedupe` |
 | `ask.decided` | A person answers an ask ([ask](./ask.md)) — approve, reject, an option, an "other", mark done. Raised from the one place a decision is written, so a plugin can act on the answer without polling; `filter` on `agentSlug` and `kind` to hear only your own. | `askId`, `kind`, `status`, `decision`, `followUp`, `agentSlug`, `teamSlug`, `groupKey`, `sourceRef`, `objectRefs` (`[{ type, id }]`, the records it was about — read it off the payload; not filterable), `decidedBy`, `decidedAt` (ISO) |
 | `worker_run.completed`, `worker_run.failed` | An external worker's run ([worker run](./worker-run.md)) reaches a terminal status from the worker's own `complete` or `fail` call. `completed` also carries `status: cancelled` for a run that was asked to stop and stopped; a run the reaper marks `lost` raises nothing. | `workerRunId`, `agentSlug`, `kind`, `status`, `summary` (the worker's account, or the error; ≤500 chars), `recordType`, `recordId`, `attempt`, `cents`, `completedAt` (ISO) |
 | `mission_run.completed` | A mission run's tasks all finish without failure and the loop settles it — once, from the one write that settles it. `mode` is `check` for an automation's own mission check and `planned` for a brief a person or the planner decomposed; a debrief filters `mode: planned` so it never fires on a check. | `missionRunId`, `missionId`, `missionSlug`, `title`, `agentSlug` (the team lead), `mode`, `summary` (the last task's output, ≤500 chars), `tasksTotal`, `tasksFailed`, `completedAt` (ISO) |
@@ -210,6 +211,13 @@ is held, a matched event writes a `skipped` run with reason
 `workspace_paused` against each automation it would have fired, so the run
 log says why the afternoon is empty. See
 [the off switch](./workspace-manifest.md#the-off-switch--pausing-the-whole-workspace).
+
+**Waiting on a person.** An automation whose check found everything left blocked on asks is
+parked by its agent's `wait_for_answers` ([Needs you](../guides/needs-you.md#runs-that-wait-on-you)):
+its schedule ticks are skipped — a `skipped` row with `result.reason: waiting_on_ask` and the gate
+ask's id — so it spends nothing until the questions are answered, and then it fires once straight
+away (`invokedBy: resume-gate:<id>`). Only ticks are held: an event fire still runs, and so does a
+person's Run now. Stop on the gate pauses the automation in that person's name.
 
 Schedules are only paused from the app, so a paused schedule always has a
 name on the record. A schedule tick never overlaps its own last fire: a tick

@@ -8288,6 +8288,93 @@
         }
       }
     },
+    "/api/v1/worker-runs/{id}/park": {
+      "post": {
+        "operationId": "post_worker_runs_id_park",
+        "summary": "stop spending until the asks it waits on are answered.",
+        "tags": [
+          "worker-runs"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "stop spending until the asks it waits on are answered.\nBody: `{ workerId, waitingOn: [askId, …], reason?, cursor?, progress? }`.\n\nEverything the run has left to do waits on these asks, so it stops\nspending until they are answered. Vocion files ONE resume-gate ask on Needs\nyou (\"nothing I can do until …\"), the run becomes `paused` and gives up its\nlease — the worker can exit; nothing is reaped. When every ask named is\nanswered, or a person presses Resume, the run is `queued` again for any\nworker to claim with the `cursor` it left; Stop cancels it. Parking again\nwhile parked adds to what it waits on and keeps the one gate.\n\n200 `{ run, gateAskId, waitingOn, created }`. 404 for an ask that is not in\nthis workspace, 409 when none of the asks is still open (read the answers\nand carry on) or the run is not running. Auth: tenant API token or session;\nthe caller must hold the lease.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "cursor": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "progress": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "reason": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "waitingOn": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "workerId": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows": {
       "get": {
         "operationId": "get_workflows",
