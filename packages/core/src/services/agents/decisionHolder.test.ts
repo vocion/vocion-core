@@ -100,7 +100,7 @@ describe('an ask the person here holds is asked here, never filed for "the owner
   it('conversation 392: a merge routed to "the engineering owner" is held by the person in the turn, with the link and what the records say', async () => {
     const out = await whoHoldsTheAsk(ctxFor(), { kind: 'ruling', title: 'Merge PR #127: engineering owner\'s call', objectRefs: [{ type: 'request', id: 246 }] });
 
-    expect(out).toMatchObject({ held: 'here', name: 'Dana Reyes', href: '/w/northwind/dashboard/p/feature/246', about: 'Theme toggle' });
+    expect(out).toMatchObject({ held: 'here', name: 'Dana Reyes', href: '/w/northwind/dashboard/p/feature/246', about: 'Theme toggle', docked: true });
     expect(out?.held === 'here' && out.merge).toContain('QA has not judged it yet; CI failed on PR #127 (integration); PR #127 is not merged');
   });
 
@@ -173,6 +173,19 @@ describe('the tools enforce it in their results', () => {
     const raised = ctx.events.find(e => e.type === 'decision');
 
     expect(raised?.type === 'decision' && raised.decision).toMatchObject({ id: ask!.id, state: 'open', question: 'Merge PR #127: engineering owner\'s call', options: [{ id: 'merge', recommended: true }, { id: 'wait' }] });
+  });
+
+  it('file_ask in a Slack or email thread asks in words — a thread there cannot show a docked card', async () => {
+    const { conversationSchema } = await import('@/models/Schema');
+    await db.delete(conversationSchema);
+    const [slack] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'Export formats', surface: 'slack' } as never).returning();
+    const out = await fileAskTool(ctxFor({ conversationId: slack!.id })).invoke({ title: 'Pick the export format', kind: 'ruling', options: ['CSV', 'XLSX'], confidence: 0.9 });
+
+    expect(out).toContain('Not filed: Dana Reyes is in this conversation');
+    expect(out).toContain('Ask them here, in one line, with your recommendation, numbering the choices.');
+    expect(await db.select().from(askSchema)).toHaveLength(0);
+
+    await db.delete(conversationSchema);
   });
 
   it('file_ask stores an option\'s effect as the action it runs', async () => {

@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { ASK_KINDS, ASK_RISKS, getAsk } from '@/services/AskService';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
-import { whoHoldsTheAsk } from '../decisionHolder';
+import { askInWords, whoHoldsTheAsk } from '../decisionHolder';
 
 /**
  * The agent principal every tool-made proposal rides — working autonomy, judged by the ladder.
@@ -160,6 +160,12 @@ export function fileAskTool(ctx: RuntimeContext) {
         return held.message;
       }
       if (held?.held === 'here' && ctx.conversationId && ctx.userId) {
+        // In the app it docks above the composer; a Slack or email thread
+        // reads only words, so there it is asked in one numbered line.
+        if (!held.docked) {
+          ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { filed: false, reason: 'decision_held_here' } } as never);
+          return askInWords(held);
+        }
         return raiseHere(ctx, args, options ?? [], held);
       }
       const input: Record<string, unknown> = {

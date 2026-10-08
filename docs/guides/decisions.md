@@ -85,6 +85,9 @@ complete, never "stopped without answering".
 
 A credential is never asked in chat — its value must not travel through the
 conversation — and a person who says "put it on the queue" gets it on Needs you.
+A Slack or email thread reads only words, so there the agent asks in one
+numbered line until those channels draw the Decision as a numbered message
+(step 4 below).
 
 ## How it is answered — answers first
 

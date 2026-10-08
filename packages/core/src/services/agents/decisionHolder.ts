@@ -180,6 +180,7 @@ export async function whoHoldsTheAsk(ctx: RuntimeContext, ask: DecisionSubject):
       href: subject?.href ?? null,
       about: subject?.title ?? null,
       merge: subject ? mergeSentence(subject.facts) : null,
+      docked: await inTheApp(ctx),
     };
   } catch (err) {
     console.warn('decision holder check failed', { orgId: ctx.orgId, message: (err as Error).message });
@@ -190,7 +191,45 @@ export async function whoHoldsTheAsk(ctx: RuntimeContext, ask: DecisionSubject):
 /** Who holds an ask — see {@link whoHoldsTheAsk}. */
 export type HeldVerdict
   = | { held: 'moot'; message: string }
-    | { held: 'here'; name: string | null; href: string | null; about: string | null; merge: string | null };
+    /** `docked`: the conversation lives in the app, where a Decision docks above the composer. */
+    | { held: 'here'; name: string | null; href: string | null; about: string | null; merge: string | null; docked: boolean };
+
+/**
+ * Whether this turn's conversation is read in the app, where a Decision docks
+ * above the composer — not a Slack or email thread, which reads only words
+ * (`conversation.surface`). Unknown reads as the app.
+ * @param ctx - The turn.
+ */
+async function inTheApp(ctx: Pick<RuntimeContext, 'orgId' | 'conversationId'>): Promise<boolean> {
+  if (!ctx.conversationId) {
+    return false;
+  }
+  try {
+    const { and, eq } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { conversationSchema } = await import('@/models/Schema');
+    const [row] = await db.select({ surface: conversationSchema.surface }).from(conversationSchema).where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationSchema.id, ctx.conversationId))).limit(1);
+    return (row?.surface ?? 'app') === 'app';
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The words for a decision the person here holds, in a thread that reads only
+ * words (Slack, email): ask them in one line, with the recommendation.
+ * @param held - Who holds it.
+ */
+export function askInWords(held: Extract<HeldVerdict, { held: 'here' }>): string {
+  const who = held.name ? `${held.name} is` : 'The person you are talking to is';
+  const about = held.about ? ` about ${held.about}` : '';
+  return [
+    `Not filed: ${who} in this conversation, and this decision${about} is theirs — any person in the workspace decides an ask, and they are the one asking. Do not route it to "the owner" or an engineering owner; there is no one else to route it to.`,
+    `Ask them here, in one line, with your recommendation, numbering the choices.${held.href ? ` Give them the link: ${held.href}` : ''}`,
+    held.merge ? `What the records say: ${held.merge}` : null,
+    'What they answer runs as theirs: a proposal with decide_proposal, an open ask with decide_ask, anything else as the action itself.',
+  ].filter(Boolean).join(' ');
+}
 
 /**
  * The refusal for a merge card nobody needs to press: its class merges on its
