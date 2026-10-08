@@ -9,14 +9,18 @@
  * specifics stay at the edge); the core's job is to read it and hand it to
  * the agent in the shape a document uses.
  *
- * File-only, like pages: `workspace:apply` does not touch it, and a missing
+ * Each apply stores the file and the logos it names with the project
+ * (`workspace_file`), so a project reads its own brand on a host with no
+ * folder for it — `services/workspace/WorkspaceFileService.ts`
+ * `readBrandForOrg` reads the database first and this folder only for a
+ * project with nothing stored. Both go through {@link loadBrand}. A missing
  * or invalid file reads as "no brand" with the issue reported, never a crash.
  * Seed one from a company's own site with the `brand_lookup` tool, then
  * correct it by hand; the values here beat anything recalled.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, join, posix, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { getWorkspacePath } from '@/libs/workspace/reader';
@@ -81,6 +85,48 @@ export type LoadedBrand = {
 
 const MIME: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 
+/** The brand file's names, in the order they are looked for. */
+export const BRAND_FILES = ['brand.yaml', 'brand.yml'] as const;
+
+/**
+ * The image type a logo file is inlined as, or undefined for a file that is
+ * not one of the types a document can carry.
+ * @param file - The logo's path or name.
+ */
+export function logoMimeType(file: string): string | undefined {
+  return MIME[extname(file).toLowerCase()];
+}
+
+/**
+ * Where a relative logo reference points inside the workspace, `/`-separated —
+ * the key the logo is stored under — or null for a data URI, an absolute path,
+ * or a path that climbs out of the workspace root.
+ * @param ref - The reference as `brand.yaml` writes it.
+ */
+export function logoRefPath(ref: string): string | null {
+  if (ref.startsWith('data:') || isAbsolute(ref) || ref.includes('\0')) {
+    return null;
+  }
+  const path = posix.normalize(ref);
+  return path === '..' || path.startsWith('../') || path.startsWith('/') || path === '.' ? null : path;
+}
+
+/**
+ * The logo references a brand file names, read leniently: whatever the
+ * `logos:` block holds as text, valid or not. What an apply stores beside the
+ * brand file; validation is {@link loadBrand}'s job.
+ * @param text - The brand file's text, tokens resolved.
+ */
+export function brandLogoRefs(text: string): string[] {
+  try {
+    const raw = parseYaml(text) as { logos?: unknown } | null;
+    const logos = raw && typeof raw.logos === 'object' && raw.logos !== null ? Object.values(raw.logos) : [];
+    return logos.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * A logo reference as a data URI: already one, or a file under the workspace.
  * A file outside the workspace root is refused — the brand cannot be used to
@@ -99,7 +145,7 @@ export function logoDataUri(ref: string | undefined, root: string): string | und
   if (!abs.startsWith(resolve(root)) || !existsSync(abs)) {
     return undefined;
   }
-  const mime = MIME[extname(abs).toLowerCase()];
+  const mime = logoMimeType(abs);
   if (!mime) {
     return undefined;
   }
@@ -122,31 +168,37 @@ export function brandCssRoot(brand: BrandManifest): string {
 }
 
 /**
- * Read `brand.yaml` from a workspace directory.
- * @param root - The workspace root; default `WORKSPACE_PATH`.
+ * Where a brand is read from, whichever store holds it: the file's name for an
+ * issue, its text, and how a logo reference becomes a data URI.
  */
-export function readWorkspaceBrand(root: string | null = getWorkspacePath()): { brand: LoadedBrand | null; issues: BrandLoadIssue[] } {
-  if (!root) {
-    return { brand: null, issues: [] };
-  }
-  // turbopackIgnore: this path is only known at runtime, so the build must not
-  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
-  const file = ['brand.yaml', 'brand.yml'].map(f => join(/* turbopackIgnore: true */ root, f)).find(f => existsSync(f));
-  if (!file) {
-    return { brand: null, issues: [] };
-  }
+export type BrandSource = {
+  /** Names the brand in an issue: the file on disk, or the stored path. */
+  file: string;
+  /** The brand file's text with `{{env.NAME}}` tokens resolved. A token that cannot be resolved throws, and is reported as an issue. */
+  read: () => string;
+  /** A relative logo reference as a data URI, or undefined when it is not a readable image under the workspace. */
+  logo: (ref: string) => string | undefined;
+};
+
+/**
+ * Parse and validate a brand from wherever it lives. A data-URI logo is used
+ * as written; any other is resolved through the source.
+ * @param source - See {@link BrandSource}.
+ */
+export function loadBrand(source: BrandSource): { brand: LoadedBrand | null; issues: BrandLoadIssue[] } {
+  const { file } = source;
   try {
-    const raw = parseYaml(readWorkspaceTextFile(file)) as unknown;
+    const raw = parseYaml(source.read()) as unknown;
     const parsed = BrandManifestSchema.safeParse(raw);
     if (!parsed.success) {
       return { brand: null, issues: [{ file, message: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') }] };
     }
     const brand = parsed.data;
-    const base = dirname(file);
+    const inline = (ref: string) => (ref.startsWith('data:') ? ref : source.logo(ref));
     const logos = {
-      ...(brand.logos.mark ? { mark: logoDataUri(brand.logos.mark, base) } : {}),
-      ...(brand.logos.wordmark ? { wordmark: logoDataUri(brand.logos.wordmark, base) } : {}),
-      ...(brand.logos.markOnDark ? { markOnDark: logoDataUri(brand.logos.markOnDark, base) } : {}),
+      ...(brand.logos.mark ? { mark: inline(brand.logos.mark) } : {}),
+      ...(brand.logos.wordmark ? { wordmark: inline(brand.logos.wordmark) } : {}),
+      ...(brand.logos.markOnDark ? { markOnDark: inline(brand.logos.markOnDark) } : {}),
     };
     const issues: BrandLoadIssue[] = [];
     for (const [k, v] of Object.entries(brand.logos)) {
@@ -158,6 +210,24 @@ export function readWorkspaceBrand(root: string | null = getWorkspacePath()): { 
   } catch (err) {
     return { brand: null, issues: [{ file, message: (err as Error).message }] };
   }
+}
+
+/**
+ * Read `brand.yaml` from a workspace directory.
+ * @param root - The workspace root; default `WORKSPACE_PATH`.
+ */
+export function readWorkspaceBrand(root: string | null = getWorkspacePath()): { brand: LoadedBrand | null; issues: BrandLoadIssue[] } {
+  if (!root) {
+    return { brand: null, issues: [] };
+  }
+  // turbopackIgnore: this path is only known at runtime, so the build must not
+  // trace it, or Next copies the whole project into the image (next.config.ts, #832).
+  const file = BRAND_FILES.map(f => join(/* turbopackIgnore: true */ root, f)).find(f => existsSync(f));
+  if (!file) {
+    return { brand: null, issues: [] };
+  }
+  const base = dirname(file);
+  return loadBrand({ file, read: () => readWorkspaceTextFile(file), logo: ref => logoDataUri(ref, base) });
 }
 
 /**

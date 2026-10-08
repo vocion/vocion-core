@@ -6,7 +6,7 @@ import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { PageManifestSchema } from '@/libs/workspace/pageFields';
 import { enabledPluginsFromWorkspaceDir, loadPlugin } from '@/libs/workspace/plugins';
-import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
+import { readWorkspaceTextFile, substituteEnvTokens } from '@/libs/workspace/template-vars';
 
 /**
  * Workspace pages — tenant-defined dashboard pages, declared entirely inside
@@ -22,10 +22,15 @@ import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
  * list of typed panels - the control plane) - configured over data core
  * already owns: business objects, skill runs, or knowledge documents.
  *
- * Pages are file-only: nothing is written to the database, `workspace:apply`
- * does not need to know about them, and deleting the YAML deletes the page.
- * They render at `/dashboard/p/<slug>` and are listed in the sidebar under
- * their `nav.section` (default "Workspace").
+ * Pages are authored as files, and each apply stores them with the project
+ * (`workspace_file`, beside its skill bodies), so a project reads its own
+ * pages on a host with no folder for it. A project with stored files reads
+ * its pages from there and from nowhere else: a page added to or edited in
+ * the folder shows after the next apply, the same as an agent or a skill,
+ * and deleting the YAML and applying deletes the page. A project with none
+ * stored yet reads the folder as before. They render at
+ * `/dashboard/p/<slug>` and are listed in the sidebar under their
+ * `nav.section` (default "Workspace").
  *
  * An enabled plugin (`workspace.yaml` `plugins:`) contributes its own
  * `pages/` the same way; a workspace page with the same slug replaces it.
@@ -35,8 +40,9 @@ import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
  * on. The project the request is for has its own list on
  * `project.enabled_plugins`; a caller with an org passes it in
  * (`enabledPlugins`) and those plugins' pages join the same list, same
- * dedupe. This module stays filesystem-only — the DB half is
- * `services/PluginService.ts` (`readPageForOrg`).
+ * dedupe. This module reads no database — the DB half is
+ * `services/PluginService.ts` (`readPagesForOrg`), which hands the stored
+ * manifests in as `stored`.
  */
 
 export * from '@/libs/workspace/pageFields';
@@ -84,7 +90,29 @@ export type ReadPagesOptions = {
    * override a plugin page by slug the way the primary project can.
    */
   dir?: string | null;
+  /**
+   * The asking project's stored page files (`services/PluginService.ts`
+   * `readPagesForOrg`). Given, they ARE the project's own pages: no folder
+   * is read for them, mounted or beside it, and only `enabledPlugins` join.
+   */
+  stored?: StoredPages;
 };
+
+/** A project's stored page manifests, as `readPagesForOrg` hands them in. */
+export type StoredPages = {
+  /** The project they belong to; its pages carry it as `storedIn`. */
+  orgId: string;
+  /** `pages/<file>` → the file as authored, `{{env.NAME}}` tokens unresolved. */
+  files: ReadonlyMap<string, string>;
+};
+
+/**
+ * Whether a file in `pages/` declares a page: any YAML but the tour's.
+ * @param name - The file's name.
+ */
+function isPageManifest(name: string): boolean {
+  return /\.ya?ml$/.test(name) && name !== 'tour.yaml' && name !== 'tour.yml';
+}
 
 /**
  * Read + validate every page manifest in the workspace. Invalid files are
@@ -99,34 +127,38 @@ export function readWorkspacePages(opts: ReadPagesOptions = {}): { pages: Loaded
   const seen = new Set<string>();
   const seenPlugins = new Set<string>();
 
+  // One manifest, wherever it was read from. The workspace reads first, so a
+  // same-slug plugin page is the one that yields.
+  const addPage = (f: string, read: () => string, at: Pick<LoadedPage, 'sourceDir' | 'origin' | 'storedIn'>) => {
+    try {
+      const result = PageManifestSchema.safeParse(parseYaml(read()));
+      if (!result.success) {
+        issues.push({ file: f, message: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+        return;
+      }
+      if (seen.has(result.data.slug)) {
+        // A workspace page shadowing this plugin's page keeps the plugin's
+        // place in the nav (Work stays under Software factory).
+        const shadow = pages.find(p => p.slug === result.data.slug);
+        if (shadow && shadow.origin === 'workspace' && at.origin !== 'workspace' && !shadow.overrides) {
+          shadow.overrides = at.origin;
+        }
+        return;
+      }
+      seen.add(result.data.slug);
+      pages.push({ ...result.data, ...at });
+    } catch (e) {
+      issues.push({ file: f, message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
   const readDir = (dir: string, origin: LoadedPage['origin'], tenant: boolean) => {
     if (!existsSync(dir)) {
       return;
     }
-    for (const f of readdirSync(dir).filter(f => /\.ya?ml$/.test(f) && f !== 'tour.yaml' && f !== 'tour.yml').sort()) {
-      try {
-        // Only tenant files carry {{env.NAME}} tokens; a plugin ships the same bytes to everyone.
-        const raw = parseYaml(tenant ? readWorkspaceTextFile(join(dir, f)) : readFileSync(join(dir, f), 'utf8'));
-        const result = PageManifestSchema.safeParse(raw);
-        if (!result.success) {
-          issues.push({ file: f, message: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-          continue;
-        }
-        // The workspace reads first, so a same-slug plugin page is the one that yields.
-        if (seen.has(result.data.slug)) {
-          // A workspace page shadowing this plugin's page keeps the plugin's
-          // place in the nav (Work stays under Software factory).
-          const shadow = pages.find(p => p.slug === result.data.slug);
-          if (shadow && shadow.origin === 'workspace' && origin !== 'workspace' && !shadow.overrides) {
-            shadow.overrides = origin;
-          }
-          continue;
-        }
-        seen.add(result.data.slug);
-        pages.push({ ...result.data, sourceDir: dir, origin });
-      } catch (e) {
-        issues.push({ file: f, message: e instanceof Error ? e.message : String(e) });
-      }
+    for (const f of readdirSync(dir).filter(isPageManifest).sort()) {
+      // Only tenant files carry {{env.NAME}} tokens; a plugin ships the same bytes to everyone.
+      addPage(f, () => (tenant ? readWorkspaceTextFile(join(dir, f)) : readFileSync(join(dir, f), 'utf8')), { sourceDir: dir, origin });
     }
   };
 
@@ -138,8 +170,18 @@ export function readWorkspacePages(opts: ReadPagesOptions = {}): { pages: Loaded
     readDir(join(plugin.sourcePath, 'pages'), `plugin:${plugin.manifest.slug}`, false);
   };
 
-  // The mounted folder speaks only for the project it belongs to.
-  if (ws && (own || (opts.mounted ?? true))) {
+  if (opts.stored) {
+    // The project's own pages, as its last apply stored them: the manifests
+    // directly under pages/, in name order, tokens resolved on the way out.
+    const { orgId, files } = opts.stored;
+    for (const path of [...files.keys()].filter(p => /^pages\/[^/]+$/.test(p)).sort()) {
+      const f = path.slice('pages/'.length);
+      if (isPageManifest(f)) {
+        addPage(f, () => substituteEnvTokens(files.get(path)!, path), { sourceDir: 'pages', origin: 'workspace', storedIn: orgId });
+      }
+    }
+  } else if (ws && (own || (opts.mounted ?? true))) {
+    // The mounted folder speaks only for the project it belongs to.
     readDir(join(ws, 'pages'), 'workspace', true);
     for (const plugin of enabledPluginsFromWorkspaceDir(ws)) {
       readPlugin(plugin);
@@ -185,13 +227,27 @@ export function pagePlugin(page: Pick<LoadedPage, 'origin' | 'overrides'>): stri
 }
 
 /**
+ * The file a page's prose is read from, relative to its YAML: the intro of a
+ * `markdown` page (or a list page), or the methodology note.
+ * @param manifest - The loaded page.
+ * @param which - `content` (default `<slug>.md`) or `methodology` (default `<slug>.methodology.md`).
+ */
+export function pageProseFile(manifest: Pick<LoadedPage, 'slug' | 'contentFile' | 'methodologyFile'>, which: 'content' | 'methodology'): string {
+  return which === 'content'
+    ? manifest.contentFile ?? `${manifest.slug}.md`
+    : manifest.methodologyFile ?? `${manifest.slug}.methodology.md`;
+}
+
+/**
  * Markdown content for a `markdown` archetype page (or a list page's intro),
  * read beside the YAML that declared it — a plugin page's prose ships with the
- * plugin, a workspace page's with the workspace.
+ * plugin, a workspace page's with the workspace. A page read from a project's
+ * stored workspace has its prose there: `readPageProse` in
+ * `services/PluginService.ts` reads both kinds.
  * @param manifest
  */
 export function readWorkspacePageContent(manifest: LoadedPage): string | null {
-  return readPageFile(manifest, manifest.contentFile ?? `${manifest.slug}.md`);
+  return readPageFile(manifest, pageProseFile(manifest, 'content'));
 }
 
 /**
@@ -202,17 +258,21 @@ export function readWorkspacePageContent(manifest: LoadedPage): string | null {
  * @param manifest - The loaded page.
  */
 export function readWorkspacePageMethodology(manifest: LoadedPage): string | null {
-  return readPageFile(manifest, manifest.methodologyFile ?? `${manifest.slug}.methodology.md`);
+  return readPageFile(manifest, pageProseFile(manifest, 'methodology'));
 }
 
 /**
  * One file beside a page's YAML, through the workspace reader when the page
  * came from a mounted workspace and straight off disk when a plugin shipped
- * it.
+ * it. Null for a page read from a stored workspace: its `sourceDir` is a
+ * place in the store, not on this disk.
  * @param manifest - The loaded page.
  * @param name - The file's name, relative to the page's directory.
  */
 function readPageFile(manifest: LoadedPage, name: string): string | null {
+  if (manifest.storedIn) {
+    return null;
+  }
   const file = join(manifest.sourceDir, name);
   if (!existsSync(file)) {
     return null;

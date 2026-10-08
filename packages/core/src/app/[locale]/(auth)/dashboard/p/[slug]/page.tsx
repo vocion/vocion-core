@@ -39,8 +39,6 @@ import {
   pageHrefKeeping,
   pagePlugin,
   paginateRows,
-  readWorkspacePageContent,
-  readWorkspacePageMethodology,
   resolveField,
   sortRowsByField,
 } from '@/libs/workspace/pages';
@@ -62,7 +60,7 @@ import { loadReleaseLinked } from '@/services/factory/releaseData';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
 import { loadStatusModel } from '@/services/objects/statusField';
-import { readPageForOrg } from '@/services/PluginService';
+import { readPageForOrg, readPageProse } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
@@ -572,8 +570,7 @@ export default async function WorkspacePage(props: {
     return <ConfigurePage orgId={orgId} manifest={manifest} searchParams={searchParams} now={await currentTime()} />;
   }
 
-  const content = readWorkspacePageContent(manifest);
-  const methodology = readWorkspacePageMethodology(manifest);
+  const [content, methodology] = await Promise.all([readPageProse(manifest, 'content'), readPageProse(manifest, 'methodology')]);
   const now = await currentTime();
   const days = chosenWindow(manifest.window, typeof searchParams.days === 'string' ? searchParams.days : undefined);
 

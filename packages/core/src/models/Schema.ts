@@ -1477,6 +1477,41 @@ export const workspaceVersionSchema = pgTable(
   ],
 );
 
+/**
+ * The workspace's files as the last apply found them — what a runtime read
+ * asks for (skill and playbook bodies and their resources, pages, the brand
+ * and its logos, the primitive files the source panels show), so a project
+ * reads its own workspace on a host with no folder for it. One row per file,
+ * keyed by its path in the workspace folder; the applier replaces a project's
+ * whole set on every apply, and nothing else writes here.
+ * `services/workspace/WorkspaceFileService.ts` owns the reads and the write.
+ */
+export const workspaceFileSchema = pgTable(
+  'workspace_file',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Path inside the workspace folder, `/`-separated: `skills/<slug>/SKILL.md`, `pages/<slug>.yaml`, `brand.yaml`. */
+    path: text('path').notNull(),
+    /** The file as authored — `{{env.NAME}}` tokens unresolved; base64 when `encoding` says so. */
+    content: text('content').notNull(),
+    /** `utf8` for text, `base64` for an image (a brand logo). */
+    encoding: text('encoding').$type<'utf8' | 'base64'>().default('utf8').notNull(),
+    /** SHA-256 of the file's bytes, so an apply that changed nothing rewrites nothing. */
+    sha: text('sha').notNull(),
+    /** The workspace sha of the apply that wrote this row. */
+    workspaceSha: text('workspace_sha'),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('workspace_file_org_path_idx').on(table.orgId, table.path),
+  ],
+);
+
 /* ------------------------------------------------------------------ */
 /* Learnings — per-step rule store (Phase 5)                          */
 /* ------------------------------------------------------------------ */

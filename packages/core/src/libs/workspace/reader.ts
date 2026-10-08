@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
@@ -39,6 +39,7 @@ export type PrimitiveFile = {
 
 export type PrimitiveFilesResult = {
   files: PrimitiveFile[];
+  /** The folder an edit writes to; empty when the files are shown read-only (no folder of the project's on this host). */
   contextPath: string;
   editInGitPath: string;
 };
@@ -171,93 +172,122 @@ function detectLanguage(fileName: string): 'yaml' | 'markdown' | 'javascript' {
 type WorkspaceLayer = { files: PrimitiveFile[]; editInGitPath: string };
 
 /**
+ * What the workspace layer is read through: the folder on disk, or the
+ * project's stored copy of it (`services/workspace/WorkspaceFileService.ts`).
+ * Paths are inside the workspace, `/`-separated — the same either way, so
+ * one layout rule serves both.
+ */
+export type WorkspaceTree = {
+  /** Whether a file sits at this path. */
+  hasFile: (path: string) => boolean;
+  /** Whether a folder sits at this path. */
+  hasDir: (path: string) => boolean;
+  /** A file's text, or null when it is missing or refused. */
+  read: (path: string) => string | null;
+  /** Names directly inside a folder. */
+  list: (path: string) => string[];
+};
+
+/**
+ * The folder on disk as a {@link WorkspaceTree}. Every read goes through
+ * {@link readContainedFile}, so a symlink out of the file's folder is refused.
+ * @param base - The workspace folder, absolute.
+ */
+function folderTree(base: string): WorkspaceTree {
+  const abs = (path: string) => join(base, ...path.split('/'));
+  return {
+    hasFile: path => existsSync(abs(path)),
+    hasDir: path => existsSync(abs(path)),
+    read: path => readContainedFile(dirname(abs(path)), abs(path)),
+    list: path => readdirSync(abs(path)),
+  };
+}
+
+/**
+ * A project's stored files as a {@link WorkspaceTree}.
+ * @param files - Path → text, as stored.
+ */
+export function storedTree(files: ReadonlyMap<string, string>): WorkspaceTree {
+  return {
+    hasFile: path => files.has(path),
+    hasDir: path => [...files.keys()].some(p => p.startsWith(`${path}/`)),
+    read: path => files.get(path) ?? null,
+    list: path => [...files.keys()].filter(p => p.startsWith(`${path}/`) && !p.slice(path.length + 1).includes('/')).map(p => p.slice(path.length + 1)),
+  };
+}
+
+/**
+ * Which files a primitive's workspace layer reads, inside the workspace: the
+ * exact paths for the kinds that live as flat files (missions, automations,
+ * teams, agents), else the folder whose direct children it reads. One layout
+ * rule for the folder read below and for a stored read, which asks the store
+ * for these and not for every file of the kind.
+ * @param kind - primitive kind
+ * @param slug - primitive slug
+ */
+export function primitiveWorkspaceFiles(kind: PrimitiveKind, slug: string): { paths: string[] } | { prefix: string } {
+  const dirName = slugToDirname(slug);
+  if (kind === 'mission' || kind === 'automation' || kind === 'team') {
+    return { paths: [`${kindDir(kind)}/${dirName}.yaml`] };
+  }
+  if (kind === 'agent') {
+    return { paths: [`agents/${dirName}.yaml`, `agents/${dirName}.system-prompt.md`] };
+  }
+  return { prefix: `${kindDir(kind)}/${dirName}/` };
+}
+
+/**
  * The workspace layer — the tenant's own files for this kind/slug, exactly as
  * before ticket 007 but tagged `layer: 'workspace'`.
  * @param kind - primitive kind
  * @param slug - primitive slug
- * @param contextPath - the workspace path (WORKSPACE_PATH)
+ * @param tree - where the files are read from
+ * @param contextPath - the folder an edit writes to (WORKSPACE_PATH), or null
+ * when this host has no folder of the project's to write — the files are then
+ * shown read-only and named by their path in the workspace repo.
  */
-function readWorkspaceLayer(kind: PrimitiveKind, slug: string, contextPath: string): WorkspaceLayer | null {
-  const dirName = slugToDirname(slug);
-  const base = fromRepoRoot(contextPath);
-  if (!existsSync(base)) {
-    return null;
-  }
+function readWorkspaceLayer(kind: PrimitiveKind, slug: string, tree: WorkspaceTree, contextPath: string | null): WorkspaceLayer | null {
+  const at = (rel: string) => (contextPath ? `${contextPath}/${rel}` : rel);
+  const file = (rel: string, name: string, content: string): PrimitiveFile => ({
+    path: rel,
+    ...(contextPath ? { fullPath: `${contextPath}/${rel}` } : {}),
+    content,
+    language: detectLanguage(name),
+    layer: 'workspace' as const,
+  });
 
-  // Missions, automations + teams live as single flat YAML files.
-  if (kind === 'mission' || kind === 'automation' || kind === 'team') {
-    const dir = join(base, kindDir(kind));
-    const name = `${dirName}.yaml`;
-    if (!existsSync(join(dir, name))) {
-      return null;
-    }
-    const rel = `${kindDir(kind)}/${name}`;
-    const content = readContainedFile(dir, join(dir, name));
-    if (content === null) {
-      // Refused or unreadable. Showing an empty editor would look like an
-      // empty file rather than one we declined to open.
-      return null;
-    }
-    return {
-      files: [{
-        path: rel,
-        fullPath: `${contextPath}/${rel}`,
-        content,
-        language: 'yaml' as const,
-        layer: 'workspace' as const,
-      }],
-      editInGitPath: `${contextPath}/${rel}`,
-    };
-  }
-
-  // Agents live as flat files: agents/<slug>.yaml + agents/<slug>.system-prompt.md
-  if (kind === 'agent') {
-    const agentDir = join(base, 'agents');
-    const candidates = [`${dirName}.yaml`, `${dirName}.system-prompt.md`];
-    const files = candidates
-      .filter(name => existsSync(join(agentDir, name)))
-      .map((name) => {
-        const content = readContainedFile(agentDir, join(agentDir, name));
-        return content === null
-          ? null
-          : {
-              path: `agents/${name}`,
-              fullPath: `${contextPath}/agents/${name}`,
-              content,
-              language: detectLanguage(name),
-              layer: 'workspace' as const,
-            };
+  // Missions, automations + teams live as single flat YAML files; agents as
+  // agents/<slug>.yaml + agents/<slug>.system-prompt.md.
+  const where = primitiveWorkspaceFiles(kind, slug);
+  if ('paths' in where) {
+    const files = where.paths
+      .filter(rel => tree.hasFile(rel))
+      .map((rel) => {
+        const content = tree.read(rel);
+        // Refused or unreadable. Showing an empty editor would look like an
+        // empty file rather than one we declined to open.
+        return content === null ? null : file(rel, basename(rel), content);
       })
-      .filter(file => file !== null);
+      .filter(f => f !== null);
     if (files.length === 0) {
       return null;
     }
-    return { files, editInGitPath: `${contextPath}/agents/${dirName}.yaml` };
+    return { files, editInGitPath: at(where.paths[0]!) };
   }
 
   // Everything else lives in a directory with multiple files.
-  const dirsToTry = [kindDir(kind)];
-  const foundDirName = dirsToTry.find(d => existsSync(join(base, d, dirName)));
-  if (!foundDirName) {
+  const dir = where.prefix.slice(0, -1);
+  if (!tree.hasDir(dir)) {
     return null;
   }
-  const dir = join(base, foundDirName, dirName);
-  const files = readDirFiles(dir).map((n) => {
-    const content = readContainedFile(dir, join(dir, n));
-    return content === null
-      ? null
-      : {
-          path: `${foundDirName}/${dirName}/${n}`,
-          fullPath: `${contextPath}/${foundDirName}/${dirName}/${n}`,
-          content,
-          language: detectLanguage(n),
-          layer: 'workspace' as const,
-        };
-  }).filter(file => file !== null);
+  const files = sortResourceFiles(tree.list(dir)).map((n) => {
+    const content = tree.read(`${dir}/${n}`);
+    return content === null ? null : file(`${dir}/${n}`, n, content);
+  }).filter(f => f !== null);
   if (files.length === 0) {
     return null;
   }
-  return { files, editInGitPath: `${contextPath}/${foundDirName}/${dirName}` };
+  return { files, editInGitPath: at(dir) };
 }
 
 /**
@@ -336,7 +366,15 @@ function readLayerFiles(kind: PrimitiveKind, slug: string, packRoot: string, rel
  * @param dir
  */
 function readDirFiles(dir: string): string[] {
-  const names = readdirSync(dir).filter(n => n.endsWith('.yaml') || n.endsWith('.md') || n.endsWith('.js') || n.endsWith('.mjs'));
+  return sortResourceFiles(readdirSync(dir));
+}
+
+/**
+ * The resource files among a folder's names (yaml first, then md/js), sorted.
+ * @param entries - Names directly inside the folder.
+ */
+function sortResourceFiles(entries: string[]): string[] {
+  const names = entries.filter(n => n.endsWith('.yaml') || n.endsWith('.md') || n.endsWith('.js') || n.endsWith('.mjs'));
   names.sort((a, b) => {
     const aIsYaml = a.endsWith('.yaml') ? 0 : 1;
     const bIsYaml = b.endsWith('.yaml') ? 0 : 1;
@@ -348,11 +386,35 @@ function readDirFiles(dir: string): string[] {
   return names;
 }
 
-export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): PrimitiveFilesResult | null {
-  const contextPath = getWorkspacePath();
-  if (!contextPath) {
+/**
+ * The files behind a primitive, read off a workspace folder — for a project
+ * whose workspace is not stored yet. A stored project reads through
+ * `readPrimitiveFilesForOrg` (`services/workspace/WorkspaceFileService.ts`),
+ * which ends in {@link primitiveFilesFrom} too, and which decides whose
+ * folder this is.
+ * @param kind - primitive kind
+ * @param slug - primitive slug
+ * @param folder - the workspace folder; default `WORKSPACE_PATH`
+ * @param editable - whether an edit may write it (only the folder on
+ * `WORKSPACE_PATH` can be written); false shows the files read-only
+ */
+export function readPrimitiveFiles(kind: PrimitiveKind, slug: string, folder: string | null = getWorkspacePath(), editable: boolean = true): PrimitiveFilesResult | null {
+  if (!folder) {
     return null;
   }
+  const base = fromRepoRoot(folder);
+  return primitiveFilesFrom(kind, slug, existsSync(base) ? folderTree(base) : null, editable ? folder : null);
+}
+
+/**
+ * The files behind a primitive: the workspace layer read through `tree`, with
+ * the inherited core layer under it.
+ * @param kind - primitive kind
+ * @param slug - primitive slug
+ * @param tree - the workspace's files, or null when there are none to read
+ * @param contextPath - the folder an edit writes to, or null for read-only files
+ */
+export function primitiveFilesFrom(kind: PrimitiveKind, slug: string, tree: WorkspaceTree | null, contextPath: string | null): PrimitiveFilesResult | null {
   if (!WORKSPACE_SLUG_PATTERN.test(slug)) {
     // Every read below builds a path out of this slug, and the dashboard
     // drilldown pages hand it straight through from the URL. Refusing here
@@ -361,7 +423,7 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
     return null;
   }
 
-  const ws = readWorkspaceLayer(kind, slug, contextPath);
+  const ws = tree ? readWorkspaceLayer(kind, slug, tree, contextPath) : null;
   const coreFiles = readCoreLayer(kind, slug);
   const files = [...(ws?.files ?? []), ...coreFiles];
   if (files.length === 0) {
@@ -370,6 +432,15 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
 
   // Where a user edits/overrides: the workspace file if one exists, else the
   // conventional workspace path where an `extends: core` override would live.
-  const editInGitPath = ws?.editInGitPath ?? `${contextPath}/${kindDir(kind)}/${slugToDirname(slug)}`;
-  return { files, contextPath, editInGitPath };
+  const conventional = `${kindDir(kind)}/${slugToDirname(slug)}`;
+  const editInGitPath = ws?.editInGitPath ?? (contextPath ? `${contextPath}/${conventional}` : conventional);
+  return { files, contextPath: contextPath ?? '', editInGitPath };
+}
+
+/**
+ * The folder a primitive kind's files sit under, inside the workspace.
+ * @param kind - primitive kind
+ */
+export function primitiveKindDir(kind: PrimitiveKind): string {
+  return kindDir(kind);
 }

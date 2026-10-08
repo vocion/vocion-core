@@ -12,8 +12,12 @@ workspace/<org>/pages/
 ```
 
 Pages render at `/dashboard/p/<slug>` and appear in the sidebar grouped by
-`nav.section`. They are **file-only**: `workspace:check|apply` doesn't know
-about them, and deleting the YAML deletes the page. An invalid manifest is
+`nav.section`. They are authored as files, and each `workspace:apply` stores
+them with the project (`workspace_file`, beside its skill bodies), so a host
+with no folder for the project still shows them. A page you add or edit shows
+after the next apply, and deleting the YAML and applying deletes the page. A
+project that has not been applied since the store existed reads its folder,
+as before. `workspace:check` does not validate pages: an invalid manifest is
 skipped (and reported by `readWorkspacePages().issues`) — a broken page never
 takes the dashboard down.
 
