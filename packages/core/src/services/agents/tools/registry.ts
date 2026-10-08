@@ -89,6 +89,7 @@ import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { sentryTools } from './sentry';
 import { setVoiceTool } from './setVoice';
+import { openTeamThreadTool } from './teamThread';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
 import { waitForAnswersTools } from './waitForAnswers';
@@ -252,6 +253,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // In a mission run only: everything left waits on asks, so stop spending
     // until they are answered (`needsYou/ResumeGateService.ts`).
     ...waitForAnswersTools(ctx),
+    // A question a lead puts to its specialists together, settled by a rule
+    // and recorded as one run (`services/teams/TeamThreadService.ts`). The
+    // tool refuses an agent with no team, and a turn already in a thread.
+    openTeamThreadTool(ctx),
     proposeActionTool(ctx),
     withdrawProposalTool(ctx),
     // A person deciding a card by saying so — the card's buttons, from the composer.
