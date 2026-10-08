@@ -17,7 +17,7 @@ import { cn } from '@/utils/Helpers';
  *   - neutral          — `running`, `inactive`, `unconfigured`
  */
 
-type Tone = 'pass' | 'amber' | 'fail' | 'neutral' | 'teal';
+export type Tone = 'pass' | 'amber' | 'fail' | 'neutral' | 'teal';
 
 type ToneSpec = {
   /** Pill background colour (CSS variable expr). */
@@ -28,7 +28,8 @@ type ToneSpec = {
   fg: string;
 };
 
-const TONE: Record<Tone, ToneSpec> = {
+/** The token sets a status is drawn in — shared with `StatusBadge`, so the two never drift. */
+export const TONE: Record<Tone, ToneSpec> = {
   pass: {
     bg: 'bg-[var(--brand-pass-bg)]',
     border: 'border-[var(--brand-pass)]/30',

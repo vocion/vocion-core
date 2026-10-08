@@ -447,6 +447,7 @@ function ChatShellInner({
                       agentName={session.workspaceName}
                       // The workspace speaks through its lead; a specialist's turn is attributed.
                       ownAgentSlug={defaultAgentSlug(agents)}
+                      agents={agents}
                       streaming={session.isStreaming}
                       activity={session.activity}
                       onShowSources={openSources}

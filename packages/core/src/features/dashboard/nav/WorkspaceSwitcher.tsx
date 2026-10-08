@@ -2,6 +2,7 @@
 
 import type { WorkspaceDirectory } from './useWorkspaceDirectory';
 import type { SwitcherAccount, SwitcherProject, SwitcherScope, WorkspaceSwitcherTargetPath } from './workspaceSwitch';
+import type { Tint } from '@/libs/tints';
 import type { OrgsMode } from '@/services/OrgPolicy';
 import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
@@ -12,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useSidebar } from '@/components/ui/useSidebar';
 import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
+import { TINT_BG } from '@/libs/tints';
 import { cn } from '@/utils/Helpers';
 import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, workspaceSwitchHref } from './workspaceSwitch';
 
@@ -79,6 +81,8 @@ export type WorkspaceSwitcherProps = {
   targetPath?: WorkspaceSwitcherTargetPath;
   /** Which way the list opens. Default: up, as it did from the bottom of the sidebar. */
   side?: 'top' | 'bottom';
+  /** The app this picker belongs to: the chip wears its tint (front doors, `libs/tints.ts`). */
+  tint?: Tint;
 };
 
 /**
@@ -224,7 +228,11 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     : (
         <PopoverTrigger
           aria-label={t('switch_workspace')}
-          className="group/ws flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[state=open]:bg-surface-hover"
+          data-tint={props.tint}
+          className={cn(
+            'group/ws flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-sidebar-ring',
+            props.tint ? [TINT_BG[props.tint], 'hover:brightness-[0.98] dark:hover:brightness-110'] : 'hover:bg-surface-hover data-[state=open]:bg-surface-hover',
+          )}
         >
           {avatar}
           <span className="min-w-0 flex-1">
@@ -304,6 +312,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
  * @param props.onManage - The "Workspace settings" row's action.
  * @param props.placeholder - Shown when the current workspace is not in the list.
  * @param props.targetPath - The page a switch lands on.
+ * @param props.tint - The selected app's tint, worn by the chip.
  */
 export function WorkspaceSwitcherLive(props: {
   directory: WorkspaceDirectory | null;
@@ -311,6 +320,7 @@ export function WorkspaceSwitcherLive(props: {
   onManage?: () => void;
   placeholder?: string;
   targetPath?: WorkspaceSwitcherTargetPath;
+  tint?: Tint;
 }) {
   const { data: session } = useSession();
   const { state } = useSidebar();
@@ -336,6 +346,7 @@ export function WorkspaceSwitcherLive(props: {
       placeholder={props.placeholder}
       targetPath={props.targetPath}
       side="bottom"
+      tint={props.tint}
     />
   );
 }

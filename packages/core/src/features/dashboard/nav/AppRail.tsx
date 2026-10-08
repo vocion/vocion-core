@@ -2,6 +2,7 @@
 
 import type { AppSummary } from '@/features/navigation/apps';
 import { Plus } from 'lucide-react';
+import { LetterTile } from '@/components/ui/letter-tile';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { iconByName } from '@/features/dashboard/iconByName';
@@ -14,7 +15,10 @@ export type RailApp = AppSummary & {
   href?: string;
 };
 
-const RAIL_BUTTON = 'grid size-9 place-items-center rounded-lg text-sidebar-foreground outline-hidden transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground [&>svg]:size-[18px] [&>svg]:stroke-[1.5]';
+// Each app wears its tint (front doors, `libs/tints.ts`): a tinted tile with
+// the app's icon, the same mark the app's nav header and the marketplace draw.
+// The active app gets a ring, not a second colour.
+const RAIL_BUTTON = 'grid size-10 place-items-center rounded-xl outline-hidden transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[active=true]:bg-sidebar-accent';
 
 /**
  * The app rail — the dashboard's far-left column (Vocion 5.0). The core app
@@ -78,7 +82,7 @@ export function AppRail(props: {
                       }}
                       className={RAIL_BUTTON}
                     >
-                      <Icon aria-hidden />
+                      <LetterTile name={app.name} icon={Icon} tint={app.tint} size="sm" />
                     </Link>
                   )
                 : (
@@ -89,9 +93,10 @@ export function AppRail(props: {
                       data-active={active}
                       data-app={app.id}
                       onClick={() => props.onPick(app)}
-                      className={cn(RAIL_BUTTON, 'text-muted-foreground')}
+                      className={RAIL_BUTTON}
                     >
-                      <Icon aria-hidden />
+                      {/* Only in another workspace: the mark without its tint, so "here" and "elsewhere" read apart. */}
+                      <LetterTile name={app.name} icon={Icon} size="sm" className="text-muted-foreground" />
                     </button>
                   )}
             </TooltipTrigger>
@@ -101,8 +106,8 @@ export function AppRail(props: {
       })}
       <Tooltip>
         <TooltipTrigger asChild>
-          <Link href={props.addHref} aria-label={props.addLabel} onClick={closeSheet} className={cn(RAIL_BUTTON, 'mt-1 border border-dashed border-sidebar-border text-muted-foreground')}>
-            <Plus aria-hidden />
+          <Link href={props.addHref} aria-label={props.addLabel} onClick={closeSheet} className={cn(RAIL_BUTTON, 'mt-1')}>
+            <LetterTile name={props.addLabel} icon={Plus} size="sm" muted />
           </Link>
         </TooltipTrigger>
         <TooltipContent side="right" collisionPadding={8}>{props.addLabel}</TooltipContent>

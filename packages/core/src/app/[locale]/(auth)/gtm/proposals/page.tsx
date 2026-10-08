@@ -65,7 +65,8 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
               variant="page"
               icon={FileText}
               title="Nothing at Proposal stage"
-              description="Open a data room for the engagement — ask in chat, or file a transcript and let it match — and set its stage to Proposal. It shows up here."
+              description="Set an engagement's data room to the Proposal stage and it shows up here."
+              action={{ label: 'Open data rooms', href: '/dashboard/rooms' }}
             />
           )
         : (

@@ -3,11 +3,10 @@ import type { CatalogEntry } from '@/services/CatalogService';
 import { ArrowLeft, ScrollText, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { createElement } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { HireButton } from '@/features/dashboard/marketplace/HireButton';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { agentAccent as accent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getCatalogEntry, listUnhired, readCatalogSkill } from '@/services/CatalogService';
@@ -88,12 +87,7 @@ function CatalogEntryScreen({ entry, skills, hired }: {
 
       {/* ── Hero — same single clean header as the agent profile ───────── */}
       <header className="flex flex-col gap-5 border-b border-border pb-7 sm:flex-row sm:items-start sm:gap-5">
-        <div
-          className="flex size-14 shrink-0 items-center justify-center rounded-2xl"
-          style={{ background: a.tint, color: a.ink }}
-        >
-          {createElement(agentIcon(entry.icon, { primary: true }), { 'className': 'size-7', 'aria-hidden': true })}
-        </div>
+        <AgentDot name={entry.name} accent={entry.accent} size="lg" decorative className="size-14 text-xl" />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">

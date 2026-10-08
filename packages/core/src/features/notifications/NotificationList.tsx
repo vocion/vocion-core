@@ -87,7 +87,7 @@ export function NotificationList() {
       {!error && items?.length === 0 && (
         tab === 'unread'
           ? <ListEmpty variant="inline" title="Nothing unread." />
-          : <ListEmpty icon={Bell} title="No notifications yet" description="Only the moments this workspace declares notify — a plugin's, or your workspace's own. Choose where you hear them in Settings." action={{ label: 'Notification settings', href: '/dashboard/notifications/settings' }} />
+          : <ListEmpty icon={Bell} title="No notifications yet" description="Only the moments a plugin or this workspace declares notify you." action={{ label: 'Notification settings', href: '/dashboard/notifications/settings' }} />
       )}
       {!error && items && items.length > 0 && (
         <ListRows>

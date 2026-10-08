@@ -6,6 +6,7 @@ import { OrgReviewConfigSchema } from '@/libs/orgReview/config';
 import { agentSkillsNameError } from '@/libs/skills/name';
 import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
+import { TINTS } from '@/libs/tints';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
 export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
@@ -453,6 +454,12 @@ export const AppManifestSchema = z.object({
   name: z.string().min(1),
   /** lucide icon name, resolved by `features/dashboard/iconByName.ts`. */
   icon: z.string().min(1),
+  /**
+   * The soft colour block the app wears in the rail, its nav header, its
+   * workspace picker and the marketplace (`libs/tints.ts`). Optional: an app
+   * that names none gets a stable tint derived from its id.
+   */
+  tint: z.enum(TINTS).optional(),
   /** Position in the rail, lowest first. */
   order: z.number().default(100),
   /** The app every workspace has. Exactly one shipped app sets it. */

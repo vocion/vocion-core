@@ -47,7 +47,7 @@ export default async function ObjectsPage(props: {
               <EmptyState
                 icon={Database}
                 title="No Object types yet"
-                description="Object types are typed business entities (Account, Opportunity, Transcript) your tenant cares about. Define one in workspace/<org>/objects/."
+                description="Define the business entities your workspace tracks, like an Account or a Transcript, under objects/ in the workspace."
                 action={{ label: 'How to define an Object type', href: '/dashboard/docs/docs/concepts/objects' }}
               />
             )

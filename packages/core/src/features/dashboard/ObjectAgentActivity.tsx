@@ -1,6 +1,7 @@
 import type React from 'react';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { Sparkles } from 'lucide-react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { StatusPill } from '@/components/ui/status-pill';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
@@ -87,9 +88,10 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
   // Display names for the agents that acted — the "who did this" linkage.
   const agents = await db.query.agentSchema.findMany({
     where: eq(agentSchema.orgId, orgId),
-    columns: { slug: true, name: true },
+    columns: { slug: true, name: true, accent: true },
   });
   const agentName = new Map(agents.map(a => [a.slug, a.name]));
+  const agentAccentOf = new Map(agents.map(a => [a.slug, a.accent]));
 
   return (
     <section className="mt-6 rounded-lg border border-border p-5">
@@ -144,9 +146,10 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">{c.tool}</span>
                 <StatusPill status={status} size="sm" />
-                <Link href={`/dashboard/agents/${c.agentSlug}` as never} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                <Link href={`/dashboard/agents/${c.agentSlug}` as never} className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:underline">
                   by
                   {' '}
+                  <AgentDot name={agentName.get(c.agentSlug) ?? c.agentSlug} accent={agentAccentOf.get(c.agentSlug)} size="xs" decorative />
                   {agentName.get(c.agentSlug) ?? c.agentSlug}
                 </Link>
                 <span className="ml-auto text-xs text-muted-foreground">

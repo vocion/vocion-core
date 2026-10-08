@@ -5,6 +5,7 @@
 id: workforce
 name: Workforce
 icon: users
+tint: sky
 order: 0
 core: true
 description: Your agents and teams, what they know, and how the workspace runs.

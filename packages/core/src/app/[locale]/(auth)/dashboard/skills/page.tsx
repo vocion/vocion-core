@@ -140,7 +140,8 @@ export default async function SkillsPage(props: { params: Promise<{ locale: stri
             <EmptyState
               icon={Zap}
               title="No skills yet"
-              description="Author skills under workspace/<org>/skills/<slug>/SKILL.md (playbooks under playbooks/), or activate base ones via workspace.yaml, then run workspace:apply."
+              description="Author a skill under skills/<slug>/SKILL.md in the workspace, or turn on a base one in workspace.yaml."
+              action={{ label: 'How to author the workspace', href: '/dashboard/docs/docs/workspace' }}
             />
           )
         : (

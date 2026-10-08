@@ -304,6 +304,8 @@ export type AgentOption = {
   parentSlug?: string;
   /** The workspace this agent belongs to — the ONE name the chat surface speaks as (§9.10). */
   workspaceName?: string;
+  /** The agent's authored `accent` — its `AgentDot` where a turn is attributed to it. */
+  accent?: string;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

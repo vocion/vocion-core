@@ -68,6 +68,16 @@
   --color-ink-muted: var(--ink-muted);
   --color-rule: var(--rule);
 
+  /* Front-door tints (docs/design/patterns.md § Front doors): each app wears
+     one soft colour block, from the marketing site's warm palette. Text on a
+     tint is --ink / --ink-secondary, AA in both themes. */
+  --color-tint-violet: var(--tint-violet);
+  --color-tint-sky: var(--tint-sky);
+  --color-tint-mint: var(--tint-mint);
+  --color-tint-peach: var(--tint-peach);
+  --color-tint-butter: var(--tint-butter);
+  --color-tint-rose: var(--tint-rose);
+
   /* Airy pass (B-034b, 2026-09-15). Colour stops doing structural work:
      surfaces are soft greys, the one primary action per page is ink, and
      amber is kept for brand marks, focus and links. */
@@ -102,20 +112,29 @@
   --brand-fail: oklch(0.51 0.2 27); /* ≈ #C62828 */
   --brand-fail-bg: oklch(0.96 0.03 27); /* ≈ #FFEBEE */
 
-  /* Neutral ink levels (light mode default) */
-  --ink: oklch(0.16 0 0); /* ≈ #0D0D0E */
-  --ink-title: oklch(0.27 0 0); /* ≈ #2A2A2A */
-  --ink-secondary: oklch(0.5 0 0); /* ≈ #6B6B6B */
-  --ink-muted: oklch(0.38 0 0); /* inactive nav labels — dark grey, not ink */
-  --rule: oklch(0 0 0 / 6%);
-  --surface-hover: oklch(0 0 0 / 3%);
-  --surface-soft: oklch(0.975 0 0);
+  /* Neutral ink levels (light mode default). Warm, from the marketing site
+     (front doors, 2026-10): ink 17.7:1 and secondary 6.2:1 on the warm
+     background, secondary ≥ 5.3:1 on every tint. */
+  --ink: #15131a; /* warm ink */
+  --ink-title: #221f27;
+  --ink-secondary: #625d66; /* warm slate */
+  --ink-muted: #4a4550; /* inactive nav labels — dark warm grey, not ink */
+  --rule: oklch(0.3 0.02 60 / 9%);
+  --surface-hover: oklch(0.3 0.02 60 / 4%);
+  --surface-soft: #f4f1ec;
+
+  --tint-violet: #eee8ff;
+  --tint-sky: #e2efff;
+  --tint-mint: #dcf4e8;
+  --tint-peach: #ffe8d9;
+  --tint-butter: #fff1c9;
+  --tint-rose: #fde4ea;
   --action: var(--ink);
   --action-foreground: oklch(1 0 0);
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 8%);
 
   /* Shadcn surface tokens — light mode, neutral surfaces with warm accent */
-  --background: oklch(1 0 0); /* #FFFFFF */
+  --background: #fcfaf6; /* warm white */
   --foreground: var(--ink);
   --card: oklch(1 0 0);
   --card-foreground: var(--ink);
@@ -123,9 +142,9 @@
   --popover-foreground: var(--ink);
   --primary: var(--brand-amber);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.97 0 0);
+  --secondary: #f4f1ec;
   --secondary-foreground: var(--ink-title);
-  --muted: oklch(0.97 0 0);
+  --muted: #f4f1ec;
   --muted-foreground: var(--ink-secondary);
   --accent: var(--brand-amber-tint);
   --accent-foreground: var(--brand-amber-deep);
@@ -138,7 +157,7 @@
   --chart-3: var(--brand-pass);
   --chart-4: var(--brand-borderline);
   --chart-5: var(--brand-fail);
-  --sidebar: oklch(0.99 0 0);
+  --sidebar: #f9f7f3;
   /* Inactive labels are dark grey; the active pill is the darkest grey (8%)
      with ink text; hover is lighter (--surface-hover, 3%). Focus ring subtle. */
   --sidebar-foreground: var(--ink-muted);
@@ -154,28 +173,37 @@
   /* Dark mode keeps the warm accent but inverts surfaces.
      Rev-ai is light-only — this is for the theme switcher that already
      ships on /dashboard. Designer pass for dark is a follow-up. */
-  --ink: oklch(0.98 0 0);
-  --ink-title: oklch(0.92 0 0);
-  --ink-secondary: oklch(0.65 0 0);
-  --ink-muted: oklch(0.78 0 0);
+  /* Warm dark: ink 16.5:1 on the background, secondary 7.5:1 on it and
+     ≥ 5.4:1 on every dark tint. */
+  --ink: #f4f1ec;
+  --ink-title: #e9e5ee;
+  --ink-secondary: #a8a2ab;
+  --ink-muted: #c9c4cc;
   --rule: oklch(1 0 0 / 10%);
   --surface-hover: oklch(1 0 0 / 4%);
-  --surface-soft: oklch(0.21 0 0);
-  --action: oklch(0.98 0 0);
-  --action-foreground: oklch(0.16 0 0);
+  --surface-soft: #1c1a20;
+
+  --tint-violet: #2a2342;
+  --tint-sky: #182a40;
+  --tint-mint: #16302a;
+  --tint-peach: #3a2619;
+  --tint-butter: #352d14;
+  --tint-rose: #3b1f2a;
+  --action: var(--ink);
+  --action-foreground: #141217;
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 40%);
 
-  --background: oklch(0.16 0 0);
+  --background: #141217;
   --foreground: var(--ink);
-  --card: oklch(0.21 0 0);
+  --card: #1c1a20;
   --card-foreground: var(--ink);
-  --popover: oklch(0.21 0 0);
+  --popover: #1c1a20;
   --popover-foreground: var(--ink);
   --primary: var(--brand-amber);
-  --primary-foreground: oklch(0.16 0 0);
-  --secondary: oklch(0.27 0 0);
+  --primary-foreground: #141217;
+  --secondary: #26232b;
   --secondary-foreground: var(--ink);
-  --muted: oklch(0.27 0 0);
+  --muted: #26232b;
   --muted-foreground: var(--ink-secondary);
   --accent: oklch(0.3 0.06 65);
   --accent-foreground: var(--brand-amber);
@@ -183,7 +211,7 @@
   --border: var(--rule);
   --input: oklch(1 0 0 / 15%);
   --ring: var(--brand-amber);
-  --sidebar: oklch(0.21 0 0);
+  --sidebar: #1a181e;
   --sidebar-foreground: var(--ink-title);
   --sidebar-primary: var(--brand-amber);
   --sidebar-primary-foreground: oklch(0.16 0 0);

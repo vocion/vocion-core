@@ -96,7 +96,8 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
         ? (
             <EmptyState
               title="No learning steps yet"
-              description="Author one at workspace/<org>/learnings/<step>.yaml and run `npm run workspace:apply` to register the bucket. Then add rules here or let the self-improver propose them."
+              description="Author a learning step under learnings/ in the workspace, then add rules here or let the self-improver propose them."
+              action={{ label: 'How to author the workspace', href: '/dashboard/docs/docs/workspace' }}
               icon={Sparkles}
             />
           )

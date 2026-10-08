@@ -743,6 +743,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   <MessageList
                     messages={session.messages}
                     agentName={session.workspaceName}
+                    agents={agents}
                     streaming={session.isStreaming}
                     activity={session.activity}
                     // The rail's second pane is the preview pane: a turn's

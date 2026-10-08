@@ -3,6 +3,7 @@
 id: assistants
 name: Assistants
 icon: bot
+tint: violet
 order: 1
 hidden: true
 description: Personal assistants that work beside each person.

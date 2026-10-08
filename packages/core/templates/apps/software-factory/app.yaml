@@ -3,6 +3,7 @@
 id: software-factory
 name: Software Factory
 icon: git-branch
+tint: mint
 order: 2
 description: Requests become approved work, verified changes and releases the asker hears about.
 plugins: [software-factory, production-watch]

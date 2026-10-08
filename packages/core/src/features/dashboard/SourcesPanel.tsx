@@ -239,7 +239,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Every system Vocion can read, in one list. Connected ones sit at the top and open to their last run, size and progress.
+          Connected ones sit at the top and open to their last run; the rest are one Connect away.
         </p>
         <button
           type="button"

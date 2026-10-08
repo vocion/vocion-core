@@ -40,7 +40,7 @@ export default async function WorkflowsPage(props: {
             <EmptyState
               icon={GitBranch}
               title="No workflows yet"
-              description="Workflows are sequences of Skills with optional human-approval gates and persistent state. Author one in workspace/<org>/workflows/ and run npm run workspace:apply."
+              description="A workflow is skills in order with a person's approval where it matters, authored under workflows/ in the workspace."
               action={{ label: 'How to author a workflow', href: '/dashboard/docs/docs/concepts/workflows' }}
             />
           )

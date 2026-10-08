@@ -8,6 +8,7 @@ import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, G
 import { memo, useMemo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
@@ -92,6 +93,8 @@ export type AgentMessageProps = {
   via?: string;
   /** Why the workspace routed the turn there, when it chose (`RoutingDecision.reason`) — shown on hover, so the attribution can be checked. */
   viaReason?: string;
+  /** The specialist the turn is attributed to: its `AgentDot` sits before the "via" line. */
+  viaAgent?: { name: string; accent: string | null };
   /** Opens an artifact this turn produced in the pane beside the conversation. */
   onOpenArtifact?: (id: number) => void;
   /** Build it on a card the turn drew (`ArtifactChips`). */
@@ -240,7 +243,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, viaAgent, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -340,6 +343,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <AgentMark name={agentName} />
+          {via && viaAgent && <AgentDot name={viaAgent.name} accent={viaAgent.accent} size="xs" decorative />}
           {via && (
             viaReason
               ? (

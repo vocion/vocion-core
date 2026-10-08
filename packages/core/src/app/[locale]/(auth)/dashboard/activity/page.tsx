@@ -219,7 +219,8 @@ export default async function ActivityPage(props: {
             <EmptyState
               icon={ActivityIcon}
               title="Nothing yet"
-              description="Runs, checks, event fires, syncs, and tool calls will appear here as your team works — on its automations or on your briefs."
+              description="Runs, syncs and tool calls land here as your team works."
+              action={{ label: 'Ask an agent', href: '/dashboard/chat' }}
             />
           )
         : (

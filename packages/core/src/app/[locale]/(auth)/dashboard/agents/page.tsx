@@ -114,7 +114,7 @@ export default async function AgentsPage(props: {
             <EmptyState
               icon={Bot}
               title="No agents yet"
-              description="Author agents in workspace/<org>/agents/ and run workspace:apply. Add `parent: <lead-slug>` to nest a specialist under a lead; omit it for a lead."
+              description="Author agents under agents/ in the workspace; `parent: <lead-slug>` nests a specialist under its lead."
               action={{ label: 'How agents work', href: 'https://www.vocion.ai/docs/features/teams' }}
             />
           )

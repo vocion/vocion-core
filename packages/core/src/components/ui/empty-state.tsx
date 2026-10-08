@@ -1,23 +1,25 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
+import type { Tint } from '@/libs/tints';
+import { ArrowRight } from 'lucide-react';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
+import { LetterTile } from './letter-tile';
 
 /**
- * EmptyState — the one canonical empty-state component for catalog
- * pages (Agents, Skills, Workflows, Objects, Sources, Logs). Replaces
- * the bare dashed-border boxes that were the v0.2 default. Branded
- * amber-tinted icon + display-font title + muted description + optional
- * action link.
+ * EmptyState — the one canonical empty state: a page with nothing in it yet
+ * is a front door (`docs/design/patterns.md` § Front doors), so it has the
+ * `CatalogCard` anatomy — a mark, a title, ONE sentence saying what this
+ * place is for, and ONE action that starts it, as an arrow link. A quiet
+ * second link (the docs) is allowed; a second button is not.
  *
  * Keep the polished custom empties in ChatShell + ReviewQueue as-is —
  * those have their own affordances (suggestion chips, queue-clear copy).
  *
- * The visual treatment is intentionally low-key: this should feel like
- * "the right place; you just haven't authored anything yet" — not a
- * loud "ERROR / NOTHING HERE" announcement. Airy pass (B-034b §2): no
- * tinted field, no box — an icon in a soft circle, a title, one ink
- * button and one text link, with room around it.
+ * Low-key on purpose: "the right place; you just haven't started yet", not
+ * "ERROR / NOTHING HERE". No box — it sits in whatever surface it is in, so
+ * it can never be a box in a box. `tint` puts the mark on a front-door tint
+ * (an app's own colour, when the empty page belongs to one).
  */
 
 type Action
@@ -27,11 +29,14 @@ type Action
 type Props = ComponentProps<'div'> & {
   icon: LucideIcon;
   title: string;
+  /** One sentence: what this place is for, or what starts it. */
   description?: ReactNode;
-  /** Optional CTA — either internal link (href) or click handler. */
+  /** The one action — either internal link (href) or click handler. */
   action?: Action;
-  /** Optional secondary action (e.g. "Read the docs"). */
+  /** Optional quiet link (e.g. "Read the docs"). */
   secondaryAction?: Action;
+  /** The tint the mark sits on. Default: the soft surface. */
+  tint?: Tint;
 };
 
 export function EmptyState({
@@ -40,6 +45,7 @@ export function EmptyState({
   description,
   action,
   secondaryAction,
+  tint,
   className,
   ...rest
 }: Props) {
@@ -47,35 +53,45 @@ export function EmptyState({
     <div
       data-slot="empty-state"
       className={cn(
-        'flex flex-col items-center justify-center gap-3 px-6 py-16 text-center',
+        'mx-auto flex max-w-md flex-col items-center px-6 py-14 text-center',
         className,
       )}
       {...rest}
     >
-      <div className="flex size-10 items-center justify-center rounded-full bg-surface-soft text-muted-foreground">
-        <Icon className="size-4" aria-hidden />
-      </div>
-      <div className="text-[15px] font-semibold text-foreground">{title}</div>
+      {tint
+        ? <LetterTile name={title} icon={Icon} tint={tint} size="lg" />
+        : (
+            <span aria-hidden className="inline-flex size-11 items-center justify-center rounded-xl bg-surface-soft text-muted-foreground">
+              <Icon className="size-5" aria-hidden />
+            </span>
+          )}
+      <div className="mt-4 text-[15px] font-semibold text-foreground">{title}</div>
       {description && (
-        <div className="max-w-sm text-[13px] text-muted-foreground">{description}</div>
+        <div className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-muted-foreground">{description}</div>
       )}
       {(action || secondaryAction) && (
-        <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
-          {action && <ActionButton variant="primary" action={action} />}
-          {secondaryAction && <ActionButton variant="secondary" action={secondaryAction} />}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
+          {action && <ActionLink variant="primary" action={action} />}
+          {secondaryAction && <ActionLink variant="secondary" action={secondaryAction} />}
         </div>
       )}
     </div>
   );
 }
 
-function ActionButton({ action, variant }: { action: Action; variant: 'primary' | 'secondary' }) {
+function ActionLink({ action, variant }: { action: Action; variant: 'primary' | 'secondary' }) {
   // min-h-11 below `sm`: a 44px touch target on phones; desktop stays compact.
   const classes = variant === 'primary'
-    ? 'inline-flex min-h-11 items-center rounded-lg bg-action px-3.5 py-1.5 text-[13px] font-medium text-action-foreground transition-colors hover:bg-action/90 sm:min-h-0'
-    : 'inline-flex min-h-11 items-center px-1 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground sm:min-h-0';
+    ? 'group inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-foreground underline-offset-4 hover:underline sm:min-h-0'
+    : 'inline-flex min-h-11 items-center text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:min-h-0';
+  const body = (
+    <>
+      {action.label}
+      {variant === 'primary' && <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />}
+    </>
+  );
   if ('href' in action) {
-    return <Link href={action.href} className={classes}>{action.label}</Link>;
+    return <Link href={action.href} className={classes}>{body}</Link>;
   }
-  return <button type="button" onClick={action.onClick} className={classes}>{action.label}</button>;
+  return <button type="button" onClick={action.onClick} className={classes}>{body}</button>;
 }

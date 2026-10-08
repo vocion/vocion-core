@@ -37,7 +37,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
             <EmptyState
               icon={Compass}
               title="No standing missions"
-              description="Missions are objectives a team owns — 'no lead goes cold' — not step sequences. Add one from the workspace repo, or start an ad-hoc mission above."
+              description="A mission is an objective a team owns, like 'no lead goes cold' — not a list of steps."
               action={{ label: 'Start a mission', href: '/dashboard/missions/new' }}
             />
           )

@@ -3,7 +3,7 @@ import type { TeamAgent, TeamView, WorkspaceLeadView } from '@/services/TeamServ
 import { ArrowRight, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
-import { createElement } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
 import {
   consultCoverage,
@@ -15,7 +15,6 @@ import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { TeamsEmptyState } from '@/features/dashboard/teams/TeamsEmptyState';
 import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { agentAccent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceLead, listTeamAgents, listTeams } from '@/services/TeamService';
@@ -121,19 +120,13 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
 function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView; teams: TeamView[] }) {
   const t = useTranslations('Teams');
   const lead = workspace.lead!;
-  const a = agentAccent(lead.accent);
   const coverage = consultCoverage(teams);
 
   return (
     // Airy pass (B-034b §4): the hero loses its tint and coloured border — white,
     // a 48px orb avatar, one ink primary and one ghost; colour lives in the orb.
     <div className="flex flex-col gap-4 rounded-xl border border-border/70 p-5 sm:flex-row sm:items-start">
-      <div
-        className="flex size-12 shrink-0 items-center justify-center rounded-full text-background"
-        style={{ background: a.stripe }}
-      >
-        {createElement(agentIcon(lead.icon, { primary: true }), { 'className': 'size-5', 'aria-hidden': true })}
-      </div>
+      <AgentDot name={lead.name} accent={lead.accent} size="lg" decorative />
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2.5">
@@ -223,12 +216,7 @@ function TeamCard({ team }: { team: TeamView }) {
         {team.lead
           ? (
               <Link href={`/dashboard/agents/${team.lead.slug}`} className="inline-flex items-center gap-2">
-                <span
-                  className="flex size-5 shrink-0 items-center justify-center rounded-md text-background"
-                  style={{ background: a.stripe }}
-                >
-                  {createElement(agentIcon(team.lead.icon, { primary: true }), { 'className': 'size-3', 'aria-hidden': true })}
-                </span>
+                <AgentDot name={team.lead.name} accent={team.lead.accent} size="sm" decorative />
                 <span className="text-sm font-semibold hover:text-primary">{team.lead.name}</span>
                 <span className="text-[11px] text-muted-foreground">
                   ·
@@ -259,8 +247,9 @@ function TeamCard({ team }: { team: TeamView }) {
             <Link
               key={s.slug}
               href={`/dashboard/agents/${s.slug}`}
-              className="rounded-full bg-surface-soft px-2 py-0.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-surface-hover"
+              className="inline-flex items-center gap-1.5 rounded-full bg-surface-soft py-0.5 pr-2 pl-0.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-surface-hover"
             >
+              <AgentDot name={s.name} accent={s.accent} size="xs" decorative />
               {s.name}
             </Link>
           ))}
@@ -297,21 +286,16 @@ function UngroupedStrip({ agents }: { agents: TeamAgent[] }) {
       <div className="mb-1 text-[12px] font-medium text-muted-foreground">{t('ungrouped_title')}</div>
       <p className="mb-3 text-xs text-muted-foreground">{t('ungrouped_hint', { count: agents.length })}</p>
       <div className="flex flex-wrap gap-2">
-        {agents.map((agent) => {
-          const a = agentAccent(agent.accent);
-          return (
-            <Link
-              key={agent.slug}
-              href={`/dashboard/agents/${agent.slug}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium transition hover:border-primary/40 hover:text-primary"
-            >
-              <span style={{ color: a.ink }}>
-                {createElement(agentIcon(agent.icon), { 'className': 'size-3.5', 'aria-hidden': true })}
-              </span>
-              {agent.name}
-            </Link>
-          );
-        })}
+        {agents.map(agent => (
+          <Link
+            key={agent.slug}
+            href={`/dashboard/agents/${agent.slug}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background py-1 pr-3 pl-1 text-xs font-medium transition hover:border-primary/40 hover:text-primary"
+          >
+            <AgentDot name={agent.name} accent={agent.accent} size="sm" decorative />
+            {agent.name}
+          </Link>
+        ))}
       </div>
     </section>
   );

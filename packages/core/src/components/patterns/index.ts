@@ -1,9 +1,12 @@
 /**
- * `components/patterns` — the three dashboard archetypes. New dashboard
+ * `components/patterns` — the four dashboard archetypes (List, Detail,
+ * Ledger, and Front doors for choosing and starting). New dashboard
  * pages compose these; nobody hand-rolls a list, a detail or a ledger layout.
  * Read `docs/design/patterns.md` first.
  */
 
+// Front doors
+export { CatalogCard, type CatalogCardAction, type CatalogCardProps, CatalogCards } from './CatalogCard';
 export { arrangeChips, type ChipLike, fitChips } from './chipFit';
 // List
 export { type Chip, ChipRow } from './ChipRow';
@@ -27,8 +30,9 @@ export {
 } from './DetailPage';
 export { citationLabel, evidenceSource, type EvidenceSource, isCitationUrl } from './evidence';
 export { type EvidenceItem, EvidenceList, SourceChip } from './EvidenceList';
-
 export { FilterBar } from './FilterBar';
+
+export { firstSentence } from './frontDoor';
 // Ledger
 export { LedgerEntry, LedgerGroup, type ProvenanceItem, ProvenanceLine, ScoreChip, type ScoreChipProps, type Verdict, VerdictBadge } from './Ledger';
 export { ListEmpty, ListPage } from './ListPage';

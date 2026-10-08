@@ -1,9 +1,7 @@
 import type { TeamReport } from '@/services/TeamReportService';
 import { Check, Circle, CircleDashed } from 'lucide-react';
-import { createElement } from 'react';
+import { AgentDots } from '@/components/ui/agent-dot';
 import { ownerDisplayName } from '@/features/dashboard/teams/helpers';
-import { agentAccent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { Link } from '@/libs/I18nNavigation';
 import { ConfigureWorkforce } from './ConfigureWorkforce';
 
@@ -66,14 +64,7 @@ export function WorkforceSetup({ report, isAdmin }: { report: TeamReport; isAdmi
               <Link href={`/dashboard/teams/${t.slug}`} className="text-sm font-medium hover:text-primary">{t.name}</Link>
               <span className="text-xs text-muted-foreground">{t.mission ?? 'No mission yet'}</span>
               <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-                {t.members.map((m) => {
-                  const a = agentAccent(m.accent);
-                  return (
-                    <span key={m.slug} title={`${m.name}${m.isLead ? ' · AI lead' : ''}`} className="flex size-5 items-center justify-center rounded-sm" style={{ background: a.tint, color: a.ink }}>
-                      {createElement(agentIcon(m.icon, { primary: m.isLead }), { 'className': 'size-3', 'aria-hidden': true })}
-                    </span>
-                  );
-                })}
+                <AgentDots agents={t.members} size="sm" />
                 <span>
                   {t.members.length}
                   {t.members.length === 1 ? ' agent' : ' agents'}

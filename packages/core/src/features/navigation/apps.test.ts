@@ -2,6 +2,7 @@ import type { AppDefinition } from './apps';
 import type { PluginNav } from './pluginNav';
 import type { PluginManifest } from '@/libs/workspace/schemas';
 import { describe, expect, it } from 'vitest';
+import { defaultTint } from '@/libs/tints';
 import { listApps } from '@/libs/workspace/apps';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { appOwningPath, groupPluginsByApp, installedApps, resolveActiveApp, splitNavByApp, workspacesByApp, workspaceSwitchPath } from './apps';
@@ -16,7 +17,7 @@ function app(over: Partial<AppDefinition> & { id: string }): AppDefinition {
 }
 
 const home = app({ id: 'home', core: true, order: 0, entry: '/dashboard/chat', nav: ['Workspace', 'Team'] });
-const factory = app({ id: 'factory', order: 2, plugins: ['builder', 'watcher'], nav: ['Builder', 'Watch'], entry: '/dashboard/p/board' });
+const factory = app({ id: 'factory', order: 2, tint: 'peach', plugins: ['builder', 'watcher'], nav: ['Builder', 'Watch'], entry: '/dashboard/p/board' });
 const sales = app({ id: 'sales', order: 3, plugins: ['deals', 'rooms'], surfaces: ['personalization', 'discovery'], nav: ['Sales'], entry: '/gtm/proposals' });
 const later = app({ id: 'later', order: 1, hidden: true, plugins: ['builder'] });
 const CATALOGUE = [sales, later, factory, home];
@@ -66,9 +67,9 @@ describe('workspacesByApp', () => {
 
   it('puts in the rail only the apps the person has somewhere, core first, with what the rail draws', () => {
     expect(workspacesByApp(workspaces, CATALOGUE).apps).toEqual([
-      { id: 'home', name: 'home', icon: 'box', order: 0, core: true, entry: '/dashboard/chat' },
-      { id: 'factory', name: 'factory', icon: 'box', order: 2, core: false, entry: '/dashboard/p/board' },
-      { id: 'sales', name: 'sales', icon: 'box', order: 3, core: false, entry: '/gtm/proposals' },
+      { id: 'home', name: 'home', icon: 'box', order: 0, core: true, entry: '/dashboard/chat', tint: defaultTint('home') },
+      { id: 'factory', name: 'factory', icon: 'box', order: 2, core: false, entry: '/dashboard/p/board', tint: 'peach' },
+      { id: 'sales', name: 'sales', icon: 'box', order: 3, core: false, entry: '/gtm/proposals', tint: defaultTint('sales') },
     ]);
     expect(workspacesByApp([workspaces[2]!], CATALOGUE).apps.map(a => a.id)).toEqual(['home']);
   });

@@ -13,6 +13,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { INBOX_SORTS, INBOX_TABS, isInboxKind, listInbox } from '@/services/InboxService';
 import { recommendationBatches } from '@/services/needsYou/batches';
+import { listTeamAgents } from '@/services/TeamService';
 
 /**
  * Review queue — THE decision surface. Everything waiting on a person, in one
@@ -64,7 +65,9 @@ export default async function InboxPage(props: {
   const agents = list(sp.agents);
   const q = sp.q?.trim() ?? '';
 
-  const inbox = await listInbox(orgId, { tab, q, sort, kinds, actionKinds, agents });
+  const [inbox, teamAgents] = await Promise.all([listInbox(orgId, { tab, q, sort, kinds, actionKinds, agents }), listTeamAgents(orgId)]);
+  // One lookup for the whole page: who each row is about, drawn as its AgentDot.
+  const agentsBySlug = Object.fromEntries(teamAgents.map(a => [a.slug, { name: a.name, accent: a.accent }]));
   // The decisions in view that recommend the same thing, gathered so they
   // can be accepted in one move (`services/needsYou/batches.ts`).
   const batches = tab === 'open' ? await recommendationBatches(orgId, inbox.items) : [];
@@ -100,7 +103,7 @@ export default async function InboxPage(props: {
         : (
             <>
               <RecommendationBatches batches={batches} />
-              <InboxList inbox={inbox} tab={tab} />
+              <InboxList inbox={inbox} tab={tab} agents={agentsBySlug} />
             </>
           )}
     </div>

@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { Tint } from '@/libs/tints';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { cn } from '@/utils/Helpers';
@@ -43,6 +44,7 @@ export function ListPage(props: {
  * @param props.description
  * @param props.action
  * @param props.secondaryAction
+ * @param props.tint
  * @param props.className
  */
 export function ListEmpty(props: {
@@ -52,6 +54,8 @@ export function ListEmpty(props: {
   description?: ReactNode;
   action?: { label: string; href: string } | { label: string; onClick: () => void };
   secondaryAction?: { label: string; href: string } | { label: string; onClick: () => void };
+  /** The front-door tint the page mark sits on (the owning app's). */
+  tint?: Tint;
   className?: string;
 }) {
   if (props.variant === 'inline' || !props.icon) {
@@ -70,6 +74,7 @@ export function ListEmpty(props: {
       description={props.description}
       action={props.action}
       secondaryAction={props.secondaryAction}
+      tint={props.tint}
       className={props.className}
     />
   );

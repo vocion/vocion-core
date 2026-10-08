@@ -16,7 +16,7 @@ export default async function ConnectorsPage(props: {
     <>
       <TitleBar
         title="Connectors"
-        description="Connected systems that feed context into agents + retrieval. Hybrid pgvector search runs over every chunk you ingest."
+        description="The systems your agents and search read from."
       />
       <SourcesPanel connectInfo={connectInfo} />
     </>

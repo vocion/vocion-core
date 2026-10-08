@@ -116,6 +116,7 @@ marketplace. An app is a manifest at `packages/core/templates/apps/<id>/app.yaml
 id: software-factory
 name: Software Factory
 icon: git-branch # a lucide name the sidebar can draw (features/dashboard/iconByName.ts)
+tint: mint # optional: violet | sky | mint | peach | butter | rose; default derived from the id
 order: 2 # rail position
 description: Requests become approved work, verified changes and releases.
 plugins: [software-factory, production-watch] # member plugins

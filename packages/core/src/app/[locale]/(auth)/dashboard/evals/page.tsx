@@ -86,14 +86,15 @@ export default async function EvalsPage(props: Props) {
               ? (
                   <EmptyState
                     title={`Nothing matches "${search}"`}
-                    description="Search covers the dataset name, its slug and the agent it runs. Clear the search to see them all."
+                    description="Search covers the dataset name, its slug and the agent it runs."
                     icon={Search}
                   />
                 )
               : (
                   <EmptyState
                     title="No eval datasets yet"
-                    description="Author one at workspace/<org>/evals/<slug>.yaml and run `npm run workspace:apply` to register it."
+                    description="Author a dataset under evals/ in the workspace and apply it to start scoring an agent."
+                    action={{ label: 'How to author the workspace', href: '/dashboard/docs/docs/workspace' }}
                     icon={TestTube}
                   />
                 )

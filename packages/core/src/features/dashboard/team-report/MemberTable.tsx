@@ -1,7 +1,5 @@
 import type { MemberReport } from '@/services/TeamReportService';
-import { createElement } from 'react';
-import { agentAccent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { Link } from '@/libs/I18nNavigation';
 import { AutonomyReadings } from './AutonomyReadings';
 import { ago, compact, pct, usd } from './format';
@@ -39,14 +37,11 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
         </thead>
         <tbody>
           {members.map((m) => {
-            const a = agentAccent(m.accent);
             return (
               <tr key={m.slug} className="group border-b border-border/60 last:border-0 hover:bg-muted/40">
                 <td className="py-2 pr-3">
                   <Link href={`/dashboard/team-report/${encodeURIComponent(m.slug)}?window=${window}`} className="inline-flex min-w-0 items-center gap-2">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md" style={{ background: a.tint, color: a.ink }}>
-                      {createElement(agentIcon(m.icon, { primary: m.isLead }), { 'className': 'size-3.5', 'aria-hidden': true })}
-                    </span>
+                    <AgentDot name={m.name} accent={m.accent} size="md" decorative />
                     <span className="truncate font-medium group-hover:text-primary">{m.name}</span>
                     {m.isLead && <span className="shrink-0 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">lead</span>}
                     {m.active > 0 && (

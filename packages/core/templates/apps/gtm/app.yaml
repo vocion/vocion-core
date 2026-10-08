@@ -4,6 +4,7 @@
 id: gtm
 name: GTM
 icon: target
+tint: peach
 order: 3
 description: Engagements, their data rooms and proposals, and growth work judged on what it returned.
 plugins: [proposals, data-rooms, growth-loop]

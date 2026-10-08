@@ -1,14 +1,15 @@
 import type { PluginInfo } from '@/libs/workspace/plugins';
-import { Blocks } from 'lucide-react';
+import { ArrowLeft, Blocks } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
-import { Column, ListEmpty, ListRow, ListRows, Subline } from '@/components/patterns';
+import { CatalogCard, CatalogCards, Column, firstSentence, ListEmpty, ListRow, ListRows, Subline } from '@/components/patterns';
+import { LetterTile } from '@/components/ui/letter-tile';
 import { StatusPill } from '@/components/ui/status-pill';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { PluginToggle } from '@/features/dashboard/plugins/PluginToggle';
 import { groupPluginsByApp, installedApps } from '@/features/navigation/apps';
 import { Link } from '@/libs/I18nNavigation';
+import { resolveTint } from '@/libs/tints';
 import { safeListApps } from '@/libs/workspace/apps';
-import { listAppTemplateSlugs } from '@/libs/workspace/appTemplates';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { loadProject } from '@/routers/AuthGuards';
 import { workspaceFolderForProject } from '@/routers/Workspace';
@@ -30,14 +31,18 @@ import { enabledPluginsForOrg, pluginWriteTarget } from '@/services/PluginServic
  * caller only hands it the org.
  *
  * Grouped by app (Vocion 5.0): "Installed apps" first — Workforce, which
- * keeps the plugins no app lists, and every app with a plugin on here — then
- * the apps this workspace does not have yet. An app's plugins are its
- * features; turning one on is how the app arrives, with the same toggle.
+ * keeps the plugins no app lists, and every app with a plugin on here — each
+ * under its tinted mark, its rows a list with the toggle (managing is work).
+ * Then the apps this workspace does not have yet, as front doors
+ * (`CatalogCard`, docs/design/patterns.md § Front doors): one card per app,
+ * its tint, one sentence, and one arrow into that app's plugins (`?app=`),
+ * where the same toggle is how the app arrives.
  * @param props
  * @param props.orgId - The project whose enabled plugins and workspace are read.
  * @param props.isAdmin - Whether this viewer may flip a switch.
+ * @param props.app - Show only this app's plugins (the door a More-apps card opens).
  */
-export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: boolean }) {
+export async function PluginRows({ orgId, isAdmin, app: onlyApp }: { orgId: string; isAdmin: boolean; app?: string | null }) {
   const [t, plugins, enabled, project, folder] = await Promise.all([
     getTranslations('Marketplace'),
     Promise.resolve(listPlugins()),
@@ -100,35 +105,62 @@ export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: b
   const bySlug = new Map(plugins.map(p => [p.manifest.slug, p]));
   const installed = new Set(installedApps(enabled, project?.enabledSurfaces ?? [], apps).map(a => a.id));
   const groups = groupPluginsByApp(plugins.map(p => p.manifest.slug), apps);
-  const part = (heading: string, list: typeof groups) => list.length > 0 && (
-    <section className="mt-8 first:mt-2">
-      <h2 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{heading}</h2>
-      {list.map(({ app, plugins: slugs }) => {
-        const Icon = iconByName(app.icon);
-        return (
-          <div key={app.id} data-testid={`marketplace-app-${app.id}`} className="mt-4">
-            <div className="flex items-center gap-2 py-1.5">
-              <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-              <h3 className="text-sm font-semibold">{app.name}</h3>
-              <span className="truncate text-[13px] text-muted-foreground">{app.description}</span>
-              {/* An app that ships templates is started from one: its start page stands a whole function up. */}
-              {listAppTemplateSlugs(app.id).length > 0 && (
-                <Link href={`/dashboard/apps/${app.id}`} data-testid={`marketplace-app-start-${app.id}`} className="ml-auto shrink-0 text-[13px] font-medium text-foreground hover:text-primary">
-                  Start from a template
-                </Link>
-              )}
-            </div>
-            {rows(slugs.map(s => bySlug.get(s)!))}
-          </div>
-        );
-      })}
-    </section>
+  const group = ({ app, plugins: slugs }: (typeof groups)[number]) => (
+    <div key={app.id} data-testid={`marketplace-app-${app.id}`} className="mt-4">
+      <div className="flex items-center gap-2.5 py-1.5">
+        <LetterTile name={app.name} icon={iconByName(app.icon)} tint={resolveTint(app.tint, app.id)} size="sm" />
+        <h3 className="text-sm font-semibold">{app.name}</h3>
+        <span className="truncate text-[13px] text-muted-foreground">{app.description}</span>
+      </div>
+      {rows(slugs.map(s => bySlug.get(s)!))}
+    </div>
   );
 
+  // One app's door, opened: just its plugins, and the way back.
+  const opened = onlyApp ? groups.find(g => g.app.id === onlyApp) : undefined;
+  if (opened) {
+    return (
+      <section className="mt-2">
+        <Link href="/dashboard/marketplace/plugins" className="inline-flex min-h-11 items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:min-h-0">
+          <ArrowLeft className="size-3.5" aria-hidden />
+          {t('all_apps')}
+        </Link>
+        {group(opened)}
+      </section>
+    );
+  }
+
+  const installedGroups = groups.filter(g => installed.has(g.app.id));
+  const moreGroups = groups.filter(g => !installed.has(g.app.id));
   return (
     <>
-      {part(t('installed_apps'), groups.filter(g => installed.has(g.app.id)))}
-      {part(t('more_apps'), groups.filter(g => !installed.has(g.app.id)))}
+      {installedGroups.length > 0 && (
+        <section className="mt-8 first:mt-2">
+          <h2 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('installed_apps')}</h2>
+          {installedGroups.map(group)}
+        </section>
+      )}
+      {moreGroups.length > 0 && (
+        <section className="mt-8 first:mt-2">
+          <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('more_apps')}</h2>
+          <CatalogCards>
+            {moreGroups.map(({ app, plugins: slugs }) => {
+              const tint = resolveTint(app.tint, app.id);
+              return (
+                <CatalogCard
+                  key={app.id}
+                  tint={tint}
+                  lead={<LetterTile name={app.name} icon={iconByName(app.icon)} tint={tint} className="bg-background/70" />}
+                  kicker={t('app_kicker')}
+                  title={app.name}
+                  job={firstSentence(app.description)}
+                  action={{ label: t('see_plugins', { count: slugs.length }), href: `/dashboard/marketplace/plugins?app=${app.id}` }}
+                />
+              );
+            })}
+          </CatalogCards>
+        </section>
+      )}
     </>
   );
 }

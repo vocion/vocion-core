@@ -30,11 +30,12 @@ import en from '@/locales/en.json';
  * workspace's apps only and every picker lists nothing.
  */
 const APPS: AppNav[] = [
-  { id: 'workforce', name: 'Workforce', icon: 'users', order: 0, core: true, entry: '/dashboard/chat', href: '/dashboard/chat', sections: [], owns: [] },
+  { id: 'workforce', name: 'Workforce', icon: 'users', tint: 'sky', order: 0, core: true, entry: '/dashboard/chat', href: '/dashboard/chat', sections: [], owns: [] },
   {
     id: 'software-factory',
     name: 'Software Factory',
     icon: 'git-branch',
+    tint: 'mint',
     order: 2,
     core: false,
     entry: '/dashboard/p/products',

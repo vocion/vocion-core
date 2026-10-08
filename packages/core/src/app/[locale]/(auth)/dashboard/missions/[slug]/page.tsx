@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { Activity, CalendarClock, FileCode2, NotebookPen, Plus, Target, Users } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { StatusPill } from '@/components/ui/status-pill';
 import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
@@ -55,7 +56,7 @@ export default async function MissionDetailPage(props: {
 
   const [automations, ownerAgent, specialists] = await Promise.all([
     listAutomations(orgId),
-    db.select({ slug: agentSchema.slug, name: agentSchema.name, role: agentSchema.role }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, mission.agentSlug))).limit(1).then(r => r[0] ?? null),
+    db.select({ slug: agentSchema.slug, name: agentSchema.name, role: agentSchema.role, accent: agentSchema.accent }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, mission.agentSlug))).limit(1).then(r => r[0] ?? null),
     db.select({ slug: agentSchema.slug, name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, mission.agentSlug))),
   ]);
   const checkers = automations.filter(a => a.doConfig.checkMission === slug && a.status === 'active');
@@ -122,7 +123,8 @@ export default async function MissionDetailPage(props: {
               Agent
             </h2>
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Link href={`/dashboard/agents/${mission.agentSlug}`} className="rounded-full border border-border px-2.5 py-1 font-medium hover:bg-muted">
+              <Link href={`/dashboard/agents/${mission.agentSlug}`} className="inline-flex items-center gap-1.5 rounded-full border border-border py-1 pr-2.5 pl-1 font-medium hover:bg-muted">
+                <AgentDot name={ownerAgent?.name ?? mission.agentSlug} accent={ownerAgent?.accent} size="sm" decorative />
                 {ownerAgent?.name ?? mission.agentSlug}
                 {' '}
                 <span className="text-[12px] text-muted-foreground">{ownerAgent?.role ?? 'agent'}</span>

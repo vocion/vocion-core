@@ -32,12 +32,14 @@ export const metadata: Metadata = { title: combinedPageTitle('/dashboard/marketp
 
 export default async function MarketplacePluginsPage(props: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ app?: string | string[] }>;
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
   const { orgId, has } = await auth();
+  const { app } = await props.searchParams;
 
-  return <PluginsScreen orgId={orgId ?? null} isAdmin={has({ role: ORG_ROLE.ADMIN })} />;
+  return <PluginsScreen orgId={orgId ?? null} isAdmin={has({ role: ORG_ROLE.ADMIN })} app={typeof app === 'string' ? app : null} />;
 }
 
 /**
@@ -46,14 +48,15 @@ export default async function MarketplacePluginsPage(props: {
  * @param root0 - Props.
  * @param root0.orgId - The project, when the session carries one.
  * @param root0.isAdmin - Whether this viewer may turn a plugin on or off.
+ * @param root0.app - One app's plugins only, when a More-apps card opened it.
  */
-function PluginsScreen({ orgId, isAdmin }: { orgId: string | null; isAdmin: boolean }) {
+function PluginsScreen({ orgId, isAdmin, app }: { orgId: string | null; isAdmin: boolean; app: string | null }) {
   const t = useTranslations('Marketplace');
 
   return (
     <>
       <CombinedPageHeader active="/dashboard/marketplace/plugins" description={t('plugins_tab_description')} />
-      {orgId && <PluginRows orgId={orgId} isAdmin={isAdmin} />}
+      {orgId && <PluginRows orgId={orgId} isAdmin={isAdmin} app={app} />}
     </>
   );
 }
