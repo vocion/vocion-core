@@ -12,13 +12,14 @@
  * it safe to let in is one function, `trustedEmail`: the address the provider
  * vouches for (`libs/identity/trustedEmail.ts`). The invite-only rules
  * (`services/auth/signInDecision.ts`) read that and nothing else, so a
- * provider added here — by core or through {@link registerSignInProvider} —
- * gets the same rules: sign in a linked person, link a verified address to its
- * login, accept a pending invite, refuse everyone else.
+ * provider added here — by core, or by an extension through its
+ * `signInProviders` seam (`libs/extensions.ts`) — gets the same rules: sign in
+ * a linked person, link a verified address to its login, accept a pending
+ * invite, refuse everyone else.
  *
  * This is social sign-in, configured per deployment. Per-Org SSO (an Org's own
  * SAML or OIDC connection, domain capture, enforced SSO, SCIM) is not here; an
- * extension that brings it registers its providers through the same seam.
+ * extension that brings it adds its providers through that seam.
  */
 
 import type { Provider } from 'next-auth/providers';
@@ -26,6 +27,7 @@ import type { IdTokenClaims, TrustedEmail } from './trustedEmail';
 import process from 'node:process';
 import Google from 'next-auth/providers/google';
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
+import { extensionSignInProviders } from '@/libs/extensions';
 import { entraTrustedEmail, googleTrustedEmail } from './trustedEmail';
 
 /** The environment a descriptor reads its settings from (`process.env` outside tests). */
@@ -133,25 +135,23 @@ const microsoft: SignInProviderDescriptor = {
 
 const BUILT_IN: readonly SignInProviderDescriptor[] = [google, microsoft];
 
-const registered: SignInProviderDescriptor[] = [];
-
 /**
- * Add a provider to the list — the seam an extension uses. Must run before
- * `libs/Auth.ts` is first imported, since Auth.js reads the list once when it
- * is configured. Refuses an id that is taken.
- * @param descriptor - The provider.
+ * Every provider core knows, configured or not, then every one an extension
+ * adds. An extension's provider whose id is already taken is left out, with a
+ * line in the log, rather than shadowing core's or another's.
  */
-export function registerSignInProvider(descriptor: SignInProviderDescriptor): void {
-  const taken = RESERVED_IDS.has(descriptor.id) || [...BUILT_IN, ...registered].some(d => d.id === descriptor.id);
-  if (taken) {
-    throw new Error(`A sign-in provider with id "${descriptor.id}" already exists.`);
-  }
-  registered.push(descriptor);
-}
-
-/** Every provider core knows, configured or not, then every registered one. */
 export function allSignInProviders(): readonly SignInProviderDescriptor[] {
-  return [...BUILT_IN, ...registered];
+  const all: SignInProviderDescriptor[] = [...BUILT_IN];
+  for (const descriptor of extensionSignInProviders()) {
+    if (RESERVED_IDS.has(descriptor.id) || all.some(d => d.id === descriptor.id)) {
+      import('@/libs/Logger')
+        .then(({ logger }) => logger.warn('sign-in provider from an extension ignored: its id is taken', { id: descriptor.id }))
+        .catch(() => {});
+      continue;
+    }
+    all.push(descriptor);
+  }
+  return all;
 }
 
 /**

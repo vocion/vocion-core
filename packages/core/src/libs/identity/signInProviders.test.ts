@@ -3,7 +3,7 @@
  * the buttons, Auth.js and the profile page read is one list.
  */
 import { describe, expect, it } from 'vitest';
-import { allSignInProviders, configuredSignInProvider, configuredSignInProviders, MICROSOFT_ORGANIZATIONS_ISSUER, registerSignInProvider, signInProviderOptions } from './signInProviders';
+import { configuredSignInProvider, configuredSignInProviders, MICROSOFT_ORGANIZATIONS_ISSUER, signInProviderOptions } from './signInProviders';
 
 const GOOGLE = { AUTH_GOOGLE_ID: 'northwind-google-client', AUTH_GOOGLE_SECRET: 'northwind-google-secret' };
 const MICROSOFT = { AUTH_MICROSOFT_ENTRA_ID_ID: 'northwind-entra-client', AUTH_MICROSOFT_ENTRA_ID_SECRET: 'northwind-entra-secret' };
@@ -60,22 +60,5 @@ describe('the Auth.js providers built from it', () => {
     await expect(Promise.resolve(provider.options.profile({ sub: 'g-2', email: 'dana@northwind.example', email_verified: false })))
       .resolves
       .toMatchObject({ email: null });
-  });
-});
-
-describe('registerSignInProvider — the extension seam', () => {
-  it('adds a provider to the same list, and refuses a taken id', () => {
-    registerSignInProvider({
-      id: 'acme-sso',
-      label: 'Acme SSO',
-      configured: env => env.ACME_SSO === '1',
-      build: () => ({ id: 'acme-sso', name: 'Acme SSO', type: 'oidc', issuer: 'https://sso.acme.example' }),
-      trustedEmail: () => ({ ok: false, reason: 'unverified-email' }),
-    });
-
-    expect(allSignInProviders().map(d => d.id)).toContain('acme-sso');
-    expect(signInProviderOptions({ ACME_SSO: '1' })).toEqual([{ id: 'acme-sso', label: 'Acme SSO' }]);
-    expect(() => registerSignInProvider({ ...allSignInProviders()[0]! })).toThrow(/already exists/);
-    expect(() => registerSignInProvider({ ...allSignInProviders()[0]!, id: 'credentials' })).toThrow(/already exists/);
   });
 });

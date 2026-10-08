@@ -12,7 +12,8 @@
  * - `accept-invite` — the login is created from the oldest usable invite by
  *   `acceptInviteAsNewUser`, the same function the invite link's form calls,
  *   and every other pending invite to that address is accepted on it through
- *   `acceptInviteAsExistingUser`, which applies that path's own rules. Auth.js
+ *   `acceptInviteAsExistingUser`, which applies that path's own rules (a
+ *   single-Org server refuses a second Org; that invite stays for its link). Auth.js
  *   then finds the new login by its address and links the provider to it.
  * - `refuse` — `/sign-in?error=AccessDenied&reason=<why>`; the page has a
  *   sentence for each reason.

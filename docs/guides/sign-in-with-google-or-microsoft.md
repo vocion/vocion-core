@@ -40,7 +40,9 @@ with Google, Microsoft or an email link, in this order:
 4. **A pending invite to that address.** The invite is accepted exactly as the
    invite link's form accepts it: the login is made, with a membership at the
    invite's role and the person's own workspace. Every other pending invite to
-   the same address is accepted on that login too.
+   the same address is accepted on that login too, as far as the server's Org
+   rule allows: a single-Org server (the default) joins the person to one Org
+   and leaves another Org's invite to its link, which then says why.
 5. **Anything else.** Refused, and the sign-in page says *"No invite for this
    address. Ask an admin to invite you."*
 
@@ -212,8 +214,9 @@ unlinks are recorded on the adoption stream (`auth.method_linked`,
 This is sign-in for one deployment, configured by whoever runs it. Per-Org
 single sign-on — an Org's own SAML or OIDC connection, capturing an email
 domain, enforcing SSO for an Org's members, SCIM provisioning — is not part of
-core. The seam for it is the provider registry in
-`libs/identity/signInProviders.ts`: `registerSignInProvider` adds a provider to
-the same list the buttons, Auth.js and the profile page read, and the
-invite-only rules apply to it unchanged because they read only the address the
-provider vouches for (`trustedEmail`).
+core. The seam for it is the provider list in
+`libs/identity/signInProviders.ts`, which an extension adds to through its
+`signInProviders` ([extensions.md](extensions.md)): the same list the buttons,
+Auth.js and the profile page read. The invite-only rules apply to an
+extension's provider unchanged, because they read only the address the provider
+vouches for (`trustedEmail`).

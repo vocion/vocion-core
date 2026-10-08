@@ -8,6 +8,11 @@ import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+// The Org rule reads the extension seam; a test flips it to multi-Org.
+const orgs = vi.hoisted(() => ({ multi: false }));
+vi.mock('@vocion/enterprise/index', () => ({
+  extensions: [{ name: 'test-orgs', orgs: { multiOrg: () => orgs.multi } }],
+}));
 
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, authAccountSchema, inviteSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
@@ -91,7 +96,27 @@ describe('admitSignIn — a pending invite', () => {
     expect(personal.length).toBeGreaterThan(0);
   });
 
-  it('accepts every pending invite to the address, one login with a membership per Org', async () => {
+  it('on a single-Org server, joins the first Org and leaves the other Org\'s invite to its link', async () => {
+    orgs.multi = false;
+    await db.insert(inviteSchema).values([
+      { id: 'inv-n', accountId: 'acct-northwind', email: 'dana@northwind.example', role: 'member', token: 'tok-n', expiresAt: NEXT_WEEK },
+      { id: 'inv-k', accountId: 'acct-kestrel', email: 'Dana@Northwind.example', role: 'admin', token: 'tok-k', expiresAt: new Date(NEXT_WEEK.getTime() + 1000) },
+    ]);
+
+    await expect(admitSignIn({ method: 'email-link', email: 'dana@northwind.example' }, NOW)).resolves.toBe(true);
+
+    const [dana] = await usersWithEmail('dana@northwind.example');
+    const memberships = await db.select().from(accountMembershipSchema).where(eq(accountMembershipSchema.userId, dana!.id));
+
+    expect(memberships.map(m => `${m.accountId}:${m.role}`)).toEqual(['acct-northwind:member']);
+
+    const [kestrel] = await db.select().from(inviteSchema).where(eq(inviteSchema.id, 'inv-k'));
+
+    expect(kestrel?.acceptedAt).toBeNull();
+  });
+
+  it('on a multi-Org server, accepts every pending invite to the address: one login, a membership per Org', async () => {
+    orgs.multi = true;
     await db.insert(inviteSchema).values([
       { id: 'inv-n', accountId: 'acct-northwind', email: 'dana@northwind.example', role: 'member', token: 'tok-n', expiresAt: NEXT_WEEK },
       { id: 'inv-k', accountId: 'acct-kestrel', email: 'Dana@Northwind.example', role: 'admin', token: 'tok-k', expiresAt: new Date(NEXT_WEEK.getTime() + 1000) },
@@ -103,6 +128,8 @@ describe('admitSignIn — a pending invite', () => {
     const memberships = await db.select().from(accountMembershipSchema).where(eq(accountMembershipSchema.userId, dana!.id));
 
     expect(memberships.map(m => `${m.accountId}:${m.role}`).sort()).toEqual(['acct-kestrel:admin', 'acct-northwind:member']);
+
+    orgs.multi = false;
   });
 
   it('refuses, and makes nothing, when the only invite has expired or was used', async () => {

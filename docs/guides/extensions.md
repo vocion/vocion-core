@@ -77,6 +77,7 @@ core knows that an extension exists, but not what it does.
 | `slots['spend.stats']` | The spend page's row of figures. The columns auto-fit, so an empty slot leaves no gap. |
 | `orgs.multiOrg()` | `services/OrgPolicy.ts`. `true` lifts the single-Org rule. Without an extension, core is always single-Org. |
 | `orgs.scopeWorkspaceSwitcher` | `projects.list` returns `switcherScope: 'org'`, and the workspace switcher then lists only the current Org's workspaces. |
+| `signInProviders` | `libs/identity/signInProviders.ts`: more "Continue with …" buttons after Google and Microsoft, registered with Auth.js and shown on the profile page. Each descriptor says when it is `configured`, how to `build` its Auth.js provider, and which address it vouches for (`trustedEmail`); core's invite-only rules apply unchanged. An id already taken is ignored. See [sign-in-with-google-or-microsoft.md](sign-in-with-google-or-microsoft.md). |
 | `navSlots['nav.aboveWorkspaceSwitcher']` (client) | Directly above the workspace switcher. Each component receives the sidebar's workspace directory, the same landing-page function as the switcher, and whether the sidebar is collapsed. |
 
 Core also exports these so that an extension's interface matches core's:
