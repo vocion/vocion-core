@@ -4,6 +4,7 @@ import type { Tint } from '@/libs/tints';
 import { ArrowRight } from 'lucide-react';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
+import { HowItsAuthored } from './how-its-authored';
 import { LetterTile } from './letter-tile';
 
 /**
@@ -12,6 +13,11 @@ import { LetterTile } from './letter-tile';
  * `CatalogCard` anatomy — a mark, a title, ONE sentence saying what this
  * place is for, and ONE action that starts it, as an arrow link. A quiet
  * second link (the docs) is allowed; a second button is not.
+ *
+ * The sentence is for a person, in the product's terms: what this is and the
+ * thing they can do here (create, connect, ask in chat, install). Where it is
+ * authored — a folder, a manifest key, a command — is developer detail and
+ * goes in `authoring`, behind a closed "How it's authored" disclosure.
  *
  * Keep the polished custom empties in ChatShell + ReviewQueue as-is —
  * those have their own affordances (suggestion chips, queue-clear copy).
@@ -37,6 +43,8 @@ type Props = ComponentProps<'div'> & {
   secondaryAction?: Action;
   /** The tint the mark sits on. Default: the soft surface. */
   tint?: Tint;
+  /** Developer detail (paths, manifest keys, commands), behind "How it's authored". Never in `description`. */
+  authoring?: ReactNode;
 };
 
 export function EmptyState({
@@ -46,6 +54,7 @@ export function EmptyState({
   action,
   secondaryAction,
   tint,
+  authoring,
   className,
   ...rest
 }: Props) {
@@ -75,6 +84,7 @@ export function EmptyState({
           {secondaryAction && <ActionLink variant="secondary" action={secondaryAction} />}
         </div>
       )}
+      {authoring && <HowItsAuthored className="mt-4 max-w-sm">{authoring}</HowItsAuthored>}
     </div>
   );
 }

@@ -63,7 +63,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
     <>
       <TitleBar
         title="Context"
-        description="The authored layer that grounds every AI output. Everything here lives in git as YAML + markdown."
+        description="The authored layer that grounds every AI output."
       />
 
       {/* Top-level stats */}

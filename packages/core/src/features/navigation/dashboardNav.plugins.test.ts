@@ -23,15 +23,14 @@ describe('plugin-owned routes', () => {
     expect(workPinnableRoutes().map(r => r.url)).toContain('/dashboard/rooms');
   });
 
-  it('the plugin catalogue is the Marketplace, a Build row for everyone; admin gating still holds', () => {
+  it('the plugin catalogue is Apps, a Build row for everyone; admin gating still holds', () => {
     const build = manageNavGroups({ isAdmin: false, enabledPlugins: [] }).find(g => g.group.id === 'Build')!;
 
-    // The catalogue used to be its own row beside Skills & tools and Evals; it
-    // is the Marketplace's first tab now, on the Marketplace's own URL, and
-    // /dashboard/plugins 308s there — so the old link lands ON the plugins.
-    expect(build.routes.map(r => r.url)).toContain('/dashboard/marketplace');
+    // The catalogue was the Marketplace's Plugins tab; it is Apps now, and
+    // /dashboard/plugins and /dashboard/marketplace/plugins 308 there.
+    expect(build.routes.map(r => r.url)).toContain('/dashboard/apps');
     expect(build.routes.map(r => r.url)).not.toContain('/dashboard/plugins');
-    expect(dashboardRoute('/dashboard/marketplace')?.tabTitle).toBe('Agents for hire');
+    expect(dashboardRoute('/dashboard/apps')?.title).toBe('Apps');
     expect(manageNavGroups(false).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).not.toContain('/dashboard/adoption');
     expect(manageNavGroups(true).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).toContain('/dashboard/adoption');
   });

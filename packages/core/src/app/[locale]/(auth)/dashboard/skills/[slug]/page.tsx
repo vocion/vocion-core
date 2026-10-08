@@ -3,6 +3,7 @@ import { ArrowLeft, ScrollText, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { DocViewer } from '@/features/dashboard/DocViewer';
@@ -66,9 +67,19 @@ function SkillBody(props: { slug: string; markdownBody: string; templateProblem:
   }
   if (props.markdownBody.trim().length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
-        Body not found on disk. The catalog row exists; the file may have been removed since the last workspace:apply.
-      </p>
+      <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+        <p>This skill has no instructions to show.</p>
+        <HowItsAuthored className="mt-2">
+          The skill is registered, but its
+          {' '}
+          <code>SKILL.md</code>
+          {' '}
+          was not found on disk; it may have been removed since the last
+          {' '}
+          <code>workspace:apply</code>
+          .
+        </HowItsAuthored>
+      </div>
     );
   }
   return (

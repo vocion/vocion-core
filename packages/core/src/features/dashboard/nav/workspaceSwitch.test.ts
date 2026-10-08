@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
+import { accountLine, countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
 
 const projects = [
   { id: 'p-default', slug: 'default', name: 'Default project', agentCount: 0 },
@@ -91,5 +91,21 @@ describe('workspace switcher', () => {
       ]);
       expect(groupByAccount([northwindOps], accounts).map(g => g.account.name)).toEqual(['Northwind']);
     });
+  });
+});
+
+describe('the chip\'s account line', () => {
+  it('drops the account when it only repeats the workspace\'s name', () => {
+    expect(accountLine('Northwind', 'Northwind')).toBeNull();
+    expect(accountLine('Northwind', ' northwind ')).toBeNull();
+  });
+
+  it('keeps the account when it says something new', () => {
+    expect(accountLine('Support', 'Contoso')).toBe('Contoso');
+  });
+
+  it('has nothing to say without an account', () => {
+    expect(accountLine('Support', null)).toBeNull();
+    expect(accountLine('Support', '  ')).toBeNull();
   });
 });

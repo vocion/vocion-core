@@ -1,6 +1,6 @@
 slug: controller
 name: Controller
-description: 'Closes the period on time with numbers that tie, and leaves a trail an auditor can follow.'
+description: Closes the books on time with numbers that tie. It leaves a trail an auditor can follow.
 icon: calculator
 accent: slate
 team: finance

@@ -86,7 +86,7 @@ export default async function ConversationsPage(props: {
 
   return (
     <>
-      <TitleBar title="Conversations" description="Every thread in this workspace, newest first. Open one to pick it back up." />
+      <TitleBar title="Conversations" description="Every thread in this workspace, newest first, ready to pick back up." />
 
       <form method="GET" className="mt-4 flex items-center gap-2 rounded-lg border border-border px-3 py-2">
         <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -106,7 +106,8 @@ export default async function ConversationsPage(props: {
               <EmptyState
                 icon={MessagesSquare}
                 title={q ? 'No conversations match' : 'No conversations yet'}
-                description={q ? 'Try a shorter term — search covers thread titles and message text.' : 'Ask the workspace agent something and the thread will be here.'}
+                description={q ? 'Try a shorter term — search covers thread titles and message text.' : 'Every conversation with your agents is kept here, so you can pick it back up.'}
+                {...(q ? {} : { action: { label: 'Start a conversation', href: '/dashboard/chat?new=1' } })}
               />
             </div>
           )

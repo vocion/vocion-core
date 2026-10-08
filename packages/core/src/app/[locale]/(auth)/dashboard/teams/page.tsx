@@ -4,6 +4,7 @@ import { ArrowRight, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { AgentDot } from '@/components/ui/agent-dot';
+import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
 import {
   consultCoverage,
@@ -179,7 +180,7 @@ function NoWorkspaceLeadCallout() {
     <div className="rounded-xl border border-dashed border-border px-5 py-4">
       <div className="text-sm font-semibold">{t('no_workspace_lead_title')}</div>
       <p className="mt-1 text-sm text-muted-foreground">{t('no_workspace_lead_body')}</p>
-      <p className="mt-1.5 font-mono text-[11px] text-muted-foreground/70">{t('no_workspace_lead_hint')}</p>
+      <HowItsAuthored className="mt-1.5">{t('no_workspace_lead_hint')}</HowItsAuthored>
     </div>
   );
 }

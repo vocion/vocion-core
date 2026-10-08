@@ -108,7 +108,26 @@ export function NotificationSettings() {
         <h2 id="kinds-heading" className="text-sm font-semibold">What notifies you, and where</h2>
         <p className="mt-1 text-[13px] text-muted-foreground">Only these moments notify. iPhone and Chrome reach the devices you turned on below.</p>
         {active.length === 0
-          ? <ListEmpty variant="inline" title="This workspace declares no notifications yet." description="A plugin or workspace.yaml names them under notifications:." />
+          ? (
+              <ListEmpty
+                variant="inline"
+                title="Nothing in this workspace notifies you yet."
+                description="Apps bring the moments worth telling you about, like an approval waiting on you."
+                action={{ label: 'Browse apps', href: '/dashboard/apps' }}
+                authoring={(
+                  <>
+                    A plugin or
+                    {' '}
+                    <code>workspace.yaml</code>
+                    {' '}
+                    names them under
+                    {' '}
+                    <code>notifications:</code>
+                    .
+                  </>
+                )}
+              />
+            )
           : (
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full min-w-[34rem] text-[13px]">

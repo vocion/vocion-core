@@ -15,7 +15,7 @@ import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
 import { TINT_BG } from '@/libs/tints';
 import { cn } from '@/utils/Helpers';
-import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, workspaceSwitchHref } from './workspaceSwitch';
+import { accountLine, countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
  * Workspace context, at the head of the selected app's nav (Vocion 5.0 —
@@ -196,8 +196,11 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
 
   const name = active?.name ?? (loading ? '' : props.placeholder ?? t('workspace_fallback'));
   // The collapsed rail shows no Org line, so with two Orgs the label names
-  // it: two "Support" workspaces in two Orgs must not read the same.
-  const railLabel = name && accounts.length > 1 && orgName ? `${name} · ${orgName}` : name;
+  // it: two "Support" workspaces in two Orgs must not read the same. The Org
+  // line shows only when it says something the workspace's name does not
+  // ("Northwind / Northwind" read as a glitch).
+  const orgLine = loading ? null : accountLine(name, orgName);
+  const railLabel = name && accounts.length > 1 && orgLine ? `${name} · ${orgLine}` : name;
   const initial = (name || 'W').charAt(0).toUpperCase();
   const accent = active ? projectAccent(active.slug) : 'oklch(0.7 0 0)';
 
@@ -239,7 +242,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
             {loading
               ? <span className="block h-3.5 w-28 animate-pulse rounded bg-muted" />
               : <span className="block truncate text-[13px] leading-tight font-medium text-foreground">{name}</span>}
-            {orgName && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{orgName}</span>}
+            {orgLine && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{orgLine}</span>}
           </span>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover/ws:bg-background group-hover/ws:text-foreground">
             <ArrowLeftRight className="size-3.5" aria-hidden />

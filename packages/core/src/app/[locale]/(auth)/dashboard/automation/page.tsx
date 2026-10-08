@@ -78,7 +78,7 @@ export default async function AutomationsPage(props: { params: Promise<{ locale:
   return (
     <ListPage
       title="Automations"
-      description="Every automation in this workspace. Switch one off to pause it: who switched it, and when, stays on its record, and Undo puts it back."
+      description="The schedules and triggers that start work on their own; switch one off to pause it."
       actions={(
         <Link href="/dashboard/automation/runs" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted">
           <History className="size-3.5" />

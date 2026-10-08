@@ -1,5 +1,6 @@
 import type { PluginManifest } from '@/libs/workspace/schemas';
 import { describe, expect, it } from 'vitest';
+import { PluginManifestSchema } from '@/libs/workspace/schemas';
 import { pluginNav } from './pluginNav';
 
 // One plugin.yaml `nav.section` decides where a plugin's pages, owned core
@@ -12,7 +13,7 @@ function plugin(over: Partial<PluginManifest> & { slug: string }): PluginManifes
     description: 'test',
     depends: [],
     surfaces: [],
-    nav: { section: 'Workspace', order: 0 },
+    nav: { section: 'Workspace', order: 0, pinByDefault: [] },
     recommend: { when: [], connectors: [] },
     notifications: [],
     setup: { connectors: [], records: [] },
@@ -44,7 +45,7 @@ describe('pluginNav', () => {
 
   it('a plugin in a named app takes its surface with it, and the surface is claimed', () => {
     const nav = pluginNav({
-      plugins: [plugin({ slug: 'proposals', surfaces: ['proposals'], nav: { section: 'GTM', order: 0 } })],
+      plugins: [plugin({ slug: 'proposals', surfaces: ['proposals'], nav: { section: 'GTM', order: 0, pinByDefault: [] } })],
       pages: [],
       routes,
     });
@@ -90,7 +91,7 @@ describe('pluginNav', () => {
 
   it('a core route a plugin OFFERS lists last and secondary in its section, and is not claimed — its own group keeps it', () => {
     const nav = pluginNav({
-      plugins: [plugin({ slug: 'software-factory', nav: { section: 'Software factory', order: 0 } })],
+      plugins: [plugin({ slug: 'software-factory', nav: { section: 'Software factory', order: 0, pinByDefault: [] } })],
       pages: [],
       routes: [...routes, { url: '/dashboard/evals', title: 'Evals', offeredBy: 'software-factory' }],
     });
@@ -100,6 +101,44 @@ describe('pluginNav', () => {
   });
 
   it('nothing enabled, nothing claimed', () => {
-    expect(pluginNav({ plugins: [], pages: [], routes })).toEqual({ sections: [], claimedSurfaces: [], claimedPages: [], claimedRoutes: [] });
+    expect(pluginNav({ plugins: [], pages: [], routes })).toEqual({ sections: [], claimedSurfaces: [], claimedPages: [], claimedRoutes: [], pinnedByDefault: [] });
+  });
+});
+
+describe('nav.pinByDefault', () => {
+  it('defaults to none, and takes url paths only', () => {
+    const base = { slug: 'rooms', name: 'Rooms', version: '1.0.0', description: 'd' };
+
+    expect(PluginManifestSchema.parse(base).nav).toEqual({ section: 'Workspace', order: 0, pinByDefault: [] });
+    expect(PluginManifestSchema.parse({ ...base, nav: { section: 'GTM' } }).nav.pinByDefault).toEqual([]);
+    expect(PluginManifestSchema.parse({ ...base, nav: { pinByDefault: ['/dashboard/rooms'] } }).nav.pinByDefault).toEqual(['/dashboard/rooms']);
+    expect(PluginManifestSchema.safeParse({ ...base, nav: { pinByDefault: ['dashboard/rooms'] } }).success).toBe(false);
+    expect(PluginManifestSchema.safeParse({ ...base, nav: { pinByDefault: '/dashboard/rooms' } }).success).toBe(false);
+  });
+
+  it('pins the plugin\'s own rows — an owned route or one of its pages — whatever section they sit in', () => {
+    const nav = pluginNav({
+      plugins: [
+        plugin({ slug: 'data-rooms', nav: { section: 'GTM', order: 0, pinByDefault: ['/dashboard/rooms'] } }),
+        plugin({ slug: 'wiki', nav: { section: 'Workspace', order: 0, pinByDefault: ['/dashboard/p/wiki', '/dashboard/p/wiki'] } }),
+      ],
+      pages: [{ slug: 'wiki', title: 'Wiki', nav: { section: 'Workspace', order: 5, hidden: false }, origin: 'plugin:wiki' }],
+      routes,
+    });
+
+    expect(nav.pinnedByDefault).toEqual(['/dashboard/rooms', '/dashboard/p/wiki']);
+  });
+
+  it('pins nothing it does not own: another plugin\'s row, a route it only offers, a hidden page or a typo', () => {
+    const nav = pluginNav({
+      plugins: [
+        plugin({ slug: 'data-rooms' }),
+        plugin({ slug: 'software-factory', nav: { section: 'Software factory', order: 0, pinByDefault: ['/dashboard/rooms', '/dashboard/evals', '/dashboard/p/guide', '/dashboard/romos'] } }),
+      ],
+      pages: [{ slug: 'guide', title: 'Guide', nav: { section: 'Software factory', order: 1, hidden: true }, origin: 'plugin:software-factory' }],
+      routes: [...routes, { url: '/dashboard/evals', title: 'Evals', offeredBy: 'software-factory' }],
+    });
+
+    expect(nav.pinnedByDefault).toEqual([]);
   });
 });

@@ -3,12 +3,12 @@ import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from
 import { RecordCode } from '@/components/patterns';
 import { StatusDot } from '@/components/patterns/DetailPage';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
+import { RowMenu } from '@/components/patterns/RowMenu';
 import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
 import { Link } from '@/libs/I18nNavigation';
 import { fieldIsEmptyOn, interpolateHref, resolveField, resolveRowActionHref, subtitleLines, tableLayout } from '@/libs/workspace/pageFields';
 import { OriginChatLink } from './OriginChatLink';
-import { RowMenu } from './RowMenu';
 
 /**
  * A list page's rows drawn as BLOCKS rather than as a grid: `layout: block`.

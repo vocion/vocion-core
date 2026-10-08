@@ -97,6 +97,21 @@ export function groupByAccount<T extends SwitcherProject>(projects: readonly T[]
 }
 
 /**
+ * The chip's second line: the account's name, only when it says something
+ * the workspace's name does not. A one-workspace account usually shares its
+ * name ("Northwind / Northwind"), and the same word twice reads as a glitch.
+ * @param workspaceName - The active workspace's name.
+ * @param accountName - Its account's name, when there is one.
+ */
+export function accountLine(workspaceName: string | null | undefined, accountName: string | null | undefined): string | null {
+  const account = accountName?.trim();
+  if (!account) {
+    return null;
+  }
+  return account.localeCompare((workspaceName ?? '').trim(), undefined, { sensitivity: 'accent' }) === 0 ? null : account;
+}
+
+/**
  * A project with no agents is a seed/empty row — hidden unless asked for.
  * @param p
  */

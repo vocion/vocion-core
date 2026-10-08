@@ -1,6 +1,6 @@
 slug: compliance-lead
 name: 'Risk & Compliance Lead'
-description: 'Compares a thing against the written standard and reports where it deviates, by severity, with the fix.'
+description: 'Checks work against the written standard. It reports where the work deviates, by severity, with the fix.'
 icon: shield
 accent: stone
 team: legal-and-people

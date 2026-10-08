@@ -93,7 +93,7 @@ export default async function InboxPage(props: {
               description={filtered
                 ? 'Clear the search or a filter to see the rest.'
                 : tab === 'open'
-                  ? 'Recommendations, rulings, approvals, merges, credentials, choices and stopped runs land here as the team works. Nothing is waiting right now.'
+                  ? 'Nothing is waiting on you; anything an agent needs you to decide lands here.'
                   : tab === 'snoozed'
                     ? 'Recommendations you snooze wait here until their time comes.'
                     : 'Answered asks, decided recommendations and adopted rules will be listed here, newest first.'}

@@ -16,7 +16,7 @@ export default async function ConnectorsPage(props: {
     <>
       <TitleBar
         title="Connectors"
-        description="The systems your agents and search read from."
+        description="Connect the tools your team already uses, so agents can read and search them."
       />
       <SourcesPanel connectInfo={connectInfo} />
     </>

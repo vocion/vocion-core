@@ -17,7 +17,7 @@
 slug: red-team
 name: Red team
 version: 1.0.0
-description: Before an agent publishes anything outside — an email, an announcement, an answer to whoever asked, a channel post — a model from a different vendor reads it against the workspace's voice and facts; serious findings send it back to the agent once, then to a person, and on your own word they are advice, never a stop.
+description: A second model checks what agents publish before it goes out. Before an agent publishes anything outside — an email, an announcement, an answer to whoever asked, a channel post — a model from a different vendor reads it against the workspace's voice and facts; serious findings send it back to the agent once, then to a person, and on your own word they are advice, never a stop.
 depends: []
 surfaces: []
 recommend:

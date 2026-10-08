@@ -336,7 +336,7 @@ export async function inspectGithubToken(input: { token: string; repos: string[]
 export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
   slug: 'github',
   name: 'GitHub',
-  description: 'Pull requests, checks, reviews, merges and failed deploy runs on the repositories you list, as events automations act on. One searchable document per pull request.',
+  description: 'Pull requests, reviews and deploys from the repositories you choose. Checks, merges and failed deploy runs arrive as events automations act on, with one searchable document per pull request.',
   icon: 'GitPullRequest',
   authKind: 'apikey',
   configSchema: githubConfigSchema,

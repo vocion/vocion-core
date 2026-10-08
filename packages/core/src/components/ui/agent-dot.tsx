@@ -1,3 +1,4 @@
+import type { LucideIcon } from 'lucide-react';
 import { agentAccent } from '@/libs/agentAccents';
 import { cn } from '@/utils/Helpers';
 
@@ -11,6 +12,11 @@ import { cn } from '@/utils/Helpers';
  * `decorative` when the name is already text beside it (a roster row): then
  * the dot says nothing to a screen reader. Otherwise the name is its
  * accessible label and its tooltip.
+ *
+ * `icon` draws the agent's authored `icon:` (white, on the same accent)
+ * instead of its initial. The profile — where the agent is the whole page —
+ * passes it; rosters and chat keep the initial, which reads at 16px where a
+ * glyph does not.
  */
 
 const SIZE = {
@@ -18,13 +24,18 @@ const SIZE = {
   sm: 'size-5 text-[10px]',
   md: 'size-6 text-[11px]',
   lg: 'size-8 text-[13px]',
+  xl: 'size-14 text-xl',
 } as const;
+
+const GLYPH: Record<keyof typeof SIZE, string> = { xs: 'size-2.5', sm: 'size-3', md: 'size-3.5', lg: 'size-4', xl: 'size-6' };
 
 export type AgentDotSize = keyof typeof SIZE;
 
-export function AgentDot({ name, accent, size = 'md', decorative = false, className }: {
+export function AgentDot({ name, accent, icon: Icon, size = 'md', decorative = false, className }: {
   /** The agent's display name; its first letter is drawn. */
   name: string;
+  /** The agent's authored icon, drawn instead of the initial (profiles). */
+  icon?: LucideIcon;
   /** The agent's authored `accent` name. Absent reads as the brand amber. */
   accent?: string | null;
   size?: AgentDotSize;
@@ -43,7 +54,7 @@ export function AgentDot({ name, accent, size = 'md', decorative = false, classN
       className={cn('inline-flex shrink-0 items-center justify-center rounded-full leading-none font-semibold text-white select-none', SIZE[size], className)}
       style={{ background: agentAccent(accent).dot }}
     >
-      {initial}
+      {Icon ? <Icon className={GLYPH[size]} strokeWidth={2} aria-hidden /> : initial}
     </span>
   );
 }

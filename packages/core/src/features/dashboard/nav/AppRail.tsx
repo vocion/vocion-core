@@ -23,7 +23,7 @@ const RAIL_BUTTON = 'grid size-10 place-items-center rounded-xl outline-hidden t
 /**
  * The app rail — the dashboard's far-left column (Vocion 5.0). The core app
  * (Workforce) first, then every other app the person has in some workspace,
- * in manifest order, then "Add app", which opens the marketplace where a
+ * in manifest order, then "Add app", which opens Apps, where a
  * plugin — and with it its app — is turned on.
  *
  * Picking an app this workspace has opens it (a link, so it also works as

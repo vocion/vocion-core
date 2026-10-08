@@ -42,7 +42,7 @@ function exportMimeFor(mimeType: string): string | null {
 export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
   slug: 'drive',
   name: 'Google Drive',
-  description: 'Ingest Google Drive documents (Docs, Sheets, Slides, text) — incremental by modified time.',
+  description: 'Docs, Sheets and Slides from Google Drive. Plain text files too, synced incrementally by modified time.',
   icon: 'FileText',
   authKind: 'oauth',
   configSchema: driveConfigSchema,

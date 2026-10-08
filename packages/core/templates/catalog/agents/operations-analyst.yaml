@@ -1,6 +1,6 @@
 slug: operations-analyst
 name: Operations Analyst
-description: 'Keeps the system of record true — the record and the evidence agree, or it gets flagged.'
+description: 'Keeps the system of record true. When the record and the evidence disagree, it gets flagged.'
 icon: database
 accent: emerald
 team: operations

@@ -11,6 +11,11 @@
  * list of sections the sidebar renders. Default: `Workspace`, beside Chat and
  * Review; a plugin names a section only when it is part of a named app (GTM).
  *
+ * `plugin.yaml` `nav.pinByDefault` names the plugin's own rows that start
+ * pinned in the core app's Workspace group while the plugin is on — read here
+ * into `pinnedByDefault`, so the sidebar's defaults come from the manifest and
+ * core names no plugin's page.
+ *
  * Pure data, no React and no filesystem: the shell gathers the inputs, the
  * sidebar turns icon names into components. Tested in `pluginNav.test.ts`.
  */
@@ -59,6 +64,12 @@ export type PluginNav = {
   claimedPages: string[];
   /** Route urls a plugin claimed — the work group's pinnable rows skip them. */
   claimedRoutes: string[];
+  /**
+   * Row urls an enabled plugin declared `nav.pinByDefault` — only urls that
+   * are that plugin's own rows (a page, or a core route it owns), never a
+   * route it merely offers. Defaults only: the person's own pins and unpins win.
+   */
+  pinnedByDefault: string[];
 };
 
 /** The section the sidebar already has; anything else is a heading of its own. */
@@ -80,6 +91,7 @@ export function pluginNav(input: {
   const claimedSurfaces: string[] = [];
   const claimedPages: string[] = [];
   const claimedRoutes: string[] = [];
+  const pinnedByDefault: string[] = [];
   const push = (label: string, item: PluginNavItem) => {
     const list = sections.get(label) ?? [];
     list.push(item);
@@ -89,6 +101,8 @@ export function pluginNav(input: {
   for (const plugin of input.plugins) {
     const section = plugin.nav.section;
     const base = plugin.nav.order;
+    // The urls of this plugin's own rows — what `pinByDefault` may name.
+    const own: string[] = [];
     // Its pages — a page's own nav.section wins when it names one (the page
     // schema's default is Workspace, which for a plugin page means "with the plugin").
     for (const page of input.pages) {
@@ -99,7 +113,9 @@ export function pluginNav(input: {
       const label = page.nav.section && page.nav.section !== 'Workspace' ? page.nav.section : section;
       // A page's own `nav.secondary` puts it under "More ›" (Runs, 2026-09-28:
       // declared secondary, drawn in the main list because this dropped it).
-      push(label, { title: page.title, url: page.href ?? `/dashboard/p/${page.slug}`, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order, ...(page.nav.secondary ? { secondary: true } : {}) });
+      const url = page.href ?? `/dashboard/p/${page.slug}`;
+      own.push(url);
+      push(label, { title: page.title, url, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order, ...(page.nav.secondary ? { secondary: true } : {}) });
     }
     // The core routes it owns.
     for (const route of input.routes) {
@@ -110,6 +126,7 @@ export function pluginNav(input: {
       }
       if (owned) {
         claimedRoutes.push(route.url);
+        own.push(route.url);
       }
       // An offered route is listed last and secondary: one row under "More ›",
       // never a pinned door — its own group keeps it for everyone else.
@@ -124,6 +141,13 @@ export function pluginNav(input: {
       claimedSurfaces.push(id);
       push(section, { title: surface.label, url: surface.url, icon: surface.icon, plugin: plugin.slug, order: base });
     }
+    // A url the plugin does not own (a typo, a route it only offers, another
+    // plugin's page) pins nothing: a manifest cannot pin someone else's door.
+    for (const url of plugin.nav.pinByDefault ?? []) {
+      if (own.includes(url) && !pinnedByDefault.includes(url)) {
+        pinnedByDefault.push(url);
+      }
+    }
   }
 
   return {
@@ -131,5 +155,6 @@ export function pluginNav(input: {
     claimedSurfaces,
     claimedPages,
     claimedRoutes,
+    pinnedByDefault,
   };
 }

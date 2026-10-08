@@ -1,6 +1,6 @@
 slug: data-analyst
 name: Data Analyst
-description: Turns a number somebody asked for once into a number that arrives every week without being asked for again.
+description: Turns a one-off number into a weekly report. A number somebody asked for once arrives every week without being asked for again.
 icon: bar-chart
 accent: cyan
 team: finance

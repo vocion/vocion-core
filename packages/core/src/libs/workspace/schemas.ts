@@ -390,11 +390,18 @@ export const PluginManifestSchema = z.object({
    * when the plugin is part of a named app — `GTM` puts its rows under that
    * heading with the app's other surfaces. A page's own `nav.section` still
    * wins for that page when it names one.
+   *
+   * `pinByDefault` lists rows of this plugin's own — a core route it owns or
+   * one of its pages, by url — that start PINNED in Workforce's Workspace
+   * group while the plugin is on, even when an app also lists them under its
+   * own heading. A default only: a person who unpins one keeps it unpinned,
+   * and their own pins keep their order (`resolveWorkPins`).
    */
   nav: z.object({
     section: z.string().min(1).default('Workspace'),
     order: z.number().default(0),
-  }).default({ section: 'Workspace', order: 0 }),
+    pinByDefault: z.array(z.string().regex(/^\//, 'a pinned row is a url path, e.g. /dashboard/rooms')).default([]),
+  }).default({ section: 'Workspace', order: 0, pinByDefault: [] }),
   recommend: z.object({
     when: z.array(z.string().min(1)).default([]),
     connectors: z.array(z.string().min(1)).default([]),

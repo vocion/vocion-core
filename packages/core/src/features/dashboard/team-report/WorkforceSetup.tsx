@@ -56,7 +56,11 @@ export function WorkforceSetup({ report, isAdmin }: { report: TeamReport; isAdmi
           <Link href="/dashboard/teams" className="text-xs font-medium text-primary hover:underline">Org chart</Link>
         </div>
         {report.teams.length === 0 && report.ungrouped.length === 0 && (
-          <p className="text-sm text-muted-foreground">No teams or agents yet. Load a starter workspace from the org chart, or add teams to the workspace.</p>
+          <p className="text-sm text-muted-foreground">
+            No teams or agents yet.
+            {' '}
+            <Link href="/dashboard/teams" className="font-medium text-foreground underline-offset-4 hover:underline">Load a starter team</Link>
+          </p>
         )}
         <ul className="divide-y divide-border/60">
           {report.teams.map(t => (

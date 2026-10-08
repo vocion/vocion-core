@@ -84,7 +84,7 @@ const DEFAULT_KEYS = {
 export const fileImportConnector: SourceConnector<typeof fileImportConfigSchema> = {
   slug: 'file-import',
   name: 'File import',
-  description: 'Ingest a single JSONL / CSV / JSON file as documents. Smart-detects columns; override via fieldMapping when needed.',
+  description: 'One CSV, JSON or JSONL file, imported as documents. Columns are detected for you; override them with fieldMapping when needed.',
   icon: 'FileJson',
   authKind: 'none',
   configSchema: fileImportConfigSchema,

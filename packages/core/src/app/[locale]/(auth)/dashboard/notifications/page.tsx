@@ -15,7 +15,7 @@ export default async function NotificationsPage(props: { params: Promise<{ local
   const { locale } = await props.params;
   setRequestLocale(locale);
   return (
-    <ListPage title="Notifications" description="Only the moments this workspace declares notify you. A row opens what it is about.">
+    <ListPage title="Notifications" description="The moments this workspace says are worth telling you about.">
       <div className="-mt-3 mb-4">
         <PageTabs tabs={NOTIFICATION_TABS} active="/dashboard/notifications" />
       </div>

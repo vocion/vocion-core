@@ -131,7 +131,11 @@ describe('ConnectorList', () => {
     const rows = buildConnectorRows([tile('apollo', 'Apollo', { syncless: true, inspectable: true })], [source({ id: 11, slug: 'apollo', config: { _connector: 'apollo' }, syncless: true, inspectable: true })]);
     render(<ConnectorList rows={rows} syncingId={null} onConnectNew={() => {}} onSync={() => {}} onTest={() => {}} onEdit={() => {}} onDelete={() => {}} onConnect={onConnect} />);
 
-    await userEvent.click(page.getByRole('button', { name: 'Reconnect' }));
+    // Its row's primary is Test connection; Reconnect waits in the row's menu.
+    await expect.element(page.getByRole('button', { name: /Test connection/ })).toBeVisible();
+
+    await userEvent.click(page.getByRole('button', { name: /^More for / }));
+    await userEvent.click(page.getByRole('menuitem', { name: 'Reconnect' }));
 
     expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
   });
@@ -139,8 +143,28 @@ describe('ConnectorList', () => {
   it('a healthy row offers no Reconnect beside its actions', async () => {
     renderList([source({ id: 9, slug: 'hubspot-crm', config: { _connector: 'hubspot' } })]);
 
-    await expect.element(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: /Sync now/ })).toBeVisible();
     expect(page.getByRole('button', { name: 'Reconnect' }).elements()).toHaveLength(0);
+  });
+
+  it('keeps one quiet primary on the row and puts Edit and Delete in its menu, with no red', async () => {
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+    renderList([source({ id: 9, slug: 'hubspot-crm', config: { _connector: 'hubspot' } })], { onEdit, onDelete });
+
+    expect(page.getByRole('button', { name: 'Edit' }).elements()).toHaveLength(0);
+    expect(page.getByRole('button', { name: 'Delete' }).elements()).toHaveLength(0);
+    expect(document.querySelector('[data-connector-row] .text-destructive')).toBeNull();
+
+    await userEvent.click(page.getByRole('button', { name: 'More for hubspot-crm' }));
+    await userEvent.click(page.getByRole('menuitem', { name: 'Edit settings' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+
+    await userEvent.click(page.getByRole('button', { name: 'More for hubspot-crm' }));
+    await userEvent.click(page.getByRole('menuitem', { name: 'Delete…' }));
+
+    expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
   });
 
   it('names the account a grant is on and marks each listed repository against what it granted', async () => {

@@ -366,7 +366,7 @@ function databaseToDoc(db: NotionDatabase): IngestDoc {
 export const notionConnector: SourceConnector<typeof notionConfigSchema> = {
   slug: 'notion',
   name: 'Notion',
-  description: 'Ingest the Notion pages and databases shared with an integration — title, properties and block text.',
+  description: 'Pages and databases from Notion. The title, properties and block text of everything shared with the integration.',
   icon: 'NotebookText',
   authKind: 'apikey',
   configSchema: notionConfigSchema,

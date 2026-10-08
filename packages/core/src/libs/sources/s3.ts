@@ -77,7 +77,7 @@ export function metadataFromKey(cfg: S3SourceConfig, key: string): Record<string
 export const s3Connector: SourceConnector<typeof s3ConfigSchema> = {
   slug: 's3',
   name: 'Amazon S3',
-  description: 'Ingest the objects under an S3 prefix — one document per file, with fields parsed from the key path and filename. Built for image archives; renders through a presigned in-app URL.',
+  description: 'Files under an Amazon S3 prefix, one document each. Fields are parsed from the key path and filename; built for image archives, rendered through a presigned in-app URL.',
   icon: 'Database',
   authKind: 'none',
   configSchema: s3ConfigSchema,

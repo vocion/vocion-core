@@ -119,7 +119,7 @@ export default async function SearchPage(props: {
   return (
     <ListPage
       title="Search"
-      description="Hybrid retrieval across every connected connector — pgvector and Postgres full-text with reciprocal rank fusion, the same pipeline your agents use."
+      description="Search everything your connected tools hold, the same way your agents do."
     >
       <SearchResults
         query={query}

@@ -139,7 +139,7 @@ const HTTP_URL_RE = /^https?:/i;
 export const webConnector: SourceConnector<typeof webConfigSchema> = {
   slug: 'web',
   name: 'Web URL',
-  description: 'Crawl a list of public URLs or a single site (same-origin BFS, capped depth + page count).',
+  description: 'Public web pages you list, or a whole site. A same-origin crawl with a capped depth and page count.',
   icon: 'Globe',
   authKind: 'none',
   configSchema: webConfigSchema,

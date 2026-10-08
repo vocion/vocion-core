@@ -153,7 +153,8 @@ export function ArtifactLog({ artifacts, folders, pins = [], selfId }: ArtifactL
               <EmptyState
                 icon={ARTIFACT_KIND_ICON.markdown}
                 title={artifacts.length === 0 ? 'No artifacts yet' : 'Nothing matches those filters'}
-                description={artifacts.length === 0 ? 'Ask an agent for a table, a plan or a chart — it opens beside the conversation and lands here.' : 'Clear a chip or the search box.'}
+                description={artifacts.length === 0 ? 'Tables, plans and charts an agent makes for you open beside the conversation and land here.' : 'Clear a chip or the search box.'}
+                {...(artifacts.length === 0 ? { action: { label: 'Ask for a table', href: '/dashboard/chat?new=1' } } : {})}
               />
             </div>
           )

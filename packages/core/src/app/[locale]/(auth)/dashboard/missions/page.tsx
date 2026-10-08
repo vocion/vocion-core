@@ -18,7 +18,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
     <>
       <TitleBar
         title="Missions"
-        description="Objectives a team owns — not procedures. Brief a goal in plain language, or let a standing mission check itself on its schedule. Deterministic routines belong in Workflows."
+        description="Goals a team owns, like ‘no lead goes cold’, checked on their own schedule."
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -37,7 +37,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
             <EmptyState
               icon={Compass}
               title="No standing missions"
-              description="A mission is an objective a team owns, like 'no lead goes cold' — not a list of steps."
+              description="A mission is a goal a team owns and checks on its own, not a list of steps."
               action={{ label: 'Start a mission', href: '/dashboard/missions/new' }}
             />
           )

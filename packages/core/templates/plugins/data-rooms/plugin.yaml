@@ -10,7 +10,12 @@
 slug: data-rooms
 name: Data rooms
 version: 1.0.0
-description: One room per engagement — the source of record documents are written from — with sources filed automatically after every sync, rules and notes the agent keeps, and open items on the review queue.
+description: One room per engagement, kept current for you. It is the source of record documents are written from, with sources filed automatically after every sync, rules and notes the agent keeps, and open items on the review queue.
+# A room is a record people come back to all day, so its door starts pinned
+# in Workforce's Workspace group while the plugin is on — beside Chat and
+# Review, as well as under the GTM app. A default only: unpinned, it stays
+# unpinned for that person.
+nav: {pinByDefault: [/dashboard/rooms]}
 recommend:
   when:
     - a person asks where a transcript, thread or document about a client or deal was filed

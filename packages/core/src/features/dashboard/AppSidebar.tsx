@@ -277,7 +277,11 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     ...workPinnableRoutes(viewer).filter(r => !claimedRoutes.has(r.url)).map(toWorkItem),
     ...pluginWorkspace.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), origin: 'work' as const })),
   ], [toWorkItem, viewer, claimedRoutes, pluginWorkspace]);
-  const workDefaults = useMemo(() => [...DEFAULT_WORK_PINS, ...pluginWorkspace.map(i => i.url)], [pluginWorkspace]);
+  // Defaults: the registry's (Briefings, Scorecard), a plugin's Workspace rows,
+  // and what an enabled plugin's manifest declares (`nav.pinByDefault`) —
+  // including a pinnable route its app also lists. A person's own pins and
+  // unpins win (`resolveWorkPins`).
+  const workDefaults = useMemo(() => [...new Set([...DEFAULT_WORK_PINS, ...pluginWorkspace.map(i => i.url), ...(pluginNav?.pinnedByDefault ?? [])])], [pluginWorkspace, pluginNav]);
   const workPins = resolveWorkPins({ pins: prefs.pins, dismissed: prefs.dismissed, defaults: workDefaults });
   const workspaceItems = [...workCore, ...applyPins(workOptional, workPins), ...withoutPins(workOptional, workPins)];
   const workShown = workCore.length + applyPins(workOptional, workPins).length;
@@ -521,7 +525,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                 brandMark={BRAND_MARK}
                 label={t('apps')}
                 addLabel={t('add_app')}
-                addHref="/dashboard/marketplace/plugins"
+                addHref="/dashboard/apps"
                 elsewhereLabel={t('app_elsewhere')}
               />
               <div className="flex min-w-0 flex-1 flex-col">{nav}</div>

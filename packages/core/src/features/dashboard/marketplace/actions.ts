@@ -29,7 +29,7 @@ export async function hireAgent(slug: string): Promise<{ ok: boolean; status: st
 
   // Both tabs of "Teams & agents" change shape on a hire: the roster gains
   // an agent and the Marketplace loses an entry.
-  revalidatePath('/dashboard/marketplace');
+  revalidatePath('/dashboard/hire');
   revalidatePath('/dashboard/teams');
   revalidatePath('/dashboard/agents');
 

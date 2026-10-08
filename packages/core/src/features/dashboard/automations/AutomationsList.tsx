@@ -75,7 +75,22 @@ export function AutomationsList({ groups }: { groups: AutomationListGroup[] }) {
   };
 
   if (groups.every(g => g.rows.length === 0)) {
-    return <ListEmpty variant="inline" title="No automations in this workspace yet." description="A plugin ships them, or the workspace authors them in automations/*.yaml." />;
+    return (
+      <ListEmpty
+        variant="inline"
+        title="No automations in this workspace yet."
+        description="An automation starts work on a schedule or when something happens, and apps bring their own."
+        action={{ label: 'Browse apps', href: '/dashboard/apps' }}
+        authoring={(
+          <>
+            A workspace authors its own in
+            {' '}
+            <code>automations/*.yaml</code>
+            .
+          </>
+        )}
+      />
+    );
   }
 
   return (

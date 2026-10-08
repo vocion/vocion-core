@@ -153,10 +153,11 @@ export function SearchResults(props: {
                 variant="inline"
                 title={query
                   ? `No results for “${query}”${source ? ` in ${source}` : ''}.`
-                  : 'No documents ingested yet.'}
+                  : 'Nothing to search yet.'}
                 description={query
                   ? 'Try fewer words, or clear the connector filter.'
-                  : 'Connect a source on the Sources page and sync it, then browse or search here.'}
+                  : 'Search reads what your connected tools hold, once they have synced.'}
+                {...(query ? {} : { action: { label: 'Connect a tool', href: '/dashboard/connectors' } })}
               />
             )
           : (

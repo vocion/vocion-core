@@ -22,25 +22,30 @@ export default meta;
 
 type Story = StoryObj<typeof CatalogCard>;
 
-/** One card, on the hairline surface. */
+/** One card: an agent for hire, on its team's tint. */
 export const Card: Story = {
   args: {
+    tint: 'peach',
     lead: <AgentDot name="Proposal Writer" accent="orange" size="lg" decorative />,
     kicker: 'Revenue',
     title: 'Proposal Writer',
     job: 'Drafts the Contoso proposal from every call, email and file on the deal.',
-    action: { label: 'View profile', href: '/dashboard/marketplace/proposal-writer' },
+    action: { label: 'View profile', href: '/dashboard/hire/proposal-writer' },
   },
 };
 
-/** Apps wear their tint: the marketplace's More apps, the rail, the app header. */
+/**
+ * Apps, as the Apps page shows them (`/dashboard/apps`): each on its tint,
+ * one sentence, what it brings in labelled counts, and Add or Open — an added
+ * app also links to its Features.
+ */
 export const Apps: Story = {
   render: () => (
     <CatalogCards>
-      <CatalogCard tint="sky" lead={<LetterTile name="Workforce" icon={Users} tint="sky" className="bg-background/70" />} kicker="App" title="Workforce" job="Your agents and teams, what they know, and how the workspace runs." action={{ label: 'See its plugins', href: '#' }} />
+      <CatalogCard tint="sky" lead={<LetterTile name="Workforce" icon={Users} tint="sky" className="bg-background/70" />} kicker="Added" title="Workforce" job="Your agents and teams, what they know, and how the workspace runs." meta="2 agents · 2 pages" action={{ label: 'Open', href: '#' }} secondaryAction={{ label: 'Features', href: '#' }} />
+      <CatalogCard tint="mint" lead={<LetterTile name="Software Factory" icon={GitBranch} tint="mint" className="bg-background/70" />} kicker="App" title="Software Factory" job="Requests become approved work, verified changes and releases the asker hears about." meta="6 agents · 5 pages" action={{ label: 'Add', href: '#' }} />
+      <CatalogCard tint="peach" lead={<LetterTile name="GTM" icon={Target} tint="peach" className="bg-background/70" />} kicker="Added" title="GTM" job="Engagements, their data rooms and proposals, and growth work judged on what it returned." meta="7 agents · 6 pages" action={{ label: 'Open', href: '#' }} secondaryAction={{ label: 'Features', href: '#' }} />
       <CatalogCard tint="violet" lead={<LetterTile name="Assistants" icon={Bot} tint="violet" className="bg-background/70" />} kicker="App" title="Assistants" job="Personal assistants that work beside each person." badge={<StatusBadge status="coming" />} muted action={{ label: 'Read about it', href: '#' }} />
-      <CatalogCard tint="mint" lead={<LetterTile name="Software Factory" icon={GitBranch} tint="mint" className="bg-background/70" />} kicker="App" title="Software Factory" job="Requests become approved work, verified changes and releases the asker hears about." badge={<StatusBadge status="beta" />} action={{ label: 'See its 2 plugins', href: '#' }} />
-      <CatalogCard tint="peach" lead={<LetterTile name="GTM" icon={Target} tint="peach" className="bg-background/70" />} kicker="App" title="GTM" job="Engagements, their data rooms and proposals, and growth work judged on what it returned." badge={<StatusBadge status="available" />} action={{ label: 'See its 3 plugins', href: '#' }} />
     </CatalogCards>
   ),
 };
@@ -49,9 +54,9 @@ export const Apps: Story = {
 export const Connectors: Story = {
   render: () => (
     <CatalogCards>
-      <CatalogCard lead={<LetterTile name="HubSpot" icon={Database} />} kicker="OAuth" title="HubSpot" job="Contacts, companies and deals from Northwind's CRM." action={{ label: 'Connect', onClick: () => {} }} />
-      <CatalogCard lead={<LetterTile name="Gmail" icon={Mail} />} kicker="OAuth" title="Gmail" job="The threads on a deal, read when an agent needs them." action={{ label: 'Connect', onClick: () => {} }} />
-      <CatalogCard lead={<LetterTile name="Zoom" icon={Video} />} kicker="OAuth" title="Zoom" job="Recordings and transcripts of Kestrel Capital calls." action={{ label: 'Connect', onClick: () => {} }} />
+      <CatalogCard tint="sky" lead={<LetterTile name="HubSpot" icon={Database} />} kicker="Sign in" title="HubSpot" job="Contacts, companies and deals from Northwind's CRM." action={{ label: 'Connect', onClick: () => {} }} />
+      <CatalogCard tint="sky" lead={<LetterTile name="Gmail" icon={Mail} />} kicker="Sign in" title="Gmail" job="The threads on a deal, read when an agent needs them." action={{ label: 'Connect', onClick: () => {} }} />
+      <CatalogCard tint="sky" lead={<LetterTile name="Zoom" icon={Video} />} kicker="Sign in" title="Zoom" job="Recordings and transcripts of Kestrel Capital calls." action={{ label: 'Connect', onClick: () => {} }} />
     </CatalogCards>
   ),
 };

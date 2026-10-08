@@ -260,7 +260,7 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
       case 'hire_agent': {
         const { getCatalogEntry } = await import('@/services/CatalogService');
         const entry = getCatalogEntry(change.catalogSlug);
-        fields.push({ label: 'Role', value: `${entry?.name ?? change.catalogSlug} — ${entry?.description ?? 'a catalog role'}`, href: `/dashboard/marketplace/${change.catalogSlug}` });
+        fields.push({ label: 'Role', value: `${entry?.name ?? change.catalogSlug} — ${entry?.description ?? 'a catalog role'}`, href: `/dashboard/hire/${change.catalogSlug}` });
         fields.push({ label: 'Allowance', value: `${money(change.dailyCents)} a day, soft and hard` });
         nextAction = `Hiring adds ${entry?.name ?? change.catalogSlug} from the catalog at ${money(change.dailyCents)} a day. Undo removes it, its budget and any team the hire created.`;
         break;

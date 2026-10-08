@@ -5,6 +5,7 @@ import { AgentDot } from '@/components/ui/agent-dot';
 import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
 import { AgentVoiceControl } from '@/features/dashboard/AgentVoiceControl';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
+import { authoredIcon } from '@/features/dashboard/iconByName';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
@@ -118,7 +119,7 @@ export default async function AgentDetailPage(props: {
 
       {/* ── Hero — a single clean header, no nested boxes ─────────────── */}
       <header className="flex flex-col gap-5 border-b border-border pb-7 sm:flex-row sm:items-start sm:gap-5">
-        <AgentDot name={agent.name} accent={agent.accent} size="lg" decorative className="size-14 text-xl" />
+        <AgentDot name={agent.name} accent={agent.accent} icon={authoredIcon(agent.icon)} size="xl" decorative />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">

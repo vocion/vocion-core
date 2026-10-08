@@ -162,6 +162,13 @@ function pathOf(url: string): string {
  * route only when the app's plugin owns that route (`DashboardRoute.plugin`).
  * A page that merely links to a core route (a "Team report" row) does not
  * pull that route out of the core app.
+ *
+ * A PINNABLE core route a plugin owns (`DashboardRoute.pinnable`, e.g. a
+ * records page) is a Workforce WORK row by definition: shown while pinned,
+ * otherwise under More. When an app takes the plugin's row it is released
+ * from `claimedRoutes`, so Workforce still offers it as that pinnable row
+ * (and the plugin's `nav.pinByDefault` can start it pinned) instead of the
+ * door disappearing from Workforce altogether.
  * @param input - The workspace's installed apps and every row the shell gathered.
  * @param input.apps - `installedApps(...)` for this workspace.
  * @param input.nav - `pluginNav(...)` for this workspace.
@@ -174,7 +181,7 @@ export function splitNavByApp(input: {
   nav: PluginNav;
   surfaces: readonly string[];
   pages: readonly NavPageInput[];
-  coreRoutes: ReadonlyArray<{ url: string; plugin?: string }>;
+  coreRoutes: ReadonlyArray<{ url: string; plugin?: string; pinnable?: boolean }>;
 }): { core: { nav: PluginNav; surfaces: string[]; pages: NavPageInput[] }; apps: AppNav[] } {
   const sections = new Map<string, Map<string, Array<AppNavItem & { order: number }>>>();
   const owns = new Map<string, Set<string>>();
@@ -192,11 +199,17 @@ export function splitNavByApp(input: {
   };
 
   const coreSections: PluginNav['sections'] = [];
+  // Pinnable routes an app took: they stay Workforce WORK rows (see above).
+  const released = new Set<string>();
   for (const section of input.nav.sections) {
     const kept: PluginNavItem[] = [];
     for (const item of section.items) {
       const app = appOwningPluginRow(item.plugin, section.label, input.apps);
       if (app) {
+        const route = coreRoute.get(pathOf(item.url));
+        if (route?.pinnable && route.plugin === item.plugin) {
+          released.add(route.url);
+        }
         add(app, section.label, { title: item.title, url: item.url, icon: item.icon, order: item.order, ...(item.secondary ? { secondary: true } : {}) }, item.plugin);
       } else {
         kept.push(item);
@@ -247,7 +260,7 @@ export function splitNavByApp(input: {
   });
 
   return {
-    core: { nav: { ...input.nav, sections: coreSections }, surfaces: coreSurfaces, pages: corePages },
+    core: { nav: { ...input.nav, sections: coreSections, claimedRoutes: input.nav.claimedRoutes.filter(url => !released.has(url)) }, surfaces: coreSurfaces, pages: corePages },
     apps,
   };
 }
@@ -352,4 +365,16 @@ export function groupPluginsByApp<T extends AppDefinition>(pluginSlugs: readonly
   return visible
     .map(app => ({ app, plugins: app.core ? pluginSlugs.filter(s => !listed.has(s)) : app.plugins.filter(s => catalogue.has(s)) }))
     .filter(g => g.plugins.length > 0);
+}
+
+/**
+ * The app a plugin is a feature of — the app whose manifest lists it, else
+ * the core app, which keeps every plugin no app lists. Undefined when the
+ * plugin is not in the catalogue or no visible app takes it.
+ * @param plugin - The plugin's slug.
+ * @param pluginSlugs - The plugin catalogue, in its order.
+ * @param apps - The app catalogue.
+ */
+export function appForPlugin<T extends AppDefinition>(plugin: string, pluginSlugs: readonly string[], apps: readonly T[]): T | undefined {
+  return groupPluginsByApp(pluginSlugs, apps).find(g => g.plugins.includes(plugin))?.app;
 }

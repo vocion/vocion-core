@@ -46,6 +46,7 @@ export { PendingIcon } from './PendingIcon';
 
 export { RecordCode } from './RecordCode';
 export { Related, relatedFacts } from './Related';
+export { RowMenu, type RowMenuItem } from './RowMenu';
 
 export { formatScore, scorePercent, type ScoreVerdict, scoreVerdict } from './scoreChip';
 export { ConversationSkeleton, ListSkeleton, ReportSkeleton } from './Skeletons';

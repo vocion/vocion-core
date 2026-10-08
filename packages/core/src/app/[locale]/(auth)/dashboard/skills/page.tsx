@@ -132,7 +132,7 @@ export default async function SkillsPage(props: { params: Promise<{ locale: stri
     <>
       <CombinedPageHeader
         active="/dashboard/skills"
-        description="What the team knows how to do: a skill mounts for the agents that name it and is read when the model judges it relevant, a playbook is context attached to a skill or an agent. Authored in workspace/skills and workspace/playbooks — a base row ships with the platform and is overridden by slug."
+        description="What your agents know how to do, and the playbooks they follow while doing it."
       />
 
       {rows.length === 0
@@ -140,8 +140,20 @@ export default async function SkillsPage(props: { params: Promise<{ locale: stri
             <EmptyState
               icon={Zap}
               title="No skills yet"
-              description="Author a skill under skills/<slug>/SKILL.md in the workspace, or turn on a base one in workspace.yaml."
-              action={{ label: 'How to author the workspace', href: '/dashboard/docs/docs/workspace' }}
+              description="A skill teaches your agents one thing they can do, like drafting release notes."
+              action={{ label: 'Browse apps', href: '/dashboard/apps' }}
+              authoring={(
+                <>
+                  A skill is
+                  {' '}
+                  <code>skills/&lt;slug&gt;/SKILL.md</code>
+                  {' '}
+                  in the workspace; a base skill is turned on in
+                  {' '}
+                  <code>workspace.yaml</code>
+                  , and a workspace skill with the same slug overrides it.
+                </>
+              )}
             />
           )
         : (

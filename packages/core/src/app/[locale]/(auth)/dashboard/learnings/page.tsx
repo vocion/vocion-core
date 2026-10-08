@@ -65,7 +65,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
     <>
       <TitleBar
         title="Learnings"
-        description="Whitelisted memory namespaces the feedback loop feeds, gated by human approval, and tidied by compaction: near-duplicates merged and unused rules retired, each a suggestion you decide. Each one mounts into the agent's virtual FS under /memories/<path>/."
+        description="The rules your agents learned from your feedback, kept tidy by merging near-duplicates and retiring unused ones, each change yours to decide."
       />
 
       <PendingCandidates
@@ -95,9 +95,21 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
       {steps.length === 0
         ? (
             <EmptyState
-              title="No learning steps yet"
-              description="Author a learning step under learnings/ in the workspace, then add rules here or let the self-improver propose them."
-              action={{ label: 'How to author the workspace', href: '/dashboard/docs/docs/workspace' }}
+              title="Nothing learned yet"
+              description="When you correct an agent's work in review, the lesson is proposed here as a rule for you to approve."
+              action={{ label: 'Open the review queue', href: '/dashboard/inbox' }}
+              authoring={(
+                <>
+                  A learning step is a YAML file under
+                  {' '}
+                  <code>learnings/</code>
+                  {' '}
+                  in the workspace; its rules mount into the agent under
+                  {' '}
+                  <code>/memories/&lt;path&gt;/</code>
+                  .
+                </>
+              )}
               icon={Sparkles}
             />
           )
