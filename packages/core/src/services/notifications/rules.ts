@@ -79,6 +79,16 @@ export function renderNotification(rule: NotificationRuleConfig, payload: Record
  *   decision-escalated — a decision waiting on Needs you is near its
  *   deadline, past it and held, or was applied by default
  *   (`services/needsYou/DecisionClockService.ts`). One per person per sweep.
+ *
+ *   sign-in-method-added — Google, Microsoft or another provider was linked
+ *   to the person's login, at sign-in or from their profile
+ *   (`services/auth/signInMethods.ts`). The person hears it so a link they
+ *   did not make is noticed; it opens their profile, where it can be removed.
+ *
+ *   org-joined — the person joined an Org without opening an invite link: an
+ *   invite accepted at sign-in, or an auto-join domain
+ *   (`services/auth/joinInvites.ts`). Lands in that Org's workspace and names
+ *   the workspaces they now open there.
  */
 export const CORE_NOTIFICATION_RULES: readonly NotificationRuleConfig[] = [
   {
@@ -87,6 +97,28 @@ export const CORE_NOTIFICATION_RULES: readonly NotificationRuleConfig[] = [
     description: 'A decision waiting on you is near its deadline, past it, or was applied by default.',
     event: 'decision.escalated',
     who: { field: 'ownerUserId' },
+    title: '{title}',
+    body: '{body}',
+    link: '{link}',
+    dedupe: '{dedupe}',
+  },
+  {
+    kind: 'sign-in-method-added',
+    label: 'Sign-in methods',
+    description: 'A way to sign in, such as Google or Microsoft, was added to your login.',
+    event: 'account.sign_in_method_added',
+    who: { field: 'userId' },
+    title: '{title}',
+    body: '{body}',
+    link: '{link}',
+    dedupe: '{dedupe}',
+  },
+  {
+    kind: 'org-joined',
+    label: 'Orgs joined',
+    description: 'You joined an Org: an invite to your address was accepted when you signed in.',
+    event: 'account.org_joined',
+    who: { field: 'userId' },
     title: '{title}',
     body: '{body}',
     link: '{link}',
