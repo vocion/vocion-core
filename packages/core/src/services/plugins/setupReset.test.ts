@@ -11,7 +11,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { and, eq } = await import('drizzle-orm');
-const { actionRunSchema, artifactSchema, businessObjectSchema, businessObjectTypeSchema, sourceCredentialSchema, sourceDekSchema, sourceInstallSchema } = await import('@/models/Schema');
+const { actionRunSchema, artifactSchema, askSchema, businessObjectSchema, businessObjectTypeSchema, sourceCredentialSchema, sourceDekSchema, sourceInstallSchema } = await import('@/models/Schema');
 const { createArtifact } = await import('@/services/ArtifactService');
 const { resetSetup } = await import('./setupReset');
 
@@ -32,10 +32,17 @@ async function seed(orgId: string) {
   // Judged in an earlier setup: the duplicate check would refuse the same record again.
   await db.insert(actionRunSchema).values({ orgId, actionId: 'objects.propose_candidate', input: { objectType: 'product', title: 'DeliveryStack', dedupOn: ['slug'] }, status: 'rejected', dedupKey: 'objects.propose_candidate:product:deliverystack' } as never);
   await db.insert(actionRunSchema).values({ orgId, actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'a judged request' }, status: 'done', dedupKey: 'objects.propose_candidate:request:judged' } as never);
+  // What the plugin's agents had in front of a person: the PM's question about Jira (the reply pass, before setup), and a dispatch. Another plugin's agent asked too.
+  await db.insert(actionRunSchema).values({ orgId, actionId: 'ask.file', input: { title: 'Jira is still unconnected — connect it?', options: ['Connect Jira', 'Leave it for now'] }, status: 'pending', invokedBy: 'agent:product-manager', proposal: { agentSlug: 'product-manager', confidence: 0.6 } } as never);
+  await db.insert(actionRunSchema).values({ orgId, actionId: 'factory.dispatch_task', input: { taskId: 1 }, status: 'pending', invokedBy: 'factory:product-manager' } as never);
+  await db.insert(actionRunSchema).values({ orgId, actionId: 'ask.file', input: { title: 'A wiki question' }, status: 'pending', invokedBy: 'agent:wiki-keeper', proposal: { agentSlug: 'wiki-keeper' } } as never);
+  await db.insert(askSchema).values({ orgId, kind: 'decision', title: 'Which board is the DS board?', agentSlug: 'product-manager', status: 'open' } as never);
+  await db.insert(askSchema).values({ orgId, kind: 'decision', title: 'A question from another plugin', agentSlug: 'wiki-keeper', status: 'open' } as never);
   return { repoId: repo!.id, requestId: request!.id, installId: install!.id };
 }
 
 beforeEach(async () => {
+  await db.delete(askSchema);
   await db.delete(actionRunSchema);
   await db.delete(artifactSchema);
   await db.delete(businessObjectSchema);
@@ -55,6 +62,7 @@ describe('resetSetup', () => {
     expect(out.disconnected).toEqual([{ connector: 'github', credentials: 1 }]);
     expect(out.deleted).toEqual([{ type: 'repo', records: 1, artifacts: 1 }]);
     expect(out.rejected).toBe(1);
+    expect(out.withdrawn).toEqual({ proposals: 2, asks: 1 });
 
     // Mine: the repo and its artifact are gone, the request stays, the credential is revoked, the repo proposal is rejected.
     expect(await db.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, ORG), eq(businessObjectSchema.id, mine.repoId)))).toHaveLength(0);
@@ -76,8 +84,18 @@ describe('resetSetup', () => {
     expect(keyed.find(r => (r.input as { objectType: string }).objectType === 'product')!.dedupKey).toBeNull();
     expect(keyed.find(r => (r.input as { title: string }).title === 'a judged request')!.dedupKey).toBe('objects.propose_candidate:request:judged');
 
+    // The plugin's agents' own waiting items are withdrawn; another plugin's agent keeps its question and its proposal.
+    expect(runs.filter(r => r.status === 'pending').map(r => (r.input as { title?: string }).title)).toEqual(expect.arrayContaining(['stays pending', 'A wiki question']));
+    expect(runs.find(r => (r.input as { title?: string }).title === 'Jira is still unconnected — connect it?')!.status).toBe('rejected');
+
+    const asks = await db.select({ title: askSchema.title, status: askSchema.status }).from(askSchema).where(eq(askSchema.orgId, ORG));
+
+    expect(asks.find(a => a.title === 'Which board is the DS board?')!.status).toBe('superseded');
+    expect(asks.find(a => a.title === 'A question from another plugin')!.status).toBe('open');
+
     // Theirs: untouched.
     expect(await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.orgId, OTHER))).toHaveLength(2);
+    expect(await db.select().from(askSchema).where(and(eq(askSchema.orgId, OTHER), eq(askSchema.status, 'open')))).toHaveLength(2);
     expect(await db.select().from(artifactSchema).where(eq(artifactSchema.orgId, OTHER))).toHaveLength(1);
 
     const [theirCred] = await db.select({ revokedAt: sourceCredentialSchema.revokedAt }).from(sourceCredentialSchema).where(eq(sourceCredentialSchema.installId, theirs.installId));

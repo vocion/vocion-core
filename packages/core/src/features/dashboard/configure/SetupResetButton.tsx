@@ -33,7 +33,8 @@ export function SetupResetButton(props: { plugin: string; anythingToReset: boole
       const res = await client.setup.reset({ plugin: props.plugin });
       const records = res.deleted.reduce((n, d) => n + d.records, 0);
       const creds = res.disconnected.reduce((n, d) => n + d.credentials, 0);
-      setNote(`Reset: ${creds} credential${creds === 1 ? '' : 's'} revoked, ${records} record${records === 1 ? '' : 's'} deleted, ${res.rejected} proposal${res.rejected === 1 ? '' : 's'} rejected.`);
+      const waiting = res.rejected + res.withdrawn.proposals + res.withdrawn.asks;
+      setNote(`Reset: ${creds} credential${creds === 1 ? '' : 's'} revoked, ${records} record${records === 1 ? '' : 's'} deleted, ${waiting} item${waiting === 1 ? '' : 's'} waiting on you withdrawn.`);
       setConfirming(false);
       router.refresh();
     } catch (e) {
