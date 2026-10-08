@@ -319,8 +319,9 @@ export default defineConfig<ChromaticConfig>({
       timeout: 60 * 1000,
     },
     // vocion-core#128 — a person in two accounts switches account by switching
-    // workspace. Self-seeding like `scorecard`.
-    // Run with: npx playwright test --project=account-switch
+    // workspace. Self-seeding like `scorecard`. Needs a multi-Org server, so it
+    // skips itself unless VOCION_ORGS=multi.
+    // Run with: VOCION_ORGS=multi npx playwright test --project=account-switch
     {
       name: 'account-switch',
       testDir: './e2e/account-switch',
