@@ -14,7 +14,7 @@
  * Northwind's was left behind, in one comparison, without this test keeping a
  * list of tables that could go stale.
  */
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,7 +24,8 @@ vi.mock('@/libs/DB');
 const { sql } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
 const { chargeUsage, setAccountCap } = await import('@/services/BudgetService');
-const { OffboardError, offboardAccount, planOffboard } = await import('./AccountOffboardService');
+const { OffboardError, offboardAccount: offboard, planOffboard: plan } = await import('./AccountOffboardService');
+type OffboardStorage = import('./AccountOffboardService').OffboardStorage;
 
 type Row = Record<string, unknown>;
 
@@ -133,6 +134,28 @@ const OPERATOR_EMAIL = 'ops@vocion-operator.example';
 let before: Record<string, string[]>;
 let out: string;
 
+/** The deployment's file storage for one test: two directories of its own and, when asked for, a bucket held in memory. */
+let storage: OffboardStorage;
+let bucket: Map<string, Uint8Array>;
+
+function storageFor(dir: string, withBucket = false): OffboardStorage {
+  return {
+    artifactsDir: path.join(dir, 'artifacts'),
+    mediaDir: path.join(dir, 'artifacts', 'media'),
+    bucket: withBucket ? { bucket: 'vocion-media-test', region: undefined } : null,
+    s3: {
+      list: async ({ prefix }) => [...bucket.keys()].filter(key => key.startsWith(prefix)).map(key => ({ key, size: bucket.get(key)!.byteLength })),
+      get: async ({ key }) => bucket.get(key)!,
+      remove: async ({ keys }) => {
+        keys.forEach(key => bucket.delete(key));
+      },
+    },
+  };
+}
+
+const offboardAccount = (opts: Parameters<typeof offboard>[0], deps: Parameters<typeof offboard>[1] = {}) => offboard(opts, { storage, ...deps });
+const planOffboard = (selector: string) => plan(selector, storage);
+
 async function reset(): Promise<void> {
   // Child-first enough for the restrict keys; cascades take the rest.
   await db.execute(sql`delete from knowledge_source`);
@@ -169,6 +192,8 @@ beforeEach(async () => {
   await db.execute(sql`insert into project_member (project_id, user_id, role, source) values ('proj-northwind-sam', 'usr-northwind', 'admin', 'owner')`);
 
   out = await mkdtemp(path.join(tmpdir(), 'offboard-'));
+  bucket = new Map();
+  storage = storageFor(await mkdtemp(path.join(tmpdir(), 'offboard-store-')));
 });
 
 afterAll(async () => {
@@ -316,7 +341,111 @@ describe('the dry run', () => {
   });
 });
 
+describe('the account\'s files', () => {
+  const HASH = '0123456789abcdef';
+
+  it('copies every file it keeps on the deployment into the export, then removes them, and leaves the other account\'s', async () => {
+    storage = storageFor(await mkdtemp(path.join(tmpdir(), 'offboard-store-')), true);
+    await mkdir(path.join(storage.mediaDir, 'proj-northwind-main', '42'), { recursive: true });
+    await writeFile(path.join(storage.artifactsDir, `proj-northwind-main-${HASH}.png`), 'northwind chart');
+    await writeFile(path.join(storage.artifactsDir, `proj-kestrel-main-${HASH}.png`), 'kestrel chart');
+    // An org whose id begins with Northwind's is not Northwind's.
+    await writeFile(path.join(storage.artifactsDir, `proj-northwind-main-2-${HASH}.png`), 'someone else');
+    await writeFile(path.join(storage.mediaDir, 'proj-northwind-main', '42', `walkthrough-${HASH}.webm`), 'northwind recording');
+    bucket.set(`proj-northwind-main/42/live-check-${HASH}.webm`, new TextEncoder().encode('northwind in the bucket'));
+    bucket.set(`proj-kestrel-main/7/live-check-${HASH}.webm`, new TextEncoder().encode('kestrel in the bucket'));
+
+    const dry = await planOffboard('northwind');
+
+    expect(dry.files).toEqual([
+      expect.objectContaining({ store: 'artifacts', files: 1 }),
+      expect.objectContaining({ store: 'media', files: 1 }),
+      expect.objectContaining({ store: 'media-bucket', location: 's3://vocion-media-test/', files: 1 }),
+    ]);
+
+    const manifest = await offboardAccount({ account: 'northwind', outDir: out, dryRun: false });
+
+    expect(manifest.files).toEqual({ exported: 3, deleted: 3, remaining: 0 });
+    expect(await readFile(path.join(out, 'files', 'artifacts', `proj-northwind-main-${HASH}.png`), 'utf8')).toBe('northwind chart');
+    expect(await readFile(path.join(out, 'files', 'media', 'proj-northwind-main', '42', `walkthrough-${HASH}.webm`), 'utf8')).toBe('northwind recording');
+    expect(await readFile(path.join(out, 'files', 'media-bucket', 'proj-northwind-main', '42', `live-check-${HASH}.webm`), 'utf8')).toBe('northwind in the bucket');
+
+    expect((await readdir(storage.artifactsDir)).sort()).toEqual(['media', `proj-kestrel-main-${HASH}.png`, `proj-northwind-main-2-${HASH}.png`]);
+    expect(await readdir(storage.mediaDir)).toEqual([]);
+    expect([...bucket.keys()]).toEqual([`proj-kestrel-main/7/live-check-${HASH}.webm`]);
+
+    await rm(out, { recursive: true, force: true });
+  });
+});
+
+describe('the export\'s snapshot', () => {
+  it('pages a table larger than one page by its key, every row once — a redacted key included', async () => {
+    const conversation = await one<{ id: number }>(sql`select id from conversation where org_id = 'proj-northwind-main'`);
+    await db.execute(sql`insert into conversation_message (conversation_id, role, content) select ${conversation.id}, 'user', 'message ' || n from generate_series(1, 1500) n`);
+    await db.execute(sql`insert into session (session_token, user_id, expires) select 'sess-northwind-' || n, 'usr-northwind', now() + interval '1 day' from generate_series(1, 1200) n`);
+
+    const manifest = await offboardAccount({ account: 'northwind', outDir: out, dryRun: false });
+
+    const messages = (await readFile(path.join(out, 'tables', 'conversation_message.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { id: number });
+
+    expect(messages).toHaveLength(1502);
+    expect(new Set(messages.map(message => message.id)).size).toBe(1502);
+
+    const sessions = (await readFile(path.join(out, 'tables', 'session.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>);
+
+    expect(sessions).toHaveLength(1201);
+    expect(sessions.every(row => row.session_token === '[redacted]' && !Object.keys(row).some(name => name.startsWith('__')))).toBe(true);
+    expect(manifest.plan.tables.find(entry => entry.table === 'session')?.rows).toBe(1201);
+    expect(await fingerprint()).toEqual(before);
+
+    await rm(out, { recursive: true, force: true });
+  });
+});
+
 describe('what stops an offboard', () => {
+  it('refuses, deleting nothing, when a reference into the account appears between the export and the delete', async () => {
+    const manifestPromise = offboardAccount({ account: 'northwind', outDir: out, dryRun: false }, {
+      beforeDelete: async () => {
+        await db.execute(sql`update artifact set conversation_id = (select id from conversation where org_id = 'proj-northwind-main') where org_id = 'proj-kestrel-main' and kind = 'chart'`);
+      },
+    });
+
+    await expect(manifestPromise).rejects.toThrow('came to point into it after the plan');
+
+    const manifest = JSON.parse(await readFile(path.join(out, 'manifest.json'), 'utf8'));
+
+    expect(manifest.plan.crossReferences).toEqual([expect.objectContaining({ table: 'artifact', columns: ['conversation_id'], references: 'conversation', rows: 1 })]);
+    expect(manifest.deleted).toBeUndefined();
+    // Northwind is all still there.
+    expect((await rows(sql`select id from tenant_account where id = 'acct-northwind'`))).toHaveLength(1);
+    expect((await rows(sql`select m.id from conversation_message m join conversation c on c.id = m.conversation_id where c.org_id = 'proj-northwind-main'`))).toHaveLength(2);
+
+    await rm(out, { recursive: true, force: true });
+  });
+
+  it('refuses an account whose Stripe subscription is still live, exporting and deleting nothing', async () => {
+    await db.execute(sql`update tenant_account set stripe_customer_id = 'cus_test_northwind', stripe_subscription_id = 'sub_test_northwind', stripe_subscription_status = 'active' where id = 'acct-northwind'`);
+    const preRefusal = await fingerprint();
+
+    await expect(offboardAccount({ account: 'northwind', outDir: out, dryRun: false })).rejects.toThrow('Cancel it in Stripe');
+
+    expect(await fingerprint()).toEqual(preRefusal);
+    expect(await readdir(out)).toEqual(['manifest.json']);
+
+    const manifest = JSON.parse(await readFile(path.join(out, 'manifest.json'), 'utf8'));
+
+    expect(manifest.plan.billing).toEqual([expect.objectContaining({ table: 'tenant_account', subscriptionId: 'sub_test_northwind', status: 'active', live: true })]);
+
+    // Cancelled, it goes.
+    await db.execute(sql`update tenant_account set stripe_subscription_status = 'canceled' where id = 'acct-northwind'`);
+    await rm(out, { recursive: true, force: true });
+    out = await mkdtemp(path.join(tmpdir(), 'offboard-'));
+
+    await expect(offboardAccount({ account: 'northwind', outDir: out, dryRun: false })).resolves.toMatchObject({ mode: 'offboard' });
+
+    await rm(out, { recursive: true, force: true });
+  });
+
   it('refuses, deleting nothing, when a row in the other account points into this one', async () => {
     // A Kestrel artifact made beside a Northwind conversation: deleting the
     // conversation would null out Kestrel's row.

@@ -3,9 +3,13 @@
  * and leave a manifest of exactly what went.
  *
  * Driven by `src/scripts/account-offboard.ts`. The order is fixed — plan,
- * export, delete — and each step checks the one before it: the export must
- * hold as many rows as the plan counted, and the delete must remove exactly
- * that many, inside one transaction, or nothing is deleted at all.
+ * export, delete — and each step checks the one before it. The plan and the
+ * export read one `REPEATABLE READ` snapshot, so the export holds exactly the
+ * rows the plan counted. The delete is one transaction that first asks again
+ * whether anything outside the account points into it, then must remove
+ * exactly the exported rows, or nothing is deleted at all. The account's
+ * files on the deployment's own storage are copied out with the export and
+ * removed once the rows' transaction has committed.
  *
  * ## What belongs to an account
  *
@@ -48,9 +52,12 @@
  * ## The export
  *
  * One JSON Lines file per table (`tables/<table>.jsonl`), the account's
- * members as `members.json`, and every markdown or table artifact as the
- * page files `exportArtifactAsPage` already writes for a workspace
- * (`artifacts/<workspace>/<artifact id>/pages/…`). Secrets are not exported —
+ * members as `members.json`, every markdown or table artifact as the page
+ * files `exportArtifactAsPage` already writes for a workspace
+ * (`artifacts/<workspace>/<artifact id>/pages/…`), and every file the
+ * deployment stores for the account's workspaces — the artifact store's
+ * `<workspace id>-<hash>.<ext>` and the recordings under `<workspace id>/` on
+ * disk or in `VOCION_MEDIA_BUCKET` — under `files/<store>/…`. Secrets are not exported —
  * a credential's ciphertext, a wrapped key, a password hash, an invite or
  * session token are written as `"[redacted]"` — and neither are derived
  * columns (embeddings, search vectors), which are rebuilt from the content
@@ -58,16 +65,22 @@
  */
 
 import type { SQL } from 'drizzle-orm';
-import { mkdir, writeFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { copyFile, mkdir, open, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { inArray, sql } from 'drizzle-orm';
 import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
 import { db } from '@/libs/DB';
+import { mediaBucket, mediaDir, mediaOrgPrefix } from '@/libs/tools/artifacts/media';
+import { artifactFileOrgId, artifactsDir } from '@/libs/tools/artifacts/store';
 import { artifactSchema } from '@/models/Schema';
 import { isOperator } from '@/services/operator';
 
 /** Anything that runs raw SQL: the database, or a transaction on it. */
 type Executor = Pick<typeof db, 'execute'>;
+
+/** A transaction on the database. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Rows from a raw query, on either driver: node-postgres and PGlite both put
@@ -86,7 +99,9 @@ async function rowsOf<T>(executor: Executor, query: SQL): Promise<T[]> {
 
 type Column = { name: string; type: string };
 type ForeignKey = { child: string; childColumns: string[]; parent: string; parentColumns: string[]; onDelete: string };
-type Catalog = { tables: Map<string, Column[]>; foreignKeys: ForeignKey[] };
+/** A primary key's columns, each with its exact type (`format_type`), so a key read as text casts back exactly. */
+type PrimaryKey = Array<{ name: string; type: string }>;
+type Catalog = { tables: Map<string, Column[]>; foreignKeys: ForeignKey[]; primaryKeys: Map<string, PrimaryKey> };
 
 /**
  * Every base table in `public` with its columns, and every foreign key
@@ -120,8 +135,19 @@ async function readCatalog(executor: Executor): Promise<Catalog> {
     where con.contype = 'f' and con.connamespace = 'public'::regnamespace
     order by 1, 2
   `);
+  const primaryKeys = await rowsOf<{ tbl: string; cols: string[]; types: string[] }>(executor, sql`
+    select
+      (select relname from pg_class where oid = con.conrelid)::text as tbl,
+      array(select a.attname::text from unnest(con.conkey) with ordinality k(attnum, n)
+            join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum order by k.n)::text[] as cols,
+      array(select format_type(a.atttypid, a.atttypmod) from unnest(con.conkey) with ordinality k(attnum, n)
+            join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum order by k.n)::text[] as types
+    from pg_constraint con
+    where con.contype = 'p' and con.connamespace = 'public'::regnamespace
+  `);
   return {
     tables,
+    primaryKeys: new Map(primaryKeys.map(pk => [pk.tbl, pk.cols.map((name, index) => ({ name, type: pk.types[index]! }))])),
     foreignKeys: foreignKeys.map(fk => ({
       child: fk.child,
       parent: fk.parent,
@@ -290,6 +316,28 @@ function deleteOrder(tables: readonly string[], foreignKeys: readonly ForeignKey
 
 export type OffboardTable = { table: string; scope: TableScopeKind; via: string; rows: number };
 
+/** Where an account's files live outside the database. */
+export type OffboardFileStoreName = 'artifacts' | 'media' | 'media-bucket';
+
+export type OffboardFileStore = {
+  store: OffboardFileStoreName;
+  /** The directory, or `s3://bucket/`, the files were found under. */
+  location: string;
+  files: number;
+  bytes: number;
+};
+
+/** A Stripe subscription row the account carries, and whether it still bills. */
+export type OffboardBilling = {
+  table: string;
+  id: string;
+  customerId: string | null;
+  subscriptionId: string | null;
+  status: string | null;
+  /** True while Stripe can still charge it: the offboard stops until it is cancelled. */
+  live: boolean;
+};
+
 export type OffboardPlan = {
   account: { id: string; name: string; slug: string };
   workspaces: Array<{ id: string; slug: string; name: string; kind: string }>;
@@ -304,6 +352,10 @@ export type OffboardPlan = {
    * the offboard: deleting would cascade into, null out, or fail on them.
    */
   crossReferences: Array<{ table: string; columns: string[]; references: string; rows: number }>;
+  /** Stripe subscriptions on the account's rows. A live one stops the offboard. */
+  billing: OffboardBilling[];
+  /** The account's files on this deployment's own storage, per store. */
+  files: OffboardFileStore[];
   /** Tables with no rows of the account's, scoped or not. */
   untouched: string[];
 };
@@ -316,7 +368,172 @@ export class OffboardError extends Error {
   }
 }
 
-type Working = { plan: OffboardPlan; scopes: Map<string, Scope>; catalog: Catalog };
+/* ------------------------------------------------------------------ */
+/* Files outside the database                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where this deployment keeps files, and how to reach the bucket. The
+ * defaults are the app's own (`libs/tools/artifacts/store.ts`, `media.ts`);
+ * tests pass their own directories and a fake bucket.
+ */
+export type OffboardStorage = {
+  /** `VOCION_ARTIFACTS_DIR`: generated images, charts, rendered pages — `<orgId>-<hash>.<ext>`. */
+  artifactsDir: string;
+  /** Recordings on disk: `<media dir>/<org>/<record>/<file>`. */
+  mediaDir: string;
+  /** `VOCION_MEDIA_BUCKET`: recordings under `<org>/<record>/<file>`; null when none is set. */
+  bucket: { bucket: string; region: string | undefined } | null;
+  s3: {
+    list: (opts: { bucket: string; prefix: string; region?: string }) => Promise<Array<{ key: string; size: number }>>;
+    get: (opts: { bucket: string; key: string; region?: string }) => Promise<Uint8Array>;
+    remove: (opts: { bucket: string; keys: readonly string[]; region?: string }) => Promise<void>;
+  };
+};
+
+/** The app's own storage, as it is configured now. */
+function defaultStorage(): OffboardStorage {
+  return {
+    artifactsDir: artifactsDir(),
+    mediaDir: mediaDir(),
+    bucket: mediaBucket(),
+    s3: {
+      list: async opts => (await import('@/libs/aws/s3')).listKeys(opts),
+      get: async opts => new Uint8Array((await (await import('@/libs/aws/s3')).getObjectBytes(opts)).bytes),
+      remove: async opts => (await import('@/libs/aws/s3')).deleteObjects(opts),
+    },
+  };
+}
+
+/** One of the account's files: which store, where it is, and where its copy goes in the export. */
+type StoredFile = { store: OffboardFileStoreName; ref: string; rel: string; bytes: number };
+
+/**
+ * Every file under a directory, recursively; nothing when it does not exist.
+ * @param dir - The directory.
+ */
+async function walk(dir: string): Promise<string[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...await walk(abs));
+    } else if (entry.isFile()) {
+      out.push(abs);
+    }
+  }
+  return out;
+}
+
+/**
+ * The account's files in every store, keyed by its workspace ids — the ids
+ * every store names its files by. The artifacts directory is matched on the
+ * exact org a file name carries (`artifactFileOrgId`), never on a prefix, so
+ * one workspace never claims another's whose id begins the same way.
+ * @param storage - Where to look.
+ * @param projectIds - The account's workspaces.
+ */
+async function findFiles(storage: OffboardStorage, projectIds: readonly string[]): Promise<StoredFile[]> {
+  const ids = new Set(projectIds);
+  const files: StoredFile[] = [];
+
+  let names: Dirent[] = [];
+  try {
+    names = await readdir(storage.artifactsDir, { withFileTypes: true });
+  } catch { /* no directory: nothing stored */ }
+  for (const entry of names) {
+    const org = entry.isFile() ? artifactFileOrgId(entry.name) : null;
+    if (org !== null && ids.has(org)) {
+      const abs = path.join(storage.artifactsDir, entry.name);
+      files.push({ store: 'artifacts', ref: abs, rel: entry.name, bytes: (await stat(abs)).size });
+    }
+  }
+
+  for (const id of projectIds) {
+    const prefix = mediaOrgPrefix(id);
+    for (const abs of await walk(path.join(storage.mediaDir, prefix))) {
+      files.push({ store: 'media', ref: abs, rel: path.relative(storage.mediaDir, abs), bytes: (await stat(abs)).size });
+    }
+    if (storage.bucket) {
+      for (const object of await storage.s3.list({ bucket: storage.bucket.bucket, prefix, region: storage.bucket.region })) {
+        files.push({ store: 'media-bucket', ref: object.key, rel: object.key, bytes: object.size });
+      }
+    }
+  }
+  return files;
+}
+
+/**
+ * Files found, per store, for the plan.
+ * @param storage - Where they were looked for.
+ * @param files - What was found.
+ */
+function fileStores(storage: OffboardStorage, files: readonly StoredFile[]): OffboardFileStore[] {
+  const location: Record<OffboardFileStoreName, string> = {
+    'artifacts': storage.artifactsDir,
+    'media': storage.mediaDir,
+    'media-bucket': storage.bucket ? `s3://${storage.bucket.bucket}/` : '',
+  };
+  const stores: OffboardFileStoreName[] = storage.bucket ? ['artifacts', 'media', 'media-bucket'] : ['artifacts', 'media'];
+  return stores.map((store) => {
+    const mine = files.filter(file => file.store === store);
+    return { store, location: location[store], files: mine.length, bytes: mine.reduce((sum, file) => sum + file.bytes, 0) };
+  });
+}
+
+/**
+ * Copy every file into `<dir>/files/<store>/…`.
+ * @param storage - Where they are.
+ * @param files - Which.
+ * @param dir - The export directory.
+ * @returns How many were copied.
+ */
+async function exportFiles(storage: OffboardStorage, files: readonly StoredFile[], dir: string): Promise<number> {
+  for (const file of files) {
+    const target = path.join(dir, 'files', file.store, file.rel);
+    await mkdir(path.dirname(target), { recursive: true });
+    if (file.store === 'media-bucket') {
+      await writeFile(target, await storage.s3.get({ bucket: storage.bucket!.bucket, key: file.ref, region: storage.bucket!.region }));
+    } else {
+      await copyFile(file.ref, target);
+    }
+  }
+  return files.length;
+}
+
+/**
+ * Remove the account's files once its rows are gone, and the per-workspace
+ * media directories they leave empty.
+ * @param storage - Where they are.
+ * @param files - Which.
+ * @param projectIds - The account's workspaces.
+ * @returns How many were removed.
+ */
+async function deleteFiles(storage: OffboardStorage, files: readonly StoredFile[], projectIds: readonly string[]): Promise<number> {
+  const keys = files.filter(file => file.store === 'media-bucket').map(file => file.ref);
+  if (keys.length > 0) {
+    await storage.s3.remove({ bucket: storage.bucket!.bucket, keys, region: storage.bucket!.region });
+  }
+  for (const file of files.filter(file => file.store !== 'media-bucket')) {
+    await rm(file.ref, { force: true });
+  }
+  for (const id of projectIds) {
+    await rm(path.join(storage.mediaDir, mediaOrgPrefix(id)), { recursive: true, force: true });
+  }
+  return files.length;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reading the plan                                                    */
+/* ------------------------------------------------------------------ */
+
+type Working = { plan: OffboardPlan; scopes: Map<string, Scope>; catalog: Catalog; files: StoredFile[] };
 
 /**
  * Find the account by id or slug.
@@ -387,11 +604,77 @@ async function resolveUsers(executor: Executor, catalog: Catalog, accountId: str
 }
 
 /**
- * Count everything that would go, and everything that stops it going.
- * @param executor - The database.
- * @param selector - The account's id or slug.
+ * Rows outside the account that point at a row this offboard deletes. Asked
+ * at plan time, and again inside the delete's own transaction — a reference
+ * made in between would otherwise be cascaded into or nulled out unreported.
+ * @param executor - The database or a transaction.
+ * @param catalog - The schema.
+ * @param scopes - Which rows of which table are the account's.
+ * @param deleting - Whether rows of a table are being deleted.
  */
-async function buildPlan(executor: Executor, selector: string): Promise<Working> {
+async function findCrossReferences(executor: Executor, catalog: Catalog, scopes: Map<string, Scope>, deleting: (table: string) => boolean): Promise<OffboardPlan['crossReferences']> {
+  const crossReferences: OffboardPlan['crossReferences'] = [];
+  for (const fk of catalog.foreignKeys) {
+    const parentScope = scopes.get(fk.parent);
+    // References to people are settled in `resolveUsers`, which keeps the person instead.
+    if (!parentScope || fk.parent === USERS_TABLE || !deleting(fk.parent)) {
+      continue;
+    }
+    const childScope = scopes.get(fk.child);
+    const outside = childScope ? sql`not coalesce(${childScope.predicate}, false)` : sql`true`;
+    const nonNull = sql.join(fk.childColumns.map(column => sql`${qualified(fk.child, column)} is not null`), sql` and `);
+    const [row] = await rowsOf<{ n: number | string }>(executor, sql`
+      select count(*)::int as n from ${ident(fk.child)}
+      where ${nonNull} and ${referencesScoped(fk, parentScope.predicate)} and ${outside}
+    `);
+    const rows = Number(row?.n ?? 0);
+    if (rows > 0) {
+      crossReferences.push({ table: fk.child, columns: fk.childColumns, references: fk.parent, rows });
+    }
+  }
+  return crossReferences;
+}
+
+/** Stripe statuses after which a subscription can never charge again. */
+const ENDED_SUBSCRIPTION = new Set(['canceled', 'incomplete_expired']);
+
+/**
+ * The Stripe subscriptions the account's rows carry: the account's own, and
+ * the legacy `organization` billing row of each workspace. Deleting the row
+ * does not cancel the subscription, so a live one stops the offboard.
+ * @param executor - The database.
+ * @param accountId - The account.
+ * @param projectIds - Its workspaces.
+ */
+async function readBilling(executor: Executor, accountId: string, projectIds: string[]): Promise<OffboardBilling[]> {
+  const rows = await rowsOf<{ tbl: string; id: string; customer_id: string | null; subscription_id: string | null; status: string | null }>(executor, sql`
+    select 'tenant_account' as tbl, id, stripe_customer_id as customer_id, stripe_subscription_id as subscription_id, stripe_subscription_status as status
+    from tenant_account where id = ${accountId}
+    union all
+    select 'organization', id, stripe_customer_id, stripe_subscription_id, stripe_subscription_status
+    from organization where ${inValues(sql`id`, projectIds)}
+  `);
+  return rows
+    .filter(row => row.customer_id !== null || row.subscription_id !== null)
+    .map(row => ({
+      table: row.tbl,
+      id: row.id,
+      customerId: row.customer_id,
+      subscriptionId: row.subscription_id,
+      status: row.status,
+      // A subscription with no status recorded is treated as live: nothing
+      // here can tell it has stopped billing.
+      live: row.subscription_id !== null && !ENDED_SUBSCRIPTION.has(row.status ?? ''),
+    }));
+}
+
+/**
+ * Count everything that would go, and everything that stops it going.
+ * @param executor - The database, or the export's snapshot.
+ * @param selector - The account's id or slug.
+ * @param storage - Where the deployment keeps files.
+ */
+async function buildPlan(executor: Executor, selector: string, storage: OffboardStorage): Promise<Working> {
   const account = await findAccount(executor, selector);
   const workspaces = await rowsOf<{ id: string; slug: string; name: string; kind: string }>(executor, sql`
     select id, slug, name, kind from project where account_id = ${account.id} order by slug
@@ -407,25 +690,8 @@ async function buildPlan(executor: Executor, selector: string): Promise<Working>
     counts.set(table, Number(row?.n ?? 0));
   }
 
-  const crossReferences: OffboardPlan['crossReferences'] = [];
-  for (const fk of catalog.foreignKeys) {
-    const parentScope = scopes.get(fk.parent);
-    // References to people are settled in `resolveUsers`, which keeps the person instead.
-    if (!parentScope || fk.parent === USERS_TABLE || (counts.get(fk.parent) ?? 0) === 0) {
-      continue;
-    }
-    const childScope = scopes.get(fk.child);
-    const outside = childScope ? sql`not coalesce(${childScope.predicate}, false)` : sql`true`;
-    const nonNull = sql.join(fk.childColumns.map(column => sql`${qualified(fk.child, column)} is not null`), sql` and `);
-    const [row] = await rowsOf<{ n: number | string }>(executor, sql`
-      select count(*)::int as n from ${ident(fk.child)}
-      where ${nonNull} and ${referencesScoped(fk, parentScope.predicate)} and ${outside}
-    `);
-    const rows = Number(row?.n ?? 0);
-    if (rows > 0) {
-      crossReferences.push({ table: fk.child, columns: fk.childColumns, references: fk.parent, rows });
-    }
-  }
+  const crossReferences = await findCrossReferences(executor, catalog, scopes, table => (counts.get(table) ?? 0) > 0);
+  const files = await findFiles(storage, projectIds);
 
   const withRows = [...scopes.keys()].filter(table => (counts.get(table) ?? 0) > 0);
   const order = deleteOrder(withRows, catalog.foreignKeys);
@@ -435,17 +701,30 @@ async function buildPlan(executor: Executor, selector: string): Promise<Working>
     tables: order.map(table => ({ table, scope: scopes.get(table)!.kind, via: scopes.get(table)!.via, rows: counts.get(table)! })),
     users,
     crossReferences,
+    billing: await readBilling(executor, account.id, projectIds),
+    files: fileStores(storage, files),
     untouched: [...catalog.tables.keys()].filter(table => !withRows.includes(table)).sort(),
   };
-  return { plan, scopes, catalog };
+  return { plan, scopes, catalog, files };
+}
+
+/**
+ * The snapshot a plan and its export are read in: one `REPEATABLE READ READ
+ * ONLY` transaction, so every count, every exported page and every file list
+ * describe the same instant, whatever is written meanwhile.
+ * @param fn - What to read.
+ */
+async function inSnapshot<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return db.transaction(async tx => fn(tx), { isolationLevel: 'repeatable read', accessMode: 'read only' });
 }
 
 /**
  * What offboarding an account would remove, changing nothing.
  * @param selector - The account's id or slug.
+ * @param storage - Where the deployment keeps files; the app's own by default.
  */
-export async function planOffboard(selector: string): Promise<OffboardPlan> {
-  return (await buildPlan(db, selector)).plan;
+export async function planOffboard(selector: string, storage: Partial<OffboardStorage> = {}): Promise<OffboardPlan> {
+  return (await inSnapshot(executor => buildPlan(executor, selector, { ...defaultStorage(), ...storage }))).plan;
 }
 
 /* ------------------------------------------------------------------ */
@@ -476,8 +755,12 @@ const SECRET_COLUMNS = new Set([
 /** Column types that are derived from exported content and rebuilt from it: embeddings, search vectors. */
 const DERIVED_TYPES = new Set(['USER-DEFINED', 'tsvector']);
 
-/** Rows read per page while exporting, so a large table is never held whole. */
+/** Rows read per page while exporting; each page is appended to the file and let go. */
 const EXPORT_PAGE = 1000;
+
+/** The alias a page's key columns are read under, so a redacted key column still pages. */
+const KEY_ALIAS_PREFIX = '__offboard_key_';
+const keyAlias = (index: number) => `${KEY_ALIAS_PREFIX}${index}`;
 
 /**
  * JSON for one row: a bigint as its digits, everything else as JSON has it.
@@ -494,41 +777,87 @@ export type OffboardExport = {
 };
 
 /**
- * Write the account's rows, members and artifacts under `dir`, and check every
- * table's file holds the rows the plan counted.
- * @param working - The plan and the scopes it was counted with.
- * @param dir - Where to write.
+ * One table's rows of the account's into a JSON Lines file, a page at a time.
+ *
+ * Pages follow the primary key (keyset: each page starts after the last key
+ * of the one before), read as text and cast back to the key's own type so the
+ * comparison is exact. A table with no primary key pages by offset in
+ * physical order. Both are stable because every page reads the same snapshot.
+ * @param executor - The export's snapshot.
+ * @param working - The plan.
+ * @param table - The table.
+ * @param file - Where to write it.
+ * @returns How many rows were written.
  */
-async function writeExport(working: Working, dir: string): Promise<OffboardExport> {
-  const { plan, scopes, catalog } = working;
-  await mkdir(path.join(dir, 'tables'), { recursive: true });
-  const files: OffboardExport['files'] = [];
-
-  for (const entry of plan.tables) {
-    const columns = catalog.tables.get(entry.table)!.filter(column => !DERIVED_TYPES.has(column.type));
-    const select = sql.join(columns.map(column => (SECRET_COLUMNS.has(column.name)
-      ? sql`case when ${qualified(entry.table, column.name)} is null then null else '[redacted]' end as ${ident(column.name)}`
-      : qualified(entry.table, column.name))), sql`, `);
-    const lines: string[] = [];
+async function exportTable(executor: Executor, working: Working, table: string, file: string): Promise<number> {
+  const columns = working.catalog.tables.get(table)!.filter(column => !DERIVED_TYPES.has(column.type));
+  const select = sql.join(columns.map(column => (SECRET_COLUMNS.has(column.name)
+    ? sql`case when ${qualified(table, column.name)} is null then null else '[redacted]' end as ${ident(column.name)}`
+    : qualified(table, column.name))), sql`, `);
+  const predicate = working.scopes.get(table)!.predicate;
+  const key = working.catalog.primaryKeys.get(table) ?? [];
+  const handle = await open(file, 'w');
+  let written = 0;
+  try {
+    let after: string[] | null = null;
     for (let offset = 0; ; offset += EXPORT_PAGE) {
-      const page = await rowsOf<Record<string, unknown>>(db, sql`
-        select ${select} from ${ident(entry.table)} where ${scopes.get(entry.table)!.predicate}
-        order by ctid limit ${EXPORT_PAGE} offset ${offset}
-      `);
-      lines.push(...page.map(rowJson));
+      let page: Array<Record<string, unknown>>;
+      if (key.length > 0) {
+        const keyColumns = sql.join(key.map(part => qualified(table, part.name)), sql`, `);
+        const keyText = sql.join(key.map((part, index) => sql`${qualified(table, part.name)}::text as ${ident(keyAlias(index))}`), sql`, `);
+        const cursor = after
+          ? sql` and (${keyColumns}) > (${sql.join(after.map((value, index) => sql`${value}::${sql.raw(key[index]!.type)}`), sql`, `)})`
+          : sql``;
+        page = await rowsOf<Record<string, unknown>>(executor, sql`
+          select ${select}, ${keyText} from ${ident(table)} where ${predicate}${cursor}
+          order by ${keyColumns} limit ${EXPORT_PAGE}
+        `);
+        const last = page.at(-1);
+        after = last ? key.map((_, index) => String(last[keyAlias(index)])) : after;
+        page = page.map(row => Object.fromEntries(Object.entries(row).filter(([name]) => !name.startsWith(KEY_ALIAS_PREFIX))));
+      } else {
+        page = await rowsOf<Record<string, unknown>>(executor, sql`
+          select ${select} from ${ident(table)} where ${predicate}
+          order by ctid limit ${EXPORT_PAGE} offset ${offset}
+        `);
+      }
+      if (page.length > 0) {
+        await handle.write(`${page.map(rowJson).join('\n')}\n`);
+        written += page.length;
+      }
       if (page.length < EXPORT_PAGE) {
         break;
       }
     }
-    if (lines.length !== entry.rows) {
-      throw new OffboardError(`${entry.table} held ${entry.rows} rows when counted and ${lines.length} when exported — the account is still being written to. Nothing was deleted; stop its activity and run again.`);
-    }
+  } finally {
+    await handle.close();
+  }
+  return written;
+}
+
+/**
+ * Write the account's rows, members and artifacts under `dir`, read from the
+ * same snapshot the plan was counted in, and check every table's file holds
+ * the rows the plan counted.
+ * @param executor - The plan's snapshot.
+ * @param working - The plan and the scopes it was counted with.
+ * @param dir - Where to write.
+ */
+async function writeExport(executor: Tx, working: Working, dir: string): Promise<OffboardExport> {
+  const { plan } = working;
+  await mkdir(path.join(dir, 'tables'), { recursive: true });
+  const files: OffboardExport['files'] = [];
+
+  for (const entry of plan.tables) {
     const file = path.join('tables', `${entry.table}.jsonl`);
-    await writeFile(path.join(dir, file), lines.length > 0 ? `${lines.join('\n')}\n` : '');
-    files.push({ path: file, rows: lines.length });
+    const rows = await exportTable(executor, working, entry.table, path.join(dir, file));
+    if (rows !== entry.rows) {
+      throw new OffboardError(`${entry.table} held ${entry.rows} rows when counted and ${rows} when exported from the same snapshot. Nothing was deleted; report this.`);
+    }
+    files.push({ path: file, rows });
   }
 
-  const members = await rowsOf<Record<string, unknown>>(db, sql`
+  const members = await rowsOf<Record<string, unknown>>(executor, sql`
     select u.id as user_id, u.email, u.name, m.role, m.created_at as joined_at
     from account_membership m join "user" u on u.id = m.user_id
     where m.account_id = ${plan.account.id} order by u.email
@@ -539,7 +868,7 @@ async function writeExport(working: Working, dir: string): Promise<OffboardExpor
   const artifacts = { written: 0, unsupported: [] as OffboardExport['artifacts']['unsupported'] };
   const slugById = new Map(plan.workspaces.map(workspace => [workspace.id, workspace.slug]));
   if (slugById.size > 0) {
-    const rows = await db.select().from(artifactSchema).where(inArray(artifactSchema.orgId, [...slugById.keys()]));
+    const rows = await executor.select().from(artifactSchema).where(inArray(artifactSchema.orgId, [...slugById.keys()]));
     for (const artifact of rows) {
       const page = exportArtifactAsPage(artifact);
       if (page.unsupported) {
@@ -563,8 +892,39 @@ async function writeExport(working: Working, dir: string): Promise<OffboardExpor
 /* ------------------------------------------------------------------ */
 
 /**
- * Delete every planned row in one transaction, children first, and refuse —
- * rolling everything back — if any table's count moved since the plan.
+ * The SQLSTATE a database error carries, on the error or the driver error
+ * drizzle wraps in it.
+ * @param error - Whatever was thrown.
+ */
+function sqlStateOf(error: unknown): string | undefined {
+  for (let current: unknown = error; current && typeof current === 'object'; current = (current as { cause?: unknown }).cause) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string') {
+      return code;
+    }
+  }
+  return undefined;
+}
+
+/** Raised from inside the delete when rows outside the account came to point into it after the plan. */
+class LateCrossReferenceError extends OffboardError {
+  constructor(readonly references: OffboardPlan['crossReferences']) {
+    super(`Rows outside the account came to point into it after the plan (${references.map(ref => `${ref.rows} in ${ref.table}.${ref.columns.join(',')} → ${ref.references}`).join('; ')}). Nothing was deleted; see manifest.json.`);
+  }
+}
+
+/**
+ * Delete every planned row in one `REPEATABLE READ` transaction, children
+ * first, and refuse — rolling everything back — if anything moved since the
+ * export.
+ *
+ * It starts by locking the account row, then asks again whether any row
+ * outside the account points into it: the plan's answer is from before the
+ * export, and a reference made since would be cascaded into or nulled out
+ * with nobody told. Any table whose count moved stops it too. Past that
+ * point, a row another session changes or a reference it adds makes Postgres
+ * refuse the transaction (a serialization failure), which is reported the
+ * same way: nothing deleted, run again.
  *
  * Then sweep what the delete itself wrote. Some tables announce a deletion by
  * trigger (the live stream's `live_notice` rows, `migrations/0155`), and those
@@ -577,29 +937,45 @@ async function writeExport(working: Working, dir: string): Promise<OffboardExpor
 async function deleteRows(working: Working): Promise<{ deleted: Map<string, number>; swept: Map<string, number> }> {
   const deleted = new Map<string, number>();
   const swept = new Map<string, number>();
-  await db.transaction(async (tx) => {
-    for (const entry of working.plan.tables) {
-      const [row] = await rowsOf<{ n: number | string }>(tx, sql`
-        with gone as (delete from ${ident(entry.table)} where ${working.scopes.get(entry.table)!.predicate} returning 1)
-        select count(*)::int as n from gone
-      `);
-      const n = Number(row?.n ?? 0);
-      if (n !== entry.rows) {
-        throw new OffboardError(`${entry.table}: ${entry.rows} rows were exported but ${n} matched at delete — the account changed in between. Nothing was deleted; run again.`);
+  const planned = new Set(working.plan.tables.map(entry => entry.table));
+  try {
+    await db.transaction(async (tx) => {
+      const [locked] = await rowsOf<{ id: string }>(tx, sql`select id from tenant_account where id = ${working.plan.account.id} for update`);
+      if (!locked) {
+        throw new OffboardError(`The account ${working.plan.account.id} was deleted by something else after the plan. Nothing was deleted here.`);
       }
-      deleted.set(entry.table, n);
-    }
-    for (const [table, scope] of working.scopes) {
-      const [row] = await rowsOf<{ n: number | string }>(tx, sql`
-        with gone as (delete from ${ident(table)} where ${scope.predicate} and xmin = pg_current_xact_id()::xid returning 1)
-        select count(*)::int as n from gone
-      `);
-      const n = Number(row?.n ?? 0);
-      if (n > 0) {
-        swept.set(table, n);
+      const late = await findCrossReferences(tx, working.catalog, working.scopes, table => planned.has(table));
+      if (late.length > 0) {
+        throw new LateCrossReferenceError(late);
       }
+      for (const entry of working.plan.tables) {
+        const [row] = await rowsOf<{ n: number | string }>(tx, sql`
+          with gone as (delete from ${ident(entry.table)} where ${working.scopes.get(entry.table)!.predicate} returning 1)
+          select count(*)::int as n from gone
+        `);
+        const n = Number(row?.n ?? 0);
+        if (n !== entry.rows) {
+          throw new OffboardError(`${entry.table}: ${entry.rows} rows were exported but ${n} matched at delete — the account changed in between. Nothing was deleted; stop its activity and run again.`);
+        }
+        deleted.set(entry.table, n);
+      }
+      for (const [table, scope] of working.scopes) {
+        const [row] = await rowsOf<{ n: number | string }>(tx, sql`
+          with gone as (delete from ${ident(table)} where ${scope.predicate} and xmin = pg_current_xact_id()::xid returning 1)
+          select count(*)::int as n from gone
+        `);
+        const n = Number(row?.n ?? 0);
+        if (n > 0) {
+          swept.set(table, n);
+        }
+      }
+    }, { isolationLevel: 'repeatable read' });
+  } catch (error) {
+    if (sqlStateOf(error) === '40001') {
+      throw new OffboardError('The account changed while it was being deleted, so Postgres refused the transaction. Nothing was deleted; stop its activity and run again.');
     }
-  });
+    throw error;
+  }
   return { deleted, swept };
 }
 
@@ -607,13 +983,15 @@ async function deleteRows(working: Working): Promise<{ deleted: Map<string, numb
 /* The whole run                                                       */
 /* ------------------------------------------------------------------ */
 
-/** What lives outside this database and so is not removed here. Listed in every manifest. */
+/** What lives outside this database and this deployment's own storage, and so is not removed here. Listed in every manifest. */
 export const NOT_COVERED = [
   'Langfuse traces tagged org:<workspace id> — delete them in Langfuse.',
   'AgentCore Memory sessions and long-term records for the account\'s conversations.',
   'Objects in the client\'s own S3 buckets or other connected systems — they are the client\'s.',
   'Durable-workflow state kept outside the public schema.',
   'The KMS key itself, which is shared; the account\'s wrapped data keys are deleted above, which makes its stored ciphertexts unreadable.',
+  'Earlier versions in a versioned media bucket, and any backup or CDN copy of the artifacts directory or the bucket: deleting writes delete markers and removes the live files only.',
+  'The Stripe customer record. A live subscription stops the offboard until it is cancelled in Stripe; the customer itself stays there until deleted in Stripe.',
 ];
 
 export type OffboardManifest = {
@@ -635,24 +1013,50 @@ export type OffboardManifest = {
   sideEffects?: Record<string, number>;
   /** Rows of the account's left after the delete, for every table it could have rows in — every value 0. */
   remaining?: Record<string, number>;
+  /**
+   * The account's files on this deployment's storage (`plan.files` says where
+   * and how many): copied into `files/` before the delete, removed after the
+   * rows are, and looked for again afterwards — `remaining` is 0. Absent on a
+   * dry run.
+   */
+  files?: { exported: number; deleted: number; remaining: number };
   notCovered: string[];
+};
+
+/** Seams for tests: where files are kept, and a moment between the export and the delete. */
+export type OffboardDeps = {
+  storage?: Partial<OffboardStorage>;
+  /** Runs after the export is written and before the delete starts. */
+  beforeDelete?: () => Promise<void>;
 };
 
 /**
  * Offboard an account: plan, export to `outDir`, delete, and write
  * `manifest.json` beside the export. A dry run plans and writes the manifest
  * only. Refuses — before anything is deleted — when rows outside the account
- * reference it, when the export does not match the plan, or when the delete
- * would not match the export.
+ * reference it (at plan time or at delete time), when one of its Stripe
+ * subscriptions is still live, when the export does not match the plan, or
+ * when the delete would not match the export.
+ *
+ * The plan and the export are read from one snapshot; the account's files are
+ * copied out after it, and removed only once the rows' transaction commits.
  * @param opts - What to offboard and where the export goes.
  * @param opts.account - `tenant_account.id` or `.slug`.
  * @param opts.outDir - The export directory; created if missing.
  * @param opts.dryRun - Plan only.
+ * @param deps - Seams for tests.
  */
-export async function offboardAccount(opts: { account: string; outDir: string; dryRun: boolean }): Promise<OffboardManifest> {
+export async function offboardAccount(opts: { account: string; outDir: string; dryRun: boolean }, deps: OffboardDeps = {}): Promise<OffboardManifest> {
   const startedAt = new Date().toISOString();
-  const working = await buildPlan(db, opts.account);
+  const storage = { ...defaultStorage(), ...deps.storage };
   await mkdir(opts.outDir, { recursive: true });
+
+  const { working, exported } = await inSnapshot(async (executor) => {
+    const plan = await buildPlan(executor, opts.account, storage);
+    const stops = opts.dryRun || plan.plan.crossReferences.length > 0 || plan.plan.billing.some(entry => entry.live);
+    return { working: plan, exported: stops ? undefined : await writeExport(executor, plan, opts.outDir) };
+  });
+
   const manifest: OffboardManifest = {
     kind: 'vocion.account-offboard',
     version: 1,
@@ -676,11 +1080,29 @@ export async function offboardAccount(opts: { account: string; outDir: string; d
     const named = working.plan.crossReferences.map(ref => `${ref.rows} in ${ref.table}.${ref.columns.join(',')} → ${ref.references}`).join('; ');
     throw new OffboardError(`Rows outside the account point into it (${named}). Nothing was exported or deleted; see manifest.json.`);
   }
+  const live = working.plan.billing.filter(entry => entry.live);
+  if (live.length > 0) {
+    await save();
+    const named = live.map(entry => `${entry.subscriptionId} (${entry.status ?? 'no status recorded'}) on ${entry.table} ${entry.id}`).join('; ');
+    throw new OffboardError(`The account still has a live Stripe subscription: ${named}. Deleting its rows would not stop Stripe charging the client. Cancel it in Stripe, then run again. Nothing was exported or deleted.`);
+  }
 
-  manifest.export = await writeExport(working, opts.outDir);
-  const { deleted, swept } = await deleteRows(working);
-  manifest.deleted = Object.fromEntries(deleted);
-  manifest.sideEffects = Object.fromEntries(swept);
+  manifest.export = exported!;
+  const filesExported = await exportFiles(storage, working.files, opts.outDir);
+  await deps.beforeDelete?.();
+
+  let result: Awaited<ReturnType<typeof deleteRows>>;
+  try {
+    result = await deleteRows(working);
+  } catch (error) {
+    if (error instanceof LateCrossReferenceError) {
+      manifest.plan.crossReferences = error.references;
+    }
+    await save();
+    throw error;
+  }
+  manifest.deleted = Object.fromEntries(result.deleted);
+  manifest.sideEffects = Object.fromEntries(result.swept);
 
   const remaining: Record<string, number> = {};
   for (const [table, scope] of working.scopes) {
@@ -688,7 +1110,25 @@ export async function offboardAccount(opts: { account: string; outDir: string; d
     remaining[table] = Number(row?.n ?? 0);
   }
   manifest.remaining = remaining;
+
+  // The rows are gone; now the files. A store that refuses leaves the run
+  // reporting exactly what is left, with the copies already in the export.
+  const projectIds = working.plan.workspaces.map(workspace => workspace.id);
+  let filesDeleted = 0;
+  let fileError: unknown;
+  try {
+    filesDeleted = await deleteFiles(storage, working.files, projectIds);
+  } catch (error) {
+    fileError = error;
+  }
+  const filesLeft = await findFiles(storage, projectIds);
+  manifest.files = { exported: filesExported, deleted: fileError ? 0 : filesDeleted, remaining: filesLeft.length };
   await save();
+
+  if (fileError || filesLeft.length > 0) {
+    const where = fileStores(storage, filesLeft).filter(store => store.files > 0).map(store => `${store.files} in ${store.location}`).join(', ');
+    throw new OffboardError(`The account's rows are deleted, but ${filesLeft.length} of its files are still stored (${where})${fileError instanceof Error ? `: ${fileError.message}` : ''}. Their copies are in ${path.join(opts.outDir, 'files')}; remove the originals by hand. See manifest.json.`);
+  }
   const left = Object.entries(remaining).filter(([, n]) => n > 0);
   if (left.length > 0) {
     throw new OffboardError(`Deleted, but rows of the account appeared afterwards: ${left.map(([table, n]) => `${n} in ${table}`).join(', ')}. Something is still writing to it; see manifest.json and run again.`);

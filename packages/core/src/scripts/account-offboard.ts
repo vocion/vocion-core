@@ -9,15 +9,18 @@ import 'dotenv/config';
  *   npm run account:offboard -- --account <id|slug> --out <dir> --dry-run
  *   npm run account:offboard -- --account <id|slug> --out <dir> --confirm <slug>
  *
- * `--dry-run` counts what would go — every table, every person, anything that
- * would stop it — and writes only `<dir>/manifest.json`. Without it, the run
- * exports to `<dir>` (`tables/*.jsonl`, `members.json`, `artifacts/…`), then
- * deletes every row in one transaction, and needs `--confirm` naming the
- * account's slug, so a mistyped id cannot delete the wrong client.
+ * `--dry-run` counts what would go — every table, every person, every file
+ * the deployment keeps for it, anything that would stop it — and writes only
+ * `<dir>/manifest.json`. Without it, the run exports to `<dir>`
+ * (`tables/*.jsonl`, `members.json`, `artifacts/…`, and the stored files
+ * under `files/`), then deletes every row in one transaction, then the files,
+ * and needs `--confirm` naming the account's slug, so a mistyped id cannot
+ * delete the wrong client.
  *
- * Stop the account's activity first (remove its people's access): a row
- * written between the export and the delete makes the run refuse and delete
- * nothing, rather than delete something that was never exported.
+ * Cancel the account's Stripe subscription first: a live one stops the run.
+ * Stop the account's activity too (remove its people's access): a row written
+ * or a reference made between the export and the delete makes the run refuse
+ * and delete nothing, rather than delete something that was never exported.
  *
  * The rules — what counts as the account's, who is kept, what is redacted —
  * are in `services/AccountOffboardService.ts`.
@@ -68,8 +71,17 @@ async function main(): Promise<number> {
       console.log(`    ${ref.rows} in ${ref.table}.${ref.columns.join(',')} -> ${ref.references}`);
     }
   }
+  for (const store of plan.files) {
+    console.log(`  files      : ${store.files} in ${store.store} (${store.location}), ${store.bytes} bytes`);
+  }
+  for (const entry of plan.billing) {
+    console.log(`  billing    : ${entry.subscriptionId ?? 'no subscription'} (${entry.status ?? 'no status'}) on ${entry.table} ${entry.id}${entry.live ? ' — LIVE, cancel it in Stripe first' : ''}`);
+  }
   if (manifest.export) {
     console.log(`  exported   : ${manifest.export.files.length} files, ${manifest.export.artifacts.written} artifacts as pages`);
+  }
+  if (manifest.files) {
+    console.log(`  files      : ${manifest.files.exported} exported, ${manifest.files.deleted} deleted, ${manifest.files.remaining} remaining`);
   }
   console.log(`  manifest   : ${out}/manifest.json`);
   return 0;

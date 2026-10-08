@@ -48,6 +48,19 @@ export function artifactsUrlBase(): string {
   return process.env.VOCION_ARTIFACTS_URL_BASE ?? API_ARTIFACTS_BASE;
 }
 
+/**
+ * The org a stored file was written for, read back off its name — the
+ * `<orgId>-<sha256[0..16]>.<ext>` that {@link saveArtifact} gives it — or null
+ * for a name this store did not write. Exact rather than a prefix match, so
+ * `proj-a` never claims `proj-a-2`'s files: the hash is always sixteen hex
+ * characters, and everything before it is the org.
+ * @param filename - A file name in the artifacts directory.
+ */
+export function artifactFileOrgId(filename: string): string | null {
+  const match = /^(.+)-[0-9a-f]{16}\.[^./\\]+$/.exec(filename);
+  return match ? match[1]! : null;
+}
+
 export async function saveArtifact(input: {
   orgId: string;
   data: Buffer | string;

@@ -9,6 +9,7 @@ import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import {
   CopyObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -99,6 +100,31 @@ export async function copyObject(opts: { bucket: string; fromKey: string; toKey:
 
 export async function putObject(opts: { bucket: string; key: string; body: Uint8Array; contentType: string; region?: string; metadata?: Record<string, string> }): Promise<void> {
   await s3Client(opts.region).send(new PutObjectCommand({ Bucket: opts.bucket, Key: opts.key, Body: opts.body, ContentType: opts.contentType, Metadata: opts.metadata }));
+}
+
+/**
+ * Delete keys from a bucket, a thousand per request (S3's ceiling). Throws
+ * when S3 reports any key it could not delete, naming the first, so a caller
+ * never reports a deletion that did not happen. On a versioned bucket this
+ * writes delete markers; earlier versions stay until a lifecycle rule or a
+ * person removes them.
+ * @param opts - The bucket, the keys and the region.
+ * @param opts.bucket - The bucket.
+ * @param opts.keys - The object keys.
+ * @param opts.region - The bucket's region, when not the default.
+ */
+export async function deleteObjects(opts: { bucket: string; keys: readonly string[]; region?: string }): Promise<void> {
+  for (let start = 0; start < opts.keys.length; start += 1000) {
+    const batch = opts.keys.slice(start, start + 1000);
+    const res = await s3Client(opts.region).send(new DeleteObjectsCommand({
+      Bucket: opts.bucket,
+      Delete: { Objects: batch.map(key => ({ Key: key })), Quiet: true },
+    }));
+    const failed = res.Errors ?? [];
+    if (failed.length > 0) {
+      throw new Error(`S3 did not delete ${failed.length} of ${batch.length} objects in ${opts.bucket}; first: ${failed[0]?.Key} (${failed[0]?.Code ?? 'unknown'}).`);
+    }
+  }
 }
 
 export async function presignGet(opts: { bucket: string; key: string; region?: string; expiresIn?: number }): Promise<string> {

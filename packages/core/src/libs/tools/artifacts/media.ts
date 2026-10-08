@@ -117,6 +117,15 @@ export function mediaKey(orgId: string, recordId: string | number, filename: str
   return `${orgSegment(orgId)}/${String(recordId)}/${filename}`;
 }
 
+/**
+ * Where one org's recordings start, in the bucket and under the media
+ * directory alike: `<org segment>/`. Everything an org keeps is under it.
+ * @param orgId - The workspace.
+ */
+export function mediaOrgPrefix(orgId: string): string {
+  return `${orgSegment(orgId)}/`;
+}
+
 /** The directory on disk, under the artifact store. */
 export function mediaDir(): string {
   return path.join(artifactsDir(), 'media');
