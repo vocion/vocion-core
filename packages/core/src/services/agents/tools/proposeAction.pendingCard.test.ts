@@ -4,8 +4,7 @@
  * (Jamie, 2026-10-07: "anything I needed to approve should've gotten served
  * as action items in chat"). Outside a conversation nothing is drawn.
  */
-import type { AgentEvent } from '../types';
-import type { RuntimeContext } from '../types';
+import type { AgentEvent, RuntimeContext } from '../types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -46,6 +45,7 @@ describe('a proposal that waits on a person', () => {
     const out = await runProposal(ctxWith(events, 42), filing, { tool: 'file_repo' });
 
     const card = events.find(e => e.type === 'card') as Extract<AgentEvent, { type: 'card' }> | undefined;
+
     expect(card).toBeDefined();
     expect(card!.card).toMatchObject({
       kind: 'action',

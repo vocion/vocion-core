@@ -1,5 +1,4 @@
 import type { ConfigureAside, ConfigureTone, ConfigureView } from './configurePlan';
-import { SetupResetButton } from './SetupResetButton';
 import type { ColumnKind } from '@/components/patterns';
 import type { ConfigureTabKind } from '@/libs/workspace/pageFields';
 import { DetailColumns, RightColumn, Section } from '@/components/patterns';
@@ -7,6 +6,7 @@ import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { ConfigureRows } from './ConfigureRows';
+import { SetupResetButton } from './SetupResetButton';
 
 /**
  * The `configure` archetype's layout: a main block of tabs — each a hairline

@@ -57,16 +57,22 @@ describe('resetSetup', () => {
     expect(await db.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, ORG), eq(businessObjectSchema.id, mine.repoId)))).toHaveLength(0);
     expect(await db.select().from(businessObjectSchema).where(and(eq(businessObjectSchema.orgId, ORG), eq(businessObjectSchema.id, mine.requestId)))).toHaveLength(1);
     expect(await db.select().from(artifactSchema).where(eq(artifactSchema.orgId, ORG))).toHaveLength(0);
+
     const [cred] = await db.select({ revokedAt: sourceCredentialSchema.revokedAt }).from(sourceCredentialSchema).where(eq(sourceCredentialSchema.installId, mine.installId));
+
     expect(cred!.revokedAt).not.toBeNull();
+
     const runs = await db.select({ status: actionRunSchema.status, input: actionRunSchema.input }).from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
     expect(runs.find(r => (r.input as { objectType: string }).objectType === 'repo')!.status).toBe('rejected');
     expect(runs.find(r => (r.input as { objectType: string }).objectType === 'request')!.status).toBe('pending');
 
     // Theirs: untouched.
     expect(await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.orgId, OTHER))).toHaveLength(2);
     expect(await db.select().from(artifactSchema).where(eq(artifactSchema.orgId, OTHER))).toHaveLength(1);
+
     const [theirCred] = await db.select({ revokedAt: sourceCredentialSchema.revokedAt }).from(sourceCredentialSchema).where(eq(sourceCredentialSchema.installId, theirs.installId));
+
     expect(theirCred!.revokedAt).toBeNull();
   });
 

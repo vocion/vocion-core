@@ -121,7 +121,6 @@ import {
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { list as listPluginsRoute, set as setPluginRoute } from './Plugins';
-import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
 import { changePasswordRoute, getProfileRoute, updateNameRoute, updatePhoneRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
@@ -148,6 +147,7 @@ import {
 } from './Review';
 import { glanceRoute as runGlanceRoute, logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
+import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimitive, resume as resumeWorkspaceRoute, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, pauseState as workspacePauseState, writeFile } from './Workspace';

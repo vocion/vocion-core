@@ -20,7 +20,6 @@ import { actionForPolicyKey } from '@/libs/actions/policyKey';
 import { db } from '@/libs/DB';
 import { skillBodySha } from '@/libs/workspace/loader';
 import { loadPlugin, pluginContents, readPluginTeams } from '@/libs/workspace/plugins';
-import { setupStateForOrg } from '@/services/plugins/setupState';
 import { TrustManifestSchema } from '@/libs/workspace/schemas';
 import { effectiveMeasures } from '@/libs/workspace/team-export';
 import {
@@ -40,6 +39,7 @@ import { effectivePolicies } from '@/services/autonomy/AutonomyService';
 import { isRung, RUNG_LABEL, rungAutomates, rungFromTrustRule } from '@/services/autonomy/rungs';
 import { agentBudgetStatuses } from '@/services/BudgetService';
 import { readPluginLearnings } from '@/services/plugins/pluginReads';
+import { setupStateForOrg } from '@/services/plugins/setupState';
 import { readTeamMeasures } from '@/services/team-report';
 
 /**
