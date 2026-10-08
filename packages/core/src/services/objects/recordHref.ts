@@ -3,12 +3,10 @@ import type { RecordLinker, RecordLinkRef, RecordLinks } from '@/libs/workspace/
 import { eq } from 'drizzle-orm';
 import { cache } from 'react';
 import { db } from '@/libs/DB';
-import { readWorkspacePages } from '@/libs/workspace/pages';
 import { NO_RECORD_PAGES, recordHrefFrom, recordLinker, recordLinksOf } from '@/libs/workspace/recordHref';
 import { projectSchema } from '@/models/Schema';
 import { typeCodesForOrg } from '@/services/codes';
-import { enabledPluginsForOrg } from '@/services/PluginService';
-import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
+import { readPagesForOrg } from '@/services/PluginService';
 
 /**
  * The server half of ONE LINK FOR EVERY RECORD (`libs/workspace/recordHref.ts`):
@@ -30,13 +28,10 @@ import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/Works
  */
 export const recordLinksForOrg = cache(async (orgId: string): Promise<RecordLinks> => {
   try {
-    const [enabledPlugins, mounted, [project]] = await Promise.all([
-      enabledPluginsForOrg(orgId),
-      mountedWorkspaceIsProjects(orgId).catch(() => false),
+    const [{ pages }, [project]] = await Promise.all([
+      readPagesForOrg(orgId),
       db.select({ slug: projectSchema.slug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1),
     ]);
-    const dir = mounted ? null : await projectPagesFolder(orgId).catch(() => null);
-    const { pages } = readWorkspacePages({ enabledPlugins, mounted, dir });
     const codes = await typeCodesForOrg(orgId).catch(() => undefined);
     return { ...recordLinksOf(pages, project?.slug ?? null), codes };
   } catch (error) {

@@ -9,6 +9,7 @@ import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSource
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
+import { collectWorkspaceFiles } from './snapshot';
 import { effectiveTeamSlug } from './teams';
 
 export type ApplyOptions = {
@@ -379,6 +380,18 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // it, so nothing editable is left that could write the file back.
   if (!dryRun) {
     await mirrorSources(orgId, loaded, warnings);
+  }
+
+  // THE FILES THE RUNTIME READS, stored with the project: skill and playbook
+  // bodies and their resources, pages, the brand and its logos, and the files
+  // the source panels show (`services/workspace/WorkspaceFileService.ts`).
+  // Every reader asks the database first, so this project reads its own
+  // workspace on a host with no folder for it — Vocion Cloud, a shared host
+  // whose WORKSPACE_PATH is another project's, a sample applied from
+  // templates/. Replaced whole, like the rows: a file deleted from the
+  // workspace leaves the store too.
+  if (!dryRun) {
+    await storeWorkspaceFiles(orgId, loaded, errors, warnings);
   }
 
   // Wiki pages seeded from `wiki/<slug>.md` (`libs/workspace/wiki-pages.ts`):
@@ -1302,6 +1315,30 @@ async function mirrorSources(orgId: string, loaded: LoadedWorkspace, warnings: A
     await pruneSourceMirrors(orgId, entries.map(e => ({ type: e.kind === 'mission' ? 'mission' : 'playbook', id: e.slug })));
   } catch (err) {
     warnings.push({ resource: 'source', slug: '(prune)', message: `orphan mirrors not removed: ${(err as Error).message}` });
+  }
+}
+
+/**
+ * Collect the folder's runtime files and make them the project's stored set.
+ * A file that could not be collected is a WARNING naming it — the rest of the
+ * workspace still serves. A store that could not be written is an ERROR: the
+ * readers would go on serving the previous apply's files, and an apply that
+ * says `applied` over that would be lying.
+ * @param orgId - The project being applied.
+ * @param loaded - The loaded workspace; its folder is what is stored.
+ * @param errors - The apply's errors.
+ * @param warnings - The apply's warnings.
+ */
+async function storeWorkspaceFiles(orgId: string, loaded: LoadedWorkspace, errors: ApplyResult['errors'], warnings: ApplyResult['warnings']): Promise<void> {
+  try {
+    const collected = collectWorkspaceFiles(loaded.sourcePath);
+    for (const skipped of collected.skipped) {
+      warnings.push({ resource: 'workspaceFile', slug: skipped.path, message: `not stored: it ${skipped.reason}, so a host without this folder does not have it` });
+    }
+    const { replaceStoredFiles } = await import('@/services/workspace/WorkspaceFileService');
+    await replaceStoredFiles(orgId, collected.files, loaded.sha);
+  } catch (err) {
+    errors.push({ resource: 'workspaceFile', slug: '(store)', message: `the workspace's files were not stored, so this project still reads the previous apply's: ${(err as Error).message}` });
   }
 }
 

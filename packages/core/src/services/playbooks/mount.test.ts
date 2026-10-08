@@ -20,7 +20,7 @@ import { logger } from '@/libs/Logger';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { playbookSchema } = await import('@/models/Schema');
+const { playbookSchema, workspaceFileSchema } = await import('@/models/Schema');
 const { mountSkills, readByOrigin } = await import('./mount');
 
 const ORG = 'org_playbooks';
@@ -166,6 +166,7 @@ afterEach(() => {
 
 afterAll(async () => {
   await db.delete(playbookSchema);
+  await db.delete(workspaceFileSchema);
   restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
   restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
   restoreEnvVar('LARKFIELD_API_URL', ORIGINAL_API_URL);
@@ -288,88 +289,88 @@ describe('mountSkills', () => {
  * here — not bolted onto just the MCP tool handler.
  */
 describe('readByOrigin path containment (vocion-core#108)', () => {
-  const houseStyleRow = { kind: 'playbook' as const, origin: 'workspace' as const, slug: 'house-style' };
-  const writeLeadBriefRow = { kind: 'skill' as const, origin: 'workspace' as const, slug: 'write-lead-brief' };
+  const houseStyleRow = { orgId: ORG, kind: 'playbook' as const, origin: 'workspace' as const, slug: 'house-style' };
+  const writeLeadBriefRow = { orgId: ORG, kind: 'skill' as const, origin: 'workspace' as const, slug: 'write-lead-brief' };
 
   beforeEach(() => {
     process.env.WORKSPACE_PATH = WORKSPACE;
   });
 
-  it('rejects a `../` resource that climbs out of the playbook folder and does not return the file it points at', () => {
+  it('rejects a `../` resource that climbs out of the playbook folder and does not return the file it points at', async () => {
     // From workspace/acme/playbooks/house-style, four levels up lands on
     // ROOT/.env — a real secret file planted for this test. A missing
     // guard would happily hand its contents back as the tool's "body".
-    const content = readByOrigin(houseStyleRow, '../../../../.env');
+    const content = await readByOrigin(houseStyleRow, '../../../../.env');
 
     expect(content).toBeNull();
   });
 
-  it('rejects an absolute resource path outright, even though `resolve()` would otherwise honor it', () => {
+  it('rejects an absolute resource path outright, even though `resolve()` would otherwise honor it', async () => {
     // `resolve(base, '/abs/path')` discards `base` and every segment before
     // it — that is standard Node path.resolve behavior, and exactly how an
     // absolute `resource` like "/etc/passwd" would have escaped pre-fix.
-    const content = readByOrigin(houseStyleRow, ABSOLUTE_SECRET_PATH);
+    const content = await readByOrigin(houseStyleRow, ABSOLUTE_SECRET_PATH);
 
     expect(content).toBeNull();
   });
 
-  it('does not fall for a sibling folder whose name merely starts with the real one (prefix-match trap)', () => {
+  it('does not fall for a sibling folder whose name merely starts with the real one (prefix-match trap)', async () => {
     // "house-style-evil" starts with the string "house-style", so a naive
     // `resolvedPath.startsWith(baseDir)` check would wrongly allow this.
     // `relative()` sees it correctly as a `../` escape.
-    const content = readByOrigin(houseStyleRow, '../house-style-evil/secret.txt');
+    const content = await readByOrigin(houseStyleRow, '../house-style-evil/secret.txt');
 
     expect(content).toBeNull();
   });
 
-  it('refuses a symlink that sits inside the folder but points at a file outside it', () => {
+  it('refuses a symlink that sits inside the folder but points at a file outside it', async () => {
     // The hand-built path is `<house-style>/linked-secret.md`, which passes
     // a plain string containment check. Following the link is what leaks
     // ROOT/.env, so the guard has to resolve it before reading.
-    const content = readByOrigin(houseStyleRow, 'linked-secret.md');
+    const content = await readByOrigin(houseStyleRow, 'linked-secret.md');
 
     expect(content).toBeNull();
   });
 
-  it('still reads a legitimate sibling resource inside the real playbook/skill folder', () => {
-    const content = readByOrigin(writeLeadBriefRow, 'examples.md');
+  it('still reads a legitimate sibling resource inside the real playbook/skill folder', async () => {
+    const content = await readByOrigin(writeLeadBriefRow, 'examples.md');
 
     expect(content).toBe('an example');
   });
 
-  it('reads SKILL.md when the resource is the default value the MCP tool falls back to', () => {
+  it('reads SKILL.md when the resource is the default value the MCP tool falls back to', async () => {
     // `playbook_get` computes `resource ?? 'SKILL.md'` before calling in —
     // this is what an omitted `resource` resolves to.
-    const content = readByOrigin(houseStyleRow, 'SKILL.md');
+    const content = await readByOrigin(houseStyleRow, 'SKILL.md');
 
     expect(content).toBe(PLAYBOOK_BODY);
   });
 
-  it('rejects a `../` traversal against a `core`-origin row without leaking a file from the pack directory', () => {
+  it('rejects a `../` traversal against a `core`-origin row without leaking a file from the pack directory', async () => {
     // origin: 'core' only ever builds the packFile() candidate — the base
     // pack under packages/core/templates/base. That candidate path was
     // entirely unexercised before this test; a missing guard here would
     // hand back a file from wherever four levels up from the pack folder
     // lands (repo internals), not just workspace secrets.
-    const corePlaybookRow = { kind: 'playbook' as const, origin: 'core' as const, slug: 'warming-etiquette' };
+    const corePlaybookRow = { orgId: ORG, kind: 'playbook' as const, origin: 'core' as const, slug: 'warming-etiquette' };
 
-    const content = readByOrigin(corePlaybookRow, '../../../../../../etc/passwd');
+    const content = await readByOrigin(corePlaybookRow, '../../../../../../etc/passwd');
 
     expect(content).toBeNull();
   });
 
-  it('rejects a `../` traversal against an `override`-origin row on both the workspace and pack candidates', () => {
+  it('rejects a `../` traversal against an `override`-origin row on both the workspace and pack candidates', async () => {
     // origin: 'override' tries the workspace copy first, then falls back to
     // the same packFile() candidate as the core case above — both must
     // refuse the escape, not just whichever one happens to exist on disk.
-    const overrideSkillRow = { kind: 'skill' as const, origin: 'override' as const, slug: 'pipeline-health' };
+    const overrideSkillRow = { orgId: ORG, kind: 'skill' as const, origin: 'override' as const, slug: 'pipeline-health' };
 
-    const content = readByOrigin(overrideSkillRow, '../../../../../../etc/passwd');
+    const content = await readByOrigin(overrideSkillRow, '../../../../../../etc/passwd');
 
     expect(content).toBeNull();
   });
 
-  it('rejects a resource path containing a null byte instead of letting the fs call throw unhandled', () => {
+  it('rejects a resource path containing a null byte instead of letting the fs call throw unhandled', async () => {
     // realpathSync throws ERR_INVALID_ARG_VALUE (not ENOENT) on an embedded
     // null byte. Both the old and new code return null for this — a bare
     // `catch { continue }` swallows it same as ENOENT — so the return value
@@ -378,8 +379,7 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     // silently; assert that to make this test mean something.
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
-      expect(() => readByOrigin(houseStyleRow, '\0')).not.toThrow();
-      expect(readByOrigin(houseStyleRow, '\0')).toBeNull();
+      await expect(readByOrigin(houseStyleRow, '\0')).resolves.toBeNull();
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('could not be resolved on disk'),
         expect.objectContaining({ errorCode: 'ERR_INVALID_ARG_VALUE' }),
@@ -389,7 +389,7 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     }
   });
 
-  it('logs a non-ENOENT filesystem error (ENOTDIR here) instead of treating it as a missing file', () => {
+  it('logs a non-ENOENT filesystem error (ENOTDIR here) instead of treating it as a missing file', async () => {
     // A misconfigured mount — a slug directory that is actually a plain
     // file — makes realpathSync fail with ENOTDIR, not ENOENT, when it
     // tries to descend through it to reach SKILL.md. Pre-fix this fell
@@ -398,11 +398,11 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     // closes.
     mkdirSync(join(WORKSPACE, 'playbooks'), { recursive: true });
     writeFileSync(join(WORKSPACE, 'playbooks', 'not-a-folder'), 'this is a file, not a directory');
-    const brokenMountRow = { kind: 'playbook' as const, origin: 'workspace' as const, slug: 'not-a-folder' };
+    const brokenMountRow = { orgId: ORG, kind: 'playbook' as const, origin: 'workspace' as const, slug: 'not-a-folder' };
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
 
     try {
-      const content = readByOrigin(brokenMountRow, 'SKILL.md');
+      const content = await readByOrigin(brokenMountRow, 'SKILL.md');
 
       expect(content).toBeNull();
       expect(warnSpy).toHaveBeenCalledWith(
@@ -415,32 +415,32 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     }
   });
 
-  it('reads a file whose name merely looks like an encoded traversal, since nothing decodes it', () => {
+  it('reads a file whose name merely looks like an encoded traversal, since nothing decodes it', async () => {
     // "..%2f..%2f.env" has no literal "/" in it — it is an odd but real
     // filename inside house-style. Returning its contents is what proves
     // no decode step exists; if someone adds one upstream, this path would
     // start climbing and the read would be refused instead.
-    const content = readByOrigin(houseStyleRow, '..%2f..%2f.env');
+    const content = await readByOrigin(houseStyleRow, '..%2f..%2f.env');
 
     expect(content).toBe('a file whose name merely looks encoded');
   });
 
-  it('reads a file whose name begins with two dots, which is inside the folder and not an escape', () => {
+  it('reads a file whose name begins with two dots, which is inside the folder and not an escape', async () => {
     // `relative()` returns "..notes.md" here. A plain startsWith('..')
     // check calls that an escape and refuses a legitimate file — the
     // reason this comparison is done segment by segment.
-    const content = readByOrigin(houseStyleRow, '..notes.md');
+    const content = await readByOrigin(houseStyleRow, '..notes.md');
 
     expect(content).toBe('notes that start with two dots');
   });
 
-  it('names the file it could not find, so a resource that never mounts is answerable from the logs', () => {
+  it('names the file it could not find, so a resource that never mounts is answerable from the logs', async () => {
     // A miss is the ordinary path for an override — workspace first, then
     // the base pack — so this is debug, not warn. The return value is null
     // either way, so only the log proves the file was named at all.
     const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {});
     try {
-      expect(readByOrigin(houseStyleRow, 'never-written.md')).toBeNull();
+      expect(await readByOrigin(houseStyleRow, 'never-written.md')).toBeNull();
       expect(debugSpy).toHaveBeenCalledWith(
         expect.stringContaining('not present at this origin'),
         expect.objectContaining({ slug: 'house-style', requestedResource: 'never-written.md' }),
@@ -450,7 +450,7 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     }
   });
 
-  it('refuses an empty resource path with an honest reason instead of the misleading symlink-escape message', () => {
+  it('refuses an empty resource path with an honest reason instead of the misleading symlink-escape message', async () => {
     // Both before and after the fix, `readByOrigin(row, '')` returns null —
     // `resolve(base, '')` is the base folder itself, and the pre-existing
     // symlink-containment check already refused that. What the fix changes
@@ -460,7 +460,7 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     // the log message instead — that's the actual fix.
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
-      const content = readByOrigin(houseStyleRow, '');
+      const content = await readByOrigin(houseStyleRow, '');
 
       expect(content).toBeNull();
       expect(warnSpy).toHaveBeenCalledWith(
@@ -476,10 +476,10 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     }
   });
 
-  it('refuses a whitespace-only resource path the same way as an empty one', () => {
+  it('refuses a whitespace-only resource path the same way as an empty one', async () => {
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     try {
-      const content = readByOrigin(houseStyleRow, '   ');
+      const content = await readByOrigin(houseStyleRow, '   ');
 
       expect(content).toBeNull();
       expect(warnSpy).toHaveBeenCalledWith(
@@ -489,5 +489,112 @@ describe('readByOrigin path containment (vocion-core#108)', () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+/**
+ * Workspaces in the database, step 1: once an apply has stored a project's
+ * files (`workspace_file`), they are what mounts — on a host whose
+ * WORKSPACE_PATH is another folder, or none at all — and the mounted folder
+ * is never consulted for that project again.
+ */
+describe('the project\'s stored workspace', () => {
+  const STORED_BODY = '# Write a lead brief (stored)\n\nFrom the database.\n';
+
+  /**
+   * Store files for ORG the way an apply does, manifest included.
+   * @param files - Path → content.
+   */
+  async function store(files: Record<string, string>) {
+    await db.insert(workspaceFileSchema).values(
+      Object.entries({ 'workspace.yaml': 'version: 1\norgId: org_playbooks\nname: acme\n', ...files })
+        .map(([path, content]) => ({ orgId: ORG, path, content, sha: `sha-${path}`, workspaceSha: 'ws-sha-1' })),
+    );
+  }
+
+  beforeEach(async () => {
+    await db.delete(workspaceFileSchema);
+  });
+
+  it('mounts bodies and resources from the database with no WORKSPACE_PATH at all', async () => {
+    delete process.env.WORKSPACE_PATH;
+    await store({
+      'skills/write-lead-brief/SKILL.md': STORED_BODY,
+      'skills/write-lead-brief/examples.md': 'a stored example',
+      'playbooks/house-style/SKILL.md': PLAYBOOK_BODY,
+    });
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: [] });
+
+    expect(files).toEqual({
+      '/skills/write-lead-brief/SKILL.md': STORED_BODY,
+      '/skills/write-lead-brief/examples.md': 'a stored example',
+      '/playbooks/house-style/SKILL.md': PLAYBOOK_BODY,
+    });
+  });
+
+  it('never reads the mounted folder for a stored project — not for a file it holds, not for one it lacks', async () => {
+    // The folder on WORKSPACE_PATH carries write-lead-brief AND house-style,
+    // as another project's workspace on a shared host would. This project
+    // stored its own write-lead-brief and no house-style.
+    process.env.WORKSPACE_PATH = WORKSPACE;
+    await store({ 'skills/write-lead-brief/SKILL.md': STORED_BODY });
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: ['house-style'] });
+
+    expect(files).toEqual({ '/skills/write-lead-brief/SKILL.md': STORED_BODY });
+  });
+
+  it('resolves {{env.NAME}} tokens in stored text on the way out, and still refuses an unresolvable one', async () => {
+    delete process.env.WORKSPACE_PATH;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = 'https://api-dev.larkfield.example';
+    await store({ 'playbooks/house-style/SKILL.md': '# House style\n\nFetch {{env.LARKFIELD_API_URL}}/api/sources.\n' });
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] });
+
+    expect(files['/playbooks/house-style/SKILL.md']).toBe('# House style\n\nFetch https://api-dev.larkfield.example/api/sources.\n');
+
+    delete process.env.LARKFIELD_API_URL;
+
+    await expect(mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] })).rejects.toThrow(/LARKFIELD_API_URL/);
+  });
+
+  it('an override the store does not hold a file for falls through to the base pack, never to the folder', async () => {
+    process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
+    await store({});
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['pipeline-health'], playbookSlugs: [] });
+
+    expect(files['/skills/pipeline-health/SKILL.md']).toContain('pipeline');
+    expect(files['/skills/pipeline-health/SKILL.md']).not.toContain('{{env.');
+  });
+
+  it('readByOrigin reads the store too, and refuses a resource that climbs into another folder of it', async () => {
+    delete process.env.WORKSPACE_PATH;
+    await store({ 'playbooks/house-style/SKILL.md': PLAYBOOK_BODY, 'playbooks/house-style-evil/secret.txt': TRAVERSAL_SECRET });
+    const row = { orgId: ORG, kind: 'playbook' as const, origin: 'workspace' as const, slug: 'house-style' };
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    try {
+      await expect(readByOrigin(row, 'SKILL.md')).resolves.toBe(PLAYBOOK_BODY);
+      await expect(readByOrigin(row, '../house-style-evil/secret.txt')).resolves.toBeNull();
+      await expect(readByOrigin(row, '/etc/passwd')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('escaped its folder'), expect.objectContaining({ slug: 'house-style' }));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('another project\'s stored files are never this project\'s', async () => {
+    delete process.env.WORKSPACE_PATH;
+    await db.insert(workspaceFileSchema).values([
+      { orgId: 'org_someone_else', path: 'workspace.yaml', content: 'x', sha: 'a' },
+      { orgId: 'org_someone_else', path: 'skills/write-lead-brief/SKILL.md', content: 'NOT YOURS', sha: 'b' },
+    ]);
+    await store({});
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: [] });
+
+    expect(files).toEqual({});
   });
 });

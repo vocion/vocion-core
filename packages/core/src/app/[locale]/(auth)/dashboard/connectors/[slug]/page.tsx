@@ -12,12 +12,12 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { getConnector } from '@/libs/sources/registry';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
-import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import {
   knowledgeDocumentSchema,
   knowledgeSourceSchema,
   sourceSyncCheckpointSchema,
 } from '@/models/Schema';
+import { readPrimitiveFilesForOrg } from '@/services/workspace/WorkspaceFileService';
 
 /** Config keys that smell like credentials never render in the clear. */
 const SECRET_KEY_RE = /token|secret|password|key|credential|auth/i;
@@ -114,7 +114,7 @@ export default async function SourceDetailPage(props: {
   const connector = getConnector(connectorSlug);
   const schedule = typeof config.schedule === 'string' ? config.schedule : null;
   const redacted = redactConfig(config);
-  const sourceFiles = readPrimitiveFiles('source', slug);
+  const sourceFiles = await readPrimitiveFilesForOrg(orgId, 'source', slug);
   const dirtyState = getWorkspaceDirtyState();
   const documents = docCount?.value ?? 0;
 

@@ -24,17 +24,19 @@
 
 import type { LoadedPage } from '@/libs/workspace/pages';
 import { accessSync, constants, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { parseDocument, YAMLSeq } from 'yaml';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { applyWorkspace, invalidateCurrentContextShaCache, loadWorkspace } from '@/libs/workspace';
 import { readManifestOrgId } from '@/libs/workspace/mounted-project';
-import { readWorkspacePage } from '@/libs/workspace/pages';
+import { pageProseFile, readWorkspacePageContent, readWorkspacePageMethodology, readWorkspacePages } from '@/libs/workspace/pages';
 import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/plugins';
+import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
+import { listStoredFiles, readStoredFiles } from '@/services/workspace/WorkspaceFileService';
 import { folderOwner, mountedWorkspaceIsProjects, mountOwnership, projectPagesFolder } from '@/services/WorkspaceMountService';
 
 /**
@@ -61,21 +63,67 @@ export async function pluginEnabled(orgId: string, slug: string): Promise<boolea
 }
 
 /**
- * One dashboard page as THIS project sees it: the pages of every plugin the
- * project has on (`project.enabled_plugins`), plus the mounted workspace's
- * own pages and its plugins' — but only when that folder is this project's.
- * A deployment hosts several projects on one mounted folder: a plugin only
- * the project turned on (squatch-factory's `software-factory` under a
- * metacto-revenue mount) is invisible to the folder alone, and the folder's
- * pages (revenue's wiki) are not squatch-factory's to show. The shell, which
- * already holds the project row, makes the same two calls itself.
+ * Every dashboard page as THIS project sees it: the pages of every plugin the
+ * project has on (`project.enabled_plugins`), plus the project's own.
+ *
+ * Its own come from the database when its workspace is stored
+ * (`workspace_file`, written by every apply) — and then from nowhere else,
+ * so a host with no folder for the project, or with another project's folder
+ * mounted, still shows exactly the pages this project was applied with. A
+ * project with nothing stored yet reads the folder as before: the mounted
+ * workspace's pages and its plugins' — but only when that folder is this
+ * project's, or the folder beside it named for the project. A deployment
+ * hosts several projects on one mounted folder: a plugin only the project
+ * turned on (squatch-factory's `software-factory` under a metacto-revenue
+ * mount) is invisible to the folder alone, and the folder's pages (revenue's
+ * wiki) are not squatch-factory's to show.
+ *
+ * The shell, the record links and the page route all read through here.
+ * @param orgId - The project.
+ * @param enabledPlugins - The project's plugins, when the caller already read the row.
+ */
+export async function readPagesForOrg(orgId: string, enabledPlugins?: readonly string[]): Promise<ReturnType<typeof readWorkspacePages>> {
+  const [plugins, stored] = await Promise.all([
+    enabledPlugins ? Promise.resolve([...enabledPlugins]) : enabledPluginsForOrg(orgId),
+    // The manifests only: the shell reads this on every page, and the prose is
+    // read for the one page that renders it (`readPageProse`).
+    listStoredFiles(orgId, 'pages/', ['.yaml', '.yml']),
+  ]);
+  if (stored.stored) {
+    const files = new Map([...stored.files].map(([path, file]) => [path, file.content]));
+    return readWorkspacePages({ enabledPlugins: plugins, stored: { orgId, files } });
+  }
+  const mounted = await mountedWorkspaceIsProjects(orgId).catch(() => false);
+  const dir = mounted ? null : await projectPagesFolder(orgId).catch(() => null);
+  return readWorkspacePages({ enabledPlugins: plugins, mounted, dir });
+}
+
+/**
+ * One dashboard page as THIS project sees it, from {@link readPagesForOrg}.
  * @param slug - The page slug.
  * @param orgId - The project.
  */
 export async function readPageForOrg(slug: string, orgId: string): Promise<LoadedPage | null> {
-  const [enabledPlugins, mounted] = await Promise.all([enabledPluginsForOrg(orgId), mountedWorkspaceIsProjects(orgId)]);
-  const dir = mounted ? null : await projectPagesFolder(orgId).catch(() => null);
-  return readWorkspacePage(slug, { enabledPlugins, mounted, dir });
+  return (await readPagesForOrg(orgId)).pages.find(p => p.slug === slug) ?? null;
+}
+
+/**
+ * A page's prose — its intro or its methodology note — from wherever the page
+ * itself was read: the project's stored workspace, or beside the YAML on disk.
+ * Null when the page ships none.
+ * @param manifest - The loaded page.
+ * @param which - `content` or `methodology`.
+ */
+export async function readPageProse(manifest: LoadedPage, which: 'content' | 'methodology'): Promise<string | null> {
+  if (!manifest.storedIn) {
+    return which === 'content' ? readWorkspacePageContent(manifest) : readWorkspacePageMethodology(manifest);
+  }
+  const path = posix.normalize(`${manifest.sourceDir}/${pageProseFile(manifest, which)}`);
+  if (path.startsWith('../') || path.startsWith('/') || path.includes('\0')) {
+    return null;
+  }
+  const file = (await readStoredFiles(manifest.storedIn, [path])).files.get(path);
+  return file ? substituteEnvTokens(file.content, path) : null;
 }
 
 /**

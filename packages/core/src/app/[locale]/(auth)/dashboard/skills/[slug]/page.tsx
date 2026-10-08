@@ -31,9 +31,9 @@ type CatalogRow = typeof playbookSchema.$inferSelect;
  * to see which skill is broken and why.
  * @param row - the catalog row whose body to read.
  */
-function readBodyOrTemplateProblem(row: CatalogRow): { raw: string; templateProblem: string | null } {
+async function readBodyOrTemplateProblem(row: CatalogRow): Promise<{ raw: string; templateProblem: string | null }> {
   try {
-    return { raw: readByOrigin(row, 'SKILL.md') ?? '', templateProblem: null };
+    return { raw: (await readByOrigin(row, 'SKILL.md')) ?? '', templateProblem: null };
   } catch (error) {
     if (error instanceof WorkspaceTemplateError) {
       return { raw: '', templateProblem: error.message };
@@ -67,7 +67,7 @@ function SkillBody(props: { slug: string; markdownBody: string; templateProblem:
   if (props.markdownBody.trim().length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
-        Body not found on disk. The catalog row exists; the file may have been removed since the last workspace:apply.
+        Body not found. The catalog row exists; the file may have been removed since the last workspace:apply.
       </p>
     );
   }
@@ -132,7 +132,7 @@ export default async function SkillDetailPage(props: Props) {
     .map(a => a.slug))].sort();
 
   const source = await ensureSourceArtifact(orgId, row.kind === 'skill' ? 'skill' : 'playbook', slug).catch(() => null);
-  const { raw, templateProblem } = source ? { raw: '', templateProblem: null } : readBodyOrTemplateProblem(row);
+  const { raw, templateProblem } = source ? { raw: '', templateProblem: null } : await readBodyOrTemplateProblem(row);
   const { content: markdownBody } = stripFrontmatter(raw);
   const record = recordRef('playbook', slug, row.name);
   const originLabel = row.origin === 'core'

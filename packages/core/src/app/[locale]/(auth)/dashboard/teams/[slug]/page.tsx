@@ -13,9 +13,9 @@ import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
-import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { listAgents } from '@/services/AgentService';
 import { getTeam } from '@/services/TeamService';
+import { readPrimitiveFilesForOrg } from '@/services/workspace/WorkspaceFileService';
 
 /**
  * Team detail — one readable page per team, same layout grammar as the
@@ -48,7 +48,7 @@ export default async function TeamDetailPage(props: {
   const wired = new Set(agents.filter(a => memberSlugs.has(a.slug)).flatMap(a => a.skillSlugs ?? []));
   const boundary = { total: wired.size, gated: 0 };
 
-  const sourceFiles = readPrimitiveFiles('team', slug);
+  const sourceFiles = await readPrimitiveFilesForOrg(orgId, 'team', slug);
   const dirtyState = getWorkspaceDirtyState();
 
   return (

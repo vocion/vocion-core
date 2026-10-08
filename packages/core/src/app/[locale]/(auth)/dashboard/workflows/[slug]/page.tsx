@@ -12,9 +12,9 @@ import { getWorkflowActivity } from '@/libs/activity';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
-import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent } from '@/services/AgentService';
 import { getWorkflow } from '@/services/WorkflowService';
+import { readPrimitiveFilesForOrg } from '@/services/workspace/WorkspaceFileService';
 
 export default async function WorkflowDetailPage(props: {
   params: Promise<{ locale: string; slug: string }>;
@@ -32,7 +32,7 @@ export default async function WorkflowDetailPage(props: {
   }
 
   const owner = workflow.agent ? await getAgent(orgId, workflow.agent) : null;
-  const sourceFiles = readPrimitiveFiles('workflow', slug);
+  const sourceFiles = await readPrimitiveFilesForOrg(orgId, 'workflow', slug);
   const dirtyState = getWorkspaceDirtyState();
   const activity = await getWorkflowActivity(orgId, slug);
 

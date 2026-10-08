@@ -6,17 +6,20 @@
  * Negative fixtures (lead-less team / team-less workspace) load through
  * the same service via the test-only bundlePath override.
  */
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import process from 'node:process';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
-const { agentSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, workspaceVersionSchema } = await import('@/models/Schema');
+const { agentSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, workspaceFileSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { DEFAULT_SAMPLE_WORKSPACE, SAMPLE_USERS, SAMPLE_WORKSPACE_PATH, SAMPLE_WORKSPACES, SampleSeedBlockedError, seedSampleWorkspace, UnknownSampleWorkspaceError } = await import('@/services/SampleWorkspaceService');
 const { getWorkspaceLead, listTeams } = await import('@/services/TeamService');
 const { loadWorkspace } = await import('@/libs/workspace');
+const { mountSkills } = await import('@/services/playbooks/mount');
 
 /** Repo root — this test file sits at packages/core/src/services/. */
 const REPO_ROOT = resolve(import.meta.dirname, '../../../..');
@@ -28,7 +31,7 @@ const DEGRADED_FIXTURE = 'packages/core/templates/workspaces/fixtures/meridian-d
 const EMPTY_FIXTURE = 'packages/core/templates/workspaces/fixtures/meridian-empty';
 
 async function cleanDb() {
-  for (const table of [workspaceVersionSchema, teamSchema, agentSchema, playbookSchema, projectSchema, tenantAccountSchema, userSchema]) {
+  for (const table of [workspaceVersionSchema, workspaceFileSchema, teamSchema, agentSchema, playbookSchema, projectSchema, tenantAccountSchema, userSchema]) {
     await db.delete(table);
   }
 }
@@ -122,6 +125,34 @@ describe('seedSampleWorkspace on an empty workspace', () => {
     const workspace = await getWorkspaceLead(ORG);
 
     expect(workspace.accountable).toBeNull();
+  });
+});
+
+describe('the sample\'s skills on a host whose WORKSPACE_PATH is another folder', () => {
+  it('mount for its agents — the bodies were stored by the apply, not looked for in the mounted folder', async () => {
+    // Before workspace files were stored, the sample's skills (origin
+    // `workspace`) were read from WORKSPACE_PATH/skills/<slug>, where they
+    // never are: the sample is applied from templates/, so every one of its
+    // agents ran with no skill mounted and nothing said so.
+    const elsewhere = mkdtempSync(join(tmpdir(), 'vocion-other-folder-'));
+    writeFileSync(join(elsewhere, 'workspace.yaml'), 'version: 1\norgId: proj_someone_else\nname: Someone else\n');
+    const original = process.env.WORKSPACE_PATH;
+    process.env.WORKSPACE_PATH = elsewhere;
+    try {
+      await seedSampleWorkspace({ orgId: ORG, workspaceOwnerEmail: ADMIN.email });
+
+      const files = await mountSkills({ orgId: ORG, skillSlugs: ['draft-follow-up-email', 'pipeline-health-report'], playbookSlugs: [] });
+
+      expect(Object.keys(files).sort()).toEqual(['/skills/draft-follow-up-email/SKILL.md', '/skills/pipeline-health-report/SKILL.md']);
+      expect(files['/skills/draft-follow-up-email/SKILL.md']).toContain('Draft a follow-up email');
+    } finally {
+      if (original === undefined) {
+        delete process.env.WORKSPACE_PATH;
+      } else {
+        process.env.WORKSPACE_PATH = original;
+      }
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
   });
 });
 

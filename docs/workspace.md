@@ -61,7 +61,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 ├── sources/                      # YAML — connector definitions (no credentials!)
 ├── learnings/                    # whitelisted rule-step buckets
 ├── evals/                        # YAML — per-agent test cases (npm run eval:run)
-├── pages/                        # optional tenant dashboard pages (file-only, see below)
+├── pages/                        # optional tenant dashboard pages (stored with the project on apply)
 └── wiki/                         # markdown + frontmatter — pages that seed the wiki on apply (wiki plugin; docs/entities/workspace-manifest.md)
     └── <slug>.md                 # title: required; summary, order, tags, managed: true|false
 ```
@@ -317,7 +317,7 @@ All run from the vocion-core checkout and take the workspace path as an argument
 |---|---|
 | `npm run workspace:scaffold -- <name>` | Creates a new minimal-but-valid workspace at `../workspace/<name>`. |
 | `npm run workspace:check -- <path>` | Validates every YAML + MD file. Shows what would change. No DB writes — and no DB needed: with none reachable, counts are `unknown`. |
-| `npm run workspace:apply -- <path> --project <id\|slug>` | Writes changes to DB. Records a `workspace_version` row with the git SHA + diff summary. |
+| `npm run workspace:apply -- <path> --project <id\|slug>` | Writes changes to DB, and stores the files the app reads at run time with the project (see below). Records a `workspace_version` row with the git SHA + diff summary. |
 | `npm run workspace:export` | Reads current DB rows into a directory. Use to bootstrap a new tenant from existing DB state. |
 
 Check/apply/export honor `WORKSPACE_PATH` and `SEED_ORG_ID` env vars. Flags:
@@ -325,6 +325,29 @@ Check/apply/export honor `WORKSPACE_PATH` and `SEED_ORG_ID` env vars. Flags:
 - `--project <id|slug>` — apply under this project's id (recommended — no re-key)
 - `--org <orgId>` — override the `orgId` in the manifest (advanced / back-compat)
 - `--applied-by <name>` — who triggered this apply (default: `$USER`)
+
+## Where the app reads your files
+
+Each apply stores the files the app reads while it runs — every SKILL.md
+folder's body and resources, `pages/`, `brand.yaml` and the logos it names,
+the files the source panels show, and `workspace.yaml` — with the project, in
+`workspace_file`, at the path each has in the folder. Agents mount skills from
+there, pages render from there, `get_brand` reads from there, and the agent,
+mission, workflow, object, connector and team pages show their source files
+from there. So a project runs the same on a host with no folder for it, or one
+whose `WORKSPACE_PATH` is another project's, as on the box it was authored on.
+
+A stored project reads its stored files and nothing else: a file you edit in
+the folder reaches the app on the next apply (the in-app editors apply for
+you), and a file missing from the store is missing — never borrowed from
+whatever folder the host has mounted. A project that has not been applied since
+the store existed reads its folder, as before. Each row carries the
+`workspace_sha` of the apply that wrote it, so the body an agent read is the
+one its run is stamped with. A file the apply could not store (a link out of
+the folder, or one over 5 MB) is named in the apply's warnings.
+
+Text is stored as authored: `{{env.NAME}}` tokens stay tokens and are resolved
+when read, below.
 
 ## Per-deployment values (`{{env.NAME}}`)
 

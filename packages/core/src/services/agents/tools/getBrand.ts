@@ -5,7 +5,8 @@
  * seller. Both live in `brand.yaml` (`libs/workspace/brand.ts`): palette as
  * CSS tokens, fonts, logos as data URIs, voice rules. This tool hands the
  * agent all of it in one read, so the framework's `:root` is the brand's and
- * the strip's logo is the real mark rather than a remembered path. With no
+ * the strip's logo is the real mark rather than a remembered path. It reads
+ * the calling project's brand, as its last apply stored it. With no
  * `brand.yaml`, it says so and points at `brand_lookup` to seed one from the
  * company's own site.
  */
@@ -13,12 +14,15 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { brandForAgent, readWorkspaceBrand } from '@/libs/workspace/brand';
+import { brandForAgent } from '@/libs/workspace/brand';
+import { readBrandForOrg } from '@/services/workspace/WorkspaceFileService';
 
-export function getBrandTool(_ctx: RuntimeContext) {
+export function getBrandTool(ctx: RuntimeContext) {
   return tool(
     async () => {
-      const { brand, issues } = readWorkspaceBrand();
+      // The caller's own brand: its stored workspace, or its folder before the
+      // first apply stored one (`readBrandForOrg`).
+      const { brand, issues } = await readBrandForOrg(ctx.orgId);
       if (!brand) {
         return issues.length
           ? `brand.yaml could not be read: ${issues.map(i => i.message).join('; ')}. Fix it in the workspace; until then use the framework's default palette and say the document is unbranded.`

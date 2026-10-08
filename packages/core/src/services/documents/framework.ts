@@ -34,10 +34,10 @@ export type DocumentFramework = { slug: string; css: string };
  * @param orgId - The project.
  */
 export async function frameworkFor(orgId: string): Promise<DocumentFramework | null> {
-  let rows: Array<Pick<typeof playbookSchema.$inferSelect, 'slug' | 'kind' | 'origin'>>;
+  let rows: Array<Pick<typeof playbookSchema.$inferSelect, 'orgId' | 'slug' | 'kind' | 'origin'>>;
   try {
     rows = await db
-      .select({ slug: playbookSchema.slug, kind: playbookSchema.kind, origin: playbookSchema.origin })
+      .select({ orgId: playbookSchema.orgId, slug: playbookSchema.slug, kind: playbookSchema.kind, origin: playbookSchema.origin })
       .from(playbookSchema)
       .where(and(
         eq(playbookSchema.orgId, orgId),
@@ -53,7 +53,7 @@ export async function frameworkFor(orgId: string): Promise<DocumentFramework | n
     return null;
   }
   for (const row of rows) {
-    const css = readByOrigin(row, FRAMEWORK_FILE);
+    const css = await readByOrigin(row, FRAMEWORK_FILE);
     if (css?.trim()) {
       return { slug: row.slug, css };
     }

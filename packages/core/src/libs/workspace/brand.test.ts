@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { brandCssRoot, brandForAgent, logoDataUri, readWorkspaceBrand } from './brand';
+import { brandCssRoot, brandForAgent, brandLogoRefs, loadBrand, logoDataUri, logoRefPath, readWorkspaceBrand } from './brand';
 
 const TEMPLATE = path.resolve(__dirname, '..', '..', '..', 'templates', 'workspaces', 'client-documents');
 
@@ -48,5 +48,45 @@ describe('readWorkspaceBrand', () => {
 
     expect(css).toContain('--ink:var(--brand-ink);');
     expect(css).not.toContain('--accent');
+  });
+});
+
+describe('a brand from wherever it is stored', () => {
+  it('loadBrand inlines a data URI as written and asks the source for any other logo', () => {
+    const asked: string[] = [];
+    const { brand, issues } = loadBrand({
+      file: 'brand.yaml',
+      read: () => 'name: Contoso Supply\nlogos:\n  mark: brand/mark.svg\n  wordmark: data:image/png;base64,AAAA\n  markOnDark: brand/missing.svg\n',
+      logo: (ref) => {
+        asked.push(ref);
+        return ref === 'brand/mark.svg' ? 'data:image/svg+xml;base64,PHN2Zy8+' : undefined;
+      },
+    });
+
+    expect(asked).toEqual(['brand/mark.svg', 'brand/missing.svg']);
+    expect(brand?.logos).toEqual({ mark: 'data:image/svg+xml;base64,PHN2Zy8+', wordmark: 'data:image/png;base64,AAAA', markOnDark: undefined });
+    expect(issues).toEqual([{ file: 'brand.yaml', message: 'logos.markOnDark: "brand/missing.svg" is not a readable image under the workspace' }]);
+  });
+
+  it('a brand that cannot be read is an issue naming the file, never a crash', () => {
+    const { brand, issues } = loadBrand({ file: 'brand.yaml', read: () => {
+      throw new Error('token unresolved');
+    }, logo: () => undefined });
+
+    expect(brand).toBeNull();
+    expect(issues).toEqual([{ file: 'brand.yaml', message: 'token unresolved' }]);
+  });
+
+  it('logoRefPath keys a logo by its place in the workspace, and refuses one outside it', () => {
+    expect(logoRefPath('brand/./mark.svg')).toBe('brand/mark.svg');
+    expect(logoRefPath('../outside.svg')).toBeNull();
+    expect(logoRefPath('/etc/passwd')).toBeNull();
+    expect(logoRefPath('data:image/png;base64,AAAA')).toBeNull();
+    expect(logoRefPath('brand/\0mark.svg')).toBeNull();
+  });
+
+  it('brandLogoRefs reads the logos block leniently, and an unparseable file names none', () => {
+    expect(brandLogoRefs('name: X\nlogos:\n  mark: a.svg\n  wordmark: 3\n')).toEqual(['a.svg']);
+    expect(brandLogoRefs(': : not yaml [')).toEqual([]);
   });
 });

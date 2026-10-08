@@ -841,9 +841,10 @@ Results land in `eval_dataset`-linked runs, readable at
 against `expectedOutput` and the per-case `rubric`, so wording may differ
 without failing.
 
-**Pages** give humans a purpose-built view. They are file-only — nothing is
-written to the database, `apply` does not know about them, and deleting the
-YAML deletes the page. See [workspace pages](./workspace-pages.md) for the
+**Pages** give humans a purpose-built view. `apply` stores them with the
+project, beside its skill bodies, so they show wherever the project runs; a
+change shows after the next apply, and deleting the YAML and applying deletes
+the page. See [workspace pages](./workspace-pages.md) for the
 archetypes and options.
 
 References: [learning step](./entities/learning-step.md) ·

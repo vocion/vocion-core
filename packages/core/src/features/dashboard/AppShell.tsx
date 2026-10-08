@@ -31,7 +31,7 @@ import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
-import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
+import { readPagesForOrg } from '@/services/PluginService';
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -119,7 +119,6 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // The "Review queue" badge. Counted in SQL, and a failure here must never take
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waitingRead = orgId ? needsYouCount(orgId).catch(() => 0) : Promise.resolve(0);
-  const mountedRead = orgId ? mountedWorkspaceIsProjects(orgId).catch(() => false) : Promise.resolve(true);
   const usageRead = orgId ? shellUsage(orgId) : Promise.resolve(null);
   const blockedRead = orgId ? shellBlockedAgents(orgId) : Promise.resolve([]);
   const agents = await agentsRead;
@@ -130,12 +129,11 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // the generic Pages and surface groups skip what a plugin claimed. The
   // project's plugins come from the row read above — no second lookup — so a
   // plugin only this project turned on lists its pages under a shared mount.
-  // The mounted folder's own pages (and its plugins') list only for the
-  // project that folder was applied to; another project under the same mount
-  // sees its plugins' pages and nothing of the folder's.
-  const mounted = await mountedRead;
-  const ownDir = orgId && !mounted ? await projectPagesFolder(orgId).catch(() => null) : null;
-  const pages = readWorkspacePages({ enabledPlugins, mounted, dir: ownDir }).pages;
+  // The project's own pages come from its stored workspace, or — before its
+  // first apply stored one — from the folder that is its own; another
+  // project under the same mount sees its plugins' pages and nothing of the
+  // folder's (`readPagesForOrg`).
+  const pages = (orgId ? await readPagesForOrg(orgId, enabledPlugins) : readWorkspacePages({ enabledPlugins })).pages;
   const nav = pluginNav({
     plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
     pages,

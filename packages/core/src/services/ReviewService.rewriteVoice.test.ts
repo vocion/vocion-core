@@ -60,7 +60,7 @@ async function seedRun(body: string): Promise<number> {
 }
 
 beforeEach(async () => {
-  vi.mocked(readByOrigin).mockReset().mockReturnValue(null);
+  vi.mocked(readByOrigin).mockReset().mockResolvedValue(null);
   await db.delete(actionRunSchema);
   await db.delete(playbookSchema);
   await db.delete(projectSchema);
@@ -158,7 +158,7 @@ describe('rewriteDraft — the voice gate', () => {
       description: 'how he writes',
       contentSha: 'sha',
     });
-    vi.mocked(readByOrigin).mockReturnValue('# Founder Voice\n\nShort declaratives. Name, then one specific fact.');
+    vi.mocked(readByOrigin).mockResolvedValue('# Founder Voice\n\nShort declaratives. Name, then one specific fact.');
     const runId = await seedRun('Original draft.');
     const { model, seen } = fakeModel(['Dana, the switching-costs section landed.']);
     vi.mocked(buildChatModelForOrg).mockResolvedValue(model as never);
