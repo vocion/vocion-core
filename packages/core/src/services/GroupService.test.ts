@@ -138,7 +138,7 @@ describe('group management', () => {
 
       await expect(
         setGroupMember({ accountId: ACCOUNT, groupId: g.id, userId: 'usr-outsider', member: true, actorId: ALEX }),
-      ).rejects.toThrow(/not a member of this account/);
+      ).rejects.toThrow(/not a member of this Org/);
     });
 
     it('refuses a duplicate slug', async () => {

@@ -65,14 +65,16 @@ describe('workspace switcher', () => {
       expect(crossAccountSlug(metactoOps, 'acct-metacto', accounts)).toBeNull();
     });
 
-    it('adds the account to the switch URL and keeps the rest of the query', () => {
+    it('adds the Org to the switch URL as ?org= and keeps the rest of the query', () => {
       expect(workspaceSwitchHref({ slug: 'sales', pathname: '/dashboard/inbox', search: '?tab=open', locale: 'en', defaultLocale: 'en', accountSlug: 'contoso' }))
-        .toBe('/w/sales/dashboard/inbox?tab=open&account=contoso');
+        .toBe('/w/sales/dashboard/inbox?tab=open&org=contoso');
     });
 
-    it('drops an account left over from an earlier switch, so the next one resolves where the person now is', () => {
+    it('drops an Org left over from an earlier switch, in either spelling, so the next one resolves where the person now is', () => {
       expect(workspaceSwitchHref({ slug: 'ops', pathname: '/dashboard', search: '?account=contoso&tab=open', locale: 'en', defaultLocale: 'en', accountSlug: null }))
         .toBe('/w/ops/dashboard?tab=open');
+      expect(workspaceSwitchHref({ slug: 'ops', pathname: '/dashboard', search: '?org=contoso&tab=open', locale: 'en', defaultLocale: 'en', accountSlug: 'metacto' }))
+        .toBe('/w/ops/dashboard?tab=open&org=metacto');
     });
 
     it('groups the list under each account in membership order and leaves out an account with nothing visible', () => {

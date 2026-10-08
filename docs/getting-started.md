@@ -184,6 +184,10 @@ cp packages/core/.env.example packages/core/.env.local
 # and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. That path is reserved for the
 # hosted product and is not wired in core (`src/libs/Env.ts`) — leave the
 # variable at its default (`local`).
+#
+# `VOCION_ORGS` defaults to `single`: this server holds one Org (your tenant),
+# and creating a second Org, or accepting an invite into a second Org, is
+# refused with a reason. Vocion Cloud runs `multi`.
 
 npm run dev:up          # Postgres + Langfuse in Docker
 npm run db:migrate      # apply the schema

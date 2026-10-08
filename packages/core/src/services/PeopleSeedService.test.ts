@@ -267,7 +267,7 @@ describe('people seed', () => {
 
       expect(r.groups.created).toEqual(['ops']);
       expect(r.grants.created).toEqual([]);
-      expect(r.warnings.join('\n')).toContain('no project for');
+      expect(r.warnings.join('\n')).toContain('no workspace for');
     });
 
     it('does not change an account role the seed disagrees with', async () => {

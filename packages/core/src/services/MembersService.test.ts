@@ -43,6 +43,6 @@ describe('createInvite', () => {
   it('refuses someone already in this account', async () => {
     await expect(createInvite({ accountId: 'acct-contoso', email: 'kim@example.com', role: 'member', invitedBy: 'user-kim' }))
       .rejects
-      .toThrow('kim@example.com is already a member of this account.');
+      .toThrow('kim@example.com is already a member of this Org.');
   });
 });

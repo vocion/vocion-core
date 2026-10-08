@@ -6,8 +6,8 @@
  * which is the whole point (`docs/routing.md`). It still runs where the proxy
  * cannot resolve a workspace — the demo sandbox, where PGlite cannot run in
  * the middleware bundle — and there it does the older, weaker thing: resolve
- * `[workspace]` on the signed-in user's accounts (the one `?account=` names,
- * then the one they are in), make it active by setting
+ * `[workspace]` on the signed-in user's Orgs (the one `?org=` — or the older
+ * `?account=` — names, then the one they are in), make it active by setting
  * `vocion_active_project`, and 302 to the bare page. Keep it: it is the reason
  * a mailed link still opens the right workspace if the rewrite is ever off.
  *
@@ -15,7 +15,7 @@
  * - `/w/vocion-workforce/dashboard/inbox` → `/dashboard/inbox`
  * - `/w/vocion-workforce/inbox?x=1`       → `/dashboard/inbox?x=1`
  * - `/w/Vocion-Workforce/...`             → same (case-insensitive slug)
- * - unknown slug, or a project on another account → 404 (indistinguishable
+ * - unknown slug, or a project in another Org → 404 (indistinguishable
  *   on purpose: the reader learns nothing about other tenants' slugs)
  *
  * The auth proxy protects this segment, so an unsigned reader is sent to
@@ -29,7 +29,7 @@ import { ACTIVE_PROJECT_COOKIE, ACTIVE_PROJECT_COOKIE_OPTIONS } from '@/libs/act
 import { auth } from '@/libs/Auth';
 import { publicOrigin } from '@/libs/http/publicOrigin';
 import { routing } from '@/libs/I18nRouting';
-import { WORKSPACE_ACCOUNT_PARAM, workspaceRedirectPath } from '@/libs/links';
+import { orgSlugFromSearch, workspaceRedirectPath } from '@/libs/links';
 import { resolveProjectForUser } from '@/services/ProjectService';
 
 type Params = { params: Promise<{ locale: string; workspace: string; path?: string[] }> };
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: Params): Promise<Nex
   }
 
   const project = await resolveProjectForUser(session.user.id, { slug: workspace }, {
-    accountSlug: request.nextUrl.searchParams.get(WORKSPACE_ACCOUNT_PARAM),
+    accountSlug: orgSlugFromSearch(request.nextUrl.searchParams),
     lastActiveProjectId: request.cookies.get(ACTIVE_PROJECT_COOKIE)?.value,
   });
   if (!project) {

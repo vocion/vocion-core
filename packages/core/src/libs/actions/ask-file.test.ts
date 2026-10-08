@@ -140,7 +140,7 @@ describe('done for you — a confident filing lands on Needs you', () => {
     expect(ask!.contextUrl).toBe('/dashboard/missions/product-review/77');
     // Named with its account: a reader in two accounts with an `acme-product`
     // each must open this one (vocion-core#128).
-    expect(result.url).toMatch(/\/w\/acme-product\/dashboard\/inbox\/\d+\?account=acme$/);
+    expect(result.url).toMatch(/\/w\/acme-product\/dashboard\/inbox\/\d+\?org=acme$/);
     expect(result.created).toBe(true);
   });
 

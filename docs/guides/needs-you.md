@@ -113,7 +113,7 @@ an agent ([agent tools](./agent-tools.md#waiting-on-answers--wait_for_answers)).
 *All workspaces* (`?scope=all`) is the same open queue gathered from every
 workspace you can switch to — your personal workspace included, nobody else's
 — each row tagged with its workspace and linking to it there
-(`/w/<slug>/dashboard/inbox/…?account=<account>`). Your own rows come first:
+(`/w/<slug>/dashboard/inbox/…?org=<org>`). Your own rows come first:
 anything in your personal workspace, a proposal assigned to you, an ask your
 own turn raised. Then the oldest. One chip per workspace narrows it
 (`?workspace=<id>`); the counts stay whole.

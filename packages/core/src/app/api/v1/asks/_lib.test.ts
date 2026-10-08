@@ -34,8 +34,8 @@ describe('withAskUrls', () => {
     const rows = await withAskUrls('proj-contoso-sales', [ask(7), ask(8)]);
 
     expect(rows.map(r => r.url)).toEqual([
-      expect.stringMatching(/\/w\/sales\/dashboard\/inbox\/7\?account=contoso$/),
-      expect.stringMatching(/\/w\/sales\/dashboard\/inbox\/8\?account=contoso$/),
+      expect.stringMatching(/\/w\/sales\/dashboard\/inbox\/7\?org=contoso$/),
+      expect.stringMatching(/\/w\/sales\/dashboard\/inbox\/8\?org=contoso$/),
     ]);
   });
 

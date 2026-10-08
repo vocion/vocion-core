@@ -92,7 +92,7 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
       setInvites(i);
       setError(null);
     } catch {
-      setError('Could not load this account.');
+      setError('Could not load this Org.');
     }
     setLoaded(true);
   }, [isAdmin]);
@@ -147,13 +147,13 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
     return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
   }
   if (!overview) {
-    return <p className="p-4 text-sm text-destructive">{error ?? 'Could not load this account.'}</p>;
+    return <p className="p-4 text-sm text-destructive">{error ?? 'Could not load this Org.'}</p>;
   }
 
   return (
     <ListPage
       title="Members"
-      description="The people in this account, the groups they are in, and the workspaces those groups open."
+      description="The people in this Org, the groups they are in, and the workspaces those groups open."
       actions={isAdmin
         ? (
             <Button
@@ -203,11 +203,11 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
               },
               {
                 name: 'role',
-                label: 'Account role',
+                label: 'Org role',
                 value: list.facets.role ?? '',
                 onChange: v => setList({ facets: { ...list.facets, role: v } }),
                 options: [
-                  { key: '', label: 'Account role: all' },
+                  { key: '', label: 'Org role: all' },
                   { key: 'admin', label: 'admin' },
                   { key: 'member', label: 'member' },
                 ],
@@ -236,7 +236,7 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
               onRemoveDirect={(userId, projectId) => run(() => client.groups.removeDirect({ projectId, userId }))}
               onRemoveMember={(userId, email) => {
                 // eslint-disable-next-line no-alert
-                if (window.confirm(`Remove ${email} from this account? They lose access immediately.`)) {
+                if (window.confirm(`Remove ${email} from this Org? They lose access immediately.`)) {
                   run(() => client.members.remove({ userId }));
                 }
               }}

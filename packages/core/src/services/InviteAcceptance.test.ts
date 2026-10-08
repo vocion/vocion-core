@@ -3,10 +3,11 @@
  *
  * Sam is an admin of Metacto and is invited to Contoso as a member. Both
  * accounts own a `sales` workspace, so the landing URL has to name Contoso.
- * Real rows in PGlite.
+ * Real rows in PGlite. Joining a second Org is Vocion Cloud behaviour
+ * (`VOCION_ORGS=multi`); the single-Org refusal is at the end.
  */
 import { and, eq } from 'drizzle-orm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
@@ -32,6 +33,7 @@ async function samsMemberships(): Promise<string[]> {
 }
 
 beforeEach(async () => {
+  vi.stubEnv('VOCION_ORGS', 'multi');
   await db.delete(inviteSchema);
   await db.delete(accountMembershipSchema);
   await db.delete(projectSchema);
@@ -57,6 +59,10 @@ beforeEach(async () => {
   ]);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('acceptInviteAsExistingUser', () => {
   it('adds Contoso to Sam\'s existing user with the invite\'s role, and opens Contoso\'s workspace by name', async () => {
     await db.insert(inviteSchema).values(invite({ token: 'tok-open' }));
@@ -65,7 +71,7 @@ describe('acceptInviteAsExistingUser', () => {
 
     // Contoso's oldest workspace shares its slug with Metacto's, so the URL
     // must say which account.
-    expect(result).toEqual({ ok: true, accountId: 'acct-contoso', openPath: '/w/sales/dashboard?account=contoso' });
+    expect(result).toEqual({ ok: true, accountId: 'acct-contoso', openPath: '/w/sales/dashboard?org=contoso' });
     // One login, two memberships, each with its own role.
     expect(await samsMemberships()).toEqual(['acct-contoso:member', 'acct-metacto:admin']);
     expect(await db.select().from(userSchema).where(eq(userSchema.email, 'sam@example.com'))).toHaveLength(1);
@@ -100,7 +106,7 @@ describe('acceptInviteAsExistingUser', () => {
   it('refuses an invite into an account they are already in, and keeps their role there', async () => {
     await db.insert(inviteSchema).values(invite({ token: 'tok-metacto', accountId: 'acct-metacto', role: 'member' }));
 
-    expect(await acceptInviteAsExistingUser('user-sam', 'tok-metacto')).toEqual({ ok: false, status: 409, error: 'You are already a member of this account.' });
+    expect(await acceptInviteAsExistingUser('user-sam', 'tok-metacto')).toEqual({ ok: false, status: 409, error: 'You are already a member of this Org.' });
     expect(await samsMemberships()).toEqual(['acct-metacto:admin']);
   });
 
@@ -171,7 +177,7 @@ describe('describeInviteForUser', () => {
     await db.insert(inviteSchema).values(invite({ token: 'tok-used', acceptedAt: new Date() }));
     await db.insert(accountMembershipSchema).values({ accountId: 'acct-contoso', userId: 'user-sam', role: 'member' });
 
-    expect(await describeInviteForUser('user-sam', 'tok-used')).toMatchObject({ standing: 'member', openPath: '/w/sales/dashboard?account=contoso' });
+    expect(await describeInviteForUser('user-sam', 'tok-used')).toMatchObject({ standing: 'member', openPath: '/w/sales/dashboard?org=contoso' });
   });
 
   it('marks a used invite and an expired one, and knows nothing of an unknown token', async () => {
@@ -180,5 +186,33 @@ describe('describeInviteForUser', () => {
     expect((await describeInviteForUser('user-sam', 'tok-used'))?.standing).toBe('accepted');
     expect((await describeInviteForUser('user-sam', 'tok-old'))?.standing).toBe('expired');
     expect(await describeInviteForUser('user-sam', 'tok-nothing')).toBeNull();
+  });
+});
+
+describe('acceptInviteAsExistingUser on a single-Org server', () => {
+  beforeEach(() => {
+    vi.stubEnv('VOCION_ORGS', 'single');
+  });
+
+  it('refuses an invite that would put Sam in a second Org, says why, and adds nothing', async () => {
+    await db.insert(inviteSchema).values(invite({ token: 'tok-single' }));
+
+    const result = await acceptInviteAsExistingUser('user-sam', 'tok-single');
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(result.ok ? '' : result.error).toMatch(/single Org.*already belong to Metacto.*can't also join Contoso/);
+    expect(await samsMemberships()).toEqual(['acct-metacto:admin']);
+
+    const [row] = await db.select().from(inviteSchema).where(eq(inviteSchema.token, 'tok-single'));
+
+    // The invite is not spent: it still works for an email with no Org yet.
+    expect(row?.acceptedAt).toBeNull();
+  });
+
+  it('still lets someone with no Org join by invite', async () => {
+    await db.delete(accountMembershipSchema).where(eq(accountMembershipSchema.userId, 'user-sam'));
+    await db.insert(inviteSchema).values(invite({ token: 'tok-first' }));
+
+    expect(await acceptInviteAsExistingUser('user-sam', 'tok-first')).toMatchObject({ ok: true, accountId: 'acct-contoso' });
   });
 });

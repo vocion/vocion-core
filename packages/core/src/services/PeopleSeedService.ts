@@ -135,7 +135,7 @@ export async function applySeed(seed: LoadedSeed, opts: SeedApplyOptions): Promi
     for (const grant of g.grants) {
       const project = projectBySlug.get(grant.workspace);
       if (!project) {
-        result.warnings.push(`group "${g.slug}" grants workspace "${grant.workspace}", which this account has no project for — skipped`);
+        result.warnings.push(`group "${g.slug}" grants workspace "${grant.workspace}", which this Org has no workspace for — skipped`);
         continue;
       }
       if (project.kind === 'personal') {
@@ -181,11 +181,11 @@ export async function applySeed(seed: LoadedSeed, opts: SeedApplyOptions): Promi
       .where(and(eq(accountMembershipSchema.accountId, accountId), eq(accountMembershipSchema.userId, user.id)))
       .limit(1);
     if (!membership) {
-      result.warnings.push(`"${person.email}" has an account elsewhere but is not a member of this one — group membership skipped; invite them first`);
+      result.warnings.push(`"${person.email}" has a login but is not a member of this Org — group membership skipped; invite them first`);
       continue;
     }
     if (person.role && membership.role !== person.role) {
-      result.warnings.push(`"${person.email}" is ${membership.role} on this account and the seed says ${person.role} — left as ${membership.role}; change it in the interface`);
+      result.warnings.push(`"${person.email}" is ${membership.role} in this Org and the seed says ${person.role} — left as ${membership.role}; change it in the interface`);
     }
 
     await joinGroups(person, user.id, groupIdBySlug, dryRun, result);
@@ -238,7 +238,7 @@ async function joinGroups(
   for (const slug of person.groups) {
     const groupId = groupIdBySlug.get(slug);
     if (!groupId) {
-      result.warnings.push(`"${person.email}" is in group "${slug}", which does not exist on this account — skipped`);
+      result.warnings.push(`"${person.email}" is in group "${slug}", which does not exist in this Org — skipped`);
       continue;
     }
     const [already] = await db

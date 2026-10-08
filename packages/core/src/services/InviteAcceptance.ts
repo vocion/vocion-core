@@ -1,8 +1,13 @@
 /**
  * Accepting an invite as someone who already has a login (vocion-core#128).
  *
- * One person is one `user` row, with one `account_membership` row per account
- * they belong to. An invite used to be accepted only by creating a new user
+ * People call a tenant an Org; the rows are `tenant_account` and
+ * `account_membership`, so identifiers here still say "account".
+ *
+ * One person is one `user` row, with one `account_membership` row per Org
+ * they belong to — on Vocion Cloud (`VOCION_ORGS=multi`). A single-Org server
+ * refuses the invite that would put someone in a second Org
+ * (`services/OrgPolicy.ts`). An invite used to be accepted only by creating a new user
  * (`/api/signup`), which refused an email that already had one, so nobody
  * could ever join a second account. Now a signed-in person whose email matches
  * the invite joins that account on their existing user: one more membership
@@ -16,9 +21,10 @@
 
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { WORKSPACE_ACCOUNT_PARAM, workspaceUrl } from '@/libs/links';
+import { workspaceUrl } from '@/libs/links';
 import { accountMembershipSchema, inviteSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
 import { inviteProblem } from '@/services/inviteRules';
+import { secondOrgProblem } from '@/services/OrgPolicy';
 import { activeWorkspaceForUser } from '@/services/ProjectService';
 import { ensurePersonalProjectsForUser } from '@/services/workspace/personalProject';
 
@@ -95,20 +101,20 @@ async function isMemberOf(userId: string, accountId: string): Promise<boolean> {
 }
 
 /**
- * The first workspace this person can open on one account, as a URL that
- * names the account with `?account=` so a slug shared with one of their other
- * accounts resolves there. Only a workspace ON that account: with access
+ * The first workspace this person can open in one Org, as a URL that
+ * names the Org with `?org=` so a slug shared with one of their other
+ * Orgs resolves there. Only a workspace ON that account: with access
  * enforced, a new member may hold nothing there yet, and naming this account
  * on a workspace from another one would 404.
  * @param userId - The person.
  * @param accountId - The account to open.
- * @param accountSlug - Its slug, for `?account=`.
+ * @param accountSlug - Its slug, for `?org=`.
  * @returns The URL, or null when they can open nothing there yet.
  */
 async function openPathOnAccount(userId: string, accountId: string, accountSlug: string): Promise<string | null> {
   const landing = await activeWorkspaceForUser(userId, null, accountId);
   return landing?.accountId === accountId
-    ? `${workspaceUrl(landing.slug, '/dashboard')}?${WORKSPACE_ACCOUNT_PARAM}=${encodeURIComponent(accountSlug)}`
+    ? workspaceUrl(landing.slug, '/dashboard', { accountSlug })
     : null;
 }
 
@@ -166,7 +172,12 @@ export async function acceptInviteAsExistingUser(userId: string, token: string):
     return { ok: false, ...(problem ?? { status: 404, error: 'Invalid invite token.' }) };
   }
   if (await isMemberOf(userId, invite.accountId)) {
-    return { ok: false, status: 409, error: 'You are already a member of this account.' };
+    return { ok: false, status: 409, error: 'You are already a member of this Org.' };
+  }
+  // A single-Org server (`VOCION_ORGS=single`) holds each person in one Org.
+  const refusal = await secondOrgProblem(userId, invite.accountId);
+  if (refusal) {
+    return { ok: false, status: 409, error: refusal };
   }
 
   const joined = await db.transaction(async (tx) => {
@@ -192,7 +203,7 @@ export async function acceptInviteAsExistingUser(userId: string, token: string):
     return { ok: false, status: 410, error: 'This invite has already been used.' };
   }
   if (joined === 'already-member') {
-    return { ok: false, status: 409, error: 'You are already a member of this account.' };
+    return { ok: false, status: 409, error: 'You are already a member of this Org.' };
   }
 
   // Their own workspace in the account they just joined. Never throws, so a

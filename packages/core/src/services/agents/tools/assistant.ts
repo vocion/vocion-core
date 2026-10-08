@@ -98,7 +98,7 @@ export function listMyWorkspacesTool(ctx: RuntimeContext) {
       const who = await owner(ctx);
       const list = who ? await listActingWorkspaces(who.userId, who.accountId) : [];
       if (list.length === 0) {
-        return 'There is no shared workspace on this account that you can ask yet.';
+        return 'There is no shared workspace in this Org that you can ask yet.';
       }
       return [
         `The shared workspaces you can ask (${list.length}). Ask one with ask_workspace, naming it by its workspace slug:`,
@@ -177,7 +177,7 @@ export function askWorkspaceTool(ctx: RuntimeContext) {
       } else {
         const list = await listActingWorkspaces(who.userId, who.accountId);
         if (list.length === 0) {
-          return 'There is no shared workspace on this account that you can ask yet.';
+          return 'There is no shared workspace in this Org that you can ask yet.';
         }
         const choice = await pickWorkspace(ctx, list, message);
         if ('unsure' in choice) {

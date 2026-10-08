@@ -8,8 +8,9 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 /**
  * The bottom-left workspace row and its popover: one, three and eight
  * workspaces (with a hidden empty seed project behind the toggle), open and
- * closed, expanded and as the icon-rail avatar, and a person in two accounts
- * whose list is grouped by account. Navigation is stubbed.
+ * closed, expanded and as the icon-rail avatar; a person in two Orgs on a
+ * multi-Org deployment, whose list is grouped by Org; and the same person on a
+ * single-Org install, where no Org is named. Navigation is stubbed.
  * @param slug
  * @param name
  * @param agentCount
@@ -29,14 +30,14 @@ const ACCOUNTS: SwitcherAccount[] = [
   { id: 'acct-metacto', name: 'Metacto', slug: 'metacto' },
   { id: 'acct-contoso', name: 'Contoso', slug: 'contoso' },
 ];
-// Both accounts have a `sales` workspace: the Contoso one switches with `?account=contoso`.
+// Both Orgs have a `sales` workspace: the Contoso one switches with `?org=contoso`.
 const TWO_ACCOUNTS: SwitcherProject[] = [
   { ...mk('revenue', 'Revenue Team', 10), accountId: 'acct-metacto' },
   { ...mk('sales', 'Sales'), accountId: 'acct-metacto' },
   { ...mk('sales', 'Sales', 3), id: 'p-contoso-sales', accountId: 'acct-contoso' },
 ];
 
-function Frame(props: { projects: SwitcherProject[]; accounts?: SwitcherAccount[]; defaultOpen?: boolean; collapsed?: boolean }) {
+function Frame(props: { projects: SwitcherProject[]; accounts?: SwitcherAccount[]; orgsMode?: 'single' | 'multi'; defaultOpen?: boolean; collapsed?: boolean }) {
   return (
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider defaultOpen={!props.collapsed}>
@@ -44,6 +45,7 @@ function Frame(props: { projects: SwitcherProject[]; accounts?: SwitcherAccount[
           <WorkspaceSwitcher
             account={{ id: 'acct-metacto', name: 'Metacto' }}
             accounts={props.accounts}
+            orgsMode={props.orgsMode}
             projects={props.projects}
             activeId="p-revenue"
             defaultOpen={props.defaultOpen}
@@ -70,5 +72,6 @@ type Story = StoryObj<typeof Frame>;
 export const OneWorkspace: Story = { args: { projects: ONE } };
 export const ThreeOpen: Story = { args: { projects: THREE, defaultOpen: true } };
 export const EightOpen: Story = { args: { projects: EIGHT, defaultOpen: true } };
-export const TwoAccountsOpen: Story = { args: { projects: TWO_ACCOUNTS, accounts: ACCOUNTS, defaultOpen: true } };
+export const TwoOrgsOpen: Story = { args: { projects: TWO_ACCOUNTS, accounts: ACCOUNTS, orgsMode: 'multi', defaultOpen: true } };
+export const SingleOrgInstallOpen: Story = { args: { projects: TWO_ACCOUNTS, accounts: ACCOUNTS, orgsMode: 'single', defaultOpen: true } };
 export const IconRail: Story = { args: { projects: THREE, collapsed: true } };

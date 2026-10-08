@@ -14,11 +14,14 @@ import { accountsForUser, listProjectsForUser } from '@/services/ProjectService'
  * `active` is the workspace a bare `/dashboard` would land in, so a first
  * launch can pre-select it.
  *
- * Only the account the session is in. A person in two accounts can hold the
- * same slug in both, and the share route names a workspace by slug alone, so
- * listing the other account here would offer a target the share could resolve
- * to the wrong one. The web switcher is where accounts are switched
- * (vocion-core#128).
+ * Only the Org the session is in ("Org" is what people call a
+ * `tenant_account`). A person in two Orgs can hold the same slug in both, and
+ * the share route names a workspace by slug alone, so listing the other Org
+ * here would offer a target the share could resolve to the wrong one. The web
+ * switcher is where Orgs are switched (vocion-core#128).
+ *
+ * `org` is the Org; `account` carries the same value for app builds that
+ * still read it.
  */
 export async function GET() {
   const session = await auth();
@@ -33,6 +36,7 @@ export async function GET() {
   return NextResponse.json(
     {
       user: { id: user.id, email: user.email ?? null, name: user.name ?? null },
+      org: account ? { name: account.name, slug: account.slug } : null,
       account: account ? { name: account.name, slug: account.slug } : null,
       active,
       workspaces: projects

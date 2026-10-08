@@ -106,11 +106,17 @@ describe('a canonical /w/<slug>/… URL', () => {
       });
     });
 
-    it('opens the one on the account a cross-account switch named, and makes it last active', async () => {
-      const res = await proxy(request('/w/vocion-workforce/dashboard/inbox?account=contoso', { cookie: 'proj-revenue' }));
+    it('opens the one in the Org a cross-Org switch named, and makes it last active', async () => {
+      const res = await proxy(request('/w/vocion-workforce/dashboard/inbox?org=contoso', { cookie: 'proj-revenue' }));
 
       expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
       expect(res.cookies.get('vocion_active_project')?.value).toBe('proj-contoso-workforce');
+    });
+
+    it('still honours the older ?account= spelling of the Org', async () => {
+      const res = await proxy(request('/w/vocion-workforce/dashboard/inbox?account=contoso', { cookie: 'proj-revenue' }));
+
+      expect(res.headers.get('x-middleware-request-x-vocion-project-id')).toBe('proj-contoso-workforce');
     });
 
     it('stays on the account the person is already in when the link names none', async () => {

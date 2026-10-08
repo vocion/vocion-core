@@ -2,6 +2,7 @@
 
 import type { WorkspaceDirectory } from './useWorkspaceDirectory';
 import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
+import type { OrgsMode } from '@/services/OrgPolicy';
 import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -22,10 +23,14 @@ import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, pro
  * directly — search, the person's workspaces (name, slug, check on the current
  * one), a toggle revealing empty seed projects, and "Manage workspace" as the
  * last row. No nested submenu. Switching navigates through
- * `/w/<slug>/<same page>` — the one switch mechanism (#336). A person in more
- * than one account sees the list grouped under each account's name, and a
- * switch into another account is also how they switch account: tenancy
- * follows the picked workspace (vocion-core#128). The header's
+ * `/w/<slug>/<same page>` — the one switch mechanism (#336).
+ *
+ * Orgs (what people call a `tenant_account`) show only on a multi-Org
+ * deployment (`VOCION_ORGS=multi`, Vocion Cloud): there the Org's name sits
+ * under the workspace's, a person in more than one Org sees the list grouped
+ * under each Org's name, and a switch into another Org is also how they
+ * switch Org: tenancy follows the picked workspace (vocion-core#128). A
+ * single-Org install (the default) never names an Org. The header's
  * avatar menu opens this same popover via {@link OPEN_WORKSPACE_SWITCHER}.
  * Collapsed to the icon rail, the avatar alone is the button.
  *
@@ -45,10 +50,12 @@ export function openWorkspaceSwitcher(): void {
 }
 
 export type WorkspaceSwitcherProps = {
-  /** The account this session is in — the eyebrow under the workspace name. */
+  /** The Org this session is in — the eyebrow under the workspace name, on a multi-Org deployment. */
   account?: { id?: string; name: string } | null;
-  /** Every account the person belongs to. Two or more groups the list by account. */
+  /** Every Org the person belongs to. On a multi-Org deployment, two or more group the list by Org. */
   accounts?: SwitcherAccount[];
+  /** The deployment's `VOCION_ORGS`. Default `single`: no Org eyebrow, no grouping. */
+  orgsMode?: OrgsMode;
   projects: SwitcherProject[] | null;
   activeId: string | null;
   onManage?: () => void;
@@ -128,7 +135,9 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null }), [projects, query, showEmpty, active]);
   const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null);
   const accounts = props.accounts ?? [];
-  const groups = accounts.length > 1 ? groupByAccount(visible, accounts) : null;
+  const multiOrg = props.orgsMode === 'multi';
+  const groups = multiOrg && accounts.length > 1 ? groupByAccount(visible, accounts) : null;
+  const orgName = multiOrg ? props.account?.name : undefined;
   const headingIdPrefix = useId();
 
   const go = (p: SwitcherProject) => {
@@ -151,9 +160,9 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   };
 
   const name = active?.name ?? (loading ? '' : props.placeholder ?? t('workspace_fallback'));
-  // The collapsed rail shows no account line, so with two accounts the label
-  // names it: two "Support" workspaces on two accounts must not read the same.
-  const railLabel = name && accounts.length > 1 && props.account?.name ? `${name} · ${props.account.name}` : name;
+  // The collapsed rail shows no Org line, so with two Orgs the label names
+  // it: two "Support" workspaces in two Orgs must not read the same.
+  const railLabel = name && accounts.length > 1 && orgName ? `${name} · ${orgName}` : name;
   const initial = (name || 'W').charAt(0).toUpperCase();
   const accent = active ? projectAccent(active.slug) : 'oklch(0.7 0 0)';
 
@@ -191,7 +200,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
             {loading
               ? <span className="block h-3.5 w-28 animate-pulse rounded bg-muted" />
               : <span className="block truncate text-[13px] leading-tight font-medium text-foreground">{name}</span>}
-            {props.account?.name && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{props.account.name}</span>}
+            {orgName && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{orgName}</span>}
           </span>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover/ws:bg-background group-hover/ws:text-foreground">
             <ArrowLeftRight className="size-3.5" aria-hidden />
@@ -287,6 +296,7 @@ export function WorkspaceSwitcherLive(props: {
     <WorkspaceSwitcher
       account={data?.account ?? null}
       accounts={data?.accounts ?? []}
+      orgsMode={data?.orgsMode}
       projects={projects}
       activeId={session?.user?.projectId ?? null}
       onManage={props.onManage}
