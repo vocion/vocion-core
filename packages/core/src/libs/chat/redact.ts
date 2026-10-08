@@ -194,3 +194,79 @@ export function readerFailure(text: string): string {
   }
   return redactInternalIds(text);
 }
+
+/**
+ * A line of a stack trace, or a bare bundle location: `at u (/app/…/_1x._.js:1:44704)`.
+ * Never something a reader should see — it travels in *Copy details* only.
+ */
+const STACK_FRAME = /^at\s|^\(?[\w.@[\]/-]+\.(?:js|ts|tsx|mjs|cjs):\d+(?::\d+)?\)?$/;
+
+/** A path-and-position fragment inside a sentence: ` (/app/x/chunk.js:1:44704)`. */
+const CODE_LOCATION = /\s*(?:\bat\s+)?\(?(?:\/|\.{1,2}\/)[\w.@[\]/-]+\.(?:js|ts|tsx|mjs|cjs):\d+(?::\d+)?\)?/g;
+
+/**
+ * A fault in our own code — the runtime's wording for a bug, not a reason a
+ * reader can act on. "t is not a function" is a sentence about a minified
+ * variable; showing it says nothing and looks like a crash, because it is one.
+ */
+const CODE_FAULT = /\b(?:TypeError|ReferenceError|SyntaxError|RangeError)\b|\bis not a function\b|\bis not defined\b|\bis not a constructor\b|Cannot read propert(?:y|ies) of (?:undefined|null)/;
+
+/** What a reader sees when the failure is a fault in our code. */
+export const CODE_FAULT_SENTENCE = 'Something broke on our side while running this step. Copy details has what to send us.';
+
+/** What a reader sees when the failure came with no message at all. */
+export const NO_REASON_SENTENCE = 'This step failed without giving a reason.';
+
+const ONE_LINE_MAX = 160;
+
+/**
+ * The one line a person reads about a failed step.
+ *
+ * A failure message is written for whoever debugs it: a stack trace, a bundle
+ * path, a minified name. On 2026-10-08 a calendar read failed and the chat
+ * showed `TypeError: t is not a function at u (/app/packages/core/.next/…)`
+ * verbatim, twice. The reader's line is `readerFailure` of the first line,
+ * without frames or code locations; a fault in our own code becomes one
+ * plain sentence. The raw text is untouched and goes in *Copy details*.
+ * @param raw - The message as the step reported it.
+ * @returns One short, readable line.
+ */
+export function failureOneLiner(raw: string | null | undefined): string {
+  const lines = String(raw ?? '')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0 && !STACK_FRAME.test(l) && !/^please fix your mistakes\.?$/i.test(l));
+  const first = (lines[0] ?? '').replace(/^(?:Error|Uncaught)\s*:\s*/i, '').trim();
+  if (!first) {
+    return NO_REASON_SENTENCE;
+  }
+  if (CODE_FAULT.test(first)) {
+    return CODE_FAULT_SENTENCE;
+  }
+  // The states `readerFailure` already has a sentence for keep that sentence.
+  const clean = readerFailure(first.replace(CODE_LOCATION, '')).trim();
+  if (!clean) {
+    return NO_REASON_SENTENCE;
+  }
+  return clean.length > ONE_LINE_MAX ? `${clean.slice(0, ONE_LINE_MAX - 1).trimEnd()}…` : clean;
+}
+
+/**
+ * The headline of a failure: the step's name with "failed" said once.
+ *
+ * A failed step's label already says it failed ("Checked the calendar —
+ * failed"), and the badge used to add its own, which read "— failed failed".
+ * A generic name ("Error", "A tool") is no name at all.
+ * @param name - The failed step's label, or the tool's name.
+ * @returns E.g. `Checked the calendar — failed`, `web_search failed`, `This turn failed`.
+ */
+export function failureHeadline(name: string | null | undefined): string {
+  const n = String(name ?? '').trim();
+  if (!n || ['a tool', 'error', 'failed', 'tool'].includes(n.toLowerCase())) {
+    return 'This turn failed';
+  }
+  if (/\b(?:failed|could not \w+|couldn't \w+|did not finish)\.?$/i.test(n)) {
+    return n;
+  }
+  return `${n} failed`;
+}
