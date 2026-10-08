@@ -16,7 +16,7 @@ import { expect } from '@playwright/test';
  *
  *   seedAdminUser() — writes the user, tenant account and default project
  *                     straight to the database via
- *                     `src/scripts/create-local-user.ts`. The web `/api/signup`
+ *                     `tests/support/create-e2e-user.ts`. The web `/api/signup`
  *                     route is invite-only, so this is the only way to make a
  *                     first admin, and it is how the `tour`, `queue`,
  *                     `learning` and `credentials` projects already do it.
@@ -96,7 +96,7 @@ export const tolerateExistingUser = (error: unknown, label: string): void => {
  */
 export const seedAdminUser = () => {
   try {
-    runSupportScript('src/scripts/create-local-user.ts', [
+    runSupportScript('tests/support/create-e2e-user.ts', [
       '--email',
       E2E_ADMIN.email,
       '--name',

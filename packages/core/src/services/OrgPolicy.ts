@@ -77,7 +77,10 @@ export async function secondOrgProblem(userId: string, accountId: string, exec: 
 
 /**
  * Why a new Org may not be created on this server, or null when it may.
- * Single mode allows exactly one `tenant_account`.
+ * Single mode allows exactly one Org that people belong to. An Org nobody
+ * belongs to does not count: every database has one from migration 0022
+ * (`default-account`, "Default"), and it must not stop the first admin's
+ * `create-local-user --org "Your team"` on a fresh install.
  * @param exec - The database, or the transaction the Org is created in.
  * @returns A sentence for the operator, or null.
  */
@@ -85,7 +88,11 @@ export async function newOrgProblem(exec: Executor = db): Promise<string | null>
   if (orgsMode() === 'multi') {
     return null;
   }
-  const [existing] = await exec.select({ name: tenantAccountSchema.name }).from(tenantAccountSchema).limit(1);
+  const [existing] = await exec
+    .select({ name: tenantAccountSchema.name })
+    .from(tenantAccountSchema)
+    .innerJoin(accountMembershipSchema, eq(accountMembershipSchema.accountId, tenantAccountSchema.id))
+    .limit(1);
   return existing
     ? `This Vocion server runs a single Org (${existing.name}) and cannot hold a second one. Set VOCION_ORGS=multi to run several Orgs.`
     : null;

@@ -78,6 +78,7 @@
     "sources:backfill-revisits": "dotenv -c -- tsx src/scripts/backfill-processor-revisits.ts",
     "release:relink": "dotenv -c -- tsx src/scripts/relink-release.ts",
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
+    "user:create:e2e": "dotenv -c -- tsx tests/support/create-e2e-user.ts",
     "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts",
     "org-review:run": "dotenv -c -- tsx src/scripts/run-org-review.ts",
     "artifacts:sweep": "dotenv -c -- tsx src/scripts/sweep-artifacts.ts",

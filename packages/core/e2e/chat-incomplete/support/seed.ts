@@ -39,7 +39,7 @@ export function seedChatWorkspace(): void {
     return;
   }
   try {
-    run(['src/scripts/create-local-user.ts', '--email', ADMIN.email, '--name', ADMIN.name, '--account', ADMIN.account, '--password', ADMIN.secret, '--role', 'admin']);
+    run(['tests/support/create-e2e-user.ts', '--email', ADMIN.email, '--name', ADMIN.name, '--account', ADMIN.account, '--password', ADMIN.secret, '--role', 'admin']);
   } catch (error) {
     tolerateExistingUser(error, '[chat-incomplete spec]');
   }

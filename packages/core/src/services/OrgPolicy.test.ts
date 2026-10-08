@@ -43,8 +43,15 @@ describe('newOrgProblem', () => {
     expect(await newOrgProblem()).toBeNull();
   });
 
+  it('does not count an Org nobody belongs to, such as the migrations\' placeholder', async () => {
+    await db.insert(tenantAccountSchema).values({ id: 'default-account', name: 'Default', slug: 'default' });
+
+    expect(await newOrgProblem()).toBeNull();
+  });
+
   it('refuses a second Org on a single-Org server, naming the one there', async () => {
     await db.insert(tenantAccountSchema).values({ id: 'acct-northwind', name: 'Northwind', slug: 'northwind' });
+    await db.insert(accountMembershipSchema).values({ accountId: 'acct-northwind', userId: 'user-sam', role: 'admin' });
 
     expect(await newOrgProblem()).toMatch(/single Org \(Northwind\).*VOCION_ORGS=multi/);
   });
