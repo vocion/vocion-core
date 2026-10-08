@@ -1,4 +1,3 @@
-import type { InviteDelivery } from '@/services/InviteMail';
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import {
@@ -59,19 +58,6 @@ async function requestOrigin(): Promise<string | null> {
   }
 }
 
-/**
- * Count one invite email against the admin's hourly allowance. Null when it
- * may go; otherwise the sentence saying when the next one can.
- * @param userId - The admin sending it.
- */
-async function inviteEmailRefusal(userId: string): Promise<{ message: string; retryAfterSeconds: number } | null> {
-  const { describeWait, hit, RATE_LIMITS } = await import('@/libs/rateLimit');
-  const verdict = await hit(RATE_LIMITS.inviteEmailPerUser, userId);
-  return verdict.allowed
-    ? null
-    : { message: `Too many invite emails. Try again in ${describeWait(verdict.retryAfterSeconds)}, or copy the link.`, retryAfterSeconds: verdict.retryAfterSeconds };
-}
-
 /** Whether invites are emailed on this server, for the dialog's words and the row's "Resend email". */
 export const inviteDeliveryRoute = os.handler(async () => {
   await guardAdmin();
@@ -90,14 +76,9 @@ export const createInviteRoute = os
       throw ApiError.badRequest(e instanceof Error ? e.message : 'Could not create invite.');
     }
     // The invite stands whatever happens to its mail; the dialog says which.
-    const [{ mailEnabled }, { sendInviteEmail }] = await Promise.all([import('@/libs/mail'), import('@/services/InviteMail')]);
-    const refusal = mailEnabled() ? await inviteEmailRefusal(userId) : null;
-    const delivery: InviteDelivery = refusal
-      ? { status: 'failed', reason: refusal.message }
-      : await sendInviteEmail({ accountId, inviteId: invite.id, requestOrigin: await requestOrigin() });
     // Someone who already has a login hears it in the app too, with one Join.
-    const { tellInvitee } = await import('@/services/auth/joinInvites');
-    await tellInvitee({ email: invite.email, accountId, inviteId: invite.id });
+    const { deliverInvite } = await import('@/services/InviteMail');
+    const delivery = await deliverInvite({ accountId, inviteId: invite.id, email: invite.email, invitedBy: userId, requestOrigin: await requestOrigin() });
     return { ...invite, delivery };
   });
 
@@ -110,11 +91,11 @@ export const resendInviteRoute = os
     if (!mailEnabled()) {
       throw ApiError.badRequest('This server sends no email. Copy the invite link and share it.');
     }
+    const { inviteEmailRefusal, sendInviteEmail } = await import('@/services/InviteMail');
     const refusal = await inviteEmailRefusal(userId);
     if (refusal) {
       throw ApiError.tooManyRequests(refusal.message, refusal.retryAfterSeconds);
     }
-    const { sendInviteEmail } = await import('@/services/InviteMail');
     const delivery = await sendInviteEmail({ accountId, inviteId: input.inviteId, requestOrigin: await requestOrigin() });
     if (delivery.status === 'failed') {
       throw ApiError.badRequest(delivery.reason);

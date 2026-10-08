@@ -109,3 +109,40 @@ export async function sendInviteEmail(input: { accountId: string; inviteId: stri
     return { status: 'failed', reason: 'The email did not go. Copy the link and send it yourself.' };
   }
 }
+
+/**
+ * Count one invite email against the admin's hourly allowance
+ * (`inviteEmailPerUser`). Null when it may go; otherwise the sentence saying
+ * when the next one can.
+ * @param userId - The admin sending it.
+ */
+export async function inviteEmailRefusal(userId: string): Promise<{ message: string; retryAfterSeconds: number } | null> {
+  const { describeWait, hit, RATE_LIMITS } = await import('@/libs/rateLimit');
+  const verdict = await hit(RATE_LIMITS.inviteEmailPerUser, userId);
+  return verdict.allowed
+    ? null
+    : { message: `Too many invite emails. Try again in ${describeWait(verdict.retryAfterSeconds)}, or copy the link.`, retryAfterSeconds: verdict.retryAfterSeconds };
+}
+
+/**
+ * Everything that follows making an invite, wherever it was made — the
+ * Members page or a setup card in chat (`members.invite`): mail it when mail
+ * is on (within the admin's allowance), and tell a person who already has a
+ * login in the app (`tellInvitee`). Never throws; the invite stands whatever
+ * happens here.
+ * @param input - The invite just made.
+ * @param input.accountId - Its Org.
+ * @param input.inviteId - The invite.
+ * @param input.email - The invited address.
+ * @param input.invitedBy - The admin who made it, whose allowance the email counts against.
+ * @param input.requestOrigin - The admin's request origin, for links outside production.
+ */
+export async function deliverInvite(input: { accountId: string; inviteId: string; email: string; invitedBy: string; requestOrigin: string | null }): Promise<InviteDelivery> {
+  const refusal = mailEnabled() ? await inviteEmailRefusal(input.invitedBy).catch(() => null) : null;
+  const delivery: InviteDelivery = refusal
+    ? { status: 'failed', reason: refusal.message }
+    : await sendInviteEmail({ accountId: input.accountId, inviteId: input.inviteId, requestOrigin: input.requestOrigin });
+  const { tellInvitee } = await import('@/services/auth/joinInvites');
+  await tellInvitee({ email: input.email, accountId: input.accountId, inviteId: input.inviteId });
+  return delivery;
+}

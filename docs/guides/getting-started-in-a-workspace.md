@@ -111,7 +111,7 @@ parsed back out of prose.
 | `plugin` | plugin slug | "Turn on …" | `plugin.enable`. Undo restores the list. |
 | `connect` | connector slug | the ordinary connect card | The connect flow (`offer_connection`), returning to the conversation. |
 | `hire` | catalog role slug | "Hire …", with its daily cap | `team.hire_agent` at the workspace's default daily allowance. Undo removes the agent, its budget and any team the hire created. |
-| `invite` | — (`emails`) | "Invite …" | `members.invite` makes link-based invites, shared from Members. Undo withdraws any invite nobody has used. Admins only, as on the Members page. |
+| `invite` | — (`emails`) | "Invite …" | `members.invite` makes the same invites as the Members page: emailed when this server sends mail ([invites.md](invites.md)), and on Members to share either way. Undo withdraws any invite nobody has used. Admins only, as on the Members page. |
 
 Each step is checked with its action's own `precheck` before it becomes a card.
 A step that could only fail is left out, and the lead reads why in the tool

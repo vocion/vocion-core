@@ -4,8 +4,10 @@
  *
  * The same invite the Members page makes (`MembersService.createInvite`): a
  * link-based invite per address, good for two weeks, refused for someone who
- * is already a member. Nothing is mailed — the link is on the Members page to
- * share, which is where the done card points.
+ * is already a member — and delivered the same way (`deliverInvite`): mailed
+ * when this server sends mail, and told in the app to a person who already has
+ * a login. The links are on the Members page too, which is where the done card
+ * points.
  *
  * Reversible: `undo` withdraws every invite this run made that nobody has
  * accepted yet (an accepted invite is a person who joined; that is theirs, not
@@ -87,7 +89,7 @@ function whoWords(emails: readonly string[]): string {
 export const membersInviteAction: Action<typeof membersInviteInput> = {
   id: 'members.invite',
   name: 'Invite teammates',
-  description: 'Invite people into this workspace by email (link-based invites, shared from the Members page). Reversible — undo withdraws the invites nobody has accepted yet.',
+  description: 'Invite people into this workspace by email (emailed when this server sends mail; the links are on the Members page either way). Reversible — undo withdraws the invites nobody has accepted yet.',
   inputSchema: membersInviteInput,
   grant: 'manage_members',
   external: false,
@@ -116,7 +118,7 @@ export const membersInviteAction: Action<typeof membersInviteInput> = {
         { label: 'Role', value: input.role },
       ],
       links: [{ label: 'Members', href: MEMBERS_HREF }],
-      nextAction: 'Inviting makes a link for each person, ready to share from Members. Undo withdraws any nobody has used.',
+      nextAction: 'Inviting emails each person a link when this server sends mail; the links are on Members to share either way. Undo withdraws any nobody has used.',
       verbs: { approve: 'Invite', reject: 'Not now' },
     };
   },
@@ -130,9 +132,9 @@ export const membersInviteAction: Action<typeof membersInviteInput> = {
     if (person?.role !== 'admin') {
       throw new Error('Only an admin can invite people. Ask an admin to accept this card, or to invite them from Members.');
     }
-    const { createInvite } = await import('@/services/MembersService');
+    const [{ createInvite }, { deliverInvite }] = await Promise.all([import('@/services/MembersService'), import('@/services/InviteMail')]);
     const members = await alreadyMembers(accountId, input.emails);
-    const invites: Array<{ id: string; email: string }> = [];
+    const invites: Array<{ id: string; email: string; emailed: boolean }> = [];
     const skipped: Array<{ email: string; reason: string }> = [];
     for (const email of input.emails) {
       if (members.has(email)) {
@@ -140,7 +142,8 @@ export const membersInviteAction: Action<typeof membersInviteInput> = {
         continue;
       }
       const invite = await createInvite({ accountId, email, role: input.role, invitedBy: person.userId });
-      invites.push({ id: invite.id, email: invite.email });
+      const delivery = await deliverInvite({ accountId, inviteId: invite.id, email: invite.email, invitedBy: person.userId, requestOrigin: null });
+      invites.push({ id: invite.id, email: invite.email, emailed: delivery.status === 'sent' });
     }
     return { invited: invites.length > 0, invites, skipped, role: input.role, membersHref: MEMBERS_HREF };
   },
