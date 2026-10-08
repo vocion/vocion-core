@@ -2,11 +2,14 @@ import { Buffer } from 'node:buffer';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { ORPCError, os } from '@orpc/server';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
 import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, getCurrentWorkspaceVersion, getWorkspacePath, invalidateCurrentContextShaCache, isDeployManaged, judgeMountedFolder, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
 import { workspaceFolderForProject, workspacePathForProject } from '@/libs/workspace/project-path';
+import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
 import { folderOwner } from '@/services/WorkspaceMountService';
 import { pauseWorkspace, readWorkspacePauseWithName, resumeWorkspace, WorkspaceNotFoundError, WorkspacePauseStateError } from '@/services/workspacePause';
@@ -404,6 +407,27 @@ async function driftReading(projectId: string, opts: { fresh?: boolean } = {}) {
 }
 
 /**
+ * Whether "this host mounts another project's workspace" is worth saying to
+ * this project at all.
+ *
+ * It is a statement about content applied from git, so it only means
+ * something to a project git applies. A personal workspace never is, and a
+ * workspace nothing was ever applied to was made in the app: on 2026-10-08 a
+ * personal workspace read "Showing content applied from git — this host
+ * mounts revenue's workspace", which was true of the host and false of
+ * everything on the screen.
+ * @param projectId - The project asking.
+ * @param everApplied - Whether any workspace version was applied to it.
+ */
+async function mountedNoticeApplies(projectId: string, everApplied: boolean): Promise<boolean> {
+  if (!everApplied) {
+    return false;
+  }
+  const [row] = await db.select({ kind: projectSchema.kind }).from(projectSchema).where(eq(projectSchema.id, projectId)).limit(1);
+  return row?.kind !== 'personal';
+}
+
+/**
  * Drift check — the facts behind the "workspace files changed" banner, for
  * the caller's project: whether the mounted folder is this project's at all
  * (and whose it is when not), whether git applies it (then Apply is never
@@ -418,6 +442,9 @@ export const driftStatus = os.handler(async () => {
       return { available: false as const };
     }
     const { folder, loaded, applied, verdict, deployManaged, inFlight } = reading;
+    if (!verdict.own && !(await mountedNoticeApplies(projectId!, applied !== null))) {
+      return { available: false as const };
+    }
     return {
       available: true as const,
       projectId: projectId!,
