@@ -43,7 +43,8 @@ test('the invite page offers the same buttons', async ({ page }) => {
 test('a refused provider sign-in comes back with a sentence, not an error page', async ({ page }) => {
   await page.goto('/sign-in?error=AccessDenied&reason=no-invite&provider=google');
 
-  await expect(page.getByRole('alert')).toHaveText('No invite for this address. Ask an admin to invite you.');
+  // Filtered by text: Next.js's route announcer is an (empty) alert too.
+  await expect(page.getByRole('alert').filter({ hasText: 'No invite for this address' })).toHaveText('No invite for this address. Ask an admin to invite you.');
 });
 
 test('Auth.js registers exactly the configured providers', async ({ request }) => {
