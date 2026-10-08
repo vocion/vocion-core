@@ -3,7 +3,7 @@
 import { Check, ChevronRight, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from 'react';
-import { SETUP_CHANGED_EVENT } from '@/features/dashboard/chat/cards/SetupCard';
+import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
 import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';

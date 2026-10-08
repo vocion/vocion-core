@@ -11,6 +11,12 @@ import '@/styles/global.css';
  * a typed `DecisionAnswer`, never text. Fixtures are fictional (Northwind).
  */
 
+vi.mock('@/libs/I18nNavigation', () => ({
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => <a href={href} {...rest}>{children}</a>,
+}));
+const openPreview = vi.fn();
+vi.mock('@/features/preview/previewState', () => ({ openPreview: (...a: unknown[]) => openPreview(...a) }));
+
 const { DecisionCard } = await import('./DecisionCard');
 const { DecisionDock } = await import('./DecisionDock');
 
@@ -54,7 +60,7 @@ describe('the docked Decision card', () => {
       '3Northwind DocsBuilds land in the docs site.',
     ]);
     expect(options[0]!.getAttribute('aria-selected')).toBe('true');
-    await expect.element(page.getByTestId('decision-key-hints')).toHaveTextContent('↑↓ move · 1–3 pick · ↵ submit · Tab something else · Esc fold');
+    await expect.element(page.getByTestId('decision-key-hints')).toHaveTextContent('↑↓ move · 1–3 pick · ↵ submit · Esc fold · Tab something else');
     await expect.element(page.getByText('Product manager asks', { exact: true })).toBeInTheDocument();
   });
 
@@ -205,5 +211,114 @@ describe('the dock', () => {
     await render(<DecisionDock decisions={[]} onAnswer={vi.fn()} />);
 
     expect(document.querySelector('[data-testid="decision-dock"]')).toBeNull();
+  });
+});
+
+describe('phase two: every kind of Decision on the one card', () => {
+  it('a link option OPENS its flow — a login, a token form — and answers nothing', async () => {
+    const opened = vi.fn();
+    const { answers } = await renderCard({ kind: 'setup', question: 'Connect GitHub', options: [{ id: 'connect:github', label: 'Connect with GitHub', href: '/api/connect/github/start?connector=github', recommended: true }, { id: 'paste:github', label: 'Paste a token', href: '/dashboard/connectors?add=github&paste=1' }] }, { onOpen: opened });
+
+    await expect.element(page.getByTestId('decision-option-opens').first()).toHaveTextContent('Opens ↗');
+
+    await userEvent.keyboard('{Enter}');
+
+    expect(opened).toHaveBeenCalledWith('/api/connect/github/start?connector=github');
+    expect(answers).toEqual([]);
+
+    await userEvent.keyboard('2{Enter}');
+
+    expect(opened).toHaveBeenLastCalledWith('/dashboard/connectors?add=github&paste=1');
+  });
+
+  it('a proposal links its details one move away', async () => {
+    await renderCard({ subject: 'proposal', id: 6061, kind: 'approval', question: 'Move Northwind to Negotiation', href: '/dashboard/inbox/proposal-6061', hrefLabel: 'Details', options: [{ id: 'approve', label: 'Approve', consequence: 'Deal stage → Negotiation — as you, with Undo.', recommended: true }, { id: 'reject', label: 'Reject' }] });
+
+    await expect.element(page.getByTestId('decision-details')).toHaveAttribute('href', '/dashboard/inbox/proposal-6061');
+  });
+
+  it('a sign-off opens its artifact in place, and revising is said in their own words', async () => {
+    const { answers } = await renderCard({ kind: 'signoff', question: 'Sign off the Northwind proposal v3?', refs: [{ type: 'artifact', id: '77' }], options: [{ id: 'approve', label: 'Approve', recommended: true }, { id: 'reject', label: 'Discard' }] });
+
+    await page.getByTestId('decision-open-artifact').click();
+
+    expect(openPreview).toHaveBeenCalledWith({ type: 'artifact', id: '77' }, expect.anything());
+    await expect.element(page.getByTestId('decision-other')).toHaveAttribute('placeholder', 'Revise — say what to change…');
+
+    await page.getByTestId('decision-other').click();
+    await userEvent.keyboard('Tighten the pricing page{Enter}');
+
+    expect(answers).toEqual([{ kind: 'free_text', text: 'Tighten the pricing page' }]);
+  });
+
+  it('the dock queues what waits elsewhere behind the conversation\'s own, says where it waits, and says once what an answer did', async () => {
+    const onAnswer = vi.fn();
+    const elsewhere = { ...repo, id: 9, question: 'Archive the Q3 board?', conversationId: null };
+    await render(<DecisionDock decisions={[repo]} waiting={[repo, elsewhere]} onAnswer={onAnswer} agentName={() => 'Product manager'} notice={{ line: 'Chose No · Rename the board?', receipt: { runId: 5, actionId: 'objects.rename', label: 'Renamed the board', undoable: true } }} />);
+
+    await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('1 of 2');
+    await expect.element(page.getByTestId('decision-notice')).toHaveTextContent('Chose No · Rename the board?');
+    await expect.element(page.getByTestId('done-receipt-undo-5')).toBeVisible();
+  });
+});
+
+const approval: DecisionView = {
+  ...repo,
+  id: 50,
+  subject: 'proposal',
+  kind: 'approval',
+  question: 'Move Northwind to Negotiation',
+  body: 'They signed the LOI on Tuesday.',
+  preview: 'deal #4410\ndealstage → negotiation',
+  options: [
+    { id: 'approve', label: 'Allow once', consequence: 'Runs it as you, this once — with Undo.', recommended: true },
+    { id: 'always', label: 'Always allow "update a HubSpot record" in Northwind Support', consequence: 'Runs it now, and moves this kind to Execute within bounds.' },
+    { id: 'reject', label: 'Deny', consequence: 'Nothing runs.' },
+  ],
+};
+
+describe('an approval is a permission prompt', () => {
+  it('asks "Allow <agent> to <action>?" over the exact payload, Allow once first, Always allow, Deny — with its keys said', async () => {
+    await renderCard(approval, { agentName: 'Revenue lead' });
+
+    await expect.element(page.getByRole('dialog', { name: 'Allow Revenue lead to move Northwind to Negotiation?' })).toBeInTheDocument();
+    await expect.element(page.getByTestId('decision-preview')).toHaveTextContent('dealstage → negotiation');
+    expect(page.getByRole('option').elements().map(o => o.getAttribute('data-testid'))).toEqual(['decision-option-approve', 'decision-option-always', 'decision-option-reject']);
+    await expect.element(page.getByTestId('decision-key-hints')).toHaveTextContent('⌘↵ allow once');
+    await expect.element(page.getByTestId('decision-key-hints')).toHaveTextContent('Esc deny');
+  });
+
+  it('⌘↵ allows once whatever is highlighted; Esc denies', async () => {
+    const { answers, onCollapsedChange } = await renderCard(approval, { agentName: 'Revenue lead' });
+
+    await expect.element(page.getByRole('listbox')).toHaveFocus();
+
+    await userEvent.keyboard('3');
+    await userEvent.keyboard('{Meta>}{Enter}{/Meta}');
+
+    expect(answers).toEqual([{ kind: 'option', optionIds: ['approve'] }]);
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(answers[1]).toEqual({ kind: 'option', optionIds: ['reject'] });
+    expect(onCollapsedChange).not.toHaveBeenCalled();
+  });
+
+  it('2 then Enter takes Always allow; words half-typed in "Something else" are put down by Esc, never sent as a no', async () => {
+    const { answers } = await renderCard(approval, { agentName: 'Revenue lead' });
+
+    await expect.element(page.getByRole('listbox')).toHaveFocus();
+
+    await userEvent.keyboard('w');
+    await userEvent.keyboard('ait');
+    await userEvent.keyboard('{Escape}');
+
+    expect(answers).toEqual([]);
+    await expect.element(page.getByRole('listbox')).toHaveFocus();
+
+    await userEvent.keyboard('2');
+    await userEvent.keyboard('{Enter}');
+
+    expect(answers).toEqual([{ kind: 'option', optionIds: ['always'] }]);
   });
 });

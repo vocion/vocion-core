@@ -96,7 +96,7 @@ describe('answering a Decision', () => {
     expect(out.view.state).toBe('answered');
     expect(out.view.answer).toMatchObject({ kind: 'option', optionIds: ['api'], labels: ['Northwind API'], via: 'card', by: DANA });
     expect(proposed).toEqual([{ actionId: 'objects.update_meta', input: { objectId: 7, fields: { repo: 'northwind/api' } }, principal: expect.objectContaining({ kind: 'user', id: DANA }) }]);
-    expect(out.effect).toMatchObject({ actionId: 'objects.update_meta', status: 'done', label: 'Northwind API' });
+    expect(out.effect).toMatchObject({ actionId: 'objects.update_meta', status: 'done', label: 'Which repo should the factory build in? — Northwind API' });
 
     const [row] = await db.select().from(askSchema);
 
@@ -156,5 +156,30 @@ describe('answering a Decision', () => {
     await expect(answerDecision({ orgId: ORG, conversationId: 999, id: view.id, answer: { kind: 'skip' }, by: DANA, via: 'card' })).rejects.toBeInstanceOf(DecisionError);
     await expect(answerDecision({ orgId: OTHER_ORG, conversationId: 392, id: view.id, answer: { kind: 'skip' }, by: DANA, via: 'card' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect((await openDecisions(ORG, 392)).map(d => d.id)).toEqual([view.id]);
+  });
+});
+
+describe('Build it, as a Decision the person takes', () => {
+  it('raises "Build <card>" for the intake\'s owner with the card\'s facts and id — no words in the person\'s name', async () => {
+    const { artifactSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+    await db.delete(businessObjectTypeSchema);
+    await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'request', label: 'Request', schema: { 'x-intake': true, 'x-owner': 'product-manager' } } as never);
+    const [card] = await db.insert(artifactSchema).values({ orgId: ORG, kind: 'record', title: 'Request link creator', spec: { fields: [{ k: 'Why', v: 'No link can be made today.' }, { k: 'Owner', v: null }] } } as never).returning();
+    const { buildDecisionFor } = await import('./DecisionService');
+    const view = await buildDecisionFor({ orgId: ORG, userId: DANA, conversationId: 392, artifactId: card!.id });
+
+    expect(view).toMatchObject({ question: 'Build "Request link creator"', body: 'Why: No link can be made today.', agentSlug: 'product-manager', ownerUserId: DANA, conversationId: 392, refs: [{ type: 'artifact', id: String(card!.id) }] });
+    expect(view.options).toEqual([expect.objectContaining({ id: 'build', label: 'Build it', recommended: true })]);
+
+    await db.delete(businessObjectTypeSchema);
+    await db.delete(artifactSchema);
+  });
+
+  it('refuses where nothing builds a card', async () => {
+    const { businessObjectTypeSchema } = await import('@/models/Schema');
+    await db.delete(businessObjectTypeSchema);
+    const { buildDecisionFor } = await import('./DecisionService');
+
+    await expect(buildDecisionFor({ orgId: ORG, userId: DANA, conversationId: 392, artifactId: 1 })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });

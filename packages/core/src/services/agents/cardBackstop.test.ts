@@ -450,7 +450,7 @@ describe('a card input with one right repair is repaired, not refused (2026-09-2
     const ctx = { orgId: 'org_cards', agentSlug: 'product-manager', emit: (e: AgentEvent) => events.push(e) } as unknown as RuntimeContext;
     const out = String(await recommendActionTool(ctx).invoke(fileBug.args as never));
 
-    expect(out).toMatch(/^Surfaced a one-tap recommendation/);
+    expect(out).toMatch(/^Put ".*" in front of the person as a decision/);
     expect((events.find(e => e.type === 'recommended_action') as Extract<AgentEvent, { type: 'recommended_action' }>).recommendation.input.title).toBe('Factory filing bug — plan writes to a pending review item');
   });
 });

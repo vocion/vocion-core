@@ -1,9 +1,32 @@
 {
   "turns": [
     {
+      "match": "answered] add software factory",
+      "steps": [],
+      "reply": "Software Factory is in."
+    },
+    {
+      "match": "answered] connect github",
+      "steps": [],
+      "reply": "We can connect GitHub whenever you are ready."
+    },
+    {
+      "match": "answered] hire reporting analyst",
+      "steps": [],
+      "reply": "The Reporting Analyst is on the team and owns the Friday report."
+    },
+    {
+      "match": "answered] invite ana",
+      "steps": [],
+      "reply": "Ana is invited."
+    },
+    {
       "match": "set up this workspace with me",
       "steps": [
-        { "tool": "setup_options", "args": {} }
+        {
+          "tool": "setup_options",
+          "args": {}
+        }
       ],
       "reply": "Glad to. First: what does this team do? For example, \"We run customer support for a software product.\""
     },
@@ -24,15 +47,33 @@
           "tool": "propose_setup",
           "args": {
             "steps": [
-              { "kind": "app", "id": "software-factory", "why": "Customer requests become fixes the asker hears about." },
-              { "kind": "connect", "id": "github", "why": "So the fixes and their pull requests are in view." },
-              { "kind": "hire", "id": "reporting-analyst", "why": "Owns the Friday report on open tickets." },
-              { "kind": "invite", "emails": ["ana@northwind.example"], "why": "So Ana sees the Friday report too." }
+              {
+                "kind": "app",
+                "id": "software-factory",
+                "why": "Customer requests become fixes the asker hears about."
+              },
+              {
+                "kind": "connect",
+                "id": "github",
+                "why": "So the fixes and their pull requests are in view."
+              },
+              {
+                "kind": "hire",
+                "id": "reporting-analyst",
+                "why": "Owns the Friday report on open tickets."
+              },
+              {
+                "kind": "invite",
+                "emails": [
+                  "ana@northwind.example"
+                ],
+                "why": "So Ana sees the Friday report too."
+              }
             ]
           }
         }
       ],
-      "reply": "Here is a plan that gets the Friday report writing itself. Press each step when you are ready; every one can be undone."
+      "reply": "Here is a plan that gets the Friday report writing itself. Take each step when you are ready; every one can be undone."
     }
   ],
   "fallback": "This scripted model has no line for that message."

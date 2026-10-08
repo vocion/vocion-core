@@ -108,4 +108,20 @@ describe('historyMessages', () => {
     expect((out[1] as { content: string }).content).toContain('created request #126');
     expect((out[1] as { content: string }).content).toContain('do not file it again');
   });
+
+  it('a Decision the call raised replays inside that call\'s result, by id — and what ran inside the trust bar says it is done', () => {
+    const out = historyMessages({ id: 'm8', role: 'assistant', content: '', runs: [
+      { type: 'tool', name: 'offer_connection', input: { connector: 'github' }, output: 'Asked them to connect GitHub.' },
+      { type: 'decision', id: 41, question: 'Connect GitHub', state: 'open' },
+      { type: 'tool', name: 'recommend_action', input: { label: 'Move Northwind to Negotiation' }, output: 'Surfaced.' },
+      { type: 'receipt', receipt: { runId: 88, actionId: 'hubspot.update', label: 'Move Northwind to Negotiation', undoable: true } },
+    ] });
+    const results = out.filter(m => m.role === 'tool').map(m => (m as { content: string }).content);
+
+    expect(results[0]).toContain('decision #41: "Connect GitHub"');
+    expect(results[0]).toContain('Do not ask it again');
+    expect(results[1]).toContain('run #88');
+    expect(results[1]).toContain('Undo is on its line');
+    expect(out.filter(m => m.role === 'tool')).toHaveLength(2);
+  });
 });

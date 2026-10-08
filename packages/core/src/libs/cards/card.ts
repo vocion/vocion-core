@@ -85,7 +85,7 @@ export type Card = z.infer<typeof CardSchema>;
 /** What a kind declares: how its payload is checked and what draws it. */
 /** The kind a step of a workspace's setup plan is drawn as (`propose_setup`, `SetupCard.tsx`). */
 export const SETUP_CARD_KIND = 'setup';
-/** The kind "Connect your systems" is offered as (`connect_system`, `ConnectSystemsCard.tsx`): its link starts the walk-through. */
+/** The kind "Connect your systems" is offered as (`connect_system`): a setup Decision whose option starts the walk-through (`services/decisions/escalate.ts`). */
 export const CONNECT_SYSTEMS_CARD_KIND = 'connect-systems';
 
 /**

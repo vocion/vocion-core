@@ -13,14 +13,12 @@
  * `runAgent` engine until we flip the default.
  */
 
-import type { Card } from '@/libs/cards/card';
 import type { AgentEvent } from '@/services/agents/types';
 import type { RunCostScope } from '@/services/budget/runCost';
 import type { HistoryTurn } from '@/services/chat/historyTools';
 import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { cardFromRecommendation } from '@/libs/cards/card';
 import { clientIp } from '@/libs/http/clientIp';
 import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { openStream, wasStopped } from '@/libs/streams/buffer';
@@ -29,7 +27,6 @@ import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { withRunCost } from '@/services/budget/runCost';
-import { cardAsRecommendation, surfaceCard } from '@/services/cards/surface';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
@@ -90,6 +87,7 @@ export async function POST(request: Request): Promise<Response> {
   // keeps the message as typed.
   const { mergeScopeRef, readContextRefs, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
   const { fileRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
+  const { escalate } = await import('@/services/decisions/escalate');
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   // The page's record, typed: `/dashboard/p/feature/124` is request 124, read
@@ -512,27 +510,34 @@ export async function POST(request: Request): Promise<Response> {
       // finaliser waits for them before closing the stream.
       const pending: Promise<void>[] = [];
       const sendEvent = (event: AgentEvent) => {
-        if (event.type === 'recommended_action') {
-          // Every recommendation becomes a CARD at this door (backlog 025):
-          // on the ledger and on the wire first, filed second under
-          // done-for-you, with the proposal id arriving as a `card_update`.
-          // The reverse order lost cards on 2026-09-25 (finding 18).
-          const card = cardFromRecommendation(event.recommendation);
-          pending.push(surfaceCard(card, {
-            write: writeEvent,
-            collector,
-            where: { conversationId, agentSlug },
-            // A "Draft needed" card is never filed as it stands (`surfaceCard`).
-            ...(autonomy === 'act-within-bounds' && !card.draft
-              ? { file: (c: Card) => fileRecommendation({ orgId, userId, rec: cardAsRecommendation(c) }) }
+        // THE ESCALATION RULE, IN ONE PLACE (`services/decisions/escalate.ts`):
+        // a recommendation, a proposal waiting on approval, Draft needed, a
+        // connect card and the approval gate each reach the person as the
+        // Decision it is — docked above the composer — or, when it ran inside
+        // the trust bar, as a Done receipt. Awaited before the stream closes.
+        if (event.type === 'recommended_action' || event.type === 'card' || event.type === 'hitl_gate') {
+          if (conversationId === null) {
+            return;
+          }
+          const turn = {
+            orgId,
+            conversationId,
+            userId,
+            agentSlug,
+            ...(autonomy === 'act-within-bounds'
+              ? { file: (rec: Parameters<typeof fileRecommendation>[0]['rec']) => fileRecommendation({ orgId, userId, rec, conversationId }) }
               : {}),
+          };
+          pending.push(escalate(event, turn).then((out) => {
+            for (const next of out ?? []) {
+              writeEvent(next);
+            }
+          }).catch((err: unknown) => {
+            // Nothing fails silently: the step that could not ask says so on the trace.
+            const why = err instanceof Error ? err.message : String(err);
+            console.warn('decision: could not raise', { conversationId, agentSlug, type: event.type, why });
+            writeEvent({ type: 'tool_error', tool: 'decision', message: `Could not put this in front of you: ${why}` });
           }));
-          return;
-        }
-        if (event.type === 'card') {
-          // A tool's own card (offer_connection, #1080): on the ledger and the
-          // wire like a recommendation. It names no action, so nothing is filed.
-          pending.push(surfaceCard(event.card, { write: writeEvent, collector, where: { conversationId, agentSlug } }));
           return;
         }
         writeEvent(event);
@@ -562,7 +567,8 @@ export async function POST(request: Request): Promise<Response> {
         writeEvent({ type: 'decision', decision: answered.answered.view });
         const effect = answered.answered.effect;
         if (effect && effect.status === 'done') {
-          writeEvent({ type: 'receipt', receipt: { runId: effect.runId, actionId: effect.actionId, label: effect.label, undoable: effect.undoable } });
+          const opens = answered.answered.view.href;
+          writeEvent({ type: 'receipt', receipt: { runId: effect.runId, actionId: effect.actionId, label: effect.label, undoable: effect.undoable, ...(opens?.startsWith('/') ? { href: opens } : {}) } });
         }
       }
 

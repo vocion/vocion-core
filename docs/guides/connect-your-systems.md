@@ -19,7 +19,7 @@ All four open the same walk-through: the chat page with
 
 | Where | What starts it |
 |---|---|
-| Chat | "connect my tools", "what should I connect?", or two or more systems named at once. The agent calls `connect_system`, and its card docks the walk-through at once. The workspace lead's `workspace-setup` skill says when. |
+| Chat | "connect my tools", "what should I connect?", or two or more systems named at once. The agent calls `connect_system`; it reaches the person as one setup Decision ("Connect your systems") whose option opens the walk-through, and arriving live it opens it at once. The workspace lead's `workspace-setup` skill says when. |
 | Onboarding | The **Getting started** checklist's "Connect a system" step. A setup plan (`propose_setup`) with two or more `connect` steps also becomes one "Connect your systems" step. |
 | An app's page | "Connect the 3 systems GTM uses", above the app's "Connects to" list. Planned for that app only (`&app=<id>`). |
 | Connectors page | **Set up with your assistant**, in the title bar. |
@@ -104,9 +104,12 @@ app page's connector status re-read.
 
 The summary lists each system with its preview and what it unlocks: the apps
 that read it and the features that name it. Systems put off or skipped are
-listed as such. **Done** writes one line onto the chat card that started the
-walk (`connectSystems.finish`). For example: "Connected Northwind CRM, Tracker
-· later: Wiki." A reload, and the agent's next turn, read it from there.
+listed as such. **Done** answers the Decision that started the walk
+(`connectSystems.finish` → `services/connect/settleWalk.ts`): typed, on the
+person's side ("Chose Start: Connected Northwind CRM, Tracker · later: Wiki. ·
+Connect your systems"), written as a `decision` row with what happened. No turn
+runs then; a reload, and the agent's next turn, read it from there. Stopped
+before Done, the Decision stays docked — Start opens the walk again.
 
 ## Pieces
 
@@ -118,13 +121,13 @@ walk (`connectSystems.finish`). For example: "Connected Northwind CRM, Tracker
 | Mail evidence | `libs/connect/mailHost.ts`, `CredentialPlatform.discovery` |
 | Verification | `services/connect/verifyConnection.ts`, `SourceConnector.recordNoun` |
 | RPC | `routers/ConnectSystems.ts` (`connectSystems.plan`, `saveKey`, `verify`, `finish`) |
-| Chat tool | `services/agents/tools/connectSystems.ts` (`connect_system`), card kind `connect-systems` |
-| UI | `features/dashboard/connect-systems/`: the state machine (`flow.ts`), the docked decision (`DockedDecision.tsx`), the view, the flow, the transcript card, the login window |
+| Chat tool | `services/agents/tools/connectSystems.ts` (`connect_system`), card kind `connect-systems`, which the escalation rule turns into a setup Decision (`services/decisions/escalate.ts`) |
+| UI | `features/dashboard/connect-systems/`: the state machine (`flow.ts`), each step drawn by the one Decision card (`DockedDecision.tsx` maps a step onto `chat/decisions/DecisionCard.tsx`), the view, the flow, the login window. While the walk runs it is the docked card (`ConversationDecisions`) |
 
 The walk-through is self-contained and typed. Its state says where it is
 (`progressOf`) and what became of each system, so it can be wrapped as one
-objective in the Decision model. `DockedDecision` keeps that model's keyboard
-contract:
+objective in the Decision model. Every step is the Decision card itself, so
+it keeps that card's keyboard contract:
 
 - 1 to 9 picks an option.
 - The arrow keys, Home and End move through the options.
@@ -148,8 +151,8 @@ contract:
 - **End to end:** `npm run e2e:connect-systems`. It covers the Connectors page
   entry, a scripted login in its own window and a scripted API-key connector,
   each verified with a scripted first sync (`verify` in the connect script), the
-  summary on the card, and the chat path through `connect_system` on the
-  scripted model.
+  summary answering the Decision, and the chat path through `connect_system`
+  on the scripted model.
 
 ## Related
 

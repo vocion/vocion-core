@@ -56,6 +56,8 @@ type ProposalRequest = {
   suggestedDecision: SuggestedDecision;
   suggestedDecisionReason: string;
   suggestedSnoozeUntil?: string;
+  /** What the person was shown it as ("Add Software Factory"), named on its Done line. */
+  label?: string;
 };
 
 /**
@@ -294,7 +296,7 @@ async function runProposalInner(
             ...(suggested_decision ? { suggestedDecision: suggested_decision, ...(reason ? { suggestedDecisionReason: reason } : {}) } : {}),
           },
         });
-        return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is waiting on the person's approval, as a card in this conversation (confidence ${confidence}). Do NOT claim the change was made, and do not tell them to open the review queue: the card is in front of them. Say in one line what it is.`);
+        return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is waiting on the person's approval, as a decision docked above their composer (confidence ${confidence}). Do NOT claim the change was made, and do not tell them to open the review queue: the decision is in front of them, and their answer comes back to you. Say in one line what it is.`);
       }
       return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`);
     }
@@ -341,7 +343,7 @@ async function runProposalInner(
     const moved = movedType && Number.isInteger(movedId) && movedId > 0
       ? await import('@/services/objects/recordHref').then(m => m.recordHref(ctx.orgId, { objectType: movedType, id: movedId })).catch(() => null)
       : null;
-    receipt(actionLabel(action_id), moved ?? undefined);
+    receipt(req.label?.trim() || actionLabel(action_id), moved ?? undefined);
     return `${action_id} is DONE (${nounCode('action', res.runId)}${asPerson ? ', as the person asked' : `, confidence ${confidence}`}) — it ran without waiting. ${undoSentence(undoable)}${moved ? ` Give the person this link to follow it: [${await codeForRecord(ctx.orgId, movedId).catch(() => null) ?? `${movedType!.replace(/[_-]+/g, ' ')} #${movedId}`}](${moved}).` : ''} Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
   } catch (err) {
     if (err instanceof ActionError) {

@@ -19,7 +19,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { GettingStartedChecklist, checklistApplies } = await import('./GettingStartedChecklist');
-const { SETUP_CHANGED_EVENT } = await import('./chat/cards/SetupCard');
+const { SETUP_CHANGED_EVENT } = await import('./setupChanged');
 
 const none = { steps: (['connect', 'app', 'hire', 'invite', 'brand'] as const).map(id => ({ id, done: false })), done: 0, total: 5 };
 

@@ -104,31 +104,37 @@ export function providerOfStartHref(href: string | null | undefined): string | n
   return match?.[1] ?? null;
 }
 
+/** How a connect came back to the conversation that started it. */
+export type ConnectReturn = {
+  /** True when the login or token landed. */
+  ok: boolean;
+  /** The connector or source it was for, as a short code. */
+  connector: string;
+  /** The short refusal code, when it did not. */
+  reason?: string;
+};
+
 /**
- * The next message pre-filled in chat after a connect: true either way,
- * never "I connected it" when it failed.
+ * How a connect came back, read off the query the callback added — or null
+ * when this visit is not a connect return. The conversation reads it to answer
+ * the setup Decision that started it (typed: never "I connected github" put in
+ * the person's mouth) or to say on that card why it failed. Only short codes
+ * get through, the same character rule as `returnUrl`.
  * @param params - The query params the callback added.
  * @param params.connect - `ok` or `error`.
  * @param params.reason - The short refusal code, on error.
  * @param params.source - The source that was being connected, when there was one.
  * @param params.connector - The connector that was being connected, when the login started from it.
- * @returns The message, or null when this visit is not a connect return.
+ * @returns The outcome, or null.
  */
-export function connectReturnPrompt(params: { connect?: string; reason?: string; source?: string; connector?: string }): string | null {
-  const name = params.source ?? params.connector;
-  if (!name) {
+export function connectReturnOutcome(params: { connect?: string; reason?: string; source?: string; connector?: string }): ConnectReturn | null {
+  const name = params.connector ?? params.source;
+  if (!name || (params.connect !== 'ok' && params.connect !== 'error')) {
     return null;
   }
-  // The query string is the caller's to write, and this text is put in the
-  // composer: same character rule as returnUrl, so nothing but a short code gets in.
-  const source = cleanCode(name);
-  if (params.connect === 'ok') {
-    return `I connected ${source}. What's next?`;
-  }
-  if (params.connect === 'error') {
-    return `Connecting ${source} didn't work (${params.reason === undefined ? 'no reason given' : cleanCode(params.reason)}). What should I try?`;
-  }
-  return null;
+  return params.connect === 'ok'
+    ? { ok: true, connector: cleanCode(name) }
+    : { ok: false, connector: cleanCode(name), reason: params.reason === undefined ? 'no reason given' : cleanCode(params.reason) };
 }
 
 /**

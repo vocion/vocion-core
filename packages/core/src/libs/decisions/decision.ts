@@ -41,6 +41,15 @@ export type DecisionState = typeof DECISION_STATES[number];
 export const DECISION_CHANNELS = ['card', 'composer', 'needs_you', 'slack', 'email', 'default', 'agent'] as const;
 export type DecisionChannel = typeof DECISION_CHANNELS[number];
 
+/**
+ * What a Decision is a reading of: an `ask` (a question, a choice, a sign-off,
+ * a setup step — the ask row is the record), or a `proposal` — a pending
+ * action_run, which IS the record of its own approval. Ids are per subject, so
+ * a Decision is keyed by both (`decisionKey`).
+ */
+export const DECISION_SUBJECTS = ['ask', 'proposal'] as const;
+export type DecisionSubject = typeof DECISION_SUBJECTS[number];
+
 /** One option as the card draws it. */
 export type DecisionOption = {
   id: string;
@@ -50,12 +59,19 @@ export type DecisionOption = {
   recommended?: boolean;
   /** Choosing it runs an action (its effect), as the person who chose it. */
   hasEffect?: boolean;
+  /**
+   * Choosing it OPENS this in-app path instead of answering (a login, a token
+   * form). The Decision stays open; the flow it opens answers it on return.
+   */
+  href?: string;
 };
 
 /** A Decision as every surface draws it. */
 export type DecisionView = {
-  /** The ask's id. */
+  /** The ask's id, or the proposal's (action run) id — see `subject`. */
   id: number;
+  /** What it reads: an ask (the default) or a pending proposal. */
+  subject?: DecisionSubject;
   kind: DecisionKind;
   question: string;
   /** Two to four lines of why — short, markdown. */
@@ -77,7 +93,77 @@ export type DecisionView = {
   /** The action the chosen option started, when it started one. */
   effectRunId?: number | null;
   createdAt?: string | null;
+  /** The long form, one move away: an in-app path (the record, the run, the artifact). */
+  href?: string | null;
+  /** What the link says. */
+  hrefLabel?: string | null;
+  /** The records it is about. */
+  refs?: Array<{ type: string; id: string }>;
+  /**
+   * An approval's exact payload, as the person will be held to it — the
+   * email's body, the record's diff, the command. Plain text, drawn as is.
+   */
+  preview?: string | null;
 };
+
+/** The option that runs it this once. */
+export const ALLOW_ONCE_ID = 'approve';
+/** The option that moves the action kind up the trust ladder, then runs it. */
+export const ALWAYS_ALLOW_ID = 'always';
+/** The option that turns it down. */
+export const DENY_ID = 'reject';
+
+/**
+ * The title an approval is asked under, the way a permission prompt asks:
+ * "Allow Revenue lead to move Northwind to Negotiation?". A question already
+ * phrased as one ("Send the follow-up to Northwind?") is kept as it is.
+ * @param view - The Decision.
+ * @param view.kind - Its kind.
+ * @param view.question - What it asks.
+ * @param agentName - The asking agent's name, when known.
+ */
+export function decisionTitle(view: Pick<DecisionView, 'kind' | 'question'>, agentName: string | null | undefined): string {
+  const q = view.question.trim();
+  if (view.kind !== 'approval' || !q || q.endsWith('?')) {
+    return q;
+  }
+  // "Move Northwind…" reads "move Northwind…"; "HubSpot: update…" keeps its capital.
+  const plain = /^[A-Z][a-z]+(?=[\s,.:;]|$)/.test(q) ? `${q[0]!.toLowerCase()}${q.slice(1)}` : q;
+  return `Allow ${agentName?.trim() || 'the agent'} to ${plain.replace(/[.!]+$/, '')}?`;
+}
+
+/**
+ * The text an approval's preview shows, from the fenced block a payload is
+ * stored as (`contextMd`): the fence is the storage, not the content.
+ * @param md - The stored context.
+ */
+export function previewText(md: string | null | undefined): string | null {
+  const t = md?.trim();
+  if (!t) {
+    return null;
+  }
+  const fenced = /^```[\w-]*\n([\s\S]*?)\n```$/.exec(t);
+  return (fenced ? fenced[1]! : t).slice(0, 4_000);
+}
+
+/**
+ * The one key a Decision is known by on a surface: its subject and its id.
+ * @param view - The Decision.
+ * @param view.subject - Ask or proposal.
+ * @param view.id - Its id.
+ */
+export function decisionKey(view: Pick<DecisionView, 'subject' | 'id'>): string {
+  return `${view.subject ?? 'ask'}:${view.id}`;
+}
+
+/**
+ * An in-app path, or null — a Decision links only inside the app (a context
+ * URL may be any https page; the card shows only what it can open in place).
+ * @param raw - A candidate.
+ */
+export function inAppHref(raw: unknown): string | null {
+  return typeof raw === 'string' && /^\/(?!\/)/.test(raw) && !raw.includes('\\') ? raw : null;
+}
 
 /** A person's answer: options by id, their own words, or a skip. */
 export type DecisionAnswer
@@ -102,7 +188,11 @@ export type AskLike = {
   kind: string;
   title: string;
   body?: string | null;
-  options?: ReadonlyArray<{ id: string; label: string; description?: string; recommended?: boolean; action?: unknown }> | null;
+  options?: ReadonlyArray<{ id: string; label: string; description?: string; recommended?: boolean; action?: unknown; href?: string }> | null;
+  contextUrl?: string | null;
+  /** An approval's payload, fenced (`previewText`). */
+  contextMd?: string | null;
+  objectRefs?: ReadonlyArray<{ type: string; id: string }> | null;
   status: string;
   decision?: string | null;
   decisionNote?: string | null;
@@ -144,8 +234,18 @@ export function decisionKindOf(askKind: string): DecisionKind {
 
 /** The two answers an approval with no named options always has. */
 const APPROVAL_OPTIONS: DecisionOption[] = [
-  { id: 'approve', label: 'Approve' },
-  { id: 'reject', label: 'Reject' },
+  { id: ALLOW_ONCE_ID, label: 'Allow once', consequence: 'It goes ahead, this once.', recommended: true },
+  { id: DENY_ID, label: 'Deny', consequence: 'It does not happen.' },
+];
+
+/**
+ * A sign-off: approve it, discard it — or revise it, which is the answer in
+ * their own words ("Revise — say what to change"). The ids are the ask's own
+ * fixed answers, so an ask filed with no options still resolves.
+ */
+const SIGNOFF_OPTIONS: DecisionOption[] = [
+  { id: 'approve', label: 'Approve', consequence: 'Marks it approved, as it stands.', recommended: true },
+  { id: 'reject', label: 'Discard', consequence: 'Nothing is kept or sent.' },
 ];
 
 /**
@@ -161,8 +261,10 @@ export function decisionOptionsOf(ask: Pick<AskLike, 'kind' | 'options'>): Decis
     ...(o.description ? { consequence: String(o.description) } : {}),
     ...(o.recommended ? { recommended: true } : {}),
     ...(o.action ? { hasEffect: true } : {}),
+    ...(inAppHref(o.href) ? { href: o.href } : {}),
   }));
-  const options = named.length > 0 ? named : decisionKindOf(ask.kind) === 'approval' ? APPROVAL_OPTIONS : [];
+  const kind = decisionKindOf(ask.kind);
+  const options = named.length > 0 ? named : kind === 'approval' ? APPROVAL_OPTIONS : kind === 'signoff' ? SIGNOFF_OPTIONS : [];
   return [...options.filter(o => o.recommended), ...options.filter(o => !o.recommended)];
 }
 
@@ -239,6 +341,10 @@ export function decisionViewOf(ask: AskLike, extra: { deadline?: DecisionView['d
     answer: answerOf(ask, options),
     effectRunId: ask.effectRunId ?? null,
     createdAt: ask.createdAt ? new Date(ask.createdAt).toISOString() : null,
+    subject: 'ask',
+    ...(inAppHref(ask.contextUrl) ? { href: ask.contextUrl } : {}),
+    ...(kind === 'approval' && previewText(ask.contextMd) ? { preview: previewText(ask.contextMd) } : {}),
+    ...((ask.objectRefs?.length ?? 0) > 0 ? { refs: ask.objectRefs!.map(r => ({ type: r.type, id: String(r.id) })) } : {}),
   };
 }
 
@@ -299,8 +405,14 @@ export function answerLine(view: Pick<DecisionView, 'options'>, answer: Decision
  * @param view - The Decision, as it was asked.
  * @param answer - The answer.
  */
-export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options'>, answer: DecisionAnswer): string {
-  const lines = [`[decision #${view.id} answered] ${view.question}`];
+export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'options' | 'subject' | 'body' | 'refs'>, answer: DecisionAnswer): string {
+  const lines = [`[${view.subject === 'proposal' ? 'proposal' : 'decision'} #${view.id} answered] ${view.question}`];
+  if (view.body?.trim()) {
+    lines.push(`Asked with: ${view.body.trim()}`);
+  }
+  if (view.refs && view.refs.length > 0) {
+    lines.push(`About: ${view.refs.map(r => `${r.type} #${r.id}`).join(', ')}`);
+  }
   if (answer.kind === 'skip') {
     lines.push('Skipped: the person chose not to answer. Carry on without it — with your recommendation where that is within bounds — and say in one line what you did instead.');
   } else if (answer.kind === 'free_text') {
@@ -308,7 +420,8 @@ export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'o
   } else {
     for (const id of answer.optionIds) {
       const o = view.options.find(x => x.id === id);
-      lines.push(`Chosen: ${o?.label ?? id} (option ${id})${o?.hasEffect ? ' — its action ran as theirs' : ''}`);
+      const did = o?.hasEffect ? 'its action ran as theirs' : o?.consequence ?? '';
+      lines.push(`Chosen: ${o?.label ?? id} (option ${id})${did ? ` — ${did}` : ''}`);
     }
   }
   lines.push('This is their answer to the question you asked. Act on it now; do not ask it again.');
@@ -321,6 +434,7 @@ export function decisionForModel(view: Pick<DecisionView, 'id' | 'question' | 'o
  */
 export const DecisionAnswerWireSchema = z.object({
   id: z.number().int().positive(),
+  subject: z.enum(DECISION_SUBJECTS).optional(),
   option_ids: z.array(z.string().min(1).max(80)).max(8).optional(),
   free_text: z.string().max(4_000).optional(),
   skip: z.boolean().optional(),
@@ -332,36 +446,40 @@ export type DecisionAnswerWire = z.infer<typeof DecisionAnswerWireSchema>;
  * the three must be present.
  * @param raw - Whatever the client sent.
  */
-export function readDecisionAnswerWire(raw: unknown): { id: number; answer: DecisionAnswer } | null {
+export function readDecisionAnswerWire(raw: unknown): { id: number; subject: DecisionSubject; answer: DecisionAnswer } | null {
   const parsed = DecisionAnswerWireSchema.safeParse(raw);
   if (!parsed.success) {
     return null;
   }
   const { id, option_ids, free_text, skip } = parsed.data;
+  const subject = parsed.data.subject ?? 'ask';
   const given = [skip === true, (option_ids?.length ?? 0) > 0, typeof free_text === 'string' && free_text.trim().length > 0].filter(Boolean).length;
   if (given !== 1) {
     return null;
   }
   if (skip) {
-    return { id, answer: { kind: 'skip' } };
+    return { id, subject, answer: { kind: 'skip' } };
   }
   if (option_ids && option_ids.length > 0) {
-    return { id, answer: { kind: 'option', optionIds: option_ids } };
+    return { id, subject, answer: { kind: 'option', optionIds: option_ids } };
   }
-  return { id, answer: { kind: 'free_text', text: free_text!.trim() } };
+  return { id, subject, answer: { kind: 'free_text', text: free_text!.trim() } };
 }
 
 /**
  * An answer as the wire carries it.
- * @param id - The Decision.
+ * @param view - The Decision: its id and subject.
+ * @param view.id - Its id.
+ * @param view.subject - Ask or proposal.
  * @param answer - The answer.
  */
-export function decisionAnswerWire(id: number, answer: DecisionAnswer): DecisionAnswerWire {
+export function decisionAnswerWire(view: Pick<DecisionView, 'id' | 'subject'>, answer: DecisionAnswer): DecisionAnswerWire {
+  const at = { id: view.id, ...(view.subject === 'proposal' ? { subject: 'proposal' as const } : {}) };
   if (answer.kind === 'skip') {
-    return { id, skip: true };
+    return { ...at, skip: true };
   }
   if (answer.kind === 'free_text') {
-    return { id, free_text: answer.text };
+    return { ...at, free_text: answer.text };
   }
-  return { id, option_ids: answer.optionIds };
+  return { ...at, option_ids: answer.optionIds };
 }

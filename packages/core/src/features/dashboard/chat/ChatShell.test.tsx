@@ -14,6 +14,7 @@ vi.mock('@/libs/Orpc', () => ({
     teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
     missions: { list: vi.fn(async () => []) },
     review: { actionStatus: vi.fn(async () => ({ status: 'pending', decidedBy: null, decidedAt: null })), decideAction: vi.fn(async () => ({ runId: 7763, status: 'approved' })) },
+    decisions: { open: vi.fn(async () => []), waiting: vi.fn(async () => []), answer: vi.fn(async () => ({ decision: null, effect: null })), build: vi.fn() },
   },
 }));
 
@@ -82,6 +83,9 @@ beforeEach(() => {
   vi.mocked(client.conversations.create).mockReset();
   replaceUrl.mockReset();
   vi.mocked(client.conversations.list).mockReset().mockResolvedValue([]);
+  vi.mocked(client.decisions.open).mockReset().mockResolvedValue([] as never);
+  vi.mocked(client.decisions.waiting).mockReset().mockResolvedValue([] as never);
+  vi.mocked(client.decisions.answer).mockReset().mockResolvedValue({ decision: null, effect: null } as never);
 });
 
 describe('ChatShell', () => {
@@ -110,23 +114,25 @@ describe('ChatShell', () => {
     expect(page.getByRole('menuitem', { name: /Pipeline Analyst/ }).elements()).toHaveLength(0);
   });
 
-  it('starts warm: what waits in the review queue is one soft chip to Review, never cards (founder, 2026-10-08)', async () => {
+  it('starts warm: what waits elsewhere is one soft chip to Review, never a docked card (founder, 2026-10-08)', async () => {
     // Jamie's waiting proposals (2026-10-07) opened every new chat as a big
     // card carousel the founder could not scroll past on a phone. An empty
-    // conversation now says how many, once, and Review holds the cards.
-    const waiting = {
-      cards: [{ id: 'run:7763', kind: 'action', state: 'filed' as const, runId: 7763, actionId: 'objects.propose_candidate', input: { objectType: 'product', title: 'Northwind Traders' }, label: 'Create product: Northwind Traders', agentSlug: 'product-manager' }],
-      more: 2,
-    };
-    await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} pendingDecisions={waiting} />));
+    // conversation now says how many, once; Review holds them, and a
+    // conversation under way queues them in its dock.
+    vi.mocked(client.decisions.waiting).mockResolvedValue([
+      { id: 7763, subject: 'proposal', kind: 'approval', question: 'Create product: Northwind Traders', options: [{ id: 'approve', label: 'Allow once', recommended: true }, { id: 'reject', label: 'Deny' }], allowOther: true, multiple: false, state: 'open', agentSlug: 'product-manager', ownerUserId: null, conversationId: null },
+      { id: 41, kind: 'question', question: 'What should the export be called?', options: [], allowOther: true, multiple: false, state: 'open', agentSlug: 'product-manager', ownerUserId: null, conversationId: null },
+      { id: 42, kind: 'question', question: 'Which region is Northwind in?', options: [], allowOther: true, multiple: false, state: 'open', agentSlug: 'product-manager', ownerUserId: null, conversationId: null },
+    ] as never);
+    sessionStorage.clear();
+    await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} />));
 
     await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/^(Good (morning|afternoon|evening)|Welcome back)\.$/);
 
     const nudge = page.getByTestId('waiting-nudge');
 
     await expect.element(nudge.getByRole('link', { name: '3 things waiting on you' })).toHaveAttribute('href', '/dashboard/inbox');
-    expect(page.getByTestId('waiting-on-you').elements()).toHaveLength(0);
-    expect(page.getByTestId('recommended-action-card').elements()).toHaveLength(0);
+    expect(page.getByRole('dialog').elements()).toHaveLength(0);
     expect(page.getByText('Create product: Northwind Traders').elements()).toHaveLength(0);
 
     // Dismissible: gone for this browser session.
@@ -136,12 +142,12 @@ describe('ChatShell', () => {
     expect(sessionStorage.getItem('vocion:waiting-nudge-dismissed')).toBe('1');
   });
 
-  it('draws nothing for an empty queue', async () => {
-    await render(wrap(<ChatShell agents={AGENTS} pendingDecisions={{ cards: [], more: 0 }} />));
+  it('draws no dock when nothing waits', async () => {
+    await render(wrap(<ChatShell agents={AGENTS} />));
 
     await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
-    expect(page.getByTestId('waiting-on-you').elements()).toHaveLength(0);
     expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
+    expect(page.getByTestId('decision-dock').elements()).toHaveLength(0);
   });
 
   it('shows an empty state instead of crashing when there are no agents', async () => {
@@ -241,28 +247,36 @@ describe('ChatShell', () => {
     await expect.element(page.getByRole('button', { name: 'Acme renewal terms' })).toBeVisible();
   });
 
-  it('after a login sends the prepared message exactly once, then takes the connect params off the URL', async () => {
-    // The turn's network call never answers: the user's own message is what is under test.
-    const fetchSpy = vi.fn(() => new Promise<Response>(() => {}));
+  it('back from a login, the setup step that opened it is answered — typed, once — and the connect params leave the URL', async () => {
+    // The turn's network call never answers: what is under test is that the
+    // answer leaves as a typed decision, never as "I connected github".
+    const fetchSpy = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>(() => {}));
     vi.stubGlobal('fetch', fetchSpy);
-    vi.mocked(client.conversations.create).mockResolvedValue({ id: 7 } as never);
-    window.history.replaceState(null, '', '/dashboard/chat?conversation=7&connect=ok&connector=github&source=github');
-    const message = 'I connected github. What\'s next?';
-    const screen = await render(wrap(<ChatShell agents={AGENTS} connectReturnPrompt={message} />));
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '7');
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 7, updatedAt: new Date(), railWidth: null, railOpen: null } as never);
+    vi.mocked(client.conversations.get).mockResolvedValue({ id: 7, orgId: 'org_1', agentSlug: 'orchestrator', title: 'Set up', messageCount: 1, messages: [{ id: 1, conversationId: 7, role: 'assistant', content: 'Connect GitHub first.', runsJson: null, createdAt: new Date() }] } as never);
+    vi.mocked(client.decisions.open).mockResolvedValue([
+      { id: 52, kind: 'setup', question: 'Connect GitHub', options: [{ id: 'connect:github', label: 'Connect with GitHub', href: '/api/connect/github/start?connector=github' }], allowOther: true, multiple: false, state: 'open', agentSlug: 'orchestrator', ownerUserId: 'usr-dana', conversationId: 7 },
+    ] as never);
+    window.history.replaceState(null, '', '/dashboard/chat?conversation=7&connect=ok&connector=github');
+    const screen = await render(wrap(<ChatShell agents={AGENTS} conversationId={7} connectReturn={{ ok: true, connector: 'github' }} />));
 
-    // The thread's title repeats the text; the message bubble is the div.
-    await vi.waitFor(() => expect(sentBubbles(message)).toHaveLength(1));
-    await vi.waitFor(() => expect(replaceUrl).toHaveBeenCalledTimes(1));
+    const turns = () => fetchSpy.mock.calls.filter(([url, init]) => url === '/rpc/agent/stream' && init?.method === 'POST');
+    await vi.waitFor(() => expect(turns()).toHaveLength(1));
+    const body = JSON.parse(String(turns()[0]![1]!.body));
 
-    expect(replaceUrl).toHaveBeenCalledWith('/dashboard/chat?conversation=7');
+    expect(body.decision_answer).toEqual({ id: 52, option_ids: ['connect:github'] });
+    expect(body.message).toBe('');
+    expect(sentBubbles('I connected github. What\'s next?')).toHaveLength(0);
 
-    // Re-rendering with the prompt still present (a state change, a refresh of the server tree) must not send it again.
-    await screen.rerender(wrap(<ChatShell agents={AGENTS} connectReturnPrompt={message} />));
+    await vi.waitFor(() => expect(replaceUrl).toHaveBeenCalledWith('/dashboard/chat?conversation=7'));
 
-    expect(sentBubbles(message)).toHaveLength(1);
-    expect(replaceUrl).toHaveBeenCalledTimes(1);
+    await screen.rerender(wrap(<ChatShell agents={AGENTS} conversationId={7} connectReturn={{ ok: true, connector: 'github' }} />));
+
+    expect(turns()).toHaveLength(1);
 
     window.history.replaceState(null, '', '/dashboard/chat');
+    sessionStorage.clear();
     vi.unstubAllGlobals();
   });
 

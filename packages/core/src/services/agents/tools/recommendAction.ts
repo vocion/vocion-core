@@ -179,7 +179,7 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
         const consent = await personSaidToDecide(ctx, decision).catch(() => ({ said: false }));
         if (consent.said) {
           const { runProposal } = await import('./proposeAction');
-          return runProposal(ctx, { actionId: action_id, input: action_input ?? {}, confidence: typeof confidence === 'number' ? confidence : 0.9, rationale: rationale?.trim() || label, suggestedDecision, suggestedDecisionReason }, { tool: 'recommend_action' });
+          return runProposal(ctx, { actionId: action_id, input: action_input ?? {}, confidence: typeof confidence === 'number' ? confidence : 0.9, rationale: rationale?.trim() || label, suggestedDecision, suggestedDecisionReason, label }, { tool: 'recommend_action' });
         }
       }
       // A MERGE CARD NOBODY PRESSES (backlog 044): a class whose trust rule
@@ -207,11 +207,11 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
           suggestedDecisionReason,
         },
       });
-      return `Surfaced a one-tap recommendation to the user: "${label}". They can prepare it for review with a single tap. Do NOT also paste the full draft as text — the card carries it.`;
+      return `Put "${label}" in front of the person as a decision — docked above their composer, Approve running it as them. Your turn ends there; their answer comes back to you as a typed decision event. Do NOT also paste the full draft as text — the decision carries it.`;
     },
     {
       name: 'recommend_action',
-      description: `Surface a recommended action as a ONE-TAP CARD in your answer (not dead text). Use this for every concrete next action you suggest that maps to a connector action — the user taps to prepare it for review; nothing sends without their approval. Prefer this over spelling the action out in prose. ${described.length > 0 ? `Available actions:\n${available}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${inputs}` : 'Action ids and their input fields are listed under ACTIONS in your instructions.'}`,
+      description: `Put a recommended action in front of the person as ONE DECISION docked above their composer (not dead text): Approve runs it as them, Reject drops it, and their answer comes back to you. Use this for every concrete next action you suggest that maps to a connector action; nothing sends without their approval. Prefer this over spelling the action out in prose. ${described.length > 0 ? `Available actions:\n${available}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${inputs}` : 'Action ids and their input fields are listed under ACTIONS in your instructions.'}`,
       schema: z.object({
         action_id: z.string().describe('Registered action id, e.g. "gmail.send"'),
         action_input: z.record(z.string(), z.unknown()).describe('Pre-filled payload for the action — for gmail.send: { to, subject, body, draft: true }'),

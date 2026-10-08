@@ -1,8 +1,8 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
-import type { CardDecision } from './cards/CardDecisions';
-import type { AgentOption, ChatAttachment, RecommendedAction } from './types';
+import type { AgentOption, ChatAttachment } from './types';
+import type { ConnectReturn } from '@/libs/connect/returnTo';
 import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
@@ -10,26 +10,20 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { InlineTitle } from '@/components/ui/inline-title';
-import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/ConnectSystemsFlow';
-import { useConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { ShellBarActionsPortal, ShellBarTitlePortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
-import { client } from '@/libs/Orpc';
 import { setLiveSources } from '@/libs/preview/liveSources';
 import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef';
 import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
-import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { ConversationDecisions } from './decisions/DecisionDock';
-import { mayDockCard } from './emptyChat';
 import { EmptyState } from './EmptyState';
-import { HitlGate } from './HitlGate';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
@@ -37,11 +31,10 @@ import { QuotedPassage } from './QuotedPassage';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
+import { useAnswerOnConnectReturn } from './useAnswerOnConnectReturn';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
-import { useSendOnConnectReturn } from './useSendOnConnectReturn';
 import { usePersonFirstName, WaitingNudge } from './WaitingNudge';
-import { WaitingOnYou } from './WaitingOnYou';
 
 /**
  * ChatShell — the full-page chat surface.
@@ -66,7 +59,7 @@ import { WaitingOnYou } from './WaitingOnYou';
  *   <MessageList /> or <EmptyState />
  *   <PreviewPanel /> (right-side, optional — an artifact, a record, or a
  *     turn's sources; ONE pane for all three, `sourcesRef.ts`)
- *   <HitlGate /> (above composer when pending)
+ *   <DecisionDock /> (first above the composer, when anything waits)
  *   <ChatComposer />
  */
 
@@ -84,19 +77,13 @@ export type ChatShellProps = {
   /** A thread the URL names (`?conversation=<id>`) — resume it instead of starting fresh (§9). */
   conversationId?: number | null;
   /**
-   * The message a finished connect prepared ("I connected github. What's next?"). Sent once
-   * automatically when the thread has settled, then the connect params leave the URL.
+   * How a connect this thread started came back (`?connect=ok&connector=github`): it answers
+   * the setup Decision that opened it — typed, never words put in the person's mouth — or
+   * says on that card why it failed. Then the connect params leave the URL.
    */
-  connectReturnPrompt?: string;
+  connectReturn?: ConnectReturn | null;
   /** `?new=1` — forget this browser session's thread and start fresh (⌘⇧O from a page with no surface). */
   startNew?: boolean;
-  /**
-   * The proposals waiting on a person in this workspace (`listPendingDecisions`).
-   * An empty conversation names how many in one soft chip to Review; a
-   * conversation under way draws them as cards at its end. `more` is how many
-   * the queue holds past the cards.
-   */
-  pendingDecisions?: { cards: RecommendedAction[]; more: number };
   /**
    * `?objective=connect-systems` — start "Connect your systems" docked above
    * the composer (the checklist, an app's page and the Connectors page link
@@ -129,9 +116,8 @@ export type ChatShellProps = {
  * @param props.greeting - Empty-state greeting.
  * @param props.conversationId
  * @param props.startNew
- * @param props.connectReturnPrompt - Sent once automatically after a connect.
- * @param props.pendingDecisions - The review queue's open proposals, drawn as cards here.
- * @param props.connectSystems
+ * @param props.connectReturn - How a connect this thread started came back.
+ * @param props.connectSystems - `?objective=connect-systems`: the walk to start.
  */
 export function ChatShell({
   agents,
@@ -141,8 +127,7 @@ export function ChatShell({
   greeting,
   conversationId = null,
   startNew = false,
-  connectReturnPrompt,
-  pendingDecisions,
+  connectReturn,
   connectSystems = null,
 }: ChatShellProps) {
   if (agents.length === 0) {
@@ -158,8 +143,7 @@ export function ChatShell({
       greeting={greeting}
       conversationId={conversationId}
       startNew={startNew}
-      connectReturnPrompt={connectReturnPrompt}
-      pendingDecisions={pendingDecisions}
+      connectReturn={connectReturn}
       connectSystems={connectSystems}
     />
   );
@@ -192,8 +176,7 @@ function ChatShellInner({
   greeting,
   conversationId = null,
   startNew = false,
-  connectReturnPrompt,
-  pendingDecisions,
+  connectReturn,
   connectSystems = null,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
@@ -218,15 +201,6 @@ function ChatShellInner({
     };
   }, [intent, pathname]);
   const session = useChatSession({ agents, initialComposerValue, initialAttachments, suggestions, greeting, resumeConversationId: conversationId, pageContext });
-  // A card's decision is recorded on the card in THIS conversation (backlog 025) — never as a user turn.
-  const recordCardDecision = useCallback((d: CardDecision) => {
-    if (session.conversationId === null) {
-      return;
-    }
-    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
-      console.warn('card decision was not written to the conversation', err);
-    });
-  }, [session.conversationId]);
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
@@ -269,51 +243,12 @@ function ChatShellInner({
   }, [session.conversationId, session.isStreaming, latestDocs, latest?.id, openRef]);
   const onCommand = useChatCommands(startNewChat);
 
-  // What waits on the person, pinned to the end of the thread with the gate
-  // (and above the composer on an empty one). A run the thread already drew
-  // as a card — filed during one of its turns — is not drawn a second time.
-  const shownRunIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const m of session.messages) {
-      for (const r of m.recommendations ?? []) {
-        if (r.runId !== undefined) {
-          ids.add(r.runId);
-        }
-      }
-    }
-    return ids;
-  }, [session.messages]);
-  const waiting = pendingDecisions && (pendingDecisions.cards.length > 0 || pendingDecisions.more > 0)
-    ? <WaitingOnYou cards={pendingDecisions.cards} more={pendingDecisions.more} skipRunIds={shownRunIds} />
-    : null;
-  // An empty conversation names how many wait, once, softly; the cards are Review's.
-  const waitingCount = pendingDecisions ? pendingDecisions.cards.length + pendingDecisions.more : 0;
+  // An empty conversation names how many wait elsewhere, once, softly, in the
+  // chip that opens Review (#1264, `emptyChat.ts`); once the person is in a
+  // conversation they queue in the dock behind its own (`ConversationDecisions`).
+  const waitingCount = session.waitingDecisions.length;
   const nudge = waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
   const firstName = usePersonFirstName();
-  // The approval gate, as a transcript block pinned to the end. `afterIndex`
-  // past the last message is how `MessageList` says "after whatever is last"
-  // without the caller tracking the index itself.
-  const gateBlocks = useMemo(
-    () => [
-      // Never on an empty conversation, which starts warm (`emptyChat.ts`).
-      ...(waiting && mayDockCard({ messageCount: session.messages.length, personStarted: false }) ? [{ key: 'waiting-on-you', afterIndex: session.messages.length, node: waiting }] : []),
-      ...(session.pendingHitl
-        ? [{
-            key: 'hitl-gate',
-            afterIndex: session.messages.length,
-            node: (
-              <HitlGate
-                gate={session.pendingHitl}
-                onApprove={session.handleApproveHitl}
-                onReject={session.handleRejectHitl}
-                disabled={session.isStreaming}
-              />
-            ),
-          }]
-        : []),
-    ],
-    [waiting, session.pendingHitl, session.messages.length, session.handleApproveHitl, session.handleRejectHitl, session.isStreaming],
-  );
   // Arriving on the page (⌘⇧L, the sidebar, a link) focuses the composer once
   // the saved thread has settled; keyboard-only never has to click the box.
   useEffect(() => {
@@ -350,11 +285,11 @@ function ChatShellInner({
     router.replace(`${pathname}${qs ? `?${qs}` : ''}`);
   }, [startNew, session.booted, router, pathname]);
   // Back from a login: the agent carries on by itself, once, and the URL is cleaned so a reload never repeats it.
-  useSendOnConnectReturn({ prompt: connectReturnPrompt, ready: session.booted, send: session.sendMessage, pathname, replaceUrl: router.replace });
-  // "Connect your systems", docked above the composer: started by a link that
-  // named it, or by a card in the thread. The link's params leave the URL once
-  // it has started, so a reload does not start it twice.
-  const connectWalk = useConnectSystems(connectSystems ? { input: connectSystems } : null);
+  useAnswerOnConnectReturn({ outcome: connectReturn ?? null, ready: session.booted, decisions: session.openDecisions, answer: session.answerDecision, fail: session.failDecision, pathname, replaceUrl: router.replace });
+  // "Connect your systems", docked above the composer (`ConversationDecisions`):
+  // started by a link that named it, or by its Decision in the thread. The
+  // link's params leave the URL once it has started, so a reload does not
+  // start it twice.
   useEffect(() => {
     if (!connectSystems) {
       return;
@@ -463,7 +398,7 @@ function ChatShellInner({
                   ))}
                 </div>
               )
-            : session.messages.length === 0 && !session.pendingHitl
+            : session.messages.length === 0
               ? (
                   hasWorkspaceAgents(agents)
                     ? (
@@ -486,41 +421,29 @@ function ChatShellInner({
                     : <NoAgentsYet />
                 )
               : (
-                  <CardDecisionProvider value={recordCardDecision}>
-                    <MessageList
-                      messages={session.messages}
-                      agentName={session.workspaceName}
-                      // The workspace speaks through its lead; a specialist's turn is attributed.
-                      ownAgentSlug={defaultAgentSlug(agents)}
-                      agents={agents}
-                      streaming={session.isStreaming}
-                      activity={session.activity}
-                      onShowSources={openSources}
-                      onCitationClick={(_n, messageId) => openSources(messageId)}
-                      onFeedback={session.handleFeedback}
-                      onBuildCard={session.buildFromCard}
-                      autonomy={session.autonomy}
-                      conversationId={session.conversationId}
-                      blocks={gateBlocks}
-                    />
-                  </CardDecisionProvider>
+                  <MessageList
+                    messages={session.messages}
+                    agentName={session.workspaceName}
+                    // The workspace speaks through its lead; a specialist's turn is attributed.
+                    ownAgentSlug={defaultAgentSlug(agents)}
+                    agents={agents}
+                    streaming={session.isStreaming}
+                    activity={session.activity}
+                    onShowSources={openSources}
+                    onCitationClick={(_n, messageId) => openSources(messageId)}
+                    onFeedback={session.handleFeedback}
+                    onBuildCard={session.buildFromCard}
+                    autonomy={session.autonomy}
+                    conversationId={session.conversationId}
+                  />
                 )}
 
           <ChatComposer
             above={(
               <>
-                {connectWalk.active && (
-                  <ConnectSystemsFlow
-                    key={connectWalk.active.key}
-                    input={connectWalk.active.input}
-                    card={connectWalk.active.cardId && session.conversationId !== null ? { conversationId: session.conversationId, cardId: connectWalk.active.cardId } : null}
-                    onClose={connectWalk.close}
-                    onSomethingElse={text => void session.sendMessage(text)}
-                  />
-                )}
                 {/* The Decision this thread waits on, docked first — the
                     composer below stays live to answer in words. */}
-                <ConversationDecisions session={session} />
+                <ConversationDecisions session={session} connectSystems={connectSystems} />
                 {intent?.context?.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
                 {intent?.context?.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
               </>

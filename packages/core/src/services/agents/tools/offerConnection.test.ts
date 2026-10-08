@@ -264,7 +264,7 @@ describe('offer_connection', () => {
     await db.update(apiTokenSchema).set({ revokedAt: new Date() }).where(eq(apiTokenSchema.id, source!.apiTokenId!));
     const revoked = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'slack', why: 'x' }));
 
-    expect(revoked).toContain('Showed a "Connect Slack" card');
+    expect(revoked).toContain('Asked them to connect Slack');
     expect(emit).toHaveBeenCalledTimes(1);
 
     await db.update(apiTokenSchema).set({ revokedAt: null, expiresAt: new Date(Date.now() - 60_000) }).where(eq(apiTokenSchema.id, source!.apiTokenId!));

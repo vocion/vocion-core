@@ -718,7 +718,7 @@ export const ObservedMeasureSourceSchema = z.object({
 export const HumanConfirmedMeasureSourceSchema = z.object({
   kind: z.literal('human-confirmed'),
   actions: ActionIdList.optional(),
-  askKinds: z.array(z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate'])).min(1).optional(),
+  askKinds: z.array(z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate', 'signoff', 'setup'])).min(1).optional(),
 }).refine(s => Boolean(s.actions) || Boolean(s.askKinds), 'human-confirmed source names actions or askKinds');
 
 /** `agent-reported` — the sum of a `worker_run.counts` key. The worker grades itself; the chip says so. */

@@ -175,7 +175,7 @@ function connectedWording(name: string, href: string, settingsAfterLogin: readon
   } else {
     how = `The person lands back in this conversation after logging in: ask which ${settingNames(settingsAfterLogin)} they want, then save the source with source.connect.`;
   }
-  return `Showed a "Connect ${name}" card (${href}). ${how} Do not claim it is connected until they say so or list_capabilities shows it.`;
+  return `Asked them to connect ${name} — docked above their composer (${href}). ${how} Their answer comes back to you when they are back. Do not claim it is connected until list_capabilities shows it.`;
 }
 
 /**

@@ -1,7 +1,7 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, CardDecision, CardField, CardLastAttempt, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, DecisionAnswerReceipt, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, DecisionAnswerReceipt, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
@@ -12,31 +12,29 @@ import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { startConnectSystems } from '@/features/dashboard/connect-systems/launch';
+import { CONNECT_SYSTEMS_FINISHED_EVENT, startConnectSystems } from '@/features/dashboard/connect-systems/launch';
+import { announceSetupChanged } from '@/features/dashboard/setupChanged';
 import { announceVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
-import { CONNECT_SYSTEMS_CARD_KIND } from '@/libs/cards/card';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { linkRecordMentions } from '@/libs/chat/recordMentions';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
 import { nounCode } from '@/libs/codes';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
-import { answerLine, decisionAnswerWire } from '@/libs/decisions/decision';
+import { answerLine, decisionAnswerWire, decisionKey } from '@/libs/decisions/decision';
 import { readDoneReceipt } from '@/libs/decisions/receipt';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
-import { cardLink, cardShown, draftOf, readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { agentDisplayName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
-import { loadWorkspaceIntake } from './useWorkspaceIntake';
 import { describeToolCall } from './WorkTimeline';
 
 /* ----------------------------------------------------------------- */
@@ -191,7 +189,7 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     // is not a client-side ornament that a reload forgets.
     const recommendations: RecommendedAction[] = runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
-      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.rationale ? { rationale: r.rationale } : {}), ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), ...cardShown(r), ...draftOf(r.draft), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
+      .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.runId !== undefined ? { runId: r.runId } : {}), ...(typeof r.href === 'string' && r.href.startsWith('/') ? { href: r.href } : {}), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed') }));
     // A Decision's answer comes back as the receipt it was, on the person's
     // side: a card's answer is a row of its own with no words; typed words
     // that answered keep their bubble and carry the line beneath it.
@@ -383,15 +381,46 @@ export function useChatSession({
   const [uploading, setUploading] = useState(0);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [phase, setPhase] = useState<StreamingPhase>('idle');
-  const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   // The Decisions this conversation is waiting on, oldest first — the first
   // is docked above the composer (`decisions/DecisionDock.tsx`).
   const [openDecisions, setOpenDecisions] = useState<DecisionView[]>([]);
+  // A connect walk that finished answered the Decision that started it: it
+  // leaves the dock now, as a reload would read it.
+  const openDecisionsRef = useRef<DecisionView[]>([]);
+  useEffect(() => {
+    openDecisionsRef.current = openDecisions;
+  }, [openDecisions]);
+  useEffect(() => {
+    const onFinished = (e: Event) => {
+      const detail = (e as CustomEvent<{ decisionId?: number; summary?: string }>).detail;
+      const id = detail?.decisionId;
+      if (typeof id !== 'number') {
+        return;
+      }
+      const asked = openDecisionsRef.current.find(d => d.id === id);
+      setOpenDecisions(prev => prev.filter(d => d.id !== id));
+      // The receipt on the person's side, as the stored row will draw it.
+      if (asked && detail?.summary) {
+        setMessages(prev => [...prev, { role: 'user', content: '', decisionAnswer: { id, question: asked.question, line: `Start: ${detail.summary}`, kind: 'option', via: 'card' } }]);
+      }
+    };
+    window.addEventListener(CONNECT_SYSTEMS_FINISHED_EVENT, onFinished);
+    return () => window.removeEventListener(CONNECT_SYSTEMS_FINISHED_EVENT, onFinished);
+  }, []);
   // The Decision whose answer is on its way, and why the last one did not land.
   const [answeringDecisionId, setAnsweringDecisionId] = useState<number | null>(null);
+  /** Answers given while a turn was still running, sent in order once it lands. */
+  const heldAnswersRef = useRef<Array<{ view: DecisionView; answer: DecisionAnswer }>>([]);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   // Bumped to read the open Decisions again (an answer that did not land).
   const [decisionsTick, setDecisionsTick] = useState(0);
+  // WHAT ELSE WAITS ON THIS PERSON (`decisions.waiting`): questions a mission
+  // or automation put on Needs you and proposals filed from no conversation.
+  // They queue in the dock behind this conversation's own — the decision
+  // queue the old "Waiting on you" stack of cards became.
+  const [waitingDecisions, setWaitingDecisions] = useState<DecisionView[]>([]);
+  // What an answer from the queue did, said once in the dock (no turn follows it).
+  const [dockNotice, setDockNotice] = useState<{ line: string; receipt?: DoneReceipt } | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [focusCitation, setFocusCitation] = useState<number | null>(null);
   const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
@@ -472,7 +501,7 @@ export function useChatSession({
   const emptyGreeting = greeting ?? { workspace: workspaceName };
   // Neutral composer (the ChatComposer default, "Ask anything…") — and, with
   // a Decision docked above it, the other way to answer: in their own words.
-  const composerPlaceholder = openDecisions.length > 0 ? 'Or reply directly…' : undefined;
+  const composerPlaceholder = openDecisions.length > 0 || waitingDecisions.length > 0 ? 'Or reply directly…' : undefined;
   const isStreaming = phase !== 'idle';
   /**
    * The same answer as `isStreaming`, readable SYNCHRONOUSLY.
@@ -819,11 +848,6 @@ export function useChatSession({
         appendToLatestAgent(m => ({ ...m, documents: [...(m.documents ?? []), ...docs] }));
         return;
       }
-      case 'hitl_gate': {
-        flushDeltas();
-        setPendingHitl(evt.gate as HitlGatePayload);
-        return;
-      }
       case 'decision': {
         // A Decision raised in this turn docks above the composer; one that
         // was answered (by its card, or by typed words the server read as the
@@ -835,6 +859,12 @@ export function useChatSession({
         }
         if (d.state === 'open' || d.state === 'expired') {
           setOpenDecisions(prev => (prev.some(x => x.id === d.id) ? prev.map(x => (x.id === d.id ? d : x)) : [...prev, d]));
+          // "Connect your systems" arriving live opens its walk at once — the
+          // person asked for it. A reload docks the Decision and starts nothing.
+          const walk = d.state === 'open' && d.kind === 'setup' ? d.options.map(o => connectSystemsInputOfHref(o.href)).find(Boolean) : null;
+          if (walk) {
+            startConnectSystems({ input: walk, decisionId: d.id });
+          }
           return;
         }
         setOpenDecisions(prev => prev.filter(x => x.id !== d.id));
@@ -855,76 +885,14 @@ export function useChatSession({
         const r = readDoneReceipt(evt.receipt);
         if (r) {
           appendToLatestAgent(m => ({ ...m, receipts: [...(m.receipts ?? []).filter(x => x.runId !== r.runId), r] }));
+          // Something ran: a setup step may now be done (the checklist re-reads).
+          announceSetupChanged();
         }
         return;
       }
-      case 'card': {
-        // The typed form (backlog 025): on the ledger already, on the wire
-        // now, filed later if at all — `card_update` carries the proposal id.
-        flushDeltas();
-        const c = evt.card as { id: string; title: string; kind: string; state?: RecommendedAction['state']; runId?: number; actions?: Array<{ actionId: string; label?: string; input?: Record<string, unknown> }>; rationale?: string; confidence?: number; source?: { agentSlug?: string }; suggestedDecision?: RecommendedAction['suggestedDecision']; suggestedDecisionReason?: string; href?: string; hrefLabel?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; brand?: string; decision?: CardDecision; draft?: unknown };
-        // The button's own words ride along when they are not the title ("Add", "Hire").
-        const primaryLabel = c.actions?.[0]?.label;
-        const link = { ...cardLink(c.href, c.hrefLabel), ...cardShown({ ...c, ...(primaryLabel && primaryLabel !== c.title ? { actionLabel: primaryLabel } : {}) }) };
-        const primary = c.actions?.[0];
-        let rec: RecommendedAction;
-        if (primary) {
-          const checked = readRecommendedAction({ actionId: primary.actionId, input: primary.input ?? {}, label: c.title, rationale: c.rationale, confidence: c.confidence, agentSlug: c.source?.agentSlug, runId: c.runId, suggestedDecision: c.suggestedDecision, suggestedDecisionReason: c.suggestedDecisionReason, draft: c.draft });
-          if (!checked.ok) {
-            console.warn(`useChatSession: dropped an invalid card — ${checked.reason}`);
-            return;
-          }
-          rec = { ...checked.rec, ...link, id: c.id, state: c.state ?? (c.runId !== undefined ? 'filed' : 'proposed') };
-        } else if (typeof c.title === 'string' && c.title.trim()) {
-          // A recommendation with nothing to press (its action was refused,
-          // finding 20): still the agent's recommendation, read not pressed.
-          rec = { id: c.id, actionId: '', input: {}, label: c.title, ...link, ...(c.rationale ? { rationale: c.rationale } : {}), ...(c.source?.agentSlug ? { agentSlug: c.source.agentSlug } : {}), state: c.state ?? 'proposed' };
-        } else {
-          return;
-        }
-        appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []).filter(r => r.id !== c.id), rec] }));
-        // "Connect your systems" arriving live docks its walk-through at once:
-        // the person asked for it. A reload draws the card and starts nothing.
-        if (rec.kind === CONNECT_SYSTEMS_CARD_KIND && rec.state !== 'decided') {
-          const input = connectSystemsInputOfHref(rec.href);
-          if (input) {
-            startConnectSystems({ input, cardId: c.id });
-          }
-        }
-        return;
-      }
-      case 'card_update': {
-        const u = evt as unknown as { cardId: string; runId?: number; state?: RecommendedAction['state']; reason?: string };
-        appendToLatestAgent(m => ({
-          ...m,
-          recommendations: (m.recommendations ?? []).map(r => (r.id === u.cardId ? { ...r, ...(u.runId !== undefined ? { runId: u.runId } : {}), ...(u.state ? { state: u.state } : {}), ...(u.reason ? { unfiledReason: u.reason } : {}) } : r)),
-        }));
-        return;
-      }
-      case 'recommended_action': {
-        // A2UI: attach a clickable action card to the current answer. No side
-        // effect yet — the gated review item is created only if the user taps.
-        //
-        // Checked HERE, at the boundary, because a card is one tap (or, at
-        // act-within-bounds, zero taps) from an RPC: a payload with no
-        // actionId used to reach the card and fire `review.propose` with
-        // `undefined`, which the server rejected as a 400. An invalid
-        // recommendation now becomes a visible failed step in the trace and
-        // never becomes a card.
-        flushDeltas();
-        const checked = readRecommendedAction(evt.recommendation);
-        if (!checked.ok) {
-          console.warn(`useChatSession: dropped an invalid recommended_action — ${checked.reason}`);
-          lastRunIsTextRef.current = false;
-          appendToLatestAgent(m => ({
-            ...m,
-            runs: [...(m.runs ?? []), { type: 'tool', name: 'recommend_action', state: 'error', output: checked.reason }],
-          }));
-          return;
-        }
-        appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []), checked.rec] }));
-        return;
-      }
+      // A card, a card's update, a recommendation and an approval gate reach
+      // this client as the Decision each one is (`services/decisions/
+      // escalate.ts`); their raw events are not drawn.
       case 'artifact': {
         // The chip under the message saying what this turn produced.
         //
@@ -1073,7 +1041,7 @@ export function useChatSession({
     // Through a resolved promise, so a client without the route (an old
     // server mid-deploy, a test double) is a warning, never a crash.
     Promise.resolve()
-      .then(() => client.decisions.open({ conversationId }))
+      .then(() => client.decisions.open({ conversationId: conversationId! }))
       .then((rows) => {
         if (!cancelled) {
           setOpenDecisions(rows as DecisionView[]);
@@ -1086,6 +1054,27 @@ export function useChatSession({
       cancelled = true;
     };
   }, [conversationId, turnIdle, decisionsTick]);
+  // …and what waits on them elsewhere, read at the same moments — a new chat
+  // included, so the queue is there before the first message.
+  useEffect(() => {
+    if (!turnIdle) {
+      return;
+    }
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => client.decisions.waiting())
+      .then((rows) => {
+        if (!cancelled) {
+          setWaitingDecisions(rows as DecisionView[]);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('useChatSession: could not read what is waiting', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [turnIdle, decisionsTick, conversationId]);
   // A page hand-off may ask for ONE turn to go to a specialist (the brief's
   // team lead); the conversation itself stays with the workspace agent.
   const routeOnceRef = useRef<string | null>(null);
@@ -1346,7 +1335,8 @@ export function useChatSession({
         continue;
       }
       const { messages: next } = hydrateTranscript((conv.messages ?? []) as PersistedMessageRow[], nameOfAgent);
-      if (next.length > seen && next[next.length - 1]?.role === 'assistant') {
+      const last = next[next.length - 1];
+      if (next.length >= seen && last?.role === 'assistant' && last.status !== 'running') {
         setMessages(next);
         break;
       }
@@ -1418,17 +1408,18 @@ export function useChatSession({
           // Mid-turn drop? If a stream stash exists for this agent and the
           // assistant's reply hasn't persisted yet, replay + re-attach live.
           const stash = readStreamStash();
-          if (stash && (stash.conversationId === storedId || (stash.conversationId == null && stash.agentSlug === slug))) {
-            if (hydrated[hydrated.length - 1]?.role === 'user') {
-              void resumeStream(stash);
-            } else {
-              writeStreamStash(null); // turn already landed
-            }
-          } else if (hydrated[hydrated.length - 1]?.role === 'user') {
-            // NO HANDLE TO RE-ATTACH TO (another tab, an older stash): the
-            // server is still answering, so wait for its reply to land
-            // rather than showing a question with nothing under it.
+          const last = hydrated[hydrated.length - 1];
+          const stashHere = stash && (stash.conversationId === storedId || (stash.conversationId == null && stash.agentSlug === slug));
+          if (stashHere && last?.role === 'user') {
+            void resumeStream(stash);
+          } else if (last?.role === 'user' || last?.status === 'running') {
+            // NO HANDLE TO RE-ATTACH TO (another tab, an older stash, a
+            // reload while the turn's row still says running): the server is
+            // still answering, so wait for its reply to land rather than
+            // showing a question — or an empty turn — with nothing under it.
             void waitForReply(storedId, hydrated.length);
+          } else if (stashHere) {
+            writeStreamStash(null); // turn already landed
           }
         } else if (scopeRef) {
           // Scoped id points at an empty/deleted thread — forget it.
@@ -1580,7 +1571,7 @@ export function useChatSession({
           agent_slug: turnAgent.slug,
           // The answer to a Decision, typed: the server records it and runs
           // the agent that asked — no routing, no intent read, no words.
-          ...(decision ? { decision_answer: decisionAnswerWire(decision.view.id, decision.answer) } : {}),
+          ...(decision ? { decision_answer: decisionAnswerWire(decision.view, decision.answer) } : {}),
           // Nobody named an agent for this turn: let the workspace choose
           // (`services/agents/router.ts`). The reply is attributed to whoever
           // answers, exactly as an `@mention` is; the reason rides with it.
@@ -1925,44 +1916,27 @@ export function useChatSession({
   /**
    * BUILD IT (Chris, 2026-10-04: "I should have a path to just push the idea
    * into the software factory from chat … Simple. Magical. Fast."). A card a
-   * turn drew is handed to the workspace's intake owner as the person's own
-   * word — "build it", with the card — so it runs as their action: the owner
-   * files it through the intake's own gates and starts the build, and the
-   * transcript shows exactly what was asked. No intake, no button.
+   * turn drew is built by a Decision the person takes with their press
+   * (`decisions.build`): the workspace's intake owner hears a typed record —
+   * build this card, its facts, its id — and files it through the intake's
+   * own gates. Nothing is written as the person's words.
    * @param card - The card's chip.
    * @param card.id - Its artifact id.
    * @param card.title - Its name.
    */
   const buildFromCard = useCallback(async (card: { id: number; title: string }) => {
-    const intake = await loadWorkspaceIntake();
-    if (!intake) {
+    const conversation = conversationIdRef.current;
+    if (conversation === null) {
       return;
     }
-    // The card's own facts travel with it, so nothing depends on the owner
-    // finding it in the thread.
-    let facts = '';
     try {
-      const art = await client.artifacts.get({ id: card.id });
-      const spec = (art as { spec?: { type?: unknown; status?: unknown; fields?: unknown } }).spec ?? {};
-      const fields = Array.isArray(spec.fields) ? spec.fields as Array<{ k?: unknown; v?: unknown }> : [];
-      facts = fields
-        .filter(f => typeof f.k === 'string' && f.v !== null && f.v !== undefined && String(f.v).trim())
-        .map(f => `- ${String(f.k)}: ${String(f.v)}`)
-        .join('\n');
+      const view = await client.decisions.build({ conversationId: conversation, artifactId: card.id }) as DecisionView;
+      await sendMessage('', { view, answer: { kind: 'option', optionIds: ['build'] } });
     } catch (error) {
-      console.warn('useChatSession: could not read the card to build; sending its name', error);
+      console.warn('useChatSession: Build it did not go through', error);
+      setDecisionError(`Build it did not go through: ${(error as Error).message}`);
     }
-    const noun = intake.label.toLowerCase();
-    const text = `Build it: **${card.title}**. File it as a ${noun} and start the build.${facts ? `\n\n${facts}` : ''}`;
-    // Always named, never routed: an unrouted turn lets the router keep a
-    // follow-up with the agent the thread is with, and a Build it tap in a
-    // wiki researcher's thread went back to the wiki researcher (2026-10-04),
-    // who cannot file. The intake owner answers this one turn.
-    if (intake.ownerSlug && agents.some(a => a.slug === intake.ownerSlug)) {
-      routeOnceRef.current = intake.ownerSlug;
-    }
-    void sendMessage(text);
-  }, [agent.slug, agents, sendMessage]);
+  }, [sendMessage]);
 
   /**
    * Answer the docked Decision — from its card's keys or a click. The answer
@@ -1970,18 +1944,55 @@ export function useChatSession({
    * person's words (`sendMessage`'s `decision`).
    */
   const answerDecision = useCallback((view: DecisionView, answer: DecisionAnswer) => {
-    void sendMessage('', { view, answer });
+    const here = conversationIdRef.current !== null && view.conversationId === conversationIdRef.current;
+    if (here) {
+      // The agent is still answering the last one: the answer is held, the
+      // card says it is going, and it goes the moment the turn lands — never
+      // dropped because the person was quicker than the reply.
+      if (streamingRef.current) {
+        heldAnswersRef.current = [...heldAnswersRef.current.filter(h => decisionKey(h.view) !== decisionKey(view)), { view, answer }];
+        setAnsweringDecisionId(view.id);
+        return;
+      }
+      void sendMessage('', { view, answer });
+      return;
+    }
+    // Waiting elsewhere (Needs you, a proposal from no conversation): the
+    // answer is recorded where it lives and no turn follows; the dock says
+    // what it did, once.
+    setAnsweringDecisionId(view.id);
+    setDecisionError(null);
+    void client.decisions.answer({ ...decisionAnswerWire(view, answer), subject: view.subject ?? 'ask' })
+      .then((out) => {
+        const effect = (out as { effect?: { runId: number; actionId: string; status: string; undoable: boolean; label: string } | null }).effect;
+        setWaitingDecisions(prev => prev.filter(d => decisionKey(d) !== decisionKey(view)));
+        setDockNotice({
+          line: `${answer.kind === 'skip' ? 'Skipped' : answer.kind === 'free_text' ? 'Answered' : `Chose ${answerLine(view, answer)}`} · ${view.question}`,
+          ...(effect && effect.status === 'done' ? { receipt: { runId: effect.runId, actionId: effect.actionId, label: effect.label, undoable: effect.undoable } } : {}),
+        });
+      })
+      .catch((error: unknown) => {
+        setDecisionError((error as Error).message || 'That answer did not go through.');
+        setDecisionsTick(n => n + 1);
+      })
+      .finally(() => setAnsweringDecisionId(null));
   }, [sendMessage]);
 
-  const handleApproveHitl = useCallback(() => {
-    setPendingHitl(null);
-    void sendMessage('approve');
-  }, [sendMessage]);
+  // A held answer goes as soon as the turn it waited on lands — before any
+  // queued message, because answers come first.
+  useEffect(() => {
+    if (isStreaming || streamingRef.current || heldAnswersRef.current.length === 0) {
+      return;
+    }
+    const [next, ...rest] = heldAnswersRef.current;
+    heldAnswersRef.current = rest;
+    void sendMessage('', next!);
+  }, [isStreaming, turnOutcome, sendMessage]);
 
-  const handleRejectHitl = useCallback(() => {
-    setPendingHitl(null);
-    void sendMessage('reject');
-  }, [sendMessage]);
+  /** A flow the card opened came back failed (a login refused): the card says why; nothing is answered. */
+  const failDecision = useCallback((message: string) => {
+    setDecisionError(message);
+  }, []);
 
   // Reset only the in-memory transcript. Does NOT touch the per-agent saved
   // conversation — used by agent-switch, which must leave the other agent's
@@ -1989,7 +2000,6 @@ export function useChatSession({
   const resetTranscript = useCallback(() => {
     setMessages([]);
     setAllDocuments([]);
-    setPendingHitl(null);
     setPhase('idle');
     conversationIdRef.current = null;
     setConversationId(null);
@@ -2109,7 +2119,6 @@ export function useChatSession({
       setModelPrefsState(readModelPrefs(conv));
       setMessages(hydrated);
       setAllDocuments(restoredDocs);
-      setPendingHitl(null);
       setPhase('idle');
     } catch (error) {
       // conversation gone — leave the current transcript
@@ -2241,9 +2250,15 @@ export function useChatSession({
     removeAttachment,
     isStreaming,
     activity,
-    pendingHitl,
     /** The Decisions this conversation waits on, oldest first; the first is docked above the composer. */
     openDecisions,
+    /** What else waits on this person — Needs you questions, proposals from no conversation — queued behind them. */
+    waitingDecisions,
+    /** What an answer from the queue did, said once in the dock. */
+    dockNotice,
+    dismissDockNotice: () => setDockNotice(null),
+    /** A flow a card opened came back failed: say why on the card. */
+    failDecision,
     /** Answer a Decision, typed — never as the person's words. */
     answerDecision,
     /** The Decision whose answer is on its way. */
@@ -2291,8 +2306,6 @@ export function useChatSession({
     /** ⌘⏎ — stop the running turn and send this message right now. */
     sendNow,
     handlePickSuggestion,
-    handleApproveHitl,
-    handleRejectHitl,
     handleNewChat,
     /** The workspace lead's slug — the config behind the one workspace agent (§9.10). */
     leadSlug,

@@ -45,24 +45,24 @@ describe('ConnectSystemsFlow, keyboard only', () => {
   it('asks once, connects a login and a key, verifies each, and ends on the summary', async () => {
     const open = loginWindowThatSucceeds();
     const onClose = vi.fn();
-    await render(<ConnectSystemsFlow input={{}} card={{ conversationId: 3, cardId: 'card_c' }} onClose={onClose} verifyBudgetMs={0} />);
+    await render(<ConnectSystemsFlow input={{}} decision={{ conversationId: 3, decisionId: 31 }} onClose={onClose} verifyBudgetMs={0} />);
 
     // The question, with the evidence-backed systems preselected.
     await expect.element(page.getByRole('heading', { name: 'Which of these do you use?' })).toBeVisible();
-    await expect.element(page.getByTestId('docked-option-crm')).toHaveAttribute('aria-selected', 'true');
-    await expect.element(page.getByTestId('docked-option-wiki')).toHaveAttribute('aria-selected', 'false');
+    await expect.element(page.getByTestId('decision-option-crm')).toHaveAttribute('aria-selected', 'true');
+    await expect.element(page.getByTestId('decision-option-wiki')).toHaveAttribute('aria-selected', 'false');
 
     // 3 toggles Wiki on, 3 again off; Enter takes the recommended set.
     await userEvent.keyboard('3');
 
-    await expect.element(page.getByTestId('docked-option-wiki')).toHaveAttribute('aria-selected', 'true');
+    await expect.element(page.getByTestId('decision-option-wiki')).toHaveAttribute('aria-selected', 'true');
 
     await userEvent.keyboard('3');
     await userEvent.keyboard('{Enter}');
 
     // One at a time, with the progress line.
     await expect.element(page.getByRole('heading', { name: 'Connect Northwind CRM?' })).toBeVisible();
-    await expect.element(page.getByTestId('docked-decision-progress')).toHaveTextContent('1 of 2');
+    await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('1 of 2');
     await expect.element(page.getByText('GTM needs it — Unlocks GTM: Pipeline review')).toBeVisible();
 
     await userEvent.keyboard('{Enter}');
@@ -71,7 +71,7 @@ describe('ConnectSystemsFlow, keyboard only', () => {
     expect(open).toHaveBeenCalledWith(PLAN.candidates[0]!.method.kind === 'login' ? PLAN.candidates[0]!.method.startHref : '', 'vocion-connect', expect.any(String));
     await expect.element(page.getByRole('heading', { name: 'Connect Tracker?' })).toBeVisible();
     expect(verify).toHaveBeenCalledWith({ connector: 'crm' });
-    await expect.element(page.getByTestId('docked-decision-progress')).toHaveTextContent('2 of 2');
+    await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('2 of 2');
 
     // A key, typed inline: Enter on the option, type, Enter saves.
     await userEvent.keyboard('{Enter}');
@@ -92,7 +92,7 @@ describe('ConnectSystemsFlow, keyboard only', () => {
 
     await userEvent.keyboard('{Enter}');
 
-    expect(finish).toHaveBeenCalledWith({ conversationId: 3, cardId: 'card_c', summary: 'Connected Northwind CRM, Tracker.' });
+    expect(finish).toHaveBeenCalledWith({ conversationId: 3, decisionId: 31, summary: 'Connected Northwind CRM, Tracker.' });
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -101,7 +101,7 @@ describe('ConnectSystemsFlow, keyboard only', () => {
     await render(<ConnectSystemsFlow input={{ named: ['crm', 'tracker', 'wiki'] }} onClose={vi.fn()} verifyBudgetMs={0} />);
 
     await expect.element(page.getByRole('heading', { name: 'Connect Northwind CRM?' })).toBeVisible();
-    await expect.element(page.getByTestId('docked-decision-progress')).toHaveTextContent('1 of 3');
+    await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('1 of 3');
 
     // 2 is Later.
     await userEvent.keyboard('2');
@@ -128,6 +128,6 @@ describe('ConnectSystemsFlow, keyboard only', () => {
 
     await expect.element(page.getByRole('heading', { name: 'Northwind CRM did not connect' })).toBeVisible();
     await expect.element(page.getByText(/blocked the login window/)).toBeVisible();
-    await expect.element(page.getByTestId('docked-option-retry')).toHaveAttribute('aria-selected', 'true');
+    await expect.element(page.getByTestId('decision-option-retry')).toHaveAttribute('aria-selected', 'true');
   });
 });

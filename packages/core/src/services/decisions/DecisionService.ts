@@ -22,12 +22,12 @@
  * another workspace, or in another conversation of this one, is not found.
  */
 
-import type { DecisionAnswer, DecisionChannel, DecisionView } from '@/libs/decisions/decision';
+import type { DecisionAnswer, DecisionChannel, DecisionSubject, DecisionView } from '@/libs/decisions/decision';
 import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
 import type { Ask } from '@/services/AskService';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { answerProblem, decisionViewOf } from '@/libs/decisions/decision';
+import { ALLOW_ONCE_ID, ALWAYS_ALLOW_ID, answerProblem, decisionViewOf } from '@/libs/decisions/decision';
 import { askSchema } from '@/models/Schema';
 
 /** Errors a caller maps onto its own surface — the code names the situation. */
@@ -99,19 +99,160 @@ export async function raiseDecision(input: RaiseDecisionInput): Promise<{ view: 
 }
 
 /**
+ * The deadlines the decision clock runs, keyed as `decisionKey` keys them —
+ * what every card shows under its question. Never throws: a card without its
+ * deadline is still a card.
+ * @param orgId - The workspace.
+ */
+async function deadlines(orgId: string): Promise<Map<string, NonNullable<DecisionView['deadline']> & { held: boolean }>> {
+  try {
+    const { runningClocks } = await import('@/services/needsYou/DecisionClockService');
+    const clocks = await runningClocks(orgId);
+    return new Map([...clocks].map(([key, c]) => [key, { at: c.deadlineAt.toISOString(), defaultLabel: c.defaultLabel, held: c.status === 'held' }]));
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * Ask rows as Decisions, each with its clock.
+ * @param rows - The asks.
+ * @param clocks - The running clocks.
+ */
+function askViews(rows: Ask[], clocks: Awaited<ReturnType<typeof deadlines>>): DecisionView[] {
+  return rows.map((r) => {
+    const clock = clocks.get(`ask:${r.id}`);
+    return decisionViewOf(r, clock ? { deadline: { at: clock.at, defaultLabel: clock.defaultLabel }, clockHeld: clock.held } : {});
+  });
+}
+
+/**
+ * The action kind an ask's Allow once runs, when it runs one — what "Always
+ * allow" would move up the ladder.
+ * @param row - The ask.
+ */
+function approvalActionOf(row: Pick<Ask, 'options'>): string | null {
+  return row.options.find(o => o.id === ALLOW_ONCE_ID)?.action?.id ?? null;
+}
+
+/**
+ * Asks and proposals as the person sees them: an open approval offers
+ * "Always allow" where the trust ladder would take it for them.
+ * @param orgId - The workspace.
+ * @param viewerId - The person, when known.
+ * @param asks - Ask rows with their views, in order.
+ * @param runs - Proposal runs with their views, in order.
+ */
+async function forViewer(orgId: string, viewerId: string | null, asks: Array<[Ask, DecisionView]>, runs: Array<[{ actionId: string }, DecisionView]>): Promise<DecisionView[]> {
+  const { withAlwaysAllow } = await import('./alwaysAllow');
+  return Promise.all([
+    ...asks.map(([row, view]) => withAlwaysAllow(orgId, viewerId, view, approvalActionOf(row))),
+    ...runs.map(([run, view]) => withAlwaysAllow(orgId, viewerId, view, run.actionId)),
+  ]);
+}
+
+/**
+ * Oldest first, by when each started waiting.
+ * @param views - Decisions.
+ */
+function oldestFirst(views: DecisionView[]): DecisionView[] {
+  return [...views].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id - b.id);
+}
+
+/**
  * The Decisions a conversation is waiting on, oldest first — the first is
- * the one docked; the rest are the queue behind it.
+ * the one docked; the rest are the queue behind it. Its open asks and the
+ * proposals filed from it, which are their own approval Decisions
+ * (`proposals.ts`).
  * @param orgId - The workspace.
  * @param conversationId - The conversation.
+ * @param viewerId
  */
-export async function openDecisions(orgId: string, conversationId: number): Promise<DecisionView[]> {
-  const rows = await db
-    .select()
-    .from(askSchema)
-    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.conversationId, conversationId), eq(askSchema.status, 'open')))
-    .orderBy(asc(askSchema.createdAt), asc(askSchema.id))
-    .limit(20);
-  return rows.map(r => decisionViewOf(r));
+export async function openDecisions(orgId: string, conversationId: number, viewerId: string | null = null): Promise<DecisionView[]> {
+  const { pendingProposalsIn, proposalDecisionView } = await import('./proposals');
+  const [rows, runs, clocks] = await Promise.all([
+    db
+      .select()
+      .from(askSchema)
+      .where(and(eq(askSchema.orgId, orgId), eq(askSchema.conversationId, conversationId), eq(askSchema.status, 'open')))
+      .orderBy(asc(askSchema.createdAt), asc(askSchema.id))
+      .limit(20),
+    pendingProposalsIn(orgId, conversationId),
+    deadlines(orgId),
+  ]);
+  const proposals = await Promise.all(runs.map(async (run) => {
+    const clock = clocks.get(`proposal:${run.id}`);
+    return proposalDecisionView(run, clock ? { deadline: { at: clock.at, defaultLabel: clock.defaultLabel } } : {});
+  }));
+  const asks = askViews(rows, clocks);
+  return oldestFirst(await forViewer(orgId, viewerId, rows.map((r, i) => [r, asks[i]!]), runs.map((r, i) => [r, proposals[i]!])));
+}
+
+/** How many waiting-elsewhere Decisions the dock carries behind a conversation's own. */
+export const WAITING_IN_CHAT_LIMIT = 12;
+
+/**
+ * WHAT ELSE IS WAITING ON THIS PERSON — the Decisions nobody could ask them
+ * in a conversation: questions a mission or an automation put on Needs you
+ * (no conversation; theirs, or anyone's), and proposals filed from no
+ * conversation. They queue behind the conversation's own in the dock ("1 of
+ * 4"), so a person never has to leave chat to clear them (Jamie, 2026-10-07).
+ * A Decision that belongs to another conversation stays in that one.
+ * @param orgId - The workspace.
+ * @param userId - The person.
+ */
+export async function waitingElsewhere(orgId: string, userId: string): Promise<DecisionView[]> {
+  const { proposalDecisionView } = await import('./proposals');
+  const { listReviewRows } = await import('@/services/inbox/reviewRows');
+  const [rows, review, clocks] = await Promise.all([
+    db
+      .select()
+      .from(askSchema)
+      .where(and(
+        eq(askSchema.orgId, orgId),
+        eq(askSchema.status, 'open'),
+        isNull(askSchema.conversationId),
+        or(isNull(askSchema.ownerUserId), eq(askSchema.ownerUserId, userId)),
+        // A credential's value never travels through chat; it is answered on Needs you.
+        sql`${askSchema.kind} <> 'credential'`,
+      ))
+      .orderBy(asc(askSchema.createdAt), asc(askSchema.id))
+      .limit(WAITING_IN_CHAT_LIMIT),
+    listReviewRows(orgId, 'open'),
+    deadlines(orgId),
+  ]);
+  const runs = review
+    .filter(r => r.status === 'pending' && !(r.proposal as { origin?: { conversationId?: unknown } } | null)?.origin?.conversationId)
+    .slice(0, WAITING_IN_CHAT_LIMIT);
+  const proposals = await Promise.all(runs.map(async (r) => {
+    const clock = clocks.get(`proposal:${r.id}`);
+    return proposalDecisionView({ id: r.id, actionId: r.actionId, status: r.status, input: r.input, proposal: r.proposal, invokedBy: (r as { invokedBy?: string | null }).invokedBy ?? null, createdAt: r.createdAt, decidedBy: r.decidedBy, decidedAt: r.decidedAt }, clock ? { deadline: { at: clock.at, defaultLabel: clock.defaultLabel } } : {});
+  }));
+  const asks = askViews(rows, clocks);
+  return oldestFirst(await forViewer(orgId, userId, rows.map((r, i) => [r, asks[i]!]), runs.map((r, i) => [r, proposals[i]!]))).slice(0, WAITING_IN_CHAT_LIMIT);
+}
+
+/**
+ * Answer a Decision that waits outside any conversation — from the dock's
+ * queue, with no turn after it: whoever asked hears it the way it always
+ * did (`ask.decided`, a parked run resuming, the proposal executing).
+ * @param opts - The answer.
+ * @param opts.orgId - The workspace.
+ * @param opts.subject - Ask or proposal.
+ * @param opts.id - Its id.
+ * @param opts.answer - What they answered.
+ * @param opts.by - The person.
+ */
+export async function answerElsewhere(opts: { orgId: string; subject: DecisionSubject; id: number; answer: DecisionAnswer; by: string }): Promise<AnsweredDecision> {
+  if (opts.subject === 'proposal') {
+    const { answerProposal } = await import('./proposals');
+    return answerProposal({ orgId: opts.orgId, id: opts.id, conversationId: null, answer: opts.answer, by: opts.by });
+  }
+  const [row] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, opts.orgId), eq(askSchema.id, opts.id), isNull(askSchema.conversationId))).limit(1);
+  if (!row) {
+    throw new DecisionError('NOT_FOUND', `No decision ${opts.id} waiting outside a conversation`);
+  }
+  return answerRow(row, { ...opts, via: 'needs_you' });
 }
 
 /**
@@ -152,14 +293,45 @@ export type AnsweredDecision = {
  * @param opts.orgId - The workspace.
  * @param opts.conversationId - The conversation it was answered in.
  * @param opts.id - The Decision.
+ * @param opts.subject
  * @param opts.answer - What they answered.
  * @param opts.by - The person.
  * @param opts.via - Where.
  */
-export async function answerDecision(opts: { orgId: string; conversationId: number; id: number; answer: DecisionAnswer; by: string; via: DecisionChannel }): Promise<AnsweredDecision> {
+export async function answerDecision(opts: { orgId: string; conversationId: number; id: number; subject?: DecisionSubject; answer: DecisionAnswer; by: string; via: DecisionChannel }): Promise<AnsweredDecision> {
+  if (opts.subject === 'proposal') {
+    const { answerProposal } = await import('./proposals');
+    return answerProposal({ orgId: opts.orgId, id: opts.id, conversationId: opts.conversationId, answer: opts.answer, by: opts.by });
+  }
   const row = await decisionInConversation(opts.orgId, opts.conversationId, opts.id);
   if (!row) {
     throw new DecisionError('NOT_FOUND', `No decision ${opts.id} in this conversation`);
+  }
+  return answerRow(row, opts);
+}
+
+/**
+ * Record an answer on an ask row already found in scope.
+ * @param row - The ask.
+ * @param opts - The answer.
+ * @param opts.orgId - The workspace.
+ * @param opts.id - The ask.
+ * @param opts.answer - What they answered.
+ * @param opts.by - The person.
+ * @param opts.via - Where.
+ */
+async function answerRow(row: Ask, opts: { orgId: string; id: number; answer: DecisionAnswer; by: string; via: DecisionChannel }): Promise<AnsweredDecision> {
+  // ALWAYS ALLOW: the kind moves up the trust ladder, then this one runs as
+  // Allow once. The agent hears what was chosen, against the card as drawn.
+  if (opts.answer.kind === 'option' && opts.answer.optionIds[0] === ALWAYS_ALLOW_ID) {
+    const { takeAlwaysAllow, withAlwaysAllow } = await import('./alwaysAllow');
+    const drawn = await withAlwaysAllow(opts.orgId, opts.by, decisionViewOf(row), approvalActionOf(row));
+    if (drawn.state !== 'open') {
+      throw new DecisionError('CONFLICT', `Decision ${opts.id} was already ${drawn.state}`);
+    }
+    await takeAlwaysAllow(opts.orgId, opts.by, approvalActionOf(row));
+    const done = await answerRow(row, { ...opts, answer: { kind: 'option', optionIds: [ALLOW_ONCE_ID] } });
+    return { ...done, asked: drawn, answer: opts.answer };
   }
   const asked = decisionViewOf(row);
   if (asked.state !== 'open' && asked.state !== 'expired') {
@@ -208,5 +380,59 @@ async function effectOf(row: Ask): Promise<AnsweredDecision['effect']> {
   }
   const { actionIsUndoable, actionLabel } = await import('@/libs/actions/undoable');
   const chosen = row.options.find(o => o.id === row.decision);
-  return { runId: run.id, actionId: run.actionId, status: run.status, undoable: run.status === 'done' && actionIsUndoable(run.actionId), label: chosen?.label ?? actionLabel(run.actionId) };
+  // The receipt names what was done: an approval or a setup step is its
+  // question ("Add Software Factory"), never the bare verb on its button; a
+  // choice is the question with the path taken.
+  const label = row.kind === 'approval' || row.kind === 'gate' || row.kind === 'setup'
+    ? row.title
+    : chosen ? `${row.title} — ${chosen.label}` : actionLabel(run.actionId);
+  return { runId: run.id, actionId: run.actionId, status: run.status, undoable: run.status === 'done' && actionIsUndoable(run.actionId), label: label.slice(0, 200) };
+}
+
+/**
+ * BUILD IT, AS A DECISION THE PERSON TAKES — not words put in their mouth.
+ *
+ * A card a turn drew (a feature idea) offers Build it when the workspace has
+ * an intake to push it through (`services/chat/intake.ts`). Pressing it used
+ * to send "Build it: **…**. File it as a request and start the build." as the
+ * person's message, routed to the intake's owner. Now it is a Decision raised
+ * for the person and answered by their press: the intake's owner hears a
+ * typed record — build this card, its facts, its id — and files it through
+ * the intake's own gates.
+ * @param opts - The press.
+ * @param opts.orgId - The workspace.
+ * @param opts.userId - The person.
+ * @param opts.conversationId - The conversation the card is in.
+ * @param opts.artifactId - The card.
+ */
+export async function buildDecisionFor(opts: { orgId: string; userId: string; conversationId: number; artifactId: number }): Promise<DecisionView> {
+  const { workspaceIntake } = await import('@/services/chat/intake');
+  const { getArtifact } = await import('@/services/ArtifactService');
+  const [intake, card] = await Promise.all([workspaceIntake(opts.orgId), getArtifact({ orgId: opts.orgId, id: opts.artifactId })]);
+  if (!intake) {
+    throw new DecisionError('NOT_FOUND', 'Nothing in this workspace builds a card');
+  }
+  if (!card) {
+    throw new DecisionError('NOT_FOUND', `No card ${opts.artifactId} in this workspace`);
+  }
+  const spec = ((card as { spec?: unknown }).spec ?? {}) as { fields?: unknown };
+  const fields = Array.isArray(spec.fields) ? spec.fields as Array<{ k?: unknown; v?: unknown }> : [];
+  const facts = fields
+    .filter(f => typeof f.k === 'string' && f.v !== null && f.v !== undefined && String(f.v).trim())
+    .map(f => `${String(f.k)}: ${String(f.v)}`)
+    .join('; ');
+  const noun = intake.label.toLowerCase();
+  const { view } = await raiseDecision({
+    orgId: opts.orgId,
+    conversationId: opts.conversationId,
+    ownerUserId: opts.userId,
+    agentSlug: intake.ownerSlug,
+    kind: 'approval',
+    question: `Build "${card.title}"`,
+    body: facts || null,
+    options: [{ id: 'build', label: 'Build it', description: `Files it as a ${noun} and starts the build.`, recommended: true }],
+    allowOther: false,
+    objectRefs: [{ type: 'artifact', id: String(card.id) }],
+  });
+  return view;
 }

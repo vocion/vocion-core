@@ -1175,7 +1175,7 @@ Two repos match "Northwind" and the request names neither.
     Builds land in the customer portal.
  3  Something else…
 ────────────────────────────────────────────────────────────────
-↑↓ move · 1–2 pick · ↵ submit · Tab something else · Esc fold   Skip  [↵ Submit]
+↑↓ move · 1–2 pick · ↵ submit · Esc fold · Tab something else   Skip  [↵ Submit]
 ```
 
 - **One surface** (`Surface name="decision"`): options are rows on hairlines,
@@ -1206,13 +1206,44 @@ The card is fully keyboard-driven, and the keys are shown on it.
 | `↑` `↓` | Move; a single choice follows the highlight. `↓` past the last option enters "Something else". | `↑` at the start returns to the list |
 | `Home` `End` | First, last option | — |
 | `Space` | Pick the highlighted option | types |
-| `Enter`, `⌘↵` | Submit what is picked — on a fresh card, the recommendation | Submit their words |
+| `Enter`, `⌘↵` | Submit what is picked — on a fresh card, the recommendation. On an **approval**, `⌘↵` is the recommendation (Allow once), whatever is highlighted | Submit their words |
 | `Tab` | Reach "Something else", then Skip and Submit | — |
 | any letter | Starts an answer in "Something else" | types |
-| `Esc` | Fold the card to one line ("1 decision waiting"); nothing is answered | same |
+| `Esc` | Fold the card to one line ("1 decision waiting"); nothing is answered. On an **approval**, `Esc` is **Deny** | Puts half-typed words down first (back to the list); then as on the list |
 
 Focus: a Decision that docks **takes focus**, so Enter alone answers it — unless
 the person is typing in another field, which a card never interrupts.
+
+## An approval is a permission prompt
+
+Claude Code's prompt, on the same card:
+
+- **Title** `Allow <agent> to <plain action>?` (`decisionTitle`); a question
+  already asked as one keeps its words.
+- **Preview** — the exact payload in a monospace block under the why
+  (`--surface-soft`, hairline border, scrolls past ten lines): the email as it
+  will go out, a record's field-by-field diff, the command.
+- **Options** `1 Allow once` (recommended, `⌘↵`) · `2 Always allow <this kind>
+  in <workspace>` — present only where the trust ladder would take it for this
+  person · `3 Deny` (`Esc`) · `Something else…`. Each says its consequence in
+  one line. The key hints read `⌘↵ allow once · Esc deny`.
+
+## Links, setup steps and the queue
+
+- **An option that opens** (a sign-in, a token form) says "Opens ↗"; choosing
+  it navigates, and the Decision is answered when the flow returns.
+- **"Details"** at the top right opens the long form (the record, the proposal,
+  the agent) in place; a sign-off has "Open it" for its artifact.
+- **The queue** carries this conversation's Decisions first, then what waits on
+  the person elsewhere ("Waiting on you · Revenue lead asks"); an answer to one
+  of those says what it did in one line above the card.
+- **A walk is the same card.** "Connect your systems" docks its steps one at a
+  time with the card's own props for a step (`eyebrow`, `bodyNode`, a form in
+  `children`, `skipLabel`, `submitLabel`, and `onEscape` — Esc and a labelled
+  "Stop ×" go back a step or stop, in place of folding). There is no second
+  docked card.
+- **Not locked while the agent replies**: the next card can be answered at once;
+  the answer is held and sent when the turn lands.
 
 ## Accessibility
 
@@ -1238,9 +1269,10 @@ name**: the transcript draws it as a receipt on their side ("Chose Northwind
 API · Which repo…"). The Done line for what an option ran sits under the reply,
 with Undo only where the action's kind has one.
 
-Storybook: `Chat/DecisionCard` — every state (choice, question, approval,
-several, queued, folded, deadline, busy, refused, list row, the answer and Done
-lines), each in light and dark.
+Storybook: `Chat/DecisionCard` — every state (choice, question, approval as a
+permission prompt, proposal with Always allow, sign-off, setup step, setup
+connect, waiting elsewhere with its notice, several, queued, folded, deadline,
+busy, refused, list row, the answer and Done lines), each in light and dark.
 
 ---
 

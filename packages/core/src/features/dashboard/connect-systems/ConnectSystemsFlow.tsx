@@ -5,7 +5,7 @@ import type { FlowEvent, FlowState } from './flow';
 import type { ConnectPlanInput, ConnectVerification } from '@/libs/connect/systemsPlan';
 import type { ConfigFieldValue } from '@/libs/sources/configFields';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { SETUP_CHANGED_EVENT } from '@/features/dashboard/chat/cards/SetupCard';
+import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
 import { client } from '@/libs/Orpc';
 import { buildConfigFromFields, describeMissingFields, initialFieldValues } from '@/libs/sources/configFields';
 import { ConnectSystemsView } from './ConnectSystemsView';
@@ -16,8 +16,8 @@ import { openLoginWindow, reasonInWords } from './loginWindow';
 /**
  * "CONNECT YOUR SYSTEMS", docked above the composer: the walk-through wired to
  * its RPCs (`connectSystems.plan | saveKey | verify | finish`). Self-contained
- * — it needs nothing from the conversation but where to write its summary — so
- * every way in opens the same thing: the chat card, the Getting started
+ * — it needs nothing from the conversation but the Decision it answers — so
+ * every way in opens the same thing: the docked Decision, the Getting started
  * checklist, an app's page and the Connectors page.
  *
  * Fires `vocion:workspace-setup-changed` whenever a system connects, so the
@@ -26,8 +26,8 @@ import { openLoginWindow, reasonInWords } from './loginWindow';
 
 export type ConnectSystemsFlowProps = {
   input: ConnectPlanInput;
-  /** The chat card that started it, so the summary lands on that card. */
-  card?: { conversationId: number; cardId: string } | null;
+  /** The Decision that started it, which it answers with its summary when it finishes. */
+  decision?: { conversationId: number; decisionId: number } | null;
   /** The walk is over (Done, or closed). */
   onClose: () => void;
   /** "Something else", in the person's own words: handed to the agent as their next message. */
@@ -46,7 +46,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'That did not work. Try again.';
 }
 
-export function ConnectSystemsFlow({ input, card, onClose, onSomethingElse, verifyBudgetMs = 12_000 }: ConnectSystemsFlowProps) {
+export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, verifyBudgetMs = 12_000 }: ConnectSystemsFlowProps) {
   const [state, dispatch] = useReducer((s: FlowState, e: FlowEvent) => reduce(s, e), INITIAL);
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [configValues, setConfigValues] = useState<Record<string, ConfigFieldValue>>({});
@@ -174,13 +174,14 @@ export function ConnectSystemsFlow({ input, card, onClose, onSomethingElse, veri
 
   const finish = useCallback(() => {
     const s = stateRef.current;
-    if (s.phase === 'summary' && card && s.queue.length > 0) {
+    if (s.phase === 'summary' && decision && s.queue.length > 0) {
       const summary = summaryLine(s);
-      announceConnectSystemsFinished(card.cardId, summary);
-      void client.connectSystems.finish({ ...card, summary }).catch(() => {});
+      void client.connectSystems.finish({ ...decision, summary })
+        .then(() => announceConnectSystemsFinished(decision.decisionId, summary))
+        .catch(() => {});
     }
     onClose();
-  }, [card, onClose]);
+  }, [decision, onClose]);
 
   const onAnswer = (a: ViewAnswer) => {
     switch (a.kind) {

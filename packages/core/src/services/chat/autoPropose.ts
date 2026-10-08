@@ -94,11 +94,14 @@ export async function autoProposeRecommendationDetailed(opts: {
  * @param opts.orgId - The workspace.
  * @param opts.userId - The person whose turn it was.
  * @param opts.rec - The recommendation.
+ * @param opts.conversationId
  */
 export async function fileRecommendation(opts: {
   orgId: string;
   userId?: string;
   rec: RecommendedActionPayload;
+  /** The conversation it was recommended in: a pending proposal docks there as its approval Decision. */
+  conversationId?: number | null;
 }): Promise<FiledCard | null> {
   const { proposeAction } = await import('@/services/ActionService');
   const agentId = opts.rec.agentSlug ? `agent:${opts.rec.agentSlug}` : 'agent:unknown';
@@ -108,6 +111,7 @@ export async function fileRecommendation(opts: {
     input: opts.rec.input,
     principal: { kind: 'agent', id: agentId, scope: { orgId: opts.orgId }, grants: ['*'], autonomy: 2 },
     invokedBy: opts.userId ?? agentId,
+    ...(opts.conversationId ? { origin: { conversationId: opts.conversationId, userId: opts.userId ?? null, byPerson: false } } : {}),
     proposal: {
       // Who recommended it, so that agent may withdraw it when the person's
       // turn invoked it (conversation 382: "not yours to withdraw").

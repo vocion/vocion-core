@@ -65,7 +65,6 @@ import {
   get as getConv,
   latestForScope as latestConvForScope,
   list as listConvs,
-  recordCardDecision as recordConvCardDecision,
   remove as removeConv,
   rename as renameConv,
   search as searchConvs,
@@ -73,7 +72,7 @@ import {
   setModel as setConvModel,
   tail as tailConv,
 } from './Conversations';
-import { openRoute as openDecisionsRoute } from './Decisions';
+import { answerRoute as answerDecisionRoute, buildRoute as buildDecisionRoute, openRoute as openDecisionsRoute, waitingRoute as waitingDecisionsRoute } from './Decisions';
 import {
   runDetail as evalRunDetail,
   get as getEval,
@@ -367,13 +366,15 @@ export const router = {
     search: searchConvs,
     tail: tailConv,
     feedback: feedbackConvMessage,
-    recordCardDecision: recordConvCardDecision,
     setAutonomy: setConvAutonomy,
     setModel: setConvModel,
   },
   // A Decision docked in a conversation (`services/decisions/DecisionService.ts`).
   decisions: {
     open: openDecisionsRoute,
+    waiting: waitingDecisionsRoute,
+    answer: answerDecisionRoute,
+    build: buildDecisionRoute,
   },
   learnings: {
     listSteps: listLearningSteps,

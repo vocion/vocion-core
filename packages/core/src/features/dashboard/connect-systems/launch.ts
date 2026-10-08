@@ -4,20 +4,20 @@ import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import { useCallback, useEffect, useState } from 'react';
 
 /**
- * Starting "Connect your systems" on whichever chat surface is mounted: a card
- * in the transcript, or anything else on the page, dispatches one event and
+ * Starting "Connect your systems" on whichever chat surface is mounted: its
+ * docked Decision, or anything else on the page, dispatches one event and
  * the surface docks the walk-through above its composer. One walk at a time:
  * a second start replaces the first.
  */
 
 export const CONNECT_SYSTEMS_EVENT = 'vocion:connect-systems';
-/** The walk finished: its card shows the summary at once, as a reload will from the stored card. */
+/** The walk finished and answered its Decision: the dock lets it go at once, as a reload will. */
 export const CONNECT_SYSTEMS_FINISHED_EVENT = 'vocion:connect-systems-finished';
 
 export type ConnectSystemsLaunch = {
   input: ConnectPlanInput;
-  /** The chat card that offered it, so its summary lands there. */
-  cardId?: string;
+  /** The Decision that offered it, which the walk answers when it finishes. */
+  decisionId?: number;
 };
 
 /**
@@ -29,12 +29,12 @@ export function startConnectSystems(launch: ConnectSystemsLaunch): void {
 }
 
 /**
- * Tell the card that started a walk what became of it.
- * @param cardId - The card.
+ * Say that a walk answered the Decision that started it.
+ * @param decisionId - The Decision.
  * @param summary - Its one line.
  */
-export function announceConnectSystemsFinished(cardId: string, summary: string): void {
-  window.dispatchEvent(new CustomEvent(CONNECT_SYSTEMS_FINISHED_EVENT, { detail: { cardId, summary } }));
+export function announceConnectSystemsFinished(decisionId: number, summary: string): void {
+  window.dispatchEvent(new CustomEvent(CONNECT_SYSTEMS_FINISHED_EVENT, { detail: { decisionId, summary } }));
 }
 
 /**

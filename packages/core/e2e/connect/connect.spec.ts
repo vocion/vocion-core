@@ -392,7 +392,16 @@ for (const login of LOGIN_IS_ENOUGH) {
   test(`${login.name} from the Connectors page: the ${login.providerLabel} login wears its brand and makes the source itself`, async ({ page }) => {
     await signIn(page);
     await page.goto('/dashboard/connectors');
-    await page.getByRole('button', { name: `Connect ${login.name}` }).click();
+    // The catalog folds past a screenful ("Show 7 more"); the connector may be behind it.
+    const connect = page.getByRole('button', { name: `Connect ${login.name}` });
+    const more = page.getByRole('button', { name: /^Show \d+ more/ });
+
+    await expect(connect.or(more).first()).toBeVisible();
+
+    if (!(await connect.isVisible())) {
+      await more.click();
+    }
+    await connect.click();
 
     const button = page.getByRole('link', { name: `Log in with ${login.providerLabel}` });
 
@@ -406,7 +415,7 @@ for (const login of LOGIN_IS_ENOUGH) {
   });
 }
 
-test('in chat: a refused login keeps the card, now saying Try again with the dated attempt, even when the card is pressed while its reply is still being written', async ({ page }) => {
+test('in chat: a refused login keeps the setup step docked and says on it why — nothing is answered, nothing said for the person', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/chat');
   const box = page.locator('textarea').last();
@@ -414,25 +423,23 @@ test('in chat: a refused login keeps the card, now saying Try again with the dat
   await box.fill('connect jira');
   await page.getByRole('button', { name: 'Send message' }).last().click();
 
-  // Before the Connectors-page refusal below, so the card is born with no
-  // attempt on it and Try again can only come from this login.
-  const card = page.getByTestId('recommended-action-card').filter({ hasText: 'Connect Jira' });
+  // The connect card is a setup Decision docked above the composer; its
+  // option opens the login.
+  const step = page.getByRole('dialog', { name: 'Connect Jira' });
 
-  // The script holds the reply 3 seconds after the card appears. Pressed as
-  // soon as it can be: the button waits for the reply to be saved, or the
-  // login would come back before the card exists to note the attempt on.
-  await expect(card.getByRole('link', { name: 'Connect Jira' })).toHaveAttribute('data-brand', 'atlassian', { timeout: 120_000 });
+  await expect(step.getByTestId('decision-option-opens').first()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
 
-  await card.getByRole('link', { name: 'Connect Jira' }).click();
+  await step.getByRole('listbox').focus();
+  await page.keyboard.press('Enter');
 
   await expect.poll(() => requested(/\/dashboard\/chat\?conversation=\d+&connect=error&reason=access_denied/)).toBe(true);
+  await expect(page.getByRole('dialog', { name: 'Connect Jira' }).getByRole('alert')).toContainText('didn\'t work (access_denied)', { timeout: 60_000 });
+  await expect(page.getByText(/Connecting jira didn't work .* What should I try\?/)).toHaveCount(0);
 
   await page.reload();
 
-  await expect(card.getByRole('link', { name: 'Try again' })).toBeVisible({ timeout: 60_000 });
-  await expect(card.getByTestId('connect-last-attempt')).toHaveText(
-    /^Last attempt [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2}\s[AP]M: .+ denied access$/,
-  );
+  await expect(page.getByRole('dialog', { name: 'Connect Jira' })).toBeVisible({ timeout: 60_000 });
 });
 
 test('a refused login lands with connect=error and says when and why under Jira', async ({ page }) => {
@@ -450,7 +457,7 @@ test('a refused login lands with connect=error and says when and why under Jira'
   );
 });
 
-test('in chat: the card logs in, the conversation carries on once by itself, and a reload does not repeat it', async ({ page }) => {
+test('in chat: the setup step logs in, the step is answered typed, the conversation carries on once, and a reload does not repeat it', async ({ page }) => {
   await signIn(page);
 
   // The GitHub login from the first case is revoked, so GitHub is not
@@ -467,22 +474,26 @@ test('in chat: the card logs in, the conversation carries on once by itself, and
   await box.fill('connect github');
   await page.getByRole('button', { name: 'Send message' }).last().click();
 
-  const card = page.getByTestId('recommended-action-card');
+  const step = page.getByRole('dialog', { name: 'Connect GitHub' });
 
-  await expect(card.getByText('Connect GitHub').first()).toBeVisible({ timeout: 120_000 });
-  await expect(card).not.toContainText(/approve/i);
+  await expect(step.getByTestId('decision-option-opens').first()).toBeVisible({ timeout: 120_000 });
+  await expect(step).not.toContainText(/approve/i);
+  await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
 
-  await card.getByRole('link', { name: 'Connect GitHub' }).click();
+  await step.getByRole('listbox').focus();
+  await page.keyboard.press('Enter');
 
   await expect(page).toHaveURL(/\/dashboard\/chat\?conversation=\d+/);
   await expect(page.getByText('Which repositories should I watch?')).toBeVisible({ timeout: 120_000 });
-  await expect(page.getByText('I connected github. What\'s next?')).toHaveCount(1);
+  // Typed, on the person's side, never their words.
+  await expect(page.getByTestId('decision-answer').last()).toContainText('Connect GitHub');
+  await expect(page.getByText('I connected github. What\'s next?')).toHaveCount(0);
 
   await page.reload();
 
   await expect(page.getByText('Which repositories should I watch?')).toBeVisible();
-  await expect(page.getByText('I connected github. What\'s next?')).toHaveCount(1);
   await expect(page.getByText('Which repositories should I watch?')).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: 'Connect GitHub' })).toHaveCount(0);
 });
 
 test('no login reached a real vendor', () => {
