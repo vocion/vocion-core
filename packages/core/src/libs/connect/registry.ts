@@ -9,6 +9,8 @@ import { loginAppPlatformFor } from '@/libs/platforms/registry';
 import { loginOffered } from './loginClient';
 import { apolloProvider } from './providers/apollo';
 import { atlassianProvider } from './providers/atlassian';
+import { boxProvider } from './providers/box';
+import { dropboxProvider } from './providers/dropbox';
 import { githubProvider } from './providers/github';
 import { googleProvider } from './providers/google';
 import { gustoProvider } from './providers/gusto';
@@ -34,6 +36,8 @@ const realProviders: readonly ConnectProvider[] = [
   quickbooksProvider,
   xeroProvider,
   gustoProvider,
+  dropboxProvider,
+  boxProvider,
 ];
 
 /**

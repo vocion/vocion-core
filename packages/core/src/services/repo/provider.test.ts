@@ -8,6 +8,12 @@ import { describe, expect, it, vi } from 'vitest';
 const tokenForRepo = vi.fn(async (_orgId: string, repo: string) => (repo === 'Acme/northwind-core' ? 'ghs_token' : null));
 vi.mock('@/services/agents/tools/githubPullRead', () => ({ tokenForRepo, parsePullUrl: () => null }));
 vi.mock('@/services/factory/githubChecks', () => ({ call: vi.fn(), cancelWorkflowRuns: vi.fn(), ghFor: vi.fn(), parseRunUrl: () => null }));
+// The workspace connected one GitLab instance, listing one project.
+const gitlab = { kind: 'gitlab', label: 'GitLab' };
+vi.mock('./providers/gitlab', () => ({
+  gitlabProviderForHost: vi.fn(async (_orgId: string, host: string) => (host === 'gitlab.northwind.example' ? gitlab : null)),
+  gitlabProviderForRepo: vi.fn(async (_orgId: string, path: string) => (path === 'platform/web/storefront' ? gitlab : null)),
+}));
 
 const { allowedPathMatcher, hostOf, pathsInDiff, pathsOutsideAllowed, repoProviderFor } = await import('./provider');
 
@@ -22,6 +28,12 @@ describe('repoProviderFor', () => {
   it('a bare owner/name is GitHub\'s when an enabled github source lists it, and refused by name when none does', async () => {
     await expect(repoProviderFor('org_1', 'Acme/northwind-core')).resolves.toMatchObject({ kind: 'github' });
     await expect(repoProviderFor('org_1', 'Acme/unlisted')).rejects.toThrow(/not a repository this workspace connected/);
+  });
+
+  it('a URL on a connected GitLab instance, or a project path a gitlab source lists, is GitLab\'s', async () => {
+    await expect(repoProviderFor('org_1', 'https://gitlab.northwind.example/platform/web/storefront/-/merge_requests/3')).resolves.toMatchObject({ kind: 'gitlab' });
+    await expect(repoProviderFor('org_1', 'platform/web/storefront')).resolves.toMatchObject({ kind: 'gitlab' });
+    await expect(repoProviderFor('org_1', 'platform/web/elsewhere')).rejects.toThrow(/not a repository this workspace connected/);
   });
 
   it('another host is refused by its name, with what it would take', async () => {

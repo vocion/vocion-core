@@ -48,6 +48,14 @@ about a mark is altered.
 | `stripe` | Stripe | simple-icons, from https://stripe.com/newsroom/information | CC0-1.0 (drawing) | — |
 | `xero` | Xero | simple-icons, from https://www.xero.com/uk/about/media/downloads | CC0-1.0 (drawing) | — |
 | `zoom` | Zoom | simple-icons, from https://brand.zoom.us/media-library/ | CC0-1.0 (drawing) | https://brand.zoom.us/usage-legal/ |
+| `box` | Box | simple-icons, from https://www.box.com/en-gb/about-us/press | CC0-1.0 (drawing) | https://www.box.com/en-gb/about-us/press |
+| `confluence` | Confluence | simple-icons, from https://www.atlassian.com/company/news/press-kit | CC0-1.0 (drawing) | https://atlassian.design/foundations/logos/ |
+| `dropbox` | Dropbox | simple-icons, from https://www.dropbox.com/branding | CC0-1.0 (drawing) | https://www.dropbox.com/branding |
+| `gitlab` | GitLab | simple-icons, from https://about.gitlab.com/press/press-kit/ | CC0-1.0 (drawing) | https://about.gitlab.com/handbook/marketing/corporate-marketing/brand-activation/trademark-guidelines/ |
+| `intercom` | Intercom | simple-icons, from https://www.intercom.com/press | CC0-1.0 (drawing) | https://www.intercom.com/press |
+| `linear` | Linear | simple-icons, from https://linear.app | CC0-1.0 (drawing) | — |
+| `pagerduty` | PagerDuty | simple-icons, from https://www.pagerduty.com/brand/ | CC0-1.0 (drawing) | https://www.pagerduty.com/brand/ |
+| `zendesk` | Zendesk | simple-icons, from https://brandland.zendesk.com | CC0-1.0 (drawing) | https://brandland.zendesk.com |
 
 ## Brands drawn without a logo
 
@@ -65,6 +73,7 @@ entry a mark.
 | `apolloio` | Apollo.io | No logo | Apollo.io's terms forbid using its logos without prior written permission: https://www.apollo.io/terms. Not to be confused with simple-icons' `apollographql`, a different company. |
 | `bill` | BILL | No logo | BILL publishes no terms for third-party use of its logo. |
 | `firecrawl` | Firecrawl | No logo | Firecrawl's brand page covers how to treat the marks, not third-party or integration use: https://www.firecrawl.dev/brand. |
+| `freshdesk` | Freshdesk | No logo | Not in simple-icons, and Freshworks' brand terms have not been checked for third-party integration use; no mark is vendored until they are. |
 | `granola` | Granola | No logo | Granola publishes a press kit but no terms for third-party use of its logo: https://grano.la/press. |
 | `microsoftazure` | Microsoft Azure | No logo | Microsoft requires an express licence for its logos and product icons (Azure icons are for architecture diagrams and documentation only): https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks. simple-icons removed Microsoft marks in v13 at Microsoft's request. |
 | `netsuite` | NetSuite | No logo | Oracle's trademark guidelines do not permit third parties to use its logos: https://www.oracle.com/legal/trademarks.html. |

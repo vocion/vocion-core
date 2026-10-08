@@ -60,6 +60,18 @@ export type CredentialPlatformId
     | 'sentry'
     | 'slate'
     | 'strapi'
+  // Prebuilt connectors for support, engineering and docs: the help desks,
+  // Linear, GitLab, PagerDuty, Confluence, Dropbox and Box. One live
+  // credential each (see the descriptors), so no migration widens the cap.
+    | 'zendesk'
+    | 'intercom'
+    | 'freshdesk'
+    | 'linear'
+    | 'gitlab'
+    | 'pagerduty'
+    | 'confluence'
+    | 'dropbox'
+    | 'box'
   // Any token-authenticated REST API the workspace declares endpoints for
   // (`libs/sources/rest.ts`). Several per org: one per API.
     | 'rest'
@@ -105,7 +117,9 @@ export type CredentialPlatformId
     | 'apollo-login-app'
     | 'quickbooks-login-app'
     | 'xero-login-app'
-    | 'gusto-login-app';
+    | 'gusto-login-app'
+    | 'dropbox-login-app'
+    | 'box-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -371,6 +385,8 @@ const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
   loginAppPlatform('quickbooks-login-app', 'quickbooks', 'QuickBooks', 'quickbooks'),
   loginAppPlatform('xero-login-app', 'xero', 'Xero', 'xero'),
   loginAppPlatform('gusto-login-app', 'gusto', 'Gusto', 'gusto'),
+  loginAppPlatform('dropbox-login-app', 'dropbox', 'Dropbox', 'dropbox'),
+  loginAppPlatform('box-login-app', 'box', 'Box', 'box'),
 ];
 
 /**
@@ -926,6 +942,253 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         shapeHint: 'is any non-empty token',
         secret: true,
       },
+    ],
+  },
+  /* ---------------------------------------------------------------- */
+  /* Prebuilt connectors: support desks, engineering, docs and files.   */
+  /* Each is `one-live`, for the reason Sentry and PostHog are: widening */
+  /* the cap means rebuilding `api_token_org_platform_live_idx`, and one */
+  /* key reads the whole account, so several sources share it.          */
+  /* ---------------------------------------------------------------- */
+  {
+    id: 'zendesk',
+    label: 'Zendesk',
+    brand: 'zendesk',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['zendesk'],
+    howToConnect: {
+      paste: {
+        credential: 'API token',
+        access: ['Token access turned on in Admin Center → Apps and integrations → Zendesk API', 'The email of an agent or admin, which the token acts as'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Zendesk subdomain, an agent\'s email and an API token',
+    helpText: 'A Zendesk API token, from Admin Center → Apps and integrations → Zendesk API, with the email of the agent it acts as. Tickets sync read-only; a draft reply is posted as an internal note, never to the customer.',
+    fields: [
+      {
+        name: 'subdomain',
+        label: 'Zendesk subdomain',
+        pattern: /^(?:https?:\/\/)?[a-z0-9][\w-]*(?:\.zendesk\.com)?\/?$/i,
+        shapeHint: 'is your Zendesk subdomain — northwind in northwind.zendesk.com',
+        // Where the token is spent; shown in full so two accounts tell apart.
+        secret: false,
+      },
+      { name: 'email', label: 'Agent email', pattern: /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/, shapeHint: 'is an email address', secret: false },
+      { name: 'apiToken', label: 'API token', pattern: null, shapeHint: 'is any non-empty token', secret: true },
+    ],
+  },
+  {
+    id: 'intercom',
+    label: 'Intercom',
+    brand: 'intercom',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['intercom'],
+    howToConnect: {
+      paste: {
+        credential: 'Access token',
+        access: ['Read conversations', 'Read admins', 'Write conversations (only for draft replies, posted as internal notes)'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an Intercom access token',
+    helpText: 'An Intercom access token, from the Developer Hub → your app → Authentication. Conversations sync read-only; a draft reply is posted as an internal note, never to the customer.',
+    fields: [{ name: 'token', label: 'Access token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
+  },
+  {
+    id: 'freshdesk',
+    label: 'Freshdesk',
+    brand: 'freshdesk',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['freshdesk'],
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: ['An agent\'s API key, from Profile settings → View API key'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Freshdesk domain and an agent\'s API key',
+    helpText: 'A Freshdesk API key, from your profile settings → View API key, with the helpdesk domain it belongs to. Tickets sync read-only; a draft reply is posted as a private note, never to the customer.',
+    fields: [
+      {
+        name: 'domain',
+        label: 'Freshdesk domain',
+        pattern: /^(?:https?:\/\/)?[a-z0-9][\w-]*(?:\.freshdesk\.com)?\/?$/i,
+        shapeHint: 'is your helpdesk domain — northwind in northwind.freshdesk.com',
+        secret: false,
+      },
+      { name: 'apiKey', label: 'API key', pattern: null, shapeHint: 'is any non-empty key', secret: true },
+    ],
+  },
+  {
+    id: 'linear',
+    label: 'Linear',
+    brand: 'linear',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['linear'],
+    howToConnect: {
+      paste: {
+        credential: 'Personal API key',
+        access: ['Read', 'Write (only for the issue actions: create, transition, update, comment)'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Linear API key (lin_api_…)',
+    helpText: 'A Linear personal API key, from Settings → Account → Security & access. It reads every team its owner can see; the source narrows by team key. Writes (filing, moving or commenting on an issue) go through the review queue.',
+    fields: [{ name: 'token', label: 'API key', pattern: null, shapeHint: 'is any non-empty key', secret: true }],
+  },
+  {
+    id: 'gitlab',
+    label: 'GitLab',
+    brand: 'gitlab',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['gitlab'],
+    howToConnect: {
+      paste: {
+        credential: 'Personal access token',
+        access: ['read_api', 'api (only for comments, reviews and pipeline cancel or retry)'],
+        getItAt: { url: 'https://gitlab.com/-/user_settings/personal_access_tokens', steps: ['Add a new token', 'Give it read_api, or api if agents may comment, approve or retry pipelines', 'On a self-managed GitLab, make it on your own instance instead'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a GitLab access token (glpat-…)',
+    helpText: 'A GitLab personal, project or group access token with read_api — or api, if agents may comment on merge requests, approve them, or cancel and retry pipelines. On a self-managed GitLab, make it there and set the source\'s GitLab URL.',
+    fields: [{ name: 'token', label: 'Access token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
+  },
+  {
+    id: 'pagerduty',
+    label: 'PagerDuty',
+    brand: 'pagerduty',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['pagerduty'],
+    howToConnect: {
+      paste: {
+        credential: 'REST API key',
+        access: ['Read incidents and services', 'Full access, only if agents may acknowledge incidents'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a PagerDuty REST API key, and the email of a PagerDuty user for acknowledging',
+    helpText: 'A PagerDuty REST API key, from Integrations → API Access Keys (read-only is enough to read incidents). To let agents acknowledge, use a full-access key and give the email of the PagerDuty user the acknowledgement is recorded as.',
+    fields: [
+      { name: 'token', label: 'REST API key', pattern: null, shapeHint: 'is any non-empty key', secret: true },
+      {
+        name: 'fromEmail',
+        label: 'Acknowledge as (PagerDuty user email)',
+        pattern: /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/,
+        shapeHint: 'is the email of a user in your PagerDuty account',
+        secret: false,
+        // PagerDuty requires a `From` user on a write made with an account
+        // key. A read-only workspace leaves it blank.
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: 'confluence',
+    label: 'Confluence',
+    brand: 'confluence',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['confluence'],
+    howToConnect: {
+      login: { provider: 'atlassian', access: ['read:confluence-content.all', 'read:confluence-space.summary', 'search:confluence', 'offline_access'], settingsAfterLogin: [{ key: 'baseUrl', label: 'site' }, { key: 'spaceKeys', label: 'space keys' }] },
+      paste: {
+        credential: 'API token',
+        access: [],
+        getItAt: { url: 'https://id.atlassian.com/manage-profile/security/api-tokens', steps: ['Make an API token', 'Paste it with the Atlassian account email it was issued to'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an Atlassian account email plus its API token',
+    helpText: 'An Atlassian API token, from id.atlassian.com → Security → API tokens, with the email it was issued to — the same kind Jira takes. It reads every space its owner can see; the source narrows by space key. Read-only.',
+    fields: [
+      { name: 'email', label: 'Atlassian account email', pattern: /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/, shapeHint: 'is an email address', secret: false },
+      { name: 'apiToken', label: 'API token', pattern: null, shapeHint: 'is any non-empty token', secret: true },
+    ],
+  },
+  {
+    id: 'dropbox',
+    label: 'Dropbox',
+    brand: 'dropbox',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['dropbox'],
+    howToConnect: {
+      login: { provider: 'dropbox', access: ['account_info.read', 'files.metadata.read', 'files.content.read'], settingsAfterLogin: [] },
+      paste: {
+        credential: 'Refresh token or access token',
+        access: ['account_info.read', 'files.metadata.read', 'files.content.read'],
+        getItAt: { url: 'https://www.dropbox.com/developers/apps', steps: ['Open or create your Dropbox app with the three scopes listed', 'Generate an access token on its Settings tab (it lasts four hours), or mint a refresh token and paste it with the app key and secret, which keeps working'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Dropbox refresh token with its app key and secret, or an access token',
+    helpText: 'A Dropbox refresh token with the app key and secret it was issued to, which keeps working — or, for a quick test, an access token generated on the app\'s Settings tab, which lasts four hours. Needs account_info.read, files.metadata.read and files.content.read. Read-only.',
+    fields: [
+      { name: 'token', label: 'Refresh token or access token', pattern: null, shapeHint: 'is any non-empty token', secret: true },
+      { name: 'appKey', label: 'App key (with a refresh token)', pattern: null, shapeHint: 'is the app key from the app\'s Settings tab', secret: false, optional: true },
+      { name: 'appSecret', label: 'App secret (with a refresh token)', pattern: null, shapeHint: 'is the app secret from the same page', secret: true, optional: true },
+    ],
+  },
+  {
+    id: 'box',
+    label: 'Box',
+    brand: 'box',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['box'],
+    howToConnect: {
+      login: { provider: 'box', access: ['root_readonly'], settingsAfterLogin: [] },
+      paste: {
+        credential: 'App client ID and secret',
+        access: ['Read all files and folders stored in Box', 'Client Credentials Grant, authorized by a Box admin'],
+        getItAt: { url: 'https://app.box.com/developers/console', steps: ['Create a Custom App with Server Authentication (Client Credentials Grant)', 'Give it Read all files and folders, and have a Box admin authorize it', 'Copy the client ID and secret, and the enterprise ID from General Settings'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Box app\'s client ID and secret, and the enterprise or user it acts as',
+    helpText: 'A Box Custom App using Client Credentials Grant: its client ID and secret, and the enterprise ID (or a user ID, to read as one person). A developer token from the app\'s Configuration page also works for a quick test, for 60 minutes. Read-only.',
+    fields: [
+      { name: 'clientId', label: 'Client ID', pattern: null, shapeHint: 'is the client ID on the app\'s Configuration page', secret: false },
+      { name: 'clientSecret', label: 'Client secret', pattern: null, shapeHint: 'is the client secret on the same page', secret: true },
+      { name: 'enterpriseId', label: 'Enterprise ID', pattern: /^\d+$/, shapeHint: 'is the numeric enterprise ID from the app\'s General Settings', secret: false, optional: true },
+      { name: 'userId', label: 'User ID (to read as one person)', pattern: /^\d+$/, shapeHint: 'is a numeric Box user ID', secret: false, optional: true },
+      { name: 'developerToken', label: 'Developer token (60 minutes, for a test)', pattern: null, shapeHint: 'is a developer token from the app\'s Configuration page', secret: true, optional: true },
     ],
   },
   {

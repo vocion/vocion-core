@@ -30,9 +30,13 @@ import type { MarkFills } from './contrast';
 import {
   siAnthropic,
   siAtlassian,
+  siBox,
   siBrave,
+  siConfluence,
+  siDropbox,
   siElevenlabs,
   siGithub,
+  siGitlab,
   siGmail,
   siGoogle,
   siGoogleads,
@@ -42,14 +46,18 @@ import {
   siGoogledrive,
   siGusto,
   siHubspot,
+  siIntercom,
   siJira,
+  siLinear,
   siNotion,
+  siPagerduty,
   siPosthog,
   siQuickbooks,
   siSentry,
   siStrapi,
   siStripe,
   siXero,
+  siZendesk,
   siZoom,
 } from 'simple-icons';
 import { markFills } from './contrast';
@@ -97,6 +105,15 @@ const BRANDS = {
   stripe: { icon: siStripe },
   xero: { icon: siXero },
   zoom: { icon: siZoom },
+  // The prebuilt support, engineering, docs and files connectors.
+  box: { icon: siBox },
+  confluence: { icon: siConfluence },
+  dropbox: { icon: siDropbox },
+  gitlab: { icon: siGitlab },
+  intercom: { icon: siIntercom },
+  linear: { icon: siLinear },
+  pagerduty: { icon: siPagerduty },
+  zendesk: { icon: siZendesk },
 
   amazons3: { title: 'Amazon S3', fallback: 'AWS\'s trademark guidelines allow a plain-text reference only, no logos (aws.amazon.com/trademark-guidelines); simple-icons dropped AWS marks in v15.' },
   amazonwebservices: { title: 'Amazon Web Services', fallback: 'AWS\'s trademark guidelines allow a plain-text reference only, no logos (aws.amazon.com/trademark-guidelines); simple-icons dropped AWS marks in v15.' },
@@ -112,6 +129,7 @@ const BRANDS = {
   slack: { title: 'Slack', fallback: 'Slack\'s brand terms require a written licence for most logo use and allow an integration to be stated in text only (slack.com/terms-of-service/slack-brand); simple-icons dropped Salesforce marks in v16.' },
   slate: { title: 'Slate', fallback: 'Slate publishes no brand guidelines; not in simple-icons.' },
   workday: { title: 'Workday', fallback: 'Workday\'s trademark guidelines require permission to use its logos (workday.com/en-us/legal/trademarks); not in simple-icons.' },
+  freshdesk: { title: 'Freshdesk', fallback: 'Not in simple-icons, and Freshworks\' brand terms have not been checked for integration use; no mark is vendored until they are.' },
   tavily: { title: 'Tavily', fallback: 'Tavily\'s brand page allows its marks in a compatibility statement but not alongside other companies\' without formal permission, which a catalog of tools is (tavily.com/brand); not in simple-icons.' },
 } as const satisfies Record<string, BrandEntry>;
 

@@ -723,6 +723,200 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'Optional. A custom report of time off, the same way.',
     },
   ],
+
+  // Prebuilt connectors: help desks, engineering, docs and file storage.
+  'zendesk': [
+    {
+      key: 'lookbackDays',
+      label: 'Index tickets updated in the last (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+      max: 3650,
+      help: 'A full sync reads tickets updated in this window; older, quiet tickets leave search. Incremental syncs read only what changed.',
+    },
+    {
+      key: 'includeComments',
+      label: 'Include each ticket\'s comments',
+      type: 'boolean',
+      defaultValue: true,
+      help: 'The whole thread, internal notes marked. Off indexes the subject and description only.',
+    },
+  ],
+
+  'intercom': [
+    {
+      key: 'region',
+      label: 'Data region',
+      type: 'select',
+      defaultValue: 'us',
+      options: [
+        { value: 'us', label: 'United States (app.intercom.com)' },
+        { value: 'eu', label: 'Europe (app.eu.intercom.com)' },
+        { value: 'au', label: 'Australia (app.au.intercom.com)' },
+      ],
+      help: 'Where your Intercom workspace is hosted. A token only works in its own region.',
+    },
+    {
+      key: 'lookbackDays',
+      label: 'Index conversations updated in the last (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+      max: 3650,
+    },
+  ],
+
+  'freshdesk': [
+    {
+      key: 'lookbackDays',
+      label: 'Index tickets updated in the last (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+      max: 3650,
+      help: 'A full sync reads tickets updated in this window; older, quiet tickets leave search.',
+    },
+    {
+      key: 'includeConversations',
+      label: 'Include each ticket\'s replies and notes',
+      type: 'boolean',
+      defaultValue: true,
+    },
+  ],
+
+  'linear': [
+    {
+      key: 'projectKeys',
+      label: 'Team keys',
+      type: 'stringArray',
+      required: true,
+      placeholder: 'ENG, OPS',
+      help: 'The prefix of each team\'s issue ids — ENG in ENG-123. Only these teams sync, and issue keys route here by it.',
+    },
+    {
+      key: 'doneWindowDays',
+      label: 'Keep finished issues for (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+      help: 'Completed and canceled issues older than this leave search at the next full sync.',
+    },
+    {
+      key: 'includeDescription',
+      label: 'Include the issue description',
+      type: 'boolean',
+      defaultValue: true,
+    },
+  ],
+
+  'gitlab': [
+    {
+      key: 'repos',
+      label: 'Projects',
+      type: 'stringArray',
+      required: true,
+      placeholder: 'northwind/orders-api, northwind/platform/web',
+      help: 'Each project by its full path, as in its GitLab URL. Agents read and act only on these.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'GitLab URL',
+      type: 'url',
+      defaultValue: 'https://gitlab.com',
+      help: 'gitlab.com, or your self-managed GitLab\'s address.',
+    },
+    {
+      key: 'lookbackDays',
+      label: 'First sync looks back (days)',
+      type: 'number',
+      defaultValue: 30,
+      min: 1,
+      max: 365,
+    },
+    {
+      key: 'includeIssues',
+      label: 'Include issues',
+      type: 'boolean',
+      defaultValue: true,
+      help: 'Off indexes merge requests only.',
+    },
+  ],
+
+  'pagerduty': [
+    {
+      key: 'region',
+      label: 'Service region',
+      type: 'select',
+      defaultValue: 'us',
+      options: [
+        { value: 'us', label: 'United States (api.pagerduty.com)' },
+        { value: 'eu', label: 'Europe (api.eu.pagerduty.com)' },
+      ],
+    },
+    {
+      key: 'services',
+      label: 'Services to confirm',
+      type: 'stringArray',
+      placeholder: 'PSV1ABC, PSV2DEF',
+      help: 'Service ids Test connection checks the key can see. Leave blank for every service it sees.',
+    },
+  ],
+
+  'confluence': [
+    {
+      key: 'baseUrl',
+      label: 'Site URL',
+      type: 'url',
+      required: true,
+      placeholder: 'https://northwind.atlassian.net',
+      help: 'Your Atlassian site, the part before /wiki.',
+    },
+    {
+      key: 'spaceKeys',
+      label: 'Space keys',
+      type: 'stringArray',
+      required: true,
+      placeholder: 'ENG, OPS',
+      help: 'Only these spaces sync, and agents read only these. The key is in the space\'s URL: /wiki/spaces/ENG/…',
+    },
+  ],
+
+  'dropbox': [
+    {
+      key: 'path',
+      label: 'Folder',
+      type: 'text',
+      placeholder: '/Northwind',
+      help: 'The folder to read, from the top of the Dropbox. Leave blank for all of it.',
+    },
+    {
+      key: 'extensions',
+      label: 'Files read whole',
+      type: 'stringArray',
+      defaultValue: ['.md', '.markdown', '.txt', '.csv', '.tsv', '.json', '.yaml', '.yml', '.html', '.htm', '.xml', '.log', '.rst', '.pdf'],
+      advanced: true,
+      help: 'Every other file is indexed by its name and path only. Paper docs are always read.',
+    },
+  ],
+
+  'box': [
+    {
+      key: 'folderId',
+      label: 'Folder ID',
+      type: 'text',
+      defaultValue: '0',
+      help: 'The number at the end of the folder\'s Box URL. 0 reads everything the account can see.',
+    },
+    {
+      key: 'extensions',
+      label: 'Files read whole',
+      type: 'stringArray',
+      defaultValue: ['.md', '.markdown', '.txt', '.csv', '.tsv', '.json', '.yaml', '.yml', '.html', '.htm', '.xml', '.log', '.rst', '.pdf'],
+      advanced: true,
+      help: 'Every other file is indexed by its name and path only.',
+    },
+  ],
 };
 
 /**
