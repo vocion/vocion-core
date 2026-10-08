@@ -38,6 +38,7 @@ import { describeSetupTool } from './describeSetup';
 import { describeSourcesTool } from './describeSources';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
+import { draftFunctionTool } from './draftFunction';
 import { drawArchitectureTools } from './drawArchitecture';
 import { drawMockupTools } from './drawMockup';
 import { editArtifactTools } from './editArtifacts';
@@ -285,6 +286,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...(ctx.enabledPlugins === undefined || ctx.enabledPlugins.includes('data-rooms') ? dataRoomTools(ctx) : []),
     // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
     ...wikiTools(ctx),
+    // Describe your own: a function drafted from the person's words, offered as one card.
+    // Present while an app with a blank start is installed (its plugin is on).
+    ...draftFunctionTool(ctx),
     // Missions and playbooks edit like artifacts: read the file, write it back
     // whole through the `workspace.write_*` actions (reviewed by default).
     ...workspaceSourceTools(ctx),

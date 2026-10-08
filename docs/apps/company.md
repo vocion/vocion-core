@@ -2,8 +2,8 @@
 
 **Company** is a prebuilt app in the 5.0 app rail, beside Workforce, Software
 Factory and GTM. It answers one question: *I want this function running in this
-workspace — what do I do?* Pick a template, answer two or three questions, press
-once. A few seconds later the workspace has the teams, the measures, the
+workspace — what do I do?* Pick a template — or describe your own — answer two or three questions,
+press once. A few seconds later the workspace has the teams, the measures, the
 missions, the automations, the trust rules and the budgets that function runs
 on, with you accountable for it — and it is running: the lead answers in chat,
 the automations are on, and the team report grades it from day one.
@@ -14,7 +14,7 @@ the automations are on, and the team report grades it from day one.
 | **Templates** | `packages/core/templates/apps/company/templates/<slug>/` |
 | **Plugin** | `company` (`packages/core/templates/plugins/company/`) — the app's switch and its nav row |
 | **Start page** | `/dashboard/apps/company` — also reached from the Marketplace ("Start from a template") |
-| **Mechanism** | `libs/workspace/appTemplates.ts` (load, fill, merge) · `services/apps/AppTemplateService.ts` (write, apply) · RPC `apps.templates`, `apps.installTemplate` |
+| **Mechanism** | `libs/workspace/appTemplates.ts` (load, fill, merge) · `libs/workspace/functionPlan.ts` (a drafted plan: schema, citations, files) · `services/apps/AppTemplateService.ts` (write, apply, undo) · `services/apps/FunctionDraftService.ts` (draft) · action `apps.install` · RPC `apps.templates`, `apps.installTemplate`, `apps.draftPlan`, `apps.createFromPlan` |
 
 ## The three templates
 
@@ -27,6 +27,64 @@ the automations are on, and the team report grades it from day one.
 A template never copies a plugin. Where a plugin already runs part of the
 function, the template turns it on as it ships and adds only the layer the
 plugin does not have (principle 6: one shape, used everywhere).
+
+## Describe your own — a blank start
+
+Not a software company, an agency or a support org? The fourth card on the
+start page is **Describe your own**. The person says what the function does,
+in their own words, and answers the same short interview (what the company is
+called, what it should deliver this quarter). Then:
+
+1. **A model drafts a plan** (`services/apps/FunctionDraftService.ts`) — the
+   same pieces a template ships: one to three teams, each with a lead and
+   specialists; each agent's role, goal and prompt; missions with measures;
+   automations that keep them; conservative trust bars; a daily budget on
+   every seat. The answer is **typed**: one JSON object that
+   `FunctionPlanSchema` (`libs/workspace/functionPlan.ts`) parses, that cites
+   only what exists (`planProblems`), and whose rendered files pass the
+   workspace loader's own schemas (`renderedProblems`). An answer that does
+   not is sent back once with every problem named; a second miss fails in
+   words. Nothing is read out of prose.
+2. **It reuses before it writes.** The model is offered the agent catalog, the
+   plugins, this app's templates and the registered actions. A catalog role
+   that fits is **hired as itself** (its prompt and skills copied from the
+   catalog, `source.kind: catalog`, with why); a plugin that already runs part
+   of the function is turned on as it ships; the closest template is cited. A
+   new seat is written only where nothing fits.
+3. **The preview** shows the plan before anything exists — teams, then each
+   team's agents, then what each agent owns (missions and the automations
+   that keep them), with what it reuses cited, the budgets totalled and the
+   trust bars stated. Every name is editable and every item removable (a
+   team's lead goes with its team; an agent takes its missions and
+   automations; a mission takes the automations that keep it).
+4. **One Create** stands it up as the person's own action, through the same
+   install a template uses — so a blank start and a template produce the same
+   kind of records — with **Undo** on the receipt.
+
+The drafting brief is the app's own file (`templates/apps/company/blank.md`,
+named by `app.yaml` `blank.brief`); core names no function. The draft is
+charged to the workspace (`chargeModelCall`, feature `app.draft`) and refused,
+in words, while a hard budget cap it would land on is spent (`preflightCheck`).
+
+**From chat.** While Company is on, agents carry `draft_function_plan`: a
+person describes a function, the agent drafts it through the same service and
+puts it in front of them as **one card** — Create stands it up as their
+decision (an agent can only offer it: `apps.install` holds for a person), and
+the card's link opens the full preview at `/dashboard/apps/company?start=blank`.
+The onboarding card that offers "Start from a template" can offer "Describe
+your own" through the same tool or `blankStartHref(appId)`
+(`services/agents/tools/draftFunction.ts`).
+
+## Undo, as one unit
+
+Every install — a template or a plan — is a run of `apps.install`
+(`libs/actions/apps-install.ts`), and its Undo puts the whole thing back:
+every file it wrote returns to what was there before (a file it created is
+removed), the workspace is applied again so the agents, missions and
+automations it brought retire and the trust bars return, and the teams and
+budget rows it created are removed. If a file it wrote has changed since, the
+undo refuses, names the file and changes nothing — it never discards a
+person's edit, and never leaves half a function behind.
 
 ## What one install does
 

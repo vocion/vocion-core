@@ -83,7 +83,14 @@ const RECEIPT: TemplateInstallReceipt = {
   links: { teamReport: '/dashboard/team-report', chat: '/dashboard/chat?agent=support-lead' },
 };
 
-const succeeds: InstallTemplate = async () => ({ ok: true, receipt: RECEIPT });
+const succeeds: InstallTemplate = async () => ({ ok: true, receipt: { ...RECEIPT, runId: 411 } });
+
+const BLANK = {
+  label: 'Describe your own',
+  description: 'Not one of these? Say what the function does in your own words; a plan is drafted from it for you to edit before anything is created.',
+  describe: { question: 'What should this function do, and for whom?', placeholder: 'A two-person bookkeeping practice for restaurants…', help: null, maxLength: 1500 },
+  interview: [{ key: 'company', question: 'What is the company called?', placeholder: null, help: null, defaultValue: 'Northwind Traders', maxLength: 80 }],
+};
 const needsAnswers: InstallTemplate = async () => ({ ok: false, message: '"What do customers come to you for help with?" needs an answer', problems: { product: 'needs an answer' } });
 
 const meta: Meta<typeof TemplatePicker> = {
@@ -92,7 +99,7 @@ const meta: Meta<typeof TemplatePicker> = {
   parameters: { layout: 'padded', nextjs: { appDirectory: true, navigation: { pathname: '/dashboard/apps/company' } } },
   // The receipt's links are the locale-aware Link, which reads the intl context.
   decorators: [Story => <NextIntlClientProvider locale="en" messages={en}><Story /></NextIntlClientProvider>],
-  args: { appId: 'company', templates: TEMPLATES, writable: { ok: true }, canInstall: true, install: succeeds },
+  args: { appId: 'company', templates: TEMPLATES, blank: BLANK, writable: { ok: true }, canInstall: true, install: succeeds },
 };
 
 export default meta;
@@ -125,9 +132,9 @@ export const InterviewNeedsAnAnswer: StoryObj<typeof TemplateInterview> = {
   render: () => <TemplateInterview template={TEMPLATES[2]!} onClose={() => {}} install={needsAnswers} />,
 };
 
-/** What a person reads after the install. */
+/** What a person reads after the install — with Undo, which puts the whole install back. */
 export const Receipt: StoryObj<typeof InstallReceipt> = {
-  render: () => <div className="max-w-lg"><InstallReceipt receipt={RECEIPT} /></div>,
+  render: () => <div className="max-w-lg"><InstallReceipt receipt={{ ...RECEIPT, runId: 411 }} undo={async () => null} /></div>,
 };
 
 /** Installing again: nothing to change, and a file the person edited kept as they left it. */

@@ -80,6 +80,8 @@ export const FEATURES = {
   TEAM_THREAD_READ: 'team.thread_read',
   /** A declared action gate's critic reading what an agent would publish (`services/gates/actionGate.ts`). */
   ACTION_GATE: 'gate.action',
+  /** A model drafting a function plan from a person's description, for an app's blank start (`services/apps/FunctionDraftService.ts`). */
+  APP_DRAFT: 'app.draft',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

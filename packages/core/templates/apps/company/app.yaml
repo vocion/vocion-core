@@ -16,3 +16,27 @@ description: A company function stood up in one move — teams, measures, missio
 plugins: [company]
 entry: /dashboard/apps/company
 nav: [Company]
+# Describe your own: beside the templates, a person describes the function in
+# their own words and a model drafts a plan of the same pieces — previewed and
+# edited before anything is created. blank.md is what the model reads about
+# drafting for this app.
+blank:
+  label: Describe your own
+  description: Not a software company, an agency or a support org? Say what the function does in your own words; a plan is drafted from it — reusing catalog roles and plugins where they fit — for you to edit before anything is created.
+  brief: blank.md
+  describe:
+    question: What should this function do, and for whom?
+    placeholder: A two-person bookkeeping practice for restaurants — monthly closes, payroll questions, and a reminder before every tax deadline.
+    help: A few sentences in your own words. Say what it owes and to whom; the plan is drafted from this.
+    maxLength: 1500
+  interview:
+    - key: company
+      question: What is the company called?
+      placeholder: Northwind Traders
+      default: '{{workspace.name}}'
+      maxLength: 80
+    - key: goal
+      question: What should it deliver this quarter?
+      placeholder: Every client's month closed by the fifth working day
+      help: One sentence. It becomes the lead team's goal on the team report.
+      maxLength: 200

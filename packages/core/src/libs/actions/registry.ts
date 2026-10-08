@@ -6,6 +6,7 @@
 
 import type { Action } from './types';
 import { agentRevisePromptAction } from './agent-revise-prompt';
+import { appsInstallAction } from './apps-install';
 import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
 import { chatAddReactionAction } from './chat-add-reaction';
@@ -103,6 +104,8 @@ export function actionCatalog(): string {
 
 // Built-ins.
 registerAction(gmailSendAction);
+// Standing a function up from an app's template or a drafted plan — reversible as one unit.
+registerAction(appsInstallAction);
 registerAction(hubspotUpdateAction);
 // A write to any `rest` source through an endpoint it declares — external,
 // not reversible, keyed per endpoint on the ladder (`rest.request.<source>.<action>`).
