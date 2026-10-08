@@ -306,7 +306,9 @@ if [ -n "${IMAGE}" ]; then
   # directory's docker config, removed on exit, never in root's.
   export DOCKER_CONFIG="${WORK}/docker"
   install -d -m 700 "${DOCKER_CONFIG}"
-  if [ -n "${REGISTRY_SECRET_ID}" ]; then
+  # An ECR image logs in with the box's own role (pull-app-image.sh); the
+  # secret's login is for any other registry.
+  if [ -n "${REGISTRY_SECRET_ID}" ] && [[ ! "${IMAGE%%/*}" =~ \.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com$ ]]; then
     (
       umask 077
       aws secretsmanager get-secret-value --region "${REGION}" --secret-id "${REGISTRY_SECRET_ID}" \

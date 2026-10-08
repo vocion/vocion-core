@@ -144,6 +144,25 @@ data "aws_iam_policy_document" "deploy_read" {
       resources = ["arn:${local.partition}:secretsmanager:${local.region}:${local.account_id}:secret:${statement.value}-??????"]
     }
   }
+  # Pulling a prebuilt image from ECR with the box's own role.
+  dynamic "statement" {
+    for_each = length(var.image_ecr_repository_arns) > 0 ? [1] : []
+    content {
+      sid       = "EcrLogin"
+      effect    = "Allow"
+      actions   = ["ecr:GetAuthorizationToken"]
+      resources = ["*"]
+    }
+  }
+  dynamic "statement" {
+    for_each = length(var.image_ecr_repository_arns) > 0 ? [1] : []
+    content {
+      sid       = "EcrPullAppImage"
+      effect    = "Allow"
+      actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+      resources = var.image_ecr_repository_arns
+    }
+  }
   statement {
     sid     = "ReadDeployConfig"
     effect  = "Allow"

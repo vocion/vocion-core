@@ -179,6 +179,17 @@ variable "image_registry_secret_name" {
   }
 }
 
+variable "image_ecr_repository_arns" {
+  description = "ECR repositories a prebuilt app image may be pulled from. The box's role gets ecr:GetAuthorizationToken and pull on these (core's pull-app-image.sh logs in to ECR with the role). Empty: no ECR pull."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for a in var.image_ecr_repository_arns : can(regex("^arn:[a-z-]+:ecr:[a-z0-9-]+:[0-9]{12}:repository/[a-z0-9._/-]+$", a))])
+    error_message = "image_ecr_repository_arns must be ECR repository ARNs."
+  }
+}
+
 variable "health_check_path" {
   description = "Path the ALB health check requests. /version.txt is a static file every core image serves."
   type        = string

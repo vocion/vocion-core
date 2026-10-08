@@ -440,3 +440,19 @@ run "with_an_image_registry_login" {
     error_message = "the deploy document takes an image to pull"
   }
 }
+
+run "with_an_ecr_image_repository" {
+  command = plan
+
+  variables {
+    image_ecr_repository_arns = ["arn:aws:ecr:us-east-1:111111111111:repository/vocion-test/app"]
+  }
+
+  assert {
+    condition = (
+      one([for st in data.aws_iam_policy_document.deploy_read.statement : st.resources if st.sid == "EcrPullAppImage"]) == toset(["arn:aws:ecr:us-east-1:111111111111:repository/vocion-test/app"])
+      && one([for st in data.aws_iam_policy_document.deploy_read.statement : st.actions if st.sid == "EcrPullAppImage"]) == toset(["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"])
+    )
+    error_message = "the box may pull from the named ECR repositories, and only pull"
+  }
+}

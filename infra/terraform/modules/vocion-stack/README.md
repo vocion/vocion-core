@@ -134,7 +134,8 @@ writes the box files without deploying, for a deploy run by hand from a session
    vocion-deploy <ref> <image>` by hand) pulls a prebuilt image through core's
    `pull-app-image.sh`, after a `docker login` with `image_registry_secret_name`
    (`{"username","password"}`, put by hand; the login lives in the deploy's temporary
-   directory only). The image must carry the labels its build sets:
+   directory only), or, for an ECR image, with the box's role on
+   `image_ecr_repository_arns`. The image must carry the labels its build sets:
    `org.vocion.app-url` (this hostname's URL), `org.vocion.core-sha` (the ref's commit)
    and, with an extension, `org.vocion.extension-sha` and `org.vocion.extension-ref`
    (`extension_ref`). Anything else is refused before migrations run, and the
@@ -473,7 +474,8 @@ Required: `name_prefix`, `azs`, `hostname`, `core_ref`.
 | `alarm_emails` | list(string) | `[]` | Subscribed to the alarm topic |
 | `db_free_storage_alarm_gb` | number | `5` | |
 | `budget_monthly_usd` | number | `0` | 0: no budget |
-| `image_registry_secret_name` | string | `""` | `{"username","password"}` for pulling a prebuilt image; put by hand |
+| `image_registry_secret_name` | string | `""` | `{"username","password"}` for pulling a prebuilt image; put by hand. Not used for ECR |
+| `image_ecr_repository_arns` | list(string) | `[]` | ECR repositories the box may pull a prebuilt image from, with its own role |
 | `runners_enabled` | bool | `false` | Fargate engineering runners |
 | `runner_image` | string | `"ghcr.io/vocion/vocion-runner:5.x"` | |
 | `runner_cpu` | number | `2048` | |
