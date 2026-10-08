@@ -17,8 +17,8 @@ const sentryOptionsForServer: Sentry.NodeOptions | Sentry.EdgeOptions = {
 
   integrations: privacy.enableLogs ? [Sentry.consoleLoggingIntegration()] : [],
 
-  // sendDefaultPii, tracesSampleRate, enableLogs, beforeSend and
-  // beforeSendTransaction.
+  // sendDefaultPii, tracesSampleRate, enableLogs, and the scrub:
+  // beforeSend, beforeSendTransaction and beforeBreadcrumb.
   ...privacy,
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.

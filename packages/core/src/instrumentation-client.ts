@@ -30,8 +30,8 @@ if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
         : []),
     ],
 
-    // sendDefaultPii, tracesSampleRate, enableLogs, beforeSend and
-    // beforeSendTransaction.
+    // sendDefaultPii, tracesSampleRate, enableLogs, and the scrub:
+    // beforeSend, beforeSendTransaction and beforeBreadcrumb.
     ...privacy,
 
     // Define how likely Replay events are sampled.
