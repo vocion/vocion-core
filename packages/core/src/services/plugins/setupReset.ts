@@ -4,9 +4,10 @@
  * The plugin's `setup:` declaration is the whole definition of what is undone
  * (services/plugins/setupState.ts reads the same declaration to say what is
  * done): every connector it names is disconnected, every record of a type it
- * names is deleted with the artifacts filed on it, and every proposal still
- * waiting to create one of those records is rejected. Nothing else is
- * touched: the sources stay (they are the workspace's), the agents, missions
+ * names is deleted with the artifacts filed on it, every proposal still
+ * waiting to create one of those records is rejected, and every proposal ever
+ * made for one — decided or not — stops answering the duplicate check, so the
+ * next setup can file the same records again. Nothing else is touched: the sources stay (they are the workspace's), the agents, missions
  * and trust rules stay, the conversations stay. Afterwards the setup chip is
  * back in chat, and the next setup turn starts where the first one did.
  *
@@ -120,6 +121,21 @@ export async function resetSetup(input: { orgId: string; pluginSlug: string; act
       await rejectAction(run.id, input.orgId, `setup of ${manifest.name} was reset`, { reviewedBy: input.actor });
       rejected += 1;
     }
+    // A DECIDED PROPOSAL MUST NOT BLOCK THE NEXT SETUP. The duplicate check
+    // (`ActionService.findDecidedRunForKey`) refuses to re-file a record a
+    // person already judged, by the run's `dedup_key`. After a reset the
+    // records are gone and the judgements were about a setup that no longer
+    // exists — the first retest (2026-10-08) was refused with "a person
+    // already decided this exact record". The runs stay as the audit they
+    // are; their keys are cleared, so they answer for nothing.
+    await db
+      .update(actionRunSchema)
+      .set({ dedupKey: null })
+      .where(and(
+        eq(actionRunSchema.orgId, input.orgId),
+        sql`${actionRunSchema.actionId} like 'objects.propose_candidate%'`,
+        sql`${actionRunSchema.input}->>'objectType' in (${sql.join(setup.records.map(t => sql`${t}`), sql`, `)})`,
+      ));
   }
 
   return { plugin: input.pluginSlug, disconnected, deleted, rejected };

@@ -13,6 +13,7 @@ vi.mock('@/libs/Orpc', () => ({
     conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(), feedback: vi.fn(), rename: vi.fn(async () => ({})) },
     teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
     missions: { list: vi.fn(async () => []) },
+    review: { actionStatus: vi.fn(async () => ({ status: 'pending', decidedBy: null, decidedAt: null })), decideAction: vi.fn(async () => ({ runId: 7763, status: 'approved' })) },
   },
 }));
 
@@ -106,6 +107,35 @@ describe('ChatShell', () => {
     await expect.element(page.getByRole('menuitem', { name: /All conversations/ })).toBeVisible();
     expect(page.getByRole('menuitem', { name: /New chat/ }).elements()).toHaveLength(0);
     expect(page.getByRole('menuitem', { name: /Pipeline Analyst/ }).elements()).toHaveLength(0);
+  });
+
+  it('draws what waits in the review queue as cards above the composer, with Approve on each (Jamie, 2026-10-07)', async () => {
+    // A proposal filed outside this thread — a sweep, a mission — used to
+    // live only on the queue page. It is the same run here: Approve on the
+    // card is `review.decideAction` on it.
+    const waiting = {
+      cards: [{ id: 'run:7763', kind: 'action', state: 'filed' as const, runId: 7763, actionId: 'objects.propose_candidate', input: { objectType: 'product', title: 'Northwind Traders' }, label: 'Create product: Northwind Traders', agentSlug: 'product-manager' }],
+      more: 2,
+    };
+    await render(wrap(<ChatShell agents={AGENTS} pendingDecisions={waiting} />));
+
+    const block = page.getByTestId('waiting-on-you');
+
+    await expect.element(block).toBeInTheDocument();
+    await expect.element(block.getByText('Create product: Northwind Traders')).toBeInTheDocument();
+    await expect.element(block.getByRole('button', { name: 'Approve' })).toBeVisible();
+    await expect.element(block.getByRole('link', { name: '2 more in the review queue' })).toHaveAttribute('href', '/dashboard/inbox');
+
+    await block.getByRole('button', { name: 'Approve' }).click();
+
+    expect(vi.mocked(client.review.decideAction).mock.calls[0]![0]).toMatchObject({ id: 7763, decision: 'approve' });
+  });
+
+  it('draws nothing for an empty queue', async () => {
+    await render(wrap(<ChatShell agents={AGENTS} pendingDecisions={{ cards: [], more: 0 }} />));
+
+    await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
+    expect(page.getByTestId('waiting-on-you').elements()).toHaveLength(0);
   });
 
   it('shows an empty state instead of crashing when there are no agents', async () => {

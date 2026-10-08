@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
-import type { AgentOption, ChatAttachment } from './types';
+import type { AgentOption, ChatAttachment, RecommendedAction } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -33,6 +33,7 @@ import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 import { useSendOnConnectReturn } from './useSendOnConnectReturn';
+import { WaitingOnYou } from './WaitingOnYou';
 
 /**
  * ChatShell — the full-page chat surface.
@@ -81,6 +82,12 @@ export type ChatShellProps = {
   connectReturnPrompt?: string;
   /** `?new=1` — forget this browser session's thread and start fresh (⌘⇧O from a page with no surface). */
   startNew?: boolean;
+  /**
+   * The proposals waiting on a person in this workspace (`listPendingDecisions`),
+   * drawn as cards above the composer so the queue is never the only place to
+   * decide them. `more` is how many the queue holds past the cards.
+   */
+  pendingDecisions?: { cards: RecommendedAction[]; more: number };
 };
 
 /**
@@ -108,6 +115,7 @@ export type ChatShellProps = {
  * @param props.conversationId
  * @param props.startNew
  * @param props.connectReturnPrompt - Sent once automatically after a connect.
+ * @param props.pendingDecisions - The review queue's open proposals, drawn as cards here.
  */
 export function ChatShell({
   agents,
@@ -118,6 +126,7 @@ export function ChatShell({
   conversationId = null,
   startNew = false,
   connectReturnPrompt,
+  pendingDecisions,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -133,6 +142,7 @@ export function ChatShell({
       conversationId={conversationId}
       startNew={startNew}
       connectReturnPrompt={connectReturnPrompt}
+      pendingDecisions={pendingDecisions}
     />
   );
 }
@@ -165,6 +175,7 @@ function ChatShellInner({
   conversationId = null,
   startNew = false,
   connectReturnPrompt,
+  pendingDecisions,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
   const router = useRouter();
@@ -239,25 +250,45 @@ function ChatShellInner({
   }, [session.conversationId, session.isStreaming, latestDocs, latest?.id, openRef]);
   const onCommand = useChatCommands(startNewChat);
 
+  // What waits on the person, pinned to the end of the thread with the gate
+  // (and above the composer on an empty one). A run the thread already drew
+  // as a card — filed during one of its turns — is not drawn a second time.
+  const shownRunIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const m of session.messages) {
+      for (const r of m.recommendations ?? []) {
+        if (r.runId !== undefined) {
+          ids.add(r.runId);
+        }
+      }
+    }
+    return ids;
+  }, [session.messages]);
+  const waiting = pendingDecisions && (pendingDecisions.cards.length > 0 || pendingDecisions.more > 0)
+    ? <WaitingOnYou cards={pendingDecisions.cards} more={pendingDecisions.more} skipRunIds={shownRunIds} />
+    : null;
   // The approval gate, as a transcript block pinned to the end. `afterIndex`
   // past the last message is how `MessageList` says "after whatever is last"
   // without the caller tracking the index itself.
   const gateBlocks = useMemo(
-    () => (session.pendingHitl
-      ? [{
-          key: 'hitl-gate',
-          afterIndex: session.messages.length,
-          node: (
-            <HitlGate
-              gate={session.pendingHitl}
-              onApprove={session.handleApproveHitl}
-              onReject={session.handleRejectHitl}
-              disabled={session.isStreaming}
-            />
-          ),
-        }]
-      : []),
-    [session.pendingHitl, session.messages.length, session.handleApproveHitl, session.handleRejectHitl, session.isStreaming],
+    () => [
+      ...(waiting ? [{ key: 'waiting-on-you', afterIndex: session.messages.length, node: waiting }] : []),
+      ...(session.pendingHitl
+        ? [{
+            key: 'hitl-gate',
+            afterIndex: session.messages.length,
+            node: (
+              <HitlGate
+                gate={session.pendingHitl}
+                onApprove={session.handleApproveHitl}
+                onReject={session.handleRejectHitl}
+                disabled={session.isStreaming}
+              />
+            ),
+          }]
+        : []),
+    ],
+    [waiting, session.pendingHitl, session.messages.length, session.handleApproveHitl, session.handleRejectHitl, session.isStreaming],
   );
   // Arriving on the page (⌘⇧L, the sidebar, a link) focuses the composer once
   // the saved thread has settled; keyboard-only never has to click the box.
@@ -397,12 +428,15 @@ function ChatShellInner({
               ? (
                   hasWorkspaceAgents(agents)
                     ? (
-                        <EmptyState
-                          greeting={session.emptyGreeting}
-                          suggestions={session.emptyChips}
-                          suggestionsLoading={session.emptyChipsLoading}
-                          onPick={session.handlePickSuggestion}
-                        />
+                        <>
+                          <EmptyState
+                            greeting={session.emptyGreeting}
+                            suggestions={session.emptyChips}
+                            suggestionsLoading={session.emptyChipsLoading}
+                            onPick={session.handlePickSuggestion}
+                          />
+                          {waiting && <div className="shrink-0 pb-3">{waiting}</div>}
+                        </>
                       )
                     : <NoAgentsState />
                 )
