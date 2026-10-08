@@ -14,6 +14,7 @@ import { resolveProjectForUser } from '@/services/ProjectService';
 import { resolveActiveWorkspace } from '@/services/WorkspaceAccessService';
 import { ACTIVE_PROJECT_COOKIE } from './activeProject';
 import { parseWorkspacePath, WORKSPACE_ACCOUNT_PARAM, WORKSPACE_HEADER } from './links';
+import { runAsSystem } from './tenantContext';
 
 export type Tenancy = {
   accountId: string | null;
@@ -118,7 +119,10 @@ async function requestedWorkspaceId(userId: string): Promise<string | undefined>
  * @param userId - The signed-in person.
  */
 export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
-  const active = await resolveActiveWorkspace(userId, await requestedWorkspaceId(userId));
+  // Choosing among the person's workspaces reads across their tenants, before
+  // any one of them is known: system work (libs/tenantContext.ts).
+  const active = await runAsSystem('resolve-tenancy', async () =>
+    resolveActiveWorkspace(userId, await requestedWorkspaceId(userId)));
   if (!active) {
     return { accountId: null, projectId: null, role: null, workspaceRole: null };
   }

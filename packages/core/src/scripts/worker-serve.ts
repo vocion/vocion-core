@@ -9,6 +9,7 @@
  */
 
 import process from 'node:process';
+import { runAsSystem } from '../libs/tenantContext';
 import { runLoop } from '../services/FeedbackWorkerService';
 
 if ((process.env.ENABLE_FEEDBACK_WORKER ?? '0') !== '1') {
@@ -16,7 +17,8 @@ if ((process.env.ENABLE_FEEDBACK_WORKER ?? '0') !== '1') {
   process.exit(0);
 }
 
-const handle = runLoop();
+// Drains every tenant's queue: system work (libs/tenantContext.ts).
+const handle = runAsSystem('feedback-worker', () => runLoop());
 
 const shutdown = async (signal: string) => {
   console.log(`[worker:serve] caught ${signal}; stopping...`);

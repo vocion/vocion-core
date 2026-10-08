@@ -25,6 +25,7 @@ import { onError, ORPCError } from '@orpc/server';
 import { RPCHandler } from '@orpc/server/fetch';
 import { getToken } from 'next-auth/jwt';
 import { logger } from '@/libs/Logger';
+import { runWithTenantScope } from '@/libs/tenantContext';
 import { router } from '@/routers';
 
 /**
@@ -192,10 +193,12 @@ const handler = new RPCHandler<RpcRequestContext>(router, {
 });
 
 async function handleRequest(request: Request) {
-  const { response } = await handler.handle(request, {
+  // One tenant scope per request: `guardAuth` fills it in, and the database
+  // pool labels the procedure's queries with it (libs/tenantContext.ts).
+  const { response } = await runWithTenantScope(() => handler.handle(request, {
     prefix: '/rpc',
     context: { request },
-  });
+  }));
 
   return response ?? new Response('Not found', { status: 404 });
 }
