@@ -28,6 +28,18 @@ test('with no Vocion and no local task, it says there is nothing to do and exits
   fs.rmSync(workspace, { recursive: true, force: true });
 });
 
+test('on Bedrock with the container role, a missing ANTHROPIC_API_KEY is not warned about and the boot names the model', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-'));
+  const env = { PATH: process.env.PATH, HOME: workspace, WORKSPACE: workspace, RUNNER_TARGET: 'local', CLAUDE_CODE_USE_BEDROCK: '1', AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/fixture', AWS_REGION: 'us-east-1', ANTHROPIC_MODEL: 'us.anthropic.claude-sonnet-4-6' };
+  const r = spawnSync(process.execPath, [runner], { encoding: 'utf8', env, timeout: 20000 });
+  assert.equal(r.status, 0, r.stderr);
+  const lines = r.stdout.trim().split('\n').map(l => JSON.parse(l));
+  assert.equal(lines[0].model_provider, 'bedrock');
+  assert.equal(lines[0].model, 'us.anthropic.claude-sonnet-4-6');
+  assert.ok(!lines.some(l => l.phase === 'warn' && /ANTHROPIC_API_KEY/.test(l.note)), r.stdout);
+  fs.rmSync(workspace, { recursive: true, force: true });
+});
+
 test('a local contract that does not match the schema is refused before anything is cloned', () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-'));
   const env = { PATH: process.env.PATH, HOME: workspace, WORKSPACE: workspace, LOCAL_TASK_JSON: JSON.stringify({ task_id: 'x', allowedPaths: ['docs/**'] }) };

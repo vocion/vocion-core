@@ -32,6 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
+import { bedrockMode, claudeChildEnv, defaultModel, engineerModel, missingModelCredential } from './bedrock.mjs';
 import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor, taskShotsDir } from './contract.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown, usageFromMessages } from './events.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
@@ -76,7 +77,8 @@ const cfg = {
   // Only for a run queued with a bare message and no contract: where that docs task is written.
   defaultRepo: env.DEFAULT_REPO || '',
   defaultProduct: env.DEFAULT_PRODUCT || 'default',
-  defaultModel: env.DEFAULT_MODEL || 'sonnet',
+  // On Bedrock (CLAUDE_CODE_USE_BEDROCK=1) the installation's ANTHROPIC_MODEL, when DEFAULT_MODEL is unset.
+  defaultModel: defaultModel(env),
   claudeBin: env.CLAUDE_BIN || 'claude',
   // Where a `postgres` service answers when the contract names no url: the target's sidecar or
   // compose service. A repo whose tests expect another address names it on its repo record.
@@ -896,7 +898,7 @@ function runWallSeconds(task) {
  * its context instead of rebuilding it. `opts.budget` and `opts.timeoutSeconds` are what is left.
  */
 function runClaude(task, runId, opts = {}) {
-  const model = task.model_policy.model || cfg.defaultModel;
+  const model = engineerModel(task.model_policy.model || cfg.defaultModel, env);
   const budget = round2(opts.budget ?? runBudgetUsd(task));
   const claudeTimeout = Math.floor(opts.timeoutSeconds ?? Math.max(300, runWallSeconds(task) - LAND_RESERVE_SECONDS));
   const label = opts.label || 'engineer';
@@ -943,14 +945,12 @@ function runClaude(task, runId, opts = {}) {
     args.push('--effort', String(task.model_policy.effort));
   }
   if (task.model_policy.escalate_to) {
-    args.push('--fallback-model', String(task.model_policy.escalate_to));
+    args.push('--fallback-model', engineerModel(String(task.model_policy.escalate_to), env));
   }
 
-  // The agent never sees the GitHub or Vocion credentials; it only needs the Anthropic key.
-  const childEnv = { ...process.env };
-  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'VOCION_TOKEN', 'VOCION_RUNNER_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
-    delete childEnv[k];
-  }
+  // The agent never sees the GitHub or Vocion credentials; it keeps only its model credential
+  // (the Anthropic key, or on Bedrock the container's role), see bedrock.mjs.
+  const childEnv = claudeChildEnv(process.env);
   Object.assign(childEnv, state.serviceEnv, {
     // The hooks fence the repository, not the plan's scope (humanOwned, keep.mjs).
     RUNNER_ALLOWED_PATHS: JSON.stringify(['**']),
@@ -1769,11 +1769,14 @@ function sleep(ms) {
 async function main() {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   fs.mkdirSync(SCRATCH_DIR, { recursive: true });
-  log('boot', { mode: cfg.localTask || cfg.localTaskJson ? 'local' : (cfg.runId ? 'run' : 'poll'), vocion: vocion.enabled ? cfg.vocionUrl : null, agentSlug: cfg.agentSlug, max_budget_usd: cfg.maxBudgetUsd, wall_clock_minutes: cfg.wallClockMinutes, node: process.version, arch: process.arch, worker_version: WORKER_VERSION });
-  for (const k of ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN']) {
-    if (!env[k]) {
-      log('warn', { note: `${k} is not set` });
-    }
+  log('boot', { mode: cfg.localTask || cfg.localTaskJson ? 'local' : (cfg.runId ? 'run' : 'poll'), vocion: vocion.enabled ? cfg.vocionUrl : null, agentSlug: cfg.agentSlug, max_budget_usd: cfg.maxBudgetUsd, wall_clock_minutes: cfg.wallClockMinutes, node: process.version, arch: process.arch, worker_version: WORKER_VERSION, ...(bedrockMode(env) ? { model_provider: 'bedrock', model: cfg.defaultModel } : {}) });
+  // On Bedrock the model credential is the container's role, so ANTHROPIC_API_KEY is not needed.
+  const modelCredential = missingModelCredential(env);
+  if (modelCredential) {
+    log('warn', { note: modelCredential });
+  }
+  if (!env.GITHUB_TOKEN) {
+    log('warn', { note: 'GITHUB_TOKEN is not set' });
   }
 
   let run = null;
