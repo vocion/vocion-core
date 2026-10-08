@@ -1,6 +1,8 @@
 /**
- * CONNECTOR FAMILIES — the three kinds of system a software factory talks to,
- * named for what they are rather than for who sells them.
+ * CONNECTOR FAMILIES — the kinds of system agents talk to, named for what
+ * they are rather than for who sells them. The first three are the ones a
+ * software factory talks to; `finance` and `people` are a business's books
+ * and its HR system of record.
  *
  * A `repo` is a code host: pull requests, checks, pipeline runs, reviews.
  * A `tracker` is an issue tracker: issues, status transitions, comments,
@@ -24,13 +26,24 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
-export type ConnectorFamily = 'repo' | 'tracker' | 'chat';
+export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people';
 
-/** The connector kinds that belong to each family, first provider first. */
+/**
+ * The connector kinds that belong to each family, first provider first.
+ *
+ * `finance` is where a business keeps its money: billing (Stripe), the books
+ * (QuickBooks, Xero, NetSuite), spend (Ramp) and payables (BILL) — customers,
+ * vendors, invoices, bills, payments, read through `finance_list` and
+ * `finance_get`. `people` is the HR system of record (Gusto, Rippling,
+ * Workday) — workers, departments, time off and pay-run totals, read through
+ * `people_list` and `people_get`, with personal identifiers never returned.
+ */
 export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
   repo: ['github'],
   tracker: ['jira'],
   chat: ['slack'],
+  finance: ['stripe', 'quickbooks', 'xero', 'netsuite', 'ramp', 'bill'],
+  people: ['gusto', 'rippling', 'workday'],
 };
 
 /** How each family and its constructs are named to a person. */
@@ -38,10 +51,12 @@ export const FAMILY_LABEL: Record<ConnectorFamily, string> = {
   repo: 'code host',
   tracker: 'issue tracker',
   chat: 'chat',
+  finance: 'finance system',
+  people: 'HR system',
 };
 
 /**
- * The family a connector kind belongs to, or null for a kind outside the three.
+ * The family a connector kind belongs to, or null for a kind in no family.
  * @param kind - A connector kind (`github`, `jira`, `slack`, `hubspot`…).
  */
 export function familyOfKind(kind: string | null | undefined): ConnectorFamily | null {

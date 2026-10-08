@@ -46,6 +46,7 @@ import { fetchUrlTool } from './fetchUrl';
 import { fileAskTool, withdrawAskTool } from './fileAsk';
 import { fileFeedbackTool } from './fileFeedback';
 import { fileRecordTools } from './fileRecord';
+import { financeTools } from './financeTools';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
@@ -73,6 +74,7 @@ import { lookupPersonTools } from './lookupPerson';
 import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
+import { peopleTools } from './peopleTools';
 import { personalizationTools } from './personalization';
 import { posthogCountTools } from './posthogCounts';
 import { productAccessTools } from './productAccess';
@@ -233,6 +235,11 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Source-gated — the chat family's reads (a thread, a file on it) for an
     // agent whose sources include a chat; its writes are actions.
     ...chatTools(ctx),
+    // Source-gated — the finance family (billing, books, spend, payables) and
+    // the people family (the HR system of record), live and read-only, for an
+    // agent whose sources include one (`services/finance`, `services/people`).
+    ...financeTools(ctx),
+    ...peopleTools(ctx),
     // One person across the three families — chat user, tracker account,
     // code-host login — by email. Present with any of the three in scope.
     ...lookupPersonTools(ctx),

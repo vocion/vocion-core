@@ -18,6 +18,7 @@ import { factoryApprovePlanAction } from './factory-approve-plan';
 import { factoryCheckLiveAgainAction } from './factory-check-live';
 import { factoryDispatchAction } from './factory-dispatch';
 import { factoryReadAttemptAction, factoryReadReleaseLiveAction, factoryStopRequestAction } from './factory-flow-steps';
+import { financeDraftInvoiceAction } from './finance-draft-invoice';
 import { githubDispatchWorkflowAction } from './github-dispatch';
 import { githubOpenPullAction } from './github-pull';
 import { githubRerunFailedJobsAction } from './github-rerun';
@@ -165,6 +166,8 @@ registerAction(trackerTransitionIssueAction);
 registerAction(trackerUpdateIssueAction);
 registerAction(trackerCommentAction);
 registerAction(trackerAttachFileAction);
+// The finance family's one write: a draft invoice, never sent, deleted by Undo.
+registerAction(financeDraftInvoiceAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.
