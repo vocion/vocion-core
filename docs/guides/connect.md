@@ -94,7 +94,7 @@ person clicks Connect with Slack
   env) or the workspace's own login app, saved on Developers. Otherwise they
   offer paste alone, rather than a button that can only fail.
 - **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom,
-  Apollo and QuickBooks, a workspace admin can save the vendor's client ID and secret as
+  Apollo, QuickBooks, Xero and Gusto, a workspace admin can save the vendor's client ID and secret as
   a `<provider>-login-app` credential (`libs/connect/loginClient.ts`). A new
   login runs on it in preference to the server's. Each login records the
   client ID it ran on (`loginClientId`), and every refresh finds that same app
@@ -140,6 +140,8 @@ forwarded host of the request.
 | `posthog` | `posthog` | None. `NEXT_PUBLIC_APP_URL` must be public `https`, because PostHog reads our client from `/api/connect-client/posthog` (CIMD). | `/api/connect/posthog/callback` |
 | `apollo` | `apollo` | `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET` | `/api/connect/apollo/callback` |
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | `/api/connect/quickbooks/callback` |
+| `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | `/api/connect/xero/callback` |
+| `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | `/api/connect/gusto/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in
@@ -167,6 +169,11 @@ Before going live with each vendor:
   connect; a development app connects sandbox companies only. QuickBooks is
   login-only: Intuit has no API key and rotates the refresh token, so there
   is no paste form. Setup is in [quickbooks.md](quickbooks.md).
+- **Xero.** Without an app, paste a custom connection's client ID and secret
+  instead; it reads the one organisation it was authorised for. Setup is in
+  [xero.md](xero.md).
+- **Gusto.** Login-only, like QuickBooks: Gusto issues no API key and each
+  refresh token works once. Setup is in [gusto.md](gusto.md).
 
 Sentry has no login: its install redirect does not carry our signed `state`,
 so the callback cannot tell which workspace and admin started it. Paste a

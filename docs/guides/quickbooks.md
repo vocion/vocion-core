@@ -130,6 +130,21 @@ config:
   sample: true # until the Intuit app is approved; then remove and log in
 ```
 
+## Agent tools
+
+Agents given the source also read the books live through the finance
+family's tools, with the source's own login:
+
+- `finance_list` — customers, vendors, invoices, bills, payments received
+  and accounts, filtered by text (name, or an invoice or bill number),
+  status (`open`, `paid`, `active`, `inactive`), customer or vendor id and
+  dates; each record with its link into QuickBooks.
+- `finance_get` — one record whole, an invoice or bill with its lines.
+
+With sample data on, they read the sample company's invoices, bills,
+payments and accounts. Read-only: QuickBooks has no draft invoice, so no
+write is offered.
+
 ## What it does not do, yet
 
 - **Write.** Nothing is created or changed in QuickBooks. Writes would be

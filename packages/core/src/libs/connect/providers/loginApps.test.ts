@@ -21,7 +21,9 @@ const { googleProvider } = await import('./google');
 const { hubspotProvider, refreshHubspotGrant } = await import('./hubspot');
 const { notionProvider } = await import('./notion');
 const { quickbooksProvider, refreshQuickbooksGrant } = await import('./quickbooks');
+const { gustoProvider, refreshGustoGrant } = await import('./gusto');
 const { slackProvider } = await import('./slack');
+const { refreshXeroGrant, xeroProvider } = await import('./xero');
 const { refreshZoomGrant, zoomProvider } = await import('./zoom');
 const { refreshAtlassianGrant } = await import('@/libs/atlassian/oauth');
 const { connectProviders } = await import('../registry');
@@ -40,6 +42,8 @@ const LOGIN_APP_PROVIDERS: Array<{ provider: ConnectProvider; connector: string 
   { provider: zoomProvider, connector: 'zoom' },
   { provider: apolloProvider, connector: 'apollo' },
   { provider: quickbooksProvider, connector: 'quickbooks' },
+  { provider: xeroProvider, connector: 'xero' },
+  { provider: gustoProvider, connector: 'gusto' },
 ];
 
 /** Each refresh that takes the login's app, by the provider it belongs to. */
@@ -48,6 +52,8 @@ const REFRESHES: Array<{ id: string; refresh: (refreshToken: string, client?: Lo
   { id: 'zoom', refresh: refreshZoomGrant },
   { id: 'apollo', refresh: refreshApolloGrant },
   { id: 'quickbooks', refresh: refreshQuickbooksGrant },
+  { id: 'xero', refresh: refreshXeroGrant },
+  { id: 'gusto', refresh: refreshGustoGrant },
   { id: 'atlassian', refresh: refreshAtlassianGrant },
 ];
 
@@ -87,7 +93,7 @@ function refusingVendor() {
 
 describe('a workspace\'s own login app, for every provider that takes one', () => {
   beforeEach(() => {
-    for (const id of ['SLACK', 'HUBSPOT', 'NOTION', 'ZOOM', 'APOLLO', 'QUICKBOOKS']) {
+    for (const id of ['SLACK', 'HUBSPOT', 'NOTION', 'ZOOM', 'APOLLO', 'QUICKBOOKS', 'XERO', 'GUSTO']) {
       env[`${id}_CLIENT_ID`] = `server_${id.toLowerCase()}`;
       env[`${id}_CLIENT_SECRET`] = 'server_secret';
     }

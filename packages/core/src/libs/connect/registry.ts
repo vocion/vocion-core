@@ -11,11 +11,13 @@ import { apolloProvider } from './providers/apollo';
 import { atlassianProvider } from './providers/atlassian';
 import { githubProvider } from './providers/github';
 import { googleProvider } from './providers/google';
+import { gustoProvider } from './providers/gusto';
 import { hubspotProvider } from './providers/hubspot';
 import { notionProvider } from './providers/notion';
 import { posthogProvider } from './providers/posthog';
 import { quickbooksProvider } from './providers/quickbooks';
 import { slackProvider } from './providers/slack';
+import { xeroProvider } from './providers/xero';
 import { zoomProvider } from './providers/zoom';
 import { connectScriptEnabled, scriptedProviders } from './scripted';
 
@@ -30,6 +32,8 @@ const realProviders: readonly ConnectProvider[] = [
   posthogProvider,
   apolloProvider,
   quickbooksProvider,
+  xeroProvider,
+  gustoProvider,
 ];
 
 /**

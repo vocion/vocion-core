@@ -45,6 +45,10 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.APOLLO_CLIENT_ID, clientSecret: Env.APOLLO_CLIENT_SECRET };
     case 'quickbooks':
       return { clientId: Env.QUICKBOOKS_CLIENT_ID, clientSecret: Env.QUICKBOOKS_CLIENT_SECRET };
+    case 'xero':
+      return { clientId: Env.XERO_CLIENT_ID, clientSecret: Env.XERO_CLIENT_SECRET };
+    case 'gusto':
+      return { clientId: Env.GUSTO_CLIENT_ID, clientSecret: Env.GUSTO_CLIENT_SECRET };
     default:
       return {};
   }

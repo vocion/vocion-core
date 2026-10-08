@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { JIRA_READ_SCOPES } from '@/libs/atlassian/oauth';
 import { APOLLO_LOGIN_SCOPES } from '@/libs/connect/providers/apollo';
 import { GOOGLE_LOGIN_SCOPES } from '@/libs/connect/providers/google';
+import { GUSTO_LOGIN_ACCESS } from '@/libs/connect/providers/gusto';
 import { HUBSPOT_LOGIN_SCOPES } from '@/libs/connect/providers/hubspot';
 import { POSTHOG_LOGIN_SCOPES } from '@/libs/connect/providers/posthog';
 import { SLACK_SOURCE_SCOPES } from '@/libs/connect/providers/slack';
+import { XERO_LOGIN_SCOPES } from '@/libs/connect/providers/xero';
 import { ZOOM_LOGIN_SCOPES } from '@/libs/connect/providers/zoom';
 import { providerForConnector } from '@/libs/connect/registry';
 import { getConnector } from '@/libs/sources/registry';
@@ -47,7 +49,7 @@ describe('howToConnect declarations', () => {
   });
 
   it('login alone is enough where every setting has a default, and not where the source must be pointed somewhere', () => {
-    for (const slug of ['slack', 'notion', 'hubspot', 'zoom', 'apollo', 'gmail', 'drive', 'google-calendar', 'quickbooks']) {
+    for (const slug of ['slack', 'notion', 'hubspot', 'zoom', 'apollo', 'gmail', 'drive', 'google-calendar', 'quickbooks', 'xero', 'gusto']) {
       expect(loginIsEnough(slug), slug).toBe(true);
     }
     for (const slug of ['github', 'jira', 'ga4', 'posthog']) {
@@ -104,6 +106,8 @@ describe('howToConnect declarations', () => {
     expect(howToConnectFor('posthog')?.login?.access).toEqual([...POSTHOG_LOGIN_SCOPES]);
     expect(howToConnectFor('apollo')?.login?.access).toEqual([...APOLLO_LOGIN_SCOPES]);
     expect(howToConnectFor('zoom')?.login?.access).toEqual([...ZOOM_LOGIN_SCOPES]);
+    expect(howToConnectFor('xero')?.login?.access).toEqual([...XERO_LOGIN_SCOPES]);
+    expect(howToConnectFor('gusto')?.login?.access).toEqual([...GUSTO_LOGIN_ACCESS]);
   });
 
   it('a Google login shows its scope by name, not as a URL, and other vendors\' scopes show as they are', () => {
