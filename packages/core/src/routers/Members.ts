@@ -95,6 +95,9 @@ export const createInviteRoute = os
     const delivery: InviteDelivery = refusal
       ? { status: 'failed', reason: refusal.message }
       : await sendInviteEmail({ accountId, inviteId: invite.id, requestOrigin: await requestOrigin() });
+    // Someone who already has a login hears it in the app too, with one Join.
+    const { tellInvitee } = await import('@/services/auth/joinInvites');
+    await tellInvitee({ email: invite.email, accountId, inviteId: invite.id });
     return { ...invite, delivery };
   });
 

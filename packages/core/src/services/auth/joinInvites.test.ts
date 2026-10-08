@@ -28,7 +28,7 @@ vi.mock('@/services/InviteAcceptance', async (importOriginal) => {
 const { db } = await import('@/libs/DB');
 const schema = await import('@/models/Schema');
 const { acceptInviteAsExistingUser } = await import('@/services/InviteAcceptance');
-const { joinedBody, joinPendingInvites, tellJoined } = await import('./joinInvites');
+const { joinedBody, joinPendingInvites, pendingInvitationsFor, tellInvitee, tellJoined } = await import('./joinInvites');
 
 const NOW = new Date();
 const DAY = 24 * 60 * 60 * 1000;
@@ -172,6 +172,53 @@ describe('telling the person what they joined', () => {
   it('says nothing for nothing joined, and never throws for an Org with no workspace to land in', async () => {
     await expect(tellJoined(SAM, [])).resolves.toBeUndefined();
     await expect(tellJoined(SAM, [{ accountId: 'acct-kestrel', name: 'Kestrel Capital' }])).resolves.toBeUndefined();
+    expect(await db.select().from(schema.notificationSchema)).toHaveLength(0);
+  });
+});
+
+describe('pendingInvitationsFor — the profile\'s Invitations', () => {
+  beforeEach(async () => {
+    await db.insert(schema.accountMembershipSchema).values({ accountId: 'acct-northwind', userId: SAM, role: 'admin' });
+  });
+
+  it('lists the open invites to Orgs he is not in, each joinable on a multi-Org server', async () => {
+    orgs.multi = true;
+    await invite('k', 'acct-kestrel', { role: 'admin' });
+    await invite('n', 'acct-northwind');
+    await invite('old', 'acct-contoso', { expiresAt: new Date(NOW.getTime() - DAY) });
+
+    const listed = await pendingInvitationsFor(SAM, NOW);
+
+    expect(listed).toEqual([expect.objectContaining({ token: 'tok-k', orgName: 'Kestrel Capital', role: 'admin', problem: null })]);
+  });
+
+  it('says why on a single-Org server, where a second Org cannot be joined', async () => {
+    await invite('k', 'acct-kestrel');
+
+    const [listed] = await pendingInvitationsFor(SAM, NOW);
+
+    expect(listed?.problem).toMatch(/single Org/);
+  });
+});
+
+describe('tellInvitee — an invite to a login that already exists', () => {
+  it('lands an org-invited notification where he works, opening his profile', async () => {
+    orgs.multi = true;
+    await db.insert(schema.accountMembershipSchema).values({ accountId: 'acct-northwind', userId: SAM, role: 'admin' });
+    await db.insert(schema.projectSchema).values({ id: 'proj-northwind-ops', accountId: 'acct-northwind', slug: 'northwind-ops', name: 'Northwind Ops' });
+    await invite('k', 'acct-kestrel');
+
+    await tellInvitee({ email: 'Sam@Northwind.example', accountId: 'acct-kestrel', inviteId: 'k' });
+
+    const [note] = await db.select().from(schema.notificationSchema).where(eq(schema.notificationSchema.userId, SAM));
+
+    expect(note).toMatchObject({ kind: 'org-invited', title: 'Kestrel Capital invited you to join', orgId: 'proj-northwind-ops' });
+    expect(note?.link).toBe('/w/northwind-ops/dashboard/profile');
+  });
+
+  it('tells nobody when the address has no login — the invite email is how they hear', async () => {
+    await tellInvitee({ email: 'dana@northwind.example', accountId: 'acct-kestrel', inviteId: 'k' });
+
     expect(await db.select().from(schema.notificationSchema)).toHaveLength(0);
   });
 });

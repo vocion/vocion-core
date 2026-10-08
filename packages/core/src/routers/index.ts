@@ -127,7 +127,7 @@ import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
-import { changePasswordRoute, disableMfaRoute, getProfileRoute, mfaStatusRoute, regenerateRecoveryCodesRoute, setAccountMfaRequirementRoute, signInMethodsRoute, unlinkSignInMethodRoute, updateNameRoute, updatePhoneRoute } from './Profile';
+import { changePasswordRoute, disableMfaRoute, getProfileRoute, invitationsRoute, mfaStatusRoute, regenerateRecoveryCodesRoute, setAccountMfaRequirementRoute, signInMethodsRoute, unlinkSignInMethodRoute, updateNameRoute, updatePhoneRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
   actAsPersonRoute,
@@ -243,6 +243,7 @@ export const router = {
     changePassword: changePasswordRoute,
     signInMethods: signInMethodsRoute,
     unlinkSignInMethod: unlinkSignInMethodRoute,
+    invitations: invitationsRoute,
     mfa: {
       status: mfaStatusRoute,
       disable: disableMfaRoute,

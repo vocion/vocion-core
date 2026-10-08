@@ -89,6 +89,10 @@ export function renderNotification(rule: NotificationRuleConfig, payload: Record
  *   invite accepted at sign-in, or an auto-join domain
  *   (`services/auth/joinInvites.ts`). Lands in that Org's workspace and names
  *   the workspaces they now open there.
+ *
+ *   org-invited — another Org invited the address of a login that already
+ *   exists (`tellInvitee`). Opens their profile, where the invite has a Join
+ *   button; their next sign-in joins it anyway.
  */
 export const CORE_NOTIFICATION_RULES: readonly NotificationRuleConfig[] = [
   {
@@ -107,6 +111,17 @@ export const CORE_NOTIFICATION_RULES: readonly NotificationRuleConfig[] = [
     label: 'Sign-in methods',
     description: 'A way to sign in, such as Google or Microsoft, was added to your login.',
     event: 'account.sign_in_method_added',
+    who: { field: 'userId' },
+    title: '{title}',
+    body: '{body}',
+    link: '{link}',
+    dedupe: '{dedupe}',
+  },
+  {
+    kind: 'org-invited',
+    label: 'Invitations',
+    description: 'Another Org invited you to join it.',
+    event: 'account.org_invited',
     who: { field: 'userId' },
     title: '{title}',
     body: '{body}',

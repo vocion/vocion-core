@@ -26,12 +26,12 @@
  * accepted. An invite left behind keeps its link and is tried again next time.
  */
 
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, inviteSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
 import { acceptInviteAsExistingUser } from '@/services/InviteAcceptance';
 import { orgsMode } from '@/services/OrgPolicy';
-import { invitesToJoin } from './signInDecision';
+import { invitesToJoin, usableInvites } from './signInDecision';
 
 /** An Org a person was joined to, as the notification names it. */
 export type JoinedOrg = { accountId: string; name: string };
@@ -160,5 +160,103 @@ export async function tellJoined(userId: string, joined: readonly JoinedOrg[]): 
     }
   } catch (error) {
     log('warn', 'could not tell a person which Orgs they joined', { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/** An invite to this person's address that they have not joined, as their profile lists it. */
+export type PendingInvitation = {
+  /** The token their Join button accepts it with (`/api/invites/accept`). */
+  token: string;
+  orgName: string;
+  role: 'admin' | 'member';
+  expiresAt: Date;
+  /** Why it cannot be joined here (a single-Org server and another Org), or null. */
+  problem: string | null;
+};
+
+/**
+ * The invites still open for this login's address, to Orgs the person is not
+ * in — what their profile's "Invitations" lists, each with one Join. An
+ * invite another Org sends between sign-ins waits here (and in its email) so
+ * nobody has to sign out to accept it.
+ * @param userId - The signed-in person.
+ * @param now - The current time; tests pass one.
+ */
+export async function pendingInvitationsFor(userId: string, now: Date = new Date()): Promise<PendingInvitation[]> {
+  const [user] = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
+  if (!user?.email) {
+    return [];
+  }
+  const email = user.email.toLowerCase();
+  const [invites, memberOf] = await Promise.all([invitesFor(email), orgsOf(userId)]);
+  const open = usableInvites(invites, email, now).filter(i => !memberOf.includes(i.accountId));
+  if (open.length === 0) {
+    return [];
+  }
+  const { secondOrgProblem } = await import('@/services/OrgPolicy');
+  const rows = await db
+    .select({ token: inviteSchema.token, role: inviteSchema.role, orgName: tenantAccountSchema.name, accountId: inviteSchema.accountId })
+    .from(inviteSchema)
+    .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, inviteSchema.accountId))
+    .where(inArray(inviteSchema.token, open.map(i => i.token)));
+  const byToken = new Map(rows.map(r => [r.token, r]));
+  const out: PendingInvitation[] = [];
+  for (const invite of open) {
+    const row = byToken.get(invite.token);
+    if (!row) {
+      continue;
+    }
+    out.push({
+      token: invite.token,
+      orgName: row.orgName,
+      role: row.role === 'admin' ? 'admin' : 'member',
+      expiresAt: invite.expiresAt,
+      problem: await secondOrgProblem(userId, invite.accountId),
+    });
+  }
+  return out;
+}
+
+/**
+ * Tell a person who already has a login that another Org invited them: a
+ * notification in the workspace they use, opening their profile, where the
+ * invite has a Join button. Their next sign-in would join it too. Nothing for
+ * an address with no login (the invite email is how they hear). Never throws.
+ * @param input - The invite.
+ * @param input.email - The invited address.
+ * @param input.accountId - The Org that invited them.
+ * @param input.inviteId - The invite, for the dedupe.
+ */
+export async function tellInvitee(input: { email: string; accountId: string; inviteId: string }): Promise<void> {
+  try {
+    const [user] = await db.select({ id: userSchema.id }).from(userSchema).where(sql`lower(${userSchema.email}) = ${input.email.toLowerCase()}`).limit(1);
+    if (!user) {
+      return;
+    }
+    const [{ activeWorkspaceForUser }, { emitEvent }] = await Promise.all([
+      import('@/services/ProjectService'),
+      import('@/services/EventService'),
+    ]);
+    const landing = await activeWorkspaceForUser(user.id);
+    if (!landing) {
+      return;
+    }
+    const name = await orgName(input.accountId);
+    await emitEvent({
+      orgId: landing.id,
+      type: 'account.org_invited',
+      payload: {
+        userId: user.id,
+        accountId: input.accountId,
+        title: `${name} invited you to join`,
+        body: 'Join from your profile in one click — or sign in again, and it joins on its own.',
+        link: '/dashboard/profile',
+        dedupe: `${user.id}:${input.inviteId}`,
+      },
+      dedupeKey: `account.org_invited:${input.inviteId}`,
+      dispatchMode: 'auto',
+    });
+  } catch (error) {
+    log('warn', 'could not tell an invited login about its invite', { error: error instanceof Error ? error.message : String(error) });
   }
 }

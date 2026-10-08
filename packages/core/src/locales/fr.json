@@ -550,5 +550,15 @@
     "rate_limited": "Trop de tentatives. Réessayez dans {minutes, plural, =1 {1 minute} other {# minutes}}.",
     "failed": "Une erreur est survenue. Réessayez.",
     "checking": "Vérification de votre lien…"
+  },
+  "Invitations": {
+    "title": "Invitations",
+    "description": "Les Orgs qui ont invité votre adresse. Rejoignez-les avec l’accès que vous avez déjà — ou reconnectez-vous, et elles se rejoignent d’elles-mêmes.",
+    "as_member": "Invité comme membre",
+    "as_admin": "Invité comme administrateur",
+    "expires": "expire le {date, date, medium}",
+    "join": "Rejoindre {org}",
+    "joining": "En cours…",
+    "failed": "Impossible de rejoindre. Réessayez."
   }
 }

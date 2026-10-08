@@ -550,5 +550,15 @@
     "rate_limited": "Too many attempts. Try again in {minutes, plural, =1 {1 minute} other {# minutes}}.",
     "failed": "Something went wrong. Try again.",
     "checking": "Checking your link…"
+  },
+  "Invitations": {
+    "title": "Invitations",
+    "description": "Orgs that invited your address. Join on the login you already have — or sign in again, and they join on their own.",
+    "as_member": "Invited as a member",
+    "as_admin": "Invited as an admin",
+    "expires": "expires {date, date, medium}",
+    "join": "Join {org}",
+    "joining": "Joining…",
+    "failed": "Could not join. Try again."
   }
 }

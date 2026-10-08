@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { client } from '@/libs/Orpc';
+import { InvitationsSection } from './InvitationsSection';
 import { SignInMethodsSection } from './SignInMethodsSection';
 import { TwoStepSection } from './TwoStepSection';
 
@@ -115,6 +116,8 @@ export function ProfilePanel() {
 
   return (
     <div className="space-y-6">
+      {/* First, when there are any: an Org asked them in (`org-invited` opens here). */}
+      <InvitationsSection />
       <DashboardSection
         title="Profile"
         description="Your display name is shown to teammates across the workspace."

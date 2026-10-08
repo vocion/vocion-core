@@ -182,3 +182,14 @@ export const setAccountMfaRequirementRoute = os
     await setAccountMfaRequirement(accountId, input.required);
     return { ok: true, required: input.required };
   });
+
+/**
+ * Invites still open for the signed-in person's address, to Orgs they are not
+ * in yet — the profile's "Invitations", each joined with one click through
+ * `/api/invites/accept` (the invite link's own path).
+ */
+export const invitationsRoute = os.handler(async () => {
+  const { userId } = await guardAuth();
+  const { pendingInvitationsFor } = await import('@/services/auth/joinInvites');
+  return pendingInvitationsFor(userId);
+});
