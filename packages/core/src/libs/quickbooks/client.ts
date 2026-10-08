@@ -19,7 +19,7 @@ export const QUICKBOOKS_API_BASE = {
 } as const;
 
 /** Where a person opens a transaction in QuickBooks, per environment. */
-const QUICKBOOKS_APP_HOST = {
+export const QUICKBOOKS_APP_HOST = {
   production: 'https://app.qbo.intuit.com',
   sandbox: 'https://app.sandbox.qbo.intuit.com',
 } as const;
