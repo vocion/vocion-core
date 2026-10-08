@@ -46,13 +46,14 @@ import { logger } from '@/libs/Logger';
 import { canonical } from '@/libs/sources/upsert';
 import { applyWorkspace, loadWorkspace, resolvePlugins } from '@/libs/workspace';
 import { projectSettingsFrom } from '@/libs/workspace/applier';
+import { workspacePathProblem } from '@/libs/workspace/archivePaths';
 import { declaredResources, fileText, yamlMap } from '@/libs/workspace/declared';
 import { agentFiles, automationFile, evalDatasetFile, learningStepFile, manifestSettingsFromProject, missionFile, objectTypeFiles, operatingIntentFile, sourceFile, teamFile, textFile, trustFile, voiceFile, workflowFile, yamlFile } from '@/libs/workspace/export';
 import { collectWorkspaceFiles, MANIFEST_FILES } from '@/libs/workspace/snapshot';
 import { agentSchema, automationSchema, autonomyPolicySchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, knowledgeSourceSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema } from '@/models/Schema';
 import { defaultRiskTier, rungFromTrustRule } from '@/services/autonomy/rungs';
 import { getNamespace } from '@/services/MemoryService';
-import { pinSourceRows, withStagedWorkspace, workspacePathProblem } from './staging';
+import { pinSourceRows, withStagedWorkspace } from './staging';
 import { ownWorkspaceFolder, readAllStoredFiles } from './WorkspaceFileService';
 
 /** How a seeded learning rule names the authored rule it came from (`seedLearningRules`). */
@@ -137,7 +138,7 @@ export async function exportWorkspace(orgId: string): Promise<WorkspaceExport> {
     } catch (error) {
       // A workspace that does not load cannot be compared with the rows. It
       // goes out as it is, and the report says why nothing was checked.
-      report.problems.push(`The workspace's files could not be read on this host, so nothing was checked against what is running: ${message(error)}`);
+      report.problems.push(`The workspace's files could not be read on this host, so nothing was checked against what is running: ${message(error, dir)}`);
       return;
     }
     // A connector is compared as it is stored, not as declared from this
@@ -226,7 +227,7 @@ async function baseFiles(orgId: string, report: WorkspaceExportReport): Promise<
     }
     report.base = 'folder';
   } catch (error) {
-    report.problems.push(`This workspace's folder on this host could not be read, so the export was written from what is running: ${message(error)}`);
+    report.problems.push(`This workspace's folder on this host could not be read, so the export was written from what is running: ${message(error, own.path)}`);
   }
   return files;
 }
@@ -565,8 +566,8 @@ async function checkLoads(files: readonly ExportFile[], report: WorkspaceExportR
     try {
       loadWorkspace(dir);
     } catch (error) {
-      report.problems.push(`This export does not load as a workspace on this host: ${message(error)}`);
-      logger.warn('a workspace export does not load', { error: message(error) });
+      report.problems.push(`This export does not load as a workspace on this host: ${message(error, dir)}`);
+      logger.warn('a workspace export does not load', { error: message(error, dir) });
     }
   });
 }
@@ -605,7 +606,8 @@ function reportText(project: ProjectRow, at: Date, fileCount: number, report: Wo
     '## Not in this export',
     '',
     '- Credentials, connector logins and API tokens. Reconnect each connector in the workspace this is imported into.',
-    '- The sync schedule of a connector added in the app (one declared in a file keeps its own).',
+    '- The sync schedule of a connector added in the app (one declared in a file keeps its own). Imported into a workspace that has it, a connector keeps the schedule it has there.',
+    '- Files a connector reads from this server\'s disk (a local folder or file it is pointed at). The connector is exported; the files are not.',
     '- Records, documents and wiki pages, conversations, runs, and their history.',
     '- Rules the workspace learned from feedback, spend caps set in the app, and people\'s own settings.',
   );
@@ -621,6 +623,14 @@ function reportText(project: ProjectRow, at: Date, fileCount: number, report: Wo
   return lines.join('\n');
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+/**
+ * An error's message, with the folder it was read from taken out: a report an
+ * admin downloads names files by their path inside the workspace, never where
+ * this host keeps them.
+ * @param error - What was thrown.
+ * @param root - The folder its paths are under, when they are.
+ */
+function message(error: unknown, root?: string): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return root ? text.split(root + sep).join('').split(root).join('the workspace folder') : text;
 }

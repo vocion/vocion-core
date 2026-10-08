@@ -396,10 +396,15 @@ connector added in the app, records, documents and wiki pages,
 conversations, runs, learned rules and spend caps set in the app.
 
 **Import: review, then apply.** Upload the zip (or pick a folder, which the
-browser zips). The import is staged in a temporary folder, loaded exactly as a
-folder is, and dry-run: the review lists, per kind and by name, what would be
-created, updated and retired, and nothing is written. *Apply* stages the same
-upload again and applies it only when it is still what was reviewed;
+browser zips, leaving out `.git/`, `node_modules/` and dotted files). The
+import is staged in a temporary folder, loaded exactly as a folder is, and
+dry-run: the review lists, per kind and by name, what would be created,
+updated and retired — the settings it changes (by manifest key), the trust
+rules (by action), and the pages, brand, logos and skill resources it stores
+(by path) included — and nothing is written. The review has its own sha, of
+every staged file and every change it lists. *Apply* stages the same upload
+again, dry-runs it again, and applies it only when that sha still matches —
+the same files, doing the same things to this workspace as it is now;
 otherwise it asks for a new review. The staging folder is removed either way.
 
 - **Merge** (the default): the upload is laid over the workspace as it runs
@@ -414,10 +419,32 @@ otherwise it asks for a new review. The staging folder is removed either way.
 
 The imported `workspace.yaml` is made the workspace's own: its `orgId` is
 this workspace's, and a mailbox address belonging to the workspace it came
-from is replaced by this workspace's own (two workspaces never answer one
-mailbox). A
-connector keeps the name and folder its row already has, and a new one takes
-its file's name.
+from is replaced by this workspace's own, read the way the loader reads it
+(anchors and aliases expanded). An upload that still names another address
+after that is refused. A connector keeps the name and folder its row already
+has, and a new one takes its file's name. A connector added in the app keeps
+the sync schedule it has, unless the upload gives it one.
+
+**What an import may not set.** A few fields reach past the workspace into the
+deployment, and no admin sets them in the app, so an import may not change
+them either (`services/workspace/importPolicy.ts`): an agent's
+`harness.runsOn` on AgentCore (`agentcore-container`, `aws-managed-harness`),
+or a `harness.modelProvider: bedrock` that implies it — `in-process` and
+`external-worker` are fine; and a connector that reads the server's disk
+(`local-files`' `directory`, `file-import`'s `path`) pointed at an absolute
+path or one that climbs out with `..`. The review names each, and nothing is
+applied while any is there; an operator applies such a workspace from its
+folder with `workspace:apply`. Only a change is judged: an agent already on
+AgentCore stays there through a merge. A connector pointed at a relative
+folder is imported, and the review warns that it reads nothing until that
+folder is on the server.
+
+Two rules hold for every apply, not only an import. A prompt file
+(`systemPromptFile`, a subagent's, `classificationPromptFile`) must be a
+relative path to a file inside the workspace folder, links included. And an
+`accountableUser:` resolves only to someone who can open the workspace; any
+other email — unknown, or a person outside it — gets the same message and no
+owner.
 
 Import lands in the database, so it is for a workspace whose files live
 there. One this host applies from its own folder, or one a deploy applies from

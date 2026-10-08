@@ -13,6 +13,7 @@
 import type { ExportFile } from './export';
 import { Buffer } from 'node:buffer';
 import { unzipSync, zipSync } from 'fflate';
+import { MAX_ARCHIVE_BYTES, skippedEntry, workspacePathProblem } from './archivePaths';
 import { encodingFor, MANIFEST_FILES, MAX_COLLECTED_FILE_BYTES } from './snapshot';
 
 /** The limits an archive is read under. */
@@ -25,8 +26,8 @@ export type ArchiveLimits = {
 
 /** What an import may be: compressed, the whole of it, and per file. */
 export const ARCHIVE_LIMITS: Readonly<ArchiveLimits> = {
-  /** The upload itself. */
-  maxArchiveBytes: 25 * 1024 * 1024,
+  /** The upload itself — the same ceiling the import dialog warns at. */
+  maxArchiveBytes: MAX_ARCHIVE_BYTES,
   /** Everything in it, inflated. */
   maxTotalBytes: 100 * 1024 * 1024,
   /** Any one file, inflated — what the store keeps, and no more. */
@@ -62,8 +63,9 @@ export function zipWorkspace(files: readonly ExportFile[], root: string): Uint8A
  *
  * The workspace is the shallowest folder holding a `workspace.yaml`, so a zip
  * of the folder and a zip of its contents both work; files outside it are
- * not part of it and are dropped. Dotted names (`.git/`, `.DS_Store`) and the
- * `__MACOSX/` folder macOS adds are skipped, as the loader skips them.
+ * not part of it and are dropped. Dotted names (`.git/`, `.DS_Store`), the
+ * `__MACOSX/` folder macOS adds and `node_modules/` are skipped
+ * ({@link skippedEntry}, the rule the browser zips a folder by).
  * @param bytes - The upload.
  * @param limits - The limits; {@link ARCHIVE_LIMITS} unless a test says otherwise.
  */
@@ -78,7 +80,7 @@ export function readWorkspaceArchive(bytes: Uint8Array, limits: Readonly<Archive
   try {
     entries = unzipSync(bytes, {
       filter: (file) => {
-        if (file.name.endsWith('/') || skipped(file.name)) {
+        if (file.name.endsWith('/') || skippedEntry(file.name)) {
           return false;
         }
         count += 1;
@@ -107,7 +109,10 @@ export function readWorkspaceArchive(bytes: Uint8Array, limits: Readonly<Archive
 
   const paths = Object.keys(entries);
   for (const path of paths) {
-    const problem = archivePathProblem(path);
+    // The rule staging holds every file to, applied to the whole entry path:
+    // the workspace's own path is a suffix of it, so an entry passing here is
+    // never one staging refuses.
+    const problem = workspacePathProblem(path);
     if (problem) {
       throw new WorkspaceArchiveError('BAD_PATH', `The upload holds "${path}", which ${problem}.`);
     }
@@ -126,33 +131,6 @@ export function readWorkspaceArchive(bytes: Uint8Array, limits: Readonly<Archive
     files.push({ path: path.slice(root.length), content: encoding === 'base64' ? data.toString('base64') : data.toString('utf8'), encoding });
   }
   return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-}
-
-/**
- * Whether an entry is one the loader would skip anyway: a dotted name
- * anywhere in its path, or macOS's resource-fork folder.
- * @param name - The entry's path in the zip.
- */
-function skipped(name: string): boolean {
-  const segments = name.split('/');
-  return segments[0] === '__MACOSX' || segments.some(s => s.startsWith('.') && s !== '.' && s !== '..');
-}
-
-/**
- * Why a path in a zip cannot name a file inside the workspace, or null.
- * @param path - The entry's path.
- */
-function archivePathProblem(path: string): string | null {
-  if (path.length > 1024) {
-    return 'is too long';
-  }
-  if (path.startsWith('/') || path.includes('\\') || path.includes('\0') || /^[a-z]:/i.test(path)) {
-    return 'is not a relative path';
-  }
-  if (path.split('/').some(segment => segment === '' || segment === '.' || segment === '..')) {
-    return 'climbs out of the workspace';
-  }
-  return null;
 }
 
 /**

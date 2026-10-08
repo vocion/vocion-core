@@ -46,6 +46,7 @@ export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema>
   icon: 'FolderOpen',
   authKind: 'none',
   configSchema: localFilesConfigSchema,
+  hostPathConfig: ['directory'],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = localFilesConfigSchema.parse(ctx.config);
     const baseDir = resolveSourcePath(cfg.directory, ctx.config);

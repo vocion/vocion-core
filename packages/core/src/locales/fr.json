@@ -350,7 +350,10 @@
       "evalDatasets": "Jeux d’évaluation",
       "sources": "Connecteurs",
       "teams": "Équipes",
-      "wikiPages": "Pages du wiki"
+      "wikiPages": "Pages du wiki",
+      "settings": "Paramètres",
+      "trustRules": "Règles de confiance",
+      "files": "Pages, marque et fichiers"
     }
   },
   "WorkspaceTransfer": {
@@ -371,6 +374,8 @@
     "done": "Importé : {count, plural, one {# changement appliqué} other {# changements appliqués}}.",
     "failed": "L’import a échoué ({status}).",
     "cancel": "Annuler",
-    "close": "Terminé"
+    "close": "Terminé",
+    "too_large": "Cela fait {size} une fois compressé ; un import peut aller jusqu’à {limit}. Retirez ce qui ne fait pas partie de l’espace de travail (dossiers de données, fichiers générés) et réessayez.",
+    "refused": "Cet import définit ce que seul un opérateur peut définir ; il ne peut donc pas être appliqué ici :"
   }
 }

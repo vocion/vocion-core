@@ -88,6 +88,43 @@ describe('POST /api/v1/workspace/import', () => {
     expect(previewImport).not.toHaveBeenCalled();
   });
 
+  it('refuses a body past the limit as it streams in, when the request declares no length', async () => {
+    as('admin');
+    const chunk = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    // A chunked upload: no Content-Length, 30 MB of it.
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 30) {
+          controller.close();
+          return;
+        }
+        sent += 1;
+        controller.enqueue(chunk);
+      },
+    });
+    const req = new Request('https://vocion.test/api/v1/workspace/import', { method: 'POST', headers: { 'authorization': 'Bearer vcn_live_fake', 'content-type': 'multipart/form-data; boundary=x' }, body, duplex: 'half' } as RequestInit);
+
+    expect(req.headers.get('content-length')).toBeNull();
+
+    const res = await importRoute(req);
+
+    expect(res.status).toBe(413);
+    // Stopped reading once past the limit, not at the end of the body.
+    expect(sent).toBeLessThan(30);
+    expect(previewImport).not.toHaveBeenCalled();
+  });
+
+  it('maps a refused field to 422, naming it', async () => {
+    as('admin');
+    vi.mocked(applyImport).mockRejectedValue(new WorkspaceImportError('REFUSED', 'The import sets what only an operator may: agents managed: harness.runsOn'));
+
+    const res = await importRoute(importRequest({ file: ZIP, apply: 'true', sha: 'review-abc' }));
+
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toMatchObject({ code: 'IMPORT_REFUSED', message: expect.stringContaining('harness.runsOn') });
+  });
+
   it('asks for the zip as multipart in a field named file', async () => {
     as('admin');
     const res = await importRoute(importRequest({ replace: 'true' }));
@@ -98,7 +135,7 @@ describe('POST /api/v1/workspace/import', () => {
 
   it('reviews by default, merging unless replace is asked for, and writes nothing', async () => {
     as('admin');
-    vi.mocked(previewImport).mockResolvedValue({ sha: 'local-abc', replace: true, fileCount: 1, counts: {} as never, changes: [], unchanged: 0, errors: [], warnings: [], blockedBy: null });
+    vi.mocked(previewImport).mockResolvedValue({ sha: 'local-abc', replace: true, fileCount: 1, counts: {} as never, changes: [], unchanged: 0, errors: [], warnings: [], blockedBy: null, refused: [] });
 
     const res = await importRoute(importRequest({ file: ZIP, replace: 'true' }));
 

@@ -456,6 +456,22 @@ export async function holdAfterUndo(opts: { orgId: string; actionId: string; con
 }
 
 /**
+ * The rung and risk tier `trust.yaml` gives one rule's action kind: what it
+ * says, else what an enabled or disabled rule reads as, and the risk map's or
+ * the action's own default tier. One definition, for the apply that writes the
+ * policy ({@link syncPoliciesFromManifest}) and the dry run that says whether
+ * it would change (`applier.ts`).
+ * @param rule - One rule from `trust.yaml`.
+ * @param riskMap - The file's top-level `risk:` map.
+ */
+export function manifestPolicy(rule: TrustManifest['rules'][number], riskMap: Record<string, string>): { rung: Rung; riskTier: RiskTier } {
+  const rung = rule.rung ?? rungFromTrustRule({ enabled: rule.enabled });
+  const ruleAction = actionForPolicyKey(rule.action);
+  const riskTier = (rule.risk ?? riskMap[rule.action] ?? defaultRiskTier(rule.action, ruleAction?.external, ruleAction?.id)) as RiskTier;
+  return { rung, riskTier };
+}
+
+/**
  * Mirror `trust.yaml` into `autonomy_policy` on apply. The applier has already
  * replaced the org's `trust_rule` rows from the same file; this keeps the
  * policy rows for the kinds the file names in step (rung, risk, floor, source
@@ -477,13 +493,11 @@ export async function syncPoliciesFromManifest(orgId: string, manifest: TrustMan
   const named = new Set<string>();
   for (const rule of manifest.rules) {
     named.add(rule.action);
-    const rung = rule.rung ?? rungFromTrustRule({ enabled: rule.enabled });
+    const { rung, riskTier } = manifestPolicy(rule, riskMap);
     if (rungAutomates(rung) !== rule.enabled) {
       errors.push({ action: rule.action, message: `rung "${rung}" ${rungAutomates(rung) ? 'automates' : 'does not automate'} but enabled is ${rule.enabled} — they must agree` });
       continue;
     }
-    const ruleAction = actionForPolicyKey(rule.action);
-    const riskTier = rule.risk ?? riskMap[rule.action] ?? defaultRiskTier(rule.action, ruleAction?.external, ruleAction?.id);
     await db
       .insert(autonomyPolicySchema)
       .values({ orgId, actionId: rule.action, rung, riskTier, minConfidence: rule.autoApproveAbove, promotedAt: now, promotedBy: 'trust.yaml', source: 'trust.yaml', flagged: false, flagReason: null })

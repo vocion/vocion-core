@@ -6,10 +6,10 @@ import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, autonomyPolicySchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceFileSchema, workspaceVersionSchema } from '@/models/Schema';
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
-import { collectWorkspaceFiles } from './snapshot';
+import { collectWorkspaceFiles, MANIFEST_FILES } from './snapshot';
 import { effectiveTeamSlug } from './teams';
 
 export type ApplyOptions = {
@@ -24,6 +24,13 @@ export type ApplyOptions = {
    * at it would point at nothing. Defaults to the loaded folder.
    */
   source?: string;
+  /**
+   * Connectors whose sync schedules this apply leaves as they are. An import
+   * passes the ones the app added and the upload names no cadence for
+   * (`WorkspaceImportService`): their schedule was set on the Connect page and
+   * is in no file, so a file's silence about it is not "no schedule".
+   */
+  keepSourceSchedules?: ReadonlySet<string>;
 };
 
 export type ResourceCounts = {
@@ -77,11 +84,28 @@ export type ApplyResult = {
     teams: ResourceCounts;
     /** Pages seeded from `wiki/<slug>.md`, plus the generated index (`services/wiki/WikiSeedService.ts`). */
     wikiPages: ResourceCounts;
+    /**
+     * The settings an apply writes on the project row, one per manifest key
+     * (`lead`, `plugins`, `mailbox`, `defaults.timezone` …) and per file
+     * (`voice.yaml`, `operating-intent.yaml`). Only what would change is
+     * listed.
+     */
+    settings: ResourceCounts;
+    /** Trust rules and the autonomy policy behind each, by action (`trust.yaml`). */
+    trustRules: ResourceCounts;
+    /**
+     * The stored files no row says — pages, the brand and its logos, a
+     * skill's resources — by path. A resource's own file (an agent's YAML, a
+     * SKILL.md) is compared as its row instead. Only what would change is
+     * listed.
+     */
+    files: ResourceCounts;
   };
   /**
    * The same outcomes, one per resource, by name — what a diff lists under
    * its counts, and how a caller tells which agent an "updated" was. Every
-   * resource the workspace ships is here, unchanged ones included.
+   * resource the workspace ships is here, unchanged ones included — except
+   * settings and stored files, which list only what would change.
    */
   changes: Array<{ resource: keyof ApplyResult['counts']; slug: string; outcome: ResourceOutcome }>;
   errors: Array<{ resource: string; slug: string; message: string }>;
@@ -189,6 +213,9 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     sources: blank(),
     teams: blank(),
     wikiPages: blank(),
+    settings: blank(),
+    trustRules: blank(),
+    files: blank(),
   };
   const changes: ApplyResult['changes'] = [];
   const record = (resource: keyof ApplyResult['counts'], slug: string, outcome: ResourceOutcome): void => {
@@ -228,7 +255,9 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   // Workspace lead + workspace-default accountable human are project
   // config (workspace.yaml `lead:` / `accountableUser:`), not a team row.
-  await applyWorkspaceLeadConfig(orgId, loaded, mode, errors);
+  for (const setting of await applyWorkspaceLeadConfig(orgId, loaded, mode, errors)) {
+    record('settings', setting, 'updated');
+  }
 
   for (const agent of loaded.agents) {
     try {
@@ -436,6 +465,17 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // whose WORKSPACE_PATH is another project's, a sample applied from
   // templates/. Replaced whole, like the rows: a file deleted from the
   // workspace leaves the store too.
+  // What that store would change, named — the files no row says (pages, the
+  // brand, a skill's resources), so a review lists them as it lists agents.
+  if (!mode.offline) {
+    try {
+      for (const change of await storedFileChanges(orgId, loaded)) {
+        record('files', change.path, change.outcome);
+      }
+    } catch (err) {
+      errors.push({ resource: 'workspaceFile', slug: '(compare)', message: (err as Error).message });
+    }
+  }
   if (!dryRun) {
     await storeWorkspaceFiles(orgId, loaded, errors, warnings);
   }
@@ -501,7 +541,17 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   }
 
   // Trust rules: full replace per org from workspace/<org>/trust.yaml.
-  // Absent file (or empty rules) = no auto-execution anywhere.
+  // Absent file (or empty rules) = no auto-execution anywhere. What the
+  // replace would change is named first, on a dry run as on an apply.
+  if (!mode.offline) {
+    try {
+      for (const change of await trustChanges(orgId, loaded.trust)) {
+        record('trustRules', change.action, change.outcome);
+      }
+    } catch (err) {
+      errors.push({ resource: 'trustRule', slug: '(compare)', message: (err as Error).message });
+    }
+  }
   if (!dryRun) {
     try {
       await db.delete(trustRuleSchema).where(eq(trustRuleSchema.orgId, orgId));
@@ -531,7 +581,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // `schedule`, source `schedule`. A schedule that cannot be written is an
   // error on the result by name; the rest of the apply still lands.
   if (!dryRun) {
-    await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs);
+    await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs, opts.keepSourceSchedules);
   }
 
   // Compiled chat graphs bake in subagents — including the F1 team-lead
@@ -588,12 +638,14 @@ type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'unknown' | 'kept';
  * @param loaded
  * @param errors
  * @param configChangedSourceSlugs
+ * @param keepSourceSchedules - Connectors whose schedules are left as they are.
  */
 async function reconcileSchedules(
   orgId: string,
   loaded: LoadedWorkspace,
   errors: ApplyResult['errors'],
   configChangedSourceSlugs: Set<string> = new Set(),
+  keepSourceSchedules: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   // Schedule-ownership guard. Reconciling schedules makes THIS
   // process the scheduler-of-record. Local dev commonly runs against the
@@ -700,8 +752,11 @@ async function reconcileSchedules(
         .where(and(eq(srcSchema.orgId, orgId), eq(srcSchema.slug, src.slug)));
 
       // Both cadences (incremental + reconcile), shared with the sources API so
-      // a source written either way ends up on the same schedules.
-      await reconcileSourceSchedules(orgId, specForSource(src), row?.id ?? null);
+      // a source written either way ends up on the same schedules — unless
+      // the caller says the app owns this one's (an import's in-app connector).
+      if (!keepSourceSchedules.has(src.slug)) {
+        await reconcileSourceSchedules(orgId, specForSource(src), row?.id ?? null);
+      }
 
       // This apply changed the source's stored row — start a one-off full sync
       // so scope changes take effect now rather than at the next reconcile.
@@ -882,18 +937,30 @@ function warnEmptiedAgentLists(
 }
 
 /**
- * Resolve an authored `accountableUser:` email to a user id. Unresolved
- * emails record a non-fatal error and store NULL — deploy boxes may not
- * have that user seeded yet; a later apply (after the user signs up)
- * heals the row. Offline (no database) there is no user table to ask, so
- * the email is neither resolved nor reported; `ApplyResult.database` says so.
- * @param email
- * @param resource
- * @param slug
- * @param mode
- * @param errors
+ * Resolve an authored `accountableUser:` email to a user id — among the people
+ * who can open this workspace, never the whole host. On a deployment hosting
+ * several companies the user table is everyone's, so a lookup across it would
+ * let a manifest make another company's person this workspace's owner (and
+ * send them its asks), and would tell whoever wrote the manifest whether an
+ * email has an account anywhere. Who can open the workspace is
+ * `WorkspaceAccessService`'s one answer (`memberWorkspace` and the role it
+ * resolves to).
+ *
+ * Unresolved emails record a non-fatal error and store NULL — deploy boxes may
+ * not have that user seeded yet; a later apply (after the user joins the
+ * workspace) heals the row. The message is the same whether no such user
+ * exists or one exists outside this workspace, so it discloses neither.
+ * Offline (no database) there is no user table to ask, so the email is neither
+ * resolved nor reported; `ApplyResult.database` says so.
+ * @param orgId - The workspace being applied.
+ * @param email - The authored email.
+ * @param resource - What named it, for the error.
+ * @param slug - Which one, for the error.
+ * @param mode - Dry run or not; offline or not.
+ * @param errors - The apply's errors.
  */
 async function resolveAccountableUser(
+  orgId: string,
   email: string | undefined,
   resource: string,
   slug: string,
@@ -908,8 +975,10 @@ async function resolveAccountableUser(
     .from(userSchema)
     .where(eq(userSchema.email, email.toLowerCase()))
     .limit(1);
-  if (!row) {
-    errors.push({ resource, slug, message: `accountableUser "${email}" does not match any user — storing no owner; re-apply after that user signs up` });
+  const { memberWorkspace, roleInMemberWorkspace } = await import('@/services/WorkspaceAccessService');
+  const workspace = row ? await memberWorkspace(row.id, orgId) : null;
+  if (!row || !workspace || !(await roleInMemberWorkspace(row.id, workspace))) {
+    errors.push({ resource, slug, message: `accountableUser "${email}" is not a member of this workspace — storing no owner; add them to the workspace and apply again` });
     return null;
   }
   return row.id;
@@ -1004,7 +1073,7 @@ async function upsertTeam(orgId: string, team: LoadedTeam, mode: ApplyMode, erro
     leadAgentSlug: team.lead ?? null,
     // Explicit owner only — an omitted accountableUser stays NULL so the
     // workspace default is inherited at read time, never baked in here.
-    accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, mode, errors),
+    accountableUserId: await resolveAccountableUser(orgId, team.accountableUser, 'team', team.slug, mode, errors),
     goal: team.goal ?? null,
     // Declarative like the rest: authored measures land wholesale (a legacy
     // `kpis:` block is already folded in by the schema), an omitted block
@@ -1195,13 +1264,24 @@ export function projectSettingsFrom(loaded: Pick<LoadedWorkspace, 'manifest' | '
   };
 }
 
+/**
+ * Write the project settings the manifest declares, and say which changed —
+ * by the manifest key that says each (`lead`, `plugins`, `mailbox`,
+ * `defaults.timezone` …, and `voice.yaml` / `operating-intent.yaml` for the
+ * two that are files). A dry run writes nothing and names the same ones.
+ * @param orgId - The project.
+ * @param loaded - The loaded workspace.
+ * @param mode - Dry run or not; offline or not.
+ * @param errors - The apply's errors.
+ * @returns The settings that differ from the row, empty when none do.
+ */
 async function applyWorkspaceLeadConfig(
   orgId: string,
   loaded: LoadedWorkspace,
   mode: ApplyMode,
   errors: ApplyResult['errors'],
-): Promise<void> {
-  const accountableUserId = await resolveAccountableUser(loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', mode, errors);
+): Promise<string[]> {
+  const accountableUserId = await resolveAccountableUser(orgId, loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', mode, errors);
   const { leadAgentSlug: lead, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, goal, timeZone, voiceRules, operatingIntent } = projectSettingsFrom(loaded);
 
   const [project] = mode.offline
@@ -1253,12 +1333,12 @@ async function applyWorkspaceLeadConfig(
 
   if (!project) {
     if (mode.offline) {
-      return;
+      return [];
     }
     if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
-    return;
+    return [];
   }
 
   const surfacesUnchanged
@@ -1267,40 +1347,28 @@ async function applyWorkspaceLeadConfig(
   const pluginsUnchanged
     = (project.enabledPlugins ?? []).length === enabledPlugins.length
       && (project.enabledPlugins ?? []).every((s, i) => s === enabledPlugins[i]);
-  const durableUnchanged = JSON.stringify(project.enabledDurable ?? []) === JSON.stringify(enabledDurable);
-  // Compared as JSON rather than field by field: the object has two optional
-  // keys, so a shallow equality check would have to enumerate both and would
-  // silently stop covering a third. Same reasoning for the skill mapping,
-  // whose keys are open-ended action ids.
-  const embeddingUnchanged
-    = JSON.stringify(project.embeddingConfig ?? null) === JSON.stringify(embeddingConfig);
-  const regenerateUnchanged
-    = JSON.stringify(project.regenerateSkills ?? null) === JSON.stringify(regenerateSkills);
-  const clientFacingUnchanged
-    = JSON.stringify(project.clientFacingPlaybooks ?? null) === JSON.stringify(clientFacingPlaybooks);
-  const voiceUnchanged
-    = JSON.stringify(project.voiceRules ?? null) === JSON.stringify(voiceRules);
-  const operatingIntentUnchanged
-    = JSON.stringify(project.operatingIntent ?? null) === JSON.stringify(operatingIntent);
-
-  if (
-    (project.leadAgentSlug ?? null) === lead
-    && (project.accountableUserId ?? null) === accountableUserId
-    && surfacesUnchanged
-    && pluginsUnchanged
-    && durableUnchanged
-    && embeddingUnchanged
-    && regenerateUnchanged
-    && clientFacingUnchanged
-    && (project.learningEagerness ?? null) === learningEagerness
-    && voiceUnchanged
-    && operatingIntentUnchanged
-    && (project.goal ?? null) === goal
-    && (project.timeZone ?? null) === timeZone
-    && project.mailboxEnabled === mailboxEnabled
-    && (project.mailboxAddress ?? null) === mailboxAddress
-  ) {
-    return;
+  // Compared key-order blind (`canonical`): jsonb hands an object back with
+  // its own key order, and a byte comparison would read every apply as a
+  // change — which a review then lists.
+  const same = (a: unknown, b: unknown) => canonical(a ?? null) === canonical(b ?? null);
+  const changed = ([
+    ['lead', (project.leadAgentSlug ?? null) !== lead],
+    ['accountableUser', (project.accountableUserId ?? null) !== accountableUserId],
+    ['surfaces', !surfacesUnchanged],
+    ['plugins', !pluginsUnchanged],
+    ['durable', !same(project.enabledDurable ?? [], enabledDurable)],
+    ['defaults.embeddingProvider', !same(project.embeddingConfig, embeddingConfig)],
+    ['defaults.regenerateSkills', !same(project.regenerateSkills, regenerateSkills)],
+    ['defaults.clientFacingPlaybooks', !same(project.clientFacingPlaybooks, clientFacingPlaybooks)],
+    ['defaults.learningEagerness', (project.learningEagerness ?? null) !== learningEagerness],
+    ['voice.yaml', !same(project.voiceRules, voiceRules)],
+    ['operating-intent.yaml', !same(project.operatingIntent, operatingIntent)],
+    ['goal', (project.goal ?? null) !== goal],
+    ['defaults.timezone', (project.timeZone ?? null) !== timeZone],
+    ['mailbox', project.mailboxEnabled !== mailboxEnabled || (project.mailboxAddress ?? null) !== mailboxAddress],
+  ] as const).filter(([, differs]) => differs).map(([key]) => key);
+  if (changed.length === 0) {
+    return [];
   }
   if (!mode.dryRun) {
     await db
@@ -1308,6 +1376,7 @@ async function applyWorkspaceLeadConfig(
       .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
+  return changed;
 }
 
 async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, mode: ApplyMode): Promise<UpsertOutcome> {
@@ -1410,6 +1479,110 @@ async function storeWorkspaceFiles(orgId: string, loaded: LoadedWorkspace, error
   } catch (err) {
     errors.push({ resource: 'workspaceFile', slug: '(store)', message: `the workspace's files were not stored, so this project still reads the previous apply's: ${(err as Error).message}` });
   }
+}
+
+/**
+ * The top-level folders whose files are a resource each, made a row by the
+ * apply (an agent's YAML and its prompt, an object type's) — the row is what
+ * a review compares, so the stored file is not listed beside it.
+ */
+const ROW_FOLDERS = new Set(['agents', 'teams', 'objects', 'sources', 'missions', 'automations', 'workflows', 'evals', 'learnings']);
+
+/**
+ * What storing this workspace's files would change, by path: the files no
+ * row stands for — pages, the brand and its logos, a skill's or playbook's
+ * resources. A file a resource is made of (anything under a
+ * {@link ROW_FOLDERS} folder, a SKILL.md, the manifest) is left out: its row
+ * is compared, and listing it twice would say one change is two. By sha, as
+ * {@link storeWorkspaceFiles} writes them.
+ * @param orgId - The project.
+ * @param loaded - The loaded workspace; its folder is what would be stored.
+ */
+async function storedFileChanges(orgId: string, loaded: LoadedWorkspace): Promise<Array<{ path: string; outcome: 'created' | 'updated' | 'retired' }>> {
+  const collected = collectWorkspaceFiles(loaded.sourcePath, [...loaded.skills, ...loaded.playbooks]).files;
+  const stored = await db
+    .select({ path: workspaceFileSchema.path, sha: workspaceFileSchema.sha, encoding: workspaceFileSchema.encoding })
+    .from(workspaceFileSchema)
+    .where(eq(workspaceFileSchema.orgId, orgId));
+  const had = new Map(stored.map(r => [r.path, r]));
+  const rowStandsFor = (path: string) => (MANIFEST_FILES as readonly string[]).includes(path)
+    || path.endsWith('/SKILL.md')
+    || ROW_FOLDERS.has(path.split('/')[0] ?? '');
+  const out: Array<{ path: string; outcome: 'created' | 'updated' | 'retired' }> = [];
+  for (const file of collected) {
+    const prior = had.get(file.path);
+    if (rowStandsFor(file.path)) {
+      continue;
+    }
+    if (!prior) {
+      out.push({ path: file.path, outcome: 'created' });
+    } else if (prior.sha !== file.sha || prior.encoding !== file.encoding) {
+      out.push({ path: file.path, outcome: 'updated' });
+    }
+  }
+  const kept = new Set(collected.map(f => f.path));
+  for (const row of stored) {
+    if (!kept.has(row.path) && !rowStandsFor(row.path)) {
+      out.push({ path: row.path, outcome: 'retired' });
+    }
+  }
+  return out;
+}
+
+/**
+ * What replacing the trust rules from `trust.yaml` would change, by action:
+ * a rule it adds, one whose threshold, switch, rung or risk moves, a risk tier
+ * it sets for a kind with no rule, and a rule it drops (retired — the apply
+ * deletes every rule the file does not name). Compared the way the apply
+ * writes them (`manifestPolicy`).
+ * @param orgId - The project.
+ * @param trust - The loaded trust manifest, plugins' included; null for none.
+ */
+async function trustChanges(orgId: string, trust: LoadedWorkspace['trust']): Promise<Array<{ action: string; outcome: 'created' | 'updated' | 'retired' }>> {
+  const { manifestPolicy } = await import('@/services/autonomy/AutonomyService');
+  const [rules, policies] = await Promise.all([
+    db.select({ actionId: trustRuleSchema.actionId, threshold: trustRuleSchema.threshold, enabled: trustRuleSchema.enabled }).from(trustRuleSchema).where(eq(trustRuleSchema.orgId, orgId)),
+    db.select({ actionId: autonomyPolicySchema.actionId, rung: autonomyPolicySchema.rung, riskTier: autonomyPolicySchema.riskTier, minConfidence: autonomyPolicySchema.minConfidence }).from(autonomyPolicySchema).where(eq(autonomyPolicySchema.orgId, orgId)),
+  ]);
+  const ruleBy = new Map(rules.map(r => [r.actionId, r]));
+  const policyBy = new Map(policies.map(p => [p.actionId, p]));
+  // Stored as `real`: compared at the precision the column keeps.
+  const sameNumber = (a: number | null | undefined, b: number | null | undefined) => (a ?? null) === null || (b ?? null) === null ? (a ?? null) === (b ?? null) : Math.fround(a!) === Math.fround(b!);
+  const riskMap = trust?.risk ?? {};
+  const named = new Set<string>();
+  const out: Array<{ action: string; outcome: 'created' | 'updated' | 'retired' }> = [];
+  for (const rule of trust?.rules ?? []) {
+    named.add(rule.action);
+    const row = ruleBy.get(rule.action);
+    if (!row) {
+      out.push({ action: rule.action, outcome: 'created' });
+      continue;
+    }
+    const { rung, riskTier } = manifestPolicy(rule, riskMap);
+    // No policy row reads as the one its rule implies (what the autonomy
+    // page shows for it), so writing exactly that changes nothing that runs.
+    const policy = policyBy.get(rule.action)
+      ?? { ...manifestPolicy({ action: row.actionId, autoApproveAbove: row.threshold, enabled: row.enabled === 'true' }, {}), minConfidence: row.threshold };
+    const same = sameNumber(row.threshold, rule.autoApproveAbove)
+      && row.enabled === String(rule.enabled)
+      && policy.rung === rung
+      && policy.riskTier === riskTier
+      && sameNumber(policy.minConfidence, rule.autoApproveAbove);
+    if (!same) {
+      out.push({ action: rule.action, outcome: 'updated' });
+    }
+  }
+  for (const [action, riskTier] of Object.entries(riskMap)) {
+    if (!named.has(action) && policyBy.get(action)?.riskTier !== riskTier) {
+      out.push({ action, outcome: policyBy.has(action) ? 'updated' : 'created' });
+    }
+  }
+  for (const row of rules) {
+    if (!named.has(row.actionId)) {
+      out.push({ action: row.actionId, outcome: 'retired' });
+    }
+  }
+  return out;
 }
 
 async function upsertMission(orgId: string, mission: LoadedMission, mode: ApplyMode): Promise<UpsertOutcome> {

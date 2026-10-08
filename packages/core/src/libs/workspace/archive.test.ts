@@ -7,6 +7,7 @@ import { Buffer } from 'node:buffer';
 import { zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { ARCHIVE_LIMITS, readWorkspaceArchive, WorkspaceArchiveError, zipWorkspace } from './archive';
+import { MAX_WORKSPACE_PATH } from './archivePaths';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 
@@ -48,8 +49,8 @@ describe('readWorkspaceArchive', () => {
     expect(files.map(f => f.path)).toEqual(['examples/other/workspace.yaml', 'workspace.yaml']);
   });
 
-  it('skips dotted names and the folder macOS adds, as the loader would', () => {
-    const files = readWorkspaceArchive(zip({ 'workspace.yaml': 'version: 1', '.git/config': 'x', 'agents/.DS_Store': 'x', '__MACOSX/workspace.yaml': 'x' }));
+  it('skips dotted names, the folder macOS adds and node_modules, as the browser does when it zips a folder', () => {
+    const files = readWorkspaceArchive(zip({ 'workspace.yaml': 'version: 1', '.git/config': 'x', 'agents/.DS_Store': 'x', '__MACOSX/workspace.yaml': 'x', 'node_modules/left-pad/index.js': 'x' }));
 
     expect(files.map(f => f.path)).toEqual(['workspace.yaml']);
   });
@@ -63,6 +64,17 @@ describe('readWorkspaceArchive', () => {
     expect(code(() => readWorkspaceArchive(zip({ 'workspace.yaml': 'version: 1', '../outside.yaml': 'x' })))).toBe('BAD_PATH');
     expect(code(() => readWorkspaceArchive(zip({ 'workspace.yaml': 'version: 1', 'agents/../../outside.yaml': 'x' })))).toBe('BAD_PATH');
     expect(code(() => readWorkspaceArchive(zip({ 'workspace.yaml': 'version: 1', '/etc/passwd': 'x' })))).toBe('BAD_PATH');
+  });
+
+  it('refuses a path longer than staging takes, as a 400 that names it rather than a failure later', () => {
+    const long = `pages/${'a'.repeat(MAX_WORKSPACE_PATH)}.md`;
+
+    expect(code(() => readWorkspaceArchive(zip({ 'workspace.yaml': 'version: 1', [long]: 'x' })))).toBe('BAD_PATH');
+
+    // Exactly at the limit is a file like any other.
+    const atLimit = `pages/${'a'.repeat(MAX_WORKSPACE_PATH - 'pages/'.length - '.md'.length)}.md`;
+
+    expect(readWorkspaceArchive(zip({ 'workspace.yaml': 'version: 1', [atLimit]: 'x' })).map(f => f.path)).toContain(atLimit);
   });
 
   it('refuses what is not a zip', () => {

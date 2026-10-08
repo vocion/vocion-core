@@ -73,6 +73,21 @@ export function normalizeHarnessTarget(value: string | null | undefined): Harnes
 }
 
 /**
+ * Where an agent's own `harness:` block puts its loop: `runsOn` (or its
+ * pre-rename `provider`), else the container a Bedrock model implies (the
+ * rule `defaultHarnessTargetFor` in `AgentService` applies at run time).
+ * Undefined when the block says neither — the fleet's default then decides.
+ * @param harness - The agent's `harness:` block, as authored or as stored.
+ * @param harness.runsOn - Where it runs.
+ * @param harness.provider - The pre-rename spelling of `runsOn`.
+ * @param harness.modelProvider - Which vendor answers.
+ */
+export function authoredHarnessTarget(harness: { runsOn?: string | null; provider?: string | null; modelProvider?: string | null } | null | undefined): HarnessTarget | undefined {
+  return normalizeHarnessTarget(harness?.runsOn ?? harness?.provider)
+    ?? (harness?.modelProvider === 'bedrock' ? 'agentcore-container' : undefined);
+}
+
+/**
  * Zod schema accepting any spelling and yielding the canonical one.
  *
  * The enum lists legacy names too, so a workspace file written before the

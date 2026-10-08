@@ -271,6 +271,12 @@ function readContained(realRoot: string, abs: string, encoding?: WorkspaceFileEn
   };
 }
 
-function inside(realRoot: string, realPath: string): boolean {
+/**
+ * Whether a path is the folder or under it. Both are compared as given, so
+ * pass two real paths (or two resolved ones) — never one of each.
+ * @param realRoot - The folder.
+ * @param realPath - The path.
+ */
+export function inside(realRoot: string, realPath: string): boolean {
   return realPath === realRoot || realPath.startsWith(realRoot + sep);
 }

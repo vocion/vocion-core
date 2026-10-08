@@ -34,6 +34,9 @@ const { loadWorkspace } = await import('@/libs/workspace/loader');
 const { invalidateCurrentContextShaCache } = await import('@/libs/workspace/current-version');
 const { zipWorkspace } = await import('@/libs/workspace/archive');
 const { upsertSourceRow } = await import('@/libs/sources/upsert');
+const { describeSchedule } = await import('@/libs/durable/jobs');
+const { sourceScheduleIdFor } = await import('@/libs/durable/scheduleIds');
+const { ensureSourceSchedule } = await import('@/services/SourceScheduleService');
 const { exportWorkspace, EXPORT_REPORT_FILE } = await import('./WorkspaceExportService');
 const { applyImport, previewImport, upsertMerge, WorkspaceImportError } = await import('./WorkspaceImportService');
 
@@ -136,10 +139,10 @@ async function liveAgents(orgId: string): Promise<string[]> {
   return rows.filter(r => r.active !== 'false').map(r => r.slug).sort();
 }
 
-const ORIGINAL = { VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN, WORKSPACE_PATH: process.env.WORKSPACE_PATH, VOCION_WORKSPACE_MAP: process.env.VOCION_WORKSPACE_MAP, WORKSPACE_TEMPLATE_VARS: process.env.WORKSPACE_TEMPLATE_VARS, COBALT_STATUS_URL: process.env.COBALT_STATUS_URL, TMPDIR: process.env.TMPDIR };
+const ORIGINAL = { VOCION_SCHEDULE_OWNER: process.env.VOCION_SCHEDULE_OWNER, VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN, WORKSPACE_PATH: process.env.WORKSPACE_PATH, VOCION_WORKSPACE_MAP: process.env.VOCION_WORKSPACE_MAP, WORKSPACE_TEMPLATE_VARS: process.env.WORKSPACE_TEMPLATE_VARS, COBALT_STATUS_URL: process.env.COBALT_STATUS_URL, TMPDIR: process.env.TMPDIR };
 
 beforeEach(async () => {
-  for (const table of [workspaceFileSchema, workspaceVersionSchema, trustRuleSchema, autonomyPolicySchema, knowledgeSourceSchema, missionSchema, agentSchema, schema.teamSchema, schema.automationSchema, schema.workflowSchema, schema.playbookSchema, schema.businessObjectTypeSchema, schema.evalDatasetSchema, schema.memoryNamespaceSchema, schema.notificationRuleSchema, schema.memorySchema, projectSchema, tenantAccountSchema]) {
+  for (const table of [workspaceFileSchema, workspaceVersionSchema, trustRuleSchema, autonomyPolicySchema, knowledgeSourceSchema, missionSchema, agentSchema, schema.teamSchema, schema.automationSchema, schema.workflowSchema, schema.playbookSchema, schema.businessObjectTypeSchema, schema.evalDatasetSchema, schema.memoryNamespaceSchema, schema.notificationRuleSchema, schema.memorySchema, schema.accountMembershipSchema, projectSchema, schema.userSchema, tenantAccountSchema]) {
     await db.delete(table);
   }
   await db.insert(tenantAccountSchema).values({ id: ACCOUNT, name: 'Cobalt Works', slug: 'cobalt-works' } as never);
@@ -249,7 +252,15 @@ describe('the round trip: export → import into a fresh workspace → identical
 
     expect(preview.blockedBy).toBeNull();
     expect(preview.errors).toEqual([]);
-    expect(preview.changes.every(c => c.outcome === 'created')).toBe(true);
+    // Everything is new to B but its own project row, whose settings the
+    // import changes — named by the key that says each.
+    expect(preview.changes.filter(c => c.resource !== 'settings').every(c => c.outcome === 'created')).toBe(true);
+    expect(preview.changes.filter(c => c.resource === 'settings').map(c => c.slug)).toEqual(expect.arrayContaining(['plugins', 'goal', 'voice.yaml']));
+    // The pages, brand and logo it stores are named by path.
+    expect(preview.changes.filter(c => c.resource === 'files').map(c => c.slug)).toEqual(expect.arrayContaining(['pages/overview.md', 'brand.yaml', 'brand/mark.svg']));
+    // Connectors that read the server's disk come across, and the review says they will read nothing here.
+    expect(preview.refused).toEqual([]);
+    expect(preview.warnings.filter(w => w.resource === 'source').map(w => w.slug).sort()).toEqual(['handbook', 'incidents', 'pull-requests']);
     expect(preview.counts.agents.created).toBeGreaterThan(5);
     // A review writes nothing.
     expect(await liveAgents(B)).toEqual([]);
@@ -285,7 +296,7 @@ describe('the round trip: export → import into a fresh workspace → identical
 
     const [version] = await db.select().from(workspaceVersionSchema).where(eq(workspaceVersionSchema.orgId, B));
 
-    expect(version).toMatchObject({ appliedBy: 'workspace.import:vitest', sourcePath: 'import', sha: preview.sha });
+    expect(version).toMatchObject({ appliedBy: 'workspace.import:vitest', sourcePath: 'import', sha: result.sha });
   });
 });
 
@@ -401,6 +412,235 @@ describe('import', () => {
     await expect(previewImport(B, zipFiles({ ...SMALL, 'agents/broken.yaml': 'slug: broken\n' }))).rejects.toThrow();
 
     expect(existsSync(staging) ? readdirSync(staging) : []).toEqual([]);
+  });
+});
+
+/**
+ * The code of what an import threw, and its message.
+ * @param run - The import.
+ */
+async function refusal(run: Promise<unknown>): Promise<{ code: string; message: string }> {
+  try {
+    await run;
+  } catch (error) {
+    if (error instanceof WorkspaceImportError) {
+      return { code: error.code, message: error.message };
+    }
+    throw error;
+  }
+  throw new Error('the import went through');
+}
+
+describe('an import cannot read outside what it uploads', () => {
+  const MANIFEST = 'version: 1\norgId: proj_somewhere_else\nname: Cobalt Works\n';
+  const ESCAPES = '../../../../../../../../../../etc/hosts';
+
+  for (const replace of [false, true]) {
+    it(`refuses a prompt file that climbs out of the upload or is absolute, naming no host path (${replace ? 'replace' : 'merge'})`, async () => {
+      if (!replace) {
+        await appliedAndChangedInTheApp();
+      }
+      const uploads = {
+        'agent prompt, ../': { 'workspace.yaml': MANIFEST, 'agents/leak.yaml': `slug: leak\nname: Leak\nsystemPromptFile: ${ESCAPES}\n` },
+        'agent prompt, absolute': { 'workspace.yaml': MANIFEST, 'agents/leak.yaml': 'slug: leak\nname: Leak\nsystemPromptFile: /etc/hosts\n' },
+        'subagent prompt, ../': { 'workspace.yaml': MANIFEST, 'agents/leak.yaml': `slug: leak\nname: Leak\nsystemPrompt: Hi.\nsubagents:\n  - name: helper\n    description: Helps.\n    systemPromptFile: ${ESCAPES}\n` },
+        'classification prompt, ../': { 'workspace.yaml': MANIFEST, 'objects/leak/type.yaml': `slug: leak\nlabel: Leak\nclassificationPromptFile: ${ESCAPES}\n` },
+        'classification prompt, absolute': { 'workspace.yaml': MANIFEST, 'objects/leak/type.yaml': 'slug: leak\nlabel: Leak\nclassificationPromptFile: /etc/hosts\n' },
+      };
+      for (const [name, files] of Object.entries(uploads)) {
+        const reviewed = await refusal(previewImport(A, zipFiles(files), { replace }));
+
+        expect({ name, code: reviewed.code }).toEqual({ name, code: 'INVALID' });
+        expect(reviewed.message).toMatch(/PromptFile: must/);
+        expect(reviewed.message).not.toContain(tmpdir());
+        expect(reviewed.message).not.toContain('localhost');
+
+        // Applying it with any sha lands nothing.
+        expect((await refusal(applyImport(A, zipFiles(files), { replace, sha: 'review-anything', appliedBy: 'vitest' }))).code).toBe('INVALID');
+      }
+      const agents = await db.select({ slug: agentSchema.slug, systemPrompt: agentSchema.systemPrompt }).from(agentSchema).where(eq(agentSchema.orgId, A));
+
+      expect(agents.map(a => a.slug)).not.toContain('leak');
+      expect(agents.some(a => a.systemPrompt.includes('localhost'))).toBe(false);
+    });
+  }
+});
+
+describe('an import cannot take another workspace\'s mailbox', () => {
+  /** The address belongs to A; B uploads a manifest that reaches it through a YAML alias. */
+  const ALIASED = {
+    'workspace.yaml': 'version: 1\norgId: proj_somewhere_else\nname: Cobalt Works\nx-box: &mb {enabled: true, address: northwind-ops@mail.cobalt.example}\nmailbox: *mb\n',
+    'agents/docs-writer.yaml': 'slug: docs-writer\nname: Docs Writer\nsystemPrompt: You keep the docs true.\n',
+  };
+
+  for (const replace of [false, true]) {
+    it(`reads the address as the loader does, alias and all, and gives B its own (${replace ? 'replace' : 'merge'})`, async () => {
+      process.env.VOCION_MAIL_DOMAIN = 'mail.cobalt.example';
+      await db.update(projectSchema).set({ mailboxEnabled: true, mailboxAddress: 'northwind-ops@mail.cobalt.example' }).where(eq(projectSchema.id, A));
+
+      const preview = await previewImport(B, zipFiles(ALIASED), { replace });
+      await applyImport(B, zipFiles(ALIASED), { replace, sha: preview.sha, appliedBy: 'vitest' });
+      const [copy] = await db.select().from(projectSchema).where(eq(projectSchema.id, B));
+
+      expect(copy).toMatchObject({ mailboxEnabled: true, mailboxAddress: 'cobalt-copy@mail.cobalt.example' });
+      expect((await db.select().from(projectSchema).where(eq(projectSchema.mailboxAddress, 'northwind-ops@mail.cobalt.example'))).map(p => p.id)).toEqual([A]);
+    });
+  }
+});
+
+describe('an import keeps what it does not mention', () => {
+  it('leaves the sync schedule of a connector added in the app as it is, whether the upload leaves it out or carries it without one', async () => {
+    process.env.VOCION_SCHEDULE_OWNER = '1';
+    await appliedAndChangedInTheApp();
+    const [row] = await db.select().from(knowledgeSourceSchema).where(and(eq(knowledgeSourceSchema.orgId, A), eq(knowledgeSourceSchema.slug, 'status-page')));
+    // What the Connect page gives a connector it saves (`connect/newSourceSync.ts`).
+    await ensureSourceSchedule({ orgId: A, sourceId: row!.id, sourceSlug: 'status-page', cron: '17 * * * *' });
+
+    const small = zipFiles({ 'workspace.yaml': 'version: 1\norgId: proj_somewhere_else\nname: Cobalt Works\n', 'agents/changelog-keeper.yaml': 'slug: changelog-keeper\nname: Changelog keeper\nsystemPrompt: You keep the changelog true.\n' });
+    const first = await previewImport(A, small);
+    const applied = await applyImport(A, small, { sha: first.sha, appliedBy: 'vitest' });
+
+    expect(applied.errors).toEqual([]);
+    expect((await describeSchedule(sourceScheduleIdFor(A, 'status-page')))?.cron).toBe('17 * * * *');
+
+    // Its own export carries the connector, and no schedule — which says nothing about one.
+    const whole = await zipOf(A);
+    const again = await previewImport(A, whole);
+    await applyImport(A, whole, { sha: again.sha, appliedBy: 'vitest' });
+
+    expect((await describeSchedule(sourceScheduleIdFor(A, 'status-page')))?.cron).toBe('17 * * * *');
+  });
+});
+
+describe('the review names everything an apply would change', () => {
+  const MANIFEST = 'version: 1\norgId: proj_somewhere_else\nname: Cobalt Works\n';
+
+  it('a page alone: named by path, applied, and stored', async () => {
+    await appliedAndChangedInTheApp();
+    const upload = zipFiles({ 'workspace.yaml': MANIFEST, 'pages/overview.md': '# Overview\n\nWhat changed this week, first.\n' });
+    const preview = await previewImport(A, upload);
+
+    expect(preview.changes.map(c => `${c.resource}:${c.slug}:${c.outcome}`)).toEqual(['files:pages/overview.md:updated']);
+
+    await applyImport(A, upload, { sha: preview.sha, appliedBy: 'vitest' });
+    const [stored] = await db.select().from(workspaceFileSchema).where(and(eq(workspaceFileSchema.orgId, A), eq(workspaceFileSchema.path, 'pages/overview.md')));
+
+    expect(stored!.content).toContain('What changed this week, first.');
+  });
+
+  it('a trust rule alone: named by action, applied', async () => {
+    await appliedAndChangedInTheApp();
+    const upload = zipFiles({ 'workspace.yaml': MANIFEST, 'trust.yaml': 'rules:\n  - action: gmail.send\n    autoApproveAbove: 0.95\n    enabled: false\n' });
+    const preview = await previewImport(A, upload);
+
+    expect(preview.changes.map(c => `${c.resource}:${c.slug}:${c.outcome}`)).toEqual(['trustRules:gmail.send:updated']);
+
+    await applyImport(A, upload, { sha: preview.sha, appliedBy: 'vitest' });
+    const [rule] = await db.select().from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, A), eq(trustRuleSchema.actionId, 'gmail.send')));
+
+    expect(rule!.threshold).toBeCloseTo(0.95);
+  });
+
+  it('a replace names the trust rules, settings and files it drops', async () => {
+    await appliedAndChangedInTheApp();
+    const preview = await previewImport(A, zipFiles({ 'workspace.yaml': MANIFEST, 'agents/docs-writer.yaml': 'slug: docs-writer\nname: Docs Writer\nsystemPrompt: You keep the docs true.\n' }), { replace: true });
+    const named = preview.changes.map(c => `${c.resource}:${c.slug}:${c.outcome}`);
+
+    expect(named).toEqual(expect.arrayContaining(['trustRules:gmail.send:retired', 'trustRules:gmail.draft:retired', 'settings:plugins:updated', 'settings:voice.yaml:updated', 'files:pages/overview.md:retired', 'files:brand.yaml:retired']));
+  });
+
+  it('a replace reviewed, then the workspace changed: asked to review again, and what changed is kept', async () => {
+    await appliedAndChangedInTheApp();
+    const upload = zipFiles({ 'workspace.yaml': MANIFEST, 'agents/docs-writer.yaml': 'slug: docs-writer\nname: Docs Writer\nsystemPrompt: You keep the docs true.\n' });
+    const preview = await previewImport(A, upload, { replace: true });
+    // Hired after the review: the review never named it, so the replace may not retire it.
+    await db.insert(agentSchema).values({ orgId: A, projectId: A, slug: 'late-hire', name: 'Late hire', systemPrompt: 'You arrived after the review.', role: 'lead', initiative: 'normal', harnessConfig: {} });
+
+    expect((await refusal(applyImport(A, upload, { replace: true, sha: preview.sha, appliedBy: 'vitest' }))).code).toBe('CHANGED');
+    expect(await liveAgents(A)).toContain('late-hire');
+  });
+});
+
+describe('an owner is someone who can open the workspace', () => {
+  it('answers the same for an email nobody has and one that belongs to another company, and stores no owner', async () => {
+    await db.insert(tenantAccountSchema).values({ id: 'acct_kestrel_other', name: 'Kestrel Capital', slug: 'kestrel-capital' } as never);
+    await db.insert(schema.userSchema).values([
+      { id: 'usr_kestrel_dana', name: 'Dana', email: 'dana@kestrel.example' },
+      { id: 'usr_cobalt_riley', name: 'Riley', email: 'riley@cobalt.example' },
+    ]);
+    await db.insert(schema.accountMembershipSchema).values([
+      { accountId: 'acct_kestrel_other', userId: 'usr_kestrel_dana', role: 'admin' },
+      { accountId: ACCOUNT, userId: 'usr_cobalt_riley', role: 'member' },
+    ]);
+    const owned = (email: string) => zipFiles({ 'workspace.yaml': `version: 1\norgId: proj_somewhere_else\nname: Cobalt Works\naccountableUser: ${email}\n` });
+    const said = async (email: string) => (await previewImport(B, owned(email), { replace: true })).errors.map(e => ({ ...e, message: e.message.replace(email, '<email>') }));
+
+    const elsewhere = await said('dana@kestrel.example');
+
+    expect(elsewhere).toEqual(await said('nobody@kestrel.example'));
+    expect(elsewhere).toEqual([{ resource: 'workspace', slug: 'workspace.yaml', message: expect.stringContaining('is not a member of this workspace') }]);
+
+    const preview = await previewImport(B, owned('dana@kestrel.example'), { replace: true });
+    await applyImport(B, owned('dana@kestrel.example'), { replace: true, sha: preview.sha, appliedBy: 'vitest' });
+
+    expect((await db.select().from(projectSchema).where(eq(projectSchema.id, B)))[0]!.accountableUserId).toBeNull();
+
+    // Someone in the workspace's own account resolves as before.
+    const mine = await previewImport(B, owned('riley@cobalt.example'), { replace: true });
+
+    expect(mine.errors).toEqual([]);
+
+    await applyImport(B, owned('riley@cobalt.example'), { replace: true, sha: mine.sha, appliedBy: 'vitest' });
+
+    expect((await db.select().from(projectSchema).where(eq(projectSchema.id, B)))[0]!.accountableUserId).toBe('usr_cobalt_riley');
+  });
+});
+
+describe('what an import may not set', () => {
+  const MANIFEST = 'version: 1\norgId: proj_somewhere_else\nname: Cobalt Works\n';
+  const agent = (slug: string, harness: string) => `slug: ${slug}\nname: ${slug}\nsystemPrompt: You help.\nharness:\n${harness}`;
+
+  it('refuses an agent put on AgentCore, by name, and applies nothing', async () => {
+    const upload = zipFiles({
+      'workspace.yaml': MANIFEST,
+      'agents/managed.yaml': agent('managed', '  runsOn: aws-managed-harness\n'),
+      'agents/container.yaml': agent('container', '  runsOn: agentcore-container\n'),
+      'agents/on-bedrock.yaml': agent('on-bedrock', '  modelProvider: bedrock\n'),
+      'agents/here.yaml': agent('here', '  runsOn: in-process\n'),
+      'agents/outside.yaml': agent('outside', '  runsOn: external-worker\n'),
+    });
+    const preview = await previewImport(B, upload, { replace: true });
+
+    expect(preview.refused.map(r => `${r.resource}:${r.slug}`).sort()).toEqual(['agents:container', 'agents:managed', 'agents:on-bedrock']);
+    expect(preview.refused.find(r => r.slug === 'managed')!.message).toContain('harness.runsOn "aws-managed-harness"');
+    expect(preview.refused.find(r => r.slug === 'on-bedrock')!.message).toContain('harness.modelProvider "bedrock"');
+
+    expect((await refusal(applyImport(B, upload, { replace: true, sha: preview.sha, appliedBy: 'vitest' }))).code).toBe('REFUSED');
+    expect(await liveAgents(B)).toEqual([]);
+  });
+
+  it('leaves an agent where an operator put it: only a change is judged', async () => {
+    await appliedAndChangedInTheApp();
+    await db.update(agentSchema).set({ harnessConfig: { runsOn: 'agentcore-container' } }).where(and(eq(agentSchema.orgId, A), eq(agentSchema.slug, 'docs-writer')));
+    const preview = await previewImport(A, zipFiles({ 'workspace.yaml': MANIFEST, 'agents/docs-writer.yaml': agent('docs-writer', '  runsOn: agentcore-container\n') }));
+
+    expect(preview.refused).toEqual([]);
+  });
+
+  it('refuses a connector pointed at the server\'s disk outside its folder, and warns about one that will read nothing', async () => {
+    const source = (slug: string, directory: string) => `slug: ${slug}\nname: ${slug}\nkind: local-files\nconfig:\n  directory: ${JSON.stringify(directory)}\n`;
+    const upload = zipFiles({
+      'workspace.yaml': MANIFEST,
+      'sources/absolute.yaml': source('absolute', '/etc'),
+      'sources/climbs.yaml': source('climbs', '../../../../etc'),
+      'sources/notes.yaml': source('notes', 'data/notes'),
+    });
+    const preview = await previewImport(B, upload, { replace: true });
+
+    expect(preview.refused.map(r => `${r.resource}:${r.slug}`).sort()).toEqual(['sources:absolute', 'sources:climbs']);
+    expect(preview.warnings.filter(w => w.resource === 'source').map(w => w.slug)).toEqual(['notes']);
+    expect((await refusal(applyImport(B, upload, { replace: true, sha: preview.sha, appliedBy: 'vitest' }))).code).toBe('REFUSED');
+    expect(await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, B))).toEqual([]);
   });
 });
 

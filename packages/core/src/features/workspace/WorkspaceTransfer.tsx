@@ -8,6 +8,7 @@ import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ApplyDiff } from '@/features/dashboard/ApplyDiff';
+import { MAX_ARCHIVE_BYTES, skippedEntry } from '@/libs/workspace/archivePaths';
 
 /** What was picked to import: a zip as it is, or a folder zipped here. */
 type Picked = { name: string; zip: Blob; files: number | null };
@@ -47,6 +48,11 @@ export function WorkspaceTransfer() {
 
   const pickZip = (files: FileList | null) => {
     const file = files?.[0];
+    if (file && file.size > MAX_ARCHIVE_BYTES) {
+      setPicked(null);
+      setError(t('too_large', { size: megabytes(file.size), limit: megabytes(MAX_ARCHIVE_BYTES) }));
+      return;
+    }
     if (file) {
       setPicked({ name: file.name, zip: file, files: null });
       setPreview(null);
@@ -61,12 +67,25 @@ export function WorkspaceTransfer() {
     setBusy(true);
     setError(null);
     try {
+      // What no workspace is made of — `.git/`, `node_modules/`, dotted
+      // files — stays out of the zip, by the rule the server reads it with:
+      // a checkout would otherwise blow the size limit on files it skips.
+      const kept = Array.from(files).filter((file) => {
+        const path = file.webkitRelativePath || file.name;
+        return !skippedEntry(path.slice(path.indexOf('/') + 1));
+      });
       const entries: Record<string, Uint8Array> = {};
-      for (const file of Array.from(files)) {
+      for (const file of kept) {
         entries[file.webkitRelativePath || file.name] = new Uint8Array(await file.arrayBuffer());
       }
       const folder = (files[0]!.webkitRelativePath || files[0]!.name).split('/')[0] ?? 'workspace';
-      setPicked({ name: folder, zip: new Blob([zipSync(entries, { level: 6 }) as BlobPart], { type: 'application/zip' }), files: files.length });
+      const zip = zipSync(entries, { level: 6 });
+      if (zip.byteLength > MAX_ARCHIVE_BYTES) {
+        setPicked(null);
+        setError(t('too_large', { size: megabytes(zip.byteLength), limit: megabytes(MAX_ARCHIVE_BYTES) }));
+        return;
+      }
+      setPicked({ name: folder, zip: new Blob([zip as BlobPart], { type: 'application/zip' }), files: kept.length });
       setPreview(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -117,6 +136,7 @@ export function WorkspaceTransfer() {
   };
 
   const changeCount = preview ? preview.changes.length : 0;
+  const refused = preview?.refused ?? [];
 
   return (
     <>
@@ -205,6 +225,19 @@ export function WorkspaceTransfer() {
                           {preview.errors.map(e => <li key={`${e.resource}:${e.slug}:${e.message}`}>{`${e.resource} ${e.slug}: ${e.message}`}</li>)}
                         </ul>
                       )}
+                      {refused.length > 0 && (
+                        <div className="space-y-1 text-xs text-destructive">
+                          <p>{t('refused')}</p>
+                          <ul className="space-y-1">
+                            {refused.map(r => <li key={`${r.resource}:${r.slug}:${r.message}`}>{`${r.resource} ${r.slug}: ${r.message}`}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {preview.warnings.length > 0 && (
+                        <ul className="space-y-1 text-xs text-muted-foreground">
+                          {preview.warnings.map(w => <li key={`${w.resource}:${w.slug}:${w.message}`}>{`${w.resource} ${w.slug}: ${w.message}`}</li>)}
+                        </ul>
+                      )}
                       {preview.blockedBy && <p className="text-xs text-destructive">{preview.blockedBy}</p>}
                     </div>
                   )}
@@ -218,7 +251,7 @@ export function WorkspaceTransfer() {
               : (
                   <>
                     <Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>{t('cancel')}</Button>
-                    {preview && !preview.blockedBy && changeCount > 0
+                    {preview && !preview.blockedBy && refused.length === 0 && changeCount > 0
                       ? (
                           <Button onClick={apply} disabled={busy}>
                             {busy && <Loader2 className="size-3 animate-spin" aria-hidden="true" />}
@@ -238,4 +271,8 @@ export function WorkspaceTransfer() {
       </Dialog>
     </>
   );
+}
+
+function megabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

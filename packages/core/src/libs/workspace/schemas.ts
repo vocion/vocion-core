@@ -7,6 +7,18 @@ import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
+/**
+ * A prompt file beside the resource that names it: a path relative to that
+ * file. An absolute one is refused here, before anything reads it, and the
+ * loader refuses a relative one that climbs out of the workspace folder
+ * (`resolvePromptField`). Written without `node:path`, since the client
+ * bundles these schemas too.
+ */
+const PromptFilePath = z.string().refine(
+  p => !p.startsWith('/') && !p.startsWith('\\') && !/^[a-z]:/i.test(p),
+  { message: 'must be a path relative to this file, inside the workspace folder' },
+);
+
 export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
   message: 'slug must be lowercase, start with a letter, and contain only letters, numbers, dashes, or underscores',
 });
@@ -828,7 +840,7 @@ export const AgentManifestSchema = z.object({
   temperature: z.union([z.string(), z.number()]).optional(),
   /** How it talks in chat: length, narration, creativity, a style page (`libs/agents/voice.ts`). */
   voice: VoiceSchema.optional(),
-  systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
+  systemPromptFile: PromptFilePath.optional().describe('path to markdown system prompt, relative to agent file'),
   systemPrompt: z.string().optional().describe('inline system prompt — prefer systemPromptFile for long prompts'),
   skills: z.array(z.string()).default([]).describe('skill slugs this agent can invoke'),
   /**
@@ -870,7 +882,7 @@ export const AgentManifestSchema = z.object({
     name: z.string().regex(/^[a-z][a-z0-9_-]*$/),
     description: z.string(),
     systemPrompt: z.string().optional(),
-    systemPromptFile: z.string().optional(),
+    systemPromptFile: PromptFilePath.optional(),
     tools: z.array(z.string()).optional(),
     model: z.string().optional(),
   }).refine(
@@ -1654,7 +1666,7 @@ export const ObjectTypeManifestSchema = z.object({
   code: z.string().regex(TYPE_CODE_PATTERN, 'a code is 2–5 uppercase letters, e.g. FE').optional(),
   schema: z.record(z.string(), z.unknown()).optional().describe('JSON Schema for metadata shape'),
   sourceRelevance: z.record(z.string(), z.number()).optional(),
-  classificationPromptFile: z.string().optional(),
+  classificationPromptFile: PromptFilePath.optional(),
   classificationPrompt: z.string().optional(),
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
   /** Figures computed from another type's rows — see {@link RollupSchema}. */

@@ -15,29 +15,7 @@ import { Buffer } from 'node:buffer';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-
-/** The longest path inside a workspace a staged file may have. */
-const MAX_PATH = 512;
-
-/**
- * Why a path cannot name a file inside a workspace folder, or null when it
- * can: relative, `/`-separated, no empty, `.` or `..` segment, no backslash or
- * NUL. A dotted name is refused too — the loader and the store both skip them,
- * so one could only ever be a stowaway.
- * @param path - The path inside the workspace.
- */
-export function workspacePathProblem(path: string): string | null {
-  if (path.length === 0 || path.length > MAX_PATH) {
-    return 'is empty or too long';
-  }
-  if (path.startsWith('/') || path.includes('\\') || path.includes('\0')) {
-    return 'is not a relative path with / between folders';
-  }
-  if (path.split('/').some(segment => segment.length === 0 || segment.startsWith('.'))) {
-    return 'climbs out of the workspace or names a hidden file';
-  }
-  return null;
-}
+import { workspacePathProblem } from '@/libs/workspace/archivePaths';
 
 /**
  * Write `files` into a new temporary folder, run `run` on it, and remove the

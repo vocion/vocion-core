@@ -22,11 +22,18 @@
  *     become its.
  *
  * Either way the review comes first: {@link previewImport} is a dry run that
- * writes nothing and returns the diff — per kind, per resource, retirements
- * included — and the sha of what was staged. {@link applyImport} stages the
- * same upload again and applies it only when the sha still matches, so what
- * lands is what was reviewed; if this workspace changed in between, the
- * person is asked to review again.
+ * writes nothing and returns the diff — per kind, per resource, retirements,
+ * settings, trust rules and stored files included — and the review's own sha:
+ * of every staged file and of every change the review lists.
+ * {@link applyImport} stages the same upload again, dry-runs it again, and
+ * applies it only when that sha still matches, so what lands is what was
+ * reviewed — the files, and what they do to this workspace as it is now. If
+ * either moved in between, the person is asked to review again.
+ *
+ * Some fields reach past the workspace into the deployment — where an agent's
+ * loop runs, what of the server's disk a connector reads — and no admin sets
+ * them in the app; an import may not change them either (`importPolicy.ts`).
+ * The review names each one, and nothing is applied while any is there.
  *
  * Only a workspace whose files live in the database takes an import. One this
  * host applies from its own folder, or one a deploy applies from git, would
@@ -34,12 +41,15 @@
  * of offering to apply.
  */
 
-import type { ApplyResult } from '@/libs/workspace';
+import type { ImportRefusal } from './importPolicy';
+import type { ApplyResult, LoadedWorkspace } from '@/libs/workspace';
 import type { ExportFile } from '@/libs/workspace/export';
+import { createHash } from 'node:crypto';
 import { sep } from 'node:path';
 import { eq } from 'drizzle-orm';
-import { parseDocument, stringify as stringifyYaml } from 'yaml';
+import { Document, parseDocument, stringify as stringifyYaml } from 'yaml';
 import { db } from '@/libs/DB';
+import { isDeclaredInWorkspaceFile } from '@/libs/sources/manifestDir';
 import { canonical } from '@/libs/sources/upsert';
 import { applyWorkspace, getCurrentWorkspaceVersion, invalidateCurrentContextShaCache, isDeployManaged, loadWorkspace } from '@/libs/workspace';
 import { readWorkspaceArchive } from '@/libs/workspace/archive';
@@ -48,6 +58,7 @@ import { textFile } from '@/libs/workspace/export';
 import { MANIFEST_FILES } from '@/libs/workspace/snapshot';
 import { knowledgeSourceSchema, projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
+import { importRefusals } from './importPolicy';
 import { pinSourceRows, STORED_MANIFEST_DIR, withStagedWorkspace } from './staging';
 import { EXPORT_REPORT_FILE, exportWorkspace } from './WorkspaceExportService';
 import { ownWorkspaceFolder } from './WorkspaceFileService';
@@ -59,7 +70,11 @@ export type ImportOptions = {
 
 /** What an import would do, from a dry run that wrote nothing. */
 export type ImportPreview = {
-  /** The staged workspace's sha. Applying it again requires the same one. */
+  /**
+   * The review's sha: of every staged file (path and bytes) and of every
+   * change listed here. Applying requires the same one, so an upload or a
+   * workspace that moved since the review is reviewed again.
+   */
   sha: string;
   replace: boolean;
   /** How many files the upload holds. */
@@ -73,9 +88,12 @@ export type ImportPreview = {
   warnings: ApplyResult['warnings'];
   /** Why this workspace cannot take the import, when it cannot; null when it can. */
   blockedBy: string | null;
+  /** Fields the upload sets that an import may not, by resource; nothing is applied while any is here. */
+  refused: ImportRefusal[];
 };
 
 export type ImportResult = {
+  /** The applied workspace's sha, as its version row records it. */
   sha: string;
   versionId: number | null;
   counts: ApplyResult['counts'];
@@ -85,7 +103,7 @@ export type ImportResult = {
 };
 
 export class WorkspaceImportError extends Error {
-  constructor(public readonly code: 'BLOCKED' | 'INVALID' | 'CHANGED' | 'BUSY', message: string) {
+  constructor(public readonly code: 'BLOCKED' | 'INVALID' | 'REFUSED' | 'CHANGED' | 'BUSY', message: string) {
     super(message);
     this.name = 'WorkspaceImportError';
   }
@@ -103,30 +121,29 @@ const importing = new Set<string>();
 export async function previewImport(orgId: string, upload: Uint8Array, opts: ImportOptions = {}): Promise<ImportPreview> {
   const replace = opts.replace === true;
   const incoming = readUpload(upload);
-  const files = await stagedFiles(orgId, incoming, replace);
+  const staged = await stagedFiles(orgId, incoming, replace);
   const blockedBy = await importBlockedBy(orgId);
-  return withStagedWorkspace(files, async (dir) => {
-    const loaded = load(dir);
-    pinSourceRows(loaded, await sourceRows(orgId), STORED_MANIFEST_DIR);
-    const dry = await applyWorkspace(loaded, { orgId, dryRun: true });
-    const changes = dry.changes.filter(c => c.outcome !== 'unchanged');
+  return withStagedWorkspace(staged.files, async (dir) => {
+    const review = await reviewStaged(orgId, dir, staged);
+    const changes = review.dry.changes.filter(c => c.outcome !== 'unchanged');
     return {
-      sha: loaded.sha,
+      sha: review.sha,
       replace,
       fileCount: incoming.length,
-      counts: dry.counts,
+      counts: review.dry.counts,
       changes,
-      unchanged: dry.changes.length - changes.length,
-      errors: dry.errors,
-      warnings: dry.warnings,
+      unchanged: review.dry.changes.length - changes.length,
+      errors: review.dry.errors,
+      warnings: [...review.warnings, ...review.dry.warnings],
       blockedBy,
+      refused: review.refused,
     };
   });
 }
 
 /**
- * Stage the same upload again and apply it, when what is staged is still what
- * was reviewed.
+ * Stage the same upload again and apply it, when the review of it now is still
+ * the review that was read.
  * @param orgId - The workspace importing.
  * @param upload - The zip.
  * @param opts - Merge or replace, the reviewed sha, and who is importing.
@@ -145,22 +162,80 @@ export async function applyImport(orgId: string, upload: Uint8Array, opts: Impor
   importing.add(orgId);
   try {
     const replace = opts.replace === true;
-    const files = await stagedFiles(orgId, readUpload(upload), replace);
-    return await withStagedWorkspace(files, async (dir) => {
-      const loaded = load(dir);
-      if (loaded.sha !== opts.sha) {
+    const staged = await stagedFiles(orgId, readUpload(upload), replace);
+    return await withStagedWorkspace(staged.files, async (dir) => {
+      const review = await reviewStaged(orgId, dir, staged);
+      if (review.refused.length > 0) {
+        throw new WorkspaceImportError('REFUSED', `The import sets what only an operator may: ${review.refused.map(r => `${r.resource} ${r.slug}: ${r.message}`).join(' ')}`);
+      }
+      if (review.sha !== opts.sha) {
         throw new WorkspaceImportError('CHANGED', 'This workspace changed since the import was reviewed, so the import would now do something else. Review it again.');
       }
-      pinSourceRows(loaded, await sourceRows(orgId), STORED_MANIFEST_DIR);
-      const result = await applyWorkspace(loaded, { orgId, appliedBy: opts.appliedBy, source: replace ? 'import (replace)' : 'import' });
+      const result = await applyWorkspace(review.loaded, { orgId, appliedBy: opts.appliedBy, source: replace ? 'import (replace)' : 'import', keepSourceSchedules: review.keepSchedules });
       invalidateCurrentContextShaCache();
       // An apply rewrites the missions and skills the chips are made from.
       invalidateChipCache(orgId);
-      return { sha: loaded.sha, versionId: result.versionId, counts: result.counts, changes: result.changes.filter(c => c.outcome !== 'unchanged'), errors: result.errors, warnings: result.warnings };
+      return { sha: review.loaded.sha, versionId: result.versionId, counts: result.counts, changes: result.changes.filter(c => c.outcome !== 'unchanged'), errors: result.errors, warnings: result.warnings };
     });
   } finally {
     importing.delete(orgId);
   }
+}
+
+/**
+ * Load a staged import, hold it to what an import may set, and dry-run it:
+ * what the preview shows and what an apply checks again before writing.
+ * @param orgId - The workspace importing.
+ * @param dir - The staging folder.
+ * @param staged - What was staged there, and for whom.
+ */
+async function reviewStaged(orgId: string, dir: string, staged: Staged) {
+  const loaded = load(dir);
+  // The manifest was made this workspace's own before staging; this holds the
+  // mailbox to that on the values the applier will write, whatever form the
+  // text took to say them.
+  const address = loaded.manifest.mailbox?.address;
+  if (address && address.toLowerCase() !== staged.target.mailboxAddress?.toLowerCase()) {
+    throw new WorkspaceImportError('INVALID', `The import names the mailbox ${address}, which is not this workspace's. Leave mailbox.address out and this workspace keeps its own.`);
+  }
+  const rows = await sourceRows(orgId);
+  pinSourceRows(loaded, rows, STORED_MANIFEST_DIR);
+  const { refused, warnings } = await importRefusals(orgId, loaded, rows);
+  const keepSchedules = schedulesTheAppSet(loaded, rows);
+  const dry = await applyWorkspace(loaded, { orgId, dryRun: true, keepSourceSchedules: keepSchedules });
+  return { loaded, dry, refused, warnings, keepSchedules, sha: reviewSha(staged.files, dry.changes) };
+}
+
+/**
+ * The connectors whose sync schedules an import leaves as they are: those the
+ * app added (no workspace file declared them, so the Connect page set their
+ * schedule), where what is staged names no cadence of its own. An export
+ * cannot carry such a schedule, so a staged connector without one says
+ * nothing about it — and an apply reading that silence as "no schedule" would
+ * stop the connector syncing.
+ * @param loaded - The staged workspace.
+ * @param rows - This workspace's connector rows.
+ */
+function schedulesTheAppSet(loaded: LoadedWorkspace, rows: ReadonlyArray<{ slug: string; configJson: Record<string, unknown> | null }>): Set<string> {
+  const addedInTheApp = new Set(rows.filter(r => !isDeclaredInWorkspaceFile(r.configJson)).map(r => r.slug));
+  return new Set(loaded.sources.filter(s => addedInTheApp.has(s.slug) && s.schedule === undefined && s.reconcileSchedule === undefined).map(s => s.slug));
+}
+
+/**
+ * The review's sha: every staged file by its path and bytes, then every change
+ * the review lists. The workspace's own sha leaves out what its runs do not
+ * read (pages, the brand and its logos), and says nothing about the workspace
+ * the files land in; this covers both.
+ * @param files - What was staged.
+ * @param changes - The dry run's outcomes.
+ */
+function reviewSha(files: readonly ExportFile[], changes: ApplyResult['changes']): string {
+  const hash = createHash('sha256');
+  for (const file of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+    hash.update(file.path).update('\0').update(file.encoding).update('\0').update(file.content).update('\0');
+  }
+  hash.update(canonical(changes.filter(c => c.outcome !== 'unchanged')));
+  return `review-${hash.digest('hex').slice(0, 16)}`;
 }
 
 /**
@@ -170,9 +245,8 @@ export async function applyImport(orgId: string, upload: Uint8Array, opts: Impor
  * @param orgId - The workspace.
  */
 export async function importBlockedBy(orgId: string): Promise<string | null> {
-  const own = await ownWorkspaceFolder(orgId);
-  if (own) {
-    return `This workspace is applied from its folder on this host (${own.path}), so its next apply would undo an import. Put the files in that folder and apply it.`;
+  if (await ownWorkspaceFolder(orgId)) {
+    return 'This workspace is applied from its folder on this host, so its next apply would undo an import. Put the files in that folder and apply it.';
   }
   const applied = await getCurrentWorkspaceVersion(orgId);
   if (applied && isDeployManaged({ writable: true, appliedBy: applied.appliedBy })) {
@@ -207,6 +281,9 @@ async function sourceRows(orgId: string) {
   return db.select({ slug: knowledgeSourceSchema.slug, configJson: knowledgeSourceSchema.configJson }).from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, orgId));
 }
 
+/** What was staged for an import, and the workspace it is for. */
+type Staged = { files: ExportFile[]; target: Target };
+
 /**
  * The files to stage: the upload alone (replace), or the upload laid over this
  * workspace as it runs now (merge). Either way the manifest is made this
@@ -215,14 +292,14 @@ async function sourceRows(orgId: string) {
  * @param incoming - The upload's files.
  * @param replace - Replace rather than merge.
  */
-async function stagedFiles(orgId: string, incoming: readonly ExportFile[], replace: boolean): Promise<ExportFile[]> {
+async function stagedFiles(orgId: string, incoming: readonly ExportFile[], replace: boolean): Promise<Staged> {
   const [project] = await db.select({ id: projectSchema.id, mailboxAddress: projectSchema.mailboxAddress }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
   const target: Target = project ?? { id: orgId, mailboxAddress: null };
   if (replace) {
-    return incoming.map(f => (isManifest(f.path) ? textFile(f.path, ownManifest(text(f), target)) : f));
+    return { files: incoming.map(f => (isManifest(f.path) ? textFile(f.path, ownManifest(text(f), target)) : f)), target };
   }
   const current = (await exportWorkspace(orgId)).files.filter(f => f.path !== EXPORT_REPORT_FILE);
-  return mergeWorkspaceFiles(current, incoming, target);
+  return { files: mergeWorkspaceFiles(current, incoming, target), target };
 }
 
 /** The workspace an import lands in, as its manifest is made its own. */
@@ -362,14 +439,33 @@ export function upsertMerge(current: unknown, incoming: unknown): unknown {
  * @param target.mailboxAddress - Its mailbox address, if it has one.
  */
 function ownManifest(manifestText: string, target: Target): string {
-  const doc = parseDocument(manifestText);
+  let doc: Document = parseDocument(manifestText);
   if (doc.errors.length > 0) {
     return manifestText;
   }
-  const address = doc.getIn(['mailbox', 'address']);
-  const foreignAddress = typeof address === 'string' && address.toLowerCase() !== target.mailboxAddress?.toLowerCase();
-  if (doc.get('orgId') === target.id && !foreignAddress) {
+  // Read the way the loader will: anchors and aliases expanded. Reading the
+  // text's nodes instead misses an address reached through an alias.
+  let value: unknown;
+  try {
+    value = doc.toJS();
+  } catch {
     return manifestText;
+  }
+  if (!isMap(value)) {
+    return manifestText;
+  }
+  const address = isMap(value.mailbox) ? value.mailbox.address : undefined;
+  const foreignAddress = typeof address === 'string' && address.toLowerCase() !== target.mailboxAddress?.toLowerCase();
+  if (value.orgId === target.id && !foreignAddress) {
+    return manifestText;
+  }
+  if (foreignAddress && doc.getIn(['mailbox', 'address']) !== address) {
+    // The text says it through an alias or a merge key, which an edit of its
+    // nodes would not reach: write the expanded value instead, so the edit
+    // lands on what the loader reads. Its comments go; its meaning stays.
+    // Without `aliasDuplicateObjects: false` the shared value would be
+    // written as an anchor and an alias again.
+    doc = new Document(value, { aliasDuplicateObjects: false });
   }
   doc.set('orgId', target.id);
   if (foreignAddress && target.mailboxAddress) {

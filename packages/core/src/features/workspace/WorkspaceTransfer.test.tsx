@@ -16,7 +16,7 @@ import { WorkspaceTransfer } from './WorkspaceTransfer';
 const fetchMock = vi.fn<typeof fetch>();
 
 function preview(over: Partial<ImportPreview> = {}): ImportPreview {
-  const counts = Object.fromEntries(['agents', 'skills', 'objectTypes', 'workflows', 'missions', 'automations', 'notifications', 'playbooks', 'learningSteps', 'evalDatasets', 'sources', 'teams', 'wikiPages'].map(k => [k, { created: 0, updated: 0, unchanged: 0 }])) as ImportPreview['counts'];
+  const counts = Object.fromEntries(['agents', 'skills', 'objectTypes', 'workflows', 'missions', 'automations', 'notifications', 'playbooks', 'learningSteps', 'evalDatasets', 'sources', 'teams', 'wikiPages', 'settings', 'trustRules', 'files'].map(k => [k, { created: 0, updated: 0, unchanged: 0 }])) as ImportPreview['counts'];
   counts.agents = { created: 1, updated: 1, unchanged: 3, retired: 1 };
   return {
     sha: 'local-0123456789ab',
@@ -32,6 +32,7 @@ function preview(over: Partial<ImportPreview> = {}): ImportPreview {
     errors: [],
     warnings: [],
     blockedBy: null,
+    refused: [],
     ...over,
   };
 }
@@ -124,6 +125,54 @@ describe('WorkspaceTransfer', () => {
 
     await expect.element(page.getByText(/applied from git/)).toBeVisible();
     expect(page.getByRole('button', { name: /Apply/ }).elements()).toHaveLength(0);
+  });
+
+  it('names each field an import may not set, and offers no apply while one is there', async () => {
+    fetchMock.mockResolvedValueOnce(json(preview({ refused: [{ resource: 'agents', slug: 'managed', message: 'harness.runsOn "aws-managed-harness" puts this agent\'s loop on the deployment\'s AgentCore infrastructure.' }] })));
+    mount();
+
+    await page.getByRole('button', { name: 'Import' }).click();
+    await pickZip();
+    await page.getByRole('button', { name: 'Review changes' }).click();
+
+    await expect.element(page.getByText(/agents managed: harness.runsOn "aws-managed-harness"/)).toBeVisible();
+    expect(page.getByRole('button', { name: /Apply/ }).elements()).toHaveLength(0);
+  });
+
+  it('says a folder is too large before uploading it, having left out what no workspace is made of', async () => {
+    mount();
+
+    await page.getByRole('button', { name: 'Import' }).click();
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
+    const transfer = new DataTransfer();
+    const file = (path: string, bytes: Uint8Array) => {
+      const f = new File([bytes as BlobPart], path.slice(path.lastIndexOf('/') + 1));
+      Object.defineProperty(f, 'webkitRelativePath', { value: path });
+      return f;
+    };
+    // Random bytes do not compress: 26 MB of them under .git/ is skipped, 26 MB in pages/ is not.
+    const noise = (size: number) => {
+      const out = new Uint8Array(size);
+      for (let at = 0; at < size; at += 65536) {
+        crypto.getRandomValues(out.subarray(at, Math.min(size, at + 65536)));
+      }
+      return out;
+    };
+    transfer.items.add(file('cobalt/workspace.yaml', new TextEncoder().encode('version: 1\n')));
+    transfer.items.add(file('cobalt/.git/objects/pack.bin', noise(26 * 1024 * 1024)));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await expect.element(page.getByText('cobalt (1 file)')).toBeVisible();
+
+    const big = new DataTransfer();
+    big.items.add(file('cobalt/workspace.yaml', new TextEncoder().encode('version: 1\n')));
+    big.items.add(file('cobalt/pages/scan.bin', noise(26 * 1024 * 1024)));
+    input.files = big.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await expect.element(page.getByText(/an import may be up to 25.0 MB/)).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('puts the server\'s reason where the person is looking when the upload is refused', async () => {

@@ -350,7 +350,10 @@
       "evalDatasets": "Eval datasets",
       "sources": "Connectors",
       "teams": "Teams",
-      "wikiPages": "Wiki pages"
+      "wikiPages": "Wiki pages",
+      "settings": "Settings",
+      "trustRules": "Trust rules",
+      "files": "Pages, brand and files"
     }
   },
   "WorkspaceTransfer": {
@@ -371,6 +374,8 @@
     "done": "Imported: {count, plural, one {# change applied} other {# changes applied}}.",
     "failed": "The import failed ({status}).",
     "cancel": "Cancel",
-    "close": "Done"
+    "close": "Done",
+    "too_large": "That is {size} zipped; an import may be up to {limit}. Leave out what is not part of the workspace (data folders, build output) and try again.",
+    "refused": "This import sets what only an operator may, so it cannot be applied here:"
   }
 }

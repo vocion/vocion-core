@@ -14,7 +14,7 @@ import { parse as parseYaml } from 'yaml';
 
 vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
-const { agentSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, agentSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { applyWorkspace } = await import('./applier');
 const { loadWorkspace } = await import('./loader');
 const { projectLeadToManifestKeys, teamRowToManifest } = await import('./team-export');
@@ -43,7 +43,7 @@ function writeFixtureWorkspace(): string {
 }
 
 async function cleanDb() {
-  for (const table of [teamSchema, agentSchema, projectSchema, tenantAccountSchema, userSchema]) {
+  for (const table of [teamSchema, agentSchema, accountMembershipSchema, projectSchema, tenantAccountSchema, userSchema]) {
     await db.delete(table);
   }
 }
@@ -61,6 +61,8 @@ describe('teams workspace apply → export round-trip', () => {
     await db.insert(userSchema).values([CHRIS, LILI]);
     await db.insert(tenantAccountSchema).values({ id: 'acct-rt', name: 'MetaCTO', slug: 'metacto-rt' });
     await db.insert(projectSchema).values({ id: ORG, accountId: 'acct-rt', slug: 'roundtrip', name: 'Roundtrip' });
+    // An owner resolves among the people who can open the workspace.
+    await db.insert(accountMembershipSchema).values([{ accountId: 'acct-rt', userId: CHRIS.id, role: 'admin' }, { accountId: 'acct-rt', userId: LILI.id, role: 'member' }]);
 
     const loaded = loadWorkspace(dir);
     const first = await applyWorkspace(loaded, { orgId: ORG, appliedBy: 'vitest' });
@@ -128,7 +130,7 @@ describe('teams workspace apply → export round-trip', () => {
     expect(result.errors.map(e => `${e.resource}/${e.slug}`)).toEqual(
       expect.arrayContaining(['workspace/workspace.yaml', 'team/marketing']),
     );
-    expect(result.errors.every(e => e.message.includes('does not match any user'))).toBe(true);
+    expect(result.errors.every(e => e.message.includes('is not a member of this workspace'))).toBe(true);
 
     const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, ORG));
 

@@ -88,6 +88,7 @@ export const fileImportConnector: SourceConnector<typeof fileImportConfigSchema>
   icon: 'FileJson',
   authKind: 'none',
   configSchema: fileImportConfigSchema,
+  hostPathConfig: ['path'],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = fileImportConfigSchema.parse(ctx.config);
     const filePath = resolvePath(cfg.path);

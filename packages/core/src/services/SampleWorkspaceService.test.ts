@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
-const { agentSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, workspaceFileSchema, workspaceVersionSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, agentSchema, playbookSchema, projectMemberSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, workspaceFileSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { DEFAULT_SAMPLE_WORKSPACE, SAMPLE_USERS, SAMPLE_WORKSPACE_PATH, SAMPLE_WORKSPACES, SampleSeedBlockedError, seedSampleWorkspace, UnknownSampleWorkspaceError } = await import('@/services/SampleWorkspaceService');
 const { getWorkspaceLead, listTeams } = await import('@/services/TeamService');
 const { loadWorkspace } = await import('@/libs/workspace');
@@ -31,7 +31,7 @@ const DEGRADED_FIXTURE = 'packages/core/templates/workspaces/fixtures/meridian-d
 const EMPTY_FIXTURE = 'packages/core/templates/workspaces/fixtures/meridian-empty';
 
 async function cleanDb() {
-  for (const table of [workspaceVersionSchema, workspaceFileSchema, teamSchema, agentSchema, playbookSchema, projectSchema, tenantAccountSchema, userSchema]) {
+  for (const table of [workspaceVersionSchema, workspaceFileSchema, teamSchema, agentSchema, playbookSchema, projectMemberSchema, accountMembershipSchema, projectSchema, tenantAccountSchema, userSchema]) {
     await db.delete(table);
   }
 }
@@ -41,6 +41,8 @@ beforeEach(async () => {
   await db.insert(userSchema).values(ADMIN);
   await db.insert(tenantAccountSchema).values({ id: 'acct-seed', name: 'Seed Test', slug: 'seed-test' });
   await db.insert(projectSchema).values({ id: ORG, accountId: 'acct-seed', slug: 'seed-test', name: 'Seed Test' });
+  // The caller seeding the sample is an admin of the account.
+  await db.insert(accountMembershipSchema).values({ accountId: 'acct-seed', userId: ADMIN.id, role: 'admin' });
 });
 
 describe('seedSampleWorkspace gating', () => {
