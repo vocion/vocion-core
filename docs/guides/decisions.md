@@ -56,6 +56,9 @@ docked, typed Decision needs.
 `credential` are a *question*; `ruling` and `recommendation` a *choice*;
 `approval`, `merge` and `gate` an *approval* (Approve / Reject when no options
 are named). *Sign-off* and *setup step* arrive with artifacts and objectives.
+An approval of a **proposal** needs no row of its own: it is the pending
+`action_run`, read as a Decision — a second row wrapping it would put every
+proposal on Needs you twice and in front of every reader of open asks.
 
 **States** are read off the row: `open` → `answered` · `skipped` · `defaulted`
 (the clock applied the default) · `expired` (the deadline passed with no default

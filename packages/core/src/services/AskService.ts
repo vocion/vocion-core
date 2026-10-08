@@ -249,8 +249,6 @@ export type AskInput = {
   allowOther?: boolean;
   /** Whether several options may be chosen together. */
   multiSelect?: boolean;
-  /** An approval Decision wraps this pending action_run. */
-  runId?: number | null;
 };
 
 /**
@@ -296,9 +294,8 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       ownerUserId: ask.ownerUserId,
       allowOther: ask.allowOther,
       multiSelect: ask.multiSelect,
-      runId: ask.runId,
     }).filter(([, v]) => v !== undefined),
-  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId' | 'conversationId' | 'ownerUserId' | 'allowOther' | 'multiSelect' | 'runId'>> & Pick<Ask, 'kind' | 'title'>;
+  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId' | 'conversationId' | 'ownerUserId' | 'allowOther' | 'multiSelect'>> & Pick<Ask, 'kind' | 'title'>;
 
   const sourceRef = ask.sourceRef?.trim() || null;
   if (sourceRef) {

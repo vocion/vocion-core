@@ -4652,8 +4652,6 @@ export const askSchema = pgTable(
     chosenOptionIds: jsonb('chosen_option_ids').$type<string[]>(),
     /** Where it was answered: `card` | `composer` | `needs_you` | `slack` | `email` | `default` | `agent`. */
     decidedVia: text('decided_via'),
-    /** An approval Decision wraps this pending action_run. */
-    runId: integer('run_id'),
     /** The action_run the chosen option's effect started — what Undo reverses, where its kind has undo. */
     effectRunId: integer('effect_run_id'),
   },

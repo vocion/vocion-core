@@ -18,10 +18,11 @@
 --                      `decision`, so every reader of `decision` keeps working)
 --   decided_via        where it was answered: card | composer | needs_you |
 --                      slack | email | default | agent
---   run_id             an approval Decision wraps this pending action_run
 --   effect_run_id      the action_run the chosen option's effect started —
 --                      what Undo reverses, and only when that kind has undo
 --
+-- An approval Decision needs no column: it IS the pending action_run, read as
+-- a Decision — a wrapping ask would put every proposal on Needs you twice.
 -- `status` gains one value, `skipped`, written by code; the column is text.
 -- Expand-only: every column is nullable or has a constant default, so the
 -- ALTERs are metadata-only and old code reading `ask` is untouched. The one
@@ -34,5 +35,4 @@ ALTER TABLE "ask" ADD COLUMN IF NOT EXISTS "allow_other" boolean DEFAULT true NO
 ALTER TABLE "ask" ADD COLUMN IF NOT EXISTS "multi_select" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "ask" ADD COLUMN IF NOT EXISTS "chosen_option_ids" jsonb;--> statement-breakpoint
 ALTER TABLE "ask" ADD COLUMN IF NOT EXISTS "decided_via" text;--> statement-breakpoint
-ALTER TABLE "ask" ADD COLUMN IF NOT EXISTS "run_id" integer;--> statement-breakpoint
 ALTER TABLE "ask" ADD COLUMN IF NOT EXISTS "effect_run_id" integer;
