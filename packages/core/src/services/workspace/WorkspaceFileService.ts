@@ -148,6 +148,27 @@ async function readStore(orgId: string, asked: SQL | undefined, keep: (path: str
 }
 
 /**
+ * Every file the project has stored, with its content — what an export
+ * starts from (`WorkspaceExportService.ts`). Unlike the readers above, a
+ * failed read throws: an export that quietly left out the stored files would
+ * hand over a workspace with no skill bodies and no pages.
+ * @param orgId - The project.
+ */
+export async function readAllStoredFiles(orgId: string): Promise<StoredFile[]> {
+  const rows = await db
+    .select({
+      path: workspaceFileSchema.path,
+      content: workspaceFileSchema.content,
+      encoding: workspaceFileSchema.encoding,
+      sha: workspaceFileSchema.sha,
+      workspaceSha: workspaceFileSchema.workspaceSha,
+    })
+    .from(workspaceFileSchema)
+    .where(eq(workspaceFileSchema.orgId, orgId));
+  return rows.map(r => ({ ...r, encoding: r.encoding === 'base64' ? 'base64' : 'utf8' }));
+}
+
+/**
  * The folder on this host that is the project's own, for a project with
  * nothing stored: the one on `WORKSPACE_PATH` when the applier's record says
  * it is this project's (`mounted: true` — the only folder an in-app edit can

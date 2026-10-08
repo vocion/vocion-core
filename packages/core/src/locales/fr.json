@@ -326,5 +326,51 @@
     "hire_failed": "Impossible de recruter cet agent. Actualisez et réessayez.",
     "installed_apps": "Applications installées",
     "more_apps": "Autres applications"
+  },
+  "ApplyDiff": {
+    "nothing": "Rien ne changerait.",
+    "created": "{count} nouveau(x)",
+    "updated": "{count} modifié(s)",
+    "retired": "{count} retiré(s)",
+    "outcome": {
+      "created": "Nouveau",
+      "updated": "Modifié",
+      "retired": "Retiré"
+    },
+    "kinds": {
+      "agents": "Agents",
+      "skills": "Compétences",
+      "objectTypes": "Types d’objet",
+      "workflows": "Workflows",
+      "missions": "Missions",
+      "automations": "Automatisations",
+      "notifications": "Notifications",
+      "playbooks": "Playbooks",
+      "learningSteps": "Étapes d’apprentissage",
+      "evalDatasets": "Jeux d’évaluation",
+      "sources": "Connecteurs",
+      "teams": "Équipes",
+      "wikiPages": "Pages du wiki"
+    }
+  },
+  "WorkspaceTransfer": {
+    "export": "Exporter",
+    "import": "Importer",
+    "title": "Importer un espace de travail",
+    "description": "Téléversez l’export d’un espace de travail, ou un dossier d’espace de travail. Vous voyez ce qu’il changerait avant que rien ne soit appliqué.",
+    "pick_zip": "Choisir un zip",
+    "pick_folder": "Choisir un dossier",
+    "picked_folder": "{name} ({count, plural, one {# fichier} other {# fichiers}})",
+    "replace": "Tout remplacer",
+    "merge_help": "Désactivé : ce que l’import nomme est ajouté ou mis à jour, et rien de ce qu’il omet ne change.",
+    "replace_help": "Activé : l’import devient tout l’espace de travail. Les agents, missions, automatisations et workflows qu’il ne contient pas sont retirés, et ses règles de confiance et ses réglages remplacent ceux-ci.",
+    "review": "Voir les changements",
+    "apply": "Appliquer {count, plural, one {# changement} other {# changements}}",
+    "nothing_to_apply": "Rien à appliquer",
+    "unchanged": "{count, plural, one {# élément reste} other {# éléments restent}} tel quel.",
+    "done": "Importé : {count, plural, one {# changement appliqué} other {# changements appliqués}}.",
+    "failed": "L’import a échoué ({status}).",
+    "cancel": "Annuler",
+    "close": "Terminé"
   }
 }

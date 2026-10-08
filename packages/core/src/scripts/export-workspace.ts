@@ -1,217 +1,99 @@
+import { Buffer } from 'node:buffer';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
-import { eq, inArray } from 'drizzle-orm';
-import { stringify as stringifyYaml } from 'yaml';
+import { parseArgs } from 'node:util';
+import { eq, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { projectLeadToManifestKeys, teamRowToManifest } from '@/libs/workspace/team-export';
-import { agentSchema, businessObjectTypeSchema, projectSchema, teamSchema, userSchema } from '@/models/Schema';
+import { zipWorkspace } from '@/libs/workspace/archive';
+import { projectSchema } from '@/models/Schema';
+import { exportWorkspace } from '@/services/workspace/WorkspaceExportService';
 import 'dotenv/config';
 
 /**
- * One-time export: read current DB rows into workspace/<org>/ as YAML + markdown.
- * Meant to be run once per org when migrating to workspace-as-code.
+ * Export a workspace from the database as a folder of workspace files (or a
+ * zip), every kind the loader reads — the same export an admin downloads from
+ * Workforce › Settings › Context (`services/workspace/WorkspaceExportService.ts`).
+ * The folder applies anywhere with `workspace:apply`; `EXPORT.md` in it says
+ * which files are as authored and which were written from what is running.
  *
- * usage: npm run workspace:export -- --org <orgId> --name <dirName> [--out context]
+ * usage: npm run workspace:export -- --project <id|slug> [--out <folder>] [--zip <file.zip>]
+ *
+ * `--org <id>` is read as `--project`; `--name <dir>` writes to
+ * `<--out, default context>/<dir>`, as this script always has.
  */
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  const orgId = args.org ?? process.env.SEED_ORG_ID ?? 'org_2ExampleFixtureOrgId000000';
-  const name = args.name ?? 'metacto';
-  const outRoot = args.out ?? 'context';
-  const outDir = join(process.cwd(), outRoot, name);
-
-  mkdirSync(outDir, { recursive: true });
-
-  const agents = await db.select().from(agentSchema).where(eq(agentSchema.orgId, orgId));
-  const objectTypes = await db.select().from(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, orgId));
-  const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
-  const [project] = await db.select().from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
-
-  // accountable_user_id → email, for teams + the workspace default.
-  const accountableIds = [
-    ...teams.map(t => t.accountableUserId),
-    project?.accountableUserId ?? null,
-  ].filter((id): id is string => id !== null);
-  const emailByUserId = new Map<string, string>(
-    accountableIds.length > 0
-      ? (await db.select({ id: userSchema.id, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, accountableIds)))
-          .map(u => [u.id, u.email] as const)
-      : [],
-  );
-
-  // workspace.yaml — workspace lead + default owner come from the project
-  // row when one matches the org (workspace lead is project config).
-  writeFile(join(outDir, 'workspace.yaml'), stringifyYaml({
-    version: 1,
-    orgId,
-    name,
-    description: `Exported context for ${name} on ${new Date().toISOString()}`,
-    ...projectLeadToManifestKeys(
-      project ?? { leadAgentSlug: null, accountableUserId: null },
-      emailByUserId,
-    ),
-    defaults: {
-      model: mode(agents.map(a => a.model ?? 'gpt-4o')),
-      temperature: '0.3',
+  const { values } = parseArgs({
+    options: {
+      project: { type: 'string' },
+      org: { type: 'string' },
+      name: { type: 'string' },
+      out: { type: 'string' },
+      zip: { type: 'string' },
+      help: { type: 'boolean', short: 'h', default: false },
     },
-  }));
+  });
+  if (values.help) {
+    console.log('usage: npm run workspace:export -- --project <id|slug> [--out <folder>] [--zip <file.zip>]');
+    process.exit(0);
+  }
+  const wanted = values.project ?? values.org ?? process.env.SEED_ORG_ID;
+  const project = await resolveProject(wanted);
+  const exported = await exportWorkspace(project.id);
 
-  // teams/<slug>.yaml — slug is the filename; inherited accountability is
-  // NOT baked in (NULL accountable_user_id exports as an absent key).
-  if (teams.length > 0) {
-    const teamsDir = join(outDir, 'teams');
-    mkdirSync(teamsDir, { recursive: true });
-    for (const t of teams) {
-      writeFile(join(teamsDir, `${t.slug}.yaml`), stringifyYaml(teamRowToManifest(t, emailByUserId), { lineWidth: 0 }));
+  if (values.zip) {
+    const file = resolve(values.zip);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, zipWorkspace(exported.files, `${exported.project.slug}-workspace`));
+    console.log(`\n✓ exported ${exported.project.slug} to ${file}`);
+  } else {
+    const dir = values.name
+      ? join(process.cwd(), values.out ?? 'context', values.name)
+      : resolve(values.out ?? `${exported.project.slug}-workspace`);
+    for (const f of exported.files) {
+      const abs = join(dir, ...f.path.split('/'));
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, f.encoding === 'base64' ? Buffer.from(f.content, 'base64') : f.content);
     }
+    console.log(`\n✓ exported ${exported.project.slug} to ${dir}`);
   }
-
-  // agents/<slug>.yaml + agents/<slug>.system-prompt.md
-  const agentsDir = join(outDir, 'agents');
-  mkdirSync(agentsDir, { recursive: true });
-  for (const a of agents) {
-    const promptFile = `${a.slug}.system-prompt.md`;
-    writeFile(join(agentsDir, promptFile), a.systemPrompt);
-
-    const manifest = stripNulls({
-      slug: a.slug,
-      name: a.name,
-      description: a.description,
-      icon: a.icon,
-      active: a.active !== 'false',
-      parent: a.parentAgentSlug ?? undefined,
-      // Team membership (F1). Prefer the validated slug ref; fall back to
-      // the legacy free-text label so pre-teams workspaces round-trip.
-      // A lead's own team is OMITTED — apply auto-assigns it, so writing
-      // it out would make the first re-apply a spurious update.
-      team: teams.some(t => t.slug === a.teamSlug && t.leadAgentSlug === a.slug)
-        ? undefined
-        : a.teamSlug ?? a.team ?? undefined,
-      // Work-mode label. Was silently dropped on export before F1, which
-      // made every export→apply round-trip rewrite agentType to NULL.
-      agentType: (a.agentType ?? undefined) as 'mission' | 'workflow' | 'operational' | undefined,
-      model: a.model,
-      temperature: a.temperature,
-      systemPromptFile: promptFile,
-      // Chat-UX ornaments + deepagents-runtime fields — without these an
-      // export→apply round-trip silently resets them to schema defaults.
-      accent: a.accent ?? undefined,
-      eyebrow: a.eyebrow ?? undefined,
-      handles: (a.handles ?? []).length > 0 ? a.handles : undefined,
-      // NULL is a row from before the column; `normal` is the schema default
-      // either way, so only a chosen value is worth writing out.
-      initiative: a.initiative && a.initiative !== 'normal' ? a.initiative : undefined,
-      suggestions: (a.suggestions ?? []).length > 0 ? a.suggestions : undefined,
-      subagents: (a.subagents ?? []).length > 0 ? a.subagents : undefined,
-      playbooks: (a.playbookSlugs ?? []).length > 0 ? a.playbookSlugs : undefined,
-      learningSteps: (a.learningSteps ?? []).length > 0 ? a.learningSteps : undefined,
-      // Harness block — carries the execution-layer choice (BYOA
-      // `provider: runtime`, agentcore, interrupts, excludeTools…).
-      // Omitting this is how a round-trip would un-cut-over an agent.
-      harness: Object.keys(a.harnessConfig ?? {}).length > 0 ? a.harnessConfig : undefined,
-      skills: a.skillSlugs ?? [],
-      connectorSources: a.connectorSources ?? [],
-      objectTypes: a.objectTypeSlugs ?? [],
-      documentSetIds: a.documentSetIds ?? [],
-      searchConfig: a.searchConfig ?? {},
-      fewShotExamples: a.fewShotExamples ?? [],
-      approvalPolicy: a.approvalPolicy ?? {},
-      langfuseProjectId: a.langfuseProjectId,
-    });
-    writeFile(join(agentsDir, `${a.slug}.yaml`), stringifyYaml(manifest, { lineWidth: 0 }));
+  console.log(`  files: ${exported.files.length} (started from: ${exported.report.base})`);
+  for (const r of exported.report.fromRows) {
+    console.log(`  from what is running: ${r.kind} ${r.slug} (${r.why})`);
   }
-
-  // Skills and playbooks are file-authored (skills/<slug>/SKILL.md,
-  // playbooks/<slug>/SKILL.md) — nothing to export from the DB.
-
-  // objects/<slug>/type.yaml + objects/<slug>/classification-prompt.md
-  const objectsDir = join(outDir, 'objects');
-  mkdirSync(objectsDir, { recursive: true });
-  for (const ot of objectTypes) {
-    const otDir = join(objectsDir, ot.slug.replace(/_/g, '-'));
-    mkdirSync(otDir, { recursive: true });
-
-    let classificationPromptFile: string | undefined;
-    if (ot.classificationPrompt) {
-      classificationPromptFile = 'classification-prompt.md';
-      writeFile(join(otDir, classificationPromptFile), ot.classificationPrompt);
-    }
-
-    const manifest = stripNulls({
-      slug: ot.slug,
-      label: ot.label,
-      description: ot.description,
-      icon: ot.icon,
-      schema: ot.schema ?? undefined,
-      sourceRelevance: ot.sourceRelevance ?? undefined,
-      classificationPromptFile,
-      fewShotExamples: ot.fewShotExamples ?? [],
-    });
-    writeFile(join(otDir, 'type.yaml'), stringifyYaml(manifest, { lineWidth: 0 }));
+  for (const l of exported.report.left) {
+    console.warn(`  ⚠ not exported: ${l.kind} ${l.slug} — ${l.reason}`);
   }
-
-  console.log(`\n✓ exported to ${outDir}`);
-  console.log(`  agents: ${agents.length}`);
-  console.log(`  teams: ${teams.length}`);
-  console.log(`  objectTypes: ${objectTypes.length}`);
+  for (const p of exported.report.problems) {
+    console.warn(`  ⚠ ${p}`);
+  }
   process.exit(0);
 }
 
-function parseArgs(argv: string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a && a.startsWith('--')) {
-      const key = a.slice(2);
-      const next = argv[i + 1];
-      if (next && !next.startsWith('--')) {
-        out[key] = next;
-        i++;
-      } else {
-        out[key] = 'true';
-      }
+/**
+ * The project to export, by id or slug; the only project when none is named.
+ * @param wanted - An id or slug, or nothing.
+ */
+async function resolveProject(wanted: string | undefined): Promise<{ id: string; slug: string }> {
+  if (wanted) {
+    const [p] = await db
+      .select({ id: projectSchema.id, slug: projectSchema.slug })
+      .from(projectSchema)
+      .where(or(eq(projectSchema.id, wanted), eq(projectSchema.slug, wanted)))
+      .limit(1);
+    if (!p) {
+      console.error(`\n✗ no project matches "${wanted}" (by id or slug)\n`);
+      process.exit(2);
     }
+    return p;
   }
-  return out;
-}
-
-function mode<T>(arr: T[]): T | undefined {
-  const counts = new Map<T, number>();
-  for (const v of arr) {
-    counts.set(v, (counts.get(v) ?? 0) + 1);
+  const projects = await db.select({ id: projectSchema.id, slug: projectSchema.slug }).from(projectSchema);
+  if (projects.length !== 1) {
+    console.error(`\n✗ ${projects.length} projects exist — pass --project <id|slug>\n`);
+    process.exit(2);
   }
-  let best: T | undefined;
-  let bestCount = 0;
-  for (const [v, n] of counts) {
-    if (n > bestCount) {
-      best = v;
-      bestCount = n;
-    }
-  }
-  return best;
-}
-
-function stripNulls<T extends Record<string, unknown>>(obj: T): Partial<T> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined) {
-      continue;
-    }
-    if (Array.isArray(v) && v.length === 0) {
-      continue;
-    }
-    if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) {
-      continue;
-    }
-    out[k] = v;
-  }
-  return out as Partial<T>;
-}
-
-function writeFile(path: string, content: string): void {
-  writeFileSync(path, content.endsWith('\n') ? content : `${content}\n`);
+  return projects[0]!;
 }
 
 main().catch((err) => {

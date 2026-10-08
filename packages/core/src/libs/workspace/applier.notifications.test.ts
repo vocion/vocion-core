@@ -90,7 +90,9 @@ describe('applying notification kinds', () => {
     const one = workspaceWith(`notifications:\n  - {kind: shipped, label: Shipped, event: thing.shipped, title: 'Shipped {name}!'}\n`);
     const third = await applyWorkspace(loadWorkspace(one), { orgId: ORG });
 
-    expect(third.counts.notifications).toEqual({ created: 0, updated: 1, unchanged: 0 });
+    // The kind it no longer declares is counted, and named, as retired.
+    expect(third.counts.notifications).toEqual({ created: 0, updated: 1, unchanged: 0, retired: 1 });
+    expect(third.changes).toContainEqual({ resource: 'notifications', slug: 'stuck', outcome: 'retired' });
     expect(third.warnings).toContainEqual(expect.objectContaining({ resource: 'notification', slug: 'stuck' }));
 
     const rows = await db.select().from(notificationRuleSchema).where(eq(notificationRuleSchema.orgId, ORG));

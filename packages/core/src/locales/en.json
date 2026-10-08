@@ -326,5 +326,51 @@
     "hire_failed": "Could not hire that agent. Refresh and try again.",
     "installed_apps": "Installed apps",
     "more_apps": "More apps"
+  },
+  "ApplyDiff": {
+    "nothing": "Nothing would change.",
+    "created": "{count} new",
+    "updated": "{count} updated",
+    "retired": "{count} retired",
+    "outcome": {
+      "created": "New",
+      "updated": "Updated",
+      "retired": "Retired"
+    },
+    "kinds": {
+      "agents": "Agents",
+      "skills": "Skills",
+      "objectTypes": "Object types",
+      "workflows": "Workflows",
+      "missions": "Missions",
+      "automations": "Automations",
+      "notifications": "Notifications",
+      "playbooks": "Playbooks",
+      "learningSteps": "Learning steps",
+      "evalDatasets": "Eval datasets",
+      "sources": "Connectors",
+      "teams": "Teams",
+      "wikiPages": "Wiki pages"
+    }
+  },
+  "WorkspaceTransfer": {
+    "export": "Export",
+    "import": "Import",
+    "title": "Import a workspace",
+    "description": "Upload a workspace export, or a workspace folder. You see what it would change before anything is applied.",
+    "pick_zip": "Choose a zip",
+    "pick_folder": "Choose a folder",
+    "picked_folder": "{name} ({count, plural, one {# file} other {# files}})",
+    "replace": "Replace everything",
+    "merge_help": "Off: what the upload names is added or updated, and nothing it leaves out changes.",
+    "replace_help": "On: the upload becomes the whole workspace. Agents, missions, automations and workflows it does not ship are retired, and its trust rules and settings replace these.",
+    "review": "Review changes",
+    "apply": "Apply {count, plural, one {# change} other {# changes}}",
+    "nothing_to_apply": "Nothing to apply",
+    "unchanged": "{count, plural, one {# thing stays} other {# things stay}} as it is.",
+    "done": "Imported: {count, plural, one {# change applied} other {# changes applied}}.",
+    "failed": "The import failed ({status}).",
+    "cancel": "Cancel",
+    "close": "Done"
   }
 }

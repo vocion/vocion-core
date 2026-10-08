@@ -3,10 +3,12 @@ import { AlertTriangle, CheckCircle2, Database, FileText, Layers, Plug, Scale, S
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { WorkspaceTransfer } from '@/features/workspace/WorkspaceTransfer';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { agentSchema, businessObjectSchema, businessObjectTypeSchema, playbookSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { normalizeWorkspaceRole } from '@/services/authz';
 
 /**
  * Context dashboard — cross-cutting overview of every authored primitive
@@ -19,7 +21,9 @@ import { agentSchema, businessObjectSchema, businessObjectTypeSchema, playbookSc
 export default async function ContextPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, role, workspaceRole } = await auth();
+  // The same test the export and import endpoints apply.
+  const isAdmin = normalizeWorkspaceRole(workspaceRole ?? role) === 'admin';
 
   if (!orgId) {
     return (
@@ -63,7 +67,8 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
     <>
       <TitleBar
         title="Context"
-        description="The authored layer that grounds every AI output. Everything here lives in git as YAML + markdown."
+        description="The authored layer that grounds every AI output, as YAML and markdown: keep it in git, or export it and import it into another workspace."
+        actions={isAdmin ? <WorkspaceTransfer /> : undefined}
       />
 
       {/* Top-level stats */}

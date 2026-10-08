@@ -1,6 +1,8 @@
+import { NextIntlClientProvider } from 'next-intl';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { render as renderBare } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import messages from '@/locales/en.json';
 
 /**
  * The banner renders only what the server decided (see Workspace.drift.test
@@ -29,6 +31,14 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { WorkspaceDriftBanner } = await import('./WorkspaceDriftBanner');
+
+/**
+ * Render inside the app's translations, which the review's diff reads.
+ * @param ui - What to render.
+ */
+function render(ui: React.ReactElement) {
+  return renderBare(<NextIntlClientProvider locale="en" messages={messages}>{ui}</NextIntlClientProvider>);
+}
 
 const base = { available: true as const, projectId: 'proj_a', path: '/ws/a', currentSha: 'sha-1', appliedSha: 'sha-0', neverApplied: false, own: true, owner: null, deployManaged: false, inFlight: false, drifted: true };
 const counts = { agents: { created: 1, updated: 2, unchanged: 3 }, skills: { created: 0, updated: 0, unchanged: 4 } };
@@ -78,9 +88,9 @@ describe('WorkspaceDriftBanner', () => {
     await screen.getByRole('button', { name: 'Review & apply' }).click();
 
     await expect.element(page.getByRole('dialog')).toBeVisible();
-    await expect.element(page.getByRole('dialog')).toHaveTextContent('agents');
+    await expect.element(page.getByRole('dialog')).toHaveTextContent('Agents');
     await expect.element(page.getByRole('dialog')).toHaveTextContent('1 new · 2 updated');
-    expect(page.getByRole('dialog').element().textContent).not.toContain('skills');
+    expect(page.getByRole('dialog').element().textContent).not.toContain('Skills');
     expect(applyNow).not.toHaveBeenCalled();
 
     await page.getByRole('button', { name: 'Apply 3 changes' }).click();

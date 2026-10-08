@@ -318,7 +318,7 @@ All run from the vocion-core checkout and take the workspace path as an argument
 | `npm run workspace:scaffold -- <name>` | Creates a new minimal-but-valid workspace at `../workspace/<name>`. |
 | `npm run workspace:check -- <path>` | Validates every YAML + MD file. Shows what would change. No DB writes — and no DB needed: with none reachable, counts are `unknown`. |
 | `npm run workspace:apply -- <path> --project <id\|slug>` | Writes changes to DB, and stores the files the app reads at run time with the project (see below). Records a `workspace_version` row with the git SHA + diff summary. |
-| `npm run workspace:export` | Reads current DB rows into a directory. Use to bootstrap a new tenant from existing DB state. |
+| `npm run workspace:export -- --project <id\|slug> [--out <folder>] [--zip <file>]` | Writes the workspace as it is running into a folder (or a zip) that applies anywhere — the same export Settings downloads (see below). |
 
 Check/apply/export honor `WORKSPACE_PATH` and `SEED_ORG_ID` env vars. Flags:
 - `--dry-run` — validate + diff only
@@ -361,8 +361,74 @@ read, below. A file that is not text (a PNG, a PDF, a font, a compiled cache)
 is stored base64 and reads back as it did off the folder.
 
 Still read off the folder (step 2 of this work): the workspace router's
-`readPrimitive`/`writeFile` and `workspace:export`. The tour
-(`pages/tour.yaml`) is stored and read with the pages.
+`readPrimitive`/`writeFile`. The tour (`pages/tour.yaml`) is stored and read
+with the pages.
+
+## Export and import
+
+An admin downloads a workspace from **Workforce › Settings › Context**
+(*Export*), and puts one into another workspace from the same page
+(*Import*). Both are also `GET /api/v1/workspace/export` and
+`POST /api/v1/workspace/import`, and the export is
+`npm run workspace:export` on a host with the database.
+
+**What an export holds.** Every kind the loader reads, in the layout
+`workspace:apply` takes: agents and their prompts, teams, skills and
+playbooks with their bodies and resources, missions, automations, workflows,
+object types, connectors, eval datasets, learning steps with the rules the
+workspace seeded them with, trust rules, voice, operating intent, pages,
+brand and logos, plugins and settings. The rule for each file:
+
+- **The authored file wherever it still says what runs** — the project's
+  stored files, as written: comments, layout and `{{env.NAME}}` tokens kept.
+- **Written from what is running wherever it does not**: a resource the app
+  added (an agent hired from the catalog, a connector added on the Connect
+  page, a trust rule a promotion raised) or changed since its file, and what a
+  git workspace never stored (trust rules, learning steps, eval datasets,
+  voice). `workspace.yaml` keeps its text, with only the settings the app
+  changed rewritten in place.
+
+A plugin's or the base pack's resources are not written out — `plugins:` and
+`extends:` bring them back. `EXPORT.md` at the root of the zip lists what was
+written from what is running and what an export never carries: credentials,
+connector logins and tokens (reconnect them), the sync schedule of a
+connector added in the app, records, documents and wiki pages,
+conversations, runs, learned rules and spend caps set in the app.
+
+**Import: review, then apply.** Upload the zip (or pick a folder, which the
+browser zips). The import is staged in a temporary folder, loaded exactly as a
+folder is, and dry-run: the review lists, per kind and by name, what would be
+created, updated and retired, and nothing is written. *Apply* stages the same
+upload again and applies it only when it is still what was reviewed;
+otherwise it asks for a new review. The staging folder is removed either way.
+
+- **Merge** (the default): the upload is laid over the workspace as it runs
+  now. What it names is created or updated by slug; nothing it does not
+  mention changes — no agent is retired, no trust rule removed, no plugin
+  turned off. `workspace.yaml` and `trust.yaml` merge key by key: the
+  upload's values win and lists gain what it adds.
+- **Replace**: the upload is the whole workspace, applied the way a folder
+  is. An agent, mission, automation or workflow it does not ship is retired
+  (rows kept, history intact), and its trust rules and settings become the
+  workspace's. The review names everything that would be retired first.
+
+The imported `workspace.yaml` is made the workspace's own: its `orgId` is
+this workspace's, and a mailbox address belonging to the workspace it came
+from is replaced by this workspace's own (two workspaces never answer one
+mailbox). A
+connector keeps the name and folder its row already has, and a new one takes
+its file's name.
+
+Import lands in the database, so it is for a workspace whose files live
+there. One this host applies from its own folder, or one a deploy applies from
+git, would have the import undone by its next apply: the review says so and
+the import is not offered — change the folder, or commit to the repository,
+instead.
+
+The round trip is the test (`services/workspace/WorkspaceTransfer.test.ts`):
+a workspace changed in the app, exported, and imported into a fresh one
+exports the same files (but for whose workspace it is), and applied back onto
+the first changes nothing.
 
 ## Per-deployment values (`{{env.NAME}}`)
 

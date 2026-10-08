@@ -98,7 +98,17 @@ export type LoadedEvalDataset = EvalDatasetManifest & { sourceFile: string };
  * it, so a template's bundled sample data works from any path rather
  * than only from the workspace root.
  */
-export type LoadedSource = SourceManifest & { sourceFile: string; manifestDir: string };
+export type LoadedSource = SourceManifest & {
+  sourceFile: string;
+  manifestDir: string;
+  /**
+   * The display name to store with the connector (`_name`), when the apply
+   * should write one. A folder's apply leaves it unset, as it always has; an
+   * import sets it so a connector keeps the name its row has, and a new one
+   * takes its file's (`services/workspace/staging.ts`).
+   */
+  storedName?: string;
+};
 /** A team — slug derived from the filename (teams/<slug>.yaml). */
 export type LoadedTeam = TeamManifest & { slug: string; sourceFile: string };
 
