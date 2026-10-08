@@ -62,7 +62,7 @@ export const installTemplate = os
     const { userId } = await guardAuth();
     const installer = await personOf(userId);
     if (!installer.email) {
-      throw new ORPCError('PRECONDITION_FAILED', { message: 'Your account has no email, so the template has nobody to name accountable.' });
+      throw new ORPCError('PRECONDITION_FAILED', { message: 'Your profile has no email, so the template has nobody to name accountable.' });
     }
     try {
       return await installAppTemplateForProject({ orgId: orgId!, appId: input.appId, templateSlug: input.template, answers: input.answers, installer, appliedBy: `user:${userId}` });
