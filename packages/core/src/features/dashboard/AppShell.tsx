@@ -26,6 +26,7 @@ import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
+import { gettingStartedFor } from '@/services/workspace/gettingStarted';
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -116,6 +117,12 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   const appNavRead = workspaceAppNav({ orgId: orgId ?? null, enabledPlugins, enabledSurfaces });
   const usageRead = orgId ? shellUsage(orgId) : Promise.resolve(null);
   const blockedRead = orgId ? shellBlockedAgents(orgId) : Promise.resolve([]);
+  // Where a shared workspace stands on its first four steps — the sidebar's
+  // Getting started checklist. Null for a personal one; a failed read hides
+  // the checklist rather than the page.
+  const gettingStartedRead = orgId
+    ? gettingStartedFor(orgId).then(s => (s ? { steps: s.steps, done: s.done, total: s.total } : null)).catch(() => null)
+    : Promise.resolve(null);
   const agents = await agentsRead;
   const waiting = await waitingRead;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
@@ -139,6 +146,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // purpose: a refused turn is the person's first sign otherwise. A read that
   // fails hides the banner rather than the page.
   const blockedAgents = await blockedRead;
+  const gettingStarted = await gettingStartedRead;
 
   return (
     // The shell IS the viewport: `h-svh` over `min-h-svh` is what stops the
@@ -170,6 +178,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         needsYouCount={waiting}
         workspacePages={byApp.core.pages}
         apps={byApp.apps}
+        gettingStarted={gettingStarted}
       />
       <SidebarInset className="md:min-h-0 md:overflow-hidden">
         <ShellBarActionsProvider>

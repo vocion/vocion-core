@@ -22,3 +22,15 @@ export const dismiss = os
     const { orgId, userId } = await guardAuth();
     return dismissNavPrompt({ orgId, userId, id: input.id });
   });
+
+/**
+ * Where this workspace stands on its four first steps — the sidebar's
+ * Getting started checklist, read from what is really there
+ * (`services/workspace/gettingStarted.ts`). Null for a personal workspace.
+ */
+export const gettingStarted = os.handler(async () => {
+  const { orgId } = await guardAuth();
+  const { gettingStartedFor } = await import('@/services/workspace/gettingStarted');
+  const state = await gettingStartedFor(orgId);
+  return state ? { steps: state.steps, done: state.done, total: state.total } : null;
+});
