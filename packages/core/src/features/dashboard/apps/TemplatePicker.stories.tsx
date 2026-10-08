@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import type { InstallTemplate } from './TemplatePicker';
 import type { AppTemplateCardData, TemplateInstallReceipt } from '@/services/apps/AppTemplateService';
+import { NextIntlClientProvider } from 'next-intl';
+import en from '@/locales/en.json';
 import { InstallReceipt, TemplateCard, TemplateInterview, TemplatePicker } from './TemplatePicker';
 
 /**
@@ -88,6 +90,8 @@ const meta: Meta<typeof TemplatePicker> = {
   title: 'Apps/TemplatePicker',
   component: TemplatePicker,
   parameters: { layout: 'padded', nextjs: { appDirectory: true, navigation: { pathname: '/dashboard/apps/company' } } },
+  // The receipt's links are the locale-aware Link, which reads the intl context.
+  decorators: [Story => <NextIntlClientProvider locale="en" messages={en}><Story /></NextIntlClientProvider>],
   args: { appId: 'company', templates: TEMPLATES, writable: { ok: true }, canInstall: true, install: succeeds },
 };
 
