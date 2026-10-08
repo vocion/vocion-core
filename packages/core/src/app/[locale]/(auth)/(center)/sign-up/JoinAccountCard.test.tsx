@@ -20,7 +20,7 @@ describe('JoinAccountCard', () => {
     await render(<JoinAccountCard inviteToken="tok" invite={{ accountName: 'Contoso', role: 'admin', standing: 'open', openPath: null }} signedInEmail="sam@example.com" />);
 
     await expect.element(page.getByRole('button', { name: 'Join Contoso' })).toBeInTheDocument();
-    await expect.element(page.getByText(/invited as an admin\. You'll join with the login you're using now, sam@example\.com/)).toBeInTheDocument();
+    await expect.element(page.getByText(/invited to the Contoso Org as an admin\. You'll join with the login you're using now, sam@example\.com/)).toBeInTheDocument();
   });
 
   it('says they joined when there is no workspace to open yet, instead of dropping them back where they were', async () => {
@@ -83,7 +83,7 @@ describe('JoinAccountCard', () => {
     await render(<JoinAccountCard inviteToken="tok" invite={{ accountName: 'Contoso', role: 'member', standing: 'member', openPath: null }} signedInEmail="sam@example.com" />);
 
     await expect.element(page.getByRole('heading', { name: 'You\'re already in Contoso' })).toBeInTheDocument();
-    await expect.element(page.getByText('You don\'t have a workspace in Contoso yet.', { exact: false })).toBeInTheDocument();
+    await expect.element(page.getByText('You don\'t have a workspace in the Contoso Org yet.', { exact: false })).toBeInTheDocument();
     expect(page.getByRole('link', { name: 'Open Contoso' }).elements()).toHaveLength(0);
   });
 
