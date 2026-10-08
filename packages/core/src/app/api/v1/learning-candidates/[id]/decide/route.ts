@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { decideCandidate } from '@/services/LearningCandidateService';
+import { ruleChangeKind } from '@/libs/learning/ruleChange';
+import { decideCandidate, getCandidate, unadoptCandidate } from '@/services/LearningCandidateService';
 import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody, requireCapability } from '../../../_shared';
 
 /**
@@ -12,7 +13,12 @@ import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody, require
  * Approving runs the same near-duplicate guard a hand-written rule goes
  * through: a candidate that restates a rule already on file comes back as a
  * 409 rather than quietly doubling up. Rejecting requires a reason — the reason
- * is the whole point of keeping rejected candidates.
+ * is the whole point of keeping rejected candidates — except when keeping the
+ * status quo: turning down a merge or a retirement needs none.
+ *
+ * `action: "undo"` puts an approved merge or retirement back: the rules it
+ * retired return as they were (they were expired, never deleted) and a merged
+ * rule is removed. 409 for anything else.
  *
  * Deciding requires the `approve` capability.
  * Auth: tenant API token or dashboard session.
@@ -38,8 +44,24 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (isErrorResponse(body)) {
     return body;
   }
+  if (body.action === 'undo') {
+    const candidate = await getCandidate(caller.orgId, id);
+    if (!candidate) {
+      return jsonError('NOT_FOUND', `No learning candidate found with id ${id}`, 404);
+    }
+    if (candidate.status !== 'approved' || ruleChangeKind(candidate) === 'adopt') {
+      return jsonError('CONFLICT', 'Only an approved merge or retirement can be undone here', 409);
+    }
+    const undone = await unadoptCandidate({
+      orgId: caller.orgId,
+      id,
+      undoneBy: caller.actorId,
+      reason: 'Undone — the rules it retired are back as they were.',
+    });
+    return NextResponse.json({ ok: undone.undone, undone });
+  }
   if (body.action !== 'approve' && body.action !== 'reject') {
-    return jsonError('VALIDATION_FAILED', 'action must be "approve" or "reject"', 400);
+    return jsonError('VALIDATION_FAILED', 'action must be "approve", "reject" or "undo"', 400);
   }
 
   const result = await decideCandidate({

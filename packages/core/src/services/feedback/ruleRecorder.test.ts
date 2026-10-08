@@ -68,6 +68,27 @@ beforeEach(async () => {
 });
 
 describe('recordProposedRule', () => {
+  it('never offers a pending retirement to the duplicate judge as a rule someone could restate', async () => {
+    await makeStep();
+    await db.insert(learningCandidateSchema).values({
+      orgId: ORG,
+      stepName: STEP,
+      ruleText: 'Retire 3 rules no agent has read and nobody has restated in 60 days (CRM updates)',
+      changeKind: 'expire',
+      replacesKeys: ['/workspace/crm-updates/a.md'],
+      status: 'pending',
+    });
+    await db.insert(learningCandidateSchema).values({ orgId: ORG, stepName: STEP, ruleText: 'quote prices in the customer currency', status: 'pending' });
+    judgeAnswers(null);
+
+    await recordProposedRule({ orgId: ORG, ruleText: RULE, polarity: 'correct', stepName: STEP, note: 'no source again' });
+
+    const shown = JSON.stringify(invokeMock.mock.calls[0]?.[0]);
+
+    expect(shown).toContain('quote prices in the customer currency');
+    expect(shown).not.toContain('Retire 3 rules');
+  });
+
   it('creates a pending candidate with one occurrence when the rule is new', async () => {
     await makeStep();
     judgeAnswers(null);

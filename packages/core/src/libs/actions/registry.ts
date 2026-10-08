@@ -28,6 +28,7 @@ import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { objectsRenameAction } from './objects-rename';
 import { objectsUpdateMetaAction } from './objects-update-meta';
+import { orgChangeAction } from './org-change';
 import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
@@ -175,6 +176,11 @@ registerAction(sourceConnectAction);
 // created all go back), internal, and held at approval until a workspace
 // promotes it (`medium`, so autonomous is never on offer).
 registerAction(teamHireAgentAction);
+// The weekly org review's proposals — retire, re-scope or hire an agent, or
+// adopt a standing rule — each citing the evidence that raised it. Reversible,
+// internal, `medium` so it waits for a person until a workspace says otherwise
+// (`libs/actions/org-change.ts`, `services/orgReview`).
+registerAction(orgChangeAction);
 // A wiki page write — reversible (restore the previous version), done-for-you above the wiki plugin's bar.
 registerAction(wikiWritePageAction);
 // A correction a person made, adopted as a standing rule — reversible (Undo

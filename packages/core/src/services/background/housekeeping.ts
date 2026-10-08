@@ -32,6 +32,16 @@ export async function startHousekeeping(): Promise<void> {
     console.error('[durable] could not apply the deployment schedules', err);
   }
 
+  // Every workspace's weekly org review, re-asserted: a workspace applied
+  // before the review shipped has no schedule until this pass writes it.
+  try {
+    const { reconcileAllOrgReviewSchedules } = await import('@/services/orgReview/schedule');
+    const out = await reconcileAllOrgReviewSchedules();
+    console.warn('[durable] org review schedules', out);
+  } catch (err) {
+    console.error('[durable] could not reconcile the org review schedules', err);
+  }
+
   // A fire whose process died mid-flight leaves its `automation_run` row
   // `running` for ever. This boot IS that restart, so reconcile now and then
   // keep sweeping: a row that cannot end is worse than one that ended badly.

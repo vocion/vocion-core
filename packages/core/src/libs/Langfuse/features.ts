@@ -72,6 +72,8 @@ export const FEATURES = {
   HEALTH_READ: 'factory.health_read',
   /** What caused a production error — a deploy, the code, or unknown — read by the classifier from the error tracker's facts (`error-watch`). */
   ERROR_CAUSE: 'errors.cause_read',
+  /** The weekly org review's judgement of what the evidence warrants (`services/orgReview/judge.ts`). */
+  ORG_REVIEW: 'org.review',
   /** The walkthrough a seat speaks over a recording it made (`services/artifacts/walkthrough.ts`). */
   RECORDING_WALKTHROUGH: 'recording.walkthrough',
 } as const;

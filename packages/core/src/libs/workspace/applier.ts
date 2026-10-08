@@ -652,6 +652,15 @@ async function reconcileSchedules(
       errors.push({ resource: 'sourceSchedule', slug: src.slug, message: (err as Error).message });
     }
   }
+
+  // The weekly org review: on the workspace's own cron, or removed when the
+  // workspace turned it off (`defaults.orgReview`, written to the project above).
+  try {
+    const { reconcileOrgReviewSchedule } = await import('@/services/orgReview/schedule');
+    await reconcileOrgReviewSchedule(orgId);
+  } catch (err) {
+    errors.push({ resource: 'orgReviewSchedule', slug: 'workspace.yaml', message: (err as Error).message });
+  }
 }
 
 async function upsertObjectType(orgId: string, ot: LoadedObjectType, mode: ApplyMode, steer?: { sampleRate?: number; escalateBelow?: number }): Promise<UpsertOutcome> {
@@ -771,6 +780,20 @@ async function upsertAgent(
       await db.insert(agentSchema).values(payload);
     }
     return 'created';
+  }
+
+  // A PERSON'S HOLD OUTLIVES THE YAML. An agent retired from the org review
+  // (or held any other way) carries `paused_at`; apply never writes those
+  // columns and keeps the agent inactive whatever `active:` says, the way it
+  // re-asserts a paused automation. Undo on the run that placed it lifts it.
+  if (existing.pausedAt && payload.active !== 'false') {
+    payload.active = 'false';
+    const [person] = existing.pausedBy
+      ? await db.select({ name: userSchema.name, email: userSchema.email }).from(userSchema).where(eq(userSchema.id, existing.pausedBy)).limit(1)
+      : [];
+    const who = person?.name?.trim() || person?.email || existing.pausedBy || 'someone';
+    const when = existing.pausedAt.toISOString().slice(0, 16).replace('T', ' ');
+    warnings.push({ resource: 'agent', slug: agent.slug, message: `held by ${who} at ${when} UTC${existing.pausedNote ? ` — ${existing.pausedNote}` : ''}; left inactive. Undo the run that retired it to bring it back.` });
   }
 
   if (isAgentEqual(existing, payload)) {
@@ -1113,6 +1136,10 @@ async function applyWorkspaceLeadConfig(
   // nothing", which reads as the shipped default of 7 — a stored 7 is a
   // workspace that chose it, and the two must stay tellable apart.
   const learningEagerness = loaded.manifest.defaults?.learningEagerness ?? null;
+  // The weekly org review's settings, declarative like the rest: the authored
+  // block lands whole and an omitted one clears the column, which reads as the
+  // shipped defaults (`libs/orgReview/config.ts`).
+  const orgReview = loaded.manifest.defaults?.orgReview ?? null;
   const goal = loaded.manifest.goal ?? null;
   // The workspace's zone, declarative like the rest: omitted clears the column
   // and the runs fall back to the server default (`workspaceTimeZone`).
@@ -1141,6 +1168,7 @@ async function applyWorkspaceLeadConfig(
           regenerateSkills: projectSchema.regenerateSkills,
           clientFacingPlaybooks: projectSchema.clientFacingPlaybooks,
           learningEagerness: projectSchema.learningEagerness,
+          orgReview: projectSchema.orgReview,
           voiceRules: projectSchema.voiceRules,
           operatingIntent: projectSchema.operatingIntent,
           timeZone: projectSchema.timeZone,
@@ -1177,7 +1205,7 @@ async function applyWorkspaceLeadConfig(
     if (mode.offline) {
       return;
     }
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || orgReview !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -1204,6 +1232,8 @@ async function applyWorkspaceLeadConfig(
     = JSON.stringify(project.voiceRules ?? null) === JSON.stringify(voiceRules);
   const operatingIntentUnchanged
     = JSON.stringify(project.operatingIntent ?? null) === JSON.stringify(operatingIntent);
+  const orgReviewUnchanged
+    = JSON.stringify(project.orgReview ?? null) === JSON.stringify(orgReview);
 
   if (
     (project.leadAgentSlug ?? null) === lead
@@ -1215,6 +1245,7 @@ async function applyWorkspaceLeadConfig(
     && regenerateUnchanged
     && clientFacingUnchanged
     && (project.learningEagerness ?? null) === learningEagerness
+    && orgReviewUnchanged
     && voiceUnchanged
     && operatingIntentUnchanged
     && (project.goal ?? null) === goal
@@ -1227,7 +1258,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, orgReview, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

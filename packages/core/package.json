@@ -79,6 +79,7 @@
     "release:relink": "dotenv -c -- tsx src/scripts/relink-release.ts",
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
     "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts",
+    "org-review:run": "dotenv -c -- tsx src/scripts/run-org-review.ts",
     "artifacts:sweep": "dotenv -c -- tsx src/scripts/sweep-artifacts.ts",
     "artifacts:keep-images": "dotenv -c -- tsx src/scripts/keep-artifact-images.ts",
     "version:write": "node scripts/write-version.mjs",

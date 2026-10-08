@@ -1,14 +1,17 @@
 'use client';
 
+import type { RuleChangeEvidence as Evidence } from '@/libs/learning/ruleChange';
 import { Check, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { RuleChangeEvidence } from '@/features/learnings/RuleChangeEvidence';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { Link } from '@/libs/I18nNavigation';
+import { ruleChangeKind, ruleChangeVerbs } from '@/libs/learning/ruleChange';
 import { DECISION_VERBS, verbForShortcut } from './decisionVerbs';
 import { decisionCrumbs } from './inboxMeta';
 import { withMinimumPending } from './pending';
@@ -28,6 +31,12 @@ export type LearningCandidateView = {
   decidedBy: string | null;
   decidedAt: string | null;
   createdAt: string;
+  /** `merge` / `expire` for a compaction; null or `adopt` for a new rule. */
+  changeKind?: string | null;
+  /** The rules a merge or a retirement takes out of the store. */
+  replacesKeys?: string[] | null;
+  /** What a compaction was proposed on. */
+  evidence?: Evidence | null;
 };
 
 const INLINE_FIELD = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm transition outline-none hover:bg-[var(--surface-hover,var(--muted))] focus:bg-[var(--surface-soft,var(--muted))]';
@@ -53,6 +62,11 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
   const [error, setError] = useState<string | null>(null);
   const verbs = DECISION_VERBS.learning;
   const open = candidate.status === 'pending';
+  // A merge or a retirement is decided with its own words, and keeping the
+  // rulebook as it is needs no reason (`libs/learning/ruleChange.ts`).
+  const kind = ruleChangeKind(candidate);
+  const changeVerbs = ruleChangeVerbs(kind);
+  const compaction = kind !== 'adopt';
 
   // `a` adopts, `d` rejects — the same keys the bar shows. Never while typing.
   useEffect(() => {
@@ -78,7 +92,7 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
   }
 
   async function decide(decision: 'approve' | 'reject') {
-    if (decision === 'reject' && !reason.trim()) {
+    if (decision === 'reject' && !reason.trim() && !compaction) {
       setError('Say why this is not a rule worth keeping — the reason is what the team learns from.');
       return;
     }
@@ -86,7 +100,7 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
     setError(null);
     try {
       await withMinimumPending((async () => {
-        if (draft.trim() && draft !== current) {
+        if (kind !== 'expire' && draft.trim() && draft !== current) {
           const patched = await fetch(`/api/v1/learning-candidates/${candidate.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -99,14 +113,16 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
         const res = await fetch(`/api/v1/learning-candidates/${candidate.id}/decide`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: decision, reason: decision === 'reject' ? reason.trim() : undefined }),
+          body: JSON.stringify({ action: decision, reason: decision === 'reject' ? (reason.trim() || undefined) : undefined }),
         });
         if (!res.ok) {
           throw new Error(await messageFor(res));
         }
       })());
-      toast.success(`${decision === 'approve' ? 'Adopted' : 'Rejected'} · ${draft.trim().slice(0, 80)}`, {
-        description: decision === 'approve' ? `Agents read it at /learnings/${candidate.stepName}.md on their next run.` : 'Dropped; your reason is kept for the classifier.',
+      toast.success(`${decision === 'approve' ? changeVerbs.done : compaction ? 'Kept' : 'Rejected'} · ${draft.trim().slice(0, 80)}`, {
+        description: decision === 'approve'
+          ? (compaction ? 'Agents stop reading the retired rules on their next run; Undo on the learnings page brings them back.' : `Agents read it at /learnings/${candidate.stepName}.md on their next run.`)
+          : (compaction ? 'Left as it is, and not suggested again for a while.' : 'Dropped; your reason is kept for the classifier.'),
       });
       // Stay on the rule. The page re-reads it and renders what was decided,
       // with an explicit way back — a redirect on submit loses the context
@@ -126,12 +142,18 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
       <ReviewHeader
         crumbs={decisionCrumbs('learning', candidate.stepName)}
         title={current}
-        system="Suggested rule"
+        system={kind === 'merge' ? 'Suggested merge' : kind === 'expire' ? 'Suggested retirement' : 'Suggested rule'}
         status={candidate.status === 'approved' ? 'approved' : candidate.status}
-        proposedBy={`from feedback${candidate.sourceFeedbackJobId !== null ? ` #${candidate.sourceFeedbackJobId}` : ''}`}
+        proposedBy={compaction ? 'from rulebook compaction' : `from feedback${candidate.sourceFeedbackJobId !== null ? ` #${candidate.sourceFeedbackJobId}` : ''}`}
       />
 
-      <section className="border-b border-rule py-6">
+      {compaction && (
+        <section className="border-b border-rule py-6">
+          <RuleChangeEvidence kind={kind} evidence={candidate.evidence ?? null} replacedCount={candidate.replacesKeys?.length ?? 0} stepName={candidate.stepName} />
+        </section>
+      )}
+
+      <section className="border-b border-rule py-6" hidden={compaction}>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground">
           <span>
             Step
@@ -156,14 +178,14 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
         </div>
       </section>
 
-      <section className="border-b border-rule py-6">
-        <div className="mb-2 text-[11px] font-medium text-muted-foreground">{open ? 'The rule — edit in place; your wording is what the agent reads' : 'The rule'}</div>
+      <section className="border-b border-rule py-6" hidden={kind === 'expire'}>
+        <div className="mb-2 text-[11px] font-medium text-muted-foreground">{open ? `The ${kind === 'merge' ? 'merged ' : ''}rule — edit in place; your wording is what the agent reads` : 'The rule'}</div>
         {open
           ? <textarea className={`${INLINE_FIELD} min-h-24 resize-y leading-relaxed`} value={draft} onChange={e => setDraft(e.target.value)} disabled={busy !== null} aria-label="Rule text" />
           : <p className="text-[15px] leading-relaxed">{current}</p>}
         {!open && (
           <p className="mt-3 text-[13px] text-muted-foreground">
-            {candidate.status === 'approved' ? 'Adopted' : 'Rejected'}
+            {candidate.status === 'approved' ? changeVerbs.done : compaction ? 'Kept' : 'Rejected'}
             {candidate.decidedBy ? ` by ${candidate.decidedBy}` : ''}
             {candidate.decidedAt ? ` · ${new Date(candidate.decidedAt).toLocaleString()}` : ''}
             {candidate.rejectedReason ? ` — “${candidate.rejectedReason}”` : ''}
@@ -183,16 +205,25 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
       {open && (
         <StickyActionBar
           labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
-          primary={{ 'label': verbs.primary.label, 'onClick': () => void decide('approve'), 'disabled': busy !== null || !draft.trim(), 'busy': busy === 'approve', 'icon': Check, 'shortcut': verbs.primary.shortcut, 'data-testid': 'learning-adopt' }}
-          secondary={verbs.secondary.map(v => ({ 'label': v.label, 'onClick': () => void decide('reject'), 'disabled': busy !== null, 'busy': busy === 'reject', 'icon': X, 'shortcut': v.shortcut, 'tone': v.tone, 'data-testid': 'learning-reject' }))}
-          field={{
-            label: 'Why reject',
-            placeholder: 'Why is this not a rule worth keeping? Required to reject.',
-            value: reason,
-            onChange: setReason,
-            disabled: busy !== null,
-            hint: 'A rejection needs a reason; it is what the classifier learns from.',
-          }}
+          primary={{ 'label': compaction ? changeVerbs.approve : verbs.primary.label, 'onClick': () => void decide('approve'), 'disabled': busy !== null || (kind !== 'expire' && !draft.trim()), 'busy': busy === 'approve', 'icon': Check, 'shortcut': verbs.primary.shortcut, 'data-testid': 'learning-adopt' }}
+          secondary={verbs.secondary.map(v => ({ 'label': compaction ? changeVerbs.reject : v.label, 'onClick': () => void decide('reject'), 'disabled': busy !== null, 'busy': busy === 'reject', 'icon': X, 'shortcut': v.shortcut, 'tone': v.tone, 'data-testid': 'learning-reject' }))}
+          field={compaction
+            ? {
+                label: 'Why keep',
+                placeholder: 'Optional: why these should stay as they are.',
+                value: reason,
+                onChange: setReason,
+                disabled: busy !== null,
+                hint: 'Keeping needs no reason; a note is kept with the decision.',
+              }
+            : {
+                label: 'Why reject',
+                placeholder: 'Why is this not a rule worth keeping? Required to reject.',
+                value: reason,
+                onChange: setReason,
+                disabled: busy !== null,
+                hint: 'A rejection needs a reason; it is what the classifier learns from.',
+              }}
         />
       )}
     </div>

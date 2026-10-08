@@ -1,0 +1,25 @@
+-- Learning compaction: a suggested change to a rulebook is now one of three
+-- things, not one.
+--
+-- A `learning_candidate` used to mean "adopt this rule", with one exception
+-- bolted on: a consolidation proposal carried `replaces_keys` and retired the
+-- rules it merged on approval. Retiring a rule nobody reads any more, or one a
+-- newer rule contradicts, had no shape at all, so a rulebook only ever grew
+-- (an earlier experiment reached 747 rules). This names the change a candidate
+-- makes and keeps the evidence it was proposed on, so a person reviewing it on
+-- the learnings surface sees what goes, why, and what each retired rule had
+-- earned (its occurrence count, who asked for it, when it was last read).
+--
+--   change_kind  NULL / 'adopt' — a new rule (every row written before this).
+--                'merge'  — `rule_text` replaces every key in `replaces_keys`.
+--                'expire' — every key in `replaces_keys` is retired, nothing added.
+--   evidence     What the proposal was made on: the retired rules as they
+--                stood (text, occurrence count, provenance, last read, last
+--                restated), the reason (`stale` | `contradicted` | `merged`),
+--                and for a contradiction the rule that supersedes it.
+--
+-- Expand-only: two nullable columns, no default, no index. A NULL kind on a
+-- row that carries `replaces_keys` still reads as a merge, which is what those
+-- rows were, so nothing is backfilled.
+ALTER TABLE "learning_candidate" ADD COLUMN IF NOT EXISTS "change_kind" text;--> statement-breakpoint
+ALTER TABLE "learning_candidate" ADD COLUMN IF NOT EXISTS "evidence" jsonb;

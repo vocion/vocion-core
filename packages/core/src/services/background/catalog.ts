@@ -21,6 +21,7 @@ export const JOB = {
   recordingNarrate: 'recording.narrate',
   needsYouSweep: 'needs-you.sweep',
   missionRunResume: 'mission-run.resume',
+  orgReview: 'org.review',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -142,3 +143,14 @@ defineJob<{ orgId: string; runId: number; gateId: number }>(JOB.missionRunResume
   const { resumeParkedMissionRun } = await import('@/services/needsYou/ResumeGateService');
   return resumeParkedMissionRun(input);
 });
+
+// The weekly org review (`services/orgReview`): reads the workspace's evidence,
+// files `org.change` proposals on Needs you, and runs the learning compaction
+// when it is due. Retried once — a re-run refreshes the cards it already
+// filed rather than doubling them (each proposal has a dedup key).
+defineJob<{ orgId: string }>(JOB.orgReview, async (input) => {
+  const { orgReviewLine, runOrgReview } = await import('@/services/orgReview/OrgReviewService');
+  const result = await runOrgReview(input.orgId);
+  console.warn(`[durable] ${orgReviewLine(result)}`);
+  return result;
+}, { retry: twice });

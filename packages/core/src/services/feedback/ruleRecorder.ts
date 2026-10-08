@@ -19,7 +19,7 @@
  */
 
 import type { ExistingRule } from './duplicateDetection';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
   agentSchema,
@@ -120,6 +120,10 @@ async function loadExistingRules(orgId: string, stepName: string): Promise<Exist
       eq(learningCandidateSchema.orgId, orgId),
       eq(learningCandidateSchema.stepName, stepName),
       eq(learningCandidateSchema.status, 'pending'),
+      // A pending retirement is not a rule anyone could restate: its text is
+      // the line it reads as ("Retire 12 rules …"), and attaching feedback to
+      // it would count praise for a rule against its own retirement.
+      or(isNull(learningCandidateSchema.changeKind), ne(learningCandidateSchema.changeKind, 'expire')),
     ))
     .orderBy(desc(learningCandidateSchema.id));
 

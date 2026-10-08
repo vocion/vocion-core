@@ -12,6 +12,7 @@ import { learningFeedbackOccurrenceSchema } from '@/models/Schema';
 import { listCandidates, listDecidedWithEvidence } from '@/services/LearningCandidateService';
 import { listNamespaces } from '@/services/MemoryService';
 import { PendingCandidates } from './PendingCandidates';
+import { UndoCompaction } from './UndoCompaction';
 
 /**
  * Learnings list — one row per step (e.g. `meeting_triage`,
@@ -64,7 +65,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
     <>
       <TitleBar
         title="Learnings"
-        description="Whitelisted memory namespaces the feedback loop feeds, gated by human approval. Each one mounts into the agent's virtual FS under /memories/<path>/."
+        description="Whitelisted memory namespaces the feedback loop feeds, gated by human approval, and tidied by compaction: near-duplicates merged and unused rules retired, each a suggestion you decide. Each one mounts into the agent's virtual FS under /memories/<path>/."
       />
 
       <PendingCandidates
@@ -82,6 +83,9 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
           scopeRef: candidate.scopeRef,
           agentRef: refsByCandidate.get(candidate.id)?.agentSlug ?? null,
           userRef: refsByCandidate.get(candidate.id)?.submittedBy ?? null,
+          changeKind: candidate.changeKind,
+          replacesKeys: candidate.replacesKeys,
+          evidence: candidate.evidence,
         }))}
         total={pending.total}
         pageSize={CANDIDATE_PAGE_SIZE}
@@ -152,8 +156,14 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
               <li key={c.id} className="rounded-lg border border-border bg-background px-4 py-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span className={c.status === 'approved' ? 'font-medium text-emerald-700' : 'font-medium text-red-700'}>
-                    {c.status}
+                    {c.changeKind === 'adopt' ? c.status : c.status === 'approved' ? (c.changeKind === 'merge' ? 'merged' : 'retired') : 'kept'}
                   </span>
+                  {c.changeKind !== 'adopt' && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{`${c.replacedCount} rule${c.replacedCount === 1 ? '' : 's'} ${c.changeKind === 'merge' ? 'merged into one' : 'retired'}`}</span>
+                    </>
+                  )}
                   <span aria-hidden>·</span>
                   <code className="font-mono">{c.scopeKind && c.scopeKind !== 'workspace' ? `${c.scopeKind}:${c.scopeRef}` : c.stepName}</code>
                   {c.memoryType && (
@@ -189,6 +199,11 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
                   )}
                 </div>
                 <p className="mt-1 line-clamp-2">{c.ruleText}</p>
+                {c.status === 'approved' && c.changeKind !== 'adopt' && (
+                  <p className="mt-1">
+                    <UndoCompaction id={c.id} kind={c.changeKind} />
+                  </p>
+                )}
                 {c.rejectedReason && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Reason:
