@@ -236,6 +236,14 @@ run "everything_on" {
     error_message = "runners and their poll come up when asked"
   }
   assert {
+    condition = (
+      length(aws_iam_role_policy.runner_bedrock) == 0
+      && !contains([for e in jsondecode(aws_ecs_task_definition.runner[0].container_definitions)[0].environment : e.name], "CLAUDE_CODE_USE_BEDROCK")
+      && contains([for e in jsondecode(aws_ecs_task_definition.runner[0].container_definitions)[0].secrets : e.name], "ANTHROPIC_API_KEY")
+    )
+    error_message = "without runner_bedrock the runner task role has no Bedrock grant and the engineer runs on ANTHROPIC_API_KEY"
+  }
+  assert {
     condition     = aws_db_instance.main.multi_az && aws_db_instance.main.backup_retention_period == 14
     error_message = "Multi-AZ and the PITR window follow the inputs"
   }
@@ -313,4 +321,78 @@ run "rejects_a_branch_as_core_ref" {
   }
 
   expect_failures = [var.core_ref]
+}
+
+run "runner_bedrock_needs_runners" {
+  command = plan
+
+  variables {
+    runner_bedrock = true
+  }
+
+  assert {
+    condition     = length(aws_iam_role_policy.runner_bedrock) == 0 && length(aws_ecs_task_definition.runner) == 0
+    error_message = "runner_bedrock without runners_enabled creates nothing"
+  }
+}
+
+run "runners_on_bedrock" {
+  command = plan
+
+  variables {
+    runners_enabled = true
+    runner_bedrock  = true
+  }
+
+  assert {
+    condition = (
+      length(aws_iam_role_policy.runner_bedrock) == 1
+      && toset(data.aws_iam_policy_document.runner_bedrock[0].statement[0].actions) == toset(["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"])
+      && toset(data.aws_iam_policy_document.runner_bedrock[0].statement[0].resources) == toset(data.aws_iam_policy_document.bedrock[0].statement[0].resources)
+      && toset(data.aws_iam_policy_document.runner_bedrock[0].statement[1].resources) == toset(["arn:aws:bedrock:us-east-1:111111111111:inference-profile/us.anthropic.*"])
+    )
+    error_message = "the runner task role gets the box's Bedrock grant, inference profiles included"
+  }
+  assert {
+    condition = alltrue([
+      for c in [jsondecode(aws_ecs_task_definition.runner[0].container_definitions)[0], jsondecode(aws_ecs_task_definition.runner_db[0].container_definitions)[0]] :
+      { for e in c.environment : e.name => e.value if contains(["CLAUDE_CODE_USE_BEDROCK", "AWS_REGION", "ANTHROPIC_MODEL"], e.name) } == {
+        CLAUDE_CODE_USE_BEDROCK = "1"
+        AWS_REGION              = "us-east-1"
+        ANTHROPIC_MODEL         = "us.anthropic.claude-sonnet-4-6"
+      }
+    ])
+    error_message = "both runner task definitions run the engineer on Bedrock, on the geography's Sonnet profile"
+  }
+  assert {
+    condition     = [for e in jsondecode(aws_ecs_task_definition.runner[0].container_definitions)[0].secrets : e.name] == ["VOCION_RUNNER_TOKEN", "GITHUB_TOKEN"]
+    error_message = "on Bedrock the runner secret carries no model key"
+  }
+}
+
+run "runners_on_bedrock_in_eu" {
+  command = plan
+
+  variables {
+    runners_enabled                     = true
+    runner_bedrock                      = true
+    bedrock_inference_profile_geography = "eu"
+  }
+
+  assert {
+    condition     = contains(jsondecode(aws_ecs_task_definition.runner[0].container_definitions)[0].environment, { name = "ANTHROPIC_MODEL", value = "eu.anthropic.claude-sonnet-4-6" })
+    error_message = "the engineer's model follows the inference profile geography"
+  }
+}
+
+run "runner_bedrock_refuses_a_model_list_without_its_model" {
+  command = plan
+
+  variables {
+    runners_enabled = true
+    runner_bedrock  = true
+    bedrock_models  = ["anthropic.claude-haiku-*"]
+  }
+
+  expect_failures = [aws_iam_role_policy.runner_bedrock]
 }

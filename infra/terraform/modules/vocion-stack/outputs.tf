@@ -151,7 +151,7 @@ output "runner_cluster" {
 }
 
 output "runner_secret_name" {
-  description = "The runners' secret (VOCION_RUNNER_TOKEN, ANTHROPIC_API_KEY, GITHUB_TOKEN; null when off)."
+  description = "The runners' secret (VOCION_RUNNER_TOKEN, ANTHROPIC_API_KEY unless runner_bedrock, GITHUB_TOKEN; null when off)."
   value       = var.runners_enabled ? aws_secretsmanager_secret.runner[0].name : null
 }
 
