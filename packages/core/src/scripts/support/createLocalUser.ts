@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
+import { ensureWorkspaceLead } from '@/services/workspace/workspaceLead';
 import 'dotenv/config';
 
 /**
@@ -96,6 +97,8 @@ export async function createLocalUser(newOrgCheck: NewOrgCheck): Promise<void> {
         name: 'Default project',
       });
     });
+    // A new workspace opens on its lead, not on an empty chat.
+    await ensureWorkspaceLead(projectId);
     account = { id: accountId, name: orgName };
     console.log(`created Org     : ${orgName} (${accountId})`);
   }

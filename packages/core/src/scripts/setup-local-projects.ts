@@ -28,6 +28,7 @@ import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { projectSchema, tenantAccountSchema } from '@/models/Schema';
+import { ensureWorkspaceLead } from '@/services/workspace/workspaceLead';
 import 'dotenv/config';
 
 /** The project each workspace expects, keyed by the slug its manifest re-keys onto. */
@@ -79,6 +80,9 @@ async function main() {
     }
     const id = `proj-${randomUUID()}`;
     await db.insert(projectSchema).values({ id, accountId: account.id, slug: spec.slug, name: spec.name, description: spec.description });
+    // A new workspace starts with its lead; applying a workspace that names
+    // its own `lead:` retires it (`libs/workspace/applier.ts`).
+    await ensureWorkspaceLead(id);
     console.log(`  ${spec.slug.padEnd(15)} created ${id}`);
   }
 

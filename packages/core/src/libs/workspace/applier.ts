@@ -10,6 +10,7 @@ import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSch
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
+import { seededLeadSurvives, WORKSPACE_LEAD_SLUG } from './workspaceLead';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -287,7 +288,14 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // so an unauthored active row is a leftover, not somebody's work.
   if (!dryRun) {
     const { ne, notInArray } = await import('drizzle-orm');
-    const authoredAgents = loaded.agents.map(a => a.slug);
+    // The workspace lead core seeds into a new workspace is not a leftover of
+    // an earlier apply: it stays until this workspace names a lead of its own
+    // (`seededLeadSurvives`), so turning on an app mid-setup never takes away
+    // the agent the person is setting it up with.
+    const authoredAgents = [
+      ...loaded.agents.map(a => a.slug),
+      ...(seededLeadSurvives(loaded.manifest.lead) ? [WORKSPACE_LEAD_SLUG] : []),
+    ];
     const authoredMissions = loaded.missions.map(m => m.slug);
     const authoredAutomations = loaded.automations.map(a => a.slug);
     try {
@@ -302,6 +310,16 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
         .returning({ slug: agentSchema.slug });
       for (const row of retired) {
         warnings.push({ resource: 'agent', slug: row.slug, message: 'not in the workspace any more — deactivated (row kept; runs and tool calls still point at it)' });
+      }
+      // …and comes back when the workspace stops naming one (a template
+      // undone, a `lead:` removed), unless a person retired it themselves (a
+      // pause hold, which stays whatever the YAML says).
+      if (seededLeadSurvives(loaded.manifest.lead)) {
+        const { isNull } = await import('drizzle-orm');
+        await db
+          .update(agentSchema)
+          .set({ active: 'true' })
+          .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, WORKSPACE_LEAD_SLUG), eq(agentSchema.active, 'false'), isNull(agentSchema.pausedAt)));
       }
     } catch (err) {
       errors.push({ resource: 'agent', slug: '(retire sweep)', message: (err as Error).message });
@@ -1105,13 +1123,27 @@ async function applyBudgets(
   }
 }
 
+/**
+ * Whether this workspace has the lead core seeded into it — the lead it keeps
+ * while its YAML names none.
+ * @param orgId - The workspace.
+ * @param mode - The apply's mode; an offline apply reads nothing.
+ */
+async function seededLeadIn(orgId: string, mode: ApplyMode): Promise<boolean> {
+  if (mode.offline) {
+    return false;
+  }
+  const [row] = await db.select({ slug: agentSchema.slug }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, WORKSPACE_LEAD_SLUG))).limit(1);
+  return Boolean(row);
+}
+
 async function applyWorkspaceLeadConfig(
   orgId: string,
   loaded: LoadedWorkspace,
   mode: ApplyMode,
   errors: ApplyResult['errors'],
 ): Promise<void> {
-  const lead = loaded.manifest.lead ?? null;
+  const authoredLead = loaded.manifest.lead ?? null;
   const accountableUserId = await resolveAccountableUser(loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', mode, errors);
   // Ids are validated against the core registry at load, so anything reaching
   // here names a real route. Replaced wholesale: dropping a surface from the
@@ -1179,6 +1211,11 @@ async function applyWorkspaceLeadConfig(
         .from(projectSchema)
         .where(eq(projectSchema.id, orgId))
         .limit(1);
+
+  // `lead:` lands wholesale like the rest — except that a workspace which
+  // names no lead keeps (or gets back) the one core seeded into it, rather
+  // than losing its only front door to an apply that said nothing about it.
+  const lead = authoredLead ?? (await seededLeadIn(orgId, mode) ? WORKSPACE_LEAD_SLUG : null);
 
   // Mailbox: `mailbox.enabled` claims `<slug>@<VOCION_MAIL_DOMAIN>` (or the
   // named address, which must be on that domain). No domain configured, or an

@@ -42,6 +42,13 @@ import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
 
 const PACK_ROOT = 'packages/core/templates/base';
+/**
+ * What core seeds into a new shared workspace (`services/workspace/workspaceLead.ts`):
+ * the workspace lead's setup skill. Inherited like the base pack — the same
+ * bytes for every tenant — and tried last, so a pack or plugin skill of the
+ * same slug still wins.
+ */
+const SEED_ROOT = 'packages/core/templates/workspace';
 
 export type MountSkillsOptions = {
   orgId: string;
@@ -241,6 +248,10 @@ export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, 
     }),
     (() => {
       const base = fromRepoRoot(PACK_ROOT, kindFolder, row.slug);
+      return { base, path: resolve(base, resourcePath), isTenantFile: false };
+    })(),
+    (() => {
+      const base = fromRepoRoot(SEED_ROOT, kindFolder, row.slug);
       return { base, path: resolve(base, resourcePath), isTenantFile: false };
     })(),
   ];
