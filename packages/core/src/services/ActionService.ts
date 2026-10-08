@@ -76,6 +76,12 @@ export type ProposeResult = ActionRunResult & {
   decidedAt?: Date | null;
   /** What is already happening, and where to follow it. Set on `already_underway` only. */
   underway?: { line: string; href?: string | null };
+  /**
+   * What a declared gate found on a person's own action, as lines to relay —
+   * advice, never a stop (`services/gates/actionGate.ts`). Absent when no gate
+   * read it or it found nothing serious.
+   */
+  advice?: string[];
 };
 
 const DAY_IN_MS = 86_400_000;
@@ -401,7 +407,7 @@ async function proposeActionInTurn(input: {
   turn?: ActionContext['turn'];
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
-  const storedProposal = withOrigin(proposalForStorage(input.proposal), input.origin);
+  let storedProposal = withOrigin(proposalForStorage(input.proposal), input.origin);
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${input.actionId}`);
   }
@@ -472,6 +478,32 @@ async function proposeActionInTurn(input: {
     throw new ActionError('VALIDATION_FAILED', refusal);
   }
 
+  // DECLARED GATES ON WHAT GOES OUT (`services/gates/actionGate.ts`). A plugin
+  // that declares a gate on this action has a critic read what it would
+  // publish before anything is queued or run, and routes on the typed
+  // findings: back to the agent that wrote it once, then to a person. A
+  // person's own word is never stopped — what the gate found is advice on it.
+  const { gateProposal, gateSubjectKey, recordGateReturn } = await import('@/services/gates/actionGateRun');
+  // A chat card's key names the card, not the work — a revision is a new card — so it counts by proposer.
+  const gateSubject = gateSubjectKey(action.id, dedupKey?.startsWith(CARD_DEDUP_PREFIX) ? null : dedupKey, input.invokedBy ?? input.principal.id);
+  const gate = await gateProposal({
+    orgId: input.orgId,
+    action,
+    parsed: parsed as Record<string, unknown>,
+    onPersonsWord: input.principal.kind !== 'agent',
+    authorAgentSlug: agentSlugFromPrincipal(proposedBy) ?? input.proposal?.agentSlug ?? null,
+    subjectKey: gateSubject,
+  });
+  if (gate?.returned) {
+    await recordGateReturn({ orgId: input.orgId, actionId: action.id, input: parsed as Record<string, unknown>, proposal: storedProposal as Record<string, unknown> | null, invokedBy: input.invokedBy ?? input.principal.id, subjectKey: gateSubject, record: gate.returned.record, records: gate.records });
+    throw new ActionError('RETURNED_FOR_REVISION', gate.returned.message);
+  }
+  if (gate && gate.records.length > 0) {
+    storedProposal = { ...(storedProposal ?? {}), gates: gate.records } as typeof storedProposal;
+  }
+  const gateHold = input.principal.kind === 'agent' ? gate?.hold ?? null : null;
+  const gateAdvice = gate && gate.advice.length > 0 ? { advice: gate.advice } : {};
+
   // Upsert-by-key: a re-surfaced owed action updates its existing OPEN row
   // rather than stacking duplicates in the queue. A still-open card always
   // wins — it is the one a moderator can still act on. `failed` counts as
@@ -491,7 +523,8 @@ async function proposeActionInTurn(input: {
   // agent's proposal rides the ladder; a person's own (their word, a token)
   // runs within their autonomy.
   const gated = decision.gate === 'approve'
-    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
+    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number')
+    || gateHold !== null;
   const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
   if (dedupKey && keyIdentifiesOneRecord) {
     const refreshed = await db.transaction(async (tx) => {
@@ -558,7 +591,7 @@ async function proposeActionInTurn(input: {
       // action's own, the proposal that just merged in would have been its
       // own run a moment ago, and the ladder would have judged it: it still
       // is, so merging never costs a proposal the done-for-you it earned.
-      if (action.ownsDedupKey && input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number') {
+      if (action.ownsDedupKey && input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number' && gateHold === null) {
         const verdict = await ladderVerdict(input.orgId, action, refreshed.input as Record<string, unknown>, input.proposal, input.conversationAutonomy);
         if (verdict.mode === 'execute') {
           await stampAutoApproval(refreshed.id, (refreshed.proposal ?? null) as Record<string, unknown> | null, verdict, input.invokedBy ?? input.principal.id, input.proposal?.agentSlug);
@@ -571,9 +604,9 @@ async function proposeActionInTurn(input: {
       // until you approve it"). Not gated, it executes as a fresh run would.
       if (!gated) {
         await db.update(actionRunSchema).set({ status: 'approved' }).where(eq(actionRunSchema.id, refreshed.id));
-        return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed' };
+        return { ...await executeAction(refreshed.id, input.orgId), outcome: 'refreshed', ...gateAdvice };
       }
-      return { runId: refreshed.id, status: 'pending', outcome: 'refreshed' };
+      return { runId: refreshed.id, status: 'pending', outcome: 'refreshed', ...gateAdvice };
     }
 
     // Nothing open, but a person may have judged this exact record already.
@@ -650,7 +683,10 @@ async function proposeActionInTurn(input: {
     // item in the review queue, never release it.
     // The list itself lives in `libs/actions/neverAuto.ts` so the autonomy
     // ladder reads the same one and never offers a promotion this gate refuses.
-    const verdict = await ladderVerdict(input.orgId, action, parsed as Record<string, unknown>, input.proposal, input.conversationAutonomy);
+    // A gate that held it for a person wins over every rung: the findings are on the card.
+    const verdict: Awaited<ReturnType<typeof ladderVerdict>> = gateHold !== null
+      ? { mode: 'ask', reason: gateHold, threshold: null, source: 'held' }
+      : await ladderVerdict(input.orgId, action, parsed as Record<string, unknown>, input.proposal, input.conversationAutonomy);
     if (verdict.mode === 'execute') {
       await stampAutoApproval(run!.id, storedProposal, verdict, input.invokedBy ?? input.principal.id, input.proposal?.agentSlug);
       // Deliberately NOT written to the adoption stream. Adoption measures what
@@ -659,11 +695,11 @@ async function proposeActionInTurn(input: {
       // screen exists to report. The count comes off this column instead
       // (`AdoptionService.countAutoApprovals`), which is the system of record
       // for the decision and is indexed for exactly that question.
-      return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
+      return { ...await executeAction(run!.id, input.orgId), outcome: 'created', ...gateAdvice };
     }
-    return { runId: run!.id, status: 'pending', outcome: 'created' };
+    return { runId: run!.id, status: 'pending', outcome: 'created', ...gateAdvice };
   }
-  return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
+  return { ...await executeAction(run!.id, input.orgId), outcome: 'created', ...gateAdvice };
 }
 
 /**

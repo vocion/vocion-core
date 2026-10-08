@@ -15,7 +15,7 @@ plugin ships the **meaning**: which agent, on what cadence, graded on what,
 with which pages and which rules. A workspace ships the **concretion**: its
 brand, its overrides, its own facts.
 
-Six ship in core, at `packages/core/templates/plugins/`:
+Eight ship in core, at `packages/core/templates/plugins/`:
 
 | Plugin | What turning it on gives you | Depends on |
 |---|---|---|
@@ -25,6 +25,8 @@ Six ship in core, at `packages/core/templates/plugins/`:
 | **`growth-loop`** | The loop a go-to-market team actually runs: the `growth_brief` — one claim, one audience, the list of what the piece may NOT say, the acceptance contract, and the number it will be judged on with its baseline, source and attribution model fixed before anything is made; five seats on one team (Demand writes the brief, Production makes one deliverable as an artifact, Quality decides fit-to-publish against that brief and nothing else, Measurement takes the reading on its due date and writes the verdict, Growth promotes inside three limits), Design declared empty; four standing missions, every way an agent acts an automation a person can read on /dashboard/automation; Briefs, Measure and Cost-and-return on top with the team report beside them; and `team.hire_agent` — the team adding a teammate from the catalog, with the daily allowance it is hired under, refused while the workspace is over its own spend, and one Undo from being put back. | — |
 | **`production-watch`** | Production errors from Sentry become `incident` records: the `error-watch` job opens one when an issue is new and busy or spiking, with its cause (`deploy`, `code`, `unknown`) read by a model from the release and the stack, resolves it after a quiet hour, and raises `incident.opened` / `incident.updated`. An on-call engineer reads each one and writes the move on it; a person hears once per incident. With `software-factory` on, a deploy-caused incident wakes its Release engineer, and a major code bug becomes a factory request. The watch list is the `error-watch` automation's input. | — |
 | **`software-factory`** | Every request — bug, review, email, incident — as one `request` record; the `engineering_task` contract as the record a person reads; the `repo` registry and the `product` with its written promises; five disciplines on one team — a product manager that tags, ranks, recommends in batches of ten and then pauses, ideates as requests and authorizes nothing; a planner (architecture) that triages and writes contracts under three WIP limits; an `external-worker` engineer that executes in its own checkout and attaches the proof; a reviewer (QA) that approves nothing without evidence; the Design seat declared empty — nine standing missions, every way the product manager acts an automation a person can read on /dashboard/automation; the AppCurious portfolio and Releases on top with agent-maintained counters, and the Backlog, Recommendations, Factory floor, Product board, Factory log and Team report as the evidence underneath; one merge bar per risk class and one authorization bar per class, earned or never. | — |
+| **`company`** | The Company app: its start page (`/dashboard/apps/company`), where a template — Software Company, Marketing Agency, Support Org — stands a whole function up in one move: teams with a lead and specialists, their measures, missions, automations, conservative trust rules and a budget on every seat, written into the workspace as its own files with you accountable. See [Company](./apps/company.md). | — |
+| **`red-team`** | A second reader on everything an agent publishes outside — `gmail.send`, `release.announce`, `notify.requester`, `chat.post_message`: a model from a **different vendor** than the one that wrote it reads it against the workspace's voice rules and wiki and returns typed findings. Serious findings send the draft back to the agent once, then to a person; on a person's own word they are advice and it runs. See [Action gates](#action-gates--a-second-reader-before-anything-goes-out). | — |
 
 Each plugin directory has a `README.md` that says what it adds and how to
 customise it; the **Marketplace** (`/dashboard/marketplace`, under Build) shows
@@ -106,7 +108,7 @@ workspace's own Personalization and Discovery surfaces, one heading.
 ## Apps — plugins as a person picks them
 
 The dashboard's far-left **app rail** lists apps: Workforce first, then the
-prebuilt apps (Software Factory, GTM), then "Add app", which opens the
+prebuilt apps (Software Factory, GTM, Company), then "Add app", which opens the
 marketplace. An app is a manifest at `packages/core/templates/apps/<id>/app.yaml`
 (`AppManifestSchema`, loaded by `libs/workspace/apps.ts`), not new capability:
 
@@ -137,6 +139,13 @@ nav: [Software factory, Production Watch] # the nav.section labels it owns
 - **The URL says the app.** A page an app owns (its pages, its surfaces, a core
   route its plugin owns) opens in that app, so a link or a refresh lands right.
   Shared pages — Chat, Review, the wiki, a record — keep the app you were in.
+- **Templates: a function in one move.** An app may ship templates under
+  `templates/apps/<id>/templates/<slug>/` — a `template.yaml` with a short
+  interview and a `files/` tree laid out like a workspace. Its start page
+  (`/dashboard/apps/<id>`, linked from the marketplace) lists them; picking one
+  writes the files into the workspace with the answers filled in, turns on the
+  app's plugins and the template's own, and applies. The Company app is the
+  first: [Company](./apps/company.md).
 - **One picker.** Every app's nav starts with the workspace switcher, listing
   only the workspaces that have that app (`apps.forUser` RPC); switching keeps
   the app when the target has it and falls back to Workforce when it does not.
@@ -199,6 +208,7 @@ place. The wiki plugin needed four such seams, each generic:
 | write a page done-for-you with a bar | `wiki.write_page` action (reversible) + `write_wiki_page` tool | — (wiki-specific, gated on the plugin) |
 | recommend itself from chat | `list_capabilities` tool, the capabilities note in the system prompt, `plugin.enable` action | be recommended and turned on from a conversation |
 | be graded on pages that exist | `rows: artifacts` (+ `where`) measure source | count any kind, folder, playbook, verified state of artifact |
+| read what an agent publishes before it goes out | `actionGates:` in `plugin.yaml` + `services/gates/actionGate.ts` | put a critic from another vendor in front of any registered action |
 
 The **data-rooms** plugin owns the Data rooms nav row (`DashboardRoute.plugin`)
 and the after-sync collector runs only where the plugin is on; its tool set is
@@ -399,6 +409,43 @@ rules, or wiki pages; the trust ladder promotes what people keep approving.
 
 That is the loop the manifesto describes — outcome → work → measure → learn →
 improve → automate — inside one directory.
+
+## Action gates — a second reader before anything goes out
+
+A plugin can declare a gate on the registered actions that publish outside the
+workspace. Before an **agent's** proposal of one is queued or run, a critic
+reads what it would publish — the action's own review card, so it reads what a
+person would — and returns **typed findings**: a severity (`serious` /
+`minor`), the rule (`voice` / `fact` / `claim` / `other`), the words quoted,
+why, and the fix. Code routes on those fields, never on the critic's prose.
+
+```yaml
+# plugin.yaml
+actionGates:
+  - name: red-team
+    label: Red team
+    actions: [gmail.send, release.announce, notify.requester, chat.post_message]
+    critic:
+      vendor: different # a model from a different vendor than the author
+      rubric: red-team-critique # a skill the plugin ships
+    returns: 1 # serious findings go back to the author this many times, then to a person
+```
+
+| What it found | An agent's proposal | A person's own word |
+|---|---|---|
+| Nothing serious | Goes on to the trust ladder as before; the reading rides on the run | Runs |
+| Serious, not yet returned | Returned to the agent with the findings (`RETURNED_FOR_REVISION`); nothing queued; the return is a run closed by `system:gate:<name>` | Runs; the findings come back as one line of advice |
+| Serious after `returns` revisions | Held for a person, whatever the trust ladder says; the findings are rows on the card | Runs, with the advice |
+| No critic could read it | Held for a person, and the card says why | Runs |
+
+`vendor: different` reads the author's vendor off its agent's `harness` (Claude
+on Bedrock is Anthropic's) and takes the first other vendor the workspace can
+reach — its own key first, the server's second (`buildChatModelForOrg`). The
+call is charged like any other (`chargeModelCall`, feature `gate.action`). The
+workspace's `voice.yaml` is checked twice: by the rules it authored (a blocking
+rule is a serious finding) and by the critic; its facts are the wiki passages
+that bear on the words. The `red-team` plugin is the shipped one; its README
+says how to tune it.
 
 ## Writing your own
 

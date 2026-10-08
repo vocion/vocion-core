@@ -346,6 +346,33 @@ export const PluginSettingSchema = z.object({
 });
 export type PluginSetting = z.infer<typeof PluginSettingSchema>;
 
+/**
+ * A gate a plugin declares on actions that publish outside the workspace
+ * (`plugin.yaml` `actionGates:`). Before an agent's proposal of one of
+ * `actions` is queued or run, a critic reads what it would publish against
+ * the workspace's voice and its facts and returns typed findings
+ * (`services/gates/actionGate.ts`). Serious findings send the work back to the
+ * agent that wrote it `returns` times, then to a person; on a person's own
+ * word they are advice and the action runs. The plugin names the actions and
+ * the rubric; core names neither.
+ */
+export const ActionGateSchema = z.object({
+  name: SlugSchema,
+  /** What a person reads where the gate's findings are shown, e.g. "Red team". */
+  label: z.string().min(1),
+  /** Registered action ids this gate reads before they run. */
+  actions: z.array(z.string().min(1)).min(1),
+  critic: z.object({
+    /** `different`: a model from a different vendor than the one that wrote the work. */
+    vendor: z.literal('different'),
+    /** Skill slug the critic reads as its rubric — shipped by the plugin. */
+    rubric: SlugSchema.optional(),
+  }),
+  /** How many times serious findings return the work to its author before a person decides. */
+  returns: z.number().int().min(0).max(3).default(1),
+});
+export type ActionGateManifest = z.infer<typeof ActionGateSchema>;
+
 export const PluginManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().min(1),
@@ -403,6 +430,11 @@ export const PluginManifestSchema = z.object({
     connectors: z.array(z.string().min(1)).default([]),
     records: z.array(SlugSchema).default([]),
   }).default({ connectors: [], records: [] }),
+  /**
+   * Gates on actions that publish outside — read before an agent's proposal
+   * of one is queued or run. See {@link ActionGateSchema}.
+   */
+  actionGates: z.array(ActionGateSchema).optional(),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
