@@ -6837,7 +6837,7 @@
     "/api/v1/runner/claim": {
       "post": {
         "operationId": "post_runner_claim",
-        "summary": "The installation's runners take the next engineering run from any workspace on it (backlog 052).",
+        "summary": "A runner takes the next engineering run it may build (backlog 052; scoped per tenant in 5.1).",
         "tags": [
           "runner"
         ],
@@ -6898,7 +6898,7 @@
             }
           }
         },
-        "description": "The installation's runners take the next engineering run from any workspace on it (backlog\n052). Auth: the installation runner token (`VOCION_RUNNER_TOKEN`), never a workspace's.\n`target` must be one the installation declares (`libs/runners/config.ts`); `claimAfterSeconds`\nis how long a run waits before this runner takes it (the on-box backup's `RUNNER_CLAIM_AFTER`),\nand the target's own setting wins over it; `runId` claims only that run.\n\n200 `{ run, leaseExpiresAt, toolClaim, runToken, git }`: `runToken` is the credential for every\ncall about this run, scoped to the workspace that queued it; `git` is the repository's push\ncredential when the workspace has one (`services/runners/repoCredential.ts`). 204 when there is\nnothing for this target to take.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "A runner takes the next engineering run it may build (backlog 052; scoped per tenant in 5.1).\nAuth: an account's runner token, a start token, or — single-tenant only — the installation\nrunner token (see `credentialFor`). `target` must be one the installation declares\n(`libs/runners/config.ts`); a run whose workspace names a target goes only to that one.\n`claimAfterSeconds` is how long a run waits before this runner takes it (the on-box backup's\n`RUNNER_CLAIM_AFTER`), and the target's own setting wins over it; `runId` claims only that run.\nA start token claims only its own run, as the target it was minted for.\n\n200 `{ run, leaseExpiresAt, runToken, git }`: `runToken` is the credential for every call about\nthis run, bound to it and to this runner's lease; `git` is the repository's push credential when\nthe workspace has one (`services/runners/repoCredential.ts`). No `toolClaim` (5.1): a runner\ncalls no agent tool, and that claim acts across the workspace. 204 when there is nothing for\nthis credential and target to take.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
           "required": true,
           "content": {
@@ -7975,7 +7975,7 @@
             }
           }
         },
-        "description": "`workerVersion` is what the worker is — its image tag, build or commit —\nkept on the run, so a failure in the worker's own environment is retried\nonly once the worker has changed. `target` is which runner target it is\n(`on-box`, `aws-fargate`), shown on the Runs page.\nTake the lease. 409 if someone else holds it, 402 if the agent is over budget.\nReturns the run and a short-lived `toolClaim` for /api/internal/agent-tools.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "`workerVersion` is what the worker is — its image tag, build or commit —\nkept on the run, so a failure in the worker's own environment is retried\nonly once the worker has changed. `target` is which runner target it is\n(`on-box`, `aws-fargate`), shown on the Runs page.\nTake the lease. 409 if someone else holds it, 402 if the agent is over budget.\nReturns the run, a short-lived `toolClaim` for /api/internal/agent-tools, and a\n`runToken` bound to this run and lease for every call that follows.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -8230,7 +8230,7 @@
             }
           }
         },
-        "description": "{ workerId, workerVersion?, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures?, events? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\n\n`events` is the run's step log since the last beat — `[{ seq, ts, phase,\nlevel?, message?, fields? }]`, at most 200 — and `eventsAccepted` in the\nreply is the highest seq Vocion has dealt with (`services/runs/RunLogService.ts`).\nLines that cannot be stored never fail the heartbeat; the reply then omits\n`eventsAccepted` and the worker resends them.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ workerId, workerVersion?, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures?, events? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim;\nto a runner calling with a run token, a fresh `runToken` instead.\n\n`events` is the run's step log since the last beat — `[{ seq, ts, phase,\nlevel?, message?, fields? }]`, at most 200 — and `eventsAccepted` in the\nreply is the highest seq Vocion has dealt with (`services/runs/RunLogService.ts`).\nLines that cannot be stored never fail the heartbeat; the reply then omits\n`eventsAccepted` and the worker resends them.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",

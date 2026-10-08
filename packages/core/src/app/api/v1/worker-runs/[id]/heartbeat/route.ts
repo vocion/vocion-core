@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { signRunToken } from '@/services/runners/runToken';
 import { assertExternalWorkersEnabled, heartbeatWorkerRun } from '@/services/WorkerRunService';
 import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody } from '../../../_shared';
 import { obj, str, workerRunErrorResponse } from '../../_lib';
@@ -7,7 +8,8 @@ import { obj, str, workerRunErrorResponse } from '../../_lib';
  * POST /api/v1/worker-runs/:id/heartbeat
  *   { workerId, workerVersion?, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures?, events? }
  * Extends the lease and records what the worker reports. The reply carries the
- * control signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.
+ * control signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim;
+ * to a runner calling with a run token, a fresh `runToken` instead.
  *
  * `events` is the run's step log since the last beat — `[{ seq, ts, phase,
  * level?, message?, fields? }]`, at most 200 — and `eventsAccepted` in the
@@ -78,9 +80,15 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       paused: reply.paused,
       endsAt: reply.endsAt,
       capRemainingCents: reply.capRemainingCents,
-      toolClaim: reply.toolClaim,
       status: reply.run.status,
       ...(reply.eventsAccepted === undefined ? {} : { eventsAccepted: reply.eventsAccepted }),
+      // A runner on a run token gets a fresh one each beat (Vocion 5.1), bound to the lease holder
+      // the beat just proved: a run token lives two hours past the last beat, not the run's
+      // whole length, so one copied out of a container dies soon after its run stops. It gets no
+      // toolClaim: the runner calls no agent tool, and that claim acts across the workspace.
+      ...(caller.run
+        ? { runToken: signRunToken({ orgId: caller.orgId, runId: id, target: caller.run.target, workerId: caller.run.workerId ?? workerId }) }
+        : { toolClaim: reply.toolClaim }),
     });
   } catch (error) {
     return workerRunErrorResponse(error);

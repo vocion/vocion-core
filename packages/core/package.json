@@ -55,6 +55,7 @@
     "tokens:issue": "dotenv -c -- tsx src/scripts/manage-tokens.ts issue",
     "tokens:list": "dotenv -c -- tsx src/scripts/manage-tokens.ts list",
     "tokens:revoke": "dotenv -c -- tsx src/scripts/manage-tokens.ts revoke",
+    "runner-tokens": "dotenv -c -- tsx src/scripts/runner-tokens.ts",
     "personalization:seed": "dotenv -c -- tsx src/scripts/seed-personalization-queue.ts",
     "local:reset-password": "dotenv -c -- tsx src/scripts/reset-local-password.ts",
     "local:setup-projects": "dotenv -c -- tsx src/scripts/setup-local-projects.ts",

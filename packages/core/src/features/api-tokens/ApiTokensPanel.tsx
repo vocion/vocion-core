@@ -68,7 +68,7 @@ const EXPIRY_CHOICES: Array<{ value: string; label: string }> = [
   { value: 'custom', label: 'Custom date…' },
 ];
 
-type FreshToken = { id: string; token: string; name: string };
+export type FreshToken = { id: string; token: string; name: string };
 
 /** A platform option exactly as `apiTokens.listPlatforms` returns it. */
 type PlatformOption = {
@@ -263,7 +263,7 @@ function stateLabel(state: TokenState): string {
   return 'Revoked';
 }
 
-function formatDate(value: Date | string | null): string {
+export function formatDate(value: Date | string | null): string {
   if (!value) {
     return 'Never';
   }
@@ -271,12 +271,15 @@ function formatDate(value: Date | string | null): string {
 }
 
 /**
- * The one-time secret display. Dismissing it is the only way to close it.
+ * The one-time secret display. Dismissing it is the only way to close it. Shared by every panel
+ * that mints a token (API tokens here, runner tokens in `features/runners/RunnersPanel.tsx`), so a
+ * fresh secret always looks and behaves the same; `note` says whether it can be shown again.
  * @param props - Component props.
  * @param props.fresh - The token just created, including its plaintext secret.
  * @param props.onDismiss - Called once the admin says they have saved it.
+ * @param props.note - What to do with it, and whether it can be seen again.
  */
-function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: () => void }) {
+export function FreshTokenNotice({ fresh, onDismiss, note = 'Copy it into the tool that needs it. You can also show it again later from its row in the table below.' }: { fresh: FreshToken; onDismiss: () => void; note?: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = useCallback(async () => {
@@ -290,10 +293,7 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
       <p className="text-sm font-medium">
         {`Token “${fresh.name}” created`}
       </p>
-      <p className="text-sm text-muted-foreground">
-        Copy it into the tool that needs it. You can also show it again later
-        from its row in the table below.
-      </p>
+      <p className="text-sm text-muted-foreground">{note}</p>
       <div className="flex items-center gap-2">
         <code className="flex-1 overflow-x-auto rounded bg-muted px-3 py-2 font-mono text-xs">
           {fresh.token}

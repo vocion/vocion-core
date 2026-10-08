@@ -73,7 +73,10 @@ services:
   # Capped so it can never starve the app: a share of the CPU and memory, a pid limit, and no
   # env_file of the app's. Its only secrets are in runner.env (VOCION_RUNNER_TOKEN, the model
   # key, a fallback GITHUB_TOKEN), because everything in its environment is visible to the
-  # engineer's tests, and the app's DATABASE_URL must never be. With no runner.env it idles.
+  # engineer's tests, and the app's DATABASE_URL must never be. The runner token and the push
+  # token are not even that: the entrypoint claims in a process of its own and builds without
+  # them (packages/runner/src/handoff.mjs). On a multi-tenant host the token is one account's,
+  # so this backup serves that account alone. With no runner.env it idles.
   #
   # The image is the core commit's: an installation sets VOCION_RUNNER_IMAGE to
   # ghcr.io/vocion/vocion-runner:sha-<core commit> when its pin moves. The `main` fallback

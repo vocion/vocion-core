@@ -102,17 +102,18 @@ it started, or why it could not and who takes the run instead. A failed start ne
 dispatch, because the backup and the poll still build. A target is a small driver (`start(target,
 run)`); Azure Container Apps or a custom host would be one more of the same shape.
 
-A runner claims with the installation runner token (`VOCION_RUNNER_TOKEN`, the same value in the
-app and in the runner's secrets): `POST /api/v1/runner/claim { target, workerId, workerVersion,
-claimAfterSeconds, runId? }`. It takes the oldest queued engineering run from any workspace, and
-the claim holds for one runner even when two race. The reply carries a **run token**, scoped to
-the workspace that queued the run and good for as long as a run lasts. Every call about the run
-uses it: heartbeat, complete, fail, the task record, QA artifacts, the product's QA sign-in. It
-also carries the repository's push credential when the workspace has one
-(`services/runners/repoCredential.ts`: the GitHub connector today, the GitHub App's installation
-token when that lands). A fleet never holds a workspace's token. The Runs page and the run page
-name the target that claimed each run (`worker_run.worker_target`). When nothing picks a run up,
-the reconciler's ask names the target that last claimed.
+A runner claims with a runner token: `POST /api/v1/runner/claim { target, workerId, workerVersion,
+claimAfterSeconds, runId? }`. On a single-tenant installation that can be the installation runner
+token (`VOCION_RUNNER_TOKEN`, the same value in the app and in the runner's secrets), which takes
+the oldest queued engineering run from any workspace. An account's runner token takes only that
+account's runs (see [Multi-tenant deployments](#multi-tenant-deployments)). The claim holds for
+one runner even when two race. The reply carries a **run token**, bound to that one run and to the
+runner holding its lease. Every call about the run uses it: heartbeat, complete, fail, the task
+record, QA artifacts, the product's QA sign-in. It also carries the repository's push credential
+when the workspace has one (`services/runners/repoCredential.ts`: the GitHub connector today, the
+GitHub App's installation token when that lands). A fleet never holds a workspace's token. The Runs
+page and the run page name the target that claimed each run (`worker_run.worker_target`). When
+nothing picks a run up, the reconciler's ask names the target that last claimed.
 
 The on-box services are behind the compose profile `runner`; an installation turns them on with
 `COMPOSE_PROFILES=runner` once its `runner.env` and the image are in place, so a box that cannot
@@ -126,7 +127,8 @@ The same image runs everywhere. A deploy target only decides where the container
 
 | Variable | Meaning |
 |---|---|
-| `VOCION_URL`, `VOCION_RUNNER_TOKEN` | the installation, and its runner token: claim from every workspace on it |
+| `VOCION_URL`, `VOCION_RUNNER_TOKEN` | the installation, and a runner token: an account's (`vcn_runner_…`) claims that account's runs; the installation's own claims every workspace's, on a single-tenant installation only |
+| `VOCION_RUN_TOKEN` | instead, a start token a target put in for one run (Fargate push): claims that run and nothing else |
 | `VOCION_TOKEN` | instead, one workspace's token: claim that workspace's runs only |
 | `WORKER_RUN_ID` | claim that run; unset, poll for `POLL_MAX_SECONDS` (900) |
 | `RUNNER_TARGET` | which target this container is (`on-box`, `aws-fargate`, `local`), reported at claim |
@@ -146,3 +148,82 @@ docker run --rm -i -e ANTHROPIC_API_KEY -e GITHUB_TOKEN -e LOCAL_TASK=- vocion-r
 ```
 
 Every phase is one JSON line on stdout, so the container's log is the run's timeline.
+
+## Multi-tenant deployments
+
+A host that serves several companies (Vocion Cloud) sets `VOCION_MULTI_TENANT=1`. Each company is
+an account with its own workspaces, and its engineering runs build its own repositories. The
+runner runs that repository's code, so the runner has to belong to the company too: nothing in its
+container may be able to claim, read or report on another company's runs.
+
+Three credentials do that, and the installation runner token is not one of them. On a
+multi-tenant installation `POST /api/v1/runner/claim` refuses `VOCION_RUNNER_TOKEN` with a 403 that
+says so. A single-tenant installation keeps it, unchanged.
+
+| Credential | Held by | Can do |
+|---|---|---|
+| **Runner token** `vcn_runner_<id>_<secret>` | a runner's secrets, as `VOCION_RUNNER_TOKEN` | claim the runs of one account, or of the workspaces it lists. Long-lived, revocable. Only its hash is stored, so it is shown once |
+| **Start token** `vrt_…` (use `start`) | a container a target started for one run, as `VOCION_RUN_TOKEN` | claim that one run, as that target, while it is queued. 30 minutes |
+| **Run token** `vrt_…` (use `run`) | the runner, in memory, after the claim | that run's calls only: heartbeat, checkpoint, complete, fail, the task record, QA evidence, its product's QA sign-in. Bound to the lease holder. Two hours, renewed by every heartbeat, refused once another runner holds the run and ten minutes after the run ends. It claims nothing |
+
+### Minting runner tokens
+
+An account admin mints them in Workforce › Settings › Developers, under **Software Factory:
+runners**: a name, every workspace or a list, an expiry. The token is shown once, then only its
+last four characters. Revoking stops the next claim; a run already claimed finishes on its own run
+token. An operator with a shell on the instance does the same without a login in the account:
+
+```bash
+npm run runner-tokens -- mint   --account northwind --name "Northwind Fargate" [--workspaces factory,labs] [--expires-in-days 365]
+npm run runner-tokens -- list   --account northwind
+npm run runner-tokens -- revoke --account northwind --id <tokenId>
+```
+
+The claim applies the scope in the query that picks candidates, by joining the run's workspace to
+its account (`services/runners/claimNext.ts`). A run of another account is never a candidate,
+whatever the token asks for: not the oldest run on the host, not a run named by id. A run whose
+workspace has no project row is claimable only by the installation token.
+
+### Which target builds a workspace
+
+A workspace, or its account for every workspace that names none, can name the target that builds
+its runs: the same section of Settings › Developers, or
+`npm run runner-tokens -- target --account northwind [--workspace factory] --target northwind-fargate`
+(`any` clears it). The target must be one the installation declares in `VOCION_RUNNERS`. Then:
+
+- only a runner claiming as that target is given the workspace's runs;
+- the Fargate push starts the run's task on that target, never on the installation's first one;
+- a workspace that names a polled target (`on-box`) gets no push, and one that names a target the
+  installation no longer declares gets a note on the run saying so.
+
+A company with its own capacity is one more target in `VOCION_RUNNERS`, with its own cluster,
+subnets, security groups and task role, and its workspaces name it.
+
+### No long-lived credential beside the repository
+
+Repository code runs as the same user in the same container as the runner, and can read the
+start-up environment of any process of that user (`/proc/<pid>/environ`). So the runner never
+builds in a process that holds a credential able to claim:
+
+- **Fargate push** (`services/runners/targets.ts`). Core puts a start token for the run in the
+  task's overrides and nothing else: no runner token, no installation token. The push task
+  definition needs no Vocion secret at all.
+- **Poll and on-box.** The entrypoint claims in a process of its own (`runner.mjs --claim-to`),
+  which writes the claim (the run, its run token, the push credential) to a private file and exits.
+  The entrypoint then replaces itself with the runner, started with `VOCION_RUNNER_TOKEN`,
+  `VOCION_RUN_TOKEN`, `VOCION_TOKEN`, `GITHUB_TOKEN` and `GH_TOKEN` removed from its environment.
+  The runner reads the file and deletes it before it clones (`packages/runner/src/handoff.mjs`).
+  A start token wins over a runner token when a container has both.
+
+What remains in reach of the repository is the run token, for its own run.
+
+### Setting up a multi-tenant installation
+
+1. Set `VOCION_MULTI_TENANT=1` on the app. Leave `VOCION_RUNNER_TOKEN` unset there; nothing would
+   accept it.
+2. For each Software Factory account, mint a runner token for the runners that build its runs.
+3. For a company with its own capacity, declare its target in `VOCION_RUNNERS` and name it on the
+   account (or its workspaces).
+4. The Fargate push needs no token. A scheduled poll task, and an on-box runner, each hold one
+   account's runner token as `VOCION_RUNNER_TOKEN`. One `runner.env` is one account: an on-box
+   backup on a shared host serves at most one account, or none.

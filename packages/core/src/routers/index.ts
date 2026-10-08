@@ -145,6 +145,7 @@ import {
   unapproveContentRoute,
   undoActionRoute,
 } from './Review';
+import { createTokenRoute as createRunnerTokenRoute, revokeTokenRoute as revokeRunnerTokenRoute, overviewRoute as runnersOverviewRoute, setAccountTargetRoute as setAccountRunnerTargetRoute, setWorkspaceTargetRoute as setWorkspaceRunnerTargetRoute } from './Runners';
 import { glanceRoute as runGlanceRoute, logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
 import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
@@ -266,6 +267,13 @@ export const router = {
     saveSource: saveConnectedSourceRoute,
     addConnector: addConnectorRoute,
     revealStoredCredential: revealStoredCredentialRoute,
+  },
+  runners: {
+    overview: runnersOverviewRoute,
+    createToken: createRunnerTokenRoute,
+    revokeToken: revokeRunnerTokenRoute,
+    setWorkspaceTarget: setWorkspaceRunnerTargetRoute,
+    setAccountTarget: setAccountRunnerTargetRoute,
   },
   apiTokens: {
     list: listTokensRoute,

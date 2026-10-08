@@ -30,7 +30,7 @@ echo "$cmd" | grep -Eq '\bchmod +(-R +)?[0-7]*777\b|\bchown +-R' && deny "recurs
 echo "$cmd" | grep -Eq '(^|[^A-Za-z0-9_])(cat|echo|printf|sed|grep|rg|less|more|head|tail|awk|cut|xxd|base64|strings|source|\.) +[^|;&]*(\.env(\.[A-Za-z0-9_-]+)?\b|\.aws/|\.ssh/|\.pem\b|\.netrc|\.npmrc|\.git-credentials|\.claude\.json|\.config/gh)' \
   && deny "reading secrets, env files, keys or credential stores is forbidden. Secrets are injected outside the agent."
 echo "$cmd" | grep -Eq '\b(env|printenv|set)\b *($|[|;&>])' && deny "dumping the environment is forbidden (it holds credentials). Read one variable by name if you must."
-echo "$cmd" | grep -Eq '\$\{?(ANTHROPIC_API_KEY|GITHUB_TOKEN|GH_TOKEN|VOCION_TOKEN|VOCION_RUNNER_TOKEN|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)\b' && deny "referencing credential variables is forbidden."
+echo "$cmd" | grep -Eq '\$\{?(ANTHROPIC_API_KEY|GITHUB_TOKEN|GH_TOKEN|VOCION_TOKEN|VOCION_RUNNER_TOKEN|VOCION_RUN_TOKEN|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)\b' && deny "referencing credential variables is forbidden."
 echo "$cmd" | grep -Eq '\baws +(configure|sso|login)\b|AWS_ACCESS_KEY_ID=|AWS_SECRET_ACCESS_KEY=' && deny "AWS credential changes are forbidden."
 
 # 4. No mutating AWS, no deploys, no publishing.
