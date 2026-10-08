@@ -144,3 +144,13 @@ describe('what the person reads', () => {
     expect(budgetStopMessage(breach())).toMatch(/^This turn stopped partway because it reached its budget\. /);
   });
 });
+
+describe('a cap an extension owns', () => {
+  it('is refused and stopped in the extension\'s own words', () => {
+    const message = 'This Org has reached the monthly cap its provider set.';
+    const owned = breach({ scope: 'extension', agentSlug: 'test:cap', message });
+
+    expect(budgetRefusalMessage(owned)).toBe(message);
+    expect(budgetStopMessage(owned)).toBe(`This turn stopped partway because it reached its budget. ${message}`);
+  });
+});

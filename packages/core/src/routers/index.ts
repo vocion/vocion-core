@@ -1,3 +1,5 @@
+import type { AnyRouter } from '@orpc/server';
+import { extensionRouters } from '@/libs/extensions';
 import { setVoice as setAgentVoiceRoute } from './Agents';
 import {
   adoptionAgentDetailRoute,
@@ -402,3 +404,13 @@ export const router = {
     cancelWorkflow: cancel,
   },
 };
+
+/**
+ * What `/rpc` serves: core's router, plus each extension's router at
+ * `ext.<name>` (`libs/extensions.ts`). Kept apart from {@link router} so core's
+ * typed client (`libs/Orpc.ts`) is typed by core's procedures alone; an
+ * extension types its own client by its own router.
+ */
+export function servedRouter() {
+  return { ...router, ext: extensionRouters() as Record<string, AnyRouter> };
+}

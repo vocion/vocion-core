@@ -51,6 +51,10 @@ const WHERE_TO_LOOK = 'Every agent\'s cap and spend: GET /api/v1/budgets/agents.
  * @param breach - The refusing check.
  */
 function whatToChange(breach: BudgetBreach): string {
+  // A cap an extension owns says in its own words whose it is and who can change it.
+  if (breach.message) {
+    return breach.message;
+  }
   const spent = breach.reason === 'hard_cents_exceeded'
     ? `${dollars(breach.current)} of a ${dollars(breach.limit)} cap`
     : `${breach.current} of a ${breach.limit}-token cap`;

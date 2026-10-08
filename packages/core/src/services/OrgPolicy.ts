@@ -6,15 +6,18 @@
  * `orgId` means the WORKSPACE (`project.id`), not the Org. So identifiers here
  * say "account", and only the words a person reads say "Org".
  *
- * `VOCION_ORGS` (`libs/Env.ts`) picks the mode:
+ * Core runs one mode on its own:
  *
- * - `single` (default) — a self-hosted, one-tenant install. One Org on the
- *   server, and each person in at most one. No Org switcher. Creating a second
+ * - `single` — a self-hosted, one-tenant install. One Org on the server, and
+ *   each person in at most one. No Org switcher. Creating a second
  *   `tenant_account`, or accepting an invite that would put someone in a second
  *   Org, is refused here — structurally, in every path that writes those rows,
  *   rather than hidden in the interface.
- * - `multi` — Vocion Cloud. Any number of Orgs, a person in several, and an Org
- *   switcher above the workspace switcher.
+ * - `multi` — any number of Orgs and a person in several. Only an extension
+ *   can turn it on (`orgs.multiOrg` in `libs/extensions.ts`); core alone is
+ *   always `single`. The extension decides how a deployment asks for it
+ *   (`VOCION_ORGS=multi`, declared in `libs/Env.ts`, is the conventional
+ *   switch) and what it adds on top, such as an Org switcher.
  *
  * Paths that create Orgs or memberships, and which check what:
  *
@@ -30,17 +33,18 @@
 import type { DbTransaction } from '@/libs/DbTransaction';
 import { and, asc, eq, ne } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { extensionAllowsMultiOrg } from '@/libs/extensions';
 import { accountMembershipSchema, tenantAccountSchema } from '@/models/Schema';
 
 export type OrgsMode = 'single' | 'multi';
 
 /**
- * This deployment's Org mode. Read from `process.env` on every call (as
- * `enforcementEnabled()` is) so a test can flip it; `libs/Env.ts` declares and
- * validates the same variable.
+ * This deployment's Org mode: `multi` when an extension lifts the single-Org
+ * rule, `single` otherwise. Asked on every call, so a hook that reads the
+ * environment can be flipped by a test.
  */
 export function orgsMode(): OrgsMode {
-  return process.env.VOCION_ORGS?.trim().toLowerCase() === 'multi' ? 'multi' : 'single';
+  return extensionAllowsMultiOrg() ? 'multi' : 'single';
 }
 
 type Executor = typeof db | DbTransaction;
@@ -94,6 +98,6 @@ export async function newOrgProblem(exec: Executor = db): Promise<string | null>
     .innerJoin(accountMembershipSchema, eq(accountMembershipSchema.accountId, tenantAccountSchema.id))
     .limit(1);
   return existing
-    ? `This Vocion server runs a single Org (${existing.name}) and cannot hold a second one. Set VOCION_ORGS=multi to run several Orgs.`
+    ? `This Vocion server runs a single Org (${existing.name}) and cannot hold a second one. Several Orgs on one server need an extension that allows them.`
     : null;
 }

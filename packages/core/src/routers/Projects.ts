@@ -1,5 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { extensionScopesSwitcherToOrg } from '@/libs/extensions';
 import { orgsMode } from '@/services/OrgPolicy';
 import { accountsForUser, listProjectsForUser, resolveProjectForUser } from '@/services/ProjectService';
 import { ApiError } from './ApiError';
@@ -11,12 +12,14 @@ import { guardAuth } from './AuthGuards';
  * and `account`, the Org this request runs in. `account` comes from the
  * session's tenancy, which follows the picked workspace (`libs/tenancy.ts`),
  * so it is always the owner of the active one. `orgsMode` is the deployment's
- * `VOCION_ORGS`: a single-Org install shows no Org at all.
+ * Org mode (`services/OrgPolicy.ts`): a single-Org install shows no Org at
+ * all. `switcherScope` is `org` when an extension asks the switcher to list
+ * the current Org's workspaces only.
  */
 export const list = os.handler(async () => {
   const { userId, accountId } = await guardAuth();
   const [projects, accounts] = await Promise.all([listProjectsForUser(userId), accountsForUser(userId)]);
-  return { projects, accounts, account: accounts.find(a => a.id === accountId) ?? null, orgsMode: orgsMode() };
+  return { projects, accounts, account: accounts.find(a => a.id === accountId) ?? null, orgsMode: orgsMode(), switcherScope: extensionScopesSwitcherToOrg() ? 'org' as const : 'all' as const };
 });
 
 export const setActive = os

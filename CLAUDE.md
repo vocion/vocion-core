@@ -402,12 +402,13 @@ credential stored under the previous one.
   WORKSPACE (`project.id`), not the Org — so identifiers keep saying
   "account"; only text a person reads says "Org". Never rename the code to
   match.
-- `VOCION_ORGS` (`src/libs/Env.ts`, read through `orgsMode()` in
-  `src/services/OrgPolicy.ts`): `single` (default, self-hosted) holds one Org
-  and each person in at most one — creating a second Org
+- One Org by default (`orgsMode()` in `src/services/OrgPolicy.ts`): one Org
+  on the server and each person in at most one — creating a second Org
   (`newOrgProblem`) or accepting an invite into a second Org
-  (`secondOrgProblem`) is refused, with a sentence saying why. `multi` is
-  Vocion Cloud.
+  (`secondOrgProblem`) is refused, with a sentence saying why. Only an
+  extension lifts that rule (`orgs.multiOrg`, `src/libs/extensions.ts`;
+  `VOCION_ORGS=multi` is the conventional switch it reads). Core alone is
+  always single-Org and ships no Org switcher.
 - Tenancy is first-party, not delegated to an identity provider: a
   `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
 - Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`

@@ -62,6 +62,14 @@
       ],
       "@/public/*": [
         "./public/*"
+      ],
+      // Vocion Enterprise's snapshot when one is built in, the empty stubs
+      // otherwise (src/libs/enterpriseCheckout.ts). Only `index` and `client`
+      // are imported. A wildcard, because Next refuses a fallback list on an
+      // exact path.
+      "@vocion/enterprise/*": [
+        "./src/enterprise-ext/*",
+        "./src/libs/enterprise-none/*"
       ]
     },
     // ======================================================================

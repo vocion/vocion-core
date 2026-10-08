@@ -1,9 +1,16 @@
 /**
- * Single-Org mode's two refusals (`VOCION_ORGS=single`, the default): no second
- * Org on the server, and no person in a second Org. Real rows in PGlite.
+ * Single-Org mode's two refusals (the default): no second Org on the server,
+ * and no person in a second Org. Real rows in PGlite. Multi mode comes only
+ * from an extension (mocked below; `libs/extensions.test.ts` covers core with
+ * none).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Core alone never lifts the single-Org rule; an extension does. This one
+// does it the conventional way, from VOCION_ORGS, so a test can flip it.
+vi.mock('@vocion/enterprise/index', () => ({
+  extensions: [{ name: 'test-orgs', orgs: { multiOrg: () => process.env.VOCION_ORGS === 'multi' } }],
+}));
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
@@ -23,7 +30,7 @@ afterEach(() => {
 });
 
 describe('orgsMode', () => {
-  it('is single unless the deployment says multi', () => {
+  it('is single unless an extension lifts the rule', () => {
     vi.stubEnv('VOCION_ORGS', '');
 
     expect(orgsMode()).toBe('single');
@@ -53,7 +60,7 @@ describe('newOrgProblem', () => {
     await db.insert(tenantAccountSchema).values({ id: 'acct-northwind', name: 'Northwind', slug: 'northwind' });
     await db.insert(accountMembershipSchema).values({ accountId: 'acct-northwind', userId: 'user-sam', role: 'admin' });
 
-    expect(await newOrgProblem()).toMatch(/single Org \(Northwind\).*VOCION_ORGS=multi/);
+    expect(await newOrgProblem()).toMatch(/single Org \(Northwind\).*need an extension/);
   });
 
   it('never refuses on Vocion Cloud', async () => {

@@ -9,6 +9,7 @@ import { mailEnabled, sendMail } from '@/libs/mail';
 import { mailboxFrom, mailDomain } from '@/libs/mail/mailbox';
 import { fetchReceivedEmail, htmlToText, normaliseSubject, referencedMessageIds, replySubject, stripAngles, stripQuotedHistory } from '@/libs/surfaces/email';
 import { accountMembershipSchema, conversationSchema, emailThreadSchema, projectSchema, userSchema } from '@/models/Schema';
+import { budgetRefusalMessage } from '@/services/agents/budgetStop';
 import { runAgentDeep } from '@/services/AgentService';
 import { upsertAsk } from '@/services/AskService';
 import { withRunCost } from '@/services/budget/runCost';
@@ -290,7 +291,16 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
     if (mailEnabled()) {
-      await deps.send({ from, to: meta.from, subject: replySubject(meta.subject), text: `This workspace's agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`, html: '<p>This workspace\'s agent is over its budget for the period. A workspace admin can raise the cap in Vocion.</p>', headers: { 'In-Reply-To': `<${inboundMessageId}>` } }).catch(() => {});
+      // An extension's cap says in its own words whose it is; core's caps keep core's words.
+      const words = budget.scope === 'extension' ? budgetRefusalMessage(budget) : null;
+      await deps.send({
+        from,
+        to: meta.from,
+        subject: replySubject(meta.subject),
+        text: words ?? `This workspace's agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`,
+        html: words ? `<p>${escapeHtml(words)}</p>` : '<p>This workspace\'s agent is over its budget for the period. A workspace admin can raise the cap in Vocion.</p>',
+        headers: { 'In-Reply-To': `<${inboundMessageId}>` },
+      }).catch(() => {});
     }
     return { outcome: 'over_budget', orgId, agentSlug };
   }

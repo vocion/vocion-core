@@ -25,7 +25,7 @@ import { onError, ORPCError } from '@orpc/server';
 import { RPCHandler } from '@orpc/server/fetch';
 import { getToken } from 'next-auth/jwt';
 import { logger } from '@/libs/Logger';
-import { router } from '@/routers';
+import { servedRouter } from '@/routers';
 
 /**
  * What the handler is given per request, purely so the error log can name the
@@ -187,7 +187,7 @@ async function logProcedureError(error: unknown, options: RpcErrorInterceptorOpt
   }
 }
 
-const handler = new RPCHandler<RpcRequestContext>(router, {
+const handler = new RPCHandler<RpcRequestContext>(servedRouter(), {
   interceptors: [onError(logProcedureError)],
 });
 

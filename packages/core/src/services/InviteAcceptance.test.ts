@@ -9,6 +9,11 @@
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Core alone never lifts the single-Org rule; an extension does. This one
+// does it the conventional way, from VOCION_ORGS, so a test can flip it.
+vi.mock('@vocion/enterprise/index', () => ({
+  extensions: [{ name: 'test-orgs', orgs: { multiOrg: () => process.env.VOCION_ORGS === 'multi' } }],
+}));
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');

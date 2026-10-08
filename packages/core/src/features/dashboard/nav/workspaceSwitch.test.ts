@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
+import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
 
 const projects = [
   { id: 'p-default', slug: 'default', name: 'Default project', agentCount: 0 },
@@ -75,6 +75,11 @@ describe('workspace switcher', () => {
         .toBe('/w/ops/dashboard?tab=open');
       expect(workspaceSwitchHref({ slug: 'ops', pathname: '/dashboard', search: '?org=contoso&tab=open', locale: 'en', defaultLocale: 'en', accountSlug: 'northwind' }))
         .toBe('/w/ops/dashboard?tab=open&org=northwind');
+    });
+
+    it('keeps one Org\'s workspaces, in order, for a switcher scoped to the Org', () => {
+      expect(projectsInOrg([contosoSales, northwindSales, northwindOps], 'acct-northwind').map(p => p.id)).toEqual(['p-m-sales', 'p-m-ops']);
+      expect(projectsInOrg([contosoSales], 'acct-northwind')).toEqual([]);
     });
 
     it('groups the list under each account in membership order and leaves out an account with nothing visible', () => {
