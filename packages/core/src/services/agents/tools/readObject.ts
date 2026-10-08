@@ -25,6 +25,7 @@ import type { WorkFacts } from '@/libs/factory/workFacts';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { nowLine } from '@/libs/factory/liveStatus';
+import { noteRead } from '@/services/access/accessLog';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { codeForRecord } from '@/services/codes';
 import { readRecovery } from '@/services/factory/recovery';
@@ -157,6 +158,7 @@ export function readObjectTool(ctx: RuntimeContext) {
       // that disagrees comes back as drift, never in its place.
       const { derivedFieldsOf } = await import('@/services/objects/related');
       const derived = await derivedFieldsOf(ctx.orgId, row.id).catch(() => ({ values: {}, drift: {} }));
+      noteRead({ action: 'view', record: { kind: 'object', id: row.id } });
       return JSON.stringify({
         id: row.id,
         code,

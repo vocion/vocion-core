@@ -130,3 +130,10 @@ export function missionScheduleIdFor(orgId: string, missionSlug: string): string
 export function evalRefreshWorkflowIdFor(orgId: string, datasetSlug: string, startedAt: number): string {
   return `eval-refresh-${orgId}-${datasetSlug}-${startedAt}`;
 }
+
+/**
+ * Prunes access-log rows past `VOCION_ACCESS_LOG_RETENTION_DAYS`
+ * (`services/access/AccessLogService.ts`). One schedule per deployment: the
+ * retention period is a deployment-wide setting.
+ */
+export const ACCESS_LOG_PRUNE_SCHEDULE_ID = 'access-log-prune';

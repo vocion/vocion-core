@@ -20,6 +20,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
+import { noteRead } from '@/services/access/accessLog';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
 import { isRecordBodyArtifact as isRecordBody } from '@/services/objects/recordBody';
 import { pageRecordIds, reviseRecordBody } from './recordWrite';
@@ -94,6 +95,7 @@ export function readArtifactTool(ctx: RuntimeContext) {
       if (!row) {
         return `No artifact #${found.id} in this workspace.`;
       }
+      noteRead({ action: 'view', record: { kind: 'artifact', id: row.id } });
       if (row.kind === 'document') {
         // Never the HTML: a document is read by outline and by sheet through
         // read_document, and changed with edit_document.
@@ -109,6 +111,8 @@ export function readArtifactTool(ctx: RuntimeContext) {
         if (!rec?.type) {
           return `Artifact #${row.id} is the body of record #${row.recordId}, which is gone.`;
         }
+        // The body IS the record's fields: reading it reads the record.
+        noteRead({ action: 'view', record: { kind: 'object', id: rec.id } });
         const schema = (rec.type.schema ?? null) as never;
         const fields = recordFields((rec.metadata ?? {}) as Record<string, unknown>, schema);
         return JSON.stringify({

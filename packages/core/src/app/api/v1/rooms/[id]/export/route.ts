@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { authApi } from '@/app/api/v1/_shared';
+import { noteCallerRead } from '@/services/access/accessLog';
 import { exportDataRoom, getDataRoom } from '@/services/DataRoomService';
 
 /**
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!room || md === null) {
     return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Data room not found' } }, { status: 404 });
   }
+  noteCallerRead(caller, { action: 'export', record: { kind: 'object', id: roomId }, via: 'api', detail: { format: 'markdown' } }, req.headers);
   const filename = `${room.title.replace(/[^\w .()-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'data-room'} - context.md`;
   return new Response(md, {
     status: 200,

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { presignGet } from '@/libs/aws/s3';
 import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
+import { noteCallerRead } from '@/services/access/accessLog';
 import { authApi, isErrorResponse, jsonError } from '../../_shared';
 
 /**
@@ -43,5 +44,7 @@ export async function GET(req: Request) {
   }
   const region = typeof source.configJson.region === 'string' ? source.configJson.region : undefined;
   const signed = await presignGet({ bucket, key, region, expiresIn: 900 });
+  // A connector's file handed over: the presigned link is the download.
+  noteCallerRead(caller, { action: 'download', record: { kind: 'file', id: `s3://${bucket}/${key}` }, via: 'api' }, req.headers);
   return NextResponse.redirect(signed, { status: 302, headers: { 'cache-control': 'private, max-age=600' } });
 }

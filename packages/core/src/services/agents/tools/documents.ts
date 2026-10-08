@@ -29,6 +29,7 @@ import { clientFacingPlaybooksFor } from '@/libs/documents/clientFacing';
 import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
 import { stripFramework } from '@/libs/documents/framework';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
+import { noteRead } from '@/services/access/accessLog';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
 import { createDocument, documentReceipt, exportDocumentPdf, redTeamDocumentArtifact, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
 import { exportGate } from '@/services/documents/exportGate';
@@ -191,6 +192,7 @@ export function readDocumentTool(ctx: RuntimeContext) {
       if (!row) {
         return `No document #${found.id}.`;
       }
+      noteRead({ action: 'view', record: { kind: 'artifact', id: row.id } });
       const spec = row.spec as Partial<DocumentSpec>;
       // The injected framework is the engine's, not the author's: reading it
       // back would spend 45 KB of context on CSS the model cannot edit, and
@@ -395,6 +397,7 @@ export function exportDocumentPdfTool(ctx: RuntimeContext) {
           return gate.line;
         }
         const res = await exportDocumentPdf({ orgId: ctx.orgId, id: found.id, author: authorOf(ctx), conversationId: ctx.conversationId ?? null, visibility: ctx.missionRunId ? 'system' : 'user', onProgress: progressTo(ctx, 'export_document_pdf') });
+        noteRead({ action: 'export', record: { kind: 'artifact', id: found.id }, detail: { format: 'pdf' } });
         ctx.emit({ type: 'artifact', artifact: toPayload(res.file) });
         const head = `PDF ready: ${res.filename} (${res.pages ?? '?'} pages, ${Math.max(1, Math.round(res.bytes / 1024))} KB) at ${res.url} — background colours forced on, so the brand rule prints on the client's machine too. It is filed beside the document as a file artifact.`;
         return gate.line ? `${head}\n\n${gate.line}` : head;

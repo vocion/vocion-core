@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { verifyArtifactShare } from '@/libs/share/artifactShareToken';
+import { noteLinkRead } from '@/services/access/accessLog';
 import { getArtifact } from '@/services/ArtifactService';
 import { resolvePreview } from '@/services/preview/registry';
 // Importing the descriptors is what registers them.
@@ -28,6 +29,11 @@ export default async function SharedArtifactPage(props: { params: Promise<{ loca
   const row = await getArtifact({ orgId: claim.orgId, id: claim.artifactId });
   if (!row || row.shareAudience !== 'anyone') {
     notFound();
+  }
+  // Whoever holds the link; a document's own bytes are noted by the file
+  // route its frame loads.
+  if (row.kind !== 'document') {
+    await noteLinkRead(row.orgId, { action: 'view', record: { kind: 'artifact', id: row.id }, via: 'share' });
   }
   const doc = await resolvePreview({ type: 'artifact', id: String(row.id) }, { orgId: row.orgId, userId: null });
   return (

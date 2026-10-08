@@ -15,6 +15,7 @@ import type { RawDoc } from '../search';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { noteRead } from '@/services/access/accessLog';
 import { search } from '@/services/RetrievalService';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
 
@@ -131,6 +132,7 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       ctx.citationSeq.current += shown.length;
 
       ctx.emit({ type: 'documents', documents: shown.map((d, i) => toSearchDocument(d, base + i + 1)) });
+      noteRead({ action: 'search', record: { kind: 'document' }, detail: { hits: shown.length } });
 
       return shown.map((d, i) => renderDocLine(d, base + i, new Date(), ctx.timeZone)).join('\n\n');
     },

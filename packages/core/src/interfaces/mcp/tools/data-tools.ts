@@ -1,6 +1,7 @@
 import type { McpConfig } from '../config';
 import { z } from 'zod';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
+import { noteRead } from '@/services/access/accessLog';
 import { getBusinessObject, listBusinessObjects, listObjectTypes } from '@/services/BusinessObjectService';
 
 type ToolModule = {
@@ -46,6 +47,9 @@ function objectsGetTool(config: McpConfig): ToolModule {
     handler: async (input) => {
       const { id } = input as { id: number };
       const row = await getBusinessObject(id, config.orgId);
+      if (row) {
+        noteRead({ action: 'view', record: { kind: 'object', id: row.id } });
+      }
       return row ?? { error: `object ${id} not found` };
     },
   };
@@ -87,6 +91,7 @@ function searchTool(): ToolModule {
         score: d.score,
         updatedAt: d.updated_at,
       }));
+      noteRead({ action: 'search', record: { kind: 'document' }, detail: { hits: docs.length } });
       return { documents: docs, total: topDocuments.length };
     },
   };

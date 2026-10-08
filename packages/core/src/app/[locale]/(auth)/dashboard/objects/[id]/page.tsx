@@ -20,6 +20,7 @@ import { appImageUrl } from '@/libs/aws/s3';
 import { Link } from '@/libs/I18nNavigation';
 import { resolveField } from '@/libs/workspace/pages';
 import { declaredRecordFields, hasInspectionImage, isDiscoveryRecord, recordSections } from '@/libs/workspace/records';
+import { notePageView } from '@/services/access/pageView';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { recordRef } from '@/services/chat/recordContext';
 import { codeForRecord } from '@/services/codes';
@@ -80,6 +81,7 @@ export default async function ObjectDetailPage(props: {
   if (!obj) {
     return notFound();
   }
+  await notePageView({ kind: 'object', id: obj.id });
   // What a person reads it by — FE-294 (`libs/codes.ts`).
   const code = await codeForRecord(orgId, obj.id).catch(() => null) ?? `#${obj.id}`;
 

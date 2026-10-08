@@ -13,6 +13,10 @@
   ],
   "tags": [
     {
+      "name": "access-log",
+      "description": "Endpoints under /api/v1/access-log."
+    },
+    {
       "name": "agents",
       "description": "Endpoints under /api/v1/agents."
     },
@@ -193,6 +197,146 @@
     }
   },
   "paths": {
+    "/api/v1/access-log": {
+      "get": {
+        "operationId": "get_access_log",
+        "summary": "Who read which record in this workspace, and when — newest first.",
+        "tags": [
+          "access-log"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Who read which record in this workspace, and when — newest first. One entry\nper view, download, export or search, by a person, an agent on a run, an API\ntoken or a public share link:\n`{ events: [{ id, at, action, actorKind, actorId, onBehalfOf, runKind, runId, recordKind, recordId, via, ipHash, uaHash, detail }], hasMore, retentionDays }`.\nAddresses and user agents are keyed hashes, never the values. Only this\nworkspace's reads; there is no account-wide view.\n\nQuery parameters:\n- `action` — `view`, `download`, `export` or `search`.\n- `actorKind` — `user`, `agent`, `token` or `link`.\n- `actor` — a user id, an agent slug or `token:<id>`; also matches what an agent read for that person.\n- `recordKind` — `object`, `artifact`, `document`, `file`, …\n- `recordId` — the record's id; with `recordKind`, everyone who read that one record.\n- `since`, `until` — ISO 8601 bounds on when.\n\nRequires a workspace admin.\nAuth: tenant API token or dashboard session.",
+        "parameters": [
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "description": "`view`, `download`, `export` or `search`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actorKind",
+            "in": "query",
+            "required": false,
+            "description": "`user`, `agent`, `token` or `link`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "required": false,
+            "description": "a user id, an agent slug or `token:<id>`; also matches what an agent read for that person.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recordKind",
+            "in": "query",
+            "required": false,
+            "description": "`object`, `artifact`, `document`, `file`, …",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recordId",
+            "in": "query",
+            "required": false,
+            "description": "the record's id; with `recordKind`, everyone who read that one record.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "ISO 8601 bounds on when.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "description": "ISO 8601 bounds on when.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "How many records to return. Defaults to 50, capped at 200.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "How many records to skip. Defaults to 0.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/agents": {
       "get": {
         "operationId": "get_agents",

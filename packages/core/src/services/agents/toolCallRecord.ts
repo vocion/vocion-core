@@ -23,6 +23,7 @@ import { db } from '@/libs/DB';
 import { stopReasonOfMessage } from '@/libs/llm/stopReason';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { toolCallSchema } from '@/models/Schema';
+import { withAccessScope } from '@/services/access/accessLog';
 import { noteTurnRead } from '@/services/gates/turnReads';
 import { taskIdOf } from './traceEmitter';
 
@@ -171,6 +172,34 @@ export type ToolCallRecord = {
 };
 
 /**
+ * Which agent made a call: the specialist a `task` dispatched when the
+ * checkpoint namespace says the call is nested, else the context's own agent.
+ * The tool_call row and the access log attribute a call the same way.
+ * @param ctx - The turn.
+ * @param ns - The invocation's checkpoint namespace.
+ */
+export function actingAgentOf(ctx: RuntimeContext, ns: string): { agentSlug: string; leadAgentSlug: string | null } {
+  const taskId = taskIdOf(ns);
+  const specialist = taskId ? ctx.delegations?.get(taskId) : undefined;
+  return {
+    agentSlug: taskId ? (specialist ?? 'specialist') : (ctx.agentSlug ?? 'unknown'),
+    leadAgentSlug: taskId ? (ctx.agentSlug ?? null) : null,
+  };
+}
+
+/**
+ * The run a call belongs to, for the access log: the mission run when there
+ * is one (missions, automations, scheduled checks), else the conversation.
+ * @param ctx - The turn.
+ */
+function runOf(ctx: RuntimeContext): { kind: string; id: number } | null {
+  if (ctx.missionRunId) {
+    return { kind: 'mission_run', id: ctx.missionRunId };
+  }
+  return ctx.conversationId ? { kind: 'conversation', id: ctx.conversationId } : null;
+}
+
+/**
  * Persist one tool_call row. Never throws — a failed write is logged
  * and dropped so the turn is unaffected.
  * @param rec
@@ -178,13 +207,10 @@ export type ToolCallRecord = {
 export async function persistToolCall(rec: ToolCallRecord): Promise<void> {
   try {
     const { ctx } = rec;
-    const taskId = taskIdOf(rec.ns);
-    const specialist = taskId ? ctx.delegations?.get(taskId) : undefined;
     const workspaceSha = await getCurrentWorkspaceSha(ctx.orgId).catch(() => null);
     await db.insert(toolCallSchema).values({
       orgId: ctx.orgId,
-      agentSlug: taskId ? (specialist ?? 'specialist') : (ctx.agentSlug ?? 'unknown'),
-      leadAgentSlug: taskId ? (ctx.agentSlug ?? null) : null,
+      ...actingAgentOf(ctx, rec.ns),
       tool: rec.tool,
       input: rec.input,
       output: rec.output?.slice(0, OUTPUT_CAP) ?? null,
@@ -224,7 +250,17 @@ export function withToolCallRecord(
     // reads what the model meant (a JSON string where an object belongs).
     const callInput = repair.normalizeArgs ? repairedInput(input, repair.normalizeArgs) : input;
     try {
-      const result = await originalInvoke(callInput as never, config as never);
+      // The reader in scope for whatever this tool reads (`noteRead`): this
+      // agent, on this run, for whoever the run is for. The tool says what it
+      // read; nothing here knows any tool by name.
+      const result = await withAccessScope(
+        {
+          orgId: ctx.orgId,
+          actor: { kind: 'agent', agentSlug: actingAgentOf(ctx, ns).agentSlug, onBehalfOf: ctx.userId ?? null, run: runOf(ctx) },
+          via: `tool:${toolObj.name}`,
+        },
+        () => originalInvoke(callInput as never, config as never),
+      );
       // A read is evidence the moment it returns: a filing later in this
       // turn may be refused without it (`services/gates/turnReads.ts`).
       noteTurnRead(ctx, toolObj.name, normalizeInput(callInput), normalizeOutput(result));

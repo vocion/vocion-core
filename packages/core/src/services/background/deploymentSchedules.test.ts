@@ -16,6 +16,7 @@ afterEach(() => {
   resetMemorySchedules();
   flags.workers = false;
   flags.langfuse = { enabled: true, retentionDays: 365 };
+  vi.unstubAllEnvs();
 });
 
 describe('deploymentSchedules', () => {
@@ -45,13 +46,24 @@ describe('deploymentSchedules', () => {
     expect(deploymentSchedules().unwanted).toContain('langfuse-retention');
   });
 
+  it('prunes the access log daily after the durable prune, and not at all when retention is off', () => {
+    vi.stubEnv('VOCION_ACCESS_LOG_RETENTION_DAYS', '');
+
+    expect(deploymentSchedules().wanted.find(s => s.name === 'access-log-prune')).toMatchObject({ cron: '40 4 * * *', job: 'access-log.prune' });
+
+    vi.stubEnv('VOCION_ACCESS_LOG_RETENTION_DAYS', '0');
+
+    expect(deploymentSchedules().unwanted).toContain('access-log-prune');
+    expect(deploymentSchedules().wanted.map(s => s.name)).not.toContain('access-log-prune');
+  });
+
   it('applies idempotently: twice is the same set, and a removed feature loses its schedule', async () => {
     flags.workers = true;
     await applyDeploymentSchedules();
     await applyDeploymentSchedules();
 
     expect((await listSchedules()).map(s => s.name).sort()).toEqual(
-      ['artifact-image-sweep', 'durable-prune', 'langfuse-retention', 'mission-run-reaper', 'worker-run-reaper'],
+      ['access-log-prune', 'artifact-image-sweep', 'durable-prune', 'langfuse-retention', 'mission-run-reaper', 'worker-run-reaper'],
     );
 
     flags.workers = false;

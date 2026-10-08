@@ -2,6 +2,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { parseCode, recordCode } from '@/libs/codes';
+import { noteRead } from '@/services/access/accessLog';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 import { typeCodesForOrg } from '@/services/codes';
 import { objectKnowledge } from '@/services/MemoryService';
@@ -159,6 +160,11 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
           blurb: [obj.status, typeof obj.summary === 'string' ? obj.summary : ''].filter(Boolean).join(' — ').slice(0, 200),
         })),
       });
+      // A record named by id was read; a filtered list was searched, and
+      // says how many it returned (`services/access/accessLog.ts`).
+      noteRead(byId
+        ? { action: 'view', record: { kind: 'object', id: byId.id } }
+        : { action: 'search', record: { kind: 'object' }, detail: { hits: objects.length } });
       const held = matched.length - objects.length;
       return held > 0
         ? JSON.stringify({ records: rows, showing: rows.length, of: matched.length, note: `${held} more matched; narrow with where, query or id to see them.` })

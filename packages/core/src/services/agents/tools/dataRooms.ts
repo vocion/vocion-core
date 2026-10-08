@@ -28,6 +28,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { noteRead } from '@/services/access/accessLog';
 import { createArtifact } from '@/services/ArtifactService';
 import {
   addOpenItem,
@@ -144,6 +145,10 @@ export function readDataRoomTool(ctx: RuntimeContext) {
         return found.error;
       }
       const md = await exportDataRoom(ctx.orgId, found.id);
+      if (md !== null) {
+        // A room is a record; reading its bundle reads the room.
+        noteRead({ action: 'view', record: { kind: 'object', id: found.id } });
+      }
       return md ?? `No data room #${found.id}.`;
     },
     {

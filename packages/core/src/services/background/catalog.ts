@@ -19,6 +19,7 @@ export const JOB = {
   bulkBriefRegenerate: 'brief.bulk-regenerate',
   durablePrune: 'durable.prune',
   recordingNarrate: 'recording.narrate',
+  accessLogPrune: 'access-log.prune',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -104,6 +105,11 @@ defineJob<{ orgId: string; jobId: number; leadIds: number[]; note: string; by: s
   await ctx.step('finish', () => finishBulkJobActivity({ orgId: input.orgId, jobId: input.jobId }));
   return { landed, failed };
 }, { whole: true });
+
+defineJob(JOB.accessLogPrune, async () => {
+  const { pruneAccessEvents } = await import('@/services/access/AccessLogService');
+  return pruneAccessEvents();
+}, { retry: { attempts: 3, intervalSeconds: 30, backoff: 2 } });
 
 /** Finished background runs older than this are pruned from the durable tables. */
 const PRUNE_AFTER_DAYS = 7;

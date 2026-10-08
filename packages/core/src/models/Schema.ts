@@ -3925,6 +3925,59 @@ export const userActivityEventSchema = pgTable(
 );
 
 /**
+ * access_event — who read which record, and when (migration 0177).
+ *
+ * One narrow row per view, download, export or search, by a person, an agent
+ * on a run, an API token or a share link. Written in batches off the read's
+ * path by `services/access/accessLog.ts`; read by the Access log page and
+ * `GET /api/v1/access-log`; pruned by age by the `access-log.prune` job.
+ * Append-only: an UPDATE is refused by a trigger. The key carries `at` so the
+ * table can be range-partitioned by month later without changing its keys.
+ */
+export const accessEventSchema = pgTable(
+  'access_event',
+  {
+    id: bigserial('id', { mode: 'number' }).notNull(),
+    /** The workspace (project id), as on every business table. */
+    orgId: text('org_id').notNull(),
+    /** The company that owns the workspace (`tenant_account.id`). */
+    accountId: text('account_id'),
+    /** `user` | `agent` | `token` | `link` — see `AccessActor`. */
+    actorKind: text('actor_kind').notNull(),
+    /** User id, agent slug or `token:<id>`; null for a share link. */
+    actorId: text('actor_id'),
+    /** The person whose turn an agent was serving, when there was one. */
+    onBehalfOf: text('on_behalf_of'),
+    /** The run an agent read on: `mission_run` | `conversation`. */
+    runKind: text('run_kind'),
+    runId: text('run_id'),
+    /** `view` | `export` | `download` | `search`. */
+    action: text('action').notNull(),
+    /** `RecordRef.type` vocabulary: object, artifact, document, … */
+    recordKind: text('record_kind').notNull(),
+    /** Null for a search. */
+    recordId: text('record_id'),
+    /** The surface: page, preview, app, api, share, tool:<name>, mcp:<name>. */
+    via: text('via').notNull(),
+    /** Keyed hashes, never the address or the agent string itself. */
+    ipHash: text('ip_hash'),
+    uaHash: text('ua_hash'),
+    /** A small envelope — a hit count, a format — never content. */
+    detail: jsonb('detail').$type<Record<string, string | number | boolean>>(),
+    at: timestamp('at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.id, table.at] }),
+    index('access_event_org_at_idx').on(table.orgId, table.at),
+    index('access_event_org_record_idx').on(table.orgId, table.recordKind, table.recordId, table.at),
+    index('access_event_org_actor_idx').on(table.orgId, table.actorId, table.at),
+    index('access_event_at_brin_idx').using('brin', table.at),
+    check('access_event_action_ck', sql`${table.action} IN ('view', 'export', 'download', 'search')`),
+    check('access_event_actor_kind_ck', sql`${table.actorKind} IN ('user', 'agent', 'token', 'link')`),
+  ],
+);
+
+/**
  * discovery_candidate — the record of a meeting the discovery-detection sweep
  * matched to a CRM party the seller owns, plus (once classified) its
  * is-discovery / proposal-ready scores. Ticket 011.

@@ -60,6 +60,13 @@ export const Env = createEnv({
      */
     VOCION_ENFORCE_WORKSPACE_ACCESS: z.string().optional(),
     /**
+     * Days the access log keeps a read (`access_event`); unset keeps 365, `0`
+     * keeps everything. Read through `accessLogRetentionDays()`
+     * (`services/access/retention.ts`), which logs and ignores a bad value
+     * rather than refusing to boot.
+     */
+    VOCION_ACCESS_LOG_RETENTION_DAYS: z.string().optional(),
+    /**
      * Outbound email (`libs/mail`). Ships dark: nothing is sent unless
      * VOCION_MAIL_ENABLED is exactly '1'. The transport is Resend; the
      * sender must be on a domain verified in Resend. Read through
@@ -143,6 +150,7 @@ export const Env = createEnv({
     VOCION_THINKING_BUDGET: process.env.VOCION_THINKING_BUDGET,
     VOCION_ALLOW_QUEUE_RESET: process.env.VOCION_ALLOW_QUEUE_RESET,
     VOCION_ENFORCE_WORKSPACE_ACCESS: process.env.VOCION_ENFORCE_WORKSPACE_ACCESS,
+    VOCION_ACCESS_LOG_RETENTION_DAYS: process.env.VOCION_ACCESS_LOG_RETENTION_DAYS,
     VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,

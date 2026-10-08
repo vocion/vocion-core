@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server';
+import type { AccessActor } from '@/services/access/accessLog';
 import { and, eq, like } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { authApi } from '@/app/api/v1/_shared';
@@ -6,6 +7,8 @@ import { db } from '@/libs/DB';
 import { verifyArtifactShare } from '@/libs/share/artifactShareToken';
 import { resolveArtifactFile } from '@/libs/tools/artifacts/serve';
 import { artifactSchema } from '@/models/Schema';
+import { recordAccess } from '@/services/access/accessLog';
+import { clientOf } from '@/services/access/client';
 import { toPayload } from '@/services/ArtifactService';
 
 /**
@@ -29,7 +32,7 @@ const notFound = () => NextResponse.json({ error: { code: 'NOT_FOUND', message: 
  * @param req
  * @param id
  */
-type Caller = { orgId: string; userId: string | null; hasToken: boolean };
+type Caller = { orgId: string; userId: string | null; hasToken: boolean; actor: AccessActor };
 
 async function callerOrgFor(req: NextRequest, id: string): Promise<Caller | NextResponse> {
   const token = req.nextUrl.searchParams.get('share');
@@ -42,7 +45,7 @@ async function callerOrgFor(req: NextRequest, id: string): Promise<Caller | Next
     if (!row || row.orgId !== claim.orgId || row.shareAudience !== 'anyone') {
       return notFound();
     }
-    return { orgId: row.orgId, userId: null, hasToken: true };
+    return { orgId: row.orgId, userId: null, hasToken: true, actor: { kind: 'link' } };
   }
   const caller = await authApi(req);
   if (caller instanceof NextResponse) {
@@ -55,6 +58,7 @@ async function callerOrgFor(req: NextRequest, id: string): Promise<Caller | Next
     orgId: caller.orgId,
     userId: caller.source === 'session' ? caller.actorId : null,
     hasToken: false,
+    actor: caller.source === 'session' ? { kind: 'user', userId: caller.actorId } : { kind: 'token', tokenId: caller.actorId },
   };
 }
 
@@ -88,6 +92,18 @@ export async function serveArtifact(req: NextRequest, id: string, filename?: str
   if (result.status !== 200) {
     return notFound();
   }
+  // Both artifact routes and every reader — a person, a token, a share link —
+  // pass here, so this is the one line for them. Bytes handed over as an
+  // attachment are a download; a card's spec or an inline file is a view.
+  const attachment = 'headers' in result && /^attachment/i.test(result.headers['Content-Disposition'] ?? '');
+  recordAccess({
+    orgId: caller.orgId,
+    actor: caller.actor,
+    action: attachment ? 'download' : 'view',
+    record: /^\d+$/.test(id) ? { kind: 'artifact', id } : { kind: 'file', id },
+    via: caller.actor.kind === 'link' ? 'share' : 'api',
+    client: clientOf(req.headers),
+  });
   if ('json' in result) {
     // Card artifacts have no file: the spec IS the content.
     return NextResponse.json({ artifact: result.json }, { status: 200, headers: { 'Cache-Control': 'private, max-age=0, must-revalidate' } });
