@@ -439,7 +439,8 @@ To modify: edit `src/models/Schema.ts`, then `npm run db:generate && npm run db:
 Migration conventions — index builds that must not take a write lock, and the
 expand-and-contract rule for column changes — are in
 `packages/core/migrations/CONVENTIONS.md`. `npm run check:migrations` enforces
-the index rule and runs in CI.
+the index rule and the journal order (no new entry behind one already on the
+base branch), and runs in CI.
 
 ## Environment Setup
 

@@ -21,6 +21,7 @@ import {
   findCreatedTables,
   findIndexBuildingConstraints,
   findIndexBuilds,
+  findJournalOrderProblems,
   findMigrationSafetyProblems,
   findStatements,
   FIRST_ENFORCED_MIGRATION_NUMBER,
@@ -732,6 +733,46 @@ describe('formatProblems', () => {
   });
 });
 
+describe('findJournalOrderProblems — a migration that merges behind one already on the base', () => {
+  const base = [
+    { idx: 170, tag: '0170_first', when: 1_000 },
+    { idx: 171, tag: '0171_second', when: 2_000 },
+    { idx: 178, tag: '0178_reserved_high', when: 9_000 },
+  ];
+
+  it('refuses an entry dated or numbered behind the base, naming the tail it should move to', () => {
+    const head = [...base.slice(0, 2), { idx: 172, tag: '0172_sibling', when: 3_000 }];
+    const text = JSON.stringify({ entries: head }, null, 2);
+
+    const [problem, ...rest] = findJournalOrderProblems(base, head, text);
+
+    expect(rest).toEqual([]);
+    expect(problem).toMatchObject({
+      file: `${MIGRATIONS_RELATIVE_DIR}/meta/_journal.json`,
+      line: lineNumberAt(text, text.indexOf('"tag": "0172_sibling"')),
+      rule: 'journal-entry-behind-base',
+    });
+    expect(problem!.message).toMatch(/0172_sibling.*0178_reserved_high.*idx 179.*later than 9000.*rule 5/);
+  });
+
+  it('refuses a renumber that moved the idx but kept the old when', () => {
+    const head = [...base, { idx: 179, tag: '0179_sibling', when: 3_000 }];
+
+    expect(findJournalOrderProblems(base, head)).toHaveLength(1);
+  });
+
+  it('accepts an entry after every one on the base, and ignores the base\'s own', () => {
+    const head = [...base, { idx: 179, tag: '0179_sibling', when: 9_060 }];
+
+    expect(findJournalOrderProblems(base, head)).toEqual([]);
+    expect(findJournalOrderProblems(base, base)).toEqual([]);
+  });
+
+  it('has nothing to compare against an empty base', () => {
+    expect(findJournalOrderProblems([], [{ idx: 0, tag: '0000_init', when: 1 }])).toEqual([]);
+  });
+});
+
 describe('runCheck', () => {
   it('returns 0 and reports the file count when the directory is clean', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -755,6 +796,21 @@ describe('runCheck', () => {
     expect(error).toHaveBeenCalledWith(expect.stringContaining('blocking-index'));
 
     error.mockRestore();
+  });
+
+  it('checks the journal against the base it is given', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const root = writeMigrationsDirectory({ '0002_later.sql': 'SELECT 1;' });
+    mkdirSync(join(root, 'meta'));
+    writeFileSync(join(root, 'meta', '_journal.json'), JSON.stringify({ entries: [{ idx: 2, tag: '0002_later', when: 50 }] }), 'utf-8');
+
+    expect(runCheck(root, [{ idx: 3, tag: '0003_on_base', when: 100 }])).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('journal-entry-behind-base'));
+    expect(runCheck(root, [{ idx: 1, tag: '0001_on_base', when: 10 }])).toBe(0);
+
+    error.mockRestore();
+    log.mockRestore();
   });
 
   it('defaults to this repository, which follows its own rule', () => {

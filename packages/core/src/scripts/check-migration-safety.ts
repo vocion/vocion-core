@@ -28,6 +28,11 @@
  * One exemption exists, for the partial unique index that has neither route:
  * see {@link findLockOverrides}.
  *
+ * It also refuses a journal entry that would merge behind one the base branch
+ * already has (see {@link findJournalOrderProblems}): drizzle's migrator skips
+ * any entry whose `when` is at or below the last one a database applied, so
+ * such an entry is never applied wherever the other one already was.
+ *
  * Two deliberate limits. Nested block comments (Postgres allows them) are
  * unwound only as far as the first closing delimiter, and a keyword sitting
  * inside a string literal counts as real SQL. Both make the check too eager
@@ -38,6 +43,7 @@
  * Run: npm run check:migrations
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
@@ -69,6 +75,7 @@ const CONVENTIONS_DOC = `${MIGRATIONS_RELATIVE_DIR}/CONVENTIONS.md`;
 
 export type MigrationProblemRule
   = | 'blocking-index'
+    | 'journal-entry-behind-base'
     | 'concurrent-build-ahead-of-its-columns'
     | 'concurrent-build-in-transactional-migration'
     | 'non-concurrent-index-in-concurrent-dir'
@@ -864,6 +871,96 @@ export function readMigrationFiles(migrationsDir: string): MigrationFile[] {
   return files;
 }
 
+/** The journal, relative to the migrations directory. */
+const JOURNAL_RELATIVE_PATH = 'meta/_journal.json';
+
+/** One `meta/_journal.json` entry, as far as ordering goes. */
+export type JournalEntry = { idx: number; tag: string; when: number };
+
+/**
+ * Journal entries this branch adds that sort behind one the base branch
+ * already has.
+ *
+ * drizzle's migrator (`pg-core/dialect.js`) applies an entry only when its
+ * `when` is later than the `created_at` of the last migration the database
+ * recorded, so an entry that lands below one already applied somewhere is
+ * skipped there in silence. That happens when two branches each hold a
+ * migration and the one numbered (and dated) higher merges first. Each entry
+ * this branch adds must therefore come after every entry on the base, by `idx`
+ * and by `when` — CONVENTIONS rule 5, renumber to the tail.
+ * @param base - The base branch's journal entries.
+ * @param head - This branch's journal entries.
+ * @param journalText - This branch's journal as text, to point at the line.
+ */
+export function findJournalOrderProblems(base: JournalEntry[], head: JournalEntry[], journalText = ''): MigrationProblem[] {
+  if (base.length === 0) {
+    return [];
+  }
+  const onBase = new Set(base.map(entry => entry.tag));
+  const lastIdx = base.reduce((a, b) => (b.idx > a.idx ? b : a));
+  const lastWhen = base.reduce((a, b) => (b.when > a.when ? b : a));
+  const problems: MigrationProblem[] = [];
+  for (const entry of head) {
+    if (onBase.has(entry.tag) || (entry.idx > lastIdx.idx && entry.when > lastWhen.when)) {
+      continue;
+    }
+    const offset = journalText.indexOf(`"tag": "${entry.tag}"`);
+    problems.push({
+      file: `${MIGRATIONS_RELATIVE_DIR}/${JOURNAL_RELATIVE_PATH}`,
+      line: offset >= 0 ? lineNumberAt(journalText, offset) : 1,
+      rule: 'journal-entry-behind-base',
+      message: `${entry.tag} (idx ${entry.idx}, when ${entry.when}) is new on this branch, but the base already has `
+        + `${lastIdx.tag} (idx ${lastIdx.idx})${lastWhen.tag === lastIdx.tag ? '' : ` and ${lastWhen.tag}`} with when ${lastWhen.when}. `
+        + 'A database migrated by drizzle that applied that one never applies this one. Renumber it to the tail: '
+        + `idx ${lastIdx.idx + 1} (and the file and any concurrent/ sibling to match), with a when later than ${lastWhen.when}. `
+        + `See ${CONVENTIONS_DOC}, rule 5.`,
+    });
+  }
+  return problems;
+}
+
+/**
+ * The journal's entries, from a file's contents.
+ * @param text - `meta/_journal.json` as text.
+ */
+function journalEntries(text: string): JournalEntry[] {
+  return (JSON.parse(text) as { entries: JournalEntry[] }).entries;
+}
+
+/**
+ * The branch this one will merge into: `MIGRATIONS_BASE_REF`, else a pull
+ * request's base in CI, else the pushed branch itself (nothing is new), else
+ * `origin/main`.
+ */
+function baseRef(): string {
+  const { MIGRATIONS_BASE_REF, GITHUB_BASE_REF, GITHUB_REF_NAME } = process.env;
+  if (MIGRATIONS_BASE_REF) {
+    return MIGRATIONS_BASE_REF;
+  }
+  if (GITHUB_BASE_REF) {
+    return `origin/${GITHUB_BASE_REF}`;
+  }
+  return GITHUB_REF_NAME ? `origin/${GITHUB_REF_NAME}` : 'origin/main';
+}
+
+/**
+ * The base branch's journal, or null when git cannot show it (no history, no
+ * such ref) — said out loud by the caller rather than passed silently.
+ * @param ref - The base ref.
+ */
+function readBaseJournal(ref: string): JournalEntry[] | null {
+  try {
+    const text = execFileSync('git', ['show', `${ref}:${MIGRATIONS_RELATIVE_DIR}/${JOURNAL_RELATIVE_PATH}`], {
+      cwd: fromRepoRoot('.'),
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return journalEntries(text);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Format the problems as the CI failure output.
  * @param problems - Problems found, possibly empty.
@@ -881,10 +978,17 @@ export function formatProblems(problems: MigrationProblem[]): string {
 /**
  * CLI entrypoint: print any problems and return the process exit code.
  * @param migrationsDir - Directory to inspect; defaults to this repo's own.
+ * @param baseJournal - The base branch's journal entries, to check the order
+ *   of this branch's against; omitted, the order is not checked.
  */
-export function runCheck(migrationsDir: string = fromRepoRoot(MIGRATIONS_RELATIVE_DIR)): number {
+export function runCheck(migrationsDir: string = fromRepoRoot(MIGRATIONS_RELATIVE_DIR), baseJournal?: JournalEntry[]): number {
   const files = readMigrationFiles(migrationsDir);
   const problems = findMigrationSafetyProblems(files);
+  const journalPath = join(migrationsDir, JOURNAL_RELATIVE_PATH);
+  if (baseJournal && existsSync(journalPath)) {
+    const journalText = readFileSync(journalPath, 'utf-8');
+    problems.push(...findJournalOrderProblems(baseJournal, journalEntries(journalText), journalText));
+  }
 
   if (problems.length > 0) {
     console.error(formatProblems(problems));
@@ -899,5 +1003,10 @@ export function runCheck(migrationsDir: string = fromRepoRoot(MIGRATIONS_RELATIV
 // module from a test does not.
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
-  process.exit(runCheck());
+  const ref = baseRef();
+  const baseJournal = readBaseJournal(ref);
+  if (!baseJournal) {
+    console.log(`check:migrations — journal order NOT checked: git cannot show ${ref}. Fetch it, or set MIGRATIONS_BASE_REF.`);
+  }
+  process.exit(runCheck(undefined, baseJournal ?? undefined));
 }
