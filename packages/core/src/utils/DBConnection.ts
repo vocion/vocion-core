@@ -5,7 +5,9 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { Env } from '@/libs/Env';
 import { resolveDemoPath } from '@/libs/llm/replay';
+import { isTenantContextEnabled } from '@/libs/tenantContext';
 import * as schema from '@/models/Schema';
+import { TenantContextPool } from './tenantContextPool';
 
 /**
  * Open the database. Two drivers:
@@ -40,7 +42,10 @@ export const createDbConnection = () => {
     return drizzlePglite({ client, schema }) as unknown as ReturnType<typeof drizzle<typeof schema>>;
   }
 
-  const pool = new Pool({
+  // VOCION_DB_TENANT_CONTEXT=1 labels each query with the request's tenant
+  // (libs/tenantContext.ts); otherwise the plain pool, unchanged.
+  const PoolClass = isTenantContextEnabled() ? TenantContextPool : Pool;
+  const pool = new PoolClass({
     connectionString: Env.DATABASE_URL,
     max: Env.DATABASE_URL.includes('localhost') || Env.DATABASE_URL.includes('127.0.0.1')
       ? 1

@@ -2,6 +2,7 @@ import type { OrgRole } from '@/types/Auth';
 import { eq } from 'drizzle-orm';
 import { auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { runAsSystem, setRequestTenant } from '@/libs/tenantContext';
 import { projectSchema } from '@/models/Schema';
 import { trackHeartbeat } from '@/services/adoption/track';
 import { ApiError } from './ApiError';
@@ -43,13 +44,16 @@ const hasRoleFactory = (role: 'admin' | 'member' | null) =>
  * @throws {ORPCError} 401 Unauthorized when no session.
  */
 export const guardAuth = async () => {
-  const session = await auth();
+  // Resolving who the caller is reads their memberships across tenants, so it
+  // runs as system work; everything after it runs as the tenant it resolved.
+  const session = await runAsSystem('resolve-session', () => auth());
 
   if (!session?.user?.id || !session.user.projectId) {
     throw ApiError.unauthorized();
   }
 
   const { id: userId, accountId, projectId, role } = session.user;
+  setRequestTenant({ accountId, userId });
   // Every authenticated RPC flows through here — the adoption heartbeat
   // rides along, throttled to one write per user per 5-minute bucket.
   trackHeartbeat({ orgId: projectId, projectId, accountId, userId });

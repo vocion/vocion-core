@@ -28,7 +28,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     // The one durable executor (backlog 054): resumes waiting runs after every deploy.
     // Never awaited: a database that is slow to answer must not hold the server's boot.
-    void import('./libs/durable/executor').then(m => m.startDurableExecutor());
+    // It works for every tenant, so it runs as system work (libs/tenantContext.ts).
+    void Promise.all([import('./libs/durable/executor'), import('./libs/tenantContext')])
+      .then(([m, { runAsSystem }]) => runAsSystem('durable-executor', () => m.startDurableExecutor()));
     // A TURN SURVIVES A RESTART (backlog 056). Told to stop, the process lets
     // the turns it is answering finish first, up to the container's grace
     // period, instead of dying under them. Next's own handler would exit at
