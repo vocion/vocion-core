@@ -3,7 +3,7 @@ import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, bigserial, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, boolean, check, customType, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -2538,6 +2538,36 @@ export const agentBudgetSchema = pgTable(
   },
   table => [
     uniqueIndex('agent_budget_org_slug_period_idx').on(table.orgId, table.agentSlug, table.period),
+  ],
+);
+
+/**
+ * What one workspace spent on models on one UTC day (migration 0179).
+ *
+ * The history `agent_budget` cannot keep: a budget row's counter is zeroed
+ * when its period rolls, so "the last 30 days" is unanswerable from it. Every
+ * charge adds to today's row here in the same transaction as the budget
+ * counters (`BudgetService.chargeUsage`), so the ledger and the counters agree
+ * on every charge that landed. An account's spend is the sum over its
+ * workspaces; the operator console reads it that way.
+ *
+ * `org_id` is the workspace, with no foreign key, for the reason
+ * `agent_budget.org_id` has none: a charge must never fail over what it is
+ * charged to.
+ */
+export const spendDaySchema = pgTable(
+  'spend_day',
+  {
+    orgId: text('org_id').notNull(),
+    /** The UTC calendar day, `YYYY-MM-DD`. */
+    day: date('day', { mode: 'string' }).notNull(),
+    tokens: bigint('tokens', { mode: 'number' }).default(0).notNull(),
+    /** Micro-cents, the unit every budget counter keeps money in. */
+    microCents: bigint('micro_cents', { mode: 'number' }).default(0).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    primaryKey({ name: 'spend_day_pk', columns: [table.orgId, table.day] }),
   ],
 );
 

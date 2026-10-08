@@ -66,6 +66,12 @@ function whatToChange(breach: BudgetBreach): string {
     return `"${breach.agentSlug}" has used ${spent}. `
       + `Ask an admin to raise its \`budget\` in its workspace YAML, or wait for the next period. ${WHERE_TO_LOOK}`;
   }
+  if (breach.scope === 'account') {
+    // Nobody in the workspace can change this one — saying "ask an admin"
+    // would send them to someone who cannot help.
+    return `This account has used ${spent} this month across all of its workspaces. `
+      + 'The account cap is set by the Vocion operator: ask them to raise it, or wait for the first of next month (UTC).';
+  }
   // The workspace-wide or one feature's cap: not something an agent's YAML can fix.
   return `Budget exceeded for "${breach.agentSlug}" (${breach.reason}: ${breach.current}/${breach.limit}). `
     + 'Ask an admin to raise that cap, or wait for the next period.';

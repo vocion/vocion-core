@@ -140,6 +140,16 @@ describe('what the person reads', () => {
     expect(message).not.toContain('workspace YAML');
   });
 
+  it('sends someone at the account cap to the operator, not to an admin who cannot raise it', () => {
+    const message = budgetRefusalMessage(breach({ scope: 'account', agentSlug: 'platform:account', limit: 50_000, current: 50_012 }));
+
+    expect(message).toContain('$500.12 of a $500.00 cap');
+    expect(message).toContain('this month across all of its workspaces');
+    expect(message).toContain('Vocion operator');
+    expect(message).not.toContain('Ask an admin');
+    expect(message).not.toContain('workspace YAML');
+  });
+
   it('leads a mid-turn stop with the stop, before the cap', () => {
     expect(budgetStopMessage(breach())).toMatch(/^This turn stopped partway because it reached its budget\. /);
   });

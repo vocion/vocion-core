@@ -1,7 +1,8 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { getBudget, setLimits } from '@/services/BudgetService';
+import { AccountCapNotWritableError, getBudget, setLimits } from '@/services/BudgetService';
 import { ORG_ROLE } from '@/types/Auth';
+import { ApiError } from './ApiError';
 import { guardRole } from './AuthGuards';
 
 const PeriodZ = z.enum(['daily', 'monthly']);
@@ -21,6 +22,10 @@ export const get = os
  * workspace spends, `platform:<feature>` for one non-agent surface such as
  * `platform:retrieval.embed`. The workspace-wide cap is the one that makes
  * `agent_budget` a spend control rather than a per-agent allowance.
+ *
+ * The account-wide scope (`platform:account`) is not writable here: it is the
+ * operator's, set from the operator console. `setLimits` refuses it, and that
+ * refusal reaches the admin as a 400 naming who sets it.
  */
 export const upsert = os
   .input(z.object({
@@ -33,13 +38,20 @@ export const upsert = os
   }))
   .handler(async ({ input }) => {
     const { orgId } = await guardRole(ORG_ROLE.ADMIN);
-    return setLimits({
-      orgId,
-      agentSlug: input.agentSlug,
-      period: input.period,
-      softTokenLimit: input.softTokenLimit ?? null,
-      hardTokenLimit: input.hardTokenLimit ?? null,
-      softCentsLimit: input.softCentsLimit ?? null,
-      hardCentsLimit: input.hardCentsLimit ?? null,
-    });
+    try {
+      return await setLimits({
+        orgId,
+        agentSlug: input.agentSlug,
+        period: input.period,
+        softTokenLimit: input.softTokenLimit ?? null,
+        hardTokenLimit: input.hardTokenLimit ?? null,
+        softCentsLimit: input.softCentsLimit ?? null,
+        hardCentsLimit: input.hardCentsLimit ?? null,
+      });
+    } catch (error) {
+      if (error instanceof AccountCapNotWritableError) {
+        throw ApiError.badRequest(error.message);
+      }
+      throw error;
+    }
   });

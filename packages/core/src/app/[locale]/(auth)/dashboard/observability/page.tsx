@@ -1,3 +1,4 @@
+import type { AccountCapStatus } from '@/services/BudgetService';
 import { ExternalLink, LineChart } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Button } from '@/components/ui/button';
@@ -6,7 +7,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { langfuseConfig } from '@/libs/Langfuse';
 import { browserProjectId } from '@/libs/Langfuse/config';
-import { listAgentBudgets, listPlatformBudgets, ORG_SCOPE_SLUG, orgUsageTotals } from '@/services/BudgetService';
+import { accountCapStatus, listAgentBudgets, listPlatformBudgets, ORG_SCOPE_SLUG, orgUsageTotals } from '@/services/BudgetService';
 import { countRunsLast24h } from '@/services/ObservabilityService';
 
 /**
@@ -32,7 +33,7 @@ export default async function ObservabilityPage(props: {
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, accountId } = await auth();
 
   // These links open in the operator's browser, so they need the
   // externally reachable Langfuse URL. On a self-hosted box the app
@@ -59,11 +60,14 @@ export default async function ObservabilityPage(props: {
     );
   }
 
-  const [budgets, platformBudgets, orgTotals, runCounts] = await Promise.all([
+  const [budgets, platformBudgets, orgTotals, runCounts, accountCap] = await Promise.all([
     listAgentBudgets(orgId).catch(() => []),
     listPlatformBudgets(orgId).catch(() => []),
     orgUsageTotals({ orgId }).catch(() => ({ spentCents: 0, tokens: 0, hardCentsLimit: null, hardTokenLimit: null })),
     countRunsLast24h(orgId).catch(() => ({ toolCalls: 0, workflowRuns: 0 })),
+    // The account's month against the cap the operator set. Null only when it
+    // cannot be read — "no cap" is a status of its own, and says so.
+    accountId ? accountCapStatus(accountId).catch(() => null) : Promise.resolve(null),
   ]);
 
   // The workspace's whole spend, read off the `platform:all` row rather than
@@ -142,8 +146,8 @@ export default async function ObservabilityPage(props: {
               </div>
             )}
 
-        {/* Airy pass (B-034b §4): three numbers in a row between hairlines, no fills. */}
-        <div className="grid gap-6 border-y border-border/70 py-5 sm:grid-cols-3">
+        {/* Airy pass (B-034b §4): the numbers in a row between hairlines, no fills. */}
+        <div className={`grid gap-6 border-y border-border/70 py-5 ${accountCap ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
           <StatCard
             label="Spend this period"
             value={`$${(totalCents / 100).toFixed(2)}`}
@@ -159,6 +163,7 @@ export default async function ObservabilityPage(props: {
             value={String(topAgents.filter(a => (a.currentCents ?? 0) > 0).length)}
             hint={topAgents.length === 0 ? 'No usage in this period.' : 'Agents with non-zero spend.'}
           />
+          {accountCap && <AccountCapCard cap={accountCap} />}
         </div>
 
         {platformSurfaces.length > 0 && (
@@ -241,6 +246,31 @@ export default async function ObservabilityPage(props: {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * The account cap, read where spend is read. It is the one cap on this page
+ * nobody in the workspace can change — an operator sets it — so the hint says
+ * whose it is and when it resets, and, when it is reached, what has stopped.
+ * @param props - The account's month.
+ * @param props.cap - What `accountCapStatus` reported.
+ */
+function AccountCapCard({ cap }: { cap: AccountCapStatus }) {
+  const spent = `$${(cap.spentCents / 100).toFixed(2)}`;
+  const resets = new Date(cap.periodResetsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  if (cap.hardCentsLimit === null) {
+    return <StatCard label="Account cap" value="None" hint={`${spent} this month across every workspace in this account. A cap is set by your Vocion operator.`} />;
+  }
+  const limit = `$${(cap.hardCentsLimit / 100).toFixed(2)}`;
+  return (
+    <StatCard
+      label="Account cap"
+      value={`${spent} of ${limit}`}
+      hint={cap.blocked
+        ? `Reached. Ingest, image generation and agent turns are refused in every workspace of this account until ${resets} (UTC), or until your Vocion operator raises it.`
+        : `This month across every workspace in this account. Set by your Vocion operator; resets ${resets} (UTC).`}
+    />
   );
 }
 

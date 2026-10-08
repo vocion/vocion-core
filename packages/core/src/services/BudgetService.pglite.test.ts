@@ -20,7 +20,7 @@ const { eq } = await import('drizzle-orm');
 
 const { db } = await import('@/libs/DB');
 const { agentBudgetSchema } = await import('@/models/Schema');
-const { agentSchema } = await import('@/models/Schema');
+const { agentSchema, spendDaySchema } = await import('@/models/Schema');
 const {
   AGENT_DEFAULT_SCOPE_SLUG,
   agentBudgetStatuses,
@@ -35,6 +35,7 @@ const {
   preflightCheck,
   rollPeriodIfStale,
   setLimits,
+  spendSince,
 } = await import('@/services/BudgetService');
 
 const ORG = 'org_budget_test';
@@ -50,6 +51,7 @@ const savedDefaultCents = process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS;
 
 beforeEach(async () => {
   await db.delete(agentBudgetSchema);
+  await db.delete(spendDaySchema);
   await db.delete(agentSchema);
   delete process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS;
 });
@@ -370,15 +372,19 @@ describe('what the dashboard reads', () => {
 
 describe('a charge that hits database trouble', () => {
   it('retries a failed write and records the spend exactly once', async () => {
-    const realInsert = db.insert.bind(db);
+    // The first attempt makes BOTH of its writes — the budget rows and the
+    // daily ledger — and then fails before commit. Everything it wrote has to
+    // roll back, or the retry would count the call twice.
+    const realTransaction = db.transaction.bind(db);
     let attempts = 0;
-    const insert = vi.spyOn(db, 'insert').mockImplementation((table: Parameters<typeof realInsert>[0]) => {
+    const transaction = vi.spyOn(db, 'transaction').mockImplementation(((fn: Parameters<typeof realTransaction>[0]) => realTransaction(async (tx) => {
       attempts += 1;
+      const result = await fn(tx);
       if (attempts === 1) {
         throw new Error('connection terminated unexpectedly');
       }
-      return realInsert(table);
-    });
+      return result;
+    })) as typeof db.transaction);
 
     await chargeUsage({
       orgId: ORG,
@@ -386,7 +392,7 @@ describe('a charge that hits database trouble', () => {
       model: CHAT_MODEL,
       usage: { inputTokens: 1_000_000, outputTokens: 0 },
     });
-    insert.mockRestore();
+    transaction.mockRestore();
 
     expect(attempts).toBe(2);
 
@@ -396,28 +402,35 @@ describe('a charge that hits database trouble', () => {
 
     expect(orgRow?.currentMicroCents).toBe(100_000_000);
     expect(orgRow?.currentCents).toBe(100);
+
+    const ledger = await spendSince([ORG], 1);
+
+    expect(ledger.get(ORG)?.spentCents).toBe(100);
   });
 
   it('gives up after a bounded number of attempts and leaves the counters alone', async () => {
-    const insert = vi.spyOn(db, 'insert').mockImplementation(() => {
+    const transaction = vi.spyOn(db, 'transaction').mockImplementation(() => {
       throw new Error('connection terminated unexpectedly');
     });
 
-    await expect(chargeUsage({
-      orgId: ORG,
-      agentSlug: AGENT,
-      model: CHAT_MODEL,
-      usage: { inputTokens: 1_000_000, outputTokens: 0 },
-    })).rejects.toThrow('connection terminated unexpectedly');
+    try {
+      await expect(chargeUsage({
+        orgId: ORG,
+        agentSlug: AGENT,
+        model: CHAT_MODEL,
+        usage: { inputTokens: 1_000_000, outputTokens: 0 },
+      })).rejects.toThrow('connection terminated unexpectedly');
 
-    expect(insert).toHaveBeenCalledTimes(3);
-
-    insert.mockRestore();
+      expect(transaction).toHaveBeenCalledTimes(3);
+    } finally {
+      transaction.mockRestore();
+    }
 
     // No row at all: every attempt rolled back, so nothing was half-written.
     const orgRow = await getBudget({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG });
 
     expect(orgRow).toBeNull();
+    expect((await spendSince([ORG], 1)).size).toBe(0);
   });
 });
 

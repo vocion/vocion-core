@@ -1205,6 +1205,13 @@
       "when": 1791000240000,
       "tag": "0171_conversation_parent",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1791000720000,
+      "tag": "0179_spend_day",
+      "breakpoints": true
     }
   ]
 }

@@ -92,20 +92,53 @@
  * same money can disagree with the first, and because it was floored per row,
  * the agents' cents did not add up to the workspace's. The database column is
  * dropped a release later than this code, per `migrations/CONVENTIONS.md`.
+ *
+ * ## The account cap (one deployment, several client accounts)
+ *
+ * Everything above stops at the workspace. On a deployment hosting several
+ * client companies — one `tenant_account` each, several workspaces each — the
+ * question an operator answers to a client is the account's, so a cap can
+ * also sit on the ACCOUNT:
+ *
+ *   - It is an ordinary budget row under the reserved scope
+ *     {@link ACCOUNT_SCOPE_SLUG}, whose `org_id` holds the `tenant_account.id`
+ *     rather than a workspace id, and whose period is monthly
+ *     ({@link ACCOUNT_CAP_PERIOD}) because a client is billed by the month.
+ *     Same counter, same rollover, same refusal rule as every other row — no
+ *     second shape for money.
+ *   - Every charge rolls up onto it: `chargeUsage` looks up the workspace's
+ *     account inside the charge's transaction and adds the account row to the
+ *     same statement, so it can never disagree with the workspace's own rows.
+ *   - It refuses exactly where a hard cap already refuses. `preflightCheck`
+ *     reads it alongside the agent, feature and workspace rows, so the sites
+ *     that stop over a cap (ingest embedding, image generation, an agent
+ *     turn's next model call) stop over this one, and everything that only
+ *     records keeps recording.
+ *   - Only an operator sets it. `setLimits` and `setCentsLimits` — the paths
+ *     behind the budgets API, workspace YAML and the hire flow — refuse the
+ *     scope outright; {@link setAccountCap} is the one writer, and its only
+ *     caller is the operator console's router.
+ *
+ * ## The daily ledger
+ *
+ * A period counter is zeroed when its period rolls, so "what did this account
+ * spend in the last 30 days" cannot be read from `agent_budget`. Each charge
+ * therefore also adds to the workspace's row for today in `spend_day`, in the
+ * same transaction; {@link spendSince} reads it.
  */
 
 import type { FeatureName } from '@/libs/Langfuse/features';
 import type { TokenUsage } from '@/libs/pricing';
-import { and, eq, inArray, notLike, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, min, notLike, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { tokenCostMicroCents, totalTokens } from '@/libs/pricing';
-import { agentBudgetSchema, agentSchema } from '@/models/Schema';
+import { agentBudgetSchema, agentSchema, projectSchema, spendDaySchema } from '@/models/Schema';
 import { noteRunCost } from '@/services/budget/runCost';
 
 export type BudgetPeriod = 'daily' | 'monthly';
 
-/** Which of an org's budget rows refused the call. */
-export type BudgetScope = 'agent' | 'feature' | 'org';
+/** Which budget row refused the call: an agent's, one feature's, the workspace's, or its account's. */
+export type BudgetScope = 'agent' | 'feature' | 'org' | 'account';
 
 export type BudgetCheck
   = | { ok: true }
@@ -143,6 +176,17 @@ export const ORG_SCOPE_SLUG = 'platform:all';
  * set none of its own. Nothing is ever charged to it; it holds limits only.
  */
 export const AGENT_DEFAULT_SCOPE_SLUG = 'platform:agent-default';
+
+/**
+ * The scope an account-wide cap lives on. On this scope alone, `org_id` holds
+ * the `tenant_account.id`, not a workspace's. Only an operator writes its caps
+ * ({@link setAccountCap}); every charge in any of the account's workspaces adds
+ * to it. See "The account cap" in the module docstring.
+ */
+export const ACCOUNT_SCOPE_SLUG = 'platform:account';
+
+/** The account cap's period. A client account is billed by the calendar month. */
+export const ACCOUNT_CAP_PERIOD: BudgetPeriod = 'monthly';
 
 /**
  * The daily hard cap, in cents, on an agent nobody gave a cap — $100 a day.
@@ -236,8 +280,9 @@ function shouldReset(period: BudgetPeriod, periodStartedAt: Date, now: Date): bo
 /**
  * The SQL expression for the instant the current period began, in UTC.
  *
- * Used inside the charge statement so a rollover is decided by the database at
- * the moment of the write. `period` is a closed union, never caller text, so
+ * Used when a read rolls a row, so a rollover is decided by the database at
+ * the moment of the write (the charge statement decides it per row, with
+ * `ROW_PERIOD_START`). `period` is a closed union, never caller text, so
  * interpolating it into the fragment is safe.
  * @param period - daily or monthly.
  */
@@ -463,13 +508,23 @@ export async function preflightCheck(opts: {
   if (opts.agentSlug) {
     slugs.push(AGENT_DEFAULT_SCOPE_SLUG);
   }
+  // The account's row rides in the same query: the workspace's account is a
+  // primary-key lookup inside it, so the account cap costs no extra round trip
+  // on this hot path.
   const rows = await db
     .select()
     .from(agentBudgetSchema)
-    .where(and(
-      eq(agentBudgetSchema.orgId, opts.orgId),
-      inArray(agentBudgetSchema.agentSlug, slugs),
-      eq(agentBudgetSchema.period, period),
+    .where(or(
+      and(
+        eq(agentBudgetSchema.orgId, opts.orgId),
+        inArray(agentBudgetSchema.agentSlug, slugs),
+        eq(agentBudgetSchema.period, period),
+      ),
+      and(
+        eq(agentBudgetSchema.agentSlug, ACCOUNT_SCOPE_SLUG),
+        eq(agentBudgetSchema.period, ACCOUNT_CAP_PERIOD),
+        sql`${agentBudgetSchema.orgId} = (select ${projectSchema.accountId} from ${projectSchema} where ${projectSchema.id} = ${opts.orgId})`,
+      ),
     ));
   const workspaceAgentDefault = rows.find(candidate => candidate.agentSlug === AGENT_DEFAULT_SCOPE_SLUG);
 
@@ -493,6 +548,16 @@ export async function preflightCheck(opts: {
       continue;
     }
     const breach = breachOf(await rollPeriodIfStale(row), target.scope);
+    if (breach) {
+      return breach;
+    }
+  }
+  // The account's cap last: it is the least specific, and the one nobody in
+  // the workspace can change, so a narrower cap that also refused is the more
+  // useful thing to name.
+  const accountRow = rows.find(candidate => candidate.agentSlug === ACCOUNT_SCOPE_SLUG);
+  if (accountRow) {
+    const breach = breachOf(await rollPeriodIfStale(accountRow), 'account');
     if (breach) {
       return breach;
     }
@@ -576,11 +641,13 @@ function withAgentDefaultCaps(opts: {
 /**
  * Charge usage after a paid model call completes.
  *
- * Lands on up to three rows in one statement: the agent's, the feature's, and
- * always the org-wide one. The rows are created if they do not exist, so usage
- * is recorded whether or not anyone set a cap. Period rollover is decided in
- * the same statement, so a charge that crosses midnight starts the new period
- * rather than adding to the old one.
+ * Lands on up to four rows in one statement: the agent's, the feature's,
+ * always the org-wide one, and the workspace's account's monthly row when the
+ * workspace belongs to an account. The rows are created if they do not exist,
+ * so usage is recorded whether or not anyone set a cap. Period rollover is
+ * decided in the same statement, so a charge that crosses midnight starts the
+ * new period rather than adding to the old one. Today's row of the workspace's
+ * daily ledger (`spend_day`) is added to in the same transaction.
  *
  * Idempotent only by caller discipline — call it once per completed call.
  *
@@ -631,7 +698,7 @@ export async function chargeUsage(opts: {
   // write lands: a run's cost is what it spent, not what the counters saw
   // (`services/budget/runCost.ts`).
   await noteRunCost(tokens, microCents);
-  await writeChargeWithRetry(rows, period, tokens, microCents);
+  await writeChargeWithRetry(opts.orgId, rows, period, tokens, microCents);
 }
 
 /** Attempts a charge gets before the spend is given up on. */
@@ -674,12 +741,14 @@ async function pause(milliseconds: number): Promise<void> {
  * rethrowing, so the spend can be reconstructed by hand from the log line —
  * callers mostly swallow what comes out of here, on purpose, because failing
  * somebody's request over the accounting would be the more expensive mistake.
+ * @param orgId - The workspace the call was made in.
  * @param rows - The scope rows this charge lands on.
  * @param period - Which period is being charged.
  * @param tokens - Tokens to add.
  * @param microCents - Money to add, in micro-cents.
  */
 async function writeChargeWithRetry(
+  orgId: string,
   rows: Array<typeof agentBudgetSchema.$inferInsert>,
   period: BudgetPeriod,
   tokens: number,
@@ -688,7 +757,7 @@ async function writeChargeWithRetry(
   let lastError: unknown;
   for (let attempt = 1; attempt <= CHARGE_ATTEMPTS; attempt++) {
     try {
-      await writeCharge(rows, period, tokens, microCents);
+      await writeCharge(orgId, rows, tokens, microCents);
       return;
     } catch (error) {
       lastError = error;
@@ -698,7 +767,7 @@ async function writeChargeWithRetry(
     }
   }
   logUnrecordedSpend({
-    orgId: rows[0]?.orgId,
+    orgId,
     scopes: rows.map(row => row.agentSlug),
     period,
     tokens,
@@ -729,44 +798,99 @@ function logUnrecordedSpend(properties: Record<string, unknown>): void {
 }
 
 /**
- * The charge itself: one statement, so the rows move together and a concurrent
- * charge cannot interleave a read with a write.
+ * The instant the current period began for the row a charge statement is
+ * writing, decided per row: a charge lands on daily rows and on the account's
+ * monthly row in the same statement. Inside `ON CONFLICT DO UPDATE` the bare
+ * column is the stored row, whose period is part of the conflict key and so
+ * the incoming row's too.
+ */
+const ROW_PERIOD_START = sql`date_trunc(CASE WHEN ${agentBudgetSchema.period} = 'monthly' THEN 'month' ELSE 'day' END, now() AT TIME ZONE 'utc')`;
+
+/**
+ * The charge itself: one transaction, so the rows move together and a
+ * concurrent charge cannot interleave a read with a write.
  *
- * `stale` is the period rollover — when the row's period began before the
- * current one, the incoming numbers replace the counters instead of adding to
- * them, and the period restarts.
+ * The scope rows are one statement. `stale` is the period rollover — when a
+ * row's period began before the current one, the incoming numbers replace the
+ * counters instead of adding to them, and the period restarts. The workspace's
+ * account is read inside the same transaction and its monthly row joins the
+ * statement, so a retried charge retries the roll-up with it; a workspace
+ * with no project row (a fixture, a script) simply has no account to roll up
+ * to. Today's ledger row is the second statement.
+ * @param orgId - The workspace the call was made in.
  * @param rows - The scope rows this charge lands on.
- * @param period - Which period is being charged.
  * @param tokens - Tokens to add.
  * @param microCents - Money to add, in micro-cents.
  */
 async function writeCharge(
+  orgId: string,
   rows: Array<typeof agentBudgetSchema.$inferInsert>,
-  period: BudgetPeriod,
   tokens: number,
   microCents: number,
 ): Promise<void> {
-  const periodStart = periodStartExpression(period);
-  const stale = sql`${agentBudgetSchema.periodStartedAt} < ${periodStart}`;
+  const stale = sql`${agentBudgetSchema.periodStartedAt} < ${ROW_PERIOD_START}`;
   const nextMicroCents = sql`CASE WHEN ${stale} THEN ${microCents} ELSE ${agentBudgetSchema.currentMicroCents} + ${microCents} END`;
-  await db
-    .insert(agentBudgetSchema)
-    .values(rows)
-    .onConflictDoUpdate({
-      target: [agentBudgetSchema.orgId, agentBudgetSchema.agentSlug, agentBudgetSchema.period],
-      set: {
-        // Per row, because `excluded` is the row being inserted: a feature row
-        // learns its label, an agent row and the workspace row keep their null.
-        // `coalesce` rather than a plain assignment so a row provisioned by
-        // `setLimits` — which knows the scope but not the feature — is filled in
-        // by the first charge and never overwritten afterwards.
-        feature: sql`coalesce(${agentBudgetSchema.feature}, excluded.feature)`,
-        currentTokens: sql`CASE WHEN ${stale} THEN ${tokens} ELSE ${agentBudgetSchema.currentTokens} + ${tokens} END`,
-        currentMicroCents: nextMicroCents,
-        periodStartedAt: sql`CASE WHEN ${stale} THEN ${periodStart} ELSE ${agentBudgetSchema.periodStartedAt} END`,
-        updatedAt: new Date(),
-      },
-    });
+  await db.transaction(async (tx) => {
+    const [workspace] = await tx
+      .select({ accountId: projectSchema.accountId })
+      .from(projectSchema)
+      .where(eq(projectSchema.id, orgId))
+      .limit(1);
+    const scoped = workspace
+      ? [...rows, { orgId: workspace.accountId, agentSlug: ACCOUNT_SCOPE_SLUG, period: ACCOUNT_CAP_PERIOD, currentTokens: tokens, currentMicroCents: microCents }]
+      : rows;
+    await tx
+      .insert(agentBudgetSchema)
+      .values(scoped)
+      .onConflictDoUpdate({
+        target: [agentBudgetSchema.orgId, agentBudgetSchema.agentSlug, agentBudgetSchema.period],
+        set: {
+          // Per row, because `excluded` is the row being inserted: a feature row
+          // learns its label, an agent row and the workspace row keep their null.
+          // `coalesce` rather than a plain assignment so a row provisioned by
+          // `setLimits` — which knows the scope but not the feature — is filled in
+          // by the first charge and never overwritten afterwards.
+          feature: sql`coalesce(${agentBudgetSchema.feature}, excluded.feature)`,
+          currentTokens: sql`CASE WHEN ${stale} THEN ${tokens} ELSE ${agentBudgetSchema.currentTokens} + ${tokens} END`,
+          currentMicroCents: nextMicroCents,
+          periodStartedAt: sql`CASE WHEN ${stale} THEN ${ROW_PERIOD_START} ELSE ${agentBudgetSchema.periodStartedAt} END`,
+          updatedAt: new Date(),
+        },
+      });
+    await tx
+      .insert(spendDaySchema)
+      .values({ orgId, day: sql`(now() AT TIME ZONE 'utc')::date`, tokens, microCents })
+      .onConflictDoUpdate({
+        target: [spendDaySchema.orgId, spendDaySchema.day],
+        set: {
+          tokens: sql`${spendDaySchema.tokens} + ${tokens}`,
+          microCents: sql`${spendDaySchema.microCents} + ${microCents}`,
+          updatedAt: new Date(),
+        },
+      });
+  });
+}
+
+/**
+ * Raised when a workspace-level writer names the account scope. The account
+ * cap is an operator's, and {@link setAccountCap} is its only writer.
+ */
+export class AccountCapNotWritableError extends Error {
+  constructor() {
+    super(`"${ACCOUNT_SCOPE_SLUG}" is the account-wide cap, which only a Vocion operator sets.`);
+    this.name = 'AccountCapNotWritableError';
+  }
+}
+
+/**
+ * Refuse the account scope on a workspace-level writer — structural, so a new
+ * caller of `setLimits` cannot become a way round the operator.
+ * @param agentSlug - The scope the caller asked to write.
+ */
+function refuseAccountScope(agentSlug: string): void {
+  if (agentSlug === ACCOUNT_SCOPE_SLUG) {
+    throw new AccountCapNotWritableError();
+  }
 }
 
 /**
@@ -794,6 +918,7 @@ export async function setLimits(opts: {
   softCentsLimit?: number | null;
   hardCentsLimit?: number | null;
 }) {
+  refuseAccountScope(opts.agentSlug);
   const period: BudgetPeriod = opts.period ?? 'daily';
   const row = await getOrCreateBudget(opts.orgId, opts.agentSlug, period);
   const [updated] = await db
@@ -828,6 +953,7 @@ export async function setCentsLimits(opts: {
   softCentsLimit: number | null;
   hardCentsLimit: number | null;
 }) {
+  refuseAccountScope(opts.agentSlug);
   const row = await getOrCreateBudget(opts.orgId, opts.agentSlug, opts.period);
   const [updated] = await db
     .update(agentBudgetSchema)
@@ -905,6 +1031,112 @@ export async function orgUsageTotals(opts: { orgId: string; period?: BudgetPerio
 
 export async function getBudget(opts: { orgId: string; agentSlug: string; period?: BudgetPeriod }) {
   return readScope(opts.orgId, opts.agentSlug, opts.period ?? 'daily');
+}
+
+/* ------------------------------------------------------------------ */
+/* The account cap — set by an operator, charged by every workspace    */
+/* ------------------------------------------------------------------ */
+
+/** An account's month as the spend page and the operator console read it. */
+export type AccountCapStatus = {
+  accountId: string;
+  /** Spend this calendar month (UTC) across every workspace in the account, in cents; carries a fraction. */
+  spentCents: number;
+  tokens: number;
+  /** The hard cap in cents an operator set, or null when there is none. */
+  hardCentsLimit: number | null;
+  /** True when the cap is reached: refusable work in every workspace of the account stops. */
+  blocked: boolean;
+  /** When this month's counter started, ISO-8601 UTC; null before the first charge. */
+  periodStartedAt: string | null;
+  /** When the counter goes back to zero, ISO-8601 UTC. */
+  periodResetsAt: string;
+};
+
+/**
+ * The account's month: what it has spent across its workspaces, and the cap.
+ * Zeroes and no cap for an account that has spent nothing and has no cap.
+ * @param accountId - `tenant_account.id`.
+ */
+export async function accountCapStatus(accountId: string): Promise<AccountCapStatus> {
+  const row = await readScope(accountId, ACCOUNT_SCOPE_SLUG, ACCOUNT_CAP_PERIOD);
+  const periodResetsAt = periodEndsAt(ACCOUNT_CAP_PERIOD, new Date()).toISOString();
+  if (!row) {
+    return { accountId, spentCents: 0, tokens: 0, hardCentsLimit: null, blocked: false, periodStartedAt: null, periodResetsAt };
+  }
+  return {
+    accountId,
+    spentCents: row.currentCents,
+    tokens: row.currentTokens,
+    hardCentsLimit: row.hardCentsLimit,
+    blocked: breachOf(row, 'account') !== null,
+    periodStartedAt: row.periodStartedAt.toISOString(),
+    periodResetsAt,
+  };
+}
+
+/**
+ * Set, raise, lower or clear an account's monthly cap. The only writer of the
+ * account scope: callers must have established that the person is an operator
+ * (`routers/Operator.ts`), because nothing below the router can.
+ *
+ * Only the hard cents cap: the account cap is a spend control, and a soft cap
+ * or a token cap at this level would be a second number for an operator to
+ * reason about with nothing reading it.
+ * @param opts - Which account, and the cap.
+ * @param opts.accountId - `tenant_account.id`.
+ * @param opts.hardCentsLimit - Whole cents per calendar month, or null for no cap.
+ */
+export async function setAccountCap(opts: { accountId: string; hardCentsLimit: number | null }): Promise<AccountCapStatus> {
+  const row = await getOrCreateBudget(opts.accountId, ACCOUNT_SCOPE_SLUG, ACCOUNT_CAP_PERIOD);
+  await db
+    .update(agentBudgetSchema)
+    .set({ hardCentsLimit: opts.hardCentsLimit })
+    .where(eq(agentBudgetSchema.id, row.id));
+  return accountCapStatus(opts.accountId);
+}
+
+/* ------------------------------------------------------------------ */
+/* The daily ledger                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Spend per workspace over the last `days` UTC days, today included, read off
+ * the daily ledger. Workspaces with nothing recorded are absent from the map.
+ * @param orgIds - The workspaces.
+ * @param days - How many days back, today counting as one.
+ */
+export async function spendSince(orgIds: readonly string[], days: number): Promise<Map<string, { spentCents: number; tokens: number }>> {
+  const out = new Map<string, { spentCents: number; tokens: number }>();
+  if (orgIds.length === 0) {
+    return out;
+  }
+  const rows = await db
+    .select({
+      orgId: spendDaySchema.orgId,
+      microCents: sql<string>`sum(${spendDaySchema.microCents})`,
+      tokens: sql<string>`sum(${spendDaySchema.tokens})`,
+    })
+    .from(spendDaySchema)
+    .where(and(
+      inArray(spendDaySchema.orgId, [...orgIds]),
+      gte(spendDaySchema.day, sql`(now() AT TIME ZONE 'utc')::date - ${Math.max(0, Math.floor(days) - 1)}::int`),
+    ))
+    .groupBy(spendDaySchema.orgId);
+  for (const row of rows) {
+    out.set(row.orgId, { spentCents: Number(row.microCents) / MICRO_CENTS_PER_CENT, tokens: Number(row.tokens) });
+  }
+  return out;
+}
+
+/**
+ * The first day the ledger holds anything, `YYYY-MM-DD`, or null when it is
+ * empty. Spend before migration 0179 was never written to it, so a window that
+ * reaches further back than this is a partial total, and says so.
+ */
+export async function spendLedgerStartedOn(): Promise<string | null> {
+  const [row] = await db.select({ first: min(spendDaySchema.day) }).from(spendDaySchema);
+  return row?.first ?? null;
 }
 
 /* ------------------------------------------------------------------ */
