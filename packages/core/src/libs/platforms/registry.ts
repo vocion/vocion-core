@@ -72,6 +72,12 @@ export type CredentialPlatformId
     | 'amplitude'
     | 'linkedin-ads'
     | 'meta-ads'
+  // CRMs and meeting recorders (the `crm` and `meetings` connector families).
+    | 'salesforce'
+    | 'pipedrive'
+    | 'attio'
+    | 'gong'
+    | 'fireflies'
   // Any token-authenticated REST API the workspace declares endpoints for
   // (`libs/sources/rest.ts`). Several per org: one per API.
     | 'rest'
@@ -118,7 +124,8 @@ export type CredentialPlatformId
     | 'quickbooks-login-app'
     | 'xero-login-app'
     | 'gusto-login-app'
-    | 'linkedin-login-app';
+    | 'linkedin-login-app'
+    | 'salesforce-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -385,6 +392,7 @@ const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
   loginAppPlatform('xero-login-app', 'xero', 'Xero', 'xero'),
   loginAppPlatform('gusto-login-app', 'gusto', 'Gusto', 'gusto'),
   loginAppPlatform('linkedin-login-app', 'linkedin', 'LinkedIn', 'linkedin'),
+  loginAppPlatform('salesforce-login-app', 'salesforce', 'Salesforce', 'salesforce'),
 ];
 
 /**
@@ -942,6 +950,121 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       },
     ],
   },
+  /* CRMs and meeting recorders. `one-live`, for the reason Apollo, Notion  */
+  /* and Sentry are: widening the cap means rebuilding                     */
+  /* `api_token_org_platform_live_idx`, and one credential reads the whole */
+  /* account, so several sources share it.                                */
+  {
+    id: 'salesforce',
+    label: 'Salesforce',
+    brand: 'salesforce',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['salesforce'],
+    howToConnect: {
+      login: {
+        provider: 'salesforce',
+        access: ['api', 'refresh_token', 'offline_access', 'id'],
+        settingsAfterLogin: [],
+      },
+      paste: {
+        credential: 'Connected app with the client credentials flow',
+        access: ['API Enabled for the run-as user', 'Read on accounts, contacts, opportunities, tasks and events', 'Edit on them for the update and note actions'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'the org\'s My Domain URL, a connected app\'s consumer key and its consumer secret',
+    helpText: 'Log in with Salesforce, or paste a connected app from your own org with the OAuth client credentials flow turned on and a run-as user (Setup → App Manager → the app → Manage → Edit Policies). Vocion reads and writes as that user, so give it a profile that sees what the agents should. The My Domain URL is https://<your-domain>.my.salesforce.com.',
+    fields: [
+      { name: 'instanceUrl', label: 'My Domain URL', pattern: /^https:\/\/[^\s/]+\/?$/i, shapeHint: 'is your org\'s https:// address, e.g. https://northwind.my.salesforce.com', secret: false },
+      { name: 'clientId', label: 'Consumer key', pattern: null, shapeHint: 'is the connected app\'s consumer key', secret: false },
+      { name: 'clientSecret', label: 'Consumer secret', pattern: null, shapeHint: 'is the connected app\'s consumer secret', secret: true },
+    ],
+  },
+  {
+    id: 'pipedrive',
+    label: 'Pipedrive',
+    brand: 'pipedrive',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['pipedrive'],
+    howToConnect: {
+      paste: {
+        credential: 'API token',
+        access: ['Acts as the person who made it and sees what they see'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Pipedrive personal API token',
+    helpText: 'A Pipedrive API token, from Settings → Personal preferences → API. It acts as the person who made it: the sync reads what they see, and the update and note actions write as them.',
+    // Named `token`, the key `libs/pipedrive/client.ts` reads out of the credential.
+    fields: [{ name: 'token', label: 'API token', pattern: /^\S{20,}$/, shapeHint: 'is the API token, with no spaces', secret: true }],
+  },
+  {
+    id: 'attio',
+    label: 'Attio',
+    brand: 'attio',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['attio'],
+    howToConnect: {
+      paste: {
+        credential: 'Access token',
+        access: ['Record permission: read (read-write for the update action)', 'Object configuration: read', 'Note: read-write, for the note action', 'Task: read', 'User management: read'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an Attio workspace access token',
+    helpText: 'An Attio access token, from Workspace settings → Developers → New access token. Give it read on records, object configuration, tasks and user management; read-write on records and notes lets agents update records and log notes.',
+    // Named `token`, the key `libs/attio/client.ts` reads out of the credential.
+    fields: [{ name: 'token', label: 'Access token', pattern: /^\S{16,}$/, shapeHint: 'is the access token, with no spaces', secret: true }],
+  },
+  {
+    id: 'gong',
+    label: 'Gong',
+    brand: 'gong',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['gong'],
+    howToConnect: { paste: { credential: 'API access key and secret', access: ['Made by a Gong admin under Company settings → Ecosystem → API'] } },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'the account\'s API base URL, an access key and its secret',
+    helpText: 'A Gong API access key and secret, from Company settings → Ecosystem → API (admins only). The base URL is on the same page (https://us-NNNN.api.gong.io); leave it blank for https://api.gong.io. Used read-only: Vocion never writes to Gong, and private calls are never read.',
+    fields: [
+      { name: 'baseUrl', label: 'API base URL', pattern: /^https:\/\/[^\s/]+\/?$/i, shapeHint: 'is an https:// address such as https://us-12345.api.gong.io', secret: false, optional: true },
+      { name: 'accessKey', label: 'Access key', pattern: null, shapeHint: 'is the access key from Gong\'s API page', secret: false },
+      { name: 'accessKeySecret', label: 'Access key secret', pattern: null, shapeHint: 'is the secret shown once when the key was made', secret: true },
+    ],
+  },
+  {
+    id: 'fireflies',
+    label: 'Fireflies',
+    brand: 'fireflies',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['fireflies'],
+    howToConnect: { paste: { credential: 'API key', access: ['Reads the meetings its owner can see in Fireflies'] } },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Fireflies API key',
+    helpText: 'A Fireflies.ai API key, from Settings → Developer settings. Used read-only. The free and Pro plans allow 50 API requests a day; a sync spends about one per 50 meetings, and Test connection spends one.',
+    // Named `token`, the key `libs/fireflies/client.ts` reads out of the credential.
+    fields: [{ name: 'token', label: 'API key', pattern: /^\S{8,}$/, shapeHint: 'is an API key with no spaces', secret: true }],
+  },
   {
     id: 'rest',
     label: 'REST API (bearer token)',
@@ -1229,7 +1352,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     brand: 'google',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
-    connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
+    connectorSlugs: ['gmail', 'drive', 'google-calendar', 'google-meet', 'ga4', 'google-ads'],
     // Mail hosted here says the workspace lives in this suite: offer its mail, calendar and files.
     discovery: { mailHosts: ['google.com', 'googlemail.com'], connectors: ['gmail', 'google-calendar', 'drive'] },
     howToConnect: {
@@ -1242,6 +1365,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         'gmail': { provider: 'google', access: ['https://www.googleapis.com/auth/gmail.readonly'], settingsAfterLogin: [] },
         'drive': { provider: 'google', access: ['https://www.googleapis.com/auth/drive.readonly'], settingsAfterLogin: [] },
         'google-calendar': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.readonly'], settingsAfterLogin: [] },
+        // Meet keeps no transcript of its own: it attaches the transcript and
+        // the notes to the calendar event as Docs in the organizer's Drive.
+        'google-meet': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/drive.readonly'], settingsAfterLogin: [] },
         'ga4': { provider: 'google', access: ['https://www.googleapis.com/auth/analytics.readonly'], settingsAfterLogin: [{ key: 'propertyId', label: 'Analytics property' }] },
       },
       paste: {
@@ -1256,7 +1382,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     llmProvider: null,
     keyPattern: null,
     keyShapeHint: 'an OAuth client id and secret plus the refresh token they minted',
-    helpText: 'A Google OAuth client and the refresh token it minted, from `npm run google:oauth`. Gmail, Drive, Calendar, Analytics and Ads all authenticate with it. A refresh token keeps working; a bare access token expires in about an hour.',
+    helpText: 'A Google OAuth client and the refresh token it minted, from `npm run google:oauth`. Gmail, Drive, Calendar, Meet, Analytics and Ads all authenticate with it. A refresh token keeps working; a bare access token expires in about an hour.',
     fields: [
       {
         name: 'clientId',

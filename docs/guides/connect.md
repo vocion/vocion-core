@@ -133,7 +133,7 @@ forwarded host of the request.
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `/api/connect/slack/callback` |
 | `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | `/api/connect/atlassian/callback` |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64` (plus `GITHUB_WEBHOOK_SECRET` for the app's webhook) | `/api/connect/github/callback` (the GitHub App's Setup URL) |
-| `google` | `gmail`, `drive`, `google-calendar`, `ga4` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/api/connect/google/callback` |
+| `google` | `gmail`, `drive`, `google-calendar`, `google-meet`, `ga4` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/api/connect/google/callback` |
 | `hubspot` | `hubspot` | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` | `/api/connect/hubspot/callback` |
 | `notion` | `notion` | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | `/api/connect/notion/callback` |
 | `zoom` | `zoom` | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (a user-managed app; the server-to-server paste keeps working) | `/api/connect/zoom/callback` |
@@ -143,6 +143,7 @@ forwarded host of the request.
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | `/api/connect/xero/callback` |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | `/api/connect/gusto/callback` |
 | `linkedin` | `linkedin-ads` | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` (an app with the Advertising API product; scopes `r_ads`, `r_ads_reporting`) | `/api/connect/linkedin/callback` |
+| `salesforce` | `salesforce` | `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET` (optional `SALESFORCE_LOGIN_URL`, `https://test.salesforce.com` for a sandbox) | `/api/connect/salesforce/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in

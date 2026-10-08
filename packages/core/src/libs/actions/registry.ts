@@ -13,6 +13,8 @@ import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
 import { chatAddReactionAction } from './chat-add-reaction';
 import { chatReplyInThreadAction } from './chat-reply-in-thread';
+import { crmAddNoteAction } from './crm-add-note';
+import { crmUpdateRecordAction } from './crm-update-record';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { factoryApprovePlanAction } from './factory-approve-plan';
@@ -109,6 +111,10 @@ export function actionCatalog(): string {
 // Built-ins.
 registerAction(gmailSendAction);
 registerAction(hubspotUpdateAction);
+// The CRM family's writes on the connected CRM (Salesforce, Pipedrive, Attio):
+// fields on a record, and a note on it — each with its Undo (`services/crm/provider.ts`).
+registerAction(crmUpdateRecordAction);
+registerAction(crmAddNoteAction);
 // A write to any `rest` source through an endpoint it declares — external,
 // not reversible, keyed per endpoint on the ladder (`rest.request.<source>.<action>`).
 registerAction(restRequestAction);

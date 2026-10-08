@@ -32,6 +32,12 @@ const SOURCES: Record<string, { label: string; noun: string }> = {
   'deals': { label: 'HubSpot', noun: 'Deal' },
   'contacts': { label: 'HubSpot', noun: 'Contact' },
   'companies': { label: 'HubSpot', noun: 'Company' },
+  'salesforce': { label: 'Salesforce', noun: 'CRM record' },
+  'pipedrive': { label: 'Pipedrive', noun: 'CRM record' },
+  'attio': { label: 'Attio', noun: 'CRM record' },
+  'gong': { label: 'Gong', noun: 'Gong call' },
+  'fireflies': { label: 'Fireflies', noun: 'Fireflies meeting' },
+  'gmeet': { label: 'Google Meet', noun: 'Google Meet meeting' },
 };
 
 export type EvidenceRef = {

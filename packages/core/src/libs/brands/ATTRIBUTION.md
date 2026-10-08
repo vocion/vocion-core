@@ -39,6 +39,7 @@ about a mark is altered.
 | `googlecalendar` | Google Calendar | simple-icons, from Google's product logo set | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
 | `googlecloud` | Google Cloud | simple-icons, from https://cloud.google.com | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
 | `googledrive` | Google Drive | simple-icons, from https://developers.google.com/drive/web/branding | CC0-1.0 (drawing) | https://developers.google.com/drive/web/branding |
+| `googlemeet` | Google Meet | simple-icons, from https://about.google/brand-resource-center/logos-list/ | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
 | `gusto` | Gusto | simple-icons, from https://gusto.com | CC0-1.0 (drawing) | — |
 | `hubspot` | HubSpot | simple-icons, from https://www.hubspot.com/style-guide | CC0-1.0 (drawing) | https://www.hubspot.com/style-guide |
 | `jira` | Jira | simple-icons, from https://atlassian.design/resources/logo-library | CC0-1.0 (drawing) | https://atlassian.design/foundations/logos/ |
@@ -70,15 +71,20 @@ entry a mark.
 | `amazonwebservices` | Amazon Web Services | No logo | As above. Covers Amazon Bedrock and the AWS credential. |
 | `amplitude` | Amplitude | No logo | Amplitude asks to be checked with before its logo is used in a product, and allows "works with Amplitude" in text: https://brand.amplitude.com/press-kit. Not in simple-icons. |
 | `apolloio` | Apollo.io | No logo | Apollo.io's terms forbid using its logos without prior written permission: https://www.apollo.io/terms. Not to be confused with simple-icons' `apollographql`, a different company. |
+| `attio` | Attio | No logo | Not in simple-icons. Attio's terms for third-party use of its logo have not been reviewed yet, so no file is vendored. |
 | `bill` | BILL | No logo | BILL publishes no terms for third-party use of its logo. |
 | `firecrawl` | Firecrawl | No logo | Firecrawl's brand page covers how to treat the marks, not third-party or integration use: https://www.firecrawl.dev/brand. |
+| `fireflies` | Fireflies.ai | No logo | Not in simple-icons. Fireflies.ai's terms for third-party use of its logo have not been reviewed yet, so no file is vendored. |
+| `gong` | Gong | No logo | Not in simple-icons. Gong's terms for third-party use of its logo have not been reviewed yet, so no file is vendored. |
 | `granola` | Granola | No logo | Granola publishes a press kit but no terms for third-party use of its logo: https://grano.la/press. |
 | `linkedin` | LinkedIn | No logo | LinkedIn's brand may only be used as its guidelines describe or with express written permission: https://brand.linkedin.com/policies. Not in simple-icons. |
 | `microsoftazure` | Microsoft Azure | No logo | Microsoft requires an express licence for its logos and product icons (Azure icons are for architecture diagrams and documentation only): https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks. simple-icons removed Microsoft marks in v13 at Microsoft's request. |
 | `netsuite` | NetSuite | No logo | Oracle's trademark guidelines do not permit third parties to use its logos: https://www.oracle.com/legal/trademarks.html. |
 | `openai` | OpenAI | No logo | OpenAI's brand guidelines ask products built on its API to be free of its logos and to ask permission first: https://openai.com/brand/. simple-icons dropped the mark in v16. |
+| `pipedrive` | Pipedrive | No logo | Not in simple-icons. Pipedrive's terms for third-party use of its logo have not been reviewed yet, so no file is vendored. |
 | `ramp` | Ramp | No logo | Ramp publishes no terms for third-party use of its logo. |
 | `rippling` | Rippling | No logo | Rippling publishes no terms for third-party use of its logo. |
+| `salesforce` | Salesforce | No logo | simple-icons dropped Salesforce marks in v16. Salesforce's trademark terms have not been cleared for a vendored file. |
 | `slack` | Slack | No logo | Slack's brand terms require a written licence for most logo use and allow an integration to be stated in text only: https://slack.com/terms-of-service/slack-brand. simple-icons dropped Salesforce marks in v16. The "Sign in with Slack" button is Slack's own sign-in asset and is a separate matter. |
 | `slate` | Slate | No logo | Slate publishes no brand guidelines. |
 | `tavily` | Tavily | No logo | Tavily's brand page allows its marks in a compatibility statement but not alongside other companies' without formal permission, which a catalog of tools is: https://www.tavily.com/brand. Ask Tavily before adding it. |

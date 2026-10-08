@@ -34,6 +34,7 @@ import { connectSystemTool } from './connectSystems';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
+import { crmFamilyTools } from './crmFamily';
 import { dataRoomTools } from './dataRooms';
 import { decideAskTool } from './decideAsk';
 import { decideProposalTool } from './decideProposal';
@@ -74,6 +75,7 @@ import {
 import { liveBrowserTools } from './liveBrowser';
 import { lookupObjectsTool } from './lookupObjects';
 import { lookupPersonTools } from './lookupPerson';
+import { meetingTools } from './meetingTools';
 import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
@@ -313,6 +315,12 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...hubspotDirectTools(ctx),
     // Source-gated — empty unless an Apollo source is in the agent's scope.
     ...apolloTools(ctx),
+    // Source-gated — the connected CRM (Salesforce, Pipedrive, Attio), live;
+    // its writes are the `crm.*` actions (`services/crm/provider.ts`).
+    ...crmFamilyTools(ctx),
+    // Source-gated — the connected meeting recorders (Gong, Fireflies, Google
+    // Meet): calls around a day, and one call's transcript.
+    ...meetingTools(ctx),
     // Source-gated — the live reads every `rest` source in scope declares,
     // plus its action catalog. Empty without one (`ctx.restSources`).
     ...restTools(ctx),
