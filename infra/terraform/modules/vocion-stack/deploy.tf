@@ -1,11 +1,12 @@
 # modules/vocion-stack — the deploy document.
 #
 # The box's files (the deploy script, Caddy's configs, the compose overlay,
-# deploy.env) come from templates/. User-data writes them once, at first boot,
-# and is ignored after (compute.tf), so on its own a change to templates/
-# would reach only a rebuilt box. This SSM Command document, <name_prefix>-deploy,
-# carries the module's current files: run on the box, it writes them, then
-# deploys. A template change is then `tofu apply` and a deploy.
+# deploy.env) and whether sshd runs come from templates/. User-data sets them
+# once, at first boot, and is ignored after (compute.tf), so on its own a
+# change to templates/ would reach only a rebuilt box. This SSM Command
+# document, <name_prefix>-deploy, carries the module's current files: run on
+# the box, it writes them, then deploys. A template change is then
+# `tofu apply` and a deploy.
 #
 #   aws ssm send-command --instance-ids <instance_id> \
 #     --document-name <deploy_document_name> --parameters ref=v5.1.0
@@ -23,6 +24,7 @@ locals {
     caddyfile_alb   = chomp(file("${path.module}/templates/Caddyfile.alb"))
     caddyfile_tls   = chomp(file("${path.module}/templates/Caddyfile.tls"))
     compose_overlay = chomp(file("${path.module}/templates/compose.cloud.yml"))
+    ssh_enabled     = var.ssh_enabled
   })
 }
 

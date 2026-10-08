@@ -1,8 +1,8 @@
 #!/bin/bash
 # First boot of a vocion-stack box (infra/terraform/modules/vocion-stack).
 #
-# Writes what the box needs to deploy itself (templates/box-files.sh.tftpl),
-# then runs the first deploy. Every later deploy goes through the module's
+# Writes what the box needs to deploy itself and stops sshd unless
+# ssh_enabled (templates/box-files.sh.tftpl), then runs the first deploy. Every later deploy goes through the module's
 # deploy document (output deploy_document_name), which writes the same files
 # again first. Log: /var/log/cloud-init-output.log
 set -euo pipefail

@@ -30,7 +30,7 @@ the application move together on one pin. A working root is in
 | Edge | ALB, ACM certificate (DNS-validated in your zone), HTTP → HTTPS, only `hostname` forwarded | `alb_enabled` |
 | WAF | AWS common + known-bad-inputs rule sets, per-IP rate limit; the two body rules count rather than block ([below](#waf-the-body-rules)) | `waf_enabled`, `waf_rate_limit`, `waf_body_rules_action`, `waf_count_rules` |
 | Box | One EC2 (Amazon Linux 2023), encrypted root, IMDSv2, Elastic IP for egress; reachable only from the ALB | `instance_type`, `root_volume_gb`, `eip_enabled` |
-| Access | SSM Session Manager. No port 22 | `ssh_enabled`, `ssh_cidrs`, `key_name` |
+| Access | SSM Session Manager. No port 22, no key, and sshd stopped and masked on the box | `ssh_enabled`, `ssh_cidrs`, `key_name` |
 | Database | RDS PostgreSQL 16, pgvector allowed, TLS forced, CMK-encrypted, PITR, deletion protection | `db_*` |
 | Credential vault | A KMS key; the app runs `VOCION_CREDENTIAL_VAULT=kms` | `kms_vault_enabled` |
 | Media | Private S3 bucket, versioned, TLS-only, CORS for `hostname` | `media_bucket_name`, `media_cors_origins` |
@@ -76,8 +76,9 @@ Four things on the box come from the module's [`templates/`](./templates):
 | `/etc/vocion/Caddyfile.alb`, `Caddyfile.tls` | Caddy behind the ALB (plain HTTP on :80), or terminating TLS |
 | `/etc/vocion/compose.cloud.yml` | the module's overlay on core's compose files |
 
-They are written twice over: once by user-data at first boot, and again before
-every deploy by the module's deploy document. User-data is ignored after the
+The same script also stops and masks sshd, unless `ssh_enabled`. It runs
+twice over: once from user-data at first boot, and again before every deploy
+from the module's deploy document. User-data is ignored after the
 first boot (a change to it never replaces a running box), so the document is
 how a change to the templates reaches a box that is already running.
 

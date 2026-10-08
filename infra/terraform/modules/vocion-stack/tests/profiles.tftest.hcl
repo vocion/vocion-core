@@ -159,6 +159,10 @@ run "cloud_profile_defaults" {
     error_message = "the deploy document writes the box files, then deploys"
   }
   assert {
+    condition     = strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "systemctl mask sshd.service sshd.socket")
+    error_message = "with no SSH, the box stops and masks sshd"
+  }
+  assert {
     condition     = length(aws_instance.app.user_data_base64) <= 16384
     error_message = "user-data stays under EC2's 16 KB limit"
   }
@@ -197,6 +201,13 @@ run "single_box_with_ssh" {
   assert {
     condition     = length(aws_iam_role_policy.bedrock) == 0
     error_message = "bedrock_enabled = false grants no Bedrock access"
+  }
+  assert {
+    condition = (
+      strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "systemctl enable --now sshd.service")
+      && !strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "systemctl mask sshd")
+    )
+    error_message = "with ssh_enabled, sshd runs"
   }
   assert {
     condition     = length(aws_s3_bucket.alb_logs) == 0 && length(aws_wafv2_web_acl_logging_configuration.app) == 0 && length(aws_flow_log.vpc) == 1

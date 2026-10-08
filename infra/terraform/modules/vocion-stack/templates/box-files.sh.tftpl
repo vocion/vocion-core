@@ -1,6 +1,7 @@
-# The module's files on the box, written on first boot (user-data) and again
-# before every deploy through the module's deploy document, so a change to the
-# module's templates reaches a running box on its next deploy:
+# The module's files on the box, and sshd's state, set on first boot
+# (user-data) and again before every deploy through the module's deploy
+# document, so a change to the module's templates reaches a running box on
+# its next deploy:
 #
 #   /etc/vocion/deploy.env           region, the module's SSM parameter, the core repo and release
 #   /usr/local/sbin/vocion-deploy    the deploy (templates/vocion-deploy.sh)
@@ -38,3 +39,17 @@ __VOCION_CADDYFILE_TLS__
 vocion_put /etc/vocion/compose.cloud.yml 644 <<'__VOCION_COMPOSE__'
 ${compose_overlay}
 __VOCION_COMPOSE__
+%{ if ssh_enabled ~}
+
+# SSH is on for this box (ssh_enabled): sshd runs.
+systemctl unmask sshd.service sshd.socket >/dev/null 2>&1 || true
+systemctl enable --now sshd.service >/dev/null 2>&1 || true
+%{ else ~}
+
+# No SSH: no port 22 is open to the box and no key is attached; operators use
+# SSM Session Manager, which needs no sshd. Stopped and masked, so nothing
+# listens even if a rule or a key is added by mistake, and nothing (a package
+# update, socket activation) starts it again.
+systemctl disable --now sshd.service sshd.socket >/dev/null 2>&1 || true
+systemctl mask sshd.service sshd.socket >/dev/null 2>&1 || true
+%{ endif ~}
