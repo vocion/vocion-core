@@ -368,17 +368,10 @@ resource "aws_instance" "app" {
     http_put_response_hop_limit = 2
   }
 
-  # First boot only: writes the deploy config and the deploy script, then runs
-  # it. Gzipped to stay under the 16 KB user-data limit.
+  # First boot only: writes the box files, then runs the first deploy.
+  # Gzipped to stay under the 16 KB user-data limit.
   user_data_base64 = base64gzip(templatefile("${path.module}/templates/user-data.sh.tftpl", {
-    region          = local.region
-    config_param    = aws_ssm_parameter.deploy.name
-    core_repo       = var.core_repo
-    core_ref        = var.core_ref
-    deploy_script   = chomp(file("${path.module}/templates/vocion-deploy.sh"))
-    caddyfile_alb   = chomp(file("${path.module}/templates/Caddyfile.alb"))
-    caddyfile_tls   = chomp(file("${path.module}/templates/Caddyfile.tls"))
-    compose_overlay = chomp(file("${path.module}/templates/compose.cloud.yml"))
+    box_files = local.box_files
   }))
   user_data_replace_on_change = false
 
@@ -386,7 +379,9 @@ resource "aws_instance" "app" {
 
   lifecycle {
     # A newer AMI, or a change to the first-boot script, never replaces a
-    # running box. Rebuild deliberately (tofu apply -replace=...).
+    # running box. A change to the box files reaches it through the deploy
+    # document (deploy.tf); a new AMI is a deliberate rebuild
+    # (tofu apply -replace=...).
     ignore_changes = [ami, user_data, user_data_base64]
   }
 }

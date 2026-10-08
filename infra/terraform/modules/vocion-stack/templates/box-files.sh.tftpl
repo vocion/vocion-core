@@ -1,0 +1,40 @@
+# The module's files on the box, written on first boot (user-data) and again
+# before every deploy through the module's deploy document, so a change to the
+# module's templates reaches a running box on its next deploy:
+#
+#   /etc/vocion/deploy.env           region, the module's SSM parameter, the core repo and release
+#   /usr/local/sbin/vocion-deploy    the deploy (templates/vocion-deploy.sh)
+#   /etc/vocion/Caddyfile.{alb,tls}  Caddy behind the ALB, or terminating TLS itself
+#   /etc/vocion/compose.cloud.yml    the module's overlay on core's compose files
+#
+# Each file is written beside its target and renamed over it, so nothing ever
+# reads one half-written. The heredocs are quoted: nothing in them expands.
+install -d -m 755 /etc/vocion /var/lib/vocion
+
+# vocion_put <path> <mode>: stdin becomes <path>.
+vocion_put() {
+  cat >"$1.new" && chmod "$2" "$1.new" && mv -f "$1.new" "$1"
+}
+
+vocion_put /etc/vocion/deploy.env 644 <<'__VOCION_DEPLOY_ENV__'
+REGION='${region}'
+CONFIG_PARAM='${config_param}'
+CORE_REPO='${core_repo}'
+CORE_REF='${core_ref}'
+__VOCION_DEPLOY_ENV__
+
+vocion_put /usr/local/sbin/vocion-deploy 755 <<'__VOCION_DEPLOY__'
+${deploy_script}
+__VOCION_DEPLOY__
+
+vocion_put /etc/vocion/Caddyfile.alb 644 <<'__VOCION_CADDYFILE_ALB__'
+${caddyfile_alb}
+__VOCION_CADDYFILE_ALB__
+
+vocion_put /etc/vocion/Caddyfile.tls 644 <<'__VOCION_CADDYFILE_TLS__'
+${caddyfile_tls}
+__VOCION_CADDYFILE_TLS__
+
+vocion_put /etc/vocion/compose.cloud.yml 644 <<'__VOCION_COMPOSE__'
+${compose_overlay}
+__VOCION_COMPOSE__

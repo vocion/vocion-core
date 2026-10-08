@@ -160,7 +160,12 @@ output "session_command" {
   value       = "aws ssm start-session --region ${local.region} --target ${aws_instance.app.id}"
 }
 
+output "deploy_document_name" {
+  description = "The SSM document that writes the module's current box files and deploys. Every deploy goes through it, so a change to the module's templates reaches the box."
+  value       = aws_ssm_document.deploy.name
+}
+
 output "deploy_command" {
-  description = "Run on the box (from a session) to redeploy, or to move to another release."
-  value       = "sudo vocion-deploy [<tag or full sha>]"
+  description = "Deploy a release, from an operator machine. The output is the deploy's tail; the full log is /var/log/vocion-deploy-last.log on the box."
+  value       = "aws ssm send-command --region ${local.region} --instance-ids ${aws_instance.app.id} --document-name ${aws_ssm_document.deploy.name} --parameters ref=<tag or full sha>"
 }

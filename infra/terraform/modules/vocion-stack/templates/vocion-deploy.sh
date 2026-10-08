@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # vocion-deploy — bring this box to a pinned vocion-core release.
 #
-# Installed by the vocion-stack module's user-data at /usr/local/sbin/vocion-deploy
-# and run once on first boot. Every later deploy is the same command, from an
-# SSM session:
+# Installed at /usr/local/sbin/vocion-deploy by the vocion-stack module: by
+# user-data, which runs it once on first boot, and again by the module's
+# deploy document (<name_prefix>-deploy), which writes the module's current
+# copy and then runs it. By hand, from an SSM session:
 #
 #   sudo vocion-deploy            # the release in /etc/vocion/deploy.env
 #   sudo vocion-deploy v5.1.0     # move to another release (a tag or a full sha)

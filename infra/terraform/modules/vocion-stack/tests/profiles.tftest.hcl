@@ -151,6 +151,18 @@ run "cloud_profile_defaults" {
     error_message = "the WAF logs to aws-waf-logs-<prefix> with Authorization and Cookie redacted"
   }
   assert {
+    condition = (
+      aws_ssm_document.deploy.name == "vocion-test-deploy"
+      && strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "vocion_put /etc/vocion/compose.cloud.yml")
+      && strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "/usr/local/sbin/vocion-deploy \"$REF\"")
+    )
+    error_message = "the deploy document writes the box files, then deploys"
+  }
+  assert {
+    condition     = length(aws_instance.app.user_data_base64) <= 16384
+    error_message = "user-data stays under EC2's 16 KB limit"
+  }
+  assert {
     condition     = aws_flow_log.vpc[0].traffic_type == "REJECT" && aws_cloudwatch_log_group.flow[0].retention_in_days == 90
     error_message = "the VPC's rejected connections are logged for 90 days"
   }

@@ -65,9 +65,9 @@ What it deliberately does **not** do:
 
 `tofu apply` creates a box that deploys itself. Nothing is built into the AMI.
 
-### First boot (user-data)
+### The box files
 
-User-data runs once and writes four things, then runs the first deploy:
+Four things on the box come from the module's [`templates/`](./templates):
 
 | On the box | What |
 |---|---|
@@ -76,20 +76,36 @@ User-data runs once and writes four things, then runs the first deploy:
 | `/etc/vocion/Caddyfile.alb`, `Caddyfile.tls` | Caddy behind the ALB (plain HTTP on :80), or terminating TLS |
 | `/etc/vocion/compose.cloud.yml` | the module's overlay on core's compose files |
 
-If the first deploy cannot finish (usually: the secrets have no values yet) the
-boot still succeeds; the box waits, reachable over SSM, for `sudo vocion-deploy`.
-Its log is `/var/log/cloud-init-output.log`.
+They are written twice over: once by user-data at first boot, and again before
+every deploy by the module's deploy document. User-data is ignored after the
+first boot (a change to it never replaces a running box), so the document is
+how a change to the templates reaches a box that is already running.
 
-### Every deploy: `sudo vocion-deploy [<ref>]`
+### First boot (user-data)
 
-From a session (`tofu output -raw session_command`):
+User-data writes the box files, then runs the first deploy. If that cannot
+finish (usually: the secrets have no values yet) the boot still succeeds; the
+box waits, reachable over SSM, for a deploy. Its log is
+`/var/log/cloud-init-output.log`.
+
+### Every deploy: the deploy document
+
+`<name_prefix>-deploy` (`deploy_document_name`) is an SSM Command document the
+module keeps in step with its templates. Run on the box, it writes the box files,
+then runs `vocion-deploy`. From an operator machine (`tofu output -raw deploy_command`):
 
 ```bash
-sudo vocion-deploy            # redeploy the release in /etc/vocion/deploy.env
-sudo vocion-deploy v5.1.0     # move to another release: a tag, or a full 40-char sha
+aws ssm send-command --instance-ids "$(tofu output -raw instance_id)" \
+  --document-name "$(tofu output -raw deploy_document_name)" \
+  --parameters ref=v5.1.0       # a tag, or a full 40-char sha; empty: core_ref
 ```
 
-A branch name is refused: a branch is not a pin. In order:
+The command's output is the deploy's last 120 lines; the full log is
+`/var/log/vocion-deploy-last.log` on the box. `--parameters action=install`
+writes the box files without deploying, for a deploy run by hand from a session
+(`sudo vocion-deploy [<ref>]`), which uses whatever box files are on the box.
+
+`vocion-deploy` refuses a branch name: a branch is not a pin. In order:
 
 1. **Packages.** Docker, the compose plugin, git, jq (and core's buildx installer before a build).
 2. **Config.** Reads the SSM parameter `/<name_prefix>/deploy` (`deploy_config_parameter`):
@@ -125,7 +141,7 @@ A branch name is refused: a branch is not a pin. In order:
    `/version.txt` (`deploy-pin`), and, behind the ALB, Caddy must serve it on :80.
    Otherwise the deploy fails, loudly.
 
-Rolling back is `sudo vocion-deploy <previous tag>`. Migrations only move forward,
+Rolling back is a deploy of the previous tag. Migrations only move forward,
 so a rollback across a migration runs the old code on the new schema; core's
 migration conventions (expand, then contract) are what make that safe.
 
@@ -194,7 +210,7 @@ aws secretsmanager put-secret-value \
   --secret-string '{"username":"vocion_app","password":"<generated>"}'
 ```
 
-**3. Deploy.** From a session: `sudo vocion-deploy`. The first image build
+**3. Deploy.** Through the deploy document (`tofu output -raw deploy_command`). The first image build
 takes a while; the deploy ends by naming the commit the app serves.
 
 The installation is now up and **closed**: an empty database, no tenants and
@@ -404,7 +420,7 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 |---|---|
 | `url`, `hostname` | The installation |
 | `instance_id`, `session_command` | The box, and how to open a shell on it |
-| `deploy_command` | `sudo vocion-deploy [<tag or full sha>]` |
+| `deploy_document_name`, `deploy_command` | The deploy document, and the `send-command` that runs it |
 | `public_ip` | The box's egress address |
 | `vpc_id`, `public_subnet_ids`, `db_subnet_ids`, `app_security_group_id` | Network |
 | `instance_role_name` | Attach further policies from the calling root |
@@ -425,10 +441,11 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 
 | Change | How |
 |---|---|
-| A new core release | `sudo vocion-deploy <tag>` on the box. Then set `core_ref` to match, so a rebuilt box comes up on it |
-| A secret value | `put-secret-value`, then `sudo vocion-deploy` |
-| `app_env`, the ALB on or off, a new RDS endpoint | `tofu apply`, then `sudo vocion-deploy` |
-| A new AMI, or a change to `templates/` | Replace the box: `tofu apply -replace=module.vocion.aws_instance.app`. The database and media are not on it |
+| A new core release | Set `core_ref`, `tofu apply`, deploy (or deploy with `ref=<tag>` first and set `core_ref` after, so a rebuilt box comes up on it) |
+| A secret value | `put-secret-value`, then deploy |
+| `app_env`, the ALB on or off, a new RDS endpoint | `tofu apply`, then deploy |
+| A change to `templates/` (the deploy, the overlay, Caddy) | `tofu apply` (it updates the deploy document), then deploy: the document writes the new files first |
+| A new AMI | Replace the box: `tofu apply -replace=module.vocion.aws_instance.app`. The database and media are not on it |
 | Instance size | `tofu apply` (a stop and start) |
 
 ## Testing the module
