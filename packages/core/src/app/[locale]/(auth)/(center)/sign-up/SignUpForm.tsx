@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OrDivider, ProviderButtons } from '@/features/auth/ProviderButtons';
+import { AuthBrandLogo, AuthPoweredBy, useAccentButtonClass, useSignInTarget } from '@/features/branding/AuthBrand';
 import { Link } from '@/libs/I18nNavigation';
 
 type Props = {
@@ -36,6 +37,9 @@ export function SignUpForm({ inviteToken, providers = [] }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [hasLogin, setHasLogin] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // An Org's own invite page: its logo, its name, its accent on the button.
+  const accentButton = useAccentButtonClass();
+  const target = useSignInTarget();
 
   if (!inviteToken) {
     return (
@@ -89,8 +93,9 @@ export function SignUpForm({ inviteToken, providers = [] }: Props) {
 
   return (
     <div className="w-full max-w-sm space-y-6 px-4">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">Accept invite</h1>
+      <div className="space-y-3">
+        <AuthBrandLogo />
+        <h1 className="text-2xl font-semibold">{target ? `Join ${target}` : 'Accept invite'}</h1>
         <p className="text-sm text-muted-foreground">
           {providers.length > 0
             ? 'You\'ve been invited to join. Continue with the account for the address the invite went to, or set a password.'
@@ -127,7 +132,7 @@ export function SignUpForm({ inviteToken, providers = [] }: Props) {
             )}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={submitting}>
+        <Button type="submit" className={accentButton ? `w-full ${accentButton}` : 'w-full'} disabled={submitting}>
           {submitting ? 'Creating your login…' : 'Accept invite + sign in'}
         </Button>
         <p className="text-center text-sm">
@@ -136,6 +141,7 @@ export function SignUpForm({ inviteToken, providers = [] }: Props) {
           <Link className="underline" href={signInToAccept(inviteToken)}>Sign in</Link>
         </p>
       </form>
+      <AuthPoweredBy />
     </div>
   );
 }

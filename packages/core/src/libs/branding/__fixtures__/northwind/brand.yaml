@@ -1,0 +1,28 @@
+# A fictional brand guide (Northwind is one of the repo's fixture companies,
+# `libs/fixtures/realDataGuard.ts`) for the Org-brand tests and stories: a
+# workspace brand.yaml an Org with no brand adopts once, and that a
+# workspace's documents inherit from.
+name: Northwind
+descriptor: Routing software for regional carriers.
+website: https://northwind.example
+palette:
+  navy: '#12355B'
+  teal: '#0E8C7F'
+  sand: '#F4EFE6'
+roles:
+  ink: navy
+  accent: teal
+  background: sand
+fonts:
+  heading: Space Grotesk
+  headingWeight: 700
+  body: Inter
+logos:
+  wordmark: brand/northwind-wordmark.svg
+  wordmarkOnDark: brand/northwind-wordmark-dark.svg
+  mark: brand/northwind-mark.svg
+senderName: Northwind Ops
+voice:
+  - Plain and direct. Say what the route does, not what it could do.
+banned:
+  - synergy

@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Network,
   Newspaper,
+  Palette,
   Plug,
   ShieldCheck,
   Sparkles,
@@ -185,6 +186,9 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
 
   // ── MANAGE · Organization — the account itself ──────────────────────────
   { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, i18nKey: 'members', keywords: ['users', 'invite', 'settings'] },
+  // The Org's logo, colours, heading font and mail sender — worn by the
+  // sidebar, sign-in, the tab and mail (`services/branding`). Admins only.
+  { url: '/dashboard/brand', title: 'Brand', group: 'Organization', icon: Palette, i18nKey: 'brand', adminOnly: true, keywords: ['brand', 'branding', 'logo', 'colours', 'colors', 'accent', 'favicon', 'white label', 'make it yours', 'settings'] },
   { url: '/dashboard/developers', title: 'Developers', group: 'Organization', icon: Code2, i18nKey: 'developers', keywords: ['api', 'tokens', 'credentials', 'keys', 'mcp', 'sdk', 'docs'] },
   // The one row that leaves the dashboard shell: the reference is a full-page
   // Swagger UI an integrator keeps open beside their editor, so it renders on

@@ -10,7 +10,7 @@ The lead introduces itself in one sentence and offers three ways in:
 Everything after that happens in the conversation. The person answers at most
 three questions, and the lead puts the plan in front of them as one-click
 cards. Each card runs when the person presses it, as their own action, and
-can be undone from the same card. The sidebar's **Getting started · N of 4**
+can be undone from the same card. The sidebar's **Getting started · N of 5**
 checklist counts what the workspace has really done.
 
 This guide covers what each part does and where it lives in core. The
@@ -142,7 +142,7 @@ A reply's setup cards render as one column under a "Setup plan" eyebrow
 (`cards/SetupPlan.tsx`), in the lead's order, instead of the
 suggested-actions strip. A plan should be read whole.
 
-## Getting started · N of 4
+## Getting started · N of 5
 
 `features/dashboard/GettingStartedChecklist.tsx`, in the sidebar where the
 "Invite team members" box sat. Each tick is read from the workspace
@@ -155,13 +155,14 @@ hand:
 | Add an app or template | A plugin is on (`project.enabled_plugins`). An app and a template are the plugins they turn on. |
 | Hire an agent | An active agent besides the seeded lead. |
 | Invite someone | Someone else is in the Org, or an unexpired invite is out. |
+| Make it yours: logo and colours | The Org has a brand (`tenant_account.brand`). The lead offers it with `propose_brand`: see [Branding](./branding.md). |
 
 - A step left to do opens the chat with the lead's ask already written. "Connect a system" opens [Connect your systems](./connect-your-systems.md) docked above the composer.
 - A step done opens the page where it lives.
 - The checklist re-reads when a setup card runs or is undone, when the page
   changes, and when the window regains focus.
 - It can be dismissed, which is remembered per person per workspace (nav
-  prefs), and it goes away by itself at 4 of 4.
+  prefs), and it goes away by itself at 5 of 5.
 - It replaces the invite box in shared workspaces. A personal workspace keeps
   the old box.
 

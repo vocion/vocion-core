@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { AuthBrandLogo } from '@/features/branding/AuthBrand';
 import { Link } from '@/libs/I18nNavigation';
 import { callbackPathFromFragment } from '@/services/auth/emailLinkFragment';
-import { VocionLogo } from '@/templates/VocionLogo';
 
 type Target = { path: string; email: string };
 
@@ -37,7 +37,7 @@ export function EmailLinkLanding() {
     <div className="w-full max-w-sm px-4">
       <div className="rounded-2xl border border-border/60 bg-card/80 p-8 text-center shadow-xl shadow-black/5 backdrop-blur-sm">
         <div className="mb-6 flex flex-col items-center gap-4">
-          <VocionLogo size="lg" />
+          <AuthBrandLogo />
         </div>
         {target === undefined && <p className="text-sm text-muted-foreground">Reading your link…</p>}
         {target === null && (

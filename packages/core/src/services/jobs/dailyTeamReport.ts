@@ -108,7 +108,7 @@ export async function runDailyTeamReportJob(orgId: string, rawInput: Record<stri
       // From the workspace's own mailbox when it has one, so a reply to the
       // report threads back into the workspace's conversation.
       const from = await workspaceFrom(orgId);
-      const res = await sendMail({ to: recipients, subject: rendered.subject, html: rendered.html, text: rendered.text, ...(from ? { from } : {}), tags: { job: DAILY_TEAM_REPORT_JOB, org: orgId } });
+      const res = await sendMail({ to: recipients, subject: rendered.subject, html: rendered.html, text: rendered.text, ...(from ? { from } : {}), tags: { job: DAILY_TEAM_REPORT_JOB, org: orgId }, brand: { orgId } });
       mail = res.skipped ? { sent: false, reason: res.reason } : { sent: true, id: res.id };
     } catch (err) {
       // The briefing is already stored; a provider failure is reported, not fatal.

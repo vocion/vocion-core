@@ -2,6 +2,9 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { Toaster } from '@/components/ui/toast';
 import { AppShell } from '@/features/dashboard/AppShell';
+import { brandTitle } from '@/libs/branding/orgBrand';
+import { titlePrefix } from '@/libs/envLabel';
+import { brandViewForRequest } from '@/services/branding/OrgBrandService';
 
 type DashboardLayoutProps = {
   params: Promise<{ locale: string }>;
@@ -15,8 +18,11 @@ export async function generateMetadata(props: DashboardLayoutProps): Promise<Met
     namespace: 'Dashboard',
   });
 
+  // An Org with a brand: its own name in the tab ("Northwind · Vocion"),
+  // rather than the product's; pages under it read "<page> · Northwind".
+  const brand = await brandViewForRequest().catch(() => null);
   return {
-    title: t('meta_title'),
+    title: brand ? { absolute: `${titlePrefix()}${brandTitle(brand.name)}`, template: `${titlePrefix()}%s · ${brand.name}` } : t('meta_title'),
     description: t('meta_description'),
   };
 }

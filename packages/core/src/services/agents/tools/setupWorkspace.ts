@@ -21,6 +21,13 @@
  * already hired, a system already connected) is never drawn; the lead reads
  * why in the tool result instead.
  *
+ * "Make it yours" is a step too: `propose_brand` (and a `brand` step in a
+ * plan) reads the company's logo, colours and fonts off its own site with
+ * `brand_lookup`, drafts the Org's brand from them (`libs/branding/draft.ts`)
+ * and shows it as a preview card — the app's sidebar and sign-in page wearing
+ * it — with three choices: use it (`org.brand_apply`, the person's action,
+ * with Undo), adjust it in Brand settings, or skip it.
+ *
  * Granted, not default: only an agent naming them in `harness.grantTools` holds
  * them — the seeded workspace lead does (`templates/workspace/agents/`). And
  * only in a shared workspace: a personal one has nothing to set up.
@@ -31,18 +38,19 @@ import type { ActionContext } from '@/libs/actions/types';
 import type { Card } from '@/libs/cards/card';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { newCardId, readCard, SETUP_CARD_KIND } from '@/libs/cards/card';
+import { BRAND_CARD_KIND, newCardId, readCard, SETUP_CARD_KIND } from '@/libs/cards/card';
 import { offerConnection } from './offerConnection';
 
 export const SETUP_OPTIONS_TOOL = 'setup_options';
 export const PROPOSE_SETUP_TOOL = 'propose_setup';
+export const PROPOSE_BRAND_TOOL = 'propose_brand';
 
-export const SETUP_STEP_KINDS = ['app', 'template', 'plugin', 'connect', 'hire', 'invite'] as const;
+export const SETUP_STEP_KINDS = ['app', 'template', 'plugin', 'connect', 'hire', 'invite', 'brand'] as const;
 export type SetupStepKind = (typeof SETUP_STEP_KINDS)[number];
 
 const StepSchema = z.object({
-  kind: z.enum(SETUP_STEP_KINDS).describe('app: add an app · template: start from an app template · plugin: turn a plugin on · connect: connect a system · hire: hire a catalog role · invite: invite teammates by email'),
-  id: z.string().min(1).max(80).optional().describe('What the step is about, as setup_options lists it: the app id, "<app>/<template>" for a template, plugin slug, connector slug or catalog role slug. Not used for invite.'),
+  kind: z.enum(SETUP_STEP_KINDS).describe('app: add an app · template: start from an app template · plugin: turn a plugin on · connect: connect a system · hire: hire a catalog role · invite: invite teammates by email · brand: make it yours — the company\'s logo and colours, read off its site'),
+  id: z.string().min(1).max(200).optional().describe('What the step is about, as setup_options lists it: the app id, "<app>/<template>" for a template, plugin slug, connector slug or catalog role slug; for brand, the company\'s website or name. Not used for invite.'),
   answers: z.record(z.string(), z.string().max(2000)).optional().describe('template only: the template\'s interview answers by key, from what the person told you (setup_options lists each key). Leave a key out and its default is used.'),
   emails: z.array(z.string().min(3).max(200)).min(1).max(10).optional().describe('invite only: the addresses the person gave you.'),
   why: z.string().min(1).max(160).describe('One line, in the team\'s own words, on what this step does for them — "So the Friday ticket report writes itself."'),
@@ -147,6 +155,7 @@ export async function setupOptions(ctx: RuntimeContext): Promise<string> {
   const { templates, templateTarget } = await templatesOffered(ctx.orgId);
   const said = (done: boolean) => (done ? 'done' : 'not yet');
   const steps = Object.fromEntries(state.steps.map(s => [s.id, s.done]));
+  const branded = steps.brand === true;
 
   const lines = [
     `WHERE THIS WORKSPACE STANDS (${state.done} of ${state.total} first steps):`,
@@ -154,6 +163,7 @@ export async function setupOptions(ctx: RuntimeContext): Promise<string> {
     `- Add an app or template: ${said(steps.app === true)}${on.size > 0 ? ` (${[...on].join(', ')} on)` : ''}`,
     `- Hire an agent: ${said(steps.hire === true)}${state.detail.agents.length > 0 ? ` (${state.detail.agents.join(', ')})` : ''}`,
     `- Invite someone: ${said(steps.invite === true)} (${state.detail.members} in the account, ${state.detail.invites} invited)`,
+    `- Make it yours (logo and colours): ${said(branded)}`,
     '',
     'APPS (propose_setup step {kind:"app", id}):',
     ...apps.map(a => `- ${a.id} — ${a.name}: ${clip(a.description)}${a.plugins.every(p => on.has(p)) ? ' [already added]' : ''}`),
@@ -176,8 +186,109 @@ export async function setupOptions(ctx: RuntimeContext): Promise<string> {
     admin
       ? 'INVITE (step {kind:"invite", emails:[…]}): only with addresses the person gave you.'
       : 'INVITE: this person is not an admin, so they cannot invite anyone; an admin can, from Members.',
+    '',
+    admin
+      ? `BRAND (step {kind:"brand", id:"<their website or company name>"}, or propose_brand on its own): ${branded ? 'the Org has a brand already; offer it only if they ask to change it.' : 'the Org wears Vocion\'s look; offer it once you know their website.'}`
+      : 'BRAND: only an Org admin can brand the Org; this person is not one.',
   ];
   return lines.join('\n');
+}
+
+/**
+ * THE BRAND PREVIEW CARD for a company's site, or why there is none.
+ *
+ * Reads the site (`brand_lookup`), drafts the brand, checks the draft with the
+ * action that would apply it, and returns one card of kind `brand`: its one
+ * action applies the draft as the person's own; its `href` opens Brand
+ * settings with the draft in it ("Adjust"). With no lookup configured, a link
+ * card to Brand settings is drawn instead, so there is still one move.
+ * @param ctx - The turn.
+ * @param site - The company's website, a domain, or its name.
+ */
+export async function brandStep(ctx: RuntimeContext, site: string): Promise<{ card: Card; draft: { input: Record<string, unknown>; notes: string[] } } | { said: string } | { skipped: string }> {
+  const [{ orgBrandApplyAction, BRAND_SETTINGS_HREF }, { lookupBrand }, { draftFromProfile, encodeDraft }, { ProviderNotConfiguredError, ToolProviderKeyUnavailableError }] = await Promise.all([
+    import('@/libs/actions/org-brand-apply'),
+    import('@/libs/tools/brand/firecrawlBrand'),
+    import('@/libs/branding/draft'),
+    import('@/libs/tools/types'),
+  ]);
+  const source = { agentSlug: ctx.agentSlug, tool: PROPOSE_BRAND_TOOL };
+  const actx = actionContext(ctx);
+  if (!(await personIsAdmin(ctx))) {
+    return { skipped: 'only an Org admin can brand the Org; this person is not one — say so in one line and point them to an admin' };
+  }
+  let profile: Awaited<ReturnType<typeof lookupBrand>>;
+  try {
+    profile = await lookupBrand(site, { orgId: ctx.orgId });
+  } catch (err) {
+    if (err instanceof ProviderNotConfiguredError || err instanceof ToolProviderKeyUnavailableError) {
+      const link = readCard({ id: newCardId(), kind: 'link', title: 'Set your logo and colours', body: 'Upload the logo and pick the accent in Brand settings.', href: BRAND_SETTINGS_HREF, hrefLabel: 'Open Brand settings', source, state: 'proposed' });
+      if (link.ok) {
+        ctx.emit({ type: 'card', card: link.card });
+      }
+      return { said: 'Brand lookup is not set up on this server (no Firecrawl key), so the brand could not be read off their site. A link to Brand settings is on screen instead: say so in one line.' };
+    }
+    return { skipped: `the brand lookup failed (${(err as Error).message ?? 'unknown error'}) — say so; do not describe their brand from memory` };
+  }
+  if (!profile) {
+    return { skipped: `no site was found for "${site}" — ask for their website address` };
+  }
+  const { db } = await import('@/libs/DB');
+  const { projectSchema, tenantAccountSchema } = await import('@/models/Schema');
+  const { eq } = await import('drizzle-orm');
+  const [org] = await db.select({ name: tenantAccountSchema.name }).from(projectSchema).innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId)).where(eq(projectSchema.id, ctx.orgId)).limit(1);
+  const draft = draftFromProfile(profile, org?.name ?? site);
+  const refused = await orgBrandApplyAction.precheck!(actx, draft.input);
+  if (refused) {
+    return { skipped: refused };
+  }
+  let host = profile.url;
+  try {
+    host = new URL(profile.url).host;
+  } catch { /* keep the URL */ }
+  const card: Card = {
+    id: newCardId(),
+    kind: BRAND_CARD_KIND,
+    title: `Make it yours: ${draft.input.name}`,
+    body: `Read from ${host}${typeof profile.confidence === 'number' ? ` (${Math.round(profile.confidence * 100)}% sure)` : ''}.`,
+    fields: draft.notes.map(note => ({ label: 'Note', value: note })),
+    actions: [{ label: 'Use this brand', actionId: orgBrandApplyAction.id, input: draft.input as unknown as Record<string, unknown>, style: 'primary' }],
+    href: `${BRAND_SETTINGS_HREF}?draft=${encodeDraft(draft.input)}`,
+    hrefLabel: 'Adjust',
+    source,
+    state: 'proposed',
+  };
+  return { card, draft: { input: draft.input as unknown as Record<string, unknown>, notes: draft.notes } };
+}
+
+/**
+ * Show the drafted brand for a site, as its own card.
+ * @param ctx - The turn.
+ * @param input - The site.
+ * @param input.site - The company's website, a domain, or its name.
+ */
+export async function proposeBrand(ctx: RuntimeContext, input: { site: string }): Promise<string> {
+  if (ctx.workspaceKind === 'personal') {
+    return 'Refused: this is a personal workspace; the Org is branded from a shared one.';
+  }
+  const out = await brandStep(ctx, input.site).catch((err: unknown) => ({ skipped: (err as Error).message }));
+  if ('said' in out) {
+    return out.said;
+  }
+  if ('skipped' in out) {
+    return `Not offered: ${out.skipped}.`;
+  }
+  const checked = readCard(out.card);
+  if (!checked.ok) {
+    return `Not offered: ${checked.reason}.`;
+  }
+  ctx.emit({ type: 'card', card: checked.card });
+  const d = out.draft.input as { name: string; accent?: string | null; headingFont?: string | null; logos?: Record<string, string> };
+  return [
+    `Showed the brand preview for ${d.name}: accent ${d.accent ?? 'Vocion\'s own'}, ${d.logos?.wordmark ? 'their logo' : 'no logo'}${d.logos?.mark ? ' and mark' : ''}${d.headingFont ? `, headings in ${d.headingFont}` : ''}.`,
+    ...(out.draft.notes.length > 0 ? [`Notes on the card: ${out.draft.notes.join(' ')}`] : []),
+    'Nothing has changed yet: the person picks Use this brand, Adjust (Brand settings, with the draft) or Skip, and Use this brand can be undone. Say what the preview shows in one line BEFORE this call; the card ends the turn.',
+  ].join('\n');
 }
 
 /**
@@ -246,6 +357,13 @@ async function stepCard(ctx: RuntimeContext, step: SetupStep, admin: boolean): P
       }
       const entry = getCatalogEntry(slug)!;
       return { card: { ...base, title: `Hire ${entry.name}`, actions: [{ label: 'Hire', actionId: teamHireAgentAction.id, input, style: 'primary' }], fields: [{ label: 'Daily cap', value: `$${(dailyCentsLimit / 100).toFixed(0)}` }], href: `/dashboard/agents/${encodeURIComponent(slug)}`, hrefLabel: `Open ${entry.name}` } };
+    }
+    case 'brand': {
+      if (!step.id) {
+        return { skipped: 'a brand step names no site — ask for their website, then offer it' };
+      }
+      const out = await brandStep(ctx, step.id);
+      return 'card' in out ? { card: { ...out.card, body: `${step.why} ${out.card.body ?? ''}`.trim() } } : out;
     }
     case 'invite': {
       if (!admin) {
@@ -349,6 +467,14 @@ export function setupWorkspaceTools(ctx: RuntimeContext) {
       description: 'Show the person a setup plan as one-click cards in this conversation: add an app, start from an app template (with the interview\'s answers you learned), turn on a plugin, connect a system, hire a catalog role, invite teammates. Each card runs only when the person accepts it, as their action, with Undo. One call with the whole plan, after setup_options and a short interview; say what the plan gets them BEFORE calling it, because the cards end the turn. Steps that are already done or cannot run are left out and named in the result.',
       schema: ProposeSetupSchema,
     }),
+    tool(async (input: { site: string }) => proposeBrand(ctx, input), {
+      name: PROPOSE_BRAND_TOOL,
+      description: 'Make it yours: read the company\'s logo, colours and fonts off its own website (brand_lookup), draft the Org\'s brand, and show the person a preview of the app wearing it — the sidebar and the sign-in page — with three choices: Use this brand (applied as their action, with Undo), Adjust (Brand settings, with the draft) and Skip. Use it when the person asks to brand the workspace, add their logo or colours, or "make it ours". Never describe their brand from memory; the card is the answer. Say what it shows in one line BEFORE calling it, because the card ends the turn.',
+      schema: z.object({ site: z.string().min(2).max(200).describe('Their website ("northwind.example"), or the company name when they gave no site') }),
+    }),
   ];
-  return all.filter(t => grants.has(t.name));
+  // The brand preview is a step of the same plan (`{kind:"brand"}`), so an
+  // agent granted the plan holds it too — a lead seeded before it existed
+  // included, whose stored grants name only the first two.
+  return all.filter(t => grants.has(t.name) || (t.name === PROPOSE_BRAND_TOOL && grants.has(PROPOSE_SETUP_TOOL)));
 }

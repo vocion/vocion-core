@@ -70,6 +70,14 @@ opens the workspace the report is about, whichever one the reader last had activ
 override it per message. All three are declared in `libs/Env.ts` and documented
 in `.env.example`.
 
+When the Org has a brand ([Branding](./branding.md)), the report, ask
+notifications, notifications and sign-in links go out in it:
+
+- **Header:** the Org's logo sits over the mail, on a rule in its accent.
+- **Sender:** `VOCION_MAIL_FROM` keeps its address and takes the brand's
+  sender name, so `Vocion <reports@…>` becomes `Northwind Ops <reports@…>`.
+- **Workspace mailbox:** a workspace's own mailbox keeps its own name.
+
 ## 4. Schedule the report in the workspace
 
 ```yaml
@@ -309,6 +317,13 @@ if (res.skipped) { /* flag off — decide whether that is fine */ }
   and `MailError('PROVIDER', …, 502)` when Resend rejects the message.
 - Always pass `text` — some clients render nothing else.
 - `headers` carries `In-Reply-To` / `References` / `Message-ID` for threading; `from` overrides the deployment sender for one message.
+- `brand: { orgId }` (or `{ accountId }`, or `'install'` for the server's one
+  Org) sends the mail in that Org's brand, as described in
+  [Branding](./branding.md):
+  - the logo header goes over `html`;
+  - the brand's sender name goes on the deployment sender, unless `from` is
+    set;
+  - with no brand, the mail goes out exactly as written.
 - HTML for mail: one column, table layout, inline styles, no external assets.
   `services/reports/renderDailyTeamReport.ts` is the reference for a report;
   a short transactional mail (one button) goes through `renderMail` in

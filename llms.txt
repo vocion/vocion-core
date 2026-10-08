@@ -22,6 +22,7 @@ https://github.com/vocion/vocion-core.
 - [Getting started](https://github.com/vocion/vocion-core/blob/main/docs/getting-started.md): tutorial from an empty directory to a working workforce, with a worked example of every entity type.
 - [Getting started in a new workspace](https://github.com/vocion/vocion-core/blob/main/docs/guides/getting-started-in-a-workspace.md): the workspace lead core seeds into every new shared workspace, its setup interview, the plan as one-click cards that run as the person's own action with Undo, and the Getting started checklist.
 - [Connect your systems](https://github.com/vocion/vocion-core/blob/main/docs/guides/connect-your-systems.md): a docked, keyboard-driven walk-through that ranks systems to connect from evidence, connects each by login or inline key, verifies each before moving on, and summarises what each unlocks; driven only by the platform and connector registries.
+- [Branding](https://github.com/vocion/vocion-core/blob/main/docs/guides/branding.md): an Org's logo, mark, accent, heading font and mail sender, worn by the sidebar, sign-in, the tab and mail; "Make it yours" from chat, Brand settings, or a workspace brand.yaml adopted once; workspace documents inherit it.
 - [Docs index](https://github.com/vocion/vocion-core/blob/main/docs/README.md): the map of everything below.
 
 ## Core concepts

@@ -13,6 +13,7 @@ import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { ConnectSystemsCard, isConnectSystemsCard } from '../connect-systems/ConnectSystemsCard';
 import { openAgentSurface } from './agentSurface';
+import { BrandPreviewCard, isBrandCard } from './cards/BrandPreviewCard';
 import { useRecordCardDecision } from './cards/CardDecisions';
 import { isSetupCard, SetupCard } from './cards/SetupCard';
 import { ConnectLinkCard, isConnectLinkCard } from './ConnectLinkCard';
@@ -66,10 +67,11 @@ type CardProps = {
 };
 
 /**
- * One card in the answer. The connect card (`offer_connection`, #1080) and a
- * setup step (`propose_setup`, `cards/SetupCard.tsx`) have their own
- * components; every other card is the action card below. The split is here,
- * above every hook, so neither card ever calls a different set of hooks.
+ * One card in the answer. The connect card (`offer_connection`, #1080), a
+ * setup step (`propose_setup`, `cards/SetupCard.tsx`) and a drafted brand
+ * (`propose_brand`, `cards/BrandPreviewCard.tsx`) have their own components;
+ * every other card is the action card below. The split is here, above every
+ * hook, so no card ever calls a different set of hooks.
  * @param props - The card and how it behaves.
  */
 export function RecommendedActionCard(props: CardProps) {
@@ -78,6 +80,9 @@ export function RecommendedActionCard(props: CardProps) {
   }
   if (isConnectSystemsCard(props.rec)) {
     return <ConnectSystemsCard rec={props.rec} />;
+  }
+  if (isBrandCard(props.rec)) {
+    return <BrandPreviewCard rec={props.rec} />;
   }
   return isConnectLinkCard(props.rec) ? <ConnectLinkCard rec={props.rec} replyInProgress={props.replyInProgress} /> : <ActionCard {...props} />;
 }

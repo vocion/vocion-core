@@ -5,24 +5,28 @@
  * seller. Both live in `brand.yaml` (`libs/workspace/brand.ts`): palette as
  * CSS tokens, fonts, logos as data URIs, voice rules. This tool hands the
  * agent all of it in one read, so the framework's `:root` is the brand's and
- * the strip's logo is the real mark rather than a remembered path. With no
- * `brand.yaml`, it says so and points at `brand_lookup` to seed one from the
- * company's own site.
+ * the strip's logo is the real mark rather than a remembered path.
+ *
+ * The guide is the Org's brand (Brand settings, `services/branding`) with the
+ * workspace's own `brand.yaml` over it: a workspace inherits its Org's logo,
+ * palette and voice and overrides what its documents need. With neither, it
+ * says so and points at `brand_lookup` to seed one from the company's site.
  */
 
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { brandForAgent, readWorkspaceBrand } from '@/libs/workspace/brand';
+import { brandForAgent } from '@/libs/workspace/brand';
+import { documentBrandFor } from '@/services/branding/OrgBrandService';
 
-export function getBrandTool(_ctx: RuntimeContext) {
+export function getBrandTool(ctx: RuntimeContext) {
   return tool(
     async () => {
-      const { brand, issues } = readWorkspaceBrand();
+      const { brand, issues } = await documentBrandFor(ctx.orgId);
       if (!brand) {
         return issues.length
           ? `brand.yaml could not be read: ${issues.map(i => i.message).join('; ')}. Fix it in the workspace; until then use the framework's default palette and say the document is unbranded.`
-          : 'This workspace has no brand.yaml. Run brand_lookup on the seller\'s own site to seed one (palette, logo, descriptor), hand the YAML to a person to commit under the workspace root, and use the framework\'s default palette meanwhile — never invent brand colours.';
+          : 'Neither the Org nor this workspace has a brand. Run brand_lookup on the seller\'s own site to seed one (palette, logo, descriptor) — an admin can apply it to the Org in Brand settings, or a person can commit it as brand.yaml under the workspace root — and use the framework\'s default palette meanwhile; never invent brand colours.';
       }
       const note = issues.length ? `\n\nNote: ${issues.map(i => i.message).join('; ')}` : '';
       return brandForAgent(brand) + note;

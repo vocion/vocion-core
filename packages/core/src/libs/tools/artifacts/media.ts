@@ -290,3 +290,162 @@ export async function readMediaBytes(orgId: string, url: string, deps: Pick<Medi
     return null;
   }
 }
+
+/*
+ * ── An Org's brand files ─────────────────────────────────────────────────
+ *
+ * The same store keeps an Org's logo and mark (`services/branding`), under
+ * `brand/<org>/<name>-<hash>.<svg|png>`. Unlike a recording they are served
+ * to anyone: the sign-in page shows the logo before anybody has signed in,
+ * and mail shows it in a client that has no session. So their route,
+ * `/api/media/brand/<org>/<file>`, needs no session and no artifact claims
+ * it; what keeps it safe is what may be stored there — a PNG, or an SVG
+ * rebuilt from an allowlist (`libs/branding/svg.ts`) — and the name, which
+ * carries the content hash, so a file never changes under its URL.
+ */
+
+/** Where brand files are served from. */
+export const BRAND_MEDIA_BASE = `${MEDIA_ROUTE_BASE}/brand`;
+
+/** A logo is kilobytes; this is the ceiling, said when hit. */
+export const BRAND_ASSET_MAX_BYTES = 512 * 1024;
+
+const BRAND_TYPES: Record<string, 'svg' | 'png'> = { 'image/svg+xml': 'svg', 'image/png': 'png' };
+const BRAND_EXT_TYPE: Record<'svg' | 'png', string> = { svg: 'image/svg+xml', png: 'image/png' };
+const SAFE_BRAND_FILE = /^[\w-]{1,160}\.(?:svg|png)$/;
+const PNG_MAGIC = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+/**
+ * Whether these bytes are what they say: a PNG's signature, or text with an `<svg` element.
+ * @param bytes - The file.
+ * @param ext - What it claims to be.
+ */
+function looksLike(bytes: Uint8Array, ext: 'svg' | 'png'): boolean {
+  if (ext === 'png') {
+    return PNG_MAGIC.every((b, i) => bytes[i] === b);
+  }
+  return /<svg[\s>]/i.test(new TextDecoder().decode(bytes.subarray(0, 64 * 1024)));
+}
+
+/**
+ * The served URL of a brand file.
+ * @param accountId - The Org (`tenant_account.id`).
+ * @param filename - The stored file.
+ */
+export function brandAssetUrl(accountId: string, filename: string): string {
+  return `${BRAND_MEDIA_BASE}/${encodeURIComponent(accountId)}/${encodeURIComponent(filename)}`;
+}
+
+/**
+ * The Org and file a brand URL names, or null when it is not one this store writes.
+ * @param url - `/api/media/brand/<org>/<file>`, relative or absolute.
+ */
+export function parseBrandAssetUrl(url: string): { accountId: string; filename: string } | null {
+  const path = url.trim().replace(/^https?:\/\/[^/]+/i, '');
+  const m = new RegExp(`^${BRAND_MEDIA_BASE}/([^/?#]+)/([^/?#]+)$`).exec(path);
+  if (!m) {
+    return null;
+  }
+  const accountId = decodeURIComponent(m[1]!);
+  const filename = decodeURIComponent(m[2]!);
+  return SAFE_SEGMENT.test(accountId) && SAFE_BRAND_FILE.test(filename) ? { accountId, filename } : null;
+}
+
+function brandKey(accountId: string, filename: string): string {
+  return `brand/${orgSegment(accountId)}/${filename}`;
+}
+
+export type KeptBrandAsset = { ok: true; url: string; filename: string; contentType: string; bytes: number; store: 's3' | 'disk' };
+
+/**
+ * Keep one of an Org's brand files. Never throws: a refusal (not a PNG or an
+ * SVG, too large, nothing drawable left once cleaned, the write failed) is a
+ * sentence for a person.
+ * @param input - What to keep.
+ * @param input.accountId - The Org.
+ * @param input.name - A few words for the file name (`logo`, `mark-dark`).
+ * @param input.data - The bytes.
+ * @param input.contentType - `image/svg+xml` or `image/png`.
+ * @param deps - Seams for tests.
+ */
+export async function keepBrandAsset(input: { accountId: string; name: string; data: Uint8Array; contentType: string }, deps: MediaDeps = {}): Promise<KeptBrandAsset | MediaRefusal> {
+  const declared = String(input.contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  const ext = BRAND_TYPES[declared];
+  if (!ext) {
+    return { ok: false, reason: `${declared || 'That file'} can't be a logo here: upload an SVG or a PNG.` };
+  }
+  if (!SAFE_SEGMENT.test(input.accountId)) {
+    return { ok: false, reason: 'that Org could not be found.' };
+  }
+  const max = deps.maxBytes ?? BRAND_ASSET_MAX_BYTES;
+  if (input.data.byteLength === 0) {
+    return { ok: false, reason: 'the file is empty.' };
+  }
+  if (input.data.byteLength > max) {
+    return { ok: false, tooLarge: true, reason: `the file is ${Math.ceil(input.data.byteLength / 1024)} KB; a logo can be at most ${Math.round(max / 1024)} KB.` };
+  }
+  if (!looksLike(input.data, ext)) {
+    return { ok: false, reason: `that file is not ${ext === 'png' ? 'a PNG' : 'an SVG'} image.` };
+  }
+  let data = input.data;
+  if (ext === 'svg') {
+    const { sanitizeSvg } = await import('@/libs/branding/svg');
+    const clean = sanitizeSvg(new TextDecoder().decode(input.data));
+    if (!clean) {
+      return { ok: false, reason: 'nothing drawable was left in that SVG once scripts and outside references were taken out.' };
+    }
+    data = new TextEncoder().encode(clean);
+  }
+  const hash = createHash('sha256').update(data).digest('hex').slice(0, 16);
+  const filename = `${nameSegment(input.name)}-${hash}.${ext}`;
+  const contentType = BRAND_EXT_TYPE[ext];
+  const key = brandKey(input.accountId, filename);
+  const bucket = deps.bucket === undefined ? mediaBucket() : deps.bucket;
+  try {
+    if (bucket) {
+      const put = deps.put ?? (await import('@/libs/aws/s3')).putObject;
+      await put({ bucket: bucket.bucket, key, body: data, contentType, region: bucket.region });
+    } else {
+      const abs = path.join(deps.dir ?? mediaDir(), key);
+      await mkdir(path.dirname(abs), { recursive: true });
+      await writeFile(abs, data);
+    }
+  } catch (err) {
+    return { ok: false, reason: `the file could not be written to ${bucket ? 'the media bucket' : 'the media store'} (${(err as Error)?.message?.slice(0, 200) ?? 'unknown error'}).` };
+  }
+  return { ok: true, url: brandAssetUrl(input.accountId, filename), filename, contentType, bytes: data.byteLength, store: bucket ? 's3' : 'disk' };
+}
+
+/**
+ * One of an Org's brand files, read back: from disk when it is there, else
+ * from the bucket. Null for a name this store could not have written or a file
+ * that is in neither; never throws.
+ * @param accountId - The Org: the key is built from it, so a name cannot reach another Org's files.
+ * @param filename - The stored file.
+ * @param deps - Seams for tests.
+ */
+export async function readBrandAsset(accountId: string, filename: string, deps: Pick<MediaDeps, 'dir' | 'bucket'> & { get?: (opts: { bucket: string; key: string; region?: string }) => Promise<{ bytes: Uint8Array; contentType: string | null }> } = {}): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  if (!SAFE_SEGMENT.test(accountId) || !SAFE_BRAND_FILE.test(filename)) {
+    return null;
+  }
+  const contentType = BRAND_EXT_TYPE[filename.endsWith('.png') ? 'png' : 'svg'];
+  const key = brandKey(accountId, filename);
+  const dir = path.resolve(deps.dir ?? mediaDir());
+  const abs = path.resolve(dir, key);
+  if (abs.startsWith(dir + path.sep)) {
+    try {
+      return { bytes: new Uint8Array(await readFile(abs)), contentType };
+    } catch { /* not on disk */ }
+  }
+  const bucket = deps.bucket === undefined ? mediaBucket() : deps.bucket;
+  if (!bucket) {
+    return null;
+  }
+  try {
+    const get = deps.get ?? (await import('@/libs/aws/s3')).getObjectBytes;
+    const got = await get({ bucket: bucket.bucket, key, region: bucket.region });
+    return got.bytes.byteLength > BRAND_ASSET_MAX_BYTES ? null : { bytes: new Uint8Array(got.bytes), contentType };
+  } catch {
+    return null;
+  }
+}

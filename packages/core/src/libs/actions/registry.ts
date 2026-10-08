@@ -33,6 +33,7 @@ import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { objectsRenameAction } from './objects-rename';
 import { objectsUpdateMetaAction } from './objects-update-meta';
+import { orgBrandApplyAction } from './org-brand-apply';
 import { orgChangeAction } from './org-change';
 import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
@@ -183,6 +184,10 @@ registerAction(pluginEnableAction);
 registerAction(appInstallAction);
 registerAction(appTemplateInstallAction);
 registerAction(membersInviteAction);
+// "Make it yours": the Org's brand from a drafted preview card (`propose_brand`)
+// — logos kept in the media store, the accent checked; reversible, internal,
+// and only an Org admin's press applies it (`libs/actions/org-brand-apply.ts`).
+registerAction(orgBrandApplyAction);
 // A source saved from what the person picked, on their login; reversible until it syncs (`services/connect/createSourceOnLogin.ts`).
 registerAction(sourceConnectAction);
 // An agent adds a teammate from the catalog, with the daily allowance it is

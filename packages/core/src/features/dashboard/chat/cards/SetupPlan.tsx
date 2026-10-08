@@ -3,6 +3,7 @@
 import type { RecommendedAction } from '../types';
 import { useTranslations } from 'next-intl';
 import { ConnectLinkCard, isConnectLinkCard } from '../ConnectLinkCard';
+import { BrandPreviewCard, isBrandCard } from './BrandPreviewCard';
 import { isSetupCard, SetupCard } from './SetupCard';
 
 /**
@@ -13,7 +14,8 @@ import { isSetupCard, SetupCard } from './SetupCard';
  * the rest behind a swipe — a plan nobody could see whole. Here they are one
  * column, in the order the lead put them (the app, the systems it reads, the
  * people and agents who use it), each pressed on its own. A connection in the
- * plan is the ordinary connect card, in its place in the order.
+ * plan is the ordinary connect card, in its place in the order; "Make it
+ * yours" is the brand preview card, last.
  *
  * No frame around the column: each step is the one bordered surface, grouped
  * by an eyebrow and a gap (patterns.md, "a bordered surface never contains
@@ -27,7 +29,7 @@ import { isSetupCard, SetupCard } from './SetupCard';
  * @param recs - The reply's cards.
  */
 export function setupPlanOf(recs: readonly RecommendedAction[]): RecommendedAction[] {
-  return recs.some(isSetupCard) ? recs.filter(r => isSetupCard(r) || isConnectLinkCard(r)) : [];
+  return recs.some(isSetupCard) ? recs.filter(r => isSetupCard(r) || isConnectLinkCard(r) || isBrandCard(r)) : [];
 }
 
 /**
@@ -44,7 +46,9 @@ export function SetupPlan({ recs, replyInProgress = false }: { recs: Recommended
       <div className="mt-1.5 flex flex-col gap-2 [&>*]:mt-0">
         {recs.map((rec, i) => (isSetupCard(rec)
           ? <SetupCard key={rec.id ?? i} rec={rec} />
-          : <ConnectLinkCard key={rec.id ?? i} rec={rec} replyInProgress={replyInProgress} />))}
+          : isBrandCard(rec)
+            ? <BrandPreviewCard key={rec.id ?? i} rec={rec} />
+            : <ConnectLinkCard key={rec.id ?? i} rec={rec} replyInProgress={replyInProgress} />))}
       </div>
     </div>
   );

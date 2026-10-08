@@ -27,9 +27,12 @@ test('the sign-in page offers each configured provider above the email form', as
 
   // The password is still there (the e2e server has no outbound mail, so the
   // field asks for it rather than leading with the email link), and sign-up
-  // still is not.
+  // still is not: the line under the form says who may get in, by the
+  // install's policy (a domain that joins by itself, whom to ask, or
+  // invite-only on a server that knows no Org yet).
   await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
-  await expect(page.getByText('This instance is invite-only')).toBeVisible();
+  await expect(page.getByTestId('sign-in-access')).toHaveText(/Anyone with a @.+ account can sign in with|Need access\? Ask someone at .+ to invite you\.|This instance is invite-only/);
+  await expect(page.getByRole('link', { name: /sign up|create an account/i })).toHaveCount(0);
 });
 
 test('the invite page offers the same buttons', async ({ page }) => {

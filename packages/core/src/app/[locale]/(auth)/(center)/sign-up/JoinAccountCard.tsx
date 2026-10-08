@@ -4,6 +4,7 @@ import type { InviteSummary } from '@/services/InviteAcceptance';
 import { signOut } from 'next-auth/react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { AuthBrandLogo, AuthPoweredBy } from '@/features/branding/AuthBrand';
 import { Link } from '@/libs/I18nNavigation';
 
 type Props = {
@@ -83,8 +84,10 @@ function NoWorkspaceYet({ accountName, title }: { accountName: string; title: st
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="w-full max-w-sm space-y-4 px-4">
+      <AuthBrandLogo />
       <h1 className="text-2xl font-semibold">{title}</h1>
       {children}
+      <AuthPoweredBy className="mt-2 justify-start" />
     </div>
   );
 }

@@ -258,6 +258,16 @@ export const tenantAccountSchema = pgTable(
      * deployment; `services/auth/mfa.ts` reads both.
      */
     requireMfa: boolean('require_mfa').default(false).notNull(),
+    /**
+     * The Org's brand (migration 0199) — the same guide a workspace's
+     * brand.yaml is (`libs/workspace/brand.ts`), with its logos kept in the
+     * media store. Worn by the sidebar, sign-in, the favicon and mail; a
+     * workspace's brand.yaml inherits from it. NULL = Vocion's own look.
+     * Read and written only through `services/branding/OrgBrandService.ts`.
+     */
+    brand: jsonb('brand').$type<Record<string, unknown>>(),
+    /** When the one-time seed from a workspace's brand.yaml ran; it never runs twice. */
+    brandSeededAt: timestamp('brand_seeded_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

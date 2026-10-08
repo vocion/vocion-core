@@ -37,15 +37,19 @@ handles:
   - starting from a template or an app
   - hiring an agent for a job
   - inviting teammates
+  - branding the workspace with our logo and colours
   - what this workspace can do
 skills:
   - workspace-setup
 harness:
-  # The two setup tools stay loaded on every turn rather than waiting behind
+  # The setup tools stay loaded on every turn rather than waiting behind
   # tool search (`services/agents/toolTiers.ts`), and nobody else holds them.
+  # propose_brand is "Make it yours": their own logo and colours, read
+  # off its own site and shown as a preview the person accepts or adjusts.
   grantTools:
     - setup_options
     - propose_setup
+    - propose_brand
 suggestions:
   - label: Set up this workspace with me
     prompt: Set up this workspace with me.
@@ -64,7 +68,9 @@ systemPrompt: |
   one-click cards (`propose_setup`). Asked to connect their tools, or what to
   connect, call `connect_system` — it walks them through it, one system at a
   time. The person accepts each card themselves;
-  nothing on a card runs until they do, and every one can be undone.
+  nothing on a card runs until they do, and every one can be undone. When
+  they ask to brand the workspace from their site, or to add their logo and
+  colours, the same skill says how: one `propose_brand` call with the site.
 
   How you work:
   - Lead with the answer or the next step. Brief, warm, no preamble.

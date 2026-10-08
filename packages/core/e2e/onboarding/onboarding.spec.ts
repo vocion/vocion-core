@@ -79,8 +79,9 @@ test('a new workspace opens on its lead, with three ways in and a Getting starte
 
   // The checklist sits where the invite box did, every tick read from the
   // workspace. (Inviting someone may already be done: it counts anyone else
-  // in the Org, and a dev database has other people in it.)
-  await expect(page.getByTestId('getting-started-count')).toHaveText(/^Getting started · [01] of 4$/);
+  // in the Org, and a dev database has other people in it. So may "Make it
+  // yours": the Org's brand is the Org's, not this workspace's.)
+  await expect(page.getByTestId('getting-started-count')).toHaveText(/^Getting started · [0-2] of 5$/);
 
   for (const step of ['connect', 'app', 'hire']) {
     await expect(page.getByTestId(`getting-started-${step}`)).toHaveAttribute('data-done', 'false');
@@ -141,7 +142,11 @@ test('the lead interviews, proposes the plan as one-click cards, and each runs a
   await expect(invite).toHaveAttribute('data-step-state', 'done', { timeout: 60_000 });
   await expect(page.getByTestId('getting-started-hire')).toHaveAttribute('data-done', 'true');
   await expect(page.getByTestId('getting-started-invite')).toHaveAttribute('data-done', 'true');
-  await expect(page.getByTestId('getting-started-count')).toHaveText('Getting started · 3 of 4');
+
+  // "Make it yours" counts the Org's brand, which this run does not touch.
+  const branded = (await page.getByTestId('getting-started-brand').getAttribute('data-done')) === 'true' ? 1 : 0;
+
+  await expect(page.getByTestId('getting-started-count')).toHaveText(`Getting started · ${3 + branded} of 5`);
 
   await shot(page, '04-steps-done');
 
@@ -150,7 +155,7 @@ test('the lead interviews, proposes the plan as one-click cards, and each runs a
 
   await expect(app).toHaveAttribute('data-step-state', 'undone', { timeout: 60_000 });
   await expect(page.getByTestId('getting-started-app')).toHaveAttribute('data-done', 'false');
-  await expect(page.getByTestId('getting-started-count')).toHaveText('Getting started · 2 of 4');
+  await expect(page.getByTestId('getting-started-count')).toHaveText(`Getting started · ${2 + branded} of 5`);
 
   // A reload draws each step as what it became, not as a button again — once
   // the server has finished writing the turns down (their rows are `running`

@@ -6,16 +6,16 @@ import fr from '@/locales/fr.json';
 import { GettingStartedChecklist } from './GettingStartedChecklist';
 
 /**
- * "Getting started · N of 4" — the sidebar's checklist for a new shared
+ * "Getting started · N of 5" — the sidebar's checklist for a new shared
  * workspace, in the place the "Invite team members" box sat. Every tick is
  * read from the workspace (a system connected, an app or template added, an
- * agent hired, someone invited); a step left opens the chat with the lead's
+ * agent hired, someone invited, the Org's own logo and colours); a step left opens the chat with the lead's
  * ask written, a step done opens where it lives. Static here (`live={false}`):
  * the state is the story's.
  * @param done
  */
-function state(done: Array<'connect' | 'app' | 'hire' | 'invite'>): GettingStartedState {
-  const steps = (['connect', 'app', 'hire', 'invite'] as const).map(id => ({ id, done: done.includes(id) }));
+function state(done: Array<GettingStartedState['steps'][number]['id']>): GettingStartedState {
+  const steps = (['connect', 'app', 'hire', 'invite', 'brand'] as const).map(id => ({ id, done: done.includes(id) }));
   return { steps, done: steps.filter(s => s.done).length, total: steps.length };
 }
 
@@ -46,8 +46,8 @@ export const NothingYet: Story = { args: { initial: state([]) } };
 /** Half way: a system connected and an app added. */
 export const HalfWay: Story = { args: { initial: state(['connect', 'app']) } };
 
-/** One left. */
-export const OneLeft: Story = { args: { initial: state(['connect', 'app', 'hire']) } };
+/** One left: "Make it yours", the Org's logo and colours. */
+export const OneLeft: Story = { args: { initial: state(['connect', 'app', 'hire', 'invite']) } };
 
 /** In French. */
 export const French: Story = { args: { initial: state(['app']), locale: 'fr' } };

@@ -47,6 +47,14 @@ export type MailMessage = {
    * reply threads under the mail it answers in the recipient's client.
    */
   headers?: Record<string, string>;
+  /**
+   * Whose mail this is, so it goes out in that Org's brand — a header with
+   * its logo, and its name on the deployment's sender
+   * (`services/branding/mailBrand.ts`): a workspace (`{ orgId }`), an Org
+   * (`{ accountId }`), or the server's one Org (`'install'`). Absent, the
+   * mail goes out exactly as written.
+   */
+  brand?: { orgId?: string | null; accountId?: string | null } | 'install';
 };
 
 export type SendMailResult
@@ -109,6 +117,26 @@ function log(level: 'info' | 'warn', message: string, properties: Record<string,
 }
 
 /**
+ * The message in its Org's brand (`services/branding/mailBrand.ts`), when
+ * the caller named whose mail it is; as written otherwise. The brand is a
+ * finish, never a reason a mail does not go: a failure to read it is logged.
+ * @param message - The mail.
+ */
+async function branded(message: MailMessage): Promise<MailMessage> {
+  const { brand, ...rest } = message;
+  if (!brand) {
+    return rest;
+  }
+  try {
+    const { applyMailBrand } = await import('@/services/branding/mailBrand');
+    return await applyMailBrand(rest, brand, process.env.VOCION_MAIL_FROM?.trim() ?? '');
+  } catch (err) {
+    log('warn', 'mail sent without the Org brand: it could not be read', { error: err instanceof Error ? err.message : String(err) });
+    return rest;
+  }
+}
+
+/**
  * Send one message. When the flag is off, logs and returns `{ skipped: true }`
  * — never throws for "disabled", so a job can treat mail as optional. Throws
  * `MailError` for a misconfiguration or a provider rejection.
@@ -121,13 +149,15 @@ function log(level: 'info' | 'warn', message: string, properties: Record<string,
 export async function sendMail(message: MailMessage): Promise<SendMailResult> {
   const recipients = Array.isArray(message.to) ? message.to : [message.to];
   const sink = mailSinkDir();
+  // What the sink records: the mail as it went out, branded once it is.
+  const sent = { html: message.html };
   // A copy in the sink never decides a send: a disk error is logged, and
   // only matters when the sink was the transport (then it is the failure).
   const keep = async (delivered: 'resend' | 'sink' | false, from: string | null): Promise<string | null> => {
     if (!sink) {
       return null;
     }
-    const mail = { at: new Date().toISOString(), from, to: recipients, subject: message.subject, text: message.text ?? null, html: message.html, tags: message.tags ?? {}, delivered };
+    const mail = { at: new Date().toISOString(), from, to: recipients, subject: message.subject, text: message.text ?? null, html: sent.html, tags: message.tags ?? {}, delivered };
     if (delivered === 'sink') {
       return writeToSink(sink, mail);
     }
@@ -141,15 +171,18 @@ export async function sendMail(message: MailMessage): Promise<SendMailResult> {
     log('info', 'mail skipped: VOCION_MAIL_ENABLED is not 1', { subject: message.subject, to: recipients.length });
     return { skipped: true, reason: 'disabled' };
   }
+  // In the Org's brand when the caller named whose mail it is (`brand`).
+  const outgoing = await branded(message);
+  sent.html = outgoing.html;
   const resendConfigured = Boolean(process.env.RESEND_API_KEY?.trim()) && Boolean(process.env.VOCION_MAIL_FROM?.trim());
   if (sink && !resendConfigured) {
-    const id = await keep('sink', message.from ?? process.env.VOCION_MAIL_FROM?.trim() ?? null);
+    const id = await keep('sink', outgoing.from ?? process.env.VOCION_MAIL_FROM?.trim() ?? null);
     log('info', 'mail written to the dev mail sink', { subject: message.subject, to: recipients.length });
     return { skipped: false, provider: 'sink', id };
   }
   const { apiKey, from } = mailConfig();
-  const id = await sendViaResend({ apiKey, from: message.from ?? from, message: { ...message, to: recipients } });
-  await keep('resend', message.from ?? from);
+  const id = await sendViaResend({ apiKey, from: outgoing.from ?? from, message: { ...outgoing, to: recipients } });
+  await keep('resend', outgoing.from ?? from);
   log('info', 'mail sent', { provider: 'resend', id, subject: message.subject, to: recipients.length });
   return { skipped: false, provider: 'resend', id };
 }

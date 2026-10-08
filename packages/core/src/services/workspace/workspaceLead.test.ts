@@ -57,8 +57,8 @@ describe('the template', () => {
     expect(workspaceSetupSkillTemplate().manifest.slug).toBe(WORKSPACE_SETUP_SKILL);
   });
 
-  it('holds the two setup tools and nothing else beyond the defaults', () => {
-    expect(workspaceLeadTemplate().harness.grantTools).toEqual(['setup_options', 'propose_setup']);
+  it('holds the setup tools and nothing else beyond the defaults', () => {
+    expect(workspaceLeadTemplate().harness.grantTools).toEqual(['setup_options', 'propose_setup', 'propose_brand']);
   });
 
   it('names no company, app, plugin, connector or catalog role — what it sets up comes from the person and the installation', async () => {
@@ -89,7 +89,7 @@ describe('ensureWorkspaceLead', () => {
 
     expect(agent).toMatchObject({ slug: WORKSPACE_LEAD_SLUG, name: 'Workspace lead', role: 'lead', active: 'true', projectId: SUPPORT });
     expect(agent?.skillSlugs).toEqual([WORKSPACE_SETUP_SKILL]);
-    expect(agent?.harnessConfig).toMatchObject({ grantTools: ['setup_options', 'propose_setup'] });
+    expect(agent?.harnessConfig).toMatchObject({ grantTools: ['setup_options', 'propose_setup', 'propose_brand'] });
 
     const [skill] = await skillsOf(SUPPORT);
 
