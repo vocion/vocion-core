@@ -106,6 +106,30 @@ export type AgentMessageProps = {
   threadRecords?: TurnRecord[];
 };
 
+/**
+ * The answer's type: a reading measure, not a document. `prose-sm` alone set
+ * an h2 at 20px/700 over 14px text, a near-black code block and backticks
+ * around inline code — a turn with one heading in it read like a printed
+ * report (Chris, 2026-10-08: "the chat interface could use a little more
+ * lightness/polish"). Here the body is 15px on a 1.6 line, headings step down
+ * to semibold body sizes with the space ABOVE them, lists sit close, and code
+ * — inline or a block — is a soft neutral ground with a hairline, the way the
+ * rest of the trace draws a payload (docs/design/patterns.md: "hairlines, not
+ * boxes; space, not chrome").
+ */
+const PROSE = [
+  'prose prose-sm prose-neutral dark:prose-invert max-w-none min-w-0 break-words wrap-anywhere',
+  'text-[15px] leading-[1.6] text-foreground/90',
+  'prose-p:my-3 prose-strong:font-semibold prose-strong:text-foreground',
+  'prose-headings:font-semibold prose-headings:tracking-tight prose-headings:text-foreground prose-headings:mt-6 prose-headings:mb-2',
+  'prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px] prose-h4:text-[15px]',
+  'prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-li:marker:text-muted-foreground/60',
+  'prose-code:rounded prose-code:bg-muted/70 prose-code:px-1 prose-code:py-px prose-code:text-[0.86em] prose-code:font-normal prose-code:before:content-none prose-code:after:content-none',
+  'prose-pre:my-3 prose-pre:rounded-lg prose-pre:border prose-pre:border-border prose-pre:bg-surface-soft prose-pre:px-3.5 prose-pre:py-2.5 prose-pre:text-[12.5px] prose-pre:leading-relaxed prose-pre:text-foreground/85',
+  '[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[1em] [&>:first-child]:mt-0 [&>:last-child]:mb-0',
+  'prose-hr:my-6 prose-hr:border-border prose-table:text-[13px] prose-th:font-medium prose-blockquote:font-normal prose-blockquote:text-muted-foreground',
+].join(' ');
+
 /** How many microcards the newest turn carries at most. */
 const MICROCARDS_SHOWN = 3;
 
@@ -328,13 +352,15 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                 )
               : <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
           )}
-          {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
+          {timestamp && <span className="tracking-normal text-muted-foreground/60 normal-case tabular-nums">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (
             <button
               type="button"
               onClick={() => onShowSources?.(message.id)}
               data-testid="sources-chip"
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] tracking-normal text-foreground/80 normal-case transition hover:border-primary/30 hover:text-foreground"
+              // A quiet control, not a pill: the count is the information, the
+              // hover fill says it opens (hairlines, not boxes).
+              className="-mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] tracking-normal text-muted-foreground normal-case transition hover:bg-surface-hover hover:text-foreground"
             >
               <FileText className="size-2.5" aria-hidden />
               Sources ·
@@ -435,7 +461,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                     // (the owner's screenshot, 2026-09-19). Wrapping is the
                     // answer for prose; a genuinely wide block gets its own
                     // scroller instead (the `table` renderer below).
-                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none min-w-0 break-words wrap-anywhere dark:prose-invert">
+                    <div key={`text-${seg.index}-${i}`} className={PROSE}>
                       <Markdown
                         remarkPlugins={[remarkGfm]}
                         // Keep our private citation scheme; react-markdown's default
@@ -463,7 +489,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                                 <button
                                   type="button"
                                   onClick={() => onCitationClick?.(n, message.id)}
-                                  className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
+                                  // Neutral until pointed at, and `leading-none` so a
+                                  // marker never opens a gap in the line above it.
+                                  className="ml-0.5 inline-flex min-w-[1.1em] items-baseline justify-center rounded-sm bg-muted px-[0.3em] py-px align-super text-[10px] leading-none font-medium text-muted-foreground no-underline transition hover:bg-brand-amber/15 hover:text-brand-amber-deep"
                                   aria-label={`Open source ${n}`}
                                 >
                                   {n}
@@ -489,7 +517,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                                       openPreview(peek, e.currentTarget);
                                     }
                                   }}
-                                  className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
+                                  className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-px align-baseline text-[13px] leading-snug font-medium text-foreground/85 no-underline transition hover:border-foreground/20 hover:text-foreground"
                                 >
                                   <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                                   <span className="truncate">{children}</span>

@@ -726,9 +726,12 @@ export function ChatComposer({
             takeFiles(e.dataTransfer.files);
           }}
           data-dragging={dragDepth > 0 || undefined}
-          // Restrained focus: a 1px ring in the ring token at low alpha
-          // plus a soft ground shift. No halo, no thickened border.
-          className={`${COMPOSER_ROW} rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint`}
+          // Focus is the hairline darkening, nothing more. The ring token is
+          // amber, and an amber ring plus a ground shift plus a drop shadow
+          // made the box the heaviest thing on the screen (Chris, 2026-10-08:
+          // "a little more lightness"). Amber stays for the one moment it
+          // means something here: a file held over the box.
+          className={`${COMPOSER_ROW} rounded-2xl border border-foreground/10 bg-background px-3 py-2 transition-colors focus-within:border-foreground/20 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint`}
         >
           {/* The file input behind the (+) menu's "Attach a file" row; drop and paste are the other paths. */}
           {canAttach && (
@@ -810,7 +813,7 @@ export function ChatComposer({
               onClick={() => onStop?.()}
               className={`ml-auto sm:ml-0 ${sendEnabled
                 ? `${COMPOSER_CONTROL} text-muted-foreground/70 hover:bg-surface-hover hover:text-foreground`
-                : `${COMPOSER_CONTROL} border border-border bg-background text-foreground hover:border-brand-amber hover:text-brand-amber-deep`}`}
+                : `${COMPOSER_CONTROL} border border-foreground/10 bg-background text-foreground hover:bg-surface-hover`}`}
               aria-label="Stop generating"
             >
               <Square className="size-3.5 fill-current" aria-hidden="true" />
@@ -820,9 +823,11 @@ export function ChatComposer({
             <button
               type="submit"
               disabled={!sendEnabled}
-              className={`${streaming ? '' : 'ml-auto sm:ml-0'} ${streaming
-                ? `${COMPOSER_CONTROL} border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50`
-                : `${COMPOSER_CONTROL} bg-brand-amber text-white hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50`}`}
+              // The one primary is ink, as everywhere else in the app
+              // (`--action`, docs/design/patterns.md → Tokens) — Send, or Queue
+              // while a turn runs; empty, it recedes to the muted ground until
+              // there is something to send.
+              className={`${streaming ? '' : 'ml-auto sm:ml-0'} ${COMPOSER_CONTROL} bg-action text-action-foreground hover:bg-action/85 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50`}
               aria-label={streaming ? words.queueAction : 'Send message'}
             >
               <ArrowUp className="size-4" aria-hidden="true" />

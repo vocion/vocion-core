@@ -59,11 +59,13 @@ const VISIBLE_CHIPS = 2;
 const EXPANDED_CHIPS = 5;
 
 /**
- * Small quiet pill — one height (40px) for every chip, "More" included, so
- * the cloud reads as one row of equals rather than a ragged mix. Staggered
- * 150ms fade-in; no layout shift, because the cloud reserves its height.
+ * Small quiet pill — one height (36px) for every chip, "More" included, so
+ * the cloud reads as one row of equals rather than a ragged mix. A hairline
+ * and a neutral hover: an amber wash on every hover made a nudge shout.
+ * Staggered 150ms fade-in; no layout shift, because the cloud reserves its
+ * height.
  */
-const chipClass = 'flex h-10 max-w-full shrink-0 items-center truncate rounded-full border border-border/70 bg-background px-3.5 text-[13px] text-muted-foreground transition-colors hover:border-brand-amber/60 hover:bg-brand-amber-tint hover:text-brand-amber-deep animate-in fade-in fill-mode-both duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border/70 disabled:hover:bg-background disabled:hover:text-muted-foreground';
+const chipClass = 'flex h-9 pointer-coarse:h-10 max-w-full shrink-0 items-center truncate rounded-full border border-border bg-background px-3.5 text-[13px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground animate-in fade-in fill-mode-both duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background disabled:hover:text-muted-foreground';
 
 export function EmptyState({ greeting, suggestions = [], suggestionsLoading = false, onPick, titleSlot, disabled = false }: EmptyStateProps) {
   const [expanded, setExpanded] = useState(false);
@@ -100,12 +102,12 @@ export function EmptyState({ greeting, suggestions = [], suggestionsLoading = fa
             the headline, never the composer; reserving two rows only added a
             dead band between the chips and the box. */}
         {(suggestionsLoading || suggestions.length > 0) && (
-          <div className="mt-4 flex min-h-10 w-full flex-wrap content-start items-start gap-2">
+          <div className="mt-4 flex min-h-9 w-full flex-wrap content-start items-start gap-2">
             {suggestionsLoading
               ? (
                   <>
-                    <div className="h-10 w-44 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
-                    <div className="h-10 w-32 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
+                    <div className="h-9 w-44 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
+                    <div className="h-9 w-32 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
                   </>
                 )
               : (
@@ -127,7 +129,7 @@ export function EmptyState({ greeting, suggestions = [], suggestionsLoading = fa
                         type="button"
                         onClick={() => setExpanded(e => !e)}
                         aria-label={expanded ? 'Show fewer suggestions' : `Show ${hiddenCount} more suggestions`}
-                        className="flex h-10 shrink-0 items-center gap-1 rounded-full px-3 text-[13px] text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground"
+                        className="flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-[13px] text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground pointer-coarse:h-10"
                       >
                         {expanded ? 'Less' : 'More'}
                         {expanded

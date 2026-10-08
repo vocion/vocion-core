@@ -159,6 +159,10 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
   // read from the records, so it survives a reload (Chris, 2026-09-30, #269).
   const threadRecords = useThreadRecords(conversationId, `${messages.length}:${streaming ? 1 : 0}`);
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
+  // The rhythm is the exchange: an answer sits close under the question it
+  // answers, and the next question starts a little further down — one even
+  // 32px between every message read as a list of equals, not a conversation.
+  const gapAfter = (i: number) => (i === lastIdx ? '' : messages[i + 1]?.role === 'assistant' ? 'mb-6' : 'mb-10');
   return (
     <div ref={containerRef} onScroll={handleScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onWheel={onWheel} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-8 overflow-x-clip overflow-y-auto overscroll-y-contain px-4 pt-16 pb-6 sm:px-6">
       {selection.hit && (
@@ -186,7 +190,7 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
       <div ref={columnRef} className="mx-auto w-full max-w-3xl min-w-0 space-y-8">
         {blocksAfter(-1)}
         {messages.map((msg, i) => (
-          <div key={i} className="space-y-8">
+          <div key={i} className={`space-y-8 ${gapAfter(i)}`}>
             {msg.role === 'user'
               ? <UserMessage content={msg.content} attachments={msg.attachments} />
               : (
