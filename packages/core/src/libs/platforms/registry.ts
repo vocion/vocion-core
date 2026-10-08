@@ -34,6 +34,7 @@
 
 import type { LLMProviderName } from '@vocion/sdk';
 import type { ConnectProviderId } from '@/libs/connect/provider';
+import { AUTH_SCHEME_PATTERN, HEADER_NAME_PATTERN } from '@/libs/rest/authHeader';
 
 /** Every platform id this build understands. */
 export type CredentialPlatformId
@@ -59,10 +60,11 @@ export type CredentialPlatformId
     | 'sentry'
     | 'slate'
     | 'strapi'
-  // Any bearer-token REST API the workspace declares endpoints for
-  // (`libs/sources/rest.ts`). One-live for the same reason as `apollo` — see
-  // the descriptor — so a workspace holds one REST credential today.
+  // Any token-authenticated REST API the workspace declares endpoints for
+  // (`libs/sources/rest.ts`). Several per org: one per API.
     | 'rest'
+  // A QuickBooks Online login, one per company (`libs/sources/quickbooks.ts`).
+    | 'quickbooks'
   // One credential, several connectors. A Google OAuth client is consented
   // once and its refresh token then serves Gmail, Drive, Calendar, Analytics
   // and Ads together; a Slack bot token reads every channel the workspace
@@ -89,7 +91,8 @@ export type CredentialPlatformId
     | 'hubspot-login-app'
     | 'notion-login-app'
     | 'zoom-login-app'
-    | 'apollo-login-app';
+    | 'apollo-login-app'
+    | 'quickbooks-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -256,8 +259,13 @@ export type CredentialPlatform = {
      * the connector's entry into `login`, so callers never read this.
      */
     loginByConnector?: Readonly<Record<string, LoginDeclaration>>;
-    /** Pasting is always possible. What to paste, and where to get one by hand. */
-    paste: {
+    /**
+     * What to paste, and where to get one by hand. Absent for a vendor that
+     * issues no credential a person could paste and keep working (QuickBooks:
+     * Intuit has no API keys, and rotates the refresh token a login holds), so
+     * the form offers the login alone and never an input that cannot work.
+     */
+    paste?: {
       /** The kind of credential, named the way the vendor names it: "Personal access token", "API token", "Bot token". */
       credential: string;
       /** The access the pasted credential needs, one line each. */
@@ -324,6 +332,7 @@ const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
   loginAppPlatform('notion-login-app', 'notion', 'Notion'),
   loginAppPlatform('zoom-login-app', 'zoom', 'Zoom'),
   loginAppPlatform('apollo-login-app', 'apollo', 'Apollo'),
+  loginAppPlatform('quickbooks-login-app', 'quickbooks', 'QuickBooks'),
 ];
 
 /**
@@ -867,7 +876,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'rest',
-    label: 'REST API (bearer token)',
+    label: 'REST API (token)',
     keySource: 'supplied',
     // `many`, like `strapi`, and for the same reason: the credential is a token
     // plus the base URL it was issued for, so it names one API and a workspace
@@ -877,14 +886,16 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // platform reads a second save as a rotation. Each source names the
     // credential it uses through `knowledge_source.api_token_id`.
     //
-    // The token is sent as `Authorization: Bearer <token>` on every call; there
-    // is no other header scheme, on purpose — one shape, and the first API to
-    // need another can add a `headerName` field beside these two.
+    // The token is sent as `Authorization: Bearer <token>` unless the
+    // credential names another header (`X-Auth-Token`) or scheme (`Token`,
+    // or `none` for a bare token). Both live on the credential, not the
+    // source, because they are facts about how this API accepts this token,
+    // and they rotate with it. One header, built in `libs/rest/client.ts`.
     credentialsPerOrg: 'many',
     connectorSlugs: ['rest'],
     howToConnect: {
       paste: {
-        credential: 'Bearer token',
+        credential: 'API token',
         access: ['Read rights for the read tools', 'Write rights only for the endpoints the source declares as actions'],
       },
     },
@@ -892,8 +903,8 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     llmProvider: null,
     toolProvider: null,
     keyPattern: null,
-    keyShapeHint: 'an API base URL plus its bearer token',
-    helpText: 'A bearer token for a REST API of your own, and the base URL it was issued for. The token goes out as "Authorization: Bearer <token>" on every call: read rights for the read tools, write rights only for the endpoints the source declares as actions.',
+    keyShapeHint: 'an API base URL plus its token',
+    helpText: 'A token for a REST API of your own, and the base URL it was issued for. By default it goes out as "Authorization: Bearer <token>"; an API that wants another header, such as X-Auth-Token, or another scheme, such as Token, names it below. Read rights for the read tools, write rights only for the endpoints the source declares as actions.',
     fields: [
       {
         name: 'baseUrl',
@@ -907,12 +918,57 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       },
       {
         name: 'token',
-        label: 'Bearer token',
+        label: 'API token',
         pattern: null,
         shapeHint: 'is any non-empty token',
         secret: true,
       },
+      {
+        name: 'headerName',
+        label: 'Header name',
+        pattern: HEADER_NAME_PATTERN,
+        shapeHint: 'is one HTTP header name, such as X-Auth-Token; leave it blank for Authorization',
+        // How the token is sent, not a secret: shown in full so the form and
+        // the credential list say which header an API gets.
+        secret: false,
+        optional: true,
+      },
+      {
+        name: 'scheme',
+        label: 'Scheme',
+        pattern: AUTH_SCHEME_PATTERN,
+        shapeHint: 'is one word, such as Token; blank sends Bearer on Authorization and the bare token on any other header, and "none" sends it bare on Authorization too',
+        secret: false,
+        optional: true,
+      },
     ],
+  },
+  {
+    id: 'quickbooks',
+    label: 'QuickBooks',
+    keySource: 'supplied',
+    // `many`: a login is one QuickBooks company, and a firm keeps its books in
+    // several (one per legal entity). One-live would read a second company's
+    // login as a rotation of the first, revoke it, and point the first
+    // company's sources at the second company's books. Migration 0181 carved
+    // `quickbooks` out of `api_token_org_platform_live_idx` for this.
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['quickbooks'],
+    howToConnect: {
+      // Login only: Intuit issues no API key, and the refresh token a login
+      // holds is rotated by Intuit, so a pasted one would stop working within
+      // a day. A source can read the sample company with no login at all.
+      login: { provider: 'quickbooks', access: ['com.intuit.quickbooks.accounting'], settingsAfterLogin: [] },
+    },
+    // One login reads one company, and a source reads all of it, so a second
+    // source on the same company may share the login.
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a QuickBooks login',
+    helpText: 'A QuickBooks Online login, one per company. Log in with QuickBooks on the Connectors page; there is no key to paste.',
+    fields: [],
   },
   {
     id: 'google',
@@ -1325,6 +1381,11 @@ export function validatePlatformCredential(
   if (platform.keySource === 'minted') {
     throw new CredentialValidationError(`${platform.label} keys are generated by Vocion, not supplied.`);
   }
+  if (platform.fields.length === 0) {
+    // Nothing to paste (QuickBooks): an empty credential would save and then
+    // fail every sync, so the only way in is the login.
+    throw new CredentialValidationError(`${platform.label} has no key to paste. Log in with ${platform.label} on the Connectors page instead.`);
+  }
   const values: CredentialValues = {};
   for (const field of platform.fields) {
     const value = (rawValues[field.name] ?? '').trim();
@@ -1467,7 +1528,7 @@ export function howToConnectFor(connectorSlug: string): Omit<NonNullable<Credent
     return declaration;
   }
   const login = Object.hasOwn(loginByConnector, connectorSlug) ? loginByConnector[connectorSlug] : undefined;
-  return { paste: declaration.paste, ...(login ? { login } : {}) };
+  return { ...(declaration.paste ? { paste: declaration.paste } : {}), ...(login ? { login } : {}) };
 }
 
 /** Google writes its scopes as URLs; people know them by the part after this. */

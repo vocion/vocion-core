@@ -86,9 +86,10 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
   const source = { agentSlug: ctx.agentSlug, tool: 'offer_connection' };
   if (!login) {
     // No login for this connector: the button opens its token form. A connector
-    // with no declaration keeps the plain Connectors link.
-    const href = how ? pasteHref(connector.slug, ctx.conversationId) : connectHref(connector.slug, ctx.conversationId);
-    const body = how ? { body: pasteBody(how.paste) } : {};
+    // with no declaration, or nothing to paste (its login is not set up on
+    // this server), keeps the plain Connectors link, where the form says why.
+    const href = how?.paste ? pasteHref(connector.slug, ctx.conversationId) : connectHref(connector.slug, ctx.conversationId);
+    const body = how?.paste ? { body: pasteBody(how.paste) } : {};
     const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, ...body, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
     ctx.emit({ type: 'card', card });
     return connectedWording(name, href, null);
@@ -121,8 +122,13 @@ async function offerConnection(ctx: RuntimeContext, input: { connector: string; 
     source,
     href,
     hrefLabel: `Connect ${name}`,
-    secondaryHref: `/dashboard/connectors?add=${encodeURIComponent(connector.slug)}&paste=1&returnTo=${encodeURIComponent(returnTo)}`,
-    secondaryHrefLabel: 'Paste a token',
+    // A connector with nothing to paste offers its login alone.
+    ...(how?.paste
+      ? {
+          secondaryHref: `/dashboard/connectors?add=${encodeURIComponent(connector.slug)}&paste=1&returnTo=${encodeURIComponent(returnTo)}`,
+          secondaryHrefLabel: 'Paste a token',
+        }
+      : {}),
     ...(lastAttempt ? { lastAttempt } : {}),
     state: 'proposed',
   };

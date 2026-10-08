@@ -27,6 +27,7 @@ import type { Buffer } from 'node:buffer';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { normaliseText, readPdfText } from '@/libs/extract/documentText';
 import { artifactsDir } from '@/libs/tools/artifacts/store';
 
 /** What the composer chip and the transcript show — mirrors `features/dashboard/chat/types.ts`. */
@@ -127,20 +128,10 @@ function mb(n: number): string {
  */
 export async function extractText(data: Buffer, contentType: string): Promise<string> {
   if (contentType === 'application/pdf') {
-    const { PDFParse } = await import('pdf-parse');
-    const parser = new PDFParse({ data: new Uint8Array(data) });
-    try {
-      const result = await parser.getText();
-      return normalise(result.text);
-    } finally {
-      await parser.destroy().catch(() => {});
-    }
+    // The same reader the Drive and Gmail connectors use (`libs/extract`).
+    return (await readPdfText(data)).text;
   }
-  return normalise(data.toString('utf8'));
-}
-
-function normalise(text: string): string {
-  return text.replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return normaliseText(data.toString('utf8'));
 }
 
 /**

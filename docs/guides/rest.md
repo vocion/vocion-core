@@ -4,7 +4,8 @@ A workspace with an internal REST API — a delivery tracker, a billing system, 
 headless CMS — can give its agents live tools over it, and let them propose
 writes to it, by declaring the endpoints in one source file. No code: the
 source is `kind: rest`, its `config` lists the endpoints, and the credential
-is a base URL plus a bearer token kept in the vault.
+is a base URL plus a token kept in the vault — sent as `Authorization: Bearer`
+by default, or in whatever header and scheme the API asks for.
 
 Each entry under `tools` becomes one agent tool, called live at chat time.
 Each entry under `actions` is a write the agent can only reach through the
@@ -18,7 +19,7 @@ paths, the arguments and the review wording all come from the workspace.
 
 Not to be confused with the `strapi` connector: `strapi` syncs a Strapi
 instance's collections into search on a schedule (read-only, indexed, found
-with `search_knowledge`), while `rest` calls any bearer-token API live at the
+with `search_knowledge`), while `rest` calls any token-authenticated API live at the
 moment of the question and can propose writes to it — nothing is indexed. A
 Strapi instance can be both, as two sources.
 
@@ -214,15 +215,33 @@ model provider's tool schema without a transform.
 1. Apply the workspace, or add the source at `/dashboard/connectors` → REST API
    (the form asks only for the prefix and the health path; the endpoints come
    from the file).
-2. **Connect the credential** — two values kept together because a token is
-   issued for one API:
+2. **Connect the credential** — kept together because a token is issued for
+   one API:
 
-   | Field | Shown |
-   |---|---|
-   | API base URL, e.g. `https://api.acme.example` | in full |
-   | Bearer token | masked |
+   | Field | Shown | |
+   |---|---|---|
+   | API base URL, e.g. `https://api.acme.example` | in full | required |
+   | API token | masked | required |
+   | Header name, e.g. `X-Auth-Token` | in full | optional — blank is `Authorization` |
+   | Scheme, e.g. `Token` | in full | optional — see below |
 
-   The token goes out as `Authorization: Bearer <token>` on every call and
+   How the token goes out:
+
+   | Header name | Scheme | Sent as |
+   |---|---|---|
+   | blank | blank | `Authorization: Bearer <token>` |
+   | blank | `Token` | `Authorization: Token <token>` |
+   | blank | `none` | `Authorization: <token>` |
+   | `X-Auth-Token` | blank | `X-Auth-Token: <token>` |
+   | `X-Api-Key` | `Key` | `X-Api-Key: Key <token>` |
+
+   A header name is one HTTP header name; `Accept`, `Content-Type`,
+   `Content-Length`, `Host`, `Connection` and `Transfer-Encoding` are refused,
+   because the request sets those itself. A scheme is one word. Both are
+   checked when the credential is saved, and Test connection names the
+   header it used ("X-Auth-Token header accepted").
+
+   The token goes out in that one header on every call and
    nowhere else: never in a tool result, a card, a log line or an error. Give
    it read rights for the reads, and write rights only for the endpoints the
    source declares as actions. It is stored AES-256-GCM encrypted under the
@@ -230,7 +249,7 @@ model provider's tool schema without a transform.
    the YAML.
 
    A workspace holds as many REST credentials as it has REST APIs, told apart
-   by name — the connect form names one `REST API (bearer token) — <source>`
+   by name — the connect form names one `REST API (token) — <source>`
    by default — and each source calls with the one it is connected to. Two
    sources never share a credential: a token issued for one API authenticates
    nothing against another, so pointing a second source at a credential

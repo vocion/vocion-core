@@ -17,6 +17,7 @@ import {
   credentialsAreShareable,
   DEFAULT_PLATFORM_ID,
   getPlatform,
+  hintField,
   holdsManyCredentials,
   isCredentialPlatformId,
   keyHint,
@@ -422,19 +423,40 @@ describe('connector platforms', () => {
     })).toEqual({ baseUrl: 'https://cms.example.com', token: 'strapi-token' });
   });
 
-  it('keeps the base URL with the REST bearer token, shows it in full, and serves the rest connector', () => {
+  it('keeps the base URL with the REST token, shows it in full, and serves the rest connector', () => {
     // Same shape and same cap as Strapi, for the same reason: a token is
     // issued for one API, so a workspace with two APIs holds two credentials
     // and each source names the one it uses.
     const rest = getPlatform('rest');
 
-    expect(rest.label).toBe('REST API (bearer token)');
+    expect(rest.label).toBe('REST API (token)');
     expect(rest.credentialsPerOrg).toBe('many');
-    expect(rest.fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
-    expect(visibleFields(rest).map(field => field.name)).toEqual(['baseUrl']);
+    expect(rest.fields.map(field => field.name)).toEqual(['baseUrl', 'token', 'headerName', 'scheme']);
+    expect(visibleFields(rest).map(field => field.name)).toEqual(['baseUrl', 'headerName', 'scheme']);
+    expect(hintField(rest)?.name).toBe('token');
     expect(platformForConnectorSlug('rest')?.id).toBe('rest');
     expect(() => validatePlatformCredential('rest', { baseUrl: 'api.example', token: 'tok' })).toThrow(/API base URL/);
     expect(validatePlatformCredential('rest', { baseUrl: ' https://api.example ', token: ' tok ' })).toEqual({ baseUrl: 'https://api.example', token: 'tok' });
+  });
+
+  it('holds QuickBooks logins one per company, and refuses a paste, since QuickBooks has no key to paste', () => {
+    const quickbooks = getPlatform('quickbooks');
+
+    expect(quickbooks.credentialsPerOrg).toBe('many');
+    expect(quickbooks.fields).toEqual([]);
+    expect(platformForConnectorSlug('quickbooks')?.id).toBe('quickbooks');
+    expect(() => validatePlatformCredential('quickbooks', {})).toThrow(/QuickBooks has no key to paste\. Log in with QuickBooks on the Connectors page instead\./);
+  });
+
+  it('takes the REST token\'s header and scheme when the API wants other than Authorization: Bearer', () => {
+    expect(validatePlatformCredential('rest', { baseUrl: 'https://api.example', token: 'tok', headerName: ' X-Auth-Token ', scheme: '' }))
+      .toEqual({ baseUrl: 'https://api.example', token: 'tok', headerName: 'X-Auth-Token' });
+    expect(validatePlatformCredential('rest', { baseUrl: 'https://api.example', token: 'tok', scheme: 'Token' }))
+      .toEqual({ baseUrl: 'https://api.example', token: 'tok', scheme: 'Token' });
+    // A name HTTP does not allow, or one the request sets itself, is refused at save.
+    expect(() => validatePlatformCredential('rest', { baseUrl: 'https://api.example', token: 'tok', headerName: 'X Auth' })).toThrow(/Header name/);
+    expect(() => validatePlatformCredential('rest', { baseUrl: 'https://api.example', token: 'tok', headerName: 'Content-Type' })).toThrow(/Header name/);
+    expect(() => validatePlatformCredential('rest', { baseUrl: 'https://api.example', token: 'tok', scheme: 'Two words' })).toThrow(/Scheme/);
   });
 
   it('pairs the Jira token with the email it was issued to', () => {
@@ -541,7 +563,7 @@ describe('connector platforms', () => {
 });
 
 /** The migration that last rebuilt `api_token_org_platform_live_idx`. */
-const LATEST_INDEX_MIGRATION = '0154_app_login_many_credentials.sql';
+const LATEST_INDEX_MIGRATION = '0181_quickbooks_many_credentials.sql';
 
 /**
  * Read a repo file by path segments, relative to the package root.
@@ -584,7 +606,7 @@ describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
     // Apollo key at all, so the cap has never been in anyone's way. See the
     // `apollo` descriptor in registry.ts.
     expect([...MANY_CREDENTIAL_PLATFORM_IDS].sort()).toEqual(
-      ['app-login', 'google', 'granola', 'hubspot', 'jira', 'rest', 'slack', 'strapi', 'vocion', 'zoom'],
+      ['app-login', 'google', 'granola', 'hubspot', 'jira', 'quickbooks', 'rest', 'slack', 'strapi', 'vocion', 'zoom'],
     );
   });
 

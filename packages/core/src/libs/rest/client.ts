@@ -10,14 +10,31 @@
  * an opaque exception. The action, whose contract is throw-on-failure,
  * unwraps and throws itself.
  *
- * The token is used for the `Authorization` header and nowhere else — never
- * in a message, a log line, a result or a thrown error.
+ * The token is used for the auth header and nowhere else — never in a
+ * message, a log line, a result or a thrown error. The header is
+ * `Authorization: Bearer <token>` unless the credential names another
+ * (`headerName`, `scheme`): `X-Auth-Token: <token>`, `Authorization: Token
+ * <token>`. One header, built in one place (`authHeaderFor`).
  */
 
 import type { RestMethod } from './spec';
+import { AUTH_SCHEME_PATTERN, HEADER_NAME_PATTERN } from './authHeader';
 
-/** The two values the `rest` credential platform stores. */
-export type RestCredentials = { baseUrl: string; token: string };
+/**
+ * What the `rest` credential platform stores: the API and the token, plus
+ * how the token is sent when it is not `Authorization: Bearer <token>`.
+ */
+export type RestCredentials = {
+  baseUrl: string;
+  token: string;
+  /** The header the token goes in. Absent: `Authorization`. */
+  headerName?: string;
+  /**
+   * The word before the token. Absent: `Bearer` on `Authorization`, nothing on
+   * any other header. `none` sends the token bare on `Authorization` too.
+   */
+  scheme?: string;
+};
 
 /**
  * Why a call did not produce data. Each code is one sentence the model or a
@@ -54,17 +71,66 @@ export const REST_TIMEOUT_MS = 15_000;
 const ERROR_BODY_CHARS = 500;
 
 /**
- * The credential pair out of a vault document, or undefined when either half
- * is missing.
+ * The credential out of a vault document, or undefined when the base URL or
+ * the token is missing, or the header or scheme it names is not one HTTP
+ * allows (the registry refuses those at save, so this is the backstop).
  * @param credentials - The decrypted `rest` credential, if any.
  */
 export function restCredentialsOf(credentials?: Record<string, unknown> | null): RestCredentials | undefined {
   const baseUrl = credentials?.baseUrl;
   const token = credentials?.token;
-  if (typeof baseUrl !== 'string' || !/^https?:\/\/\S+$/i.test(baseUrl.trim()) || typeof token !== 'string' || token.trim() === '') {
+  // A control character would make the header invalid, and the transport's
+  // error for that quotes the value: refused here, before any header is built.
+  // eslint-disable-next-line no-control-regex
+  if (typeof baseUrl !== 'string' || !/^https?:\/\/\S+$/i.test(baseUrl.trim()) || typeof token !== 'string' || token.trim() === '' || /[\u0000-\u001F\u007F]/.test(token.trim())) {
     return undefined;
   }
-  return { baseUrl: baseUrl.trim(), token: token.trim() };
+  const headerName = optionalText(credentials?.headerName);
+  const scheme = optionalText(credentials?.scheme);
+  if ((headerName !== undefined && !HEADER_NAME_PATTERN.test(headerName)) || (scheme !== undefined && !AUTH_SCHEME_PATTERN.test(scheme))) {
+    return undefined;
+  }
+  return {
+    baseUrl: baseUrl.trim(),
+    token: token.trim(),
+    ...(headerName !== undefined ? { headerName } : {}),
+    ...(scheme !== undefined ? { scheme } : {}),
+  };
+}
+
+/**
+ * A stored optional field: its trimmed text, or undefined when blank or absent.
+ * @param value - The vault's value.
+ */
+function optionalText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+/**
+ * The header the token goes out in, as `[name, value]`.
+ * @param credentials - The resolved credential.
+ */
+export function authHeaderFor(credentials: RestCredentials): [string, string] {
+  const name = credentials.headerName ?? 'Authorization';
+  const onAuthorization = name.toLowerCase() === 'authorization';
+  const scheme = credentials.scheme ?? (onAuthorization ? 'Bearer' : undefined);
+  const prefix = scheme === undefined || scheme.toLowerCase() === 'none' ? '' : `${scheme} `;
+  return [name, `${prefix}${credentials.token}`];
+}
+
+/**
+ * How the token is sent, in words, with no part of the token: "Bearer token
+ * in Authorization", "X-Auth-Token header".
+ * @param credentials - The resolved credential.
+ */
+export function describeAuth(credentials: Partial<RestCredentials>): string {
+  const name = credentials.headerName ?? 'Authorization';
+  const onAuthorization = name.toLowerCase() === 'authorization';
+  const scheme = credentials.scheme ?? (onAuthorization ? 'Bearer' : undefined);
+  if (scheme === undefined || scheme.toLowerCase() === 'none') {
+    return `${name} header`;
+  }
+  return `${scheme} token in ${name}`;
 }
 
 /**
@@ -76,7 +142,7 @@ export function noRestCredentials(sourceSlug: string): RestFailure {
     ok: false,
     error: 'no_credentials',
     status: null,
-    message: `No credential is connected for the "${sourceSlug}" source, so its API cannot be called. Connect a base URL and bearer token for it on the Connectors page. Say that rather than guessing.`,
+    message: `No credential is connected for the "${sourceSlug}" source, so its API cannot be called. Connect a base URL and token for it on the Connectors page. Say that rather than guessing.`,
   };
 }
 
@@ -175,7 +241,7 @@ function httpFailure(status: number, text: string): RestFailure {
 }
 
 /**
- * One call to the API, with the bearer token on it.
+ * One call to the API, with the token on it (`authHeaderFor`).
  * @param req - The call.
  * @param req.credentials - Where and as whom.
  * @param req.method - HTTP method.
@@ -193,8 +259,9 @@ export async function restCall(req: {
   timeoutMs?: number;
 }): Promise<RestResult> {
   const url = buildUrl(req.credentials.baseUrl, req.path, req.query);
+  const [authName, authValue] = authHeaderFor(req.credentials);
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${req.credentials.token}`,
+    [authName]: authValue,
     Accept: 'application/json',
   };
   const hasBody = req.method !== 'GET' && req.body !== undefined;

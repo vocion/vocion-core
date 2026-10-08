@@ -5,7 +5,7 @@
  * picked and capped without losing the fact that it was cut.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildUrl, capJson, noRestCredentials, pickPath, restCall, restCredentialsOf } from './client';
+import { authHeaderFor, buildUrl, capJson, describeAuth, noRestCredentials, pickPath, restCall, restCredentialsOf } from './client';
 
 const CREDS = { baseUrl: 'https://api.northwind.example/', token: 'secret-token-1' };
 
@@ -22,6 +22,17 @@ describe('restCredentialsOf', () => {
     expect(restCredentialsOf({ baseUrl: 'a.example', token: 't' })).toBeUndefined();
     expect(restCredentialsOf({ baseUrl: 'https://a.example', token: '' })).toBeUndefined();
     expect(restCredentialsOf(undefined)).toBeUndefined();
+  });
+
+  it('keeps the header and scheme a credential names, and refuses ones HTTP would not send', () => {
+    expect(restCredentialsOf({ baseUrl: 'https://a.example', token: 't', headerName: ' X-Auth-Token ', scheme: ' ' })).toEqual({ baseUrl: 'https://a.example', token: 't', headerName: 'X-Auth-Token' });
+    expect(restCredentialsOf({ baseUrl: 'https://a.example', token: 't', headerName: 'bad header' })).toBeUndefined();
+    expect(restCredentialsOf({ baseUrl: 'https://a.example', token: 't', headerName: 'Accept' })).toBeUndefined();
+    expect(restCredentialsOf({ baseUrl: 'https://a.example', token: 't', scheme: 'two words' })).toBeUndefined();
+  });
+
+  it('refuses a token with a control character, before a header is built that would quote it in an error', () => {
+    expect(restCredentialsOf({ baseUrl: 'https://a.example', token: 'tok\nInjected: 1' })).toBeUndefined();
   });
 
   it('names the Connectors-page fix when nothing is stored', () => {
@@ -107,6 +118,37 @@ describe('restCall', () => {
     }));
 
     expect(await restCall({ credentials: CREDS, method: 'GET', path: '/x' })).toMatchObject({ ok: false, error: 'network_error', message: expect.stringContaining('fetch failed') });
+  });
+});
+
+describe('the auth header', () => {
+  it('is Authorization: Bearer by default', () => {
+    expect(authHeaderFor(CREDS)).toEqual(['Authorization', 'Bearer secret-token-1']);
+    expect(describeAuth(CREDS)).toBe('Bearer token in Authorization');
+  });
+
+  it('puts the bare token in a named header such as X-Auth-Token', () => {
+    const creds = { ...CREDS, headerName: 'X-Auth-Token' };
+
+    expect(authHeaderFor(creds)).toEqual(['X-Auth-Token', 'secret-token-1']);
+    expect(describeAuth(creds)).toBe('X-Auth-Token header');
+  });
+
+  it('uses the scheme the credential names, on Authorization or on its own header', () => {
+    expect(authHeaderFor({ ...CREDS, scheme: 'Token' })).toEqual(['Authorization', 'Token secret-token-1']);
+    expect(authHeaderFor({ ...CREDS, headerName: 'X-Api-Key', scheme: 'Key' })).toEqual(['X-Api-Key', 'Key secret-token-1']);
+    expect(authHeaderFor({ ...CREDS, scheme: 'none' })).toEqual(['Authorization', 'secret-token-1']);
+    expect(describeAuth({ scheme: 'none' })).toBe('Authorization header');
+  });
+
+  it('sends exactly one auth header on the call, the named one, and no Authorization beside it', async () => {
+    const f = vi.fn(async () => res(200, {}));
+    vi.stubGlobal('fetch', f);
+    await restCall({ credentials: { ...CREDS, headerName: 'X-Auth-Token' }, method: 'GET', path: '/me' });
+
+    const headers = (f.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+
+    expect(headers).toEqual({ 'X-Auth-Token': 'secret-token-1', 'Accept': 'application/json' });
   });
 });
 

@@ -275,6 +275,13 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'Same search wording the Gmail search box takes, e.g. from:client.com.',
     },
     {
+      key: 'attachments',
+      label: 'Read PDF and Word attachments',
+      type: 'boolean',
+      defaultValue: false,
+      help: 'Makes the text of each PDF and .docx attachment (up to 25 MB) searchable. Scanned PDFs have no text to read; there is no OCR.',
+    },
+    {
       key: 'baseUrl',
       label: 'API base URL',
       type: 'url',
@@ -649,6 +656,25 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       type: 'boolean',
       defaultValue: true,
       help: 'Counts only — never an issue\'s name, message or stack trace. Skipped, and said so, on a PostHog that does not expose the API.',
+    },
+  ],
+
+  // The login is the company: nothing to pick after it. Sample data reads a
+  // fictional company with no login, to try the connector first.
+  'quickbooks': [
+    {
+      key: 'sample',
+      label: 'Use sample data',
+      type: 'boolean',
+      defaultValue: false,
+      help: 'Reads a fictional company instead of yours, with no login. Every document it makes says it is sample data.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      help: 'Leave blank: the login knows whether its company is in production or the sandbox.',
     },
   ],
 };
