@@ -126,6 +126,10 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   'personalization.enroll': 'medium',
   'discovery.review_proposal': 'low',
   'objects.propose_candidate': 'medium',
+  // A change to the team itself, from the weekly org review: who works here,
+  // what they may spend, what rules they keep. Reversible, but a person's call
+  // until a workspace promotes a kind (`org.change.<kind>` keys read this).
+  'org.change': 'medium',
   // Internal writes an agent makes on the workspace's own records and queue.
   // Each is reversible and costs a person at most a minute to put back, so
   // the done-for-you default applies. A workspace holding a type's writes to

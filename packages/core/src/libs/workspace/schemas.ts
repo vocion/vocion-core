@@ -2,6 +2,7 @@ import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
 import { VoiceSchema } from '@/libs/agents/voice';
 import { TYPE_CODE_PATTERN } from '@/libs/codes';
+import { OrgReviewConfigSchema } from '@/libs/orgReview/config';
 import { agentSkillsNameError } from '@/libs/skills/name';
 import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
@@ -193,6 +194,19 @@ export const WorkspaceManifestSchema = z.object({
      * dial for that kind — pin one action without changing the appetite.
      */
     learningEagerness: z.number().int().min(0).max(10).optional(),
+    /**
+     * The weekly org review (`services/orgReview`): when it runs and what it
+     * calls idle or stale. It reads the evidence core already stores and files
+     * proposals on Needs you to retire, re-scope or hire agents, or adopt a
+     * standing rule — each citing its evidence, each waiting for a person —
+     * and tidies the rulebook (merges and retirements on the learnings page).
+     *
+     * `schedule` (5-field cron, UTC; default Mondays 14:00), `enabled`
+     * (default on; off for a personal workspace), `idleDays` (14),
+     * `staleRuleDays` (60), `maxProposals` (5). Omit the block for the
+     * defaults; `enabled: false` turns the review off and removes its schedule.
+     */
+    orgReview: OrgReviewConfigSchema.optional(),
     /**
      * The spend cap every agent in this workspace is held to when its own
      * YAML sets no `budget:` — the workspace's default agent cap (#272).

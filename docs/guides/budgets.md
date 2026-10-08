@@ -203,6 +203,15 @@ Budgets](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-ma
 and [configuring budget
 actions](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-controls.html).
 
+## The weekly org review re-scopes caps
+
+The [org review](./org-review.md) reads each agent's spend against what people
+decided on its work. An agent stopped at its cap while people accept most of
+what it does gets a proposal to raise the cap; one spending real money on work
+people turn down gets one to halve it. Each is an `org.change` on Needs you,
+with the spend and the agreement behind it, waiting for a person — and Undo
+writes the previous caps back.
+
 ## Related
 
 [Agent](../entities/agent.md#budget) · [Workspace](../workspace.md) ·

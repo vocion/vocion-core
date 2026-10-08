@@ -169,6 +169,7 @@ const ACTION_EFFECT: Record<string, string> = {
   'learning.adopt_rule': 'Adopts the rule',
   'agent.revise_prompt': 'Revises the agent\'s instructions',
   'team.hire_agent': 'Adds the agent to the team',
+  'org.change': 'Changes the team',
   'plugin.enable': 'Turns the plugin on or off',
   'personalization.enroll': 'Enrolls the contact in the sequence',
   'qc.hold': 'Holds the kit',

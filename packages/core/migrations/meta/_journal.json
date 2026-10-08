@@ -1219,6 +1219,20 @@
       "when": 1791500185000,
       "tag": "0185_resume_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1791600900000,
+      "tag": "0186_learning_compaction",
+      "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1791600960000,
+      "tag": "0187_org_review",
+      "breakpoints": true
     }
   ]
 }

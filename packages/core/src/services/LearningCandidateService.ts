@@ -14,10 +14,12 @@
  * straight in.
  */
 
+import type { RuleChangeKind } from '@/libs/learning/ruleChange';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { mergedOccurrenceCount, ruleChangeKind } from '@/libs/learning/ruleChange';
 import { learningCandidateSchema, learningFeedbackOccurrenceSchema } from '@/models/Schema';
-import { addRule, checkDedup, ensureScopedNamespace } from '@/services/MemoryService';
+import { addRule, checkDedup, ensureScopedNamespace, markRetiredInto, restoreRules, retireRules, ruleSnapshots } from '@/services/MemoryService';
 
 export type LearningCandidate = typeof learningCandidateSchema.$inferSelect;
 
@@ -268,8 +270,13 @@ export async function decideCandidate(opts: {
     return { ok: false, error: 'already_decided' };
   }
 
+  const kind = ruleChangeKind(candidate);
   if (opts.decision === 'reject') {
-    const reason = opts.reason?.trim();
+    // A new rule turned down needs its reason — that is what the classifier
+    // learns from. Keeping a rule a compaction wanted to merge or retire is
+    // the reviewer saying "this still matters", and asking them to justify
+    // the status quo is a hard stop on a person (principle 13).
+    const reason = opts.reason?.trim() || (kind === 'adopt' ? '' : `Kept as it is — a person chose not to ${kind === 'merge' ? 'merge these rules' : 'retire this rule'}.`);
     if (!reason) {
       return { ok: false, error: 'reason_required' };
     }
@@ -290,11 +297,20 @@ export async function decideCandidate(opts: {
     targetStep = (await ensureScopedNamespace(opts.orgId, candidate.scopeKind, candidate.scopeRef)).name;
   }
 
+  // A retirement adds nothing: the rules it names leave the store (expired,
+  // never deleted — Undo restores them) and that is the whole decision.
+  if (kind === 'expire') {
+    return approveRetirement(opts, candidate, targetStep, agentSlug);
+  }
+
   // A consolidation proposal replaces the rules it merged. The retire happens
   // FIRST (the merged text near-duplicates its own sources by construction),
   // but only after checking the merge does not collide with some rule it is
-  // NOT replacing — that way a refused merge leaves the store untouched.
+  // NOT replacing — that way a refused merge leaves the store untouched. The
+  // originals are retired, not deleted, and come back if the merged rule
+  // cannot be written, so a failed merge never loses a rule.
   const replaces = candidate.replacesKeys ?? [];
+  let originals: Awaited<ReturnType<typeof ruleSnapshots>> = [];
   if (replaces.length > 0) {
     const collision = await checkCandidateText(opts.orgId, targetStep, effectiveRuleText(candidate));
     if (!collision.ok && !replaces.includes(collision.existingKey)) {
@@ -304,25 +320,30 @@ export async function decideCandidate(opts: {
         existing: { existingKey: collision.existingKey, existingRule: collision.existingRule, similarity: collision.similarity },
       };
     }
-    const { removeRule } = await import('@/services/MemoryService');
-    for (const key of replaces) {
-      await removeRule({ orgId: opts.orgId, key });
-    }
+    originals = await ruleSnapshots(opts.orgId, replaces);
+    await retireRules({ orgId: opts.orgId, keys: replaces, reason: 'merged', by: opts.decidedBy, candidateId: opts.id });
   }
+  // What the merged rule has earned: every original's occurrence count, plus
+  // any feedback that restated the merge while it waited.
+  const occurrenceCount = originals.length > 0
+    ? mergedOccurrenceCount(originals) + Math.max(0, candidate.occurrenceCount - 1)
+    : candidate.occurrenceCount;
   let added;
   try {
     added = await addRule({
       orgId: opts.orgId,
       stepName: targetStep,
       ruleText: effectiveRuleText(candidate),
-      source: candidate.sourceFeedbackJobId ? `feedback:${candidate.sourceFeedbackJobId}` : 'learning-candidate',
+      source: candidate.sourceFeedbackJobId ? `feedback:${candidate.sourceFeedbackJobId}` : (originals.length > 0 ? `merge:${candidate.id}` : 'learning-candidate'),
       createdBy: opts.decidedBy,
       agentSlug,
-      occurrenceCount: candidate.occurrenceCount,
+      occurrenceCount,
       polarity: candidate.polarity,
       type: candidate.memoryType ?? undefined,
+      mergedFrom: originals.map(o => ({ key: o.key, text: o.text, occurrenceCount: o.occurrenceCount, source: o.source, adoptedAt: o.adoptedAt })),
     });
   } catch (error) {
+    await restoreRules({ orgId: opts.orgId, keys: replaces });
     // addRule throws only for an unknown namespace; anything else is a real fault.
     if (error instanceof Error && error.message.startsWith('unknown memory namespace')) {
       console.error(`[LearningCandidateService] candidate ${opts.id} targets unknown step "${candidate.stepName}"`, error);
@@ -332,6 +353,7 @@ export async function decideCandidate(opts: {
   }
 
   if (!added.ok) {
+    await restoreRules({ orgId: opts.orgId, keys: replaces });
     return {
       ok: false,
       error: 'near_duplicate',
@@ -355,17 +377,10 @@ export async function decideCandidate(opts: {
     .returning();
   await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'approved', agentSlug);
   if (replaces.length > 0) {
-    // The compaction mark for the growing-memory chart ("N → 1").
-    void (async () => {
-      const { track } = await import('@/services/adoption/track');
-      await track({ orgId: opts.orgId, userId: opts.decidedBy }, 'learning.consolidated', {
-        agentSlug: agentSlug ?? undefined,
-        resource: ['learning_candidate', opts.id],
-        meta: { replaced: replaces.length, stepName: targetStep },
-      });
-    })().catch((error) => {
-      console.error(`[LearningCandidateService] could not track consolidation for candidate ${opts.id}`, error);
-    });
+    if (added.rule?.key) {
+      await markRetiredInto(opts.orgId, replaces, added.rule.key);
+    }
+    trackCompaction(opts.orgId, opts.decidedBy, opts.id, agentSlug, replaces.length, targetStep);
   }
   // Adoption evidence: run the affected agent's eval dataset so the card can
   // show a before/after score. Fire-and-forget — a dataset run takes minutes
@@ -376,6 +391,64 @@ export async function decideCandidate(opts: {
     });
   }
   return { ok: true, candidate: row!, ruleKey: added.rule?.key ?? null };
+}
+
+/**
+ * Approve a retirement: every rule the candidate names is retired (expired in
+ * the store, its decision on its meta) and nothing is written in its place.
+ * A rule already gone is skipped rather than failing the decision a person
+ * just made.
+ * @param opts - The decision.
+ * @param opts.orgId - The workspace.
+ * @param opts.id - The candidate.
+ * @param opts.decidedBy - Who decided.
+ * @param candidate - The candidate row.
+ * @param targetStep - The namespace it is about, for the adoption stream.
+ * @param agentSlug - The agent it is about, when one is known.
+ */
+async function approveRetirement(
+  opts: { orgId: string; id: number; decidedBy: string },
+  candidate: LearningCandidate,
+  targetStep: string,
+  agentSlug: string | null,
+): Promise<DecideCandidateResult> {
+  const keys = candidate.replacesKeys ?? [];
+  const reason = candidate.evidence?.reason === 'contradicted' ? 'contradicted' : 'stale';
+  const retired = await retireRules({ orgId: opts.orgId, keys, reason, by: opts.decidedBy, candidateId: opts.id });
+  const [row] = await db
+    .update(learningCandidateSchema)
+    .set({ status: 'approved', createdMemoryKey: null, decidedBy: opts.decidedBy, decidedAt: new Date() })
+    .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
+    .returning();
+  await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'approved', agentSlug);
+  if (retired.length > 0) {
+    trackCompaction(opts.orgId, opts.decidedBy, opts.id, agentSlug, retired.length, targetStep, 'expire');
+  }
+  return { ok: true, candidate: row!, ruleKey: null };
+}
+
+/**
+ * The compaction mark for the growing-memory chart ("N → 1", or "N → 0" for a
+ * retirement). Fire-and-forget: telemetry never fails a decision.
+ * @param orgId - The workspace.
+ * @param decidedBy - Who decided.
+ * @param candidateId - The candidate.
+ * @param agentSlug - The agent it is about, when one is known.
+ * @param replaced - How many rules left the store.
+ * @param stepName - The namespace.
+ * @param change - A merge or a retirement.
+ */
+function trackCompaction(orgId: string, decidedBy: string, candidateId: number, agentSlug: string | null, replaced: number, stepName: string, change: 'merge' | 'expire' = 'merge'): void {
+  void (async () => {
+    const { track } = await import('@/services/adoption/track');
+    await track({ orgId, userId: decidedBy }, 'learning.consolidated', {
+      agentSlug: agentSlug ?? undefined,
+      resource: ['learning_candidate', candidateId],
+      meta: { replaced, stepName, change },
+    });
+  })().catch((error) => {
+    console.error(`[LearningCandidateService] could not track consolidation for candidate ${candidateId}`, error);
+  });
 }
 
 /**
@@ -408,6 +481,12 @@ export async function unadoptCandidate(opts: {
     return { undone: false, ruleKey: null, reason: 'not_found' };
   }
   const ruleKey = candidate.createdMemoryKey ?? null;
+  // A compaction put back: the rules it merged or retired come back as they
+  // were (they were expired, never deleted), before the merged rule goes.
+  const retiredKeys = ruleChangeKind(candidate) === 'adopt' ? [] : (candidate.replacesKeys ?? []);
+  if (retiredKeys.length > 0) {
+    await restoreRules({ orgId: opts.orgId, keys: retiredKeys });
+  }
   if (ruleKey) {
     const { removeRule } = await import('@/services/MemoryService');
     try {
@@ -623,6 +702,10 @@ export type DecidedCandidateCard = {
   decidedBy: string | null;
   decidedAt: Date | null;
   rejectedReason: string | null;
+  /** What the decision changed: a new rule, a merge, or a retirement. */
+  changeKind: RuleChangeKind;
+  /** How many rules a merge or retirement took out of the store. */
+  replacedCount: number;
   /** Pass rate of the adoption-triggered eval run, and of the run before it. */
   evalAfterPct: number | null;
   evalBeforePct: number | null;
@@ -680,6 +763,8 @@ export async function listDecidedWithEvidence(orgId: string, limit = 8): Promise
       decidedBy: c.decidedBy,
       decidedAt: c.decidedAt,
       rejectedReason: c.rejectedReason,
+      changeKind: ruleChangeKind(c),
+      replacedCount: c.replacesKeys?.length ?? 0,
       evalAfterPct: after,
       evalBeforePct: before,
     });

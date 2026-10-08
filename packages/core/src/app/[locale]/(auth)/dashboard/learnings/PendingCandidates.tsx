@@ -1,9 +1,12 @@
 'use client';
 
+import type { RuleChangeEvidence as Evidence } from '@/libs/learning/ruleChange';
 import { Check, ChevronDown, Loader2, ThumbsDown, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
+import { RuleChangeEvidence } from '@/features/learnings/RuleChangeEvidence';
+import { ruleChangeKind, ruleChangeVerbs } from '@/libs/learning/ruleChange';
 
 /** A candidate row as the learnings page hands it over from the server. */
 export type PendingCandidate = {
@@ -26,6 +29,12 @@ export type PendingCandidate = {
   agentRef: string | null;
   /** The person who gave the feedback. */
   userRef: string | null;
+  /** `merge` / `expire` for a compaction; null or `adopt` for a new rule. */
+  changeKind?: string | null;
+  /** The rules a merge or a retirement takes out of the store. */
+  replacesKeys?: string[] | null;
+  /** What a compaction was proposed on. */
+  evidence?: Evidence | null;
 };
 
 type Props = {
@@ -259,7 +268,7 @@ export function PendingCandidates({ candidates, total, pageSize, steps }: Props)
         )
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Proposed from reviewer feedback. Nothing here changes how an agent behaves until you approve it.
+        Proposed from reviewer feedback, and tidy-ups of the rulebook itself — merges of rules that say the same thing, and retirements of rules nobody uses. Nothing here changes how an agent behaves until you approve it.
       </p>
 
       {error && (
@@ -273,6 +282,20 @@ export function PendingCandidates({ candidates, total, pageSize, steps }: Props)
           const current = candidate.editedRuleText ?? candidate.ruleText;
           const draft = drafts[candidate.id] ?? current;
           const busy = busyId === candidate.id;
+          const kind = ruleChangeKind(candidate);
+          if (kind !== 'adopt') {
+            return (
+              <CompactionRow
+                key={candidate.id}
+                candidate={candidate}
+                kind={kind}
+                draft={draft}
+                busy={busy}
+                onDraft={text => setDrafts(d => ({ ...d, [candidate.id]: text }))}
+                onDecide={decision => decide(candidate, decision)}
+              />
+            );
+          }
           return (
             <li key={candidate.id} className="rounded-lg border border-border bg-background p-4">
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -453,5 +476,77 @@ export function PendingCandidates({ candidates, total, pageSize, steps }: Props)
         </button>
       )}
     </section>
+  );
+}
+
+/**
+ * A merge or a retirement on the learnings page: what goes and why, with the
+ * evidence, decided in one move. Keeping things as they are needs no reason —
+ * the status quo is not something a person should have to justify. A merge's
+ * wording stays editable; a retirement has nothing to edit.
+ * @param props - The row.
+ * @param props.candidate - The suggestion.
+ * @param props.kind - `merge` or `expire`.
+ * @param props.draft - The merged rule as currently worded.
+ * @param props.busy - A decision is in flight.
+ * @param props.onDraft - Reword the merged rule.
+ * @param props.onDecide - Approve or keep.
+ */
+function CompactionRow(props: {
+  candidate: PendingCandidate;
+  kind: 'merge' | 'expire';
+  draft: string;
+  busy: boolean;
+  onDraft: (text: string) => void;
+  onDecide: (decision: 'approve' | 'reject') => void;
+}) {
+  const verbs = ruleChangeVerbs(props.kind);
+  return (
+    <li className="rounded-lg border border-border bg-background p-4" data-testid={`compaction-${props.kind}`}>
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <code className="font-mono">{props.candidate.stepName}</code>
+        <span aria-hidden>·</span>
+        <span className="font-medium text-foreground">{props.kind === 'merge' ? 'Suggested merge' : 'Suggested retirement'}</span>
+      </div>
+      {props.kind === 'merge' && (
+        <>
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground">The merged rule — edit in place; your wording is what the agent reads</div>
+          <textarea
+            value={props.draft}
+            onChange={e => props.onDraft(e.target.value)}
+            rows={3}
+            disabled={props.busy}
+            aria-label="Merged rule text"
+            className="mb-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+          />
+        </>
+      )}
+      <RuleChangeEvidence
+        kind={props.kind}
+        evidence={props.candidate.evidence ?? null}
+        replacedCount={props.candidate.replacesKeys?.length ?? 0}
+        stepName={props.candidate.stepName}
+      />
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          type="button"
+          disabled={props.busy || (props.kind === 'merge' && props.draft.trim().length === 0)}
+          onClick={() => props.onDecide('approve')}
+          className={buttonVariants({ size: 'sm' })}
+        >
+          {props.busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Check className="mr-2 size-4" />}
+          {verbs.approve}
+        </button>
+        <button
+          type="button"
+          disabled={props.busy}
+          onClick={() => props.onDecide('reject')}
+          className={buttonVariants({ size: 'sm', variant: 'outline' })}
+        >
+          <X className="mr-2 size-4" />
+          {verbs.reject}
+        </button>
+      </div>
+    </li>
   );
 }

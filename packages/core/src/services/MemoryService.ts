@@ -18,10 +18,11 @@
  * rev-ai's difflib lineage in the git history of that file).
  */
 
-import { and, asc, eq, like, sql } from 'drizzle-orm';
+import type { RetiredRuleSnapshot, RetireReason } from '@/libs/learning/ruleChange';
+import { and, asc, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { MEMORY_STORE_NAMESPACE, pgTextArrayLiteral } from '@/libs/memory/store';
-import { memoryNamespaceSchema, memorySchema } from '@/models/Schema';
+import { learningFeedbackOccurrenceSchema, memoryNamespaceSchema, memorySchema } from '@/models/Schema';
 
 const DEDUP_THRESHOLD = 0.72;
 
@@ -41,6 +42,18 @@ export type MemoryRuleMeta = {
   polarity?: string;
   /** 'preference' | 'knowledge' | 'procedure' | 'episode'. Absent = legacy procedure-flavoured rule. */
   type?: string;
+  /**
+   * The rules a merge folded into this one, as they stood — their keys, words,
+   * occurrence counts and provenance. The merged rule's own `occurrenceCount`
+   * is their sum, so what they earned is kept rather than reset to one.
+   */
+  mergedFrom?: Array<Pick<RetiredRuleSnapshot, 'key' | 'text' | 'occurrenceCount' | 'source' | 'adoptedAt'>>;
+  /**
+   * Set when the rule was retired by a compaction a person approved: when, by
+   * whom, why, and the rule that replaced it (a merge). A retired rule is
+   * expired in the store — invisible to every read — and restored by Undo.
+   */
+  retired?: { at: string; by: string; reason: RetireReason; into?: string | null; candidateId?: number | null };
 };
 
 /** The stored value: FileData (StoreBackend-readable) + provenance. */
@@ -218,7 +231,12 @@ function normalize(s: string): string {
     .trim();
 }
 
-function trigrams(s: string): Set<string> {
+/**
+ * The trigram set a rule is compared by. Exported so a pass comparing every
+ * pair in a large namespace builds each set once rather than once per pair.
+ * @param s - Rule text.
+ */
+export function trigrams(s: string): Set<string> {
   const n = normalize(s);
   const padded = `  ${n} `;
   const set = new Set<string>();
@@ -229,8 +247,15 @@ function trigrams(s: string): Set<string> {
 }
 
 export function similarity(a: string, b: string): number {
-  const A = trigrams(a);
-  const B = trigrams(b);
+  return trigramJaccard(trigrams(a), trigrams(b));
+}
+
+/**
+ * Jaccard overlap of two trigram sets — `similarity` over sets already built.
+ * @param A - One rule's trigrams.
+ * @param B - The other's.
+ */
+export function trigramJaccard(A: ReadonlySet<string>, B: ReadonlySet<string>): number {
   if (A.size === 0 || B.size === 0) {
     return 0;
   }
@@ -292,6 +317,7 @@ function newRuleKey(path: string): string {
  * @param opts.polarity
  * @param opts.type
  * @param opts.key - Fixed key for idempotent writers (workspace:apply); omitted keys are generated.
+ * @param opts.mergedFrom - For a merge: the rules it folds in, kept as provenance.
  */
 export async function addRule(opts: {
   orgId: string;
@@ -305,6 +331,8 @@ export async function addRule(opts: {
   /** Memory type: 'preference' | 'knowledge' | 'procedure' | 'episode'. */
   type?: string;
   key?: string;
+  /** For a merge: the rules folded into this one, kept as provenance on its meta. */
+  mergedFrom?: MemoryRuleMeta['mergedFrom'];
 }) {
   const text = opts.ruleText.trim();
   if (!text) {
@@ -338,6 +366,7 @@ export async function addRule(opts: {
       adoptedAt: now.toISOString(),
       ...(opts.polarity ? { polarity: opts.polarity } : {}),
       ...(opts.type ? { type: opts.type } : {}),
+      ...(opts.mergedFrom && opts.mergedFrom.length > 0 ? { mergedFrom: opts.mergedFrom } : {}),
     },
   };
   const [row] = await db
@@ -419,6 +448,173 @@ export async function bumpOccurrence(orgId: string, key: string): Promise<void> 
         updated_at = now()
     WHERE org_id = ${orgId} AND key = ${key}
   `);
+}
+
+/* ------------------------------------------------------------------ */
+/* Retirement — compaction without forgetting                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * When feedback last restated each of these rules — the latest
+ * `learning_feedback_occurrence` attached to its key. A key nobody restated is
+ * absent from the map.
+ * @param orgId - The workspace; another org's occurrences are never read.
+ * @param keys - Store keys.
+ */
+export async function lastReinforcedAt(orgId: string, keys: readonly string[]): Promise<Map<string, Date>> {
+  if (keys.length === 0) {
+    return new Map();
+  }
+  const rows = await db
+    .select({ key: learningFeedbackOccurrenceSchema.memoryKey, at: sql<Date | string>`max(${learningFeedbackOccurrenceSchema.createdAt})` })
+    .from(learningFeedbackOccurrenceSchema)
+    .where(and(
+      eq(learningFeedbackOccurrenceSchema.orgId, orgId),
+      isNotNull(learningFeedbackOccurrenceSchema.memoryKey),
+      inArray(learningFeedbackOccurrenceSchema.memoryKey, [...keys]),
+    ))
+    .groupBy(learningFeedbackOccurrenceSchema.memoryKey);
+  return new Map(rows.filter(r => r.key).map(r => [r.key!, new Date(r.at)]));
+}
+
+/**
+ * The live rules behind these keys, as a reviewer should see them before one
+ * goes: words, occurrence count, provenance, when it was last read and last
+ * restated. A key that is gone (retired, removed) is left out.
+ * @param orgId - The workspace.
+ * @param keys - Store keys.
+ */
+export async function ruleSnapshots(orgId: string, keys: readonly string[]): Promise<RetiredRuleSnapshot[]> {
+  if (keys.length === 0) {
+    return [];
+  }
+  const [rows, reinforced] = await Promise.all([
+    db
+      .select()
+      .from(memorySchema)
+      .where(and(
+        eq(memorySchema.orgId, orgId),
+        inArray(memorySchema.key, [...keys]),
+        sql`(${memorySchema.expiresAt} is null or ${memorySchema.expiresAt} > now())`,
+      )),
+    lastReinforcedAt(orgId, keys),
+  ]);
+  const byKey = new Map(rows.map(r => [r.key, r]));
+  const out: RetiredRuleSnapshot[] = [];
+  for (const key of keys) {
+    const row = byKey.get(key);
+    if (!row) {
+      continue;
+    }
+    const value = row.value as Partial<MemoryRuleValue>;
+    const meta = (value.meta ?? {}) as Partial<MemoryRuleMeta>;
+    out.push({
+      key,
+      text: typeof value.content === 'string' ? value.content : '',
+      occurrenceCount: meta.occurrenceCount ?? 1,
+      source: meta.source ?? null,
+      adoptedAt: meta.adoptedAt ?? row.createdAt.toISOString(),
+      lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+      lastReinforcedAt: reinforced.get(key)?.toISOString() ?? null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Retire rules a person approved retiring — by a merge, as stale, or as
+ * contradicted. Never a delete: each row is expired (invisible to every read,
+ * which is exactly what a delete did for the agents) and its meta records the
+ * decision, so {@link restoreRules} brings it back word for word.
+ * @param opts - What goes, and the decision behind it.
+ * @param opts.orgId - The workspace; another org's rows are never touched.
+ * @param opts.keys - Store keys to retire.
+ * @param opts.reason - Why they go.
+ * @param opts.by - Who decided.
+ * @param opts.into - For a merge: the key of the rule that replaces them.
+ * @param opts.candidateId - The candidate whose approval retired them.
+ * @returns The keys actually retired (a key already gone is skipped).
+ */
+export async function retireRules(opts: {
+  orgId: string;
+  keys: readonly string[];
+  reason: RetireReason;
+  by: string;
+  into?: string | null;
+  candidateId?: number | null;
+}): Promise<string[]> {
+  if (opts.keys.length === 0) {
+    return [];
+  }
+  const retired = {
+    at: new Date().toISOString(),
+    by: opts.by,
+    reason: opts.reason,
+    into: opts.into ?? null,
+    candidateId: opts.candidateId ?? null,
+  };
+  const rows = await db
+    .update(memorySchema)
+    .set({
+      expiresAt: sql`now()`,
+      value: sql`jsonb_set(${memorySchema.value}, '{meta,retired}', ${JSON.stringify(retired)}::jsonb, true)`,
+    })
+    .where(and(
+      eq(memorySchema.orgId, opts.orgId),
+      inArray(memorySchema.key, [...opts.keys]),
+      sql`(${memorySchema.expiresAt} is null or ${memorySchema.expiresAt} > now())`,
+    ))
+    .returning({ key: memorySchema.key });
+  return rows.map(r => r.key);
+}
+
+/**
+ * Name the rule a merge folded these into, on each retired original — so a
+ * retired rule read later says where its words went.
+ * @param orgId - The workspace.
+ * @param keys - The retired originals.
+ * @param into - The merged rule's key.
+ */
+export async function markRetiredInto(orgId: string, keys: readonly string[], into: string): Promise<void> {
+  if (keys.length === 0) {
+    return;
+  }
+  await db
+    .update(memorySchema)
+    .set({ value: sql`jsonb_set(${memorySchema.value}, '{meta,retired,into}', to_jsonb(${into}::text), true)` })
+    .where(and(
+      eq(memorySchema.orgId, orgId),
+      inArray(memorySchema.key, [...keys]),
+      sql`${memorySchema.value} #> '{meta,retired}' is not null`,
+    ));
+}
+
+/**
+ * Bring retired rules back — the Undo of a compaction. Only rows a compaction
+ * retired come back (an episode that simply aged out is left alone), and the
+ * retirement note is dropped from their meta.
+ * @param opts - What comes back.
+ * @param opts.orgId - The workspace.
+ * @param opts.keys - Store keys a compaction retired.
+ * @returns The keys restored.
+ */
+export async function restoreRules(opts: { orgId: string; keys: readonly string[] }): Promise<string[]> {
+  if (opts.keys.length === 0) {
+    return [];
+  }
+  const rows = await db
+    .update(memorySchema)
+    .set({
+      expiresAt: null,
+      value: sql`${memorySchema.value} #- '{meta,retired}'`,
+    })
+    .where(and(
+      eq(memorySchema.orgId, opts.orgId),
+      inArray(memorySchema.key, [...opts.keys]),
+      sql`${memorySchema.value} #> '{meta,retired}' is not null`,
+    ))
+    .returning({ key: memorySchema.key });
+  return rows.map(r => r.key);
 }
 
 /* ------------------------------------------------------------------ */

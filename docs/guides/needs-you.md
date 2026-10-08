@@ -19,7 +19,7 @@ screen you decide it on.
 
 | Kind | What it is | Where it comes from | Opens at |
 |---|---|---|---|
-| **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment. Approving executes it. A **hand-off** proposal (a merge, a deploy, a credential) is approved the same way, but approving hands it to a person to do rather than running it; see [Hand-off actions](#hand-off-actions). | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
+| **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment — or a change to the team the weekly [org review](./org-review.md) found (`org.change`: retire, re-scope, hire, adopt a standing rule), with its evidence. Approving executes it. A **hand-off** proposal (a merge, a deploy, a credential) is approved the same way, but approving hands it to a person to do rather than running it; see [Hand-off actions](#hand-off-actions). | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
 | **Ruling** | A decision only you can make; the team is blocked on it. | [`ask`](../entities/ask.md) with `kind: ruling` — filed by an agent's `file_ask` or over `POST /api/v1/asks` | `/dashboard/inbox/:id`; several under one group: `/dashboard/inbox/g/:groupKey` |
 | **Approval** | Permission for something the team wants to do (nothing executes on answer). | `ask` · `approval` | as above |
 | **Merge** | A pull request ready for a human to merge. | `ask` · `merge` | as above |
@@ -28,7 +28,7 @@ screen you decide it on.
 | **Gate** | A run waiting for you to say go. | `ask` · `gate` | as above |
 | **Recommendation** | A change the team proposes to itself — roles, models, budget. | `ask` · `recommendation` | as above |
 | **Run** | A mission or workflow run that paused or is awaiting review; a worker run that paused, is awaiting review, failed or was lost in the last 24 hours. | `mission_run`, `workflow_run`, `worker_run` | `/dashboard/inbox/mission-:id` · `workflow-:id` · `worker-:id` |
-| **Suggested rule** | A rule the feedback loop proposed from your corrections, waiting to be adopted. | `learning_candidate` | `/dashboard/inbox/learning-:id` |
+| **Suggested rule** | A rule the feedback loop proposed from your corrections, waiting to be adopted — or a tidy-up of the rulebook: a **merge** of rules that say the same thing (the merged rule keeps their counts) or a **retirement** of rules nobody reads or a newer rule contradicts, with each rule's evidence. Keeping things as they are needs no reason. | `learning_candidate` | `/dashboard/inbox/learning-:id` |
 
 A bare number in the URL is an ask — the shape every mailed and Slacked link,
 and the API's `url` field, have always used. Every other kind spells itself

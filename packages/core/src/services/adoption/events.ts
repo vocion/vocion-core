@@ -294,7 +294,8 @@ export const ADOPTION_EVENTS = {
    */
   'learning.consolidated': {
     agent: true,
-    meta: z.object({ replaced: z.number().int().positive(), stepName: z.string() }),
+    // `change` arrived with retirements (0186): a merge is "N → 1", a retirement "N → 0". Absent = a merge.
+    meta: z.object({ replaced: z.number().int().positive(), stepName: z.string(), change: z.enum(['merge', 'expire']).optional() }),
   },
   /**
    * A person answered an ask — a ruling, an approval, a credential, a merge, a

@@ -18,7 +18,7 @@ if (!orgId) {
 
 runConsolidation(orgId)
   .then((result) => {
-    console.warn(`[consolidation] ${orgId}: ${result.compactions} merge proposal(s), ${result.proposed} mined rule(s) from ${result.mined} episode(s), ${result.amendments} amendment(s)`);
+    console.warn(`[consolidation] ${orgId}: ${result.compactions} merge or contradiction proposal(s), ${result.retirements} stale retirement(s), ${result.proposed} mined rule(s) from ${result.mined} episode(s), ${result.amendments} amendment(s)`);
     process.exit(0);
   })
   .catch((error) => {

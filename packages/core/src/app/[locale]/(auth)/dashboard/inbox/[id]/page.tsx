@@ -316,6 +316,9 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
             decidedBy: candidate.decidedBy,
             decidedAt: candidate.decidedAt?.toISOString() ?? null,
             createdAt: candidate.createdAt.toISOString(),
+            changeKind: candidate.changeKind,
+            replacesKeys: candidate.replacesKeys,
+            evidence: candidate.evidence,
           }}
         />
       );

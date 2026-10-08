@@ -26,6 +26,7 @@ which base pack (if any) the workspace builds on.
 | `defaults.model` | string | no | Model every agent falls back to. |
 | `defaults.temperature` | string | no | Temperature every agent falls back to. |
 | `defaults.learningEagerness` | integer 0–10 | no (default `7`) | How eager this workspace is to improve itself. Moves the confidence bar for the class of actions that change what the system knows about how to work — today, adopting a rule from a correction a person made to an agent's work (`learning.adopt_rule`). `0` always asks; `7` puts the bar at 72%; `10` at 60%. It moves the bar, never the confidence, so a rule the model had to infer still asks at `10`. A trust rule naming `autoApproveAbove` for a kind wins over the dial for that kind. Stored on `project.learning_eagerness`. See [earned autonomy](../guides/earned-autonomy.md). |
+| `defaults.orgReview` | object | no | The weekly [org review](../guides/org-review.md): `schedule` (5-field cron, UTC; default `0 14 * * 1`), `enabled` (default on; off for a personal workspace), `idleDays` (14 — no run this long and an agent is proposed for retirement), `staleRuleDays` (60 — no read or restatement this long and a rule is proposed for retirement), `maxProposals` (5 a review). Every key optional; omit the block for the defaults; `enabled: false` removes the schedule. Stored on `project.org_review`. |
 | `plugins` | string[] | no (default `[]`) | Plugins to turn on, by slug (`packages/core/templates/plugins/<slug>/`). Each is a bundle of agents, skills, object types, missions, automations, teams, pages and trust rules that composes under the workspace like the base pack — always active, overridable by slug with `extends: core`, suppressible with `disable:`. Dependencies (`depends:` in `plugin.yaml`) load first. The resolved list lands on `project.enabled_plugins`; a plugin's `surfaces` join `surfaces` below. See [`docs/plugins.md`](../plugins.md). |
 | `surfaces` | string[] | no (default `[]`) | Optional dashboard surfaces to switch on, by registry id. Today: `personalization`, `discovery` (see `packages/core/src/features/navigation/surfaces.ts`). An unknown id fails the load. |
 | `extends` | string | no | Base-pack pin, e.g. `core@2.1.0`, or bare `core` to track the pack's current version. Omit for no base layer at all. |
@@ -52,6 +53,9 @@ defaults:
   model: gpt-5.4-mini
   temperature: '0.3'
   learningEagerness: 9 # keener than the default 7 to adopt what people correct
+  orgReview:
+    schedule: '0 9 * * 2' # the weekly org review on Tuesdays, 09:00 UTC
+    idleDays: 21
 surfaces: [discovery]
 extends: core@2.1.0
 use:

@@ -365,6 +365,14 @@ export const projectSchema = pgTable(
     pausedAt: timestamp('paused_at', { mode: 'date' }),
     pausedBy: text('paused_by'),
     pausedNote: text('paused_note'),
+    /**
+     * How this workspace runs its weekly org review (migration 0187), authored
+     * as `defaults.orgReview` in workspace.yaml (`libs/orgReview/config.ts`
+     * reads it). NULL = the workspace said nothing and the shipped defaults
+     * apply: weekly, an agent idle after 14 days, a rule stale after 60, at most
+     * five proposals a review.
+     */
+    orgReview: jsonb('org_review').$type<import('@/libs/orgReview/config').OrgReviewConfig>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -989,6 +997,17 @@ export const agentSchema = pgTable(
      * a parent. Slug reference, no FK — same convention as skillSlugs.
      */
     parentAgentSlug: text('parent_agent_slug'),
+    /**
+     * A person's hold on this agent (migration 0187): when it was retired from
+     * the org review (or any other in-app hold), by whom (`user.id`), and why.
+     * The hold sets `active = 'false'`; `workspace:apply` never writes these
+     * columns and keeps a held agent inactive whatever its YAML says, the way it
+     * re-asserts a paused automation. Undo on the run that placed it lifts it.
+     * NULL = never held.
+     */
+    pausedAt: timestamp('paused_at', { mode: 'date' }),
+    pausedBy: text('paused_by'),
+    pausedNote: text('paused_note'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -2919,6 +2938,22 @@ export const learningCandidateSchema = pgTable(
      * the rule exists.
      */
     sourceRef: text('source_ref'),
+    /**
+     * What approving this candidate does to the rulebook (migration 0186):
+     * NULL / `adopt` writes a new rule; `merge` writes `ruleText` and retires
+     * every key in `replacesKeys`; `expire` retires every key in `replacesKeys`
+     * and writes nothing. A NULL kind with `replacesKeys` set is a merge filed
+     * before the column existed (`libs/learning/ruleChange.ts`).
+     */
+    changeKind: text('change_kind').$type<import('@/libs/learning/ruleChange').RuleChangeKind>(),
+    /**
+     * The evidence a compaction was proposed on — each retired rule as it stood
+     * (text, occurrence count, provenance, last read, last restated), why it
+     * goes, and for a contradiction the rule that supersedes it. Shown on the
+     * card so a person decides on what the system saw, and kept after the
+     * decision so the retired rules stay readable.
+     */
+    evidence: jsonb('evidence').$type<import('@/libs/learning/ruleChange').RuleChangeEvidence>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

@@ -112,7 +112,7 @@ describe('compactNamespace', () => {
     expect(trackMock).toHaveBeenCalledWith(
       { orgId: ORG, userId: 'u_reviewer' },
       'learning.consolidated',
-      expect.objectContaining({ meta: { replaced: 2, stepName: 'global' } }),
+      expect.objectContaining({ meta: { replaced: 2, stepName: 'global', change: 'merge' } }),
     );
   });
 
