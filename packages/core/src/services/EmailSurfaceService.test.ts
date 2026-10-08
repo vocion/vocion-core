@@ -1,5 +1,7 @@
 import type { EmailInboundMeta, ReceivedEmail } from '@/libs/surfaces/email';
 import type { EmailHandlerDeps } from '@/services/EmailSurfaceService';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -7,6 +9,7 @@ vi.mock('@/services/adoption/track', () => ({ track: vi.fn(async () => {}) }));
 vi.mock('@/services/FeedbackWorkerService', () => ({ enqueue: vi.fn(async () => ({ id: 1 })) }));
 
 const { db } = await import('@/libs/DB');
+const { eq, sql } = await import('drizzle-orm');
 const { accountMembershipSchema, agentSchema, askSchema, conversationMessageSchema, conversationSchema, emailThreadSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const svc = await import('@/services/EmailSurfaceService');
 const { workspaceFrom } = await import('@/services/mail/workspaceFrom');
@@ -102,6 +105,33 @@ describe('resolveMailbox', () => {
 
     expect(await svc.resolveMailbox(ADDRESS)).toBeNull();
     expect(await workspaceFrom(ORG)).toBeUndefined();
+  });
+
+  it('routes mail for an address two workspaces hold to neither, and names both in the log', async () => {
+    // A deployment where migration 0178 skipped its index over a duplicate.
+    await db.execute(sql`drop index if exists "project_mailbox_address_uq"`);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await seed();
+      await db.insert(tenantAccountSchema).values({ id: 'acct-kestrel', name: 'Kestrel Capital', slug: 'kestrel' } as never);
+      await db.insert(projectSchema).values({ id: 'proj-kestrel-revenue', accountId: 'acct-kestrel', slug: 'revenue', name: 'Revenue', mailboxAddress: ADDRESS, mailboxEnabled: true } as never);
+
+      expect(await svc.resolveMailbox(ADDRESS)).toBeNull();
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining('routed to neither'),
+        { address: ADDRESS, projectIds: expect.arrayContaining([ORG, 'proj-kestrel-revenue']) },
+      );
+
+      const d = deps();
+
+      expect(await svc.handleInboundEmail(meta(), d)).toEqual({ outcome: 'unbound', recipients: [ADDRESS] });
+      expect(d.runs).toEqual([]);
+      expect(await db.select().from(conversationSchema)).toEqual([]);
+    } finally {
+      logged.mockRestore();
+      await db.update(projectSchema).set({ mailboxEnabled: false }).where(eq(projectSchema.id, 'proj-kestrel-revenue'));
+      await db.execute(sql.raw(readFileSync(join(process.cwd(), 'migrations', '0178_project_mailbox_address_unique.sql'), 'utf8')));
+    }
   });
 
   it('workspaceFrom wears the workspace name and address when enabled', async () => {

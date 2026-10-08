@@ -11,15 +11,22 @@
  *    changed depends on the environment, so the message must name the right
  *    one.
  *
- * `decrypt` never touches the database here — every DEK resolves to the master
- * key — so these are unit tests with no DB stub.
+ * 3. Whose credential it is. Every DEK row holds the same master key, so the
+ *    key cannot tell one org's credential from another's; the DEK row can, and
+ *    a read made for an org the row does not belong to is refused the way the
+ *    KMS vault refuses it.
+ *
+ * Every DEK resolves to the master key, but `decrypt` still reads its DEK row
+ * for the org check, so these run against the PGlite fixture.
  */
 
-import type { Buffer } from 'node:buffer';
 import type { CredentialVault } from './credentialVault';
+import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AES_KEY_BYTES } from './credentialVault';
+
+vi.mock('@/libs/DB');
 
 const KEY = randomBytes(AES_KEY_BYTES).toString('base64');
 
@@ -27,17 +34,18 @@ const KEY = randomBytes(AES_KEY_BYTES).toString('base64');
  * Ask the vault to read a credential it has no hope of decrypting.
  *
  * The ciphertext is random, so this is the same failure a credential saved
- * under a different key gives: the key reads fine, the auth tag does not
- * verify.
+ * under a different key gives: the DEK row is the org's own and the key reads
+ * fine, but the auth tag does not verify.
  * @param vault - Vault under test.
  */
-function readAnyCredential(vault: CredentialVault): Promise<Buffer> {
+async function readAnyCredential(vault: CredentialVault): Promise<Buffer> {
+  const { dekId } = await vault.encrypt('org1', Buffer.from('anything'));
   return vault.decrypt(
     'org1',
     randomBytes(32).toString('base64'),
     randomBytes(12).toString('base64'),
     randomBytes(16).toString('base64'),
-    1,
+    dekId,
   );
 }
 
@@ -191,5 +199,22 @@ describe('localVault decrypt', () => {
     await expect(readAnyCredential(vault)).rejects.toThrow(
       /is unset, so every restart mints a new ephemeral key/,
     );
+  });
+});
+
+describe('localVault refuses a read made for another org', () => {
+  it('refuses with the fix named, and the org the credential belongs to still reads it', async () => {
+    const { localVault } = await import('./localVault');
+    const { VaultDecryptionError } = await import('./credentialVault');
+    const vault = localVault();
+    const sealed = await vault.encrypt('proj-local-northwind', Buffer.from('nw-secret', 'utf8'));
+
+    const read = vault.decrypt('proj-local-kestrel', sealed.ciphertext, sealed.nonce, sealed.authTag, sealed.dekId);
+
+    await expect(read).rejects.toBeInstanceOf(VaultDecryptionError);
+    await expect(read).rejects.toThrow(/sealed for a different workspace[\s\S]*Reconnect the credential in this workspace/);
+    await expect(vault.decrypt('proj-local-northwind', sealed.ciphertext, sealed.nonce, sealed.authTag, sealed.dekId))
+      .resolves
+      .toEqual(Buffer.from('nw-secret', 'utf8'));
   });
 });

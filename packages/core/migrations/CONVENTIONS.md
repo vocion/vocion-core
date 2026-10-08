@@ -206,8 +206,12 @@ first:
 2. Restore `meta/_journal.json` to exactly what `main` says it is, rather than
    hand-editing the conflicted hunk into something that parses.
 3. Append one fresh entry for the renamed migration: `idx` one past the last,
-   `tag` matching the new filename, and a `when` later than the entry before it.
-   Keep the array sorted by `idx` — that is the order the migrator walks.
+   `tag` matching the new filename, and a `when` later than every entry on
+   `main` — not just the one before it in the array. drizzle's migrator
+   applies an entry only when its `when` is later than the last migration the
+   database recorded, so an entry dated behind one a database already applied
+   is skipped there in silence. Keep the array sorted by `idx` — that is the
+   order the migrator walks.
 4. If the migration has a `concurrent/` sibling, rename that too — the applier
    matches on the filename's first four characters, so a stale number silently
    detaches the index build from its migration.
@@ -236,5 +240,16 @@ This is not hypothetical, and it is not rare. It has happened twice:
   that had to be renamed with it (step 4) — `concurrent/0101_artifact_org_updated_index.sql`.
 
 Both times the sequence stayed append-only and nothing had to be re-applied by
-hand. `npm run check:migrations` does not catch this: it checks lock safety, not
-number allocation, and a collision is legal on each branch in isolation.
+hand.
+
+The same applies without a collision. A release train whose branches reserve
+numbers ahead of time (one takes `0172`, another `0178`) merges in whatever
+order review finishes, and if `0178` lands first, `0172`'s earlier `when`
+puts it behind an entry drizzle-migrated databases have already applied: it is
+never applied there, and nothing errors. `npm run check:migrations` catches
+that one. It reads the journal of the branch being merged into (the pull
+request's base in CI, `origin/main` locally, `MIGRATIONS_BASE_REF` to name
+another) and fails on any entry this branch adds that sorts behind one already
+there, by `idx` or by `when`, naming the tail to move it to
+(`journal-entry-behind-base`). It cannot see a collision between two branches
+that are both still open; that is still on whoever merges second.

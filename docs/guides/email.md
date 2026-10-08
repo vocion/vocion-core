@@ -230,7 +230,15 @@ mailbox:
 ```
 
 `workspace:apply` refuses an address off the deployment's domain, and errors if
-`mailbox.enabled` is set with no `VOCION_MAIL_DOMAIN`.
+`mailbox.enabled` is set with no `VOCION_MAIL_DOMAIN`. It also refuses an
+address another workspace already holds — mail is routed by the address it was
+sent to, so two holders would put one workspace's mail in another's. Slugs are
+unique per account, not per deployment, so on a deployment hosting several
+accounts two `revenue` workspaces collide on the default address; give the
+second one its own `mailbox.address`. The refusal names the holder only when it
+is in the same account. The rest of the apply still lands, and a partial
+unique index on `lower(mailbox_address)` (migration 0178) holds the rule when
+two applies race.
 
 **Outbound identity.** Once a workspace has a mailbox, the mail it sends —
 the daily team report, ask notifications — comes *from* that address

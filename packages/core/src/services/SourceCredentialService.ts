@@ -37,6 +37,7 @@ import { Buffer } from 'node:buffer';
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
+import { isUniqueViolation } from '@/libs/dbErrors';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { resolveCredentialById } from '@/services/ApiTokenService';
@@ -493,31 +494,6 @@ export async function connectorHoldingCredential(
  */
 export function credentialInUseMessage(connectorSlug: string): string {
   return `The ${connectorSlug} connector already uses that credential. Store a separate one for this connector.`;
-}
-
-/**
- * Whether a database error is a unique-constraint violation.
- *
- * Postgres says so with SQLSTATE 23505. Drizzle wraps the driver's error in one
- * of its own carrying the failed query, so the code sits on `cause` — checked
- * on both, because the wrapping is drizzle's business and not something to
- * depend on.
- * @param error - Whatever the query threw.
- */
-export function isUniqueViolation(error: unknown): boolean {
-  return sqlStateOf(error) === '23505' || sqlStateOf((error as { cause?: unknown })?.cause) === '23505';
-}
-
-/**
- * The SQLSTATE a database error carries, or undefined for anything else.
- * @param error - A candidate error object.
- */
-function sqlStateOf(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null || !('code' in error)) {
-    return undefined;
-  }
-  const { code } = error as { code?: unknown };
-  return typeof code === 'string' ? code : undefined;
 }
 
 /**

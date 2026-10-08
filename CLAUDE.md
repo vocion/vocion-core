@@ -393,7 +393,17 @@ Encryption at rest is `VOCION_CREDENTIAL_VAULT`: `local` (wrapping key in
 only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`). On `local` with
 `NODE_ENV=production`, an unset `VOCION_CREDENTIAL_VAULT_KEY` throws rather than
 falling back to a per-process ephemeral key, which would orphan every
-credential stored under the previous one.
+credential stored under the previous one. Either vault refuses a read made for
+an org the DEK row does not belong to, before anything is unwrapped
+(`libs/crypto/dekOwner.ts`). On `kms` each org's DEK is also wrapped under the
+EncryptionContext `{ orgId }` (`kmsVault.ts`). DEKs wrapped before the context
+landed still open while `VOCION_KMS_ALLOW_UNBOUND_DEKS` allows it (the default)
+and are re-wrapped in place on first read, which needs `kms:ReEncryptFrom` +
+`kms:ReEncryptTo` beside `kms:GenerateDataKey` and `kms:Decrypt`. That fallback
+is a way in for an unbound blob planted on another org's row, so close it:
+a fresh deployment sets `VOCION_KMS_ALLOW_UNBOUND_DEKS=0` from the start, and
+an existing one runs `npm run vault:rewrap-deks` (`bindKmsDeks`) and sets it
+once that exits 0.
 
 ## Multi-Tenancy
 
@@ -429,7 +439,8 @@ To modify: edit `src/models/Schema.ts`, then `npm run db:generate && npm run db:
 Migration conventions — index builds that must not take a write lock, and the
 expand-and-contract rule for column changes — are in
 `packages/core/migrations/CONVENTIONS.md`. `npm run check:migrations` enforces
-the index rule and runs in CI.
+the index rule and the journal order (no new entry behind one already on the
+base branch), and runs in CI.
 
 ## Environment Setup
 

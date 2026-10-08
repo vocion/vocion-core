@@ -5,6 +5,7 @@ import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
+import { isMailboxClaimConflict, mailboxClaimedMessage, mailboxHolder } from '@/libs/mail/mailboxClaim';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
@@ -1132,6 +1133,7 @@ async function applyWorkspaceLeadConfig(
         .select({
           id: projectSchema.id,
           slug: projectSchema.slug,
+          accountId: projectSchema.accountId,
           leadAgentSlug: projectSchema.leadAgentSlug,
           accountableUserId: projectSchema.accountableUserId,
           enabledSurfaces: projectSchema.enabledSurfaces,
@@ -1155,7 +1157,14 @@ async function applyWorkspaceLeadConfig(
   // Mailbox: `mailbox.enabled` claims `<slug>@<VOCION_MAIL_DOMAIN>` (or the
   // named address, which must be on that domain). No domain configured, or an
   // address off it, is an error — a workspace must not pose as another host.
+  // Nor may it take an address another workspace holds: mail is routed by
+  // address, and slugs are unique per account, not per deployment, so two
+  // companies' "revenue" workspaces would otherwise share one inbox. A refused
+  // claim changes nothing about the mailbox the workspace already has — a
+  // typo'd address must not cost it a working one, and a duplicate left from
+  // before migration 0178 must not be settled by whichever side applies first.
   const mailboxManifest = loaded.manifest.mailbox;
+  const currentMailbox = { mailboxEnabled: project?.mailboxEnabled ?? false, mailboxAddress: project?.mailboxAddress ?? null };
   let mailboxEnabled = false;
   let mailboxAddress: string | null = null;
   if (mailboxManifest?.enabled) {
@@ -1167,8 +1176,14 @@ async function applyWorkspaceLeadConfig(
       if (!addressOnDomain(candidate, domain)) {
         errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: `mailbox.address "${candidate}" is not on ${domain}; a workspace may only claim addresses on the deployment's mail domain` });
       } else {
-        mailboxEnabled = true;
-        mailboxAddress = candidate;
+        const holder = mode.offline ? null : await mailboxHolder(candidate, project?.id ?? orgId);
+        if (holder) {
+          errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: mailboxClaimedMessage(candidate, holder, project?.accountId ?? null) });
+          ({ mailboxEnabled, mailboxAddress } = currentMailbox);
+        } else {
+          mailboxEnabled = true;
+          mailboxAddress = candidate;
+        }
       }
     }
   }
@@ -1225,10 +1240,20 @@ async function applyWorkspaceLeadConfig(
     return;
   }
   if (!mode.dryRun) {
-    await db
-      .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
-      .where(eq(projectSchema.id, project.id));
+    const settings = { leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress };
+    try {
+      await db.update(projectSchema).set(settings).where(eq(projectSchema.id, project.id));
+    } catch (err) {
+      if (!mailboxAddress || !isMailboxClaimConflict(err)) {
+        throw err;
+      }
+      // Another workspace claimed the address between the check above and
+      // this write, and the index refused the second claim. Same outcome as
+      // the check: say who holds it, keep the mailbox this workspace had, and
+      // land every other setting anyway.
+      errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: mailboxClaimedMessage(mailboxAddress, await mailboxHolder(mailboxAddress, project.id), project.accountId) });
+      await db.update(projectSchema).set({ ...settings, ...currentMailbox }).where(eq(projectSchema.id, project.id));
+    }
   }
 }
 
