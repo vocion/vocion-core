@@ -24,7 +24,7 @@ export function SetupResetButton(props: { plugin: string; anythingToReset: boole
   const [note, setNote] = useState<string | null>(null);
 
   if (!props.anythingToReset) {
-    return <span className="text-xs text-muted-foreground" data-testid="setup-reset-nothing">Nothing set up yet</span>;
+    return <p className="text-xs text-muted-foreground" data-testid="setup-reset-nothing">Nothing set up yet — there is nothing to reset.</p>;
   }
   const run = async () => {
     setBusy(true);
@@ -43,22 +43,26 @@ export function SetupResetButton(props: { plugin: string; anythingToReset: boole
     }
   };
   return (
-    <span className="flex items-center gap-2 text-xs" data-testid="setup-reset">
-      {note && <span className="text-muted-foreground">{note}</span>}
+    <div className="flex flex-col gap-2 text-xs" data-testid="setup-reset">
+      {note && <p className="text-muted-foreground">{note}</p>}
       {confirming
         ? (
             <>
-              <span className="text-muted-foreground">Disconnect, delete the records, start over?</span>
-              <Button size="sm" variant="destructive" disabled={busy} onClick={run} data-testid="setup-reset-confirm">
-                {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-                Reset setup
-              </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>Keep</Button>
+              <p className="text-muted-foreground">Disconnect the connectors, delete the records and their artifacts, reject what is waiting — and start over?</p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="destructive" disabled={busy} onClick={run} data-testid="setup-reset-confirm">
+                  {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+                  Reset setup
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>Keep</Button>
+              </div>
             </>
           )
         : (
-            <Button size="sm" variant="outline" onClick={() => setConfirming(true)} data-testid="setup-reset-ask">Reset setup</Button>
+            <div>
+              <Button size="sm" variant="outline" onClick={() => setConfirming(true)} data-testid="setup-reset-ask">Reset setup</Button>
+            </div>
           )}
-    </span>
+    </div>
   );
 }

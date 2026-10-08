@@ -104,9 +104,7 @@ function AsideBlock({ block, testId }: { block: ConfigureAside; testId?: string 
       data-testid={testId ?? `configure-aside-${block.kind}`}
       action={block.kind === 'health'
         ? <Link href={block.href} className="text-muted-foreground hover:text-foreground hover:underline">Team report</Link>
-        : block.kind === 'setup'
-          ? <SetupResetButton plugin={block.plugin} anythingToReset={block.items.some(i => i.done)} />
-          : undefined}
+        : undefined}
     >
       <ul className="-my-1.5 divide-y divide-rule">
         {block.kind === 'setup' && block.items.map(item => (
@@ -149,6 +147,11 @@ function AsideBlock({ block, testId }: { block: ConfigureAside; testId?: string 
           </li>
         ))}
       </ul>
+      {block.kind === 'setup' && (
+        <div className="mt-3 border-t border-rule pt-3">
+          <SetupResetButton plugin={block.plugin} anythingToReset={block.items.some(i => i.done)} />
+        </div>
+      )}
     </Section>
   );
 }
