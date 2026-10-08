@@ -88,6 +88,10 @@ export default defineConfig<ChromaticConfig>({
           // purpose: it encrypts test fixtures in a database that lives for the
           // length of one run. Never reuse it anywhere real.
           VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
+          // Every spec signs in from this one machine, and the per-address
+          // sign-in limit (libs/rateLimit/policies.ts) would start refusing
+          // them part-way through a run.
+          VOCION_RATE_LIMIT: 'off',
           // The worker-run routes ship dark behind this flag, so the
           // worker-run-usage project's requests would all answer 501 without
           // it. Nothing else in the suite asserts the disabled behaviour.

@@ -6,10 +6,9 @@
  * users have no passwordHash and cannot change a password here).
  */
 
-import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
-import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { hashPassword, verifyPassword } from '@/libs/identity/password';
 import { userSchema } from '@/models/Schema';
 
 export type UserProfile = {
@@ -86,7 +85,7 @@ export async function changePassword(opts: {
   }
 
   // Same verification the Credentials provider uses in libs/Auth.ts.
-  const ok = await bcrypt.compare(opts.currentPassword, user.passwordHash);
+  const ok = await verifyPassword(opts.currentPassword, user.passwordHash);
   if (!ok) {
     throw new Error('Current password is incorrect.');
   }

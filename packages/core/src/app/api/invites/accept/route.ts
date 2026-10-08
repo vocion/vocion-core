@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { auth } from '@/libs/Auth';
+import { clientIp } from '@/libs/http/clientIp';
+import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { acceptInviteAsExistingUser } from '@/services/InviteAcceptance';
 
 const bodySchema = z.object({ inviteToken: z.string().min(1) });
@@ -21,6 +23,13 @@ export async function POST(req: Request) {
   const userId = session?.user?.id;
   if (!userId) {
     return NextResponse.json({ error: 'Sign in to accept this invite.' }, { status: 401 });
+  }
+  const limited = firstRefusal(
+    await hit(RATE_LIMITS.inviteAcceptPerIp, clientIp(req.headers)),
+    await hit(RATE_LIMITS.inviteAcceptPerUser, userId),
+  );
+  if (!limited.allowed) {
+    return tooManyRequests(limited);
   }
   // JSON only: a cross-site HTML form can send text/plain without a CORS
   // preflight, and would otherwise be read here all the same.

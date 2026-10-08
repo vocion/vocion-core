@@ -2,6 +2,8 @@ import type { NextResponse as NextResponseType } from 'next/server';
 import type { ApiCaller } from '@/services/writeApi';
 import { NextResponse } from 'next/server';
 import { clerkAuth } from '@/libs/Auth';
+import { clientIp } from '@/libs/http/clientIp';
+import { describeWait, hit, peek, RATE_LIMITS } from '@/libs/rateLimit';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce, normalizeWorkspaceRole } from '@/services/authz';
 import { WriteApiError } from '@/services/writeApi';
@@ -21,18 +23,56 @@ import { WriteApiError } from '@/services/writeApi';
  */
 
 /**
+ * The 429 an `/api/v1` caller gets, in the API's error shape, with
+ * `Retry-After`.
+ * @param retryAfterSeconds - How long to wait.
+ */
+function rateLimited(retryAfterSeconds: number): NextResponseType {
+  const response = jsonError('RATE_LIMITED', `Too many requests. Try again in ${describeWait(retryAfterSeconds)}.`, 429, { retryAfterSeconds });
+  response.headers.set('Retry-After', String(retryAfterSeconds));
+  return response;
+}
+
+/**
  * Authenticate an API request as a tenant token or a dashboard session.
  *
  * An `Authorization` header, when present, is the credential — a bad token is a
  * 401 and never silently falls back to whatever cookie the request happened to
  * carry. With no header at all, the signed-in session is used instead.
+ *
+ * Rate limits ride along, because every handler already starts here: a cap per
+ * address before anything else, a lockout on an address that keeps presenting
+ * bad tokens, and a cap per caller once it is known (`libs/rateLimit`). Each
+ * refusal is a 429 with `Retry-After`.
  * @param req - The incoming request. Omit it to force session-only authentication.
  */
 export async function authApi(req?: Request): Promise<ApiCaller | NextResponseType> {
+  const ip = req ? clientIp(req.headers) : null;
+  const fromIp = await hit(RATE_LIMITS.apiPerIp, ip);
+  if (!fromIp.allowed) {
+    return rateLimited(fromIp.retryAfterSeconds);
+  }
+  const caller = await identifyCaller(req, ip);
+  if (caller instanceof NextResponse) {
+    return caller;
+  }
+  const perCaller = await hit(RATE_LIMITS.apiPerCaller, caller.actorId);
+  if (!perCaller.allowed) {
+    return rateLimited(perCaller.retryAfterSeconds);
+  }
+  return caller;
+}
+
+async function identifyCaller(req: Request | undefined, ip: string | null): Promise<ApiCaller | NextResponseType> {
   const authHeader = req?.headers.get('authorization');
   if (authHeader) {
+    const locked = await peek(RATE_LIMITS.apiAuthFailuresPerIp, ip);
+    if (!locked.allowed) {
+      return rateLimited(locked.retryAfterSeconds);
+    }
     const identity = await authenticateBearer(authHeader);
     if (!identity) {
+      await hit(RATE_LIMITS.apiAuthFailuresPerIp, ip);
       return jsonError('UNAUTHORIZED', 'Missing or invalid bearer token', 401);
     }
     return {

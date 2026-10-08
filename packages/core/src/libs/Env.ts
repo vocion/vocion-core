@@ -13,6 +13,33 @@ export const Env = createEnv({
     VOCION_AUTH_PROVIDER: z.enum(['local', 'clerk']).default('local'),
     /** Clerk — required only when VOCION_AUTH_PROVIDER=clerk. */
     CLERK_SECRET_KEY: z.string().optional(),
+    /**
+     * "Continue with Google" on the sign-in page. Both set registers the
+     * provider; either unset hides the button. A Google OAuth client whose
+     * redirect URI is `<app>/api/auth/callback/google`. Sign-up stays
+     * invite-only: Google signs in an email that has a login or a pending
+     * invite, nothing else (`services/auth/googleSignIn.ts`).
+     */
+    AUTH_GOOGLE_ID: z.string().optional(),
+    AUTH_GOOGLE_SECRET: z.string().optional(),
+    /**
+     * `1` requires two-step sign-in (TOTP) of everyone on this deployment: a
+     * person without it enrols at their next sign-in. One account can require
+     * it for its own members instead (`tenant_account.require_mfa`).
+     */
+    VOCION_REQUIRE_MFA: z.string().optional(),
+    /**
+     * `off` disables every rate limit and lockout (`libs/rateLimit`). For a
+     * test run that signs in many times from one machine — never a deployment.
+     */
+    VOCION_RATE_LIMIT: z.string().optional(),
+    /**
+     * How many reverse proxies sit in front of the app (default 1). The client
+     * address is read that many entries from the right of `X-Forwarded-For`,
+     * so a client cannot pick its own address for per-IP limits
+     * (`libs/http/clientIp.ts`).
+     */
+    VOCION_TRUSTED_PROXY_COUNT: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']).default('dev'),
@@ -131,6 +158,11 @@ export const Env = createEnv({
     AUTH_SECRET: process.env.AUTH_SECRET,
     VOCION_AUTH_PROVIDER: process.env.VOCION_AUTH_PROVIDER,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+    AUTH_GOOGLE_ID: process.env.AUTH_GOOGLE_ID,
+    AUTH_GOOGLE_SECRET: process.env.AUTH_GOOGLE_SECRET,
+    VOCION_REQUIRE_MFA: process.env.VOCION_REQUIRE_MFA,
+    VOCION_RATE_LIMIT: process.env.VOCION_RATE_LIMIT,
+    VOCION_TRUSTED_PROXY_COUNT: process.env.VOCION_TRUSTED_PROXY_COUNT,
     DATABASE_URL: process.env.DATABASE_URL,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,

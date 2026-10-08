@@ -1205,6 +1205,20 @@
       "when": 1791000240000,
       "tag": "0171_conversation_parent",
       "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1791000480000,
+      "tag": "0175_auth_rate_limit_password_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1791000540000,
+      "tag": "0176_user_mfa",
+      "breakpoints": true
     }
   ]
 }

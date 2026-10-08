@@ -412,6 +412,27 @@ credential stored under the previous one.
 - Roles: `org:admin`, `org:member` (defined in `src/types/Auth.ts`)
 - Nothing to enable in a provider dashboard: set `AUTH_SECRET` and run the
   migrations. `VOCION_AUTH_PROVIDER` defaults to `local` (`src/libs/Env.ts`)
+- **Sign-in stays invite-only** whatever the method. Google (`AUTH_GOOGLE_ID` /
+  `AUTH_GOOGLE_SECRET`) signs in a verified email that already has a login or a
+  pending invite, and links by that email (`services/auth/googleSignIn.ts`).
+  Forgot-password mails a single-use, hour-long, hash-only link and never says
+  whether an email has a login (`services/auth/passwordReset.ts`; needs mail on
+  and `NEXT_PUBLIC_APP_URL`).
+- **Two-step sign-in (TOTP)** is `services/auth/mfa.ts`; the secret is
+  vault-encrypted under the scope `user:<id>`. Required by `VOCION_REQUIRE_MFA=1`
+  or `tenant_account.require_mfa`. A session that still owes a code carries
+  `session.mfa` and an EMPTY `user.id`, so every guard reads it as signed out;
+  only the sign-in page and `/api/mfa/*` read it. The JWT callback clears it
+  only on an in-process proof from `/api/mfa/verify` (`mfaCompletionProof`),
+  never on data a browser posts to `/api/auth/session`. Guard on
+  `session.user.id`, never on `session` alone.
+- **Rate limits and lockouts** all go through `libs/rateLimit` with the
+  policies in one list (`policies.ts`): `hit` to count an attempt, `peek` +
+  `hit` + `clear` for a lockout, `tooManyRequests` for the 429 with
+  `Retry-After`. Limits guarding a secret count in Postgres (`rate_limit_hit`),
+  throughput limits in memory. Per-IP subjects come from `libs/http/clientIp.ts`
+  (right-most `X-Forwarded-For` hop, `VOCION_TRUSTED_PROXY_COUNT`). A missing
+  subject or a failing store allows; `VOCION_RATE_LIMIT=off` is for test runs.
 
 ## Database Schema
 

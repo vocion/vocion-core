@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer';
 import { NextResponse } from 'next/server';
 import { jsonError } from '@/app/api/v1/_shared';
 import { clerkAuth } from '@/libs/Auth';
+import { clientIp } from '@/libs/http/clientIp';
+import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { createArtifact } from '@/services/ArtifactService';
 import { acceptUpload, attachmentFromArtifact, extractText, MAX_ATTACHMENTS, uploadSpec } from '@/services/chat/attachments';
@@ -26,6 +28,14 @@ export async function POST(req: Request) {
   const { userId, orgId } = await clerkAuth();
   if (!userId || !orgId) {
     return jsonError('UNAUTHORIZED', 'Missing or invalid credentials', 401);
+  }
+  // Uploads count against the same per-person chat limit as turns.
+  const limited = firstRefusal(
+    await hit(RATE_LIMITS.chatPerUser, userId),
+    await hit(RATE_LIMITS.chatPerIp, clientIp(req.headers)),
+  );
+  if (!limited.allowed) {
+    return tooManyRequests(limited);
   }
 
   let form: FormData;

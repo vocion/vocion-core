@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { clientIp } from '@/libs/http/clientIp';
+import { hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
 import { inviteProblem } from '@/services/inviteRules';
 import { ensurePersonalProjectsForUser } from '@/services/workspace/personalProject';
@@ -42,6 +44,12 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request) {
+  // Ten accounts an hour from one address — the most a team onboarding from
+  // one office makes, and too few to sweep invite tokens with.
+  const limited = await hit(RATE_LIMITS.signUpPerIp, clientIp(req.headers));
+  if (!limited.allowed) {
+    return tooManyRequests(limited);
+  }
   const raw = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(raw);
   if (!parsed.success) {

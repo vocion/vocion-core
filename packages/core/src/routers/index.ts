@@ -122,7 +122,7 @@ import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNav
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
-import { changePasswordRoute, getProfileRoute, updateNameRoute, updatePhoneRoute } from './Profile';
+import { changePasswordRoute, disableMfaRoute, getProfileRoute, mfaStatusRoute, regenerateRecoveryCodesRoute, setAccountMfaRequirementRoute, updateNameRoute, updatePhoneRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
   actionStatusRoute,
@@ -229,6 +229,12 @@ export const router = {
     updateName: updateNameRoute,
     updatePhone: updatePhoneRoute,
     changePassword: changePasswordRoute,
+    mfa: {
+      status: mfaStatusRoute,
+      disable: disableMfaRoute,
+      regenerateRecoveryCodes: regenerateRecoveryCodesRoute,
+      setAccountRequirement: setAccountMfaRequirementRoute,
+    },
   },
   apps: {
     forUser: appsForUserRoute,
