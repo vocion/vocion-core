@@ -175,7 +175,18 @@ test.describe('the platform selector decides which controls exist', () => {
       'Slate',
       'ElevenLabs',
       'Strapi',
+      // The prebuilt support, engineering, docs and files connectors.
+      'Zendesk',
+      'Intercom',
+      'Freshdesk',
+      'Linear',
+      'GitLab',
+      'PagerDuty',
+      'Confluence',
+      'Dropbox',
+      'Box',
       'REST API (bearer token)',
+      'QuickBooks',
       // The finance and people families. QuickBooks and Gusto log in and
       // have nothing to paste, so the selector leaves them out.
       'Stripe',
@@ -183,6 +194,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'NetSuite',
       'Ramp',
       'BILL',
+      'Gusto',
       'Rippling',
       'Workday',
       'Google',
@@ -210,6 +222,8 @@ test.describe('the platform selector decides which controls exist', () => {
       'QuickBooks login app',
       'Xero login app',
       'Gusto login app',
+      'Dropbox login app',
+      'Box login app',
       'Other platform',
     ]);
   });

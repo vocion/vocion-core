@@ -94,7 +94,7 @@ person clicks Connect with Slack
   env) or the workspace's own login app, saved on Developers. Otherwise they
   offer paste alone, rather than a button that can only fail.
 - **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom,
-  Apollo, QuickBooks, Xero and Gusto, a workspace admin can save the vendor's client ID and secret as
+  Apollo, QuickBooks, Xero, Gusto, Dropbox and Box, a workspace admin can save the vendor's client ID and secret as
   a `<provider>-login-app` credential (`libs/connect/loginClient.ts`). A new
   login runs on it in preference to the server's. Each login records the
   client ID it ran on (`loginClientId`), and every refresh finds that same app
@@ -131,7 +131,7 @@ forwarded host of the request.
 | Provider | Connects | Env vars | Callback to register |
 |---|---|---|---|
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | `/api/connect/slack/callback` |
-| `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | `/api/connect/atlassian/callback` |
+| `atlassian` | `jira`, `confluence` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` (one app; add the Confluence API's read scopes for Confluence) | `/api/connect/atlassian/callback` |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64` (plus `GITHUB_WEBHOOK_SECRET` for the app's webhook) | `/api/connect/github/callback` (the GitHub App's Setup URL) |
 | `google` | `gmail`, `drive`, `google-calendar`, `ga4` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | `/api/connect/google/callback` |
 | `hubspot` | `hubspot` | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` | `/api/connect/hubspot/callback` |
@@ -142,6 +142,8 @@ forwarded host of the request.
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | `/api/connect/quickbooks/callback` |
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | `/api/connect/xero/callback` |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | `/api/connect/gusto/callback` |
+| `dropbox` | `dropbox` | `DROPBOX_CLIENT_ID`, `DROPBOX_CLIENT_SECRET` (a pasted refresh token with its app key and secret keeps working) | `/api/connect/dropbox/callback` |
+| `box` | `box` | `BOX_CLIENT_ID`, `BOX_CLIENT_SECRET` (pasted Client Credentials Grant keeps working) | `/api/connect/box/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in

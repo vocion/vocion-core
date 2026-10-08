@@ -1,10 +1,12 @@
 /**
- * "Connect with Atlassian" for the Jira connector — OAuth 2.0 (3LO).
+ * "Connect with Atlassian" for the Jira and Confluence connectors — OAuth 2.0
+ * (3LO), on the one Atlassian app (`ATLASSIAN_CLIENT_ID`/`_SECRET`).
  *
- * The person consents once for their Atlassian account; the grant stores an
- * access token, the rotating refresh token, and every Jira Cloud site the
- * token reaches. `libs/sources/jira.ts` picks the site by the source's
- * `baseUrl` at sync time, so one consent can serve several Jira sources.
+ * The person consents once for their Atlassian account, for the product the
+ * login is for (`atlassianScopesFor`); the grant stores an access token, the
+ * rotating refresh token, and every Atlassian Cloud site the token reaches.
+ * `libs/sources/jira.ts` and `libs/sources/confluence.ts` pick the site by the
+ * source's `baseUrl` at sync time, so one consent can serve several sources.
  */
 
 import type { ConnectProvider } from '../provider';
@@ -13,20 +15,20 @@ import {
   ATLASSIAN_AUTHORIZE_URL,
   ATLASSIAN_ENV,
   atlassianClient,
+  atlassianScopesFor,
   exchangeAuthorizationCode,
   expiresAtFrom,
-  JIRA_READ_SCOPES,
   listAccessibleSites,
 } from '@/libs/atlassian/oauth';
 
 export const atlassianProvider: ConnectProvider = {
   id: 'atlassian',
-  connectorSlugs: ['jira'],
+  connectorSlugs: ['jira', 'confluence'],
   label: 'Atlassian',
   requiredEnv: ATLASSIAN_ENV,
   configured: () => atlassianClient() !== null,
 
-  authorizeUrl({ state, redirectUri, client: chosen }) {
+  authorizeUrl({ state, redirectUri, connector, client: chosen }) {
     const client = atlassianClient(chosen);
     if (!client) {
       // The start route checks `configured()` first; this is the backstop, so
@@ -37,7 +39,7 @@ export const atlassianProvider: ConnectProvider = {
     const url = new URL(ATLASSIAN_AUTHORIZE_URL);
     url.searchParams.set('audience', 'api.atlassian.com');
     url.searchParams.set('client_id', client.clientId);
-    url.searchParams.set('scope', JIRA_READ_SCOPES.join(' '));
+    url.searchParams.set('scope', atlassianScopesFor(connector).join(' '));
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);
     url.searchParams.set('response_type', 'code');
@@ -67,7 +69,7 @@ export const atlassianProvider: ConnectProvider = {
       return { ok: false, reason: err instanceof Error ? err.message : 'accessible_resources_failed' };
     }
     if (sites.length === 0) {
-      return { ok: false, reason: 'This Atlassian account reaches no Jira Cloud site. Sign in with an account that is a member of the site the source names.' };
+      return { ok: false, reason: 'This Atlassian account reaches no Atlassian Cloud site. Sign in with an account that is a member of the site the source names.' };
     }
     if (!token.refresh_token) {
       return { ok: false, reason: 'Atlassian returned no refresh token. The app must request the offline_access scope.' };
@@ -79,7 +81,7 @@ export const atlassianProvider: ConnectProvider = {
         accessToken: token.access_token,
         refreshToken: token.refresh_token,
         expiresAt: expiresAtFrom(token.expires_in),
-        scope: token.scope ?? JIRA_READ_SCOPES.join(' '),
+        scope: token.scope ?? '',
         sites,
         ...(single ? { cloudId: single.id } : {}),
       },

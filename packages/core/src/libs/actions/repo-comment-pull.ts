@@ -89,7 +89,8 @@ export const repoCommentPullAction: Action<typeof commentPullInput> = {
     }
     const { repoProviderFor } = await import('@/services/repo/provider');
     const provider = await repoProviderFor(ctx.orgId, input.url);
-    await provider.deletePullComment(ctx.orgId, repo, commentId);
+    const number = Number(result?.number);
+    await provider.deletePullComment(ctx.orgId, repo, commentId, Number.isInteger(number) && number > 0 ? number : undefined);
     return { deleted: true, commentId, line: `Deleted the comment on ${repo}.` };
   },
 };

@@ -34,7 +34,7 @@ describe('repo.comment_pull', () => {
     expect(noteOnRecord).toHaveBeenCalledWith('org_1', 41, expect.any(String), { runId: 9, url: expect.stringContaining('#issuecomment-501') });
 
     await expect(action.undo!({ orgId: 'org_1' }, input, out)).resolves.toMatchObject({ deleted: true, commentId: 501 });
-    expect(deletePullComment).toHaveBeenCalledWith('org_1', 'Acme/northwind-core', 501);
+    expect(deletePullComment).toHaveBeenCalledWith('org_1', 'Acme/northwind-core', 501, 7);
     await expect(action.undo!({ orgId: 'org_1' }, input, {})).rejects.toThrow(/recorded no comment/);
   });
 

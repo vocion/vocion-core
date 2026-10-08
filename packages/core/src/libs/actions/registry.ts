@@ -25,6 +25,7 @@ import { githubRerunFailedJobsAction } from './github-rerun';
 import { githubRevertPullAction } from './github-revert';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
+import { incidentAcknowledgeAction } from './incident-acknowledge';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { meSetPhoneAction } from './me-set-phone';
 import { membersInviteAction } from './members-invite';
@@ -43,6 +44,7 @@ import { repoSubmitReviewAction } from './repo-submit-review';
 import { restRequestAction } from './rest';
 import { slackPostMessageAction } from './slack-post-message';
 import { sourceConnectAction } from './source-connect';
+import { supportDraftReplyAction } from './support-draft-reply';
 import { teamHireAgentAction } from './team-hire-agent';
 import { trackerAttachFileAction } from './tracker-attach-file';
 import { trackerCommentAction } from './tracker-comment';
@@ -168,6 +170,11 @@ registerAction(trackerCommentAction);
 registerAction(trackerAttachFileAction);
 // The finance family's one write: a draft invoice, never sent, deleted by Undo.
 registerAction(financeDraftInvoiceAction);
+// A reply drafted on a help-desk ticket as an internal note for the support
+// team to send, and an incident acknowledged on the on-call pager — the
+// support and incident families' writes; neither has an Undo the vendor allows.
+registerAction(supportDraftReplyAction);
+registerAction(incidentAcknowledgeAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.

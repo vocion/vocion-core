@@ -38,6 +38,7 @@ import { decideProposalTool } from './decideProposal';
 import { describeSetupTool } from './describeSetup';
 import { describeSourcesTool } from './describeSources';
 import { discoveryTools } from './discovery';
+import { docsTools } from './docsTools';
 import { documentTools } from './documents';
 import { drawArchitectureTools } from './drawArchitecture';
 import { drawMockupTools } from './drawMockup';
@@ -47,6 +48,7 @@ import { fetchUrlTool } from './fetchUrl';
 import { fileAskTool, withdrawAskTool } from './fileAsk';
 import { fileFeedbackTool } from './fileFeedback';
 import { fileRecordTools } from './fileRecord';
+import { filesTools } from './filesTools';
 import { financeTools } from './financeTools';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
@@ -59,6 +61,7 @@ import { hubspotCompanyTools } from './hubspotCompanies';
 import { hubspotDealTools } from './hubspotDeals';
 import { hubspotDirectInScope } from './hubspotDirect';
 import { hubspotLeadsTools } from './hubspotLeads';
+import { incidentTools } from './incidentTools';
 import { kitVisionTools } from './kitVision';
 import {
   addLearningTool,
@@ -93,6 +96,7 @@ import { searchKnowledgeTool } from './searchKnowledge';
 import { sentryTools } from './sentry';
 import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
+import { supportTools } from './supportTools';
 import { openTeamThreadTool } from './teamThread';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
@@ -244,6 +248,14 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // agent whose sources include one (`services/finance`, `services/people`).
     ...financeTools(ctx),
     ...peopleTools(ctx),
+    // Source-gated: the help desk (tickets and their threads), the on-call
+    // pager (incidents), the docs site (pages) and file storage (files), each
+    // live and read-only; their writes are actions (`support.draft_reply`,
+    // `incident.acknowledge`). The provider is the source's, never named.
+    ...supportTools(ctx),
+    ...incidentTools(ctx),
+    ...docsTools(ctx),
+    ...filesTools(ctx),
     // One person across the three families — chat user, tracker account,
     // code-host login — by email. Present with any of the three in scope.
     ...lookupPersonTools(ctx),

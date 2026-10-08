@@ -31,8 +31,10 @@ a different client with its own settings:
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | [QuickBooks](#quickbooks) |
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | [Xero](#xero) |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | [Gusto](#gusto) |
+| `dropbox` | `dropbox` | `DROPBOX_CLIENT_ID`, `DROPBOX_CLIENT_SECRET` | [dropbox.md](dropbox.md#connect-with-dropbox) |
+| `box` | `box` | `BOX_CLIENT_ID`, `BOX_CLIENT_SECRET` | [box.md](box.md#connect-with-box) |
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | [slack.md](slack.md#connecting-the-slack-source-with-a-click) |
-| `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | [jira.md](jira.md#connect-with-atlassian) |
+| `atlassian` | `jira`, `confluence` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | [jira.md](jira.md#connect-with-atlassian), [confluence.md](confluence.md) |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | [github.md](github.md#connect-with-github--the-app-instead-of-a-token) |
 | `posthog` | `posthog` | None: PostHog reads our client from `/api/connect-client/posthog` | [posthog.md](posthog.md#connecting-it) |
 
@@ -41,7 +43,8 @@ a different client with its own settings:
 A workspace admin can save the vendor's app for this workspace alone:
 
 1. Open **Developers**, add a credential, and pick **&lt;Vendor&gt; login app**
-   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero or Gusto).
+   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero, Gusto,
+   Dropbox or Box).
 2. The form shows the exact **redirect URL to register** at the vendor, with a
    copy button. Register it on the vendor's app.
 3. Paste the **Client ID** and **Client secret**, and save.
@@ -74,7 +77,7 @@ admin session works too. A member's session is refused with 403, as on the
 Developers page.
 
 `:provider` is `google`, `slack`, `atlassian`, `hubspot`, `notion`, `zoom`,
-`apollo`, `quickbooks`, `xero` or `gusto`. Any other name answers 404.
+`apollo`, `quickbooks`, `xero`, `gusto`, `dropbox` or `box`. Any other name answers 404.
 
 | Call | What it does |
 |---|---|

@@ -49,6 +49,11 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.XERO_CLIENT_ID, clientSecret: Env.XERO_CLIENT_SECRET };
     case 'gusto':
       return { clientId: Env.GUSTO_CLIENT_ID, clientSecret: Env.GUSTO_CLIENT_SECRET };
+    // Read like Atlassian's, straight from the environment, trimmed.
+    case 'dropbox':
+      return { clientId: process.env.DROPBOX_CLIENT_ID?.trim(), clientSecret: process.env.DROPBOX_CLIENT_SECRET?.trim() };
+    case 'box':
+      return { clientId: process.env.BOX_CLIENT_ID?.trim(), clientSecret: process.env.BOX_CLIENT_SECRET?.trim() };
     default:
       return {};
   }
