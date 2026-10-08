@@ -78,6 +78,7 @@
     "sources:backfill-revisits": "dotenv -c -- tsx src/scripts/backfill-processor-revisits.ts",
     "release:relink": "dotenv -c -- tsx src/scripts/relink-release.ts",
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
+    "account:offboard": "dotenv -c -- tsx src/scripts/account-offboard.ts",
     "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts",
     "artifacts:sweep": "dotenv -c -- tsx src/scripts/sweep-artifacts.ts",
     "artifacts:keep-images": "dotenv -c -- tsx src/scripts/keep-artifact-images.ts",
