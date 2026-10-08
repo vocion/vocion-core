@@ -20,7 +20,7 @@ export default async function AdminPage(props: {
     <>
       <TitleBar
         title="System"
-        description="Infrastructure health, service heartbeats, and platform links"
+        description="What this workspace holds — and, for the people who operate this installation, the health of its services"
         actions={operator
           ? (
               <Button asChild size="sm" variant="outline">

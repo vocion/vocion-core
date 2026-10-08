@@ -89,7 +89,7 @@ export const pluginEnableAction: Action<typeof pluginEnableInput> = {
         ...(target.mode === 'project' ? [{ label: 'Writes', value: `this project's plugin list only — the workspace is applied from git; make it stick in ${target.repoFile}` }] : []),
       ],
       nextAction: target.mode === 'project'
-        ? `Approving updates this project's plugins${input.enabled ? ' and the plugin\'s pages start working' : ''}; the mounted workspace folder is another project's and is left alone. Change plugins: in ${target.repoFile} in the workspace repo to make it permanent.`
+        ? `Approving updates this project's plugins${input.enabled ? ' and the plugin\'s pages start working' : ''}; this project has no workspace folder of its own on this host, so no file is changed. Change plugins: in ${target.repoFile} in the workspace repo to make it permanent.`
         : input.enabled
           ? 'Approving edits workspace.yaml, applies it, and the plugin\'s pages, agents and automations start working.'
           : 'Approving removes it from workspace.yaml and applies; its pages and nav rows disappear, nothing it wrote is deleted.',
@@ -101,8 +101,10 @@ export const pluginEnableAction: Action<typeof pluginEnableInput> = {
     const { projectSlug, workspaceDir, explicit } = await targetFor(ctx);
     const res = await togglePluginForProject({ orgId: ctx.orgId, projectSlug, workspaceDir, explicit, slug: input.slug, enabled: input.enabled, appliedBy: ctx.invokedBy ?? 'plugin.enable' });
     // `note` rides the result so whoever ran this — the chat, the card — can
-    // say the folder was left alone and where the permanent change goes.
-    return { before: res.before, after: res.after, applied: res.applied, mode: res.mode, workspaceDir, ...(res.note ? { note: res.note, repoFile: res.repoFile } : {}) };
+    // say no file was changed and where the permanent change goes. The folder
+    // is named only when it is this project's own: in `project` mode it is
+    // whatever is mounted here, which on a shared host is another company's.
+    return { before: res.before, after: res.after, applied: res.applied, mode: res.mode, ...(res.mode === 'workspace' ? { workspaceDir } : {}), ...(res.note ? { note: res.note, repoFile: res.repoFile } : {}) };
   },
   async undo(ctx, _input, result) {
     const { restorePluginsForProject } = await import('@/services/PluginService');

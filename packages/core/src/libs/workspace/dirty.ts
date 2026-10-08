@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { getWorkspacePath } from './reader';
 
 /**
  * Report whether the configured workspace directory has uncommitted local
@@ -18,10 +17,13 @@ export type ContextDirtyState = {
   error: string | null;
 };
 
-export function getWorkspaceDirtyState(): ContextDirtyState {
-  const contextPath = getWorkspacePath();
+/**
+ * The dirty state of the project's own workspace folder.
+ * @param contextPath - The project's own folder (`workspacePathForProject`), or null when it has none on this host. Never the process-wide mount: on a shared host that is another company's checkout, and its changed file names are its business.
+ */
+export function getWorkspaceDirtyState(contextPath: string | null): ContextDirtyState {
   if (!contextPath) {
-    return { isGitRepo: false, dirty: false, changedFiles: [], error: 'no workspace configured (WORKSPACE_PATH not set)' };
+    return { isGitRepo: false, dirty: false, changedFiles: [], error: 'this project has no workspace folder on this host' };
   }
   const base = fromRepoRoot(contextPath);
 

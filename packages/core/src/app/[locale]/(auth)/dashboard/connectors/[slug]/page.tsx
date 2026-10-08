@@ -12,6 +12,7 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { getConnector } from '@/libs/sources/registry';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import {
   knowledgeDocumentSchema,
@@ -114,8 +115,10 @@ export default async function SourceDetailPage(props: {
   const connector = getConnector(connectorSlug);
   const schedule = typeof config.schedule === 'string' ? config.schedule : null;
   const redacted = redactConfig(config);
-  const sourceFiles = readPrimitiveFiles('source', slug);
-  const dirtyState = getWorkspaceDirtyState();
+  // This project's own folder, never the host's mount as such (another company's on a shared host).
+  const ownWorkspace = await workspacePathForProject(orgId);
+  const sourceFiles = readPrimitiveFiles('source', slug, ownWorkspace);
+  const dirtyState = getWorkspaceDirtyState(ownWorkspace);
   const documents = docCount?.value ?? 0;
 
   const fmt = (d: Date | null | undefined) =>

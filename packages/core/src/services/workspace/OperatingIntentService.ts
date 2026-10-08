@@ -88,13 +88,19 @@ export function parseOperatingIntent(text: string): { intent: OperatingIntentMan
  * @param orgId - The project.
  */
 export async function readOperatingIntent(orgId: string): Promise<OperatingIntentRead> {
-  const [{ workspaceFolderForProject }, { workspaceWriteBlocker }] = await Promise.all([
-    import('@/routers/Workspace'),
+  const [{ ownWorkspaceFolder }, { NO_OWN_WORKSPACE_FOLDER }, { workspaceWriteBlocker }] = await Promise.all([
+    import('@/libs/workspace/project-path'),
+    import('@/libs/workspace/mounted-project'),
     import('@/services/PluginService'),
   ]);
-  const folder = await workspaceFolderForProject(orgId);
-  if (!folder?.path) {
-    return { workspaceDir: null, path: null, text: null, intent: null, error: null, blocker: 'this project has no workspace folder on this host' };
+  // The project's OWN folder: on a shared host the mounted one is another
+  // company's, and reading or writing its operating intent (then applying
+  // it here) would hand this project another company's constraints. The
+  // blocker is the fixed sentence, never the verdict, which names the other
+  // company's project.
+  const folder = await ownWorkspaceFolder(orgId);
+  if (!folder.own) {
+    return { workspaceDir: null, path: null, text: null, intent: null, error: null, blocker: NO_OWN_WORKSPACE_FOLDER };
   }
   const dir = folder.path;
   const path = operatingIntentPath(dir);

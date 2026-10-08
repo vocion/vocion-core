@@ -41,6 +41,7 @@ import { db } from '@/libs/DB';
 import { createSyncBudget } from '@/libs/processors/budget';
 import { getProcessor, listProcessorSlugs } from '@/libs/processors/registry';
 import { DEFAULT_RUNS_ON, MAX_PROCESSOR_ATTEMPTS } from '@/libs/processors/types';
+import { isReservedConfigKey, withoutReservedKeys } from '@/libs/sources/manifestDir';
 import { processorRefOf } from '@/libs/sources/processor';
 import { getConnector } from '@/libs/sources/registry';
 import { DEFAULT_CRAWL_POLITENESS } from '@/libs/sources/robots';
@@ -89,21 +90,25 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
   if (!connector) {
     throw new Error(`Unknown source connector: ${input.kind}`);
   }
+  // The reserved keys say what the row IS, and only the server writes them.
+  // A caller that sends `_manifestDir` is choosing the folder a file source
+  // reads, so every one is dropped before anything is checked or stored.
+  const authored = withoutReservedKeys(input.configJson);
   // Validate the config blob against the connector's schema. Throws
   // a ZodError with a usable message when the form data is bad.
-  connector.configSchema.parse(input.configJson);
+  connector.configSchema.parse(authored);
 
   // A sync-less connector takes its connector slug verbatim. `generateSlug`
   // would fall back to `<kind>-<timestamp>` for a config with no URL in it, and
   // `upsertSource` matches on (orgId, slug): a workspace manifest declaring
   // `slug: apollo` would then create a SECOND row rather than adopt the one
   // added by hand here.
-  const slug = input.slug ?? (connector.syncless ? input.kind : generateSlug(input.kind, input.configJson));
+  const slug = input.slug ?? (connector.syncless ? input.kind : generateSlug(input.kind, authored));
   const ref = await ensureSource({
     orgId: input.orgId,
     slug,
     kind: 'plugin',
-    configJson: { ...input.configJson, _connector: input.kind },
+    configJson: { ...authored, _connector: input.kind },
     tx: input.tx,
   });
   return { id: ref.sourceId, slug };
@@ -157,7 +162,7 @@ export async function supersedeRunningSync(
  * @param existing - The stored config blob.
  */
 function preservedConfigKeys(existing: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(existing).filter(([key]) => key.startsWith('_')));
+  return Object.fromEntries(Object.entries(existing).filter(([key]) => isReservedConfigKey(key)));
 }
 
 /**
@@ -198,12 +203,15 @@ export async function updateSourceConfig(input: {
   if (!connector) {
     throw new Error(`Unknown source connector: ${connectorSlug}`);
   }
+  // The stored reserved keys stand; any the caller sends are dropped, so an
+  // edit cannot re-point the row (`_manifestDir`) any more than an add can.
+  const authored = withoutReservedKeys(input.configJson);
   // Same validation the add path runs, so an edit cannot store a config that a
   // fresh source would have refused.
-  connector.configSchema.parse(input.configJson);
+  connector.configSchema.parse(authored);
   await db
     .update(knowledgeSourceSchema)
-    .set({ configJson: { ...preservedConfigKeys(existing), ...input.configJson, _connector: connectorSlug } })
+    .set({ configJson: { ...preservedConfigKeys(existing), ...authored, _connector: connectorSlug } })
     .where(and(
       eq(knowledgeSourceSchema.id, input.sourceId),
       eq(knowledgeSourceSchema.orgId, input.orgId),

@@ -30,11 +30,13 @@ import { workspaceWriteBlocker } from '@/services/PluginService';
 export type WorkspaceApplyResult = { sha: string; errors: number };
 
 /**
- * The workspace directory for a project, or null when this host has none.
+ * The project's OWN workspace directory, or null when this host has none for
+ * it — null too when the folder mounted here is another project's, so a
+ * self-update never writes another company's file and applies it here.
  * @param orgId - The project.
  */
 export async function workspaceDirFor(orgId: string): Promise<string | null> {
-  const { workspacePathForProject } = await import('@/routers/Workspace');
+  const { workspacePathForProject } = await import('@/libs/workspace/project-path');
   return workspacePathForProject(orgId);
 }
 

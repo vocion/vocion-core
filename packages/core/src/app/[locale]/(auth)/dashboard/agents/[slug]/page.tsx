@@ -15,6 +15,7 @@ import { resolveVoice } from '@/libs/agents/voice';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
@@ -101,8 +102,10 @@ export default async function AgentDetailPage(props: {
   const memoryStats = await agentMemoryStats(orgId, slug, agent.learningSteps ?? []);
   const hasWork = ownedMissions.length + ownedAutomations.length + ownedWorkflows.length > 0;
 
-  const sourceFiles = readPrimitiveFiles('agent', slug);
-  const dirtyState = getWorkspaceDirtyState();
+  // This project's own folder, never the host's mount as such (another company's on a shared host).
+  const ownWorkspace = await workspacePathForProject(orgId);
+  const sourceFiles = readPrimitiveFiles('agent', slug, ownWorkspace);
+  const dirtyState = getWorkspaceDirtyState(ownWorkspace);
   const a = accent(agent.accent);
 
   return (

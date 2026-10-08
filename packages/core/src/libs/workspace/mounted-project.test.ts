@@ -30,8 +30,21 @@ const applied = (over: Partial<{ sha: string; sourcePath: string | null; project
   ({ sha: 'abc', sourcePath: null, projectId: null, appliedAt: new Date('2026-09-20T10:00:00Z'), appliedBy: 'cli', ...over });
 
 describe('judgeMountedFolder', () => {
-  it('a folder the map names for the project is the project\'s, whatever was recorded', () => {
+  it('a folder the map names for the project is the project\'s, whatever this project recorded', () => {
     expect(judgeMountedFolder({ projectId: 'p1', folder: { path: '/ws/a', manifestOrgId: 'other', explicit: true }, applied: applied({ sourcePath: '/ws/b' }) })).toEqual({ own: true });
+  });
+
+  it('a map entry cannot hand a project a folder the record or the manifest gives to another project', () => {
+    // A slug shared by two accounts' projects, or a mistyped entry: the map
+    // says p1, but the folder was last applied to p2, or names p2 outright.
+    const applied2 = judgeMountedFolder({ projectId: 'p1', folder: { path: '/ws/a', manifestOrgId: 'p1', explicit: true, lastAppliedTo: 'p2' }, applied: null });
+    const named2 = judgeMountedFolder({ projectId: 'p1', folder: { path: '/ws/a', manifestOrgId: 'p2', explicit: true, manifestNamesAProject: true }, applied: null });
+
+    expect(applied2.own).toBe(false);
+    expect(!applied2.own && applied2.reason).toContain('p2');
+    expect(named2.own).toBe(false);
+    // A manifest orgId that names no project here is a placeholder, not a claim.
+    expect(judgeMountedFolder({ projectId: 'p1', folder: { path: '/ws/a', manifestOrgId: 'proj_placeholder', explicit: true, manifestNamesAProject: false }, applied: null })).toEqual({ own: true });
   });
 
   it('a recorded project that is not this one settles it', () => {
@@ -48,10 +61,32 @@ describe('judgeMountedFolder', () => {
     // Same folder, another spelling — trailing slash, unresolved segments.
     expect(judgeMountedFolder({ projectId: 'p1', folder: { path: `${dir}/`, manifestOrgId: 'placeholder' }, applied: applied({ sourcePath: join(dir, '.', 'x', '..') }) })).toEqual({ own: true });
 
-    const v = judgeMountedFolder({ projectId: 'p1', folder: { path: dir, manifestOrgId: 'p1' }, applied: applied({ sourcePath: '/somewhere/else' }) });
+    const v = judgeMountedFolder({ projectId: 'p1', folder: { path: dir, manifestOrgId: 'placeholder' }, applied: applied({ sourcePath: '/somewhere/else' }) });
 
     expect(v.own).toBe(false);
     expect(!v.own && v.reason).toContain('/somewhere/else');
+  });
+
+  it('a project applied from an operator\'s checkout owns the mounted copy that names it', () => {
+    // The documented flow (infra/aws/update.sh): apply from a checkout with dev
+    // dependencies at one path, mount the same workspace at another. Judging
+    // by the recorded path alone took brand, rollups and the file routes away
+    // from every such single-tenant install.
+    expect(judgeMountedFolder({ projectId: 'p1', folder: { path: '/workspace', manifestOrgId: 'p1', lastAppliedTo: null }, applied: applied({ sourcePath: '/home/ops/checkout' }) })).toEqual({ own: true });
+  });
+
+  it('a folder has one owner: the project it was last applied to', () => {
+    // The manifest cannot claim a folder another project was applied from:
+    // otherwise its admin could rewrite workspace.yaml orgId to name a
+    // project that was never applied, and hand that project the folder.
+    const claimed = judgeMountedFolder({ projectId: 'p1', folder: { path: '/ws/a', manifestOrgId: 'p1', lastAppliedTo: 'p2' }, applied: null });
+
+    expect(claimed.own).toBe(false);
+    expect(!claimed.own && claimed.reason).toContain('p2');
+
+    // Nor does an older apply from the same folder: the newer one wins.
+    expect(judgeMountedFolder({ projectId: 'p1', folder: { path: '/ws/a', manifestOrgId: 'p1', lastAppliedTo: 'p2' }, applied: applied({ sourcePath: '/ws/a' }) }).own).toBe(false);
+    expect(judgeMountedFolder({ projectId: 'p1', folder: { path: '/ws/a', manifestOrgId: 'p1', lastAppliedTo: 'p1' }, applied: applied({ sourcePath: '/ws/a' }) })).toEqual({ own: true });
   });
 
   it('with nothing recorded, only a manifest orgId that IS this project counts', () => {

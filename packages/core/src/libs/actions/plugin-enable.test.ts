@@ -99,7 +99,9 @@ describe('plugin.enable under a shared mount', () => {
     const card = await pluginEnableAction.reviewCard!({ orgId: FACTORY }, { slug: 'wiki', enabled: true });
 
     expect(card.fields.find(f => f.label === 'Writes')?.value).toContain('workspace/squatch-factory/workspace.yaml');
-    expect(card.nextAction).toContain('left alone');
+    expect(card.nextAction).toContain('no file is changed');
+    // Says nothing about whose folder is mounted here, or that one is.
+    expect(card.nextAction).not.toMatch(/another project|Metacto Revenue|metacto-revenue/);
     expect(card.nextAction).toContain('workspace/squatch-factory/workspace.yaml');
 
     const own = await pluginEnableAction.reviewCard!({ orgId: REVENUE }, { slug: 'wiki', enabled: true });
@@ -115,6 +117,9 @@ describe('plugin.enable under a shared mount', () => {
 
     expect(result).toMatchObject({ mode: 'project', applied: null, before: ['software-factory'], after: ['software-factory', 'data-rooms', 'proposals'], repoFile: 'workspace/squatch-factory/workspace.yaml' });
     expect(String(result.note)).toContain('applied from git');
+    // The mounted folder is another project's: its path stays out of the result.
+    expect(result).not.toHaveProperty('workspaceDir');
+    expect(JSON.stringify(result)).not.toContain(dir);
     expect(manifest(dir)).toBe(before);
     expect(await enabledOf(FACTORY)).toEqual(['software-factory', 'data-rooms', 'proposals']);
 
