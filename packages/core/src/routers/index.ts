@@ -119,6 +119,7 @@ import {
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
+import { createAccountRoute as createOperatorAccountRoute, inviteRoute as operatorInviteRoute, overviewRoute as operatorOverviewRoute, setAccountCapRoute } from './Operator';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
@@ -355,6 +356,14 @@ export const router = {
   budgets: {
     get: getBudget,
     upsert: upsertBudget,
+  },
+  // Across every account on the deployment: each route checks the caller is
+  // an operator (VOCION_OPERATOR_EMAILS) before anything else.
+  operator: {
+    overview: operatorOverviewRoute,
+    createAccount: createOperatorAccountRoute,
+    invite: operatorInviteRoute,
+    setAccountCap: setAccountCapRoute,
   },
   chatWidget: {
     getState: getChatWidgetState,

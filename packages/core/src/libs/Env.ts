@@ -60,6 +60,14 @@ export const Env = createEnv({
      */
     VOCION_ENFORCE_WORKSPACE_ACCESS: z.string().optional(),
     /**
+     * Who operates this deployment: a comma-separated list of sign-in emails.
+     * Operators see every account at `/dashboard/operator`, create accounts
+     * (invite-only onboarding) and set each account's monthly spend cap.
+     * Unset means nobody is one. Read through `services/operator.ts`
+     * `isOperator`, not directly.
+     */
+    VOCION_OPERATOR_EMAILS: z.string().optional(),
+    /**
      * Outbound email (`libs/mail`). Ships dark: nothing is sent unless
      * VOCION_MAIL_ENABLED is exactly '1'. The transport is Resend; the
      * sender must be on a domain verified in Resend. Read through
@@ -143,6 +151,7 @@ export const Env = createEnv({
     VOCION_THINKING_BUDGET: process.env.VOCION_THINKING_BUDGET,
     VOCION_ALLOW_QUEUE_RESET: process.env.VOCION_ALLOW_QUEUE_RESET,
     VOCION_ENFORCE_WORKSPACE_ACCESS: process.env.VOCION_ENFORCE_WORKSPACE_ACCESS,
+    VOCION_OPERATOR_EMAILS: process.env.VOCION_OPERATOR_EMAILS,
     VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,
