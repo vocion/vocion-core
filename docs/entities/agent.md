@@ -24,7 +24,7 @@ consults team leads, and team leads consult their specialists.
 | `accent` | string | — | CSS color name for the chat header and sidebar. |
 | `eyebrow` | string | — | Short tagline above the chat title. |
 | `persona` | `{displayName?, iconUrl?}` | — | The name and avatar this agent's chat-surface replies are posted under. A channel binding's own persona still wins. See [Agents in Slack](../guides/slack.md). |
-| `active` | boolean | `true` | Set `false` to keep the file but hide the agent. |
+| `active` | boolean | `true` | Set `false` to keep the file but hide the agent. An agent a person retired from the [org review](../guides/org-review.md) is held inactive whatever this says — apply keeps the hold (`agent.paused_at/by/note`) and names it in its summary; Undo on the run that retired it brings it back. |
 | `suggestions` | `{label, prompt}[]` | `[]` | Empty-state prompts shown in the chat UI. |
 
 ## Structure
