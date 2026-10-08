@@ -45,12 +45,19 @@ export function emailSurfaceEnabled(): boolean {
 export type Mailbox = { orgId: string; projectSlug: string; projectName: string; address: string; leadAgentSlug: string | null; accountId: string; accountableUserId: string | null };
 
 /**
- * The workspace behind an address, if one has claimed it and enabled its
- * mailbox.
+ * The workspace behind an address, if exactly one has claimed it and enabled
+ * its mailbox.
+ *
+ * Two that have is a duplicate from before migration 0178's unique index (the
+ * migration skips the build rather than choose between them). Mail to it goes
+ * to neither — picking one would hand one company's mail to another — and
+ * every such mail logs the address and both workspaces, so the duplicate is
+ * reported for as long as it lasts, not once in a deploy log. The provider
+ * keeps the mail; it routes on redelivery once the duplicate is settled.
  * @param address - Bare lower-case recipient address.
  */
 export async function resolveMailbox(address: string): Promise<Mailbox | null> {
-  const [row] = await db
+  const rows = await db
     .select({
       orgId: projectSchema.id,
       projectSlug: projectSchema.slug,
@@ -62,7 +69,16 @@ export async function resolveMailbox(address: string): Promise<Mailbox | null> {
     })
     .from(projectSchema)
     .where(and(eq(projectSchema.mailboxEnabled, true), sql`lower(${projectSchema.mailboxAddress}) = ${address.toLowerCase()}`))
-    .limit(1);
+    .limit(2);
+  if (rows.length > 1) {
+    console.error(
+      '[EmailSurfaceService] mail to an address two workspaces hold was routed to neither. Give each workspace its own mailbox.address, '
+      + 'then run the CREATE UNIQUE INDEX in migration 0178 (project_mailbox_address_uq).',
+      { address, projectIds: rows.map(r => r.orgId) },
+    );
+    return null;
+  }
+  const [row] = rows;
   if (!row || !row.address) {
     return null;
   }

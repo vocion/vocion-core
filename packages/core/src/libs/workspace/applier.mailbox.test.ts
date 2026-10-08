@@ -11,8 +11,13 @@
  * setting anyway, and names the holder only inside the asker's own account.
  * When two applies race past the check, the index from migration 0178 refuses
  * the second write and the apply says the same thing.
+ *
+ * A refused claim never costs a workspace the mailbox it already has: not a
+ * working address it asked to move off by mistake, and not an address it
+ * shares with another workspace from before the index existed — which side of
+ * such a duplicate keeps its mail is a person's decision, not apply order's.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,7 +29,7 @@ vi.mock('@/libs/mail/mailboxClaim', async (importOriginal) => {
 });
 
 const { db } = await import('@/libs/DB');
-const { eq } = await import('drizzle-orm');
+const { eq, sql } = await import('drizzle-orm');
 const { projectSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { applyWorkspace } = await import('./applier');
 const { loadWorkspace } = await import('./loader');
@@ -37,6 +42,8 @@ const KESTREL = 'acct-mbx-kestrel';
 const NW_REVENUE = 'proj-mbx-nw-revenue';
 const NW_DELIVERY = 'proj-mbx-nw-delivery';
 const KS_REVENUE = 'proj-mbx-ks-revenue';
+
+const MIGRATION = readFileSync(join(process.cwd(), 'migrations', '0178_project_mailbox_address_unique.sql'), 'utf8');
 
 const dirs: string[] = [];
 
@@ -153,5 +160,55 @@ describe('a mailbox address another workspace holds', () => {
     })]);
     expect(await mailboxOf(NW_DELIVERY)).toEqual({ enabled: false, address: null, goal: 'Keep the lights on.' });
     expect(await mailboxOf(NW_REVENUE)).toMatchObject({ enabled: true, address: `desk@${DOMAIN}` });
+  });
+});
+
+describe('a refused claim keeps the mailbox the workspace already has', () => {
+  it('when it asks for an address another workspace holds, its working one stays on', async () => {
+    await apply(NW_REVENUE, `mailbox:\n  enabled: true\n  address: sales@${DOMAIN}\n`);
+    await apply(NW_DELIVERY, `mailbox:\n  enabled: true\n  address: desk@${DOMAIN}\n`);
+
+    const typo = await apply(NW_DELIVERY, `goal: Ship every order on time.\nmailbox:\n  enabled: true\n  address: sales@${DOMAIN}\n`);
+
+    expect(typo.errors).toEqual([expect.objectContaining({
+      message: expect.stringMatching(/"sales@agents\.example\.com" is already the mailbox of the "revenue" workspace/),
+    })]);
+    expect(await mailboxOf(NW_DELIVERY)).toEqual({ enabled: true, address: `desk@${DOMAIN}`, goal: 'Ship every order on time.' });
+    expect(await mailboxOf(NW_REVENUE)).toMatchObject({ enabled: true, address: `sales@${DOMAIN}` });
+  });
+
+  it('when the index refuses it in a race, its working one stays on', async () => {
+    await apply(NW_REVENUE, `mailbox:\n  enabled: true\n  address: desk@${DOMAIN}\n`);
+    await apply(NW_DELIVERY, `mailbox:\n  enabled: true\n  address: shipping@${DOMAIN}\n`);
+    vi.mocked(mailboxHolder).mockResolvedValueOnce(null);
+
+    const raced = await apply(NW_DELIVERY, `goal: Keep the lights on.\nmailbox:\n  enabled: true\n  address: desk@${DOMAIN}\n`);
+
+    expect(raced.errors).toEqual([expect.objectContaining({ message: expect.stringMatching(/"desk@agents\.example\.com" is already the mailbox/) })]);
+    expect(await mailboxOf(NW_DELIVERY)).toEqual({ enabled: true, address: `shipping@${DOMAIN}`, goal: 'Keep the lights on.' });
+  });
+
+  it('when a duplicate from before the index is re-applied, the incumbent keeps its mail and hears about the conflict', async () => {
+    // A deployment where 0178 skipped its index: two companies already share
+    // an address, and either one may be where mail is landing today.
+    await db.execute(sql`drop index if exists "project_mailbox_address_uq"`);
+    try {
+      for (const id of [NW_REVENUE, KS_REVENUE]) {
+        await db.update(projectSchema).set({ mailboxEnabled: true, mailboxAddress: `desk@${DOMAIN}` }).where(eq(projectSchema.id, id));
+      }
+
+      const reapplied = await apply(KS_REVENUE, `goal: Close the quarter.\nmailbox:\n  enabled: true\n  address: desk@${DOMAIN}\n`);
+
+      expect(reapplied.errors).toEqual([expect.objectContaining({
+        resource: 'workspace',
+        message: expect.stringMatching(/"desk@agents\.example\.com" is already claimed by another workspace on this deployment.*mailbox\.address/),
+      })]);
+      expect(await mailboxOf(KS_REVENUE)).toEqual({ enabled: true, address: `desk@${DOMAIN}`, goal: 'Close the quarter.' });
+      expect(await mailboxOf(NW_REVENUE)).toMatchObject({ enabled: true, address: `desk@${DOMAIN}` });
+    } finally {
+      // Settle the duplicate and put the index back for the tests after this one.
+      await db.update(projectSchema).set({ mailboxEnabled: false }).where(eq(projectSchema.id, KS_REVENUE));
+      await db.execute(sql.raw(MIGRATION));
+    }
   });
 });
