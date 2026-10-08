@@ -1,5 +1,5 @@
 import type { NotificationRuleConfig } from '@/libs/notifications/types';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
 import { argAsText, renderString } from '@/libs/rest/template';
@@ -68,6 +68,32 @@ export function renderNotification(rule: NotificationRuleConfig, payload: Record
   };
 }
 
+/**
+ * THE KINDS CORE DECLARES ITSELF — moments core owns, which no plugin or
+ * workspace would know to declare, and which must reach a person whatever was
+ * declared. Same shape as a declared kind and matched the same way; a stored
+ * rule with the same `kind` replaces it (a workspace entry with
+ * `status: disabled` turns it off), and each person picks its channels in
+ * notification settings like any other kind.
+ *
+ *   decision-escalated — a decision waiting on Needs you is near its
+ *   deadline, past it and held, or was applied by default
+ *   (`services/needsYou/DecisionClockService.ts`). One per person per sweep.
+ */
+export const CORE_NOTIFICATION_RULES: readonly NotificationRuleConfig[] = [
+  {
+    kind: 'decision-escalated',
+    label: 'Decisions due',
+    description: 'A decision waiting on you is near its deadline, past it, or was applied by default.',
+    event: 'decision.escalated',
+    who: { field: 'ownerUserId' },
+    title: '{title}',
+    body: '{body}',
+    link: '{link}',
+    dedupe: '{dedupe}',
+  },
+];
+
 export type NotifyFromEventResult = { rules: number; notified: number; deduped: number };
 
 /**
@@ -84,12 +110,24 @@ export type NotifyFromEventResult = { rules: number; notified: number; deduped: 
  */
 export async function notifyFromEvent(input: { orgId: string; type: string; payload: Record<string, unknown>; eventId: number | null; dedupeKey?: string | null }): Promise<NotifyFromEventResult> {
   const result: NotifyFromEventResult = { rules: 0, notified: 0, deduped: 0 };
-  let rules: Array<typeof notificationRuleSchema.$inferSelect>;
+  const core = CORE_NOTIFICATION_RULES.filter(r => r.event === input.type);
+  let rules: Array<{ id: number | null; kind: string; config: NotificationRuleConfig }>;
   try {
-    rules = await db
+    const stored = await db
       .select()
       .from(notificationRuleSchema)
-      .where(and(eq(notificationRuleSchema.orgId, input.orgId), eq(notificationRuleSchema.event, input.type), eq(notificationRuleSchema.status, 'active')));
+      .where(and(
+        eq(notificationRuleSchema.orgId, input.orgId),
+        core.length > 0
+          ? or(eq(notificationRuleSchema.event, input.type), inArray(notificationRuleSchema.kind, core.map(r => r.kind)))
+          : eq(notificationRuleSchema.event, input.type),
+      ));
+    // A stored kind — whatever its event or status — replaces core's kind of the same name.
+    const declared = new Set(stored.map(r => r.kind));
+    rules = [
+      ...stored.filter(r => r.status === 'active' && r.event === input.type).map(r => ({ id: r.id, kind: r.kind, config: r.config })),
+      ...core.filter(r => !declared.has(r.kind)).map(r => ({ id: null, kind: r.kind, config: r })),
+    ];
   } catch (err) {
     console.warn('[notifications] could not read notification rules', { orgId: input.orgId, event: input.type, error: (err as Error).message });
     return result;
@@ -132,7 +170,12 @@ export async function notifyFromEvent(input: { orgId: string; type: string; payl
       note = `could not notify: ${(err as Error).message}`.slice(0, 500);
       console.warn('[notifications] a rule matched and could not notify', { orgId: input.orgId, kind: rule.kind, event: input.type, error: (err as Error).message });
     }
-    await db.update(notificationRuleSchema).set({ lastFiredAt: new Date(), lastNote: note }).where(eq(notificationRuleSchema.id, rule.id)).catch(() => {});
+    if (rule.id !== null) {
+      await db.update(notificationRuleSchema).set({ lastFiredAt: new Date(), lastNote: note }).where(eq(notificationRuleSchema.id, rule.id)).catch(() => {});
+    } else if (!note.startsWith('notified')) {
+      // Core's own kind has no row to write on, so what it could not do is logged.
+      console.warn('[notifications] a core notification kind did not reach anyone', { orgId: input.orgId, kind: rule.kind, note });
+    }
   }
   return result;
 }

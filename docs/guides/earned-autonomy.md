@@ -125,6 +125,18 @@ automation away; it never takes away the ability to propose — pushing a kind
 further down is a person's call. The flag shows on the page with the reason
 and clears with *Seen*, or with the next promote/demote.
 
+## Defaults at a deadline
+
+A decision nobody answers does not wait forever ([Needs you](./needs-you.md#deadlines-and-defaults)),
+and the ladder is what keeps its default honest. At the deadline the recommended answer applies
+only where this page already says the kind may run without a person — its rung is Execute within
+bounds or above — or where the default can be undone and the kind is not high-risk. A kind held by
+the platform, one a person parked below Execute with approval, and anything irreversible at the
+default rung are held for a person and escalated again; the default never promotes a kind and never
+runs what the ladder keeps. A default that applied is not evidence — nobody agreed with anything —
+so it never enters the alignment ledger; an Undo of one counts like the undo of anything the ladder
+released.
+
 ## Learning on agreement
 
 Corrections already flow to the feedback classifier: a rejection or an "other"

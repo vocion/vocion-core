@@ -6,7 +6,7 @@
  * interrupted pass on the executor's restart rather than racing a second one.
  */
 
-import { fireAutomation, scheduleFireInFlight } from '@/services/AutomationService';
+import { fireAutomation, recordSkippedFire, scheduleFireInFlight } from '@/services/AutomationService';
 
 export type FireAutomationActivityInput = {
   orgId: string;
@@ -49,5 +49,41 @@ export async function fireAutomationActivity(
   if (inFlight !== null) {
     return { kind: 'skipped', runId: inFlight };
   }
+  // PARKED ON ITS QUESTIONS (`needsYou/ResumeGateService.ts`): everything this
+  // automation had left to do waits on asks, so its schedule spends nothing
+  // until they are answered. Only the tick is held — an event still fires,
+  // and a person's Run now is their word. Written down like any refusal.
+  const held = await waitingOn(input.orgId, input.slug);
+  if (held !== null) {
+    return { kind: 'skipped', runId: held };
+  }
   return await fireAutomation(input.orgId, input.slug, { invokedBy: `automation:${input.slug}` });
+}
+
+/**
+ * The skipped run row for a schedule tick held by a resume gate, or null when
+ * no gate holds this automation.
+ * @param orgId - The workspace.
+ * @param slug - The automation whose schedule ticked.
+ */
+async function waitingOn(orgId: string, slug: string): Promise<number | null> {
+  const { automationHold } = await import('@/services/needsYou/ResumeGateService');
+  const gate = await automationHold(orgId, slug);
+  if (!gate) {
+    return null;
+  }
+  const invokedBy = `automation:${slug}`;
+  const n = gate.waitingOn.length;
+  return recordSkippedFire(orgId, slug, {
+    event: invokedBy,
+    payload: {},
+    invokedBy,
+    result: {
+      kind: 'skipped',
+      reason: 'waiting_on_ask',
+      detail: `waiting on ${n === 1 ? 'a question' : `${n} questions`} on Needs you${gate.gateAskId ? ` (ask #${gate.gateAskId})` : ''} — it runs again once ${n === 1 ? 'it is' : 'they are'} answered`,
+      event: invokedBy,
+      causedBy: null,
+    },
+  });
 }

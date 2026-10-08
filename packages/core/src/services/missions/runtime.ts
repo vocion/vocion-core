@@ -14,6 +14,7 @@ import { db } from '@/libs/DB';
 import { missionRunSchema, missionSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
 import { withRunCost } from '@/services/budget/runCost';
+import { missionRunParked } from '@/services/needsYou/ResumeGateService';
 import { clampAutonomyLevel, taskNeedsApproval } from './autonomy';
 import { describeTaskFailure } from './failure';
 
@@ -125,6 +126,14 @@ async function executeInScope(runId: number, orgId: string): Promise<string> {
       }
       if (!depsSatisfied(task, tasks)) {
         continue;
+      }
+      // PARKED ON ITS QUESTIONS (`needsYou/ResumeGateService.ts`): a task
+      // whose agent said everything left waits on asks stopped the run here.
+      // No further model calls until the gate is answered; the resume job
+      // picks the plan up at this task.
+      if (await missionRunParked(orgId, runId)) {
+        await patch(runId, { plan: { tasks } });
+        return 'paused';
       }
       // Autonomy gate: pause for human review before a gated task runs.
       if (taskNeedsApproval(task, level)) {

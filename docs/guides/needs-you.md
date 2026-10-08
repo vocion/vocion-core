@@ -68,6 +68,46 @@ verbs on hover. Several proposals about one record collapse into one sheet
 row ("Northwind — 4 proposals"); several asks under one `groupKey` collapse
 into one decision sheet.
 
+### Deadlines and defaults
+
+Every ask and every agent proposal on the list runs on a clock, so a queue nobody gets to does not
+simply sit (the zero-person company stopped with 24 approvals nobody touched). Its row says when it
+is due and what happens then — *due in 5h · then Approve* — and, once its deadline has passed
+without the default applying, *past due · waits for you*, with the reason on hover.
+
+| Moment | What happens |
+|---|---|
+| Opened | The sweep (`needs-you.sweep`, every five minutes) gives it a deadline — the ask's `dueAt`, else a day / three days / a week by risk — and a default: the ask's recommended option, or the proposal's own suggested decision (Approve or Decline). A decision older than its window is given a full notice from now, never defaulted on sight. |
+| Before the deadline | Its accountable owner is told: the asking team's accountable human, else the workspace's `accountableUser`, else its owner, else its admins. One notification per person per sweep — *3 decisions need you: 3 due soon* — on the core kind **Decisions due**, with the channels the person chose for it. |
+| At the deadline | The default **applies**, as a recorded decision by `by-default`, when the trust ladder would let that kind run without a person, or the default can be undone and is not high-risk — or it runs nothing at all (a proposal the agent itself advised declining). It reads *applied by default* on the Decided tab, with Undo where the kind has one. |
+| Otherwise | It is **held**: it stays here, says why (*it cannot be undone, and the trust ladder keeps it for a person*), and its owner is told again a day later. A kind the platform holds (`neverAuto`), a kind a person parked, a record that holds itself, no default, a workspace that is paused — all held, never run. |
+
+Applying a default is never alignment evidence and never trains an agent: no person decided. An
+Undo of a released proposal counts like the undo of anything the ladder released, and can demote
+its kind; an Undo of an answered ask reopens it, and its default never applies again.
+
+### Accept in one move
+
+Above the list, the decisions in view whose recommendation reads the same are gathered — *12
+recommend "Approve" · 9 approvals · 3 recommendations* — with **Accept all 12**. The items are one
+click away under the line. Accepting decides each one as recommended, as you, through the same
+service its own screen uses, so each is a decision in the alignment ledger and the learning loop
+exactly as if you had clicked it. Anything decided or changed since you saw it is skipped and named
+in the toast; a failure on one never stops the rest. Batches follow the filters, so *Approvals ·
+ops-lead* batches only those. A decision sheet is already one move and is left to its own screen.
+
+### Runs that wait on you
+
+A run with nothing to do but wait no longer keeps spending. A worker run, a mission run or a
+scheduled automation whose remaining work is all blocked on asks **parks**: it files ONE gate ask —
+*Nothing ops-lead can do until the pricing tier for Northwind is answered* — and stops: a worker
+run is paused and gives up its lease, a mission run stops before its next task, an automation's
+scheduled checks are skipped (logged as `waiting_on_ask`). Answering what it waits on resumes it on
+its own; the gate's **Resume now** resumes it as things stand, **Stop** cancels it (or pauses the
+automation, in your name). A parked run shows here once, as its gate — never also as a paused run.
+How a run parks: `POST /api/v1/worker-runs/:id/park` for a worker, the `wait_for_answers` tool for
+an agent ([agent tools](./agent-tools.md#waiting-on-answers--wait_for_answers)).
+
 ### Across your workspaces
 
 *All workspaces* (`?scope=all`) is the same open queue gathered from every
@@ -241,6 +281,11 @@ proposal, `AskService.decideAsk` for an ask, `LearningCandidateService
   `listInboxForUser`, `needsYouCountForUser`, over `needsYouItems` per workspace.
 - **Refs:** `services/inbox/inboxRef.ts`; **one proposal for its screen:**
   `services/inbox/pendingAction.ts`.
+- **Clocks, defaults, batches, resume gates:** `services/needsYou/` —
+  `DecisionClockService.ts` (the sweep, `undoAskDefault`), `owner.ts`, `batches.ts`,
+  `ResumeGateService.ts`; the policy in `libs/needsYou/deadlines.ts`; tables `decision_deadline`
+  (`0184`) and `resume_gate` (`0185`); RPC `inbox.acceptBatch`, `inbox.undoDefault`; UI
+  `features/dashboard/inbox/RecommendationBatches.tsx`.
 - **UI:** `app/[locale]/(auth)/dashboard/inbox/` (list, `[id]`, `g/`, `r/`);
   `features/dashboard/inbox/` (rows, controls, `AskSheet`, `RunDecision`,
   `LearningDecision`, `decisionVerbs`); `features/dashboard/ReviewFocus.tsx`

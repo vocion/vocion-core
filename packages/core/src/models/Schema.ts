@@ -4459,6 +4459,110 @@ export const askSchema = pgTable(
   ],
 );
 
+/**
+ * THE CLOCK ON A DECISION WAITING ON NEEDS YOU (migration 0184). One row per
+ * open ask or pending proposal, opened by the needs-you sweep
+ * (`services/needsYou/DecisionClockService.ts`): when it is due, what happens
+ * if nobody answers (the asker's recommended option — the default), who hears
+ * about it before then, and what became of it.
+ *
+ * A side table, the way `decision_alignment` is, so the two things a person
+ * decides (`ask`, `action_run`) keep their own rows untouched and one sweep
+ * reads both. `status`:
+ *
+ *   open     the clock is running; the deadline has not passed
+ *   held     the deadline passed and the default could not apply (no default,
+ *            or the trust ladder keeps it for a person) — it stays on Needs
+ *            you and is escalated again, never dropped
+ *   applied  the default was applied at the deadline, as a recorded decision
+ *   settled  a person (or the asker) decided it, or it left the queue
+ */
+export const decisionDeadlineSchema = pgTable(
+  'decision_deadline',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** `ask` | `proposal` (an `action_run`). */
+    subjectKind: text('subject_kind').notNull(),
+    subjectId: integer('subject_id').notNull(),
+    /** When the default applies, if nobody answers. */
+    deadlineAt: timestamp('deadline_at', { mode: 'date' }).notNull(),
+    /** When the accountable owner is first told — always before the deadline. */
+    escalateAt: timestamp('escalate_at', { mode: 'date' }).notNull(),
+    /** When the sweep looks at this row next. */
+    nextAt: timestamp('next_at', { mode: 'date' }).notNull(),
+    /** The declared default: an ask's recommended option id, or `approve` / `reject` for a proposal. Null = none declared. */
+    defaultOption: text('default_option'),
+    /** The default as a person reads it — the option's label, "Approve", "Decline". */
+    defaultLabel: text('default_label'),
+    /** Who the last escalation reached, and where that came from: `team` | `workspace` | `owner` | `admins`. */
+    ownerUserId: text('owner_user_id'),
+    ownerSource: text('owner_source'),
+    escalations: integer('escalations').default(0).notNull(),
+    lastEscalatedAt: timestamp('last_escalated_at', { mode: 'date' }),
+    status: text('status').default('open').notNull(),
+    /** Why the default applied, or why it was held — one clause, shown where the decision is read. */
+    outcomeReason: text('outcome_reason'),
+    appliedAt: timestamp('applied_at', { mode: 'date' }),
+    /** A person took the applied default back; it then waits for their answer and never applies again. */
+    undoneAt: timestamp('undone_at', { mode: 'date' }),
+    undoneBy: text('undone_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('decision_deadline_subject_uq').on(table.orgId, table.subjectKind, table.subjectId),
+    index('decision_deadline_due_idx').on(table.status, table.nextAt),
+  ],
+);
+
+/**
+ * A RUN THAT HAS NOTHING TO DO BUT WAIT (migration 0185). A long-running
+ * worker run, a mission run or a scheduled automation whose remaining work is
+ * all blocked on asks parks here: ONE resume-gate ask is filed ("nothing I can
+ * do until …"), and the subject stops spending — no model calls, no schedule
+ * fires — until it is answered, or until every ask it waits on is
+ * (`services/needsYou/ResumeGateService.ts`).
+ *
+ * `subject_kind`: `worker_run` | `mission_run` | `automation`; `subject_ref`
+ * is the run id or the automation slug. `automation_slug` is set whenever an
+ * automation's schedule is held by the gate — the automation itself, or the
+ * one whose fire started the parked mission run. One parked gate per subject
+ * (the partial unique index). `status`: `parked` | `resumed` | `stopped`.
+ */
+export const resumeGateSchema = pgTable(
+  'resume_gate',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    subjectKind: text('subject_kind').notNull(),
+    subjectRef: text('subject_ref').notNull(),
+    automationSlug: text('automation_slug'),
+    /** The agent that parked, when one did. */
+    agentSlug: text('agent_slug'),
+    /** The one ask that says "nothing I can do until …". */
+    gateAskId: integer('gate_ask_id'),
+    /** The asks it waits on. When none is open any more, it resumes on its own. */
+    waitingOn: jsonb('waiting_on').$type<number[]>().default([]).notNull(),
+    /** What it is waiting for, in the parker's words. */
+    reason: text('reason'),
+    status: text('status').default('parked').notNull(),
+    parkedAt: timestamp('parked_at', { mode: 'date' }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { mode: 'date' }),
+    /** A person's id, or `answers` when every ask it waited on was decided. */
+    resolvedBy: text('resolved_by'),
+    resolutionNote: text('resolution_note'),
+    /** The last time resuming or stopping it failed, and why — it is retried by the sweep. */
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('resume_gate_parked_subject_uq').on(table.orgId, table.subjectKind, table.subjectRef).where(sql`${table.status} = 'parked'`),
+    index('resume_gate_org_status_idx').on(table.orgId, table.status),
+  ],
+);
+
 /* ------------------------------------------------------------------ */
 /* Chat surfaces — which agent answers in which channel (item 025)      */
 /* ------------------------------------------------------------------ */

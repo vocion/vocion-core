@@ -5,6 +5,7 @@ import { verbosityHints } from '@/features/dashboard/inbox/askText';
 import { slugifyOption } from '@/libs/asks/optionId';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
+import { DEFAULT_DECIDER } from '@/libs/needsYou/deadlines';
 import { ASK_KINDS, ASK_RISKS, askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { recordAskAlignment } from '@/services/alignment/AlignmentService';
@@ -56,6 +57,14 @@ export type FixedDecision = typeof FIXED_DECISIONS[number];
 
 /** Kinds where an "other" answer means the asker has to read the note and may re-ask. */
 export const FOLLOW_UP_KINDS: readonly AskKind[] = ['ruling', 'approval', 'recommendation'];
+
+/**
+ * Who may answer an ask that is not a person: the trust bar (`ask.file`
+ * done for you) and the deadline (`libs/needsYou/deadlines.ts`). Neither is
+ * evidence — the recommendation agreeing with itself teaches nothing — and
+ * neither runs an option's action as a person.
+ */
+const SYSTEM_DECIDERS: ReadonlySet<string> = new Set(['trust-ladder', DEFAULT_DECIDER]);
 
 export type Ask = typeof askSchema.$inferSelect;
 
@@ -563,7 +572,7 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
     // answer is alignment evidence: did the person choose the option the team
     // recommended? Read back on the sheet and by the ladder. Neither when the
     // trust bar chose: the recommendation agreeing with itself is no evidence.
-    ...(opts.decidedBy === 'trust-ladder'
+    ...(SYSTEM_DECIDERS.has(opts.decidedBy)
       ? []
       : [
           proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
@@ -572,7 +581,26 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
   ]);
   announceDecided(row);
   await carryOutChosenOption(row, opts.decidedBy);
+  await settleWaitersOn(row);
   return row;
+}
+
+/**
+ * A decided or withdrawn ask may be what a parked run was waiting for: tell
+ * the resume gates (`services/needsYou/ResumeGateService.ts`), which resume
+ * the run once nothing it waits on is open. Never throws — the answer is
+ * already written; a gate that could not move says why on its own row and is
+ * retried by the needs-you sweep.
+ * @param row - The ask as written.
+ */
+async function settleWaitersOn(row: Ask): Promise<void> {
+  try {
+    const { onAskSettled } = await import('@/services/needsYou/ResumeGateService');
+    await onAskSettled(row);
+  } catch (err) {
+    const { logger } = await import('@/libs/Logger');
+    logger.warn('a resume gate could not hear an answered ask; the sweep retries it', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /**
@@ -658,6 +686,7 @@ export async function supersedeAsk(orgId: string, id: number, note?: string | nu
     .set({ status: 'superseded', decisionNote: note?.trim() || null, decidedAt: now, updatedAt: now })
     .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id)))
     .returning();
+  await settleWaitersOn(row!);
   return row!;
 }
 

@@ -4,6 +4,7 @@ import {
   ARTIFACT_IMAGE_SWEEP_SCHEDULE_ID,
   LANGFUSE_RETENTION_SCHEDULE_ID,
   MISSION_RUN_REAPER_SCHEDULE_ID,
+  NEEDS_YOU_SWEEP_SCHEDULE_ID,
   WORKER_RUN_REAPER_SCHEDULE_ID,
 } from '@/libs/durable/scheduleIds';
 import { langfuseConfig } from '@/libs/Langfuse';
@@ -27,6 +28,9 @@ import { JOB } from './catalog';
  *     set: prunes expired traces outside working hours in US time zones.
  *   - Durable prune, 04:10 UTC daily: deletes finished job runs older than a
  *     week so the durable tables do not grow with every tick.
+ *   - Needs-you sweep, every five minutes: the clock on every decision
+ *     waiting on a person — escalation, defaults at deadlines, held items —
+ *     and the resume of runs parked on questions that are now answered.
  */
 
 export const DURABLE_PRUNE_SCHEDULE_ID = 'durable-prune';
@@ -37,6 +41,7 @@ export function deploymentSchedules(): { wanted: ScheduleSpec[]; unwanted: strin
     { name: MISSION_RUN_REAPER_SCHEDULE_ID, cron: '*/5 * * * *', job: JOB.missionRunReaper },
     { name: ARTIFACT_IMAGE_SWEEP_SCHEDULE_ID, cron: '17 * * * *', job: JOB.artifactImageSweep },
     { name: DURABLE_PRUNE_SCHEDULE_ID, cron: '10 4 * * *', job: JOB.durablePrune },
+    { name: NEEDS_YOU_SWEEP_SCHEDULE_ID, cron: '*/5 * * * *', job: JOB.needsYouSweep },
   ];
   const unwanted: string[] = [];
   if (externalWorkersEnabled()) {

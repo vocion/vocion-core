@@ -172,6 +172,11 @@ Where a rung comes from, and which wins:
   other factory hand-off is irreversible, so with no rule it asks, and with
   the plugin's rule (`execute-with-approval`, `risk: high`) it cannot be
   released by any confidence, 1.0 included.
+- **A deadline reads the same ladder.** A proposal or ask nobody answers by its deadline has its
+  recommended default applied only when this ladder would let the kind run without a person at its
+  rung, or the default is reversible and not high-risk; otherwise it is held and escalated again
+  ([Needs you](../guides/needs-you.md#deadlines-and-defaults)). A never-auto kind, a parked kind and
+  a record that holds itself are always held.
 - Approval is an action-level concern. A skill or playbook can never grant itself sending rights — see [skill](./skill.md).
 
 ## Related

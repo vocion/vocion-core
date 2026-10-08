@@ -170,8 +170,10 @@ describe('listInboxForUser', () => {
     const many = spy.mock.calls.length;
 
     // Three workspaces: two queries to find them (the switcher's list and the
-    // accounts), then the open queue's eight per workspace (measured: 26).
-    expect(few).toBeLessThanOrEqual(2 + 3 * 8);
+    // accounts), then the open queue's ten per workspace — eight for the rows,
+    // one for their clocks and one for the runs parked on a resume gate
+    // (measured: 32).
+    expect(few).toBeLessThanOrEqual(2 + 3 * 10);
     expect(many).toBe(few);
   });
 });

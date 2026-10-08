@@ -89,7 +89,7 @@ import {
   setGrant as setGroupGrantRoute,
   setMember as setGroupMemberRoute,
 } from './Groups';
-import { mineCountRoute as inboxMineCountRoute, mineRoute as inboxMineRoute } from './Inbox';
+import { acceptBatchRoute as inboxAcceptBatchRoute, mineCountRoute as inboxMineCountRoute, mineRoute as inboxMineRoute, undoDefaultRoute as inboxUndoDefaultRoute } from './Inbox';
 import {
   add as addLearning,
   check as checkLearning,
@@ -374,6 +374,8 @@ export const router = {
   inbox: {
     mine: inboxMineRoute,
     mineCount: inboxMineCountRoute,
+    acceptBatch: inboxAcceptBatchRoute,
+    undoDefault: inboxUndoDefaultRoute,
   },
   scorecard: {
     agents: scorecardAgentsRoute,

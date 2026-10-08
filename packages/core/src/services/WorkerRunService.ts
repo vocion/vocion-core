@@ -366,7 +366,9 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     : run.failures;
   const [updated] = await db.update(workerRunSchema).set({
     heartbeatAt: now,
-    leaseExpiresAt: new Date(now.getTime() + run.leaseSeconds * 1000),
+    // A run parked on its questions holds no lease (`parkWorkerRun`): a beat
+    // while it waits is answered `paused` and never makes it reapable.
+    leaseExpiresAt: run.status === 'paused' ? null : new Date(now.getTime() + run.leaseSeconds * 1000),
     progress: input.progress ? boundProgress(input.progress) : run.progress,
     cursor: input.cursor ?? run.cursor,
     counts: input.counts ? { ...run.counts, ...input.counts } : run.counts,
@@ -409,7 +411,7 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
   const pastDeadline = r.endsAt !== null && r.endsAt < now;
   return {
     run: r,
-    leaseExpiresAt: r.leaseExpiresAt!,
+    leaseExpiresAt: r.leaseExpiresAt ?? now,
     stop: r.stopRequested || overCap || pastDeadline,
     paused: r.status === 'paused',
     endsAt: r.endsAt,
@@ -417,6 +419,40 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     toolClaim: toolClaimFor(r),
     ...(eventsAccepted === undefined ? {} : { eventsAccepted }),
   };
+}
+
+/**
+ * PARK: everything the run has left to do waits on asks, so it stops spending
+ * until they are answered (`services/needsYou/ResumeGateService.ts`). One
+ * resume-gate ask goes on Needs you; the run is `paused` and gives up its
+ * lease, so the worker can exit and nothing is reaped. When the asks are
+ * answered — or a person presses Resume — the run is `queued` again and any
+ * worker claims it with the cursor it left; Stop cancels it.
+ *
+ * The caller must hold the lease. `cursor` and `progress`, when sent, are
+ * kept first, so whoever claims it next starts from where this one stopped.
+ * @param opts - The park.
+ * @param opts.orgId - Tenant.
+ * @param opts.id - Run id.
+ * @param opts.workerId - The lease holder.
+ * @param opts.waitingOn - The ask ids it is blocked on.
+ * @param opts.reason - What it is waiting for, in the worker's words.
+ * @param opts.cursor - Where to resume from.
+ * @param opts.progress - Its progress so far.
+ */
+export async function parkWorkerRun(opts: { orgId: string; id: number; workerId: string; waitingOn: unknown; reason?: string | null; cursor?: string | null; progress?: Record<string, unknown> }): Promise<{ run: WorkerRun; gateAskId: number; waitingOn: number[]; created: boolean }> {
+  const run = await mustGet(opts.orgId, opts.id);
+  mustHoldLease(run, opts.workerId);
+  if (opts.cursor || opts.progress) {
+    await db.update(workerRunSchema).set({
+      cursor: opts.cursor ?? run.cursor,
+      progress: opts.progress ? boundProgress(opts.progress) : run.progress,
+      updatedAt: new Date(),
+    }).where(and(eq(workerRunSchema.orgId, opts.orgId), eq(workerRunSchema.id, run.id)));
+  }
+  const { parkOnAsks } = await import('@/services/needsYou/ResumeGateService');
+  const parked = await parkOnAsks({ orgId: opts.orgId, subject: { kind: 'worker_run', id: run.id }, waitingOn: opts.waitingOn, agentSlug: run.agentSlug, reason: opts.reason ?? null });
+  return { run: await mustGet(opts.orgId, run.id), gateAskId: parked.gateAskId, waitingOn: parked.waitingOn, created: parked.created };
 }
 
 /**

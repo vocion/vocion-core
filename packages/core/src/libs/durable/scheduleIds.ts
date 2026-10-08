@@ -72,6 +72,14 @@ export const MISSION_RUN_REAPER_SCHEDULE_ID = 'mission-run-reaper';
 export const ARTIFACT_IMAGE_SWEEP_SCHEDULE_ID = 'artifact-image-sweep';
 
 /**
+ * The clock on every decision waiting on Needs you: escalates, applies
+ * defaults at their deadlines, holds what the trust ladder keeps, and resumes
+ * runs whose questions were answered (`services/needsYou/`). One schedule per
+ * deployment, every five minutes.
+ */
+export const NEEDS_YOU_SWEEP_SCHEDULE_ID = 'needs-you-sweep';
+
+/**
  * Run id for the one-time replay of an event automation whose run the
  * mission-run reaper just reaped — `automation-refire-<orgId>-<automationRunId>-<missionRunId>`.
  * Keyed on both ids so a retried reap sweep that reaches the same stranded

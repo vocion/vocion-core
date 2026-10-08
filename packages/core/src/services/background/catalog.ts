@@ -19,6 +19,8 @@ export const JOB = {
   bulkBriefRegenerate: 'brief.bulk-regenerate',
   durablePrune: 'durable.prune',
   recordingNarrate: 'recording.narrate',
+  needsYouSweep: 'needs-you.sweep',
+  missionRunResume: 'mission-run.resume',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -119,4 +121,24 @@ defineJob(JOB.durablePrune, async () => {
 defineJob<{ orgId: string; artifactId: number; narrator: string }>(JOB.recordingNarrate, async (input) => {
   const { narrateRecordingActivity } = await import('@/services/jobs/narrateRecording');
   return narrateRecordingActivity(input);
+});
+
+// The clock on Needs you (`services/needsYou/`): open clocks, escalate, apply
+// or hold defaults at their deadlines, then resume any parked run whose
+// questions were answered. Every row it cannot process says why and is retried
+// on the next pass, so a failure here never needs a retry of the whole job.
+defineJob(JOB.needsYouSweep, async () => {
+  const { sweepDecisionClocks } = await import('@/services/needsYou/DecisionClockService');
+  const { healParkedGates } = await import('@/services/needsYou/ResumeGateService');
+  const clocks = await sweepDecisionClocks();
+  const gates = await healParkedGates();
+  return { ...clocks, gates };
+});
+
+// A mission run parked on its questions, picked up again once they are answered
+// (`ResumeGateService.resumeGate`). The claim is the run's own conditional write,
+// so a second start of the same resume finds nothing to do.
+defineJob<{ orgId: string; runId: number; gateId: number }>(JOB.missionRunResume, async (input) => {
+  const { resumeParkedMissionRun } = await import('@/services/needsYou/ResumeGateService');
+  return resumeParkedMissionRun(input);
 });

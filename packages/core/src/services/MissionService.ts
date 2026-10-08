@@ -8,7 +8,7 @@
  */
 
 import type { CausalChain } from '@/services/automations/fireGuards';
-import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, notLike, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { startJob } from '@/libs/durable/jobs';
 import { automationRefireWorkflowIdFor } from '@/libs/durable/scheduleIds';
@@ -19,6 +19,7 @@ import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
 import { executeMissionRun } from './missions/runtime';
+import { MISSION_PAUSE_PREFIX } from './needsYou/ResumeGateService';
 import { assertWorkspaceRunning } from './workspacePause';
 
 export type MissionRunSummary = typeof missionRunSchema.$inferSelect;
@@ -749,6 +750,9 @@ export async function reapStaleMissionRuns(now: Date = new Date()): Promise<Miss
     .where(and(
       inArray(missionRunSchema.status, [...REAPABLE_MISSION_RUN_STATUSES]),
       lt(missionRunSchema.updatedAt, cutoff),
+      // A run parked on its questions is waiting by design, not stranded:
+      // its resume gate restarts it (`needsYou/ResumeGateService.ts`).
+      or(isNull(missionRunSchema.pauseReason), notLike(missionRunSchema.pauseReason, `${MISSION_PAUSE_PREFIX}%`)),
     ));
   if (candidates.length === 0) {
     return { reaped: 0, refired: 0, ids: [] };

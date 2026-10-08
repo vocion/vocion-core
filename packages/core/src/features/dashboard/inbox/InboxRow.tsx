@@ -9,6 +9,7 @@ import { Column, ListRow, Subline } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
+import { deadlineDistance, DEFAULT_DECIDER } from '@/libs/needsYou/deadlines';
 import { client } from '@/libs/Orpc';
 import { amountLabel } from '@/services/inbox/describeActionRun';
 import { actionIcon } from './actionIcon';
@@ -75,13 +76,19 @@ export function InboxRow({ item, tab, why, workspaceId }: { item: InboxItem; tab
   // Done for you → put it back. The other half of a run that executed
   // without a person (`libs/actions/autoAccept.ts`): one click, from the row
   // where the claim is read.
-  const undoable = tab === 'decided' && !elsewhere && item.undoable === true && item.reviewId !== undefined;
+  // An answer the deadline gave is taken back the same way: one click, the
+  // question open again (`DecisionClockService.undoAskDefault`).
+  const undoable = tab === 'decided' && !elsewhere && item.undoable === true && (item.reviewId !== undefined || item.askId !== undefined);
   async function undo() {
     setBusy('undo');
     setError(null);
     try {
-      await withMinimumPending(client.review.undoAction({ id: item.reviewId! }));
-      toast.success(`Undone · ${item.title}`, { description: 'The previous values are back. The agent learns from it.' });
+      if (item.reviewId !== undefined) {
+        await withMinimumPending(client.review.undoAction({ id: item.reviewId }));
+      } else {
+        await withMinimumPending(client.inbox.undoDefault({ askId: item.askId! }));
+      }
+      toast.success(`Undone · ${item.title}`, { description: item.reviewId !== undefined ? 'The previous values are back. The agent learns from it.' : 'The question is open again and waits for your answer.' });
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -130,7 +137,10 @@ export function InboxRow({ item, tab, why, workspaceId }: { item: InboxItem; tab
                 item.shape === 'sheet' && item.kind !== 'proposal' ? 'Decision sheet' : meta.label,
                 item.subline,
                 tab === 'decided' && item.decision
-                  ? `${item.decision}${item.decidedBy ? ` by ${item.decidedBy}` : ''}${item.note ? ` — “${item.note}”` : ''}`
+                  ? `${item.decision}${item.decidedBy && item.decidedBy !== DEFAULT_DECIDER ? ` by ${item.decidedBy}` : ''}${item.note ? ` — “${item.note}”` : ''}`
+                  : null,
+                tab !== 'decided' && item.deadline
+                  ? <span data-testid="inbox-deadline" title={item.deadline.reason ?? `Due ${new Date(item.deadline.at).toLocaleString()}`}>{deadlineLine(item.deadline)}</span>
                   : null,
               ]}
             />
@@ -256,6 +266,20 @@ function GroupedClosureRow({ item, age }: { item: InboxItem; age: string }) {
       )}
     </div>
   );
+}
+
+/**
+ * The clock on a row, in one segment: "due in 5h · then Approve", "due in 2d",
+ * or — past its deadline and held for a person — "past due · waits for you".
+ * The full date rides on hover where the row renders it.
+ * @param deadline - The row's clock.
+ */
+export function deadlineLine(deadline: NonNullable<InboxItem['deadline']>): string {
+  if (deadline.status === 'held') {
+    return 'past due · waits for you';
+  }
+  const at = new Date(deadline.at);
+  return deadline.defaultLabel ? `due ${deadlineDistance(at)} · then ${deadline.defaultLabel}` : `due ${deadlineDistance(at)}`;
 }
 
 /**

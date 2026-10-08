@@ -6,8 +6,10 @@ import type { InboxRef } from '@/services/inbox/inboxRef';
 import type { InboxKind, InboxSort, InboxTab } from '@/services/inbox/kinds';
 import type { AgendaCandidate, PolicyGap, Reclassified } from '@/services/inbox/reviewAgenda';
 import type { ExpiredClosureGroup, ReviewRow } from '@/services/inbox/reviewRows';
+import type { ClockView } from '@/services/needsYou/DecisionClockService';
 import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { DEFAULT_DECIDER } from '@/libs/needsYou/deadlines';
 import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
 import { admit } from '@/services/inbox/admissionBar';
 import { autonomyProposals } from '@/services/inbox/autonomyProposal';
@@ -22,6 +24,8 @@ import { chainReAsks, chaseLine } from '@/services/inbox/reAskChain';
 import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
 import { reviewAgenda } from '@/services/inbox/reviewAgenda';
 import { groupByRecord, listExpiredClosures, listReviewRows } from '@/services/inbox/reviewRows';
+import { runningClocks } from '@/services/needsYou/DecisionClockService';
+import { parkedRunIds } from '@/services/needsYou/ResumeGateService';
 
 /**
  * InboxService — THE list of everything waiting on a person, wherever it is
@@ -133,6 +137,13 @@ export type InboxItem = {
    */
   raisedBy?: string | null;
   /**
+   * The clock on this decision (`services/needsYou/DecisionClockService.ts`):
+   * when it is due, what applies then if nobody answers, and — once the
+   * deadline has passed and the default could not apply — why it is held.
+   * Absent until the needs-you sweep has opened its clock.
+   */
+  deadline?: { at: Date; defaultLabel: string | null; status: 'open' | 'held'; reason: string | null };
+  /**
    * Set only on a list that spans workspaces: the workspace this row is in.
    * A row from another workspace opens there and is never decided in place,
    * because the decide endpoints act in the workspace the request runs in.
@@ -218,7 +229,7 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
     amount: r.described.amount,
     currency: r.described.currency,
     ...(tab === 'decided'
-      ? { decision: r.status === 'rejected' ? 'rejected' : r.status === 'undone' ? 'undone' : r.status === 'closed' ? 'closed' : r.approvedByAgent ? 'done for you' : 'approved', decidedBy: r.decidedBy, note: r.note, undoable: r.undoable }
+      ? { decision: r.decidedBy === DEFAULT_DECIDER && (r.status === 'done' || r.status === 'rejected' || r.status === 'awaiting_execution') ? 'applied by default' : r.status === 'rejected' ? 'rejected' : r.status === 'undone' ? 'undone' : r.status === 'closed' ? 'closed' : r.approvedByAgent ? 'done for you' : 'approved', decidedBy: r.decidedBy, note: r.note, undoable: r.undoable }
       : {}),
   };
 }
@@ -514,13 +525,15 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       .where(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.status, 'pending'))),
   ]);
 
-  const plans = await planApprovalRows(orgId);
+  const [plans, parked, clocks] = await Promise.all([planApprovalRows(orgId), parkedRunIds(orgId), runningClocks(orgId)]);
 
-  return [
+  return withClocks(clocks, [
     ...askItems(asks),
     ...proposalItems(actions, 'open'),
     ...plans,
-    ...missions.map((m): InboxItem => ({
+    // A run parked on its questions is one decision — its resume-gate ask —
+    // not that AND a "run paused" row (`needsYou/ResumeGateService.ts`).
+    ...missions.filter(m => !parked.mission.has(m.id)).map((m): InboxItem => ({
       key: `mission:${m.id}`,
       kind: 'run',
       shape: 'single',
@@ -548,7 +561,7 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       at: w.pausedAt ?? w.at,
       href: inboxHref('workflow', w.id),
     })),
-    ...waitingWorkers.map((w): InboxItem => ({
+    ...waitingWorkers.filter(w => !parked.worker.has(w.id)).map((w): InboxItem => ({
       key: `worker:${w.id}`,
       kind: 'run',
       shape: 'single',
@@ -577,7 +590,27 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       at: c.at,
       href: inboxHref('learning', c.id),
     })),
-  ];
+  ]);
+}
+
+/**
+ * Put each decision's clock on its row — an ask by its id, a single proposal
+ * by its run. A sheet carries no single clock; its members' clocks are on
+ * the screen that opens it.
+ * @param clocks - `runningClocks`, keyed `ask:<id>` / `proposal:<id>`.
+ * @param items - The open rows.
+ */
+function withClocks(clocks: Map<string, ClockView>, items: InboxItem[]): InboxItem[] {
+  if (clocks.size === 0) {
+    return items;
+  }
+  return items.map((item) => {
+    if (item.shape !== 'single') {
+      return item;
+    }
+    const clock = item.askId !== undefined ? clocks.get(`ask:${item.askId}`) : item.reviewId !== undefined ? clocks.get(`proposal:${item.reviewId}`) : undefined;
+    return clock ? { ...item, deadline: { at: clock.deadlineAt, defaultLabel: clock.defaultLabel, status: clock.status, reason: clock.reason } } : item;
+  });
 }
 
 /**
@@ -606,9 +639,11 @@ async function decidedAskItems(orgId: string, limit = 200): Promise<InboxItem[]>
     at: a.decidedAt ?? a.updatedAt,
     href: inboxHref('ask', a.id),
     askId: a.id,
-    decision: a.decision ?? a.status,
+    decision: a.decidedBy === DEFAULT_DECIDER ? 'applied by default' : a.decision ?? a.status,
     decidedBy: a.decidedBy,
     note: a.decisionNote,
+    // An answer the deadline gave can be taken back from the row (`undoAskDefault`).
+    undoable: a.decidedBy === DEFAULT_DECIDER && a.status !== 'superseded',
   }));
 }
 

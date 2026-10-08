@@ -22,6 +22,7 @@ const SKIP_LABEL: Record<string, string> = {
   automation_paused: 'paused',
   fire_failed: 'could not start',
   setup_incomplete: 'setup not done',
+  waiting_on_ask: 'waiting on you',
 };
 
 /**
