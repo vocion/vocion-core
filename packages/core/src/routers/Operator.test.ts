@@ -19,7 +19,7 @@ const { agentBudgetSchema, inviteSchema, tenantAccountSchema, userSchema } = awa
 const { guardAuth, guardRole } = await import('./AuthGuards');
 const { createAccountRoute, inviteRoute, overviewRoute, setAccountCapRoute } = await import('./Operator');
 const { upsert: upsertBudget } = await import('./Budgets');
-const { ACCOUNT_SCOPE_SLUG } = await import('@/services/BudgetService');
+const { ACCOUNT_SCOPE_SLUG, MAX_ACCOUNT_CAP_CENTS } = await import('@/services/BudgetService');
 
 function call<T = unknown>(route: unknown, input: unknown = undefined): Promise<T> {
   const procedure = route as { '~orpc': { handler: (opts: { input: unknown; context: object }) => Promise<T> } };
@@ -110,6 +110,14 @@ describe('the operator gate', () => {
     const status = await call<{ hardCentsLimit: number | null }>(setAccountCapRoute, { accountId: 'acct-northwind', hardCentsLimit: 25_000 });
 
     expect(status.hardCentsLimit).toBe(25_000);
+  });
+
+  it('takes no cap too large to compare exactly in micro-cents', () => {
+    const schema = (setAccountCapRoute as unknown as { '~orpc': { inputSchema: { safeParse: (input: unknown) => { success: boolean } } } })['~orpc'].inputSchema;
+
+    expect(schema.safeParse({ accountId: 'acct-northwind', hardCentsLimit: MAX_ACCOUNT_CAP_CENTS }).success).toBe(true);
+    expect(schema.safeParse({ accountId: 'acct-northwind', hardCentsLimit: MAX_ACCOUNT_CAP_CENTS + 1 }).success).toBe(false);
+    expect(Number.isSafeInteger(MAX_ACCOUNT_CAP_CENTS * 1_000_000)).toBe(true);
   });
 });
 

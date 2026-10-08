@@ -10,7 +10,7 @@ const { eq, sql } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, agentBudgetSchema, inviteSchema, projectSchema, spendDaySchema, tenantAccountSchema, userActivityEventSchema, userSchema } = await import('@/models/Schema');
 const { chargeUsage, setAccountCap } = await import('@/services/BudgetService');
-const { createAccount, inviteToAccount, isOperatorUser, OperatorInputError, operatorOverview, slugFromName } = await import('./OperatorConsoleService');
+const { createAccount, inviteToAccount, OperatorInputError, operatorOverview, slugFromName } = await import('./OperatorConsoleService');
 
 const DAY = 86_400_000;
 
@@ -134,6 +134,36 @@ describe('creating an account', () => {
     expect(await db.select().from(tenantAccountSchema)).toHaveLength(before.length);
   });
 
+  it('finds the next free slug for a long name, whose suffixed slugs are cut to 36 characters', async () => {
+    const long = 'Larkfield Systems International Holdings Group';
+    const first = await createAccount({ name: long, adminEmail: 'a@larkfield.example', invitedBy: 'usr-ops' });
+    const second = await createAccount({ name: long, workspaceName: 'Two', adminEmail: 'b@larkfield.example', invitedBy: 'usr-ops' });
+    const third = await createAccount({ name: long, workspaceName: 'Three', adminEmail: 'c@larkfield.example', invitedBy: 'usr-ops' });
+
+    expect(first.account.slug).toBe(slugFromName(long));
+    expect(second.account.slug).toBe(`${slugFromName(long).slice(0, 36)}-2`);
+    expect(third.account.slug).toBe(`${slugFromName(long).slice(0, 36)}-3`);
+  });
+
+  it('gives two creates of the same name at the same moment different slugs', async () => {
+    const created = await Promise.all([
+      createAccount({ name: 'Acme', workspaceName: 'One', adminEmail: 'a@acme.example', invitedBy: 'usr-ops' }),
+      createAccount({ name: 'Acme', workspaceName: 'Two', adminEmail: 'b@acme.example', invitedBy: 'usr-ops' }),
+    ]);
+
+    expect(new Set(created.map(c => c.account.slug)).size).toBe(2);
+  });
+
+  it('refuses an operator address with no login as the first admin, before creating anything', async () => {
+    vi.stubEnv('VOCION_OPERATOR_EMAILS', 'ops@vocion-operator.example new-ops@vocion-operator.example');
+    const before = await db.select().from(tenantAccountSchema);
+
+    await expect(createAccount({ name: 'Acme', adminEmail: 'New-Ops@vocion-operator.example', invitedBy: 'usr-ops' })).rejects.toThrow(/create-local-user/);
+
+    expect(await db.select().from(tenantAccountSchema)).toHaveLength(before.length);
+    expect(await db.select().from(inviteSchema).where(eq(inviteSchema.email, 'new-ops@vocion-operator.example'))).toHaveLength(0);
+  });
+
   it('slugs a name the way a workspace address needs', () => {
     expect(slugFromName('  Bellwater Hall & Co.  ')).toBe('bellwater-hall-co');
     expect(slugFromName('A'.repeat(60))).toHaveLength(40);
@@ -150,13 +180,5 @@ describe('inviting into an account', () => {
   it('says why when it cannot', async () => {
     await expect(inviteToAccount({ accountId: 'acct-missing', email: 'x@acme.example', role: 'admin', invitedBy: 'usr-ops' })).rejects.toThrow('does not exist');
     await expect(inviteToAccount({ accountId: 'acct-northwind', email: 'sam@northwind.example', role: 'admin', invitedBy: 'usr-ops' })).rejects.toThrow('already a member');
-  });
-});
-
-describe('who is an operator', () => {
-  it('reads the person\'s email off their user row', async () => {
-    expect(await isOperatorUser('usr-ops')).toBe(true);
-    expect(await isOperatorUser('usr-sam')).toBe(false);
-    expect(await isOperatorUser('usr-nobody')).toBe(false);
   });
 });

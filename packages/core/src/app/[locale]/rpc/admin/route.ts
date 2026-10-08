@@ -1,13 +1,13 @@
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core';
 import process from 'node:process';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { isOperator } from '@/libs/operator';
+import { isOperatorUser } from '@/services/operator';
 
 /**
  * The System page's figures, scoped to who is asking.
  *
  * One host serves several companies. An operator (`VOCION_OPERATOR_EMAILS`,
- * `libs/operator.ts`) sees the installation: every company's counts, and the
+ * `services/operator.ts`) sees the installation: every company's counts, and the
  * health of the services the deployment runs. Everyone else — an account
  * admin included — sees their own workspace's counts and no services: another
  * company's volume is not theirs to read, and the service links are the
@@ -136,7 +136,7 @@ export async function GET() {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
-  const operator = await isOperator(userId);
+  const operator = await isOperatorUser(userId);
   if (!operator && !orgId) {
     // Signed in but in no workspace: there is nothing of theirs to count.
     return new Response(JSON.stringify({ error: 'No workspace selected' }), { status: 403 });

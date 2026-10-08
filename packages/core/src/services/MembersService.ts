@@ -20,8 +20,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { isOperatorEmail } from '@/libs/operator';
 import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
+import { isOperator } from '@/services/operator';
 
 const INVITE_TTL_DAYS = 14;
 
@@ -81,6 +81,26 @@ export async function listPendingInvites(accountId: string): Promise<PendingInvi
   }));
 }
 
+/**
+ * Whether an address is an operator's (`services/operator.ts`) that has no
+ * login yet — the one address no invite may be made for, whoever is inviting.
+ *
+ * An operator's login is made on the instance (`create-local-user`), never by
+ * invite, so an invite to such an address is a trap for whoever opens the
+ * link first: they would pick the password and operate every account on the
+ * host. `/api/signup` refuses it as well, so the token could not be used
+ * anyway. An operator WITH a login can be invited like anyone: joining then
+ * means signing in, which needs their password.
+ * @param email - The address, lowercased.
+ */
+export async function isOperatorWithoutLogin(email: string): Promise<boolean> {
+  if (!isOperator(email)) {
+    return false;
+  }
+  const [login] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email.trim().toLowerCase())).limit(1);
+  return !login;
+}
+
 export async function createInvite(opts: {
   accountId: string;
   email: string;
@@ -89,15 +109,8 @@ export async function createInvite(opts: {
 }): Promise<PendingInvite> {
   const email = opts.email.trim().toLowerCase();
 
-  // An operator's login is made on the instance (`create-local-user`), never
-  // by invite, so an invite to an operator address that has no login yet is a
-  // trap for whoever opens the link first (`/api/signup` refuses it as well).
-  // One with a login joins by signing in, which needs their password.
-  if (isOperatorEmail(email)) {
-    const [login] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email)).limit(1);
-    if (!login) {
-      throw new Error(`${email} cannot be invited to this account.`);
-    }
+  if (await isOperatorWithoutLogin(email)) {
+    throw new Error(`${email} cannot be invited to this account.`);
   }
 
   const [existingUser] = await db

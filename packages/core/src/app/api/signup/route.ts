@@ -4,9 +4,9 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { isOperatorEmail } from '@/libs/operator';
 import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
 import { inviteProblem } from '@/services/inviteRules';
+import { isOperator } from '@/services/operator';
 import { ensurePersonalProjectsForUser } from '@/services/workspace/personalProject';
 
 /**
@@ -69,12 +69,12 @@ export async function POST(req: Request) {
 
   // An operator's login is made on the instance, never by invite. Otherwise a
   // client admin could invite a listed address that has no login yet, follow
-  // their own link, and operate every company on the host (`libs/operator.ts`).
+  // their own link, and operate every company on the host (`services/operator.ts`).
   // Checked only once a valid invite for this exact address is in hand, and
   // refused in words that do not say why: before that, any caller could ask
   // which addresses operate the installation, on a sign-in with no MFA or
   // lockout. `createInvite` refuses to make such an invite in the first place.
-  if (isOperatorEmail(lowerEmail)) {
+  if (isOperator(lowerEmail)) {
     return NextResponse.json({ error: 'This invite cannot be used to create a login. Ask whoever invited you.' }, { status: 403 });
   }
 

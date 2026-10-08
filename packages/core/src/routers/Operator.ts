@@ -1,7 +1,8 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { setAccountCap } from '@/services/BudgetService';
-import { accountExists, createAccount, inviteToAccount, isOperatorUser, OperatorInputError, operatorOverview } from '@/services/OperatorConsoleService';
+import { MAX_ACCOUNT_CAP_CENTS, setAccountCap } from '@/services/BudgetService';
+import { isOperatorUser } from '@/services/operator';
+import { accountExists, createAccount, inviteToAccount, OperatorInputError, operatorOverview } from '@/services/OperatorConsoleService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
@@ -82,7 +83,7 @@ export const inviteRoute = os
 export const setAccountCapRoute = os
   .input(z.object({
     accountId: z.string().min(1),
-    hardCentsLimit: z.number().int().nonnegative().nullable(),
+    hardCentsLimit: z.number().int().nonnegative().max(MAX_ACCOUNT_CAP_CENTS).nullable(),
   }))
   .handler(async ({ input }) => {
     await guardOperator();

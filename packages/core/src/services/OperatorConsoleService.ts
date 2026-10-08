@@ -5,7 +5,7 @@
  * are about accounts, not workspaces: which clients are on it, who is in each,
  * whether anyone has used it lately, what each has spent, and how a new client
  * gets in. Everything here answers across every account, so nothing here may
- * be reached without `isOperator` (`services/operator.ts`) — the router is the
+ * be reached without `isOperatorUser` (`services/operator.ts`) — the router is the
  * guard (`routers/Operator.ts`), and these functions trust their caller.
  *
  * Onboarding is invite-only. An operator creates the account, its first
@@ -28,19 +28,8 @@ import { db } from '@/libs/DB';
 import { projectSlugProblem } from '@/libs/links';
 import { accountMembershipSchema, inviteSchema, projectSchema, tenantAccountSchema, userActivityEventSchema, userSchema } from '@/models/Schema';
 import { accountCapStatus, spendLedgerStartedOn, spendSince } from '@/services/BudgetService';
-import { createInvite } from '@/services/MembersService';
-import { isOperator } from '@/services/operator';
-
-/**
- * Whether the person behind a user id operates the deployment. Reads the email
- * off the user row rather than trusting a session's copy, so the check is
- * against who the person is now. The page and the router both ask this.
- * @param userId - The signed-in person.
- */
-export async function isOperatorUser(userId: string): Promise<boolean> {
-  const [user] = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
-  return Boolean(user && isOperator(user.email));
-}
+import { createInvite, isOperatorWithoutLogin } from '@/services/MembersService';
+import { isUniqueViolation } from '@/services/SourceCredentialService';
 
 /** The window the console's spend column covers, in days, today included. */
 export const SPEND_WINDOW_DAYS = 30;
@@ -260,6 +249,78 @@ export type CreatedAccount = {
   invite: PendingInvite;
 };
 
+/** How many times a create retries when another create took its slug first. */
+const CREATE_ATTEMPTS = 5;
+
+/**
+ * Every slug a new account with this base could take, as the candidates are
+ * built: the base itself, then `-2`, `-3`, … on the base cut to 36 characters,
+ * so a suffixed slug still fits the 40 a workspace address allows.
+ * @param baseSlug - The name, slugged.
+ * @param n - The suffix; 1 for the bare base.
+ */
+function candidateSlug(baseSlug: string, n: number): string {
+  return n === 1 ? baseSlug : `${suffixBase(baseSlug)}-${n}`;
+}
+
+/**
+ * The part of a base slug a suffix is added to: cut to 36 characters, without
+ * a hyphen the cut left at the end.
+ * @param baseSlug - The name, slugged.
+ */
+function suffixBase(baseSlug: string): string {
+  return baseSlug.slice(0, 36).replace(/-+$/, '');
+}
+
+/**
+ * The account and its first workspace, in one transaction, under the first
+ * slug nobody holds.
+ *
+ * The taken set is read with the prefix a suffixed candidate is built on (the
+ * cut, not the whole base, which differ once the base is longer than 36), so
+ * every candidate this could pick is in it. Two creates with the same name can still both read a slug
+ * as free; the second's insert then fails on the unique slug, and it starts
+ * again, reading the slug the first one committed.
+ * @param opts - The validated names.
+ * @param opts.name - The client's name.
+ * @param opts.baseSlug - That name, slugged.
+ * @param opts.workspaceName - The first workspace's name.
+ * @param opts.workspaceSlug - Its address.
+ */
+async function createAccountRows(opts: { name: string; baseSlug: string; workspaceName: string; workspaceSlug: string }) {
+  const { baseSlug } = opts;
+  const prefix = `${suffixBase(baseSlug)}-%`;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await db.transaction(async (tx) => {
+        const taken = new Set(
+          (await tx
+            .select({ slug: tenantAccountSchema.slug })
+            .from(tenantAccountSchema)
+            .where(sql`${tenantAccountSchema.slug} = ${baseSlug} or ${tenantAccountSchema.slug} like ${prefix}`))
+            .map(row => row.slug),
+        );
+        let n = 1;
+        while (taken.has(candidateSlug(baseSlug, n))) {
+          n++;
+        }
+        const account = { id: `acct-${randomUUID()}`, name: opts.name, slug: candidateSlug(baseSlug, n) };
+        const workspace = { id: `proj-${randomUUID()}`, slug: opts.workspaceSlug, name: opts.workspaceName };
+        await tx.insert(tenantAccountSchema).values(account);
+        await tx.insert(projectSchema).values({ ...workspace, accountId: account.id, kind: 'shared' });
+        return { account, workspace };
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+      if (attempt >= CREATE_ATTEMPTS) {
+        throw new OperatorInputError(`Another account took the address "${baseSlug}" at the same moment, ${CREATE_ATTEMPTS} times running. Try again.`);
+      }
+    }
+  }
+}
+
 /**
  * Create a client account, its first workspace, and an invite for its first
  * admin — the whole of onboarding, since nobody can sign up without an invite.
@@ -298,24 +359,13 @@ export async function createAccount(opts: {
     throw new OperatorInputError(`The workspace's address "${workspaceSlug}" ${workspaceProblem}. Pick another workspace name.`);
   }
 
-  const created = await db.transaction(async (tx) => {
-    const taken = new Set(
-      (await tx
-        .select({ slug: tenantAccountSchema.slug })
-        .from(tenantAccountSchema)
-        .where(sql`${tenantAccountSchema.slug} = ${baseSlug} or ${tenantAccountSchema.slug} like ${`${baseSlug}-%`}`))
-        .map(row => row.slug),
-    );
-    let slug = baseSlug;
-    for (let n = 2; taken.has(slug); n++) {
-      slug = `${baseSlug.slice(0, 36)}-${n}`;
-    }
-    const account = { id: `acct-${randomUUID()}`, name, slug };
-    const workspace = { id: `proj-${randomUUID()}`, slug: workspaceSlug, name: workspaceName };
-    await tx.insert(tenantAccountSchema).values(account);
-    await tx.insert(projectSchema).values({ ...workspace, accountId: account.id, kind: 'shared' });
-    return { account, workspace };
-  });
+  // Before anything is created: an admin invite that could never be used
+  // would leave an account with nobody able to get in.
+  if (await isOperatorWithoutLogin(opts.adminEmail.trim().toLowerCase())) {
+    throw new OperatorInputError(`${opts.adminEmail.trim()} operates this deployment and has no login yet, so it cannot be invited: an operator's login is created on the instance (create-local-user). Invite another address, or create that login first.`);
+  }
+
+  const created = await createAccountRows({ name, baseSlug, workspaceName, workspaceSlug });
 
   const invite = await createInvite({ accountId: created.account.id, email: opts.adminEmail, role: 'admin', invitedBy: opts.invitedBy });
   return { ...created, invite };

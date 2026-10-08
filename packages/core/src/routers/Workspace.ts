@@ -4,13 +4,13 @@ import { dirname, join, relative, sep } from 'node:path';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
 import { logger } from '@/libs/Logger';
-import { isOperator } from '@/libs/operator';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
 import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, getCurrentWorkspaceVersion, invalidateCurrentContextShaCache, isDeployManaged, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
 import { isInsideText, realPathInside } from '@/libs/workspace/contained';
 import { NO_OWN_WORKSPACE_FOLDER } from '@/libs/workspace/mounted-project';
 import { judgeFolderFor, ownWorkspaceFolder, workspaceFolderForProject, workspacePathForProject } from '@/libs/workspace/project-path';
 import { invalidateChipCache } from '@/services/chat/synthesis';
+import { isOperatorUser } from '@/services/operator';
 import { folderOwner } from '@/services/WorkspaceMountService';
 import { pauseWorkspace, readWorkspacePauseWithName, resumeWorkspace, WorkspaceNotFoundError, WorkspacePauseStateError } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
@@ -429,7 +429,7 @@ async function driftReading(projectId: string, opts: { fresh?: boolean } = {}) {
  * When the folder is not this project's, a person in the project learns
  * nothing about it — not its path, its sha or whose it is, which on a shared
  * host would name one company to another — and the banner stays hidden. Only
- * an operator (`libs/operator.ts`) is told whose workspace is mounted.
+ * an operator (`services/operator.ts`) is told whose workspace is mounted.
  */
 export const driftStatus = os.handler(async () => {
   const { projectId, userId } = await guardAuth();
@@ -439,7 +439,7 @@ export const driftStatus = os.handler(async () => {
       return { available: false as const };
     }
     const { loaded, applied, verdict, deployManaged, inFlight } = reading;
-    if (!verdict.own && !(await isOperator(userId))) {
+    if (!verdict.own && !(await isOperatorUser(userId))) {
       return { available: false as const };
     }
     return {

@@ -2,7 +2,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { OperatorConsole } from '@/features/operator/OperatorConsole';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { isOperatorUser } from '@/services/OperatorConsoleService';
+import { isOperatorUser } from '@/services/operator';
 
 /**
  * /dashboard/operator — every client account on the deployment, for the

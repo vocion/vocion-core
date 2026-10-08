@@ -215,6 +215,14 @@ const PLATFORM_SCOPE_PREFIX = 'platform:';
 const MICRO_CENTS_PER_CENT = 1_000_000;
 
 /**
+ * The largest account cap, in cents, that stays exact once compared in
+ * micro-cents: a cap is multiplied by {@link MICRO_CENTS_PER_CENT} for the
+ * check, and past 2^53 that product stops being an integer JavaScript can
+ * hold. About $90 million a month — a ceiling no real cap reaches.
+ */
+export const MAX_ACCOUNT_CAP_CENTS = Math.floor(Number.MAX_SAFE_INTEGER / MICRO_CENTS_PER_CENT);
+
+/**
  * The budget scope for one non-agent surface.
  * @param feature - The Langfuse feature dimension the spend was traced under.
  */

@@ -4,7 +4,7 @@ import { SystemStatus } from '@/features/dashboard/SystemStatus';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
-import { isOperatorUser } from '@/services/OperatorConsoleService';
+import { isOperatorUser } from '@/services/operator';
 
 export default async function AdminPage(props: {
   params: Promise<{ locale: string }>;
