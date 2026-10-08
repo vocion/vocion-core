@@ -327,6 +327,21 @@ refresh; Vocion saves the new one. Without an app, a Xero **custom connection**
 
 Access tokens last two hours and each refresh token works once; Vocion saves
 the next one every time. Gusto is login-only. More in [gusto.md](gusto.md).
+## LinkedIn
+
+- **App.** An app in LinkedIn's developer portal with the **Advertising API**
+  product approved. LinkedIn reviews that product before `r_ads` can be
+  granted, so ask early; until then, paste an access token from LinkedIn's
+  token generator on the LinkedIn Ads connector (it lasts 60 days).
+- **Redirect URL.** `<NEXT_PUBLIC_APP_URL>/api/connect/linkedin/callback`.
+- **Scopes.** Vocion asks for `r_ads` and `r_ads_reporting` and nothing that
+  writes, so a LinkedIn connection can only read.
+- **Save it.** A **LinkedIn login app** on Developers, or the env as
+  `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`.
+
+Access tokens last 60 days. Where LinkedIn issues a refresh token the login
+renews itself and saves the new token; where it does not, the connector says
+to log in again when the token runs out.
 
 ## Where it lives in the code
 

@@ -170,6 +170,8 @@ export const Env = createEnv({
     GUSTO_CLIENT_SECRET: z.string().optional(),
     // BILL's developer key: the server's, used when a workspace's BILL credential carries none of its own.
     BILL_DEV_KEY: z.string().optional(),
+    LINKEDIN_CLIENT_ID: z.string().optional(),
+    LINKEDIN_CLIENT_SECRET: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -249,6 +251,8 @@ export const Env = createEnv({
     GUSTO_CLIENT_ID: process.env.GUSTO_CLIENT_ID,
     GUSTO_CLIENT_SECRET: process.env.GUSTO_CLIENT_SECRET,
     BILL_DEV_KEY: process.env.BILL_DEV_KEY,
+    LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
+    LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

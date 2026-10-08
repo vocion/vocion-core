@@ -52,19 +52,30 @@ agents that hold each tool, so what the page says an agent has is what the agent
 | `propose_action` with `chat.post_message` (formerly `slack.post_message`) | `chat.post_message` | A post in a channel the workspace bound; Undo deletes it. | every agent | medium → a person approves until promoted |
 | `propose_action` with `chat.reply_in_thread` | `chat.reply_in_thread`, or `.<kind>` | A reply in the thread the ask came from; Undo deletes it. | every agent with the family in scope | medium; a kind reads the parent's rule unless given its own |
 | `propose_action` with `chat.add_reaction` | `chat.add_reaction` | A reaction on a message; Undo removes it. | every agent with the family in scope | low → done for you at 0.8 |
+| `warehouse_schema`, `warehouse_query` | — (reads) | Nothing: the allowed schemas, a schema's tables, a table's columns; one read-only SQL query, rows back. The warehouse itself refuses anything but a query (compiled as a subquery, a BigQuery dry run, a Redshift `READ ONLY` transaction), a query that reads outside the source's allowed schemas is refused before it runs, and the source caps rows, bytes and time. See [snowflake.md](./snowflake.md), [bigquery.md](./bigquery.md), [databricks.md](./databricks.md), [redshift.md](./redshift.md). | agents with a warehouse source (`snowflake`, `bigquery`, `databricks`, `redshift`) in `connectorSources` | — |
+| `analytics_events`, `analytics_event_counts`, `analytics_funnel`, `analytics_cohorts` | — (reads) | Nothing: the events a product analytics project tracks, their counts per day, week or month, conversion through steps, its saved cohorts — read live. See [mixpanel.md](./mixpanel.md), [amplitude.md](./amplitude.md). | agents with an analytics source (`mixpanel`, `amplitude`) in `connectorSources` | — |
+| `ads_campaigns`, `ads_performance` | — (reads) | Nothing: campaigns or ad sets with status and budget; impressions, clicks, spend and conversions over a range. See [linkedin-ads.md](./linkedin-ads.md), [meta-ads.md](./meta-ads.md). | agents with an ads source (`linkedin-ads`, `meta-ads`) in `connectorSources` | — |
+| `propose_action` with `ads.set_status` | `ads.set_status` | A campaign or ad set paused or resumed; Undo puts it back. Refused, before anything is queued, on a connection that can only read (every LinkedIn connection). | every agent | medium → a person approves until promoted |
 | `offer_connection` | — (read) | A link card in chat that opens the Sources connect flow for one connector and returns to the conversation; no Approve (#1080). On a person's turn the card ends the turn: nothing is written behind it (`agents/handOff.ts`). | every agent | — |
 | `setup_options` | — (read) | Nothing: where a shared workspace stands on its four first steps (a system connected, an app or template added, an agent hired, someone invited — the same reading the sidebar's Getting started checklist makes, `services/workspace/gettingStarted.ts`) and what this installation offers: apps, plugins, systems to connect, catalog roles not yet hired, and whether this person may invite. | agents granted it (`harness.grantTools`) in a shared workspace — the seeded workspace lead | — |
 | `propose_setup` | none on emit — each card runs `app.install`, `app.install_template`, `plugin.enable`, `team.hire_agent` or `members.invite` when the person presses it, proposed as the person (`review.actAsPerson`), with Undo; a `connect` step is the ordinary `offer_connection` card | Nothing until a person presses a card. Typed steps in (`{kind, id, emails, why}`), one `setup` card per step out; a step that could only fail (already done, unknown, not this person's to take) is left out and named in the result. Its cards end the turn like any card a person acts on. See [Getting started in a new workspace](./getting-started-in-a-workspace.md). | agents granted it (`harness.grantTools`) in a shared workspace — the seeded workspace lead | — the person's press is the decision |
 | `open_team_thread` | — runs a [team thread](./team-threads.md) | One run (a `mission_run` with its `thread`): the lead's specialists post in rounds and answer each other until a settle rule holds, and the lead writes the outcome. Spends model turns, bounded by the thread's round and budget caps (3 rounds and $3.00 unless the lead sets them). | every agent; refused, in words, for one with no specialists and inside a thread | — the caps are the bound; each member's own writes ride their own actions |
 | `lookup_person` | — (read) | Nothing: one person's chat user, tracker account and code-host login, found by email across the families the agent reaches. | agents with any of the three families in scope | — |
 
-The `repo`, `tracker` and `chat` rows are the three **connector families**
+The `repo`, `tracker` and `chat` rows are three **connector families**
 (`libs/connectors/families.ts`): tools and actions named for the construct —
 a pull request, an issue, a thread — never for the vendor. GitHub, Jira and
 Slack are the first provider of each; the source a workspace connected decides
 which answers. An action renamed from its vendor's id keeps the old id as an
 alias (`Action.aliases`), so a run, a trust rule or a grant written against
 `github.open_pull` still resolves to `repo.open_pull`.
+
+The `warehouse`, `analytics` and `ads` rows are families in the same sense: one
+SQL tool for Snowflake, BigQuery, Databricks and Redshift alike, one set of
+event, funnel and cohort reads for Mixpanel and Amplitude, one campaign and
+spend read for LinkedIn Ads and Meta Ads. A campaign is what groups spend
+toward one objective (LinkedIn: campaign group) and an ad set is where budget
+and audience are set (LinkedIn: campaign).
 
 Data-room filing (`file_to_data_room`, `unfile_from_data_room`) and artifact editing
 (`update_artifact`, `edit_document`) write inside the workspace and the conversation and are not

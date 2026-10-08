@@ -4,6 +4,7 @@ import { APOLLO_LOGIN_SCOPES } from '@/libs/connect/providers/apollo';
 import { GOOGLE_LOGIN_SCOPES } from '@/libs/connect/providers/google';
 import { GUSTO_LOGIN_ACCESS } from '@/libs/connect/providers/gusto';
 import { HUBSPOT_LOGIN_SCOPES } from '@/libs/connect/providers/hubspot';
+import { LINKEDIN_LOGIN_SCOPES } from '@/libs/connect/providers/linkedin';
 import { POSTHOG_LOGIN_SCOPES } from '@/libs/connect/providers/posthog';
 import { SLACK_SOURCE_SCOPES } from '@/libs/connect/providers/slack';
 import { XERO_LOGIN_SCOPES } from '@/libs/connect/providers/xero';
@@ -108,6 +109,7 @@ describe('howToConnect declarations', () => {
     expect(howToConnectFor('zoom')?.login?.access).toEqual([...ZOOM_LOGIN_SCOPES]);
     expect(howToConnectFor('xero')?.login?.access).toEqual([...XERO_LOGIN_SCOPES]);
     expect(howToConnectFor('gusto')?.login?.access).toEqual([...GUSTO_LOGIN_ACCESS]);
+    expect(howToConnectFor('linkedin-ads')?.login?.access).toEqual([...LINKEDIN_LOGIN_SCOPES]);
   });
 
   it('a Google login shows its scope by name, not as a URL, and other vendors\' scopes show as they are', () => {

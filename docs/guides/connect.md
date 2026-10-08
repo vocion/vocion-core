@@ -142,6 +142,7 @@ forwarded host of the request.
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | `/api/connect/quickbooks/callback` |
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | `/api/connect/xero/callback` |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | `/api/connect/gusto/callback` |
+| `linkedin` | `linkedin-ads` | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` (an app with the Advertising API product; scopes `r_ads`, `r_ads_reporting`) | `/api/connect/linkedin/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in
@@ -174,6 +175,10 @@ Before going live with each vendor:
   [xero.md](xero.md).
 - **Gusto.** Login-only, like QuickBooks: Gusto issues no API key and each
   refresh token works once. Setup is in [gusto.md](gusto.md).
+
+- **LinkedIn.** The app needs LinkedIn's Advertising API product approved
+  before `r_ads` and `r_ads_reporting` can be granted; until then, paste an
+  access token from LinkedIn's token generator (60 days).
 
 Sentry has no login: its install redirect does not carry our signed `state`,
 so the callback cannot tell which workspace and admin started it. Paste a

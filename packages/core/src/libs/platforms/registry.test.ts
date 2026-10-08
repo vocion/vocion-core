@@ -619,3 +619,58 @@ describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
       .toEqual([...MANY_CREDENTIAL_PLATFORM_IDS].sort());
   });
 });
+
+describe('the numbers platforms — warehouses, product analytics, ad platforms', () => {
+  const NUMBERS = ['snowflake', 'bigquery', 'databricks', 'redshift', 'mixpanel', 'amplitude', 'linkedin-ads', 'meta-ads'] as const;
+
+  it('gives each connector a platform of its own, one live credential each, so no migration touches the live index', () => {
+    for (const id of NUMBERS) {
+      expect(platformForConnectorSlug(id)?.id, id).toBe(id);
+      expect(holdsManyCredentials(id), id).toBe(false);
+      expect(getPlatform(id).howToConnect, id).toBeDefined();
+    }
+  });
+
+  it('names each field what the provider reads out of the credential, keeping only the secret half masked', () => {
+    // The field name is the storage contract between the credential and the
+    // provider, as for every connector platform above.
+    const contract = Object.fromEntries(NUMBERS.map(id => [id, getPlatform(id).fields.map(f => [f.name, f.secret])]));
+
+    expect(contract).toEqual({
+      'snowflake': [['account', false], ['user', false], ['privateKey', true], ['privateKeyPassphrase', true]],
+      'bigquery': [['projectId', false], ['clientEmail', false], ['privateKey', true]],
+      'databricks': [['host', false], ['token', true]],
+      'redshift': [['accessKeyId', false], ['secretAccessKey', true], ['roleArn', false]],
+      'mixpanel': [['username', false], ['secret', true]],
+      'amplitude': [['apiKey', false], ['secretKey', true]],
+      'linkedin-ads': [['token', true]],
+      'meta-ads': [['token', true]],
+    });
+  });
+
+  it('accepts a well-formed credential and refuses a private key that is not a PEM block, never echoing it', () => {
+    expect(validatePlatformCredential('snowflake', { account: 'northwind-analytics', user: 'VOCION_READER', privateKey: '-----BEGIN PRIVATE KEY-----\nMIIfixture\n-----END PRIVATE KEY-----' }))
+      .toMatchObject({ account: 'northwind-analytics', user: 'VOCION_READER' });
+    expect(() => validatePlatformCredential('bigquery', { projectId: 'northwind-analytics', clientEmail: 'vocion-reader@northwind-analytics.iam.gserviceaccount.com', privateKey: 'not-a-key-0001' }))
+      .toThrow(/beginning -----BEGIN PRIVATE KEY-----/);
+    expect(() => validatePlatformCredential('bigquery', { projectId: 'northwind-analytics', clientEmail: 'vocion-reader@northwind-analytics.iam.gserviceaccount.com', privateKey: 'not-a-key-0001' }))
+      .not
+      .toThrow(/not-a-key-0001/);
+    expect(() => validatePlatformCredential('databricks', { host: 'dbc-1a2b3c4d-5e6f.cloud.databricks.com', token: 'dapi0000fixture0000' }))
+      .toThrow(/https:\/\/dbc-/);
+  });
+
+  it('takes Redshift as a key pair, a role to assume, or both, each in the AWS shape', () => {
+    expect(validatePlatformCredential('redshift', { roleArn: 'arn:aws:iam::123456789012:role/vocion-redshift-read' }))
+      .toEqual({ roleArn: 'arn:aws:iam::123456789012:role/vocion-redshift-read' });
+    expect(validatePlatformCredential('redshift', { accessKeyId: 'AKIAFIXTURE000000001', secretAccessKey: 'fixture/secret/0000000000000000000000000001' }))
+      .toMatchObject({ accessKeyId: 'AKIAFIXTURE000000001' });
+    expect(() => validatePlatformCredential('redshift', { roleArn: 'vocion-redshift-read' })).toThrow(/role ARN/);
+  });
+
+  it('logs in to LinkedIn for read-only ads scopes and asks for the ad account after, and takes Meta as a pasted token only', () => {
+    expect(getPlatform('linkedin-ads').howToConnect?.login).toEqual({ provider: 'linkedin', access: ['r_ads', 'r_ads_reporting'], settingsAfterLogin: [{ key: 'accountId', label: 'ad account' }] });
+    expect(getPlatform('meta-ads').howToConnect?.login).toBeUndefined();
+    expect(getPlatform('linkedin-login-app').loginAppFor).toBe('linkedin');
+  });
+});

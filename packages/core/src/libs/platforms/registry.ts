@@ -60,6 +60,18 @@ export type CredentialPlatformId
     | 'sentry'
     | 'slate'
     | 'strapi'
+  // A business's numbers: the warehouse, product analytics and ad platform
+  // families (`libs/connectors/families.ts`). One live credential each, so no
+  // migration touches `api_token_org_platform_live_idx`; sources narrow by
+  // their own settings (an allowlist of schemas, a project, an ad account).
+    | 'snowflake'
+    | 'bigquery'
+    | 'databricks'
+    | 'redshift'
+    | 'mixpanel'
+    | 'amplitude'
+    | 'linkedin-ads'
+    | 'meta-ads'
   // Any token-authenticated REST API the workspace declares endpoints for
   // (`libs/sources/rest.ts`). Several per org: one per API.
     | 'rest'
@@ -105,7 +117,8 @@ export type CredentialPlatformId
     | 'apollo-login-app'
     | 'quickbooks-login-app'
     | 'xero-login-app'
-    | 'gusto-login-app';
+    | 'gusto-login-app'
+    | 'linkedin-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -357,6 +370,7 @@ const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
   loginAppPlatform('quickbooks-login-app', 'quickbooks', 'QuickBooks', 'quickbooks'),
   loginAppPlatform('xero-login-app', 'xero', 'Xero', 'xero'),
   loginAppPlatform('gusto-login-app', 'gusto', 'Gusto', 'gusto'),
+  loginAppPlatform('linkedin-login-app', 'linkedin', 'LinkedIn', 'linkedin'),
 ];
 
 /**
@@ -1405,6 +1419,328 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         secret: true,
       },
     ],
+  },
+  /* ---------------------------------------------------------------- */
+  /* A business's numbers — warehouses, product analytics, ad platforms. */
+  /* Each `one-live` for the reason Sentry and PostHog are: widening the */
+  /* cap means rebuilding `api_token_org_platform_live_idx`. Every one is */
+  /* read-only except Meta Ads, whose token may also pause and resume.   */
+  /* ---------------------------------------------------------------- */
+  {
+    id: 'snowflake',
+    label: 'Snowflake',
+    brand: 'snowflake',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['snowflake'],
+    howToConnect: {
+      paste: {
+        credential: 'Key pair (a user and its private key)',
+        access: ['A role that can only read: USAGE on the warehouse, the database and each allowed schema, SELECT on their tables and views', 'Set it as the user\'s default role, or name it on the source'],
+        getItAt: { url: 'https://docs.snowflake.com/en/user-guide/key-pair-auth', steps: ['Generate an RSA key pair', 'ALTER USER <user> SET RSA_PUBLIC_KEY = \'<public key>\'', 'Paste the user and the private key here'] },
+      },
+    },
+    // One key-pair user reads every schema its role grants, and each source
+    // narrows by its own allowlist, so several sources share the credential.
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Snowflake account identifier, a user, and that user\'s RSA private key',
+    helpText: 'A Snowflake user that signs in with a key pair (no password), and its private key. Give the user a role that can only read the schemas the source allows: Vocion refuses anything but a query, and the role is the wall underneath. The account identifier is the part of your Snowflake address before .snowflakecomputing.com.',
+    fields: [
+      {
+        name: 'account',
+        label: 'Account identifier',
+        pattern: /^[a-z0-9][\w.-]*$/i,
+        shapeHint: 'is the account identifier, e.g. northwind-analytics or xy12345.us-east-1 — the part of the address before .snowflakecomputing.com',
+        // Where the key is spent; shown in full, and what tells one Snowflake
+        // account apart from another in the credential list.
+        secret: false,
+      },
+      {
+        name: 'user',
+        label: 'User',
+        pattern: /^\S+$/,
+        shapeHint: 'is the Snowflake user name, with no spaces',
+        secret: false,
+      },
+      {
+        name: 'privateKey',
+        label: 'Private key',
+        pattern: /-----BEGIN (?:ENCRYPTED )?PRIVATE KEY-----/,
+        shapeHint: 'is a PEM private key, beginning -----BEGIN PRIVATE KEY----- (or -----BEGIN ENCRYPTED PRIVATE KEY-----)',
+        secret: true,
+      },
+      {
+        name: 'privateKeyPassphrase',
+        label: 'Private key passphrase',
+        pattern: null,
+        shapeHint: 'is the passphrase the private key was encrypted with',
+        secret: true,
+        // Only an encrypted key has one.
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: 'bigquery',
+    label: 'BigQuery',
+    brand: 'googlebigquery',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['bigquery'],
+    howToConnect: {
+      paste: {
+        credential: 'Service account key',
+        access: ['BigQuery Data Viewer on each allowed dataset', 'BigQuery Job User on the project that runs the queries'],
+        getItAt: { url: 'https://cloud.google.com/iam/docs/keys-create-delete', steps: ['Make a service account with BigQuery Data Viewer and BigQuery Job User', 'Create a JSON key for it', 'Paste its project_id, client_email and private_key here'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'the project_id, client_email and private_key values from a service account\'s JSON key',
+    helpText: 'A Google Cloud service account, from its JSON key file: the project that runs (and pays for) the queries, the service account\'s email, and its private key. Grant it BigQuery Data Viewer on the datasets the source allows and BigQuery Job User on the project — nothing that writes. Pasted as three values rather than the whole file, so the email and project stay readable and only the key is masked.',
+    fields: [
+      {
+        name: 'projectId',
+        label: 'Project ID',
+        pattern: /^(?:[a-z0-9.-]+:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$/,
+        shapeHint: 'is the project_id from the key file, e.g. northwind-analytics',
+        secret: false,
+      },
+      {
+        name: 'clientEmail',
+        label: 'Service account email',
+        pattern: /^[^\s@]+@[^\s@]+\.iam\.gserviceaccount\.com$/,
+        shapeHint: 'is the client_email from the key file, ending .iam.gserviceaccount.com',
+        secret: false,
+      },
+      {
+        name: 'privateKey',
+        label: 'Private key',
+        pattern: /-----BEGIN PRIVATE KEY-----/,
+        shapeHint: 'is the private_key value from the key file, beginning -----BEGIN PRIVATE KEY-----',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'databricks',
+    label: 'Databricks',
+    brand: 'databricks',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['databricks'],
+    howToConnect: {
+      paste: {
+        credential: 'Personal access token',
+        access: ['CAN USE on the SQL warehouse', 'USE CATALOG, USE SCHEMA and SELECT on each allowed schema — nothing that writes'],
+        getItAt: { url: 'https://docs.databricks.com/en/dev-tools/auth/pat.html', steps: ['In the workspace, Settings → Developer → Access tokens', 'Generate a token for a user or service principal that can only read', 'Paste it with the workspace URL'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Databricks workspace URL plus a personal access token',
+    helpText: 'A Databricks personal access token (dapi…) and the workspace URL it was made in. Make it for a user or service principal that can use the SQL warehouse and only read the schemas the source allows: Vocion refuses anything but a query, and the grants are the wall underneath.',
+    fields: [
+      {
+        name: 'host',
+        label: 'Workspace URL',
+        pattern: /^https:\/\/[^\s/]+\/?$/i,
+        shapeHint: 'is the workspace address, e.g. https://dbc-1a2b3c4d-5e6f.cloud.databricks.com',
+        // A token is worthless against any other workspace, so the two rotate
+        // together; shown in full, as an identifier.
+        secret: false,
+      },
+      {
+        name: 'token',
+        label: 'Personal access token',
+        pattern: /^\S{16,}$/,
+        shapeHint: 'is a personal access token, usually starting dapi, with no spaces',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'redshift',
+    label: 'Amazon Redshift',
+    brand: 'amazonredshift',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['redshift'],
+    howToConnect: {
+      paste: {
+        credential: 'AWS access key pair or IAM role ARN',
+        access: ['redshift-data:ExecuteStatement, DescribeStatement, GetStatementResult, ListSchemas, ListTables, DescribeTable', 'redshift-serverless:GetCredentials (serverless) or redshift:GetClusterCredentialsWithIAM (provisioned)', 'A database user that can only read the allowed schemas'],
+        getItAt: { url: 'https://docs.aws.amazon.com/redshift/latest/mgmt/data-api-access.html', steps: ['Make an IAM user (or role) with the Data API permissions above', 'Paste its access key pair, or the role\'s ARN for Vocion to assume'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an AWS access key pair (AKIA… plus its secret), an IAM role ARN Vocion assumes, or a key pair and a role to assume with it',
+    helpText: 'How Vocion signs Redshift Data API calls: an IAM access key pair, the same shape the AWS credential takes; or the ARN of a role in your account that Vocion assumes (its trust policy names the external ID Test connection shows); or both, to assume the role with the key. Scope it to the Data API and a database user that can only read the allowed schemas: queries also run in a READ ONLY transaction.',
+    fields: [
+      {
+        name: 'accessKeyId',
+        label: 'Access key ID',
+        pattern: /^(?:AKIA|ASIA)[A-Z0-9]{12,}$/,
+        shapeHint: 'starts with AKIA or ASIA followed by at least 12 more characters',
+        secret: false,
+        optional: true,
+      },
+      {
+        name: 'secretAccessKey',
+        label: 'Secret access key',
+        pattern: /^[A-Z0-9/+=]{40,}$/i,
+        shapeHint: 'is at least 40 characters',
+        secret: true,
+        optional: true,
+      },
+      {
+        name: 'roleArn',
+        label: 'IAM role ARN to assume',
+        pattern: /^arn:aws[\w-]*:iam::\d{12}:role\/[\w+=,.@/-]+$/,
+        shapeHint: 'is a role ARN, e.g. arn:aws:iam::123456789012:role/vocion-redshift-read',
+        secret: false,
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: 'mixpanel',
+    label: 'Mixpanel',
+    brand: 'mixpanel',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['mixpanel'],
+    howToConnect: {
+      paste: {
+        credential: 'Service account',
+        access: ['The Consumer role on the project the source reads'],
+        getItAt: { url: 'https://docs.mixpanel.com/docs/orgs-and-projects/service-accounts', steps: ['Organization settings → Service accounts → Add', 'Give it the Consumer role on the project', 'Paste its username and secret'] },
+      },
+    },
+    // One service account can be given several projects; each source names its own.
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Mixpanel service account username and its secret',
+    helpText: 'A Mixpanel service account (Organization settings → Service accounts) with the Consumer role on the project the source reads — read-only. The project id and its data region are set on the source.',
+    fields: [
+      {
+        name: 'username',
+        label: 'Service account username',
+        pattern: /^\S+$/,
+        shapeHint: 'is the service account\'s username, with no spaces',
+        secret: false,
+      },
+      {
+        name: 'secret',
+        label: 'Service account secret',
+        pattern: /^\S{8,}$/,
+        shapeHint: 'is the secret shown once when the service account was made',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'amplitude',
+    label: 'Amplitude',
+    brand: 'amplitude',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['amplitude'],
+    howToConnect: {
+      paste: {
+        credential: 'API key and secret key',
+        access: ['The project\'s own key pair, from Settings → Projects → <project> → General'],
+      },
+    },
+    // A key pair belongs to one project, so a second source over it reads the same thing.
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an Amplitude project\'s API key and secret key',
+    helpText: 'The API key and secret key of the Amplitude project the source reads (Settings → Projects → your project → General). Used read-only, against the Dashboard REST API: Vocion sends no events with them. The data region is set on the source.',
+    fields: [
+      {
+        name: 'apiKey',
+        label: 'API key',
+        pattern: /^\w{16,}$/,
+        shapeHint: 'is the project\'s API key, letters and digits',
+        // The API key also ships inside the app's tracking code, so it is not
+        // a secret; shown in full, it tells two projects apart.
+        secret: false,
+      },
+      {
+        name: 'secretKey',
+        label: 'Secret key',
+        pattern: /^\w{16,}$/,
+        shapeHint: 'is the project\'s secret key, letters and digits',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'linkedin-ads',
+    label: 'LinkedIn Ads',
+    brand: 'linkedin',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['linkedin-ads'],
+    howToConnect: {
+      login: {
+        provider: 'linkedin',
+        access: ['r_ads', 'r_ads_reporting'],
+        settingsAfterLogin: [{ key: 'accountId', label: 'ad account' }],
+      },
+      paste: {
+        credential: 'Access token',
+        access: ['r_ads', 'r_ads_reporting', 'A role on the ad account (Viewer is enough)'],
+        getItAt: { url: 'https://www.linkedin.com/developers/tools/oauth/token-generator', steps: ['Pick an app with the Advertising API product', 'Tick r_ads and r_ads_reporting', 'Paste the access token (it lasts 60 days)'] },
+      },
+    },
+    // One member's token reaches every ad account the member has a role on;
+    // each source names its own account.
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a LinkedIn access token with r_ads and r_ads_reporting',
+    helpText: 'A LinkedIn access token with r_ads and r_ads_reporting, for a member with a role on the ad account — read-only: Vocion reads campaigns and their performance and changes nothing on LinkedIn. A pasted token lasts 60 days; logging in with LinkedIn renews itself where LinkedIn allows.',
+    // Named `token` to match what the connector reads out of the credential bag.
+    fields: [{ name: 'token', label: 'Access token', pattern: /^\S{16,}$/, shapeHint: 'is an access token with no spaces', secret: true }],
+  },
+  {
+    id: 'meta-ads',
+    label: 'Meta Ads',
+    brand: 'meta',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['meta-ads'],
+    howToConnect: {
+      paste: {
+        credential: 'System user access token',
+        access: ['ads_read', 'ads_management, only if Vocion may pause and resume', 'The ad account assigned to the system user'],
+        getItAt: { url: 'https://business.facebook.com/settings/system-users', steps: ['Business settings → Users → System users → Add', 'Assign it the ad account', 'Generate a token with ads_read (and ads_management to pause and resume)'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Meta system user access token',
+    helpText: 'A Meta Business system user token (Business settings → System users) assigned the ad account. ads_read reads campaigns and insights; add ads_management only if an agent may pause and resume — every pause is a card a person decides, with Undo. A system user token does not expire unless you set it to.',
+    fields: [{ name: 'token', label: 'System user access token', pattern: /^\S{16,}$/, shapeHint: 'is an access token with no spaces', secret: true }],
   },
   {
     id: 'tavily',

@@ -8,8 +8,11 @@
  */
 
 import type { SourceConnector } from './types';
+import { amplitudeConnector } from './amplitude';
 import { apolloConnector } from './apollo';
+import { bigqueryConnector } from './bigquery';
 import { billConnector } from './bill';
+import { databricksConnector } from './databricks';
 import { driveConnector } from './drive';
 import { elevenLabsConnector } from './elevenlabs';
 import { fileImportConnector } from './fileImport';
@@ -22,18 +25,23 @@ import { granolaConnector } from './granola';
 import { gustoConnector } from './gusto';
 import { hubspotConnector } from './hubspot';
 import { jiraConnector } from './jira';
+import { linkedinAdsConnector } from './linkedinAds';
 import { localFilesConnector } from './localFiles';
+import { metaAdsConnector } from './metaAds';
+import { mixpanelConnector } from './mixpanel';
 import { netsuiteConnector } from './netsuite';
 import { notionConnector } from './notion';
 import { posthogConnector } from './posthog';
 import { quickbooksConnector } from './quickbooks';
 import { rampConnector } from './ramp';
+import { redshiftConnector } from './redshift';
 import { restConnector } from './rest';
 import { ripplingConnector } from './rippling';
 import { s3Connector } from './s3';
 import { sentryConnector } from './sentry';
 import { slackConnector } from './slack';
 import { slateConnector } from './slate';
+import { snowflakeConnector } from './snowflake';
 import { strapiConnector } from './strapi';
 import { stripeConnector } from './stripe';
 import { webConnector } from './web';
@@ -90,3 +98,13 @@ registerConnector(billConnector);
 registerConnector(gustoConnector);
 registerConnector(ripplingConnector);
 registerConnector(workdayConnector);
+// A business's numbers, read live (`libs/connectors/families.ts`): the
+// warehouses, product analytics and ad platforms.
+registerConnector(snowflakeConnector);
+registerConnector(bigqueryConnector);
+registerConnector(databricksConnector);
+registerConnector(redshiftConnector);
+registerConnector(mixpanelConnector);
+registerConnector(amplitudeConnector);
+registerConnector(linkedinAdsConnector);
+registerConnector(metaAdsConnector);
