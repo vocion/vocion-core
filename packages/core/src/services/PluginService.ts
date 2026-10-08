@@ -218,6 +218,41 @@ export async function togglePluginForProject(opts: { orgId: string; projectSlug:
 }
 
 /**
+ * Turn several plugins on in one write and (in `workspace` mode) one apply —
+ * what adding an app is, since an app is the plugins it is made of
+ * (`libs/workspace/apps.ts`). Same targeting as {@link togglePluginForProject},
+ * and the same undo: {@link restorePluginsForProject} with `before`.
+ * @param opts
+ * @param opts.orgId - The project.
+ * @param opts.projectSlug - Its slug, for the repo path in the note.
+ * @param opts.workspaceDir - The folder resolved for it, or null.
+ * @param opts.explicit - `VOCION_WORKSPACE_MAP` named the folder for this project.
+ * @param opts.slugs - The plugins to turn on; ones already on stay on.
+ * @param opts.appliedBy - Who did it, for the workspace_version row.
+ */
+export async function addPluginsForProject(opts: { orgId: string; projectSlug: string; workspaceDir: string | null; explicit?: boolean; slugs: readonly string[]; appliedBy: string }): Promise<Omit<PluginToggleResult, 'slug' | 'enabled' | 'note'>> {
+  const known = listPluginSlugs();
+  const unknown = opts.slugs.filter(s => !known.includes(s));
+  if (unknown.length > 0) {
+    throw new Error(`unknown plugin "${unknown[0]}" — this core ships: ${known.join(', ')}`);
+  }
+  const target = await pluginWriteTarget(opts.orgId, opts.projectSlug, opts.workspaceDir, opts.explicit);
+  if (target.mode === 'workspace' && target.workspaceDir) {
+    if (target.blocker) {
+      throw new Error(`cannot change plugins here: ${target.blocker}`);
+    }
+    const dir = fromRepoRoot(target.workspaceDir);
+    const next = [...new Set([...readAuthoredPlugins(dir), ...opts.slugs])];
+    const before = writeWorkspacePlugins(dir, next);
+    return { ...(await applyAfterEdit(opts.orgId, dir, opts.appliedBy)), before, after: next, mode: 'workspace' };
+  }
+  const before = await enabledPluginsForOrg(opts.orgId);
+  const after = closeEnabledPlugins([...before, ...opts.slugs]);
+  await writeEnabledPlugins(opts.orgId, after);
+  return { before, after, applied: null, mode: 'project', repoFile: target.repoFile };
+}
+
+/**
  * The undo of {@link togglePluginForProject}: put the earlier list back the
  * same way it was changed — the file (and an apply) in `workspace` mode, the
  * column alone in `project` mode.

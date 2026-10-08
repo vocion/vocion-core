@@ -6,6 +6,8 @@
 
 import type { Action } from './types';
 import { agentRevisePromptAction } from './agent-revise-prompt';
+import { appInstallAction } from './app-install';
+import { appTemplateInstallAction } from './app-template-install';
 import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
 import { chatAddReactionAction } from './chat-add-reaction';
@@ -24,6 +26,7 @@ import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { meSetPhoneAction } from './me-set-phone';
+import { membersInviteAction } from './members-invite';
 import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { objectsRenameAction } from './objects-rename';
@@ -169,6 +172,13 @@ registerAction(askFileAction);
 registerAction(askWithdrawAction);
 // Turn a workspace plugin on/off from chat — reversible, internal, done-for-you above the bar.
 registerAction(pluginEnableAction);
+// Setting a workspace up from chat (the workspace lead's `propose_setup`
+// cards): add an app — its plugins, in one write — start from one of an app's
+// templates, and invite people. All reversible and internal; the person's
+// press on the card is the decision.
+registerAction(appInstallAction);
+registerAction(appTemplateInstallAction);
+registerAction(membersInviteAction);
 // A source saved from what the person picked, on their login; reversible until it syncs (`services/connect/createSourceOnLogin.ts`).
 registerAction(sourceConnectAction);
 // An agent adds a teammate from the catalog, with the daily allowance it is
