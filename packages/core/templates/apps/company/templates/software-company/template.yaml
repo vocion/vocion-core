@@ -1,0 +1,37 @@
+# Software Company — requests become verified releases, and the company reads
+# that work against what it set out to do. The building reuses the
+# software-factory plugin as it ships (PM, Design, Eng, QA, Release on one
+# team); this template adds the company's own layer on top: a leadership team
+# that reads the factory against the quarter's goal every week, turns what
+# customers say into requests, and puts the decisions that are the founder's in
+# front of the founder.
+slug: software-company
+name: Software Company
+icon: git-branch
+order: 1
+description: Requests become verified releases, and a leadership team reads that work against the quarter's goal every week.
+includes:
+  - The software factory — requests, plans, verified changes and releases
+  - A leadership team — a chief of staff and two specialists, with you accountable
+  - A Monday company review against the quarter's goal
+  - What customers say turned into requests, every weekday
+  - A daily spend cap on every seat
+plugins: [software-factory]
+lead: company-chief-of-staff
+interview:
+  - key: company
+    question: What is the company called?
+    placeholder: Kestrel Capital
+    default: '{{workspace.name}}'
+    maxLength: 80
+  - key: product
+    question: What are you building?
+    placeholder: A reconciliation app for mid-market finance teams
+    help: One line. The factory and the leadership team read every request against it.
+    default: our product
+    maxLength: 160
+  - key: goal
+    question: What should the company deliver this quarter?
+    placeholder: Ship what customers asked for, verified, every week
+    default: Every week, something customers asked for ships verified, and the asker hears about it.
+    maxLength: 200

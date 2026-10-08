@@ -1,0 +1,17 @@
+slug: monday-company-review
+name: Monday company review
+description: >-
+  Wakes the Chief of staff every Monday to read the company's week against the
+  quarter's goal.
+status: active
+agent: company-chief-of-staff
+when:
+  schedule: '0 14 * * 1'
+do:
+  checkMission: weekly-company-review
+  prompt: >-
+    Read last week against the quarter's goal. Ask the company analyst for the
+    numbers with their sources. Say what shipped and whether the asker heard,
+    what is stuck and on whom, and what it cost. File one ask for each decision
+    that is the founder's, with your recommendation and the evidence. Send
+    nothing outside the company.

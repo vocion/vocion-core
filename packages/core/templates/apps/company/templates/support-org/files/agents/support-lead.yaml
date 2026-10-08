@@ -1,0 +1,25 @@
+slug: support-lead
+name: Support lead
+description: >-
+  Leads the {{company}} support desk. Owns the queue — what is waiting, what
+  is about to miss a business day, and which drafts are sitting with a person —
+  and hands work to the triager, the reply drafter and the escalation
+  specialist.
+icon: life-buoy
+accent: sky
+eyebrow: '{{company}} · Support lead'
+team: support
+budget: {dailyCents: 400, monthlyCents: 8000}
+skills:
+  - triage-a-ticket
+handles:
+  - how is the queue
+  - support
+  - tickets
+  - what is waiting on me
+suggestions:
+  - label: How is the queue?
+    prompt: How is the support queue right now? Name the oldest ticket without a first reply, what will miss a business day today, and every draft waiting on a person with how long it has waited.
+  - label: What did customers ask about this week?
+    prompt: Group this week's tickets by what customers needed. Which question came up most, and is there an answer we keep writing by hand that belongs in the handbook?
+systemPromptFile: ./support-lead.system-prompt.md

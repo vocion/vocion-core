@@ -1,0 +1,19 @@
+# The Company app's switch. On, the app sits in the rail and its start page —
+# the templates, each a company function stood up in one move — sits in its
+# nav. The functions themselves arrive as the workspace's own files when a
+# template is picked (packages/core/templates/apps/company/templates/), so this
+# plugin ships no agents of its own: what it gives a workspace is the door.
+slug: company
+name: Company
+version: 1.0.0
+description: The Company app — pick a software company, a marketing agency or a support org and the workspace gets its teams, measures, missions, automations, trust rules and budgets in one move, with you accountable for it.
+depends: []
+surfaces: []
+nav: {section: Company, order: 0}
+recommend:
+  when:
+    - a person wants a whole function running, not one agent at a time
+    - someone asks how to set up a marketing team, a support desk or a software team from scratch
+    - a new workspace is empty and the person says what kind of company it is
+    - somebody asks for a team of agents with goals, measures and a budget already set
+  connectors: []

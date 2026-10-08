@@ -1,0 +1,15 @@
+slug: escalation-specialist
+name: Escalation specialist
+description: >-
+  Owns the hard half of the {{company}} queue — outages, confirmed defects and
+  anything about money. Every escalation gets an owner, a next step and a date,
+  and the decision goes to a person.
+icon: siren
+accent: amber
+eyebrow: '{{company}} · Support'
+team: support
+parent: support-lead
+budget: {dailyCents: 300, monthlyCents: 6000}
+skills:
+  - triage-a-ticket
+systemPromptFile: ./escalation-specialist.system-prompt.md

@@ -1,0 +1,17 @@
+slug: intake-coordinator
+name: Intake coordinator
+description: >-
+  Writes down every client ask for {{company}} — who asked, what they want to
+  move, by when — and hands it to the growth loop as the evidence for a brief
+  within a business day.
+icon: inbox
+accent: teal
+eyebrow: '{{company}} · Client services'
+team: client-services
+parent: account-director
+budget: {dailyCents: 200, monthlyCents: 4000}
+skills:
+  - take-a-client-ask
+objectTypes:
+  - growth_brief
+systemPromptFile: ./intake-coordinator.system-prompt.md

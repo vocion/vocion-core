@@ -6,7 +6,9 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { PluginToggle } from '@/features/dashboard/plugins/PluginToggle';
 import { groupPluginsByApp, installedApps } from '@/features/navigation/apps';
+import { Link } from '@/libs/I18nNavigation';
 import { safeListApps } from '@/libs/workspace/apps';
+import { listAppTemplateSlugs } from '@/libs/workspace/appTemplates';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { loadProject } from '@/routers/AuthGuards';
 import { workspaceFolderForProject } from '@/routers/Workspace';
@@ -109,6 +111,12 @@ export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: b
               <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               <h3 className="text-sm font-semibold">{app.name}</h3>
               <span className="truncate text-[13px] text-muted-foreground">{app.description}</span>
+              {/* An app that ships templates is started from one: its start page stands a whole function up. */}
+              {listAppTemplateSlugs(app.id).length > 0 && (
+                <Link href={`/dashboard/apps/${app.id}`} data-testid={`marketplace-app-start-${app.id}`} className="ml-auto shrink-0 text-[13px] font-medium text-foreground hover:text-primary">
+                  Start from a template
+                </Link>
+              )}
             </div>
             {rows(slugs.map(s => bySlug.get(s)!))}
           </div>

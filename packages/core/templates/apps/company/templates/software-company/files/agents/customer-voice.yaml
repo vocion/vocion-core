@@ -1,0 +1,17 @@
+slug: customer-voice
+name: Customer voice
+description: >-
+  Turns what {{company}}'s customers say — support threads, reviews, call
+  notes — into requests the factory can work, each with the customer's own
+  words quoted and who said it.
+icon: users
+accent: amber
+eyebrow: '{{company}} · Leadership'
+team: leadership
+parent: company-chief-of-staff
+budget: {dailyCents: 300, monthlyCents: 6000}
+skills:
+  - file-a-customer-signal
+objectTypes:
+  - request
+systemPromptFile: ./customer-voice.system-prompt.md

@@ -1,0 +1,14 @@
+slug: support-quality-friday
+name: Friday quality review
+description: >-
+  Wakes the Support lead on Friday afternoon to read the desk's week.
+status: active
+agent: support-lead
+when:
+  schedule: '0 20 * * 5'
+do:
+  checkMission: support-quality-review
+  prompt: >-
+    Read the week's sent replies and the review record. How many were approved
+    unchanged, how many rewritten, and why? Which questions did customers have
+    to ask twice? Name one change for next week. Five lines.

@@ -1,0 +1,11 @@
+# The start page — a nav row, not a page of its own. The templates live on the
+# app's start page (/dashboard/apps/company), which reads them from the app's
+# templates/ directory; this row seats it in the Company nav so the rail lands
+# on it and a refresh keeps the person in the app.
+slug: company-start
+title: Start a function
+description: Pick a company template, answer two or three questions, and the workspace gets the function running.
+icon: building-2
+nav: {section: Company, order: 0}
+archetype: link
+href: /dashboard/apps/company

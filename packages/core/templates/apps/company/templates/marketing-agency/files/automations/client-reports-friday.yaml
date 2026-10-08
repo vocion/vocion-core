@@ -1,0 +1,16 @@
+slug: client-reports-friday
+name: Friday client reports
+description: >-
+  Wakes the Account director every Friday afternoon to have each client's
+  report drafted.
+status: active
+agent: account-director
+when:
+  schedule: '0 19 * * 5'
+do:
+  checkMission: every-client-hears-weekly
+  prompt: >-
+    For each active client, have the client reporter draft this week's report
+    from the briefs and readings the workspace records. Propose each one for a
+    person to send. Then list the clients with nothing to report and why. Send
+    nothing yourself.

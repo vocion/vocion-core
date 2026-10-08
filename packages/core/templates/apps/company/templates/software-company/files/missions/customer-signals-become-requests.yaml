@@ -1,0 +1,19 @@
+slug: customer-signals-become-requests
+name: What customers say becomes a request
+description: >-
+  The customer voice's standing responsibility, kept by the weekday customer
+  signal sweep.
+goal: >-
+  Every need customers raise more than once reaches the factory as a request
+  with their own words quoted and who said them, and new evidence for an
+  existing request is added to it rather than filed beside it.
+agent: customer-voice
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - Every request filed quotes the customer and names where they said it
+  - A need already filed gets the new evidence added, never a duplicate request
+  - Nothing is promised to a customer
+desiredArtifacts:
+  - Requests filed or strengthened this week, each with its quotes
+schedule: '0 15 * * 1-5'

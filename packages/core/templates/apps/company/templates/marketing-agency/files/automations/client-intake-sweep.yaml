@@ -1,0 +1,16 @@
+slug: client-intake-sweep
+name: Weekday client intake
+description: >-
+  Wakes the Intake coordinator every weekday morning to turn new client asks
+  into work.
+status: active
+agent: intake-coordinator
+when:
+  schedule: '0 14 * * 1-5'
+do:
+  checkMission: client-asks-become-briefs
+  prompt: >-
+    Read every client ask that has not been written down. For each, record who
+    asked, what it should move and by when, and hand it to the demand
+    strategist. Anything too vague to brief becomes one question for the
+    account director to put to the client. Reply to no one.

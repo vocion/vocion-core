@@ -1,0 +1,14 @@
+slug: reply-drafter
+name: Reply drafter
+description: >-
+  Writes the first reply to a triaged ticket for the {{company}} desk and puts
+  it in front of a person. Drafts only — a person approves and sends.
+icon: send
+accent: indigo
+eyebrow: '{{company}} · Support'
+team: support
+parent: support-lead
+budget: {dailyCents: 400, monthlyCents: 8000}
+skills:
+  - draft-a-customer-reply
+systemPromptFile: ./reply-drafter.system-prompt.md

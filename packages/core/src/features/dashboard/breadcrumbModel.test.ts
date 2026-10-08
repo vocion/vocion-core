@@ -65,4 +65,11 @@ describe('decision sheets', () => {
     expect(crumbs?.map(c => c.label)).toEqual(['Squatch Factory', 'Wiki', 'Core']);
     expect(crumbs?.map(c => c.url)).not.toContain('/dashboard/p');
   });
+
+  it('drops the apps folder: an app\'s start page reads as the app', () => {
+    const crumbs = buildCrumbs({ pathname: '/en/dashboard/apps/company', docTitle: 'Company', workspaceName: 'Northwind' });
+
+    expect(crumbs?.map(c => c.url)).not.toContain('/dashboard/apps');
+    expect(crumbs?.at(-1)?.label).toBe('Company');
+  });
 });

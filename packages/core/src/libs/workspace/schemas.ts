@@ -444,6 +444,52 @@ export const AppManifestSchema = z.object({
 export type AppManifest = z.infer<typeof AppManifestSchema>;
 
 /**
+ * One question of an app template's interview. The answer fills `{{key}}`
+ * wherever the template's files carry it; `default` (which may itself carry
+ * `{{workspace.name}}`) is what an empty answer becomes, and a question with
+ * no default must be answered.
+ */
+export const AppTemplateQuestionSchema = z.object({
+  key: z.string().regex(/^[a-z][a-zA-Z0-9]*$/, 'a question key is one camelCase word, e.g. company'),
+  question: z.string().min(1),
+  placeholder: z.string().min(1).optional(),
+  help: z.string().min(1).optional(),
+  default: z.string().min(1).optional(),
+  maxLength: z.number().int().min(10).max(400).default(160),
+});
+export type AppTemplateQuestion = z.infer<typeof AppTemplateQuestionSchema>;
+
+/**
+ * App template — `templates/apps/<app>/templates/<slug>/template.yaml`, with
+ * the workspace files it writes beside it under `files/` (teams, agents,
+ * missions, automations, skills, trust rules). Picking one stands the function
+ * up in a workspace in one move: the files are written into the workspace
+ * folder with the interview's answers filled in, the plugins it names (and the
+ * app's own) are turned on, and the workspace is applied. A template is a
+ * concretion — the company type lives here, never in core logic, which only
+ * knows how to render, write and apply one (`libs/workspace/appTemplates.ts`,
+ * `services/apps/AppTemplateService.ts`).
+ */
+export const AppTemplateManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string().min(1),
+  /** lucide icon name, resolved by `features/dashboard/iconByName.ts`. */
+  icon: z.string().min(1).default('layers'),
+  /** Position on the picker, lowest first. */
+  order: z.number().default(100),
+  description: z.string().min(1).describe('one line: the function it stands up'),
+  /** What a person gets, one line each, in their words — the card's list. */
+  includes: z.array(z.string().min(1)).default([]),
+  /** Plugins it turns on beside the app's own — reused as they ship, never copied. */
+  plugins: z.array(SlugSchema).default([]),
+  /** The agent that becomes the workspace lead, when the workspace names none. */
+  lead: SlugSchema.optional(),
+  /** The short interview: one to three questions. */
+  interview: z.array(AppTemplateQuestionSchema).min(1).max(3),
+}).refine(t => new Set(t.interview.map(q => q.key)).size === t.interview.length, { message: 'interview question keys must be unique', path: ['interview'] });
+export type AppTemplateManifest = z.infer<typeof AppTemplateManifestSchema>;
+
+/**
  * Team manifest (F1) — workspace/<org>/teams/<slug>.yaml. The team's
  * slug comes from the FILENAME (no `slug:` field), so a team cannot
  * disagree with its own path. Teams are flat by construction: there is

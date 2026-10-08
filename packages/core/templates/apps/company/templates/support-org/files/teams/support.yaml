@@ -1,0 +1,50 @@
+# The support desk. Stood up by the Support Org template; edit it like any
+# team in this workspace — re-installing the template leaves an edited file as
+# you left it.
+name: '{{company}} Support'
+description: >-
+  The support desk for {{product}}: every ticket triaged, every customer
+  answered with a reply a person sent, every escalation owned by someone with
+  a next step. Graded on customers answered, not on tickets touched.
+goal: '{{goal}}'
+lead: support-lead
+accountableUser: '{{installer.email}}'
+measures:
+  # THE OUTCOME. Replies that actually reached a customer — a send a person
+  # approved and the system then made. Observed, the strongest provenance here.
+  - key: customers_answered
+    label: Customers answered
+    dimension: outcome
+    target: 40
+    baseline: 0
+    unit: replies
+    window: 7d
+    source: {kind: observed, actions: [gmail.send]}
+  # What a person decided on the drafts. Human-confirmed by construction: the
+  # approval is the evidence that the draft was fit to send.
+  - key: replies_approved
+    label: Replies a person approved
+    dimension: quality
+    target: 35
+    baseline: 0
+    unit: replies
+    window: 7d
+    source: {kind: human-confirmed, actions: [gmail.send]}
+  # How fast. Agent-reported — the desk counts its own on-time first replies,
+  # and the report labels it as the weakest kind of reading.
+  - key: first_replies_on_time
+    label: First replies inside a business day
+    dimension: velocity
+    target: 30
+    baseline: 0
+    unit: tickets
+    window: 7d
+    source: {kind: agent-reported, counts: firstRepliesOnTime}
+  - key: escalations_owned
+    label: Escalations with an owner and a next step
+    dimension: quality
+    target: 5
+    baseline: 0
+    unit: escalations
+    window: 7d
+    source: {kind: agent-reported, counts: escalationsOwned}

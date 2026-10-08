@@ -1,0 +1,15 @@
+slug: ticket-triager
+name: Ticket triager
+description: >-
+  Reads every new ticket for the {{company}} desk and says what it is about,
+  how urgent it is and who owns it — with the sentence that decided the
+  priority quoted. Labels only; it never replies to anyone.
+icon: list-checks
+accent: teal
+eyebrow: '{{company}} · Support'
+team: support
+parent: support-lead
+budget: {dailyCents: 200, monthlyCents: 4000}
+skills:
+  - triage-a-ticket
+systemPromptFile: ./ticket-triager.system-prompt.md

@@ -1,0 +1,19 @@
+# Where the support desk's actions start on the autonomy ladder. Every rule
+# ships off: the desk starts at "a person sees everything", and a person raises
+# one action at a time once the record earns it.
+rules:
+  # A reply to a customer is the last rung. It is held for a person by the
+  # platform whatever this says; 0.99 is here so the bar reads as meant.
+  - action: gmail.send
+    autoApproveAbove: 0.99
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  # Recording an escalation on the customer's account, when a CRM is
+  # connected. Reversible, so it may earn its way up — not before people have
+  # approved it unchanged for a while.
+  - action: hubspot.update
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: recommend
+    risk: low

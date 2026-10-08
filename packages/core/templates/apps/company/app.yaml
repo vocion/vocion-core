@@ -1,0 +1,18 @@
+# Company: a company function stood up in one move. Pick a template (a
+# software company, a marketing agency, a support org), answer two or three
+# questions, and the workspace gets the teams, their measures, the missions,
+# automations, trust rules and budgets that function runs on — as its own
+# workspace files, owned and edited like anything a person wrote.
+#
+# The company types are concretions and live here, under templates/, never in
+# core: core only knows how to render a template's files, write them into a
+# workspace and apply them (libs/workspace/appTemplates.ts). Installed in a
+# workspace when its plugin is on — installing any template turns it on.
+id: company
+name: Company
+icon: building-2
+order: 4
+description: A company function stood up in one move — teams, measures, missions, automations, trust and budgets from a template.
+plugins: [company]
+entry: /dashboard/apps/company
+nav: [Company]

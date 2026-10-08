@@ -1,0 +1,47 @@
+# The company's own layer over the software factory. The factory team (turned
+# on with this template) builds; this team reads what was built against the
+# quarter's goal, brings customers' words in as requests, and puts the
+# decisions that are the founder's in front of the founder. Edit it like any
+# team in this workspace; re-installing the template leaves an edited file as
+# you left it.
+name: '{{company}} Leadership'
+description: >-
+  Reads the factory's work on {{product}} against the quarter's goal every
+  week, turns what customers say into requests the factory can work, and puts
+  every decision that belongs to the founder in front of the founder with a
+  recommendation and the evidence under it. Graded on what shipped and what
+  was decided, never on how much was discussed.
+goal: '{{goal}}'
+lead: company-chief-of-staff
+accountableUser: '{{installer.email}}'
+measures:
+  # THE OUTCOME. Releases that reached the people they were for — announced, or
+  # answered back to the person who asked. Observed.
+  - key: releases_heard
+    label: Releases announced or answered back to the asker
+    dimension: outcome
+    target: 4
+    baseline: 0
+    unit: releases
+    window: 30d
+    source: {kind: observed, actions: [release.announce, notify.requester]}
+  # Decisions the founder took on what this team put in front of them. A
+  # decision taken is the work; one left waiting is the cost.
+  - key: decisions_taken
+    label: Decisions the founder took
+    dimension: velocity
+    target: 6
+    baseline: 0
+    unit: decisions
+    window: 7d
+    source: {kind: human-confirmed, askKinds: [ruling, recommendation, approval]}
+  # Customers' own words reaching the factory. Agent-reported — the customer
+  # voice counts the signals it filed — and the report labels it so.
+  - key: customer_signals_filed
+    label: Customer signals filed as requests
+    dimension: quality
+    target: 5
+    baseline: 0
+    unit: signals
+    window: 7d
+    source: {kind: agent-reported, counts: customerSignalsFiled}
