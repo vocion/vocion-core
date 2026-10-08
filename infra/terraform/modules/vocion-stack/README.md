@@ -38,6 +38,7 @@ the application move together on one pin. A working root is in
 | Backup | AWS Backup: daily RDS backup into a vault locked in governance mode; optional cross-account copy | `backup_*` |
 | Alarms | SNS topic; box CPU and status checks (system failures auto-recover), site down, 5xx, RDS CPU and free storage | `alarm_emails` |
 | Budget | none | `budget_monthly_usd` |
+| Bedrock | The box's role may invoke Anthropic models: in-region, and through this account's `us.` inference profiles in the US regions they route to (`InvokeModel`, `InvokeModelWithResponseStream`; they also authorize Converse and ConverseStream) | `bedrock_enabled`, `bedrock_models`, `bedrock_inference_profile_geography` |
 | Engineering runners | none | `runners_enabled`, `runner_*` |
 | AgentCore IAM | none | `agentcore_enabled` |
 
@@ -292,6 +293,9 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `runner_wall_clock_minutes` | number | `45` | Per run |
 | `runner_git_email` | string | `""` | Empty: `runner@<hostname>` |
 | `runner_poll_schedule` | string | `""` | Empty: no fallback poll |
+| `bedrock_enabled` | bool | `true` | Bedrock invoke for the box's role |
+| `bedrock_models` | list(string) | `["anthropic.*"]` | Model id patterns the box may invoke |
+| `bedrock_inference_profile_geography` | string | `"us"` | `us`, `eu`, `apac`: the cross-region profiles allowed, and the regions their models may run in. Empty: in-region only |
 | `agentcore_enabled` | bool | `false` | AgentCore harness/runtime/memory IAM for the box |
 | `agentcore_harness_role_name` | string | `"VocionAgentCoreHarnessRole"` | Role the box may pass |
 

@@ -108,6 +108,15 @@ run "cloud_profile_defaults" {
     condition     = aws_s3_bucket.media.bucket == "vocion-test-media"
     error_message = "the media bucket is named from the prefix"
   }
+  assert {
+    condition = (
+      length(aws_iam_role_policy.bedrock) == 1
+      && toset(data.aws_iam_policy_document.bedrock[0].statement[0].actions) == toset(["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"])
+      && toset(data.aws_iam_policy_document.bedrock[0].statement[0].resources) == toset(["arn:aws:bedrock:us-*::foundation-model/anthropic.*"])
+      && toset(data.aws_iam_policy_document.bedrock[0].statement[1].resources) == toset(["arn:aws:bedrock:us-east-1:111111111111:inference-profile/us.anthropic.*"])
+    )
+    error_message = "the box may invoke Anthropic models on Bedrock: in-region, and through this account's us.* profiles to the US regions they route to"
+  }
 }
 
 run "single_box_with_ssh" {
@@ -121,6 +130,7 @@ run "single_box_with_ssh" {
     kms_vault_enabled = false
     backup_enabled    = false
     eip_enabled       = false
+    bedrock_enabled   = false
   }
 
   assert {
@@ -134,6 +144,10 @@ run "single_box_with_ssh" {
   assert {
     condition     = !contains(keys(jsondecode(aws_ssm_parameter.deploy.value).env), "VOCION_KMS_KEY_ARN")
     error_message = "no KMS key, no VOCION_KMS_KEY_ARN"
+  }
+  assert {
+    condition     = length(aws_iam_role_policy.bedrock) == 0
+    error_message = "bedrock_enabled = false grants no Bedrock access"
   }
 }
 

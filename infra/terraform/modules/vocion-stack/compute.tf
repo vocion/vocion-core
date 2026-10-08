@@ -169,6 +169,62 @@ resource "aws_iam_role_policy" "vault" {
   policy = data.aws_iam_policy_document.vault[0].json
 }
 
+# Bedrock: the models in bedrock_models, called in this region or through
+# this geography's cross-region inference profiles (us.anthropic.*, ...). A
+# profile call is authorized twice, on the profile here and on the model in
+# whichever region the profile routes it to, so the model ARNs name the
+# geography's regions. There is no separate IAM action for Converse:
+# InvokeModel authorizes it, InvokeModelWithResponseStream ConverseStream.
+locals {
+  bedrock_geography_regions = {
+    us   = "us-*"
+    eu   = "eu-*"
+    apac = "ap-*"
+  }
+  bedrock_geography_region = lookup(local.bedrock_geography_regions, var.bedrock_inference_profile_geography, "")
+  # This region, unless the geography's pattern already covers it.
+  bedrock_model_regions = (
+    local.bedrock_geography_region != "" && startswith(local.region, trimsuffix(local.bedrock_geography_region, "*"))
+    ? [local.bedrock_geography_region]
+    : compact([local.region, local.bedrock_geography_region])
+  )
+}
+
+data "aws_iam_policy_document" "bedrock" {
+  count = var.bedrock_enabled ? 1 : 0
+
+  statement {
+    sid     = "InvokeFoundationModels"
+    effect  = "Allow"
+    actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = flatten([
+      for r in local.bedrock_model_regions : [
+        for m in var.bedrock_models : "arn:${local.partition}:bedrock:${r}::foundation-model/${m}"
+      ]
+    ])
+  }
+
+  dynamic "statement" {
+    for_each = var.bedrock_inference_profile_geography != "" ? [var.bedrock_inference_profile_geography] : []
+    content {
+      sid     = "InvokeInferenceProfiles"
+      effect  = "Allow"
+      actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+      resources = [
+        for m in var.bedrock_models : "arn:${local.partition}:bedrock:${local.region}:${local.account_id}:inference-profile/${statement.value}.${m}"
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "bedrock" {
+  count = var.bedrock_enabled ? 1 : 0
+
+  name   = "${var.name_prefix}-bedrock"
+  role   = aws_iam_role.ec2.id
+  policy = data.aws_iam_policy_document.bedrock[0].json
+}
+
 data "aws_iam_policy_document" "agentcore" {
   count = var.agentcore_enabled ? 1 : 0
 

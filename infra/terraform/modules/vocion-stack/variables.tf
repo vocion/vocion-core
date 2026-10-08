@@ -409,6 +409,36 @@ variable "runner_poll_schedule" {
   default     = ""
 }
 
+# ----- Amazon Bedrock -----
+
+variable "bedrock_enabled" {
+  description = "Let the box's role invoke the models in bedrock_models on Amazon Bedrock, directly and through the account's cross-region inference profiles: bedrock:InvokeModel (also authorizes Converse) and bedrock:InvokeModelWithResponseStream (also ConverseStream). The app uses it when an agent or the installation picks Bedrock (VOCION_LLM_PROVIDER=bedrock). Model access itself is an account setting, outside this module."
+  type        = bool
+  default     = true
+}
+
+variable "bedrock_models" {
+  description = "Foundation model ids the box may invoke, as IAM patterns (a trailing * matches every version)."
+  type        = list(string)
+  default     = ["anthropic.*"]
+
+  validation {
+    condition     = length(var.bedrock_models) > 0 && alltrue([for m in var.bedrock_models : can(regex("^[a-z0-9][a-z0-9.:*-]*$", m))])
+    error_message = "bedrock_models needs at least one model id pattern, e.g. anthropic.*"
+  }
+}
+
+variable "bedrock_inference_profile_geography" {
+  description = "Geography of the cross-region inference profiles the box may call (us, eu or apac: profile ids us.anthropic.*, ...). The models behind them are allowed in that geography's regions only (us-*, eu-*, ap-*), where those profiles route. Empty: in-region model ids only."
+  type        = string
+  default     = "us"
+
+  validation {
+    condition     = contains(["", "us", "eu", "apac"], var.bedrock_inference_profile_geography)
+    error_message = "bedrock_inference_profile_geography must be us, eu, apac or empty."
+  }
+}
+
 # ----- AgentCore (off by default) -----
 
 variable "agentcore_enabled" {
