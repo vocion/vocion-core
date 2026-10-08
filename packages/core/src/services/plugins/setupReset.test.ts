@@ -29,6 +29,9 @@ async function seed(orgId: string) {
   await db.insert(sourceCredentialSchema).values({ installId: install!.id, displayName: 'GitHub (seeded)', dekId: dek!.id, ciphertext: 'c', nonce: 'n', authTag: 't' } as never);
   await db.insert(actionRunSchema).values({ orgId, actionId: 'objects.propose_candidate', input: { objectType: 'repo', title: 'northwind/send-web', dedupOn: ['slug'] }, status: 'pending' } as never);
   await db.insert(actionRunSchema).values({ orgId, actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'stays pending' }, status: 'pending' } as never);
+  // Judged in an earlier setup: the duplicate check would refuse the same record again.
+  await db.insert(actionRunSchema).values({ orgId, actionId: 'objects.propose_candidate', input: { objectType: 'product', title: 'DeliveryStack', dedupOn: ['slug'] }, status: 'rejected', dedupKey: 'objects.propose_candidate:product:deliverystack' } as never);
+  await db.insert(actionRunSchema).values({ orgId, actionId: 'objects.propose_candidate', input: { objectType: 'request', title: 'a judged request' }, status: 'done', dedupKey: 'objects.propose_candidate:request:judged' } as never);
   return { repoId: repo!.id, requestId: request!.id, installId: install!.id };
 }
 
@@ -65,7 +68,13 @@ describe('resetSetup', () => {
     const runs = await db.select({ status: actionRunSchema.status, input: actionRunSchema.input }).from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
 
     expect(runs.find(r => (r.input as { objectType: string }).objectType === 'repo')!.status).toBe('rejected');
-    expect(runs.find(r => (r.input as { objectType: string }).objectType === 'request')!.status).toBe('pending');
+    expect(runs.find(r => (r.input as { objectType: string }).objectType === 'request' && r.status === 'pending')).toBeDefined();
+
+    // Judged proposals for setup's types no longer answer the duplicate check; one for another type still does.
+    const keyed = await db.select({ input: actionRunSchema.input, dedupKey: actionRunSchema.dedupKey }).from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(keyed.find(r => (r.input as { objectType: string }).objectType === 'product')!.dedupKey).toBeNull();
+    expect(keyed.find(r => (r.input as { title: string }).title === 'a judged request')!.dedupKey).toBe('objects.propose_candidate:request:judged');
 
     // Theirs: untouched.
     expect(await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.orgId, OTHER))).toHaveLength(2);
