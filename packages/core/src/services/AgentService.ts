@@ -619,7 +619,8 @@ export async function runAgentDeep(opts: {
   const { buildInitialFiles, compileAgentForRequest } = await import('./agents/harness');
   const { createLangfuseCallback } = await import('@/libs/Langfuse');
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
-  const { BudgetGateCallback, budgetRefusalMessage, TurnBudgetGuard } = await import('./agents/budgetStop');
+  const { BudgetGateCallback, TurnBudgetGuard } = await import('./agents/budgetStop');
+  const { budgetRefusalMessage } = await import('./budget/refusalMessage');
 
   const rawEmit = opts.onEvent ?? (() => {});
   // Demo sandbox record buffer — every emitted event, in order (turnReplay).

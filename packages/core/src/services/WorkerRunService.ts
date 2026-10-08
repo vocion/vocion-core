@@ -7,6 +7,7 @@ import { boundProgress } from '@/libs/worker/progress';
 import { reportedRunCents } from '@/libs/worker/runCost';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
+import { budgetRefusalMessage } from '@/services/budget/refusalMessage';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
 import { recomputeRollups } from '@/services/objects/rollups';
 import { ingestRunEvents } from '@/services/runs/RunLogService';
@@ -231,11 +232,11 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
   if (!budget.ok) {
     await db.update(workerRunSchema).set({
       status: 'failed',
-      error: `Budget exceeded for "${budget.agentSlug}" (${budget.reason}: ${budget.current}/${budget.limit})`,
+      error: budgetRefusalMessage(budget),
       completedAt: now,
       updatedAt: now,
     }).where(eq(workerRunSchema.id, run.id));
-    throw new WorkerRunError('BUDGET_EXCEEDED', `"${budget.agentSlug}" is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget`, 402);
+    throw new WorkerRunError('BUDGET_EXCEEDED', budgetRefusalMessage(budget), 402);
   }
   const [updated] = await db.update(workerRunSchema).set({
     status: 'running',

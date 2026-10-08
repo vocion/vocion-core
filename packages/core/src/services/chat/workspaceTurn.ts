@@ -40,6 +40,7 @@ import { readInitiative } from '@/services/agents/initiative';
 import { routableFromRow, routeFirstTurn } from '@/services/agents/router';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { askUrlFor } from '@/services/AskService';
+import { budgetRefusalMessage } from '@/services/budget/refusalMessage';
 import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
 import { autoProposeRecommendationDetailed } from '@/services/chat/autoPropose';
@@ -273,7 +274,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
 
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
-    throw new WorkspaceTurnError('BUDGET_EXCEEDED', `Agent "${agentSlug}" is over its ${budget.reason} budget for the period (${budget.current}/${budget.limit}). Raise the cap on /dashboard/agents/${agentSlug} or wait for the next period.`);
+    throw new WorkspaceTurnError('BUDGET_EXCEEDED', budgetRefusalMessage(budget));
   }
 
   if (!conversation) {

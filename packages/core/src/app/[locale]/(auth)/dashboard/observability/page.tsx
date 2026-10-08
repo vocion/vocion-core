@@ -33,7 +33,7 @@ export default async function ObservabilityPage(props: {
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  const { orgId, accountId } = await auth();
+  const { orgId, accountId, role } = await auth();
 
   // These links open in the operator's browser, so they need the
   // externally reachable Langfuse URL. On a self-hosted box the app
@@ -69,6 +69,12 @@ export default async function ObservabilityPage(props: {
     // cannot be read — "no cap" is a status of its own, and says so.
     accountId ? accountCapStatus(accountId).catch(() => null) : Promise.resolve(null),
   ]);
+
+  // The account's figures are the account admin's: on a deployment where
+  // people are scoped to workspaces, a member of one workspace has no view of
+  // what the others spent. Anyone else hears about the account cap only when
+  // it has stopped their work, and then without the amount.
+  const accountCapShown = Boolean(accountCap && (role === 'admin' || accountCap.blocked));
 
   // The workspace's whole spend, read off the `platform:all` row rather than
   // summed over the agent rows. Summing the agents was the number this page
@@ -147,7 +153,7 @@ export default async function ObservabilityPage(props: {
             )}
 
         {/* Airy pass (B-034b §4): the numbers in a row between hairlines, no fills. */}
-        <div className={`grid gap-6 border-y border-border/70 py-5 ${accountCap ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
+        <div className={`grid gap-6 border-y border-border/70 py-5 ${accountCapShown ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
           <StatCard
             label="Spend this period"
             value={`$${(totalCents / 100).toFixed(2)}`}
@@ -163,7 +169,7 @@ export default async function ObservabilityPage(props: {
             value={String(topAgents.filter(a => (a.currentCents ?? 0) > 0).length)}
             hint={topAgents.length === 0 ? 'No usage in this period.' : 'Agents with non-zero spend.'}
           />
-          {accountCap && <AccountCapCard cap={accountCap} />}
+          {accountCap && accountCapShown && <AccountCapCard cap={accountCap} figures={role === 'admin'} />}
         </div>
 
         {platformSurfaces.length > 0 && (
@@ -253,12 +259,26 @@ export default async function ObservabilityPage(props: {
  * The account cap, read where spend is read. It is the one cap on this page
  * nobody in the workspace can change — an operator sets it — so the hint says
  * whose it is and when it resets, and, when it is reached, what has stopped.
+ *
+ * The amounts are the whole account's, across workspaces the reader may have
+ * no access to, so only an account admin sees them (`figures`); anyone else
+ * is shown the card only once the cap is reached, as a reason, not a number.
  * @param props - The account's month.
  * @param props.cap - What `accountCapStatus` reported.
+ * @param props.figures - Whether the reader may see the account's spend and cap.
  */
-function AccountCapCard({ cap }: { cap: AccountCapStatus }) {
-  const spent = `$${(cap.spentCents / 100).toFixed(2)}`;
+function AccountCapCard({ cap, figures }: { cap: AccountCapStatus; figures: boolean }) {
   const resets = new Date(cap.periodResetsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  if (!figures) {
+    return (
+      <StatCard
+        label="Account cap"
+        value="Reached"
+        hint={`Set by your Vocion operator. Ingest, image generation and agent turns are refused in every workspace of this account until ${resets} (UTC), or until the operator raises it.`}
+      />
+    );
+  }
+  const spent = `$${(cap.spentCents / 100).toFixed(2)}`;
   if (cap.hardCentsLimit === null) {
     return <StatCard label="Account cap" value="None" hint={`${spent} this month across every workspace in this account. A cap is set by your Vocion operator.`} />;
   }

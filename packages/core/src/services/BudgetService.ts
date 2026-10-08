@@ -134,6 +134,7 @@ import { and, eq, gte, inArray, min, notLike, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { tokenCostMicroCents, totalTokens } from '@/libs/pricing';
 import { agentBudgetSchema, agentSchema, projectSchema, spendDaySchema } from '@/models/Schema';
+import { budgetRefusalMessage } from '@/services/budget/refusalMessage';
 import { noteRunCost } from '@/services/budget/runCost';
 
 export type BudgetPeriod = 'daily' | 'monthly';
@@ -255,17 +256,17 @@ export function agentScopedOnly() {
 /**
  * Raised when a hard cap refuses work that is allowed to stop.
  *
- * Carries the refusing row so a caller can say which cap it hit. Only the
- * refusable sites throw it — see the module docstring for which those are and
- * why the rest proceed.
+ * Carries the refusing row so a caller can say which cap it hit, and says it
+ * in the words every budget refusal uses (`budget/refusalMessage.ts`) — an
+ * ingest run stopped by the account cap names the operator, not an admin.
+ * Only the refusable sites throw it — see the module docstring for which
+ * those are and why the rest proceed.
  */
 export class BudgetExceededError extends Error {
   readonly check: Extract<BudgetCheck, { ok: false }>;
 
   constructor(check: Extract<BudgetCheck, { ok: false }>) {
-    super(
-      `Budget exceeded for "${check.agentSlug}" (${check.reason}: ${check.current}/${check.limit})`,
-    );
+    super(budgetRefusalMessage(check));
     this.name = 'BudgetExceededError';
     this.check = check;
   }
@@ -822,16 +823,24 @@ function rowPeriodStart(): SQL {
 }
 
 /**
- * The charge itself: one transaction, so the rows move together and a
- * concurrent charge cannot interleave a read with a write.
+ * The charge itself: ONE statement, so the rows move together, a concurrent
+ * charge cannot interleave a read with a write, and it costs one round trip.
  *
- * The scope rows are one statement. `stale` is the period rollover — when a
- * row's period began before the current one, the incoming numbers replace the
- * counters instead of adding to them, and the period restarts. The workspace's
- * account is read inside the same transaction and its monthly row joins the
- * statement, so a retried charge retries the roll-up with it; a workspace
- * with no project row (a fixture, a script) simply has no account to roll up
- * to. Today's ledger row is the second statement.
+ * Three inserts, run as data-modifying CTEs of a single statement:
+ *
+ *   - the scope rows (agent, feature, workspace), upserted;
+ *   - the workspace's account's monthly row, upserted from
+ *     `select account_id from project where id = <workspace>` — a workspace
+ *     with no project row (a fixture, a script) selects nothing, so it simply
+ *     has no account to roll up to;
+ *   - today's row of the workspace's daily ledger (`spend_day`).
+ *
+ * `stale` is the period rollover — when a row's period began before the
+ * current one, the incoming numbers replace the counters instead of adding to
+ * them, and the period restarts. A statement outside any transaction commits
+ * as it ends, so the account row — which every charge in every workspace of
+ * the account writes — is locked only for the length of this one statement,
+ * never across round trips. A retried charge retries all three together.
  * @param orgId - The workspace the call was made in.
  * @param rows - The scope rows this charge lands on.
  * @param tokens - Tokens to add.
@@ -845,46 +854,52 @@ async function writeCharge(
 ): Promise<void> {
   const periodStart = rowPeriodStart();
   const stale = sql`${agentBudgetSchema.periodStartedAt} < ${periodStart}`;
+  const nextTokens = sql`CASE WHEN ${stale} THEN ${tokens} ELSE ${agentBudgetSchema.currentTokens} + ${tokens} END`;
   const nextMicroCents = sql`CASE WHEN ${stale} THEN ${microCents} ELSE ${agentBudgetSchema.currentMicroCents} + ${microCents} END`;
-  await db.transaction(async (tx) => {
-    const [workspace] = await tx
-      .select({ accountId: projectSchema.accountId })
-      .from(projectSchema)
-      .where(eq(projectSchema.id, orgId))
-      .limit(1);
-    const scoped = workspace
-      ? [...rows, { orgId: workspace.accountId, agentSlug: ACCOUNT_SCOPE_SLUG, period: ACCOUNT_CAP_PERIOD, currentTokens: tokens, currentMicroCents: microCents }]
-      : rows;
-    await tx
-      .insert(agentBudgetSchema)
-      .values(scoped)
-      .onConflictDoUpdate({
-        target: [agentBudgetSchema.orgId, agentBudgetSchema.agentSlug, agentBudgetSchema.period],
-        set: {
-          // Per row, because `excluded` is the row being inserted: a feature row
-          // learns its label, an agent row and the workspace row keep their null.
-          // `coalesce` rather than a plain assignment so a row provisioned by
-          // `setLimits` — which knows the scope but not the feature — is filled in
-          // by the first charge and never overwritten afterwards.
-          feature: sql`coalesce(${agentBudgetSchema.feature}, excluded.feature)`,
-          currentTokens: sql`CASE WHEN ${stale} THEN ${tokens} ELSE ${agentBudgetSchema.currentTokens} + ${tokens} END`,
-          currentMicroCents: nextMicroCents,
-          periodStartedAt: sql`CASE WHEN ${stale} THEN ${periodStart} ELSE ${agentBudgetSchema.periodStartedAt} END`,
-          updatedAt: new Date(),
-        },
-      });
-    await tx
-      .insert(spendDaySchema)
-      .values({ orgId, day: sql`(now() AT TIME ZONE 'utc')::date`, tokens, microCents })
-      .onConflictDoUpdate({
-        target: [spendDaySchema.orgId, spendDaySchema.day],
-        set: {
-          tokens: sql`${spendDaySchema.tokens} + ${tokens}`,
-          microCents: sql`${spendDaySchema.microCents} + ${microCents}`,
-          updatedAt: new Date(),
-        },
-      });
-  });
+  const nextPeriodStart = sql`CASE WHEN ${stale} THEN ${periodStart} ELSE ${agentBudgetSchema.periodStartedAt} END`;
+
+  const scopes = db
+    .insert(agentBudgetSchema)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [agentBudgetSchema.orgId, agentBudgetSchema.agentSlug, agentBudgetSchema.period],
+      set: {
+        // Per row, because `excluded` is the row being inserted: a feature row
+        // learns its label, an agent row and the workspace row keep their null.
+        // `coalesce` rather than a plain assignment so a row provisioned by
+        // `setLimits` — which knows the scope but not the feature — is filled in
+        // by the first charge and never overwritten afterwards.
+        feature: sql`coalesce(${agentBudgetSchema.feature}, excluded.feature)`,
+        currentTokens: nextTokens,
+        currentMicroCents: nextMicroCents,
+        periodStartedAt: nextPeriodStart,
+        updatedAt: new Date(),
+      },
+    });
+  // Written by hand: drizzle's insert-from-select wants every column of the
+  // table selected, and this row needs five. Same counters, same rollover.
+  const account = sql`
+    insert into ${agentBudgetSchema} (org_id, agent_slug, period, current_tokens, current_micro_cents)
+    select ${projectSchema.accountId}, ${ACCOUNT_SCOPE_SLUG}, ${ACCOUNT_CAP_PERIOD}, ${tokens}, ${microCents}
+    from ${projectSchema} where ${projectSchema.id} = ${orgId}
+    on conflict (org_id, agent_slug, period) do update set
+      current_tokens = ${nextTokens},
+      current_micro_cents = ${nextMicroCents},
+      period_started_at = ${nextPeriodStart},
+      updated_at = now()
+  `;
+  const ledger = db
+    .insert(spendDaySchema)
+    .values({ orgId, day: sql`(now() AT TIME ZONE 'utc')::date`, tokens, microCents })
+    .onConflictDoUpdate({
+      target: [spendDaySchema.orgId, spendDaySchema.day],
+      set: {
+        tokens: sql`${spendDaySchema.tokens} + ${tokens}`,
+        microCents: sql`${spendDaySchema.microCents} + ${microCents}`,
+        updatedAt: new Date(),
+      },
+    });
+  await db.execute(sql`with scopes as (${scopes.getSQL()}), account as (${account}) ${ledger.getSQL()}`);
 }
 
 /**

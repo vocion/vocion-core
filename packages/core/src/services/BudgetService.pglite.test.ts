@@ -372,19 +372,18 @@ describe('what the dashboard reads', () => {
 
 describe('a charge that hits database trouble', () => {
   it('retries a failed write and records the spend exactly once', async () => {
-    // The first attempt makes BOTH of its writes — the budget rows and the
-    // daily ledger — and then fails before commit. Everything it wrote has to
-    // roll back, or the retry would count the call twice.
-    const realTransaction = db.transaction.bind(db);
+    // The charge is one statement — scope rows, the account's row and the
+    // daily ledger together — so an attempt that fails wrote none of them,
+    // and the retry starts from the same counters.
+    const realExecute = db.execute.bind(db);
     let attempts = 0;
-    const transaction = vi.spyOn(db, 'transaction').mockImplementation(((fn: Parameters<typeof realTransaction>[0]) => realTransaction(async (tx) => {
+    const execute = vi.spyOn(db, 'execute').mockImplementation(((query: Parameters<typeof realExecute>[0]) => {
       attempts += 1;
-      const result = await fn(tx);
       if (attempts === 1) {
         throw new Error('connection terminated unexpectedly');
       }
-      return result;
-    })) as typeof db.transaction);
+      return realExecute(query);
+    }) as typeof db.execute);
 
     await chargeUsage({
       orgId: ORG,
@@ -392,12 +391,11 @@ describe('a charge that hits database trouble', () => {
       model: CHAT_MODEL,
       usage: { inputTokens: 1_000_000, outputTokens: 0 },
     });
-    transaction.mockRestore();
+    execute.mockRestore();
 
     expect(attempts).toBe(2);
 
-    // One charge's worth, not two: the attempt that threw wrote nothing, so the
-    // retry started from the same counters.
+    // One charge's worth, not two.
     const orgRow = await getBudget({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG });
 
     expect(orgRow?.currentMicroCents).toBe(100_000_000);
@@ -408,8 +406,24 @@ describe('a charge that hits database trouble', () => {
     expect(ledger.get(ORG)?.spentCents).toBe(100);
   });
 
+  it('writes a charge in one round trip, with no transaction held open across statements', async () => {
+    // Every charge in an account writes the account's row; one autocommit
+    // statement holds its lock for that statement alone.
+    const execute = vi.spyOn(db, 'execute');
+    const transaction = vi.spyOn(db, 'transaction');
+    try {
+      await chargeUsage({ orgId: ORG, agentSlug: AGENT, model: CHAT_MODEL, usage: { inputTokens: 1_000_000, outputTokens: 0 } });
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(transaction).not.toHaveBeenCalled();
+    } finally {
+      execute.mockRestore();
+      transaction.mockRestore();
+    }
+  });
+
   it('gives up after a bounded number of attempts and leaves the counters alone', async () => {
-    const transaction = vi.spyOn(db, 'transaction').mockImplementation(() => {
+    const execute = vi.spyOn(db, 'execute').mockImplementation(() => {
       throw new Error('connection terminated unexpectedly');
     });
 
@@ -421,9 +435,9 @@ describe('a charge that hits database trouble', () => {
         usage: { inputTokens: 1_000_000, outputTokens: 0 },
       })).rejects.toThrow('connection terminated unexpectedly');
 
-      expect(transaction).toHaveBeenCalledTimes(3);
+      expect(execute).toHaveBeenCalledTimes(3);
     } finally {
-      transaction.mockRestore();
+      execute.mockRestore();
     }
 
     // No row at all: every attempt rolled back, so nothing was half-written.

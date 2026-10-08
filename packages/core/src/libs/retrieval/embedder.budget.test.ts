@@ -42,9 +42,10 @@ vi.mock('@/libs/Langfuse', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { agentBudgetSchema } = await import('@/models/Schema');
+const { eq } = await import('drizzle-orm');
+const { agentBudgetSchema, projectSchema, spendDaySchema, tenantAccountSchema } = await import('@/models/Schema');
 const { embed } = await import('@/libs/retrieval/embedder');
-const { featureScopeSlug, getBudget, ORG_SCOPE_SLUG, orgUsageTotals, setLimits } = await import('@/services/BudgetService');
+const { BudgetExceededError, featureScopeSlug, getBudget, ORG_SCOPE_SLUG, orgUsageTotals, setAccountCap, setLimits } = await import('@/services/BudgetService');
 
 const ORG = 'org_embed_budget_test';
 const EMBEDDING_DIMENSIONS = 1536;
@@ -136,6 +137,27 @@ describe('refusing an embedding', () => {
     // has to mean: a document that is refused writes no vectors and costs
     // nothing.
     expect(createEmbeddings).not.toHaveBeenCalled();
+  });
+
+  it('stops an ingest over the account cap with words that send the reader to the operator', async () => {
+    // A workspace of an account whose operator set a 50-cent month.
+    await db.insert(tenantAccountSchema).values({ id: 'acct-embed-budget', name: 'Northwind', slug: 'embed-budget-northwind' });
+    await db.insert(projectSchema).values({ id: ORG, accountId: 'acct-embed-budget', slug: 'embed-budget', name: 'Embed budget' });
+    try {
+      await setAccountCap({ accountId: 'acct-embed-budget', hardCentsLimit: 50 });
+      await embed(['first document'], { orgId: ORG, purpose: 'ingest' });
+      createEmbeddings.mockClear();
+
+      const refusal = await embed(['second document'], { orgId: ORG, purpose: 'ingest' }).catch((error: unknown) => error);
+
+      expect(refusal).toBeInstanceOf(BudgetExceededError);
+      expect((refusal as Error).message).toContain('Vocion operator');
+      expect((refusal as Error).message).not.toContain('Ask an admin');
+      expect(createEmbeddings).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(spendDaySchema).where(eq(spendDaySchema.orgId, ORG));
+      await db.delete(tenantAccountSchema).where(eq(tenantAccountSchema.id, 'acct-embed-budget'));
+    }
   });
 
   it('still answers a search when the workspace is over its cap', async () => {

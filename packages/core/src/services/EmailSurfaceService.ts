@@ -11,6 +11,7 @@ import { fetchReceivedEmail, htmlToText, normaliseSubject, referencedMessageIds,
 import { accountMembershipSchema, conversationSchema, emailThreadSchema, projectSchema, userSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
 import { upsertAsk } from '@/services/AskService';
+import { budgetRefusalMessage } from '@/services/budget/refusalMessage';
 import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
 import { appendMessage, createConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
@@ -290,7 +291,15 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
     if (mailEnabled()) {
-      await deps.send({ from, to: meta.from, subject: replySubject(meta.subject), text: `This workspace's agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`, html: '<p>This workspace\'s agent is over its budget for the period. A workspace admin can raise the cap in Vocion.</p>', headers: { 'In-Reply-To': `<${inboundMessageId}>` } }).catch(() => {});
+      // The account cap is the operator's, so it is said in the words every
+      // budget site uses for it; a workspace's own caps keep the short line.
+      const words = budget.scope === 'account'
+        ? budgetRefusalMessage(budget)
+        : `This workspace's agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`;
+      const html = budget.scope === 'account'
+        ? `<p>${budgetRefusalMessage(budget)}</p>`
+        : '<p>This workspace\'s agent is over its budget for the period. A workspace admin can raise the cap in Vocion.</p>';
+      await deps.send({ from, to: meta.from, subject: replySubject(meta.subject), text: words, html, headers: { 'In-Reply-To': `<${inboundMessageId}>` } }).catch(() => {});
     }
     return { outcome: 'over_budget', orgId, agentSlug };
   }

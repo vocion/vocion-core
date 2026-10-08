@@ -96,7 +96,7 @@ describe('refusing a generated image', () => {
 
     expect(generate).not.toHaveBeenCalled();
     expect(saveArtifact).not.toHaveBeenCalled();
-    expect(answer).toContain('over its spend cap');
+    expect(answer).toMatch(/^Image generation was refused\. Budget exceeded for "platform:all"/);
   });
 
   it('names the cap that refused, so the answer says what to raise', async () => {

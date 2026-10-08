@@ -15,6 +15,7 @@ import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/S
 import { TurnStopped } from '@/services/agents/turnGate';
 import { runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, createArtifact } from '@/services/ArtifactService';
+import { budgetRefusalMessage } from '@/services/budget/refusalMessage';
 import { withRunCost } from '@/services/budget/runCost';
 import { preflightCheck } from '@/services/BudgetService';
 import { acceptUpload, loadedFromArtifact, MAX_IMAGE_BYTES, uploadSpec } from '@/services/chat/attachments';
@@ -443,7 +444,12 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
     await doneWorking();
-    await adapter.reply(target, `This agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`).catch(() => {});
+    // The account cap is the operator's, so it is said in the words every
+    // budget site uses for it; a workspace's own caps keep the short line.
+    const words = budget.scope === 'account'
+      ? budgetRefusalMessage(budget)
+      : `This agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`;
+    await adapter.reply(target, words).catch(() => {});
     return { outcome: 'over_budget', agentSlug };
   }
 

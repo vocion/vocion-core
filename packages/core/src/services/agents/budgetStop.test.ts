@@ -6,12 +6,13 @@
  * database; what the check itself decides is covered against a real one in
  * `BudgetService.pglite.test.ts`.
  */
-import type { BudgetBreach } from './budgetStop';
+import type { BudgetBreach } from '@/services/budget/refusalMessage';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/BudgetService', () => ({ preflightCheck: vi.fn() }));
 
-const { BudgetGateCallback, budgetRefusalMessage, budgetStopMessage, TurnBudgetGuard } = await import('./budgetStop');
+const { budgetRefusalMessage } = await import('@/services/budget/refusalMessage');
+const { BudgetGateCallback, budgetStopMessage, TurnBudgetGuard } = await import('./budgetStop');
 const { isTurnRefusal } = await import('./turnRefusal');
 
 const ORG = 'org_budget_stop';
@@ -143,9 +144,10 @@ describe('what the person reads', () => {
   it('sends someone at the account cap to the operator, not to an admin who cannot raise it', () => {
     const message = budgetRefusalMessage(breach({ scope: 'account', agentSlug: 'platform:account', limit: 50_000, current: 50_012 }));
 
-    expect(message).toContain('$500.12 of a $500.00 cap');
-    expect(message).toContain('this month across all of its workspaces');
+    expect(message).toContain('reached its monthly cap, across all of its workspaces');
     expect(message).toContain('Vocion operator');
+    // A member of one workspace has no view of the account's total.
+    expect(message).not.toContain('$');
     expect(message).not.toContain('Ask an admin');
     expect(message).not.toContain('workspace YAML');
   });
