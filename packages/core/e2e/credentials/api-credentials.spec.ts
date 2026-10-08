@@ -159,6 +159,9 @@ test.describe('the platform selector decides which controls exist', () => {
       'Anthropic',
       'Google Vertex AI',
       'Azure OpenAI',
+      // Model vendors on the OpenAI wire format (`libs/llm/openaiCompatible.ts`).
+      'Mistral',
+      'Self-hosted model (OpenAI-compatible)',
       'AWS',
       // The connector platforms, added after this spec was first written. A
       // new connector lands here as well, on purpose: the selector is the one
@@ -174,6 +177,11 @@ test.describe('the platform selector decides which controls exist', () => {
       'Sentry',
       'Slate',
       'ElevenLabs',
+      // Chat and telephony, and Gamma's decks.
+      'Discord',
+      'Twilio',
+      'Vonage',
+      'Gamma',
       'Strapi',
       'REST API (bearer token)',
       // The finance and people families. QuickBooks and Gusto log in and
