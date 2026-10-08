@@ -26,6 +26,7 @@ const { accountMembershipSchema, projectSchema, tenantAccountSchema, userSchema 
 const svc = await import('./OrgBrandService');
 const { parseBrandAssetUrl, readBrandAsset } = await import('@/libs/tools/artifacts/media');
 const { withFields, fieldsOf } = await import('@/libs/branding/orgBrand');
+const { readableFill } = await import('@/libs/branding/contrast');
 
 const NORTHWIND = 'acct-brand-northwind';
 const KESTREL = 'acct-brand-kestrel';
@@ -99,7 +100,9 @@ describe('the one-time seed from a workspace brand.yaml', () => {
     const view = await svc.brandViewForAccount(NORTHWIND);
 
     expect(view?.name).toBe('Northwind');
-    expect(view?.accent?.fill).toBe('#0e8c7f');
+    // The teal carries white text at AA once it is a shade deeper.
+    expect(view?.accent?.fill).toBe(readableFill('#0e8c7f').fill);
+    expect(view?.accent?.foreground).toBe('#ffffff');
     expect(view?.headingFont?.family).toBe('Space Grotesk');
   });
 

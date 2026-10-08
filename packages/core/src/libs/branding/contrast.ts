@@ -46,8 +46,9 @@ export const THEME_SURFACES: Record<ThemeName, readonly string[]> = {
 /** The page's own ink per theme (`--ink`), what an achromatic accent becomes where it does not fit. */
 export const THEME_INK: Record<ThemeName, string> = { light: '#15131a', dark: '#f4f1ec' };
 
-/** Text on a fill: white, or the dark theme's background (never pure black, which reads harsh). */
-const ON_FILL = ['#ffffff', '#141217', '#000000'] as const;
+/** Text on a fill: white, or near-black (the dark theme's background; never pure black, which reads harsh). */
+export const ON_FILL_LIGHT = '#ffffff';
+export const ON_FILL_DARK = '#141217';
 
 /**
  * How far (OKLab distance) a shade may move from the brand colour and still be
@@ -211,8 +212,38 @@ export function colorDistance(a: string, b: string): number {
  * @param fill - The fill (hex).
  */
 export function foregroundFor(fill: string): string {
-  const ok = ON_FILL.find(c => contrastRatio(fill, c) >= AA_TEXT);
-  return ok ?? [...ON_FILL].sort((x, y) => contrastRatio(fill, y) - contrastRatio(fill, x))[0]!;
+  return contrastRatio(fill, ON_FILL_LIGHT) >= contrastRatio(fill, ON_FILL_DARK) ? ON_FILL_LIGHT : ON_FILL_DARK;
+}
+
+/** A surface the brand colour fills, and the text on it. */
+export type ReadableFill = { fill: string; foreground: string; adjusted: boolean };
+
+/**
+ * THE BRAND COLOUR AS A FILL WITH TEXT ON IT — a button, a badge, a selected
+ * chip. The text is white or near-black, whichever reaches AA (4.5:1) on the
+ * colour. A mid-tone reaches it with neither (a teal carries white at about
+ * 4.2:1 and near-black at about 4.4:1), and black on a saturated mid-tone
+ * reads muddy however the ratio comes out, so the fill moves instead: the
+ * nearest darker shade of the same hue that carries white text at AA, or —
+ * when that would no longer be the same colour — the nearest lighter shade
+ * that carries near-black.
+ * @param hex - The brand colour, normalised.
+ */
+export function readableFill(hex: string): ReadableFill {
+  const white = contrastRatio(hex, ON_FILL_LIGHT);
+  const dark = contrastRatio(hex, ON_FILL_DARK);
+  if (white >= AA_TEXT || dark >= AA_TEXT) {
+    return { fill: hex, foreground: white >= dark ? ON_FILL_LIGHT : ON_FILL_DARK, adjusted: false };
+  }
+  const darker = nearestReadableShade(hex, [ON_FILL_LIGHT], 'light', AA_TEXT);
+  if (darker && colorDistance(hex, darker) <= MAX_SHIFT) {
+    return { fill: darker, foreground: ON_FILL_LIGHT, adjusted: true };
+  }
+  const lighter = nearestReadableShade(hex, [ON_FILL_DARK], 'dark', AA_TEXT);
+  if (lighter) {
+    return { fill: lighter, foreground: ON_FILL_DARK, adjusted: true };
+  }
+  return { fill: hex, foreground: white >= dark ? ON_FILL_LIGHT : ON_FILL_DARK, adjusted: false };
 }
 
 /**
@@ -270,7 +301,7 @@ export type ThemeAccent = {
 
 export type AccentTokens = {
   ok: true;
-  /** The brand colour as given, `#rrggbb` — the fill. */
+  /** The fill for buttons, badges and selected chips: the brand colour, or its nearest shade that carries text at AA (`readableFill`). */
   fill: string;
   /** Text on the fill, at least 4.5:1. */
   foreground: string;
@@ -340,5 +371,9 @@ export function accentTokens(hex: string): AccentTokens | AccentRefusal {
       notes.push(`On ${theme} pages, links and focus use ${t.ink.toUpperCase()} (${ratio(t.contrast)}) because ${fill.toUpperCase()} is too ${theme === 'light' ? 'light' : 'dark'} to read there.`);
     }
   }
-  return { ok: true, fill, foreground: foregroundFor(fill), light, dark, notes };
+  const filled = readableFill(fill);
+  if (filled.adjusted) {
+    notes.push(`Buttons and badges fill with ${filled.fill.toUpperCase()} so their ${filled.foreground === ON_FILL_LIGHT ? 'white' : 'dark'} text reads at ${ratio(contrastRatio(filled.fill, filled.foreground))}; ${fill.toUpperCase()} carries neither white nor dark text at ${AA_TEXT}:1.`);
+  }
+  return { ok: true, fill: filled.fill, foreground: filled.foreground, light, dark, notes };
 }

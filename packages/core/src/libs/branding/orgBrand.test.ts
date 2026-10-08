@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readableFill } from './contrast';
 import { headingFontFor } from './fonts';
 import { brandAccent, brandCss, brandTitle, brandView, checkOrgBrand, fieldsOf, previewViewOf, withFields } from './orgBrand';
 
@@ -68,8 +69,8 @@ describe('the view and its CSS', () => {
   it('layers the accent and the face over the app tokens, light and dark apart, from normalised values only', () => {
     const css = brandCss(brandView(northwind, { whiteLabel: false }));
 
-    expect(css).toMatch(/^:root\{--org-accent:#0e8c7f;--org-accent-foreground:#[0-9a-f]{6};--org-accent-ink:#[0-9a-f]{6};--org-accent-ink-foreground:#[0-9a-f]{6};--org-font-heading:var\(--font-space-grotesk\)/);
-    expect(css).toContain(':root.dark,.dark{--org-accent:#0e8c7f;');
+    expect(css).toMatch(/^:root\{--org-accent:#[0-9a-f]{6};--org-accent-foreground:#ffffff;--org-accent-ink:#[0-9a-f]{6};--org-accent-ink-foreground:#[0-9a-f]{6};--org-font-heading:var\(--font-space-grotesk\)/);
+    expect(css).toContain(`:root.dark,.dark{--org-accent:${readableFill('#0e8c7f').fill};--org-accent-foreground:#ffffff;`);
     expect(css).not.toMatch(/tint/);
     // Nothing to layer: nothing emitted.
     expect(brandCss(brandView(withFields(null, { ...fieldsOf(northwind), accent: null, headingFont: null }), { whiteLabel: false }))).toBe('');

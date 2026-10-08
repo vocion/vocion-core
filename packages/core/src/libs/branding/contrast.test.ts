@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AA_TEXT, accentTokens, colorDistance, contrastRatio, foregroundFor, normalizeHex, parseHex, THEME_INK, THEME_SURFACES, worstContrast } from './contrast';
+import { AA_TEXT, accentTokens, colorDistance, contrastRatio, foregroundFor, normalizeHex, parseHex, readableFill, THEME_INK, THEME_SURFACES, worstContrast } from './contrast';
 
 /**
  * An Org's accent is worn two ways — as a fill with text on it, and as ink on
@@ -26,7 +26,10 @@ describe('colour arithmetic', () => {
 
   it('always finds text that reads on a fill', () => {
     for (const fill of ['#0e8c7f', '#f18700', '#7c3cff', '#ffff00', '#000000', '#ffffff', '#808080', '#e11d48']) {
-      expect(contrastRatio(fill, foregroundFor(fill))).toBeGreaterThanOrEqual(AA_TEXT);
+      const f = readableFill(fill);
+
+      expect(contrastRatio(f.fill, f.foreground)).toBeGreaterThanOrEqual(AA_TEXT);
+      expect(foregroundFor(f.fill)).toBe(f.foreground);
     }
   });
 });
@@ -54,7 +57,7 @@ describe('accentTokens', () => {
       return;
     }
 
-    // The fill stays the brand colour; only the ink on the page moves.
+    // The fill stays the brand colour (it carries near-black text); only the ink on the page moves.
     expect(t.fill).toBe('#f18700');
     expect(t.light.adjusted).toBe(true);
     expect(worstContrast(t.light.ink, THEME_SURFACES.light)).toBeGreaterThanOrEqual(AA_TEXT);
@@ -106,6 +109,41 @@ describe('accentTokens', () => {
       }
 
       expect(contrastRatio(t.fill, t.foreground)).toBeGreaterThanOrEqual(AA_TEXT);
+    }
+  });
+});
+
+describe('readableFill — the brand colour behind text', () => {
+  it('a mid-tone carries neither white nor near-black at AA, so the fill moves to the nearest shade that carries white', () => {
+    // Teal #0E8C7F: white 4.2:1, near-black 4.4:1 — neither reaches 4.5.
+    expect(contrastRatio('#0e8c7f', '#ffffff')).toBeLessThan(AA_TEXT);
+    expect(contrastRatio('#0e8c7f', '#141217')).toBeLessThan(AA_TEXT);
+
+    const filled = readableFill('#0e8c7f');
+
+    expect(filled).toMatchObject({ foreground: '#ffffff', adjusted: true });
+    expect(contrastRatio(filled.fill, filled.foreground)).toBeGreaterThanOrEqual(AA_TEXT);
+    expect(colorDistance('#0e8c7f', filled.fill)).toBeLessThan(0.1);
+
+    // And the accent's fill is that shade, said in a note.
+    const t = accentTokens('#0E8C7F');
+
+    expect(t.ok && t.fill).toBe(filled.fill);
+    expect(t.ok && t.foreground).toBe('#ffffff');
+    expect(t.ok && t.notes.join(' ')).toContain('Buttons and badges fill with');
+  });
+
+  it('a colour that already carries text keeps its fill, with white or near-black, whichever reads', () => {
+    expect(readableFill('#7c3cff')).toEqual({ fill: '#7c3cff', foreground: '#ffffff', adjusted: false });
+    expect(readableFill('#ffc400')).toEqual({ fill: '#ffc400', foreground: '#141217', adjusted: false });
+  });
+
+  it('text on any fill is only ever white or near-black, and reaches AA', () => {
+    for (const hex of ['#0e8c7f', '#f18700', '#43a5c2', '#e11d48', '#808080', '#65ac98', '#2e7d32']) {
+      const f = readableFill(hex);
+
+      expect(['#ffffff', '#141217']).toContain(f.foreground);
+      expect(contrastRatio(f.fill, f.foreground)).toBeGreaterThanOrEqual(AA_TEXT);
     }
   });
 });

@@ -41,6 +41,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 const { BrandPreviewCard } = await import('./BrandPreviewCard');
 const { SETUP_CHANGED_EVENT } = await import('./SetupCard');
 const { CardDecisionProvider } = await import('./CardDecisions');
+const { readableFill } = await import('@/libs/branding/contrast');
 
 const MARK = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0E8C7F"/></svg>')}`;
 
@@ -83,8 +84,13 @@ describe('the brand preview card', () => {
 
     await expect.element(page.getByTestId('brand-preview-sidebar')).toBeVisible();
     await expect.element(page.getByTestId('brand-preview-sign-in')).toHaveTextContent('Sign in to Northwind');
-    // The accent the draft carries is the sign-in button's fill.
-    await expect.element(page.getByTestId('brand-preview-button')).toHaveStyle({ backgroundColor: 'rgb(14, 140, 127)' });
+
+    // The draft's teal fills the sign-in button a shade deeper, so its text
+    // is white at AA (the teal itself carries neither white nor near-black).
+    const { fill } = readableFill('#0e8c7f');
+    const hex = (i: number) => Number.parseInt(fill.slice(i, i + 2), 16);
+
+    await expect.element(page.getByTestId('brand-preview-button')).toHaveStyle({ backgroundColor: `rgb(${hex(1)}, ${hex(3)}, ${hex(5)})`, color: 'rgb(255, 255, 255)' });
     await expect.element(page.getByTestId('brand-card-notes')).toHaveTextContent('.ico');
     await expect.element(page.getByTestId('brand-card-use')).toHaveAttribute('aria-checked', 'true');
     await expect.element(page.getByTestId('brand-card-use')).toHaveFocus();
