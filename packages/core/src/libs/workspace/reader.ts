@@ -217,6 +217,26 @@ export function storedTree(files: ReadonlyMap<string, string>): WorkspaceTree {
 }
 
 /**
+ * Which files a primitive's workspace layer reads, inside the workspace: the
+ * exact paths for the kinds that live as flat files (missions, automations,
+ * teams, agents), else the folder whose direct children it reads. One layout
+ * rule for the folder read below and for a stored read, which asks the store
+ * for these and not for every file of the kind.
+ * @param kind - primitive kind
+ * @param slug - primitive slug
+ */
+export function primitiveWorkspaceFiles(kind: PrimitiveKind, slug: string): { paths: string[] } | { prefix: string } {
+  const dirName = slugToDirname(slug);
+  if (kind === 'mission' || kind === 'automation' || kind === 'team') {
+    return { paths: [`${kindDir(kind)}/${dirName}.yaml`] };
+  }
+  if (kind === 'agent') {
+    return { paths: [`agents/${dirName}.yaml`, `agents/${dirName}.system-prompt.md`] };
+  }
+  return { prefix: `${kindDir(kind)}/${dirName}/` };
+}
+
+/**
  * The workspace layer — the tenant's own files for this kind/slug, exactly as
  * before ticket 007 but tagged `layer: 'workspace'`.
  * @param kind - primitive kind
@@ -227,7 +247,6 @@ export function storedTree(files: ReadonlyMap<string, string>): WorkspaceTree {
  * shown read-only and named by their path in the workspace repo.
  */
 function readWorkspaceLayer(kind: PrimitiveKind, slug: string, tree: WorkspaceTree, contextPath: string | null): WorkspaceLayer | null {
-  const dirName = slugToDirname(slug);
   const at = (rel: string) => (contextPath ? `${contextPath}/${rel}` : rel);
   const file = (rel: string, name: string, content: string): PrimitiveFile => ({
     path: rel,
@@ -237,39 +256,27 @@ function readWorkspaceLayer(kind: PrimitiveKind, slug: string, tree: WorkspaceTr
     layer: 'workspace' as const,
   });
 
-  // Missions, automations + teams live as single flat YAML files.
-  if (kind === 'mission' || kind === 'automation' || kind === 'team') {
-    const name = `${dirName}.yaml`;
-    const rel = `${kindDir(kind)}/${name}`;
-    if (!tree.hasFile(rel)) {
-      return null;
-    }
-    const content = tree.read(rel);
-    if (content === null) {
-      // Refused or unreadable. Showing an empty editor would look like an
-      // empty file rather than one we declined to open.
-      return null;
-    }
-    return { files: [file(rel, name, content)], editInGitPath: at(rel) };
-  }
-
-  // Agents live as flat files: agents/<slug>.yaml + agents/<slug>.system-prompt.md
-  if (kind === 'agent') {
-    const files = [`${dirName}.yaml`, `${dirName}.system-prompt.md`]
-      .filter(name => tree.hasFile(`agents/${name}`))
-      .map((name) => {
-        const content = tree.read(`agents/${name}`);
-        return content === null ? null : file(`agents/${name}`, name, content);
+  // Missions, automations + teams live as single flat YAML files; agents as
+  // agents/<slug>.yaml + agents/<slug>.system-prompt.md.
+  const where = primitiveWorkspaceFiles(kind, slug);
+  if ('paths' in where) {
+    const files = where.paths
+      .filter(rel => tree.hasFile(rel))
+      .map((rel) => {
+        const content = tree.read(rel);
+        // Refused or unreadable. Showing an empty editor would look like an
+        // empty file rather than one we declined to open.
+        return content === null ? null : file(rel, basename(rel), content);
       })
       .filter(f => f !== null);
     if (files.length === 0) {
       return null;
     }
-    return { files, editInGitPath: at(`agents/${dirName}.yaml`) };
+    return { files, editInGitPath: at(where.paths[0]!) };
   }
 
   // Everything else lives in a directory with multiple files.
-  const dir = `${kindDir(kind)}/${dirName}`;
+  const dir = where.prefix.slice(0, -1);
   if (!tree.hasDir(dir)) {
     return null;
   }
@@ -380,20 +387,23 @@ function sortResourceFiles(entries: string[]): string[] {
 }
 
 /**
- * The files behind a primitive, read off the folder on `WORKSPACE_PATH` —
- * for a project whose workspace is not stored yet. A stored project reads
- * through `readPrimitiveFilesForOrg` (`services/workspace/WorkspaceFileService.ts`),
- * which ends in {@link primitiveFilesFrom} too.
+ * The files behind a primitive, read off a workspace folder — for a project
+ * whose workspace is not stored yet. A stored project reads through
+ * `readPrimitiveFilesForOrg` (`services/workspace/WorkspaceFileService.ts`),
+ * which ends in {@link primitiveFilesFrom} too, and which decides whose
+ * folder this is.
  * @param kind - primitive kind
  * @param slug - primitive slug
+ * @param folder - the workspace folder; default `WORKSPACE_PATH`
+ * @param editable - whether an edit may write it (only the folder on
+ * `WORKSPACE_PATH` can be written); false shows the files read-only
  */
-export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): PrimitiveFilesResult | null {
-  const contextPath = getWorkspacePath();
-  if (!contextPath) {
+export function readPrimitiveFiles(kind: PrimitiveKind, slug: string, folder: string | null = getWorkspacePath(), editable: boolean = true): PrimitiveFilesResult | null {
+  if (!folder) {
     return null;
   }
-  const base = fromRepoRoot(contextPath);
-  return primitiveFilesFrom(kind, slug, existsSync(base) ? folderTree(base) : null, contextPath);
+  const base = fromRepoRoot(folder);
+  return primitiveFilesFrom(kind, slug, existsSync(base) ? folderTree(base) : null, editable ? folder : null);
 }
 
 /**

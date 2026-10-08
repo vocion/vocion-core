@@ -145,7 +145,7 @@ src/
 
 ## Context as Code
 
-Every authored resource lives in a workspace — a git-backed directory of YAML + markdown that sits **outside this repo** (usually `../workspace/<org>/`, beside the checkout) — never hardcoded in TS. The app locates it via the `WORKSPACE_PATH` env var; unset means no workspace folder on this host (applies/writes error explicitly). Each apply also stores the files the app reads at run time — skill and playbook bodies, pages, brand, the source panels' files — with the project (`workspace_file`, `services/workspace/WorkspaceFileService.ts`), and every reader asks there first: a stored project never reads the folder, an unstored one reads it as before.
+Every authored resource lives in a workspace — a git-backed directory of YAML + markdown that sits **outside this repo** (usually `../workspace/<org>/`, beside the checkout) — never hardcoded in TS. The app locates it via the `WORKSPACE_PATH` env var; unset means no workspace folder on this host (applies/writes error explicitly). Each apply also stores the files the app reads at run time — skill and playbook bodies, pages, brand, the source panels' files — with the project (`workspace_file`, `services/workspace/WorkspaceFileService.ts`), and every reader asks there first: a stored project never reads the folder, an unstored one reads its own folder as before (never another project's mounted one).
 
 ```bash
 npm run workspace:scaffold -- <name>              # create ../workspace/<name> (peer of this checkout)

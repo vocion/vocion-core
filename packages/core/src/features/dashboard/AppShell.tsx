@@ -32,6 +32,7 @@ import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
 import { readPagesForOrg } from '@/services/PluginService';
+import { readTourForOrg } from '@/services/workspace/WorkspaceFileService';
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -121,6 +122,9 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   const waitingRead = orgId ? needsYouCount(orgId).catch(() => 0) : Promise.resolve(0);
   const usageRead = orgId ? shellUsage(orgId) : Promise.resolve(null);
   const blockedRead = orgId ? shellBlockedAgents(orgId) : Promise.resolve([]);
+  // The project's guided tour, from its stored workspace like its pages. A
+  // tour that cannot be read hides the launcher, never the shell.
+  const tourRead = orgId ? readTourForOrg(orgId).catch(() => null) : Promise.resolve(readWorkspaceTour());
   const agents = await agentsRead;
   const waiting = await waitingRead;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
@@ -132,8 +136,11 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // The project's own pages come from its stored workspace, or — before its
   // first apply stored one — from the folder that is its own; another
   // project under the same mount sees its plugins' pages and nothing of the
-  // folder's (`readPagesForOrg`).
-  const pages = (orgId ? await readPagesForOrg(orgId, enabledPlugins) : readWorkspacePages({ enabledPlugins })).pages;
+  // folder's (`readPagesForOrg`). A failed read must never take the shell
+  // down: the sidebar falls back to the plugins' pages alone.
+  const pages = (orgId
+    ? await readPagesForOrg(orgId, enabledPlugins).catch(() => readWorkspacePages({ enabledPlugins, mounted: false }))
+    : readWorkspacePages({ enabledPlugins })).pages;
   const nav = pluginNav({
     plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
     pages,
@@ -165,6 +172,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // purpose: a refused turn is the person's first sign otherwise. A read that
   // fails hides the banner rather than the page.
   const blockedAgents = await blockedRead;
+  const tour = await tourRead;
 
   return (
     // The shell IS the viewport: `h-svh` over `min-h-svh` is what stops the
@@ -233,12 +241,9 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             </div>
           </PageContextProvider>
         </ShellBarActionsProvider>
-        {(() => {
-          const tour = readWorkspaceTour();
-          return tour
-            ? <WorkspaceTour steps={tour.steps} title={tour.title} autoStart={tour.autoStart} />
-            : null;
-        })()}
+        {tour
+          ? <WorkspaceTour steps={tour.steps} title={tour.title} autoStart={tour.autoStart} />
+          : null}
         <WorkspaceDriftBanner />
         <NavigationTrail />
         <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />

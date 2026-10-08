@@ -338,16 +338,31 @@ from there. So a project runs the same on a host with no folder for it, or one
 whose `WORKSPACE_PATH` is another project's, as on the box it was authored on.
 
 A stored project reads its stored files and nothing else: a file you edit in
-the folder reaches the app on the next apply (the in-app editors apply for
-you), and a file missing from the store is missing — never borrowed from
-whatever folder the host has mounted. A project that has not been applied since
-the store existed reads its folder, as before. Each row carries the
+the folder reaches the app on the next apply, and a file missing from the store
+is missing — never borrowed from whatever folder the host has mounted. The
+in-app editors apply for you, with one exception: an MCP `workspace_write_*`
+call with `autoApply: false` only writes the folder, so for a stored project
+the change is invisible to the app until the next apply. A project that has
+not been applied since the store existed reads its own folder, as before — the
+one on `WORKSPACE_PATH` when the last apply recorded it as this project's, or
+the folder beside it named for the project — and no folder at all otherwise,
+so a project that was never applied (a personal workspace, one created by
+script) never reads another project's mounted files. Each row carries the
 `workspace_sha` of the apply that wrote it, so the body an agent read is the
 one its run is stamped with. A file the apply could not store (a link out of
-the folder, or one over 5 MB) is named in the apply's warnings.
+the folder, one over 5 MB, or one the database refused) is named in the
+apply's warnings; the rest of the workspace is stored regardless.
 
-Text is stored as authored: `{{env.NAME}}` tokens stay tokens and are resolved
-when read, below.
+Which SKILL.md files are stored is decided by the catalog: each skill or
+playbook's `SKILL.md` plus every resource the loader listed for it, at
+`skills/<slug>/` or `playbooks/<slug>/` — exactly what an agent mounts. Text
+is stored as authored: `{{env.NAME}}` tokens stay tokens and are resolved when
+read, below. A file that is not text (a PNG, a PDF, a font, a compiled cache)
+is stored base64 and reads back as it did off the folder.
+
+Still read off the folder (step 2 of this work): the workspace router's
+`readPrimitive`/`writeFile` and `workspace:export`. The tour
+(`pages/tour.yaml`) is stored and read with the pages.
 
 ## Per-deployment values (`{{env.NAME}}`)
 

@@ -36,7 +36,7 @@ import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/pl
 import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
-import { listStoredFiles, readStoredFiles } from '@/services/workspace/WorkspaceFileService';
+import { listStoredFiles, readStoredFiles, storedText } from '@/services/workspace/WorkspaceFileService';
 import { folderOwner, mountedWorkspaceIsProjects, mountOwnership, projectPagesFolder } from '@/services/WorkspaceMountService';
 
 /**
@@ -74,9 +74,13 @@ export async function pluginEnabled(orgId: string, slug: string): Promise<boolea
  * workspace's pages and its plugins' — but only when that folder is this
  * project's, or the folder beside it named for the project. A deployment
  * hosts several projects on one mounted folder: a plugin only the project
- * turned on (squatch-factory's `software-factory` under a metacto-revenue
- * mount) is invisible to the folder alone, and the folder's pages (revenue's
- * wiki) are not squatch-factory's to show.
+ * turned on (a Northwind project's `software-factory` under a Kestrel
+ * mount) is invisible to the folder alone, and the folder's pages
+ * (Kestrel's wiki) are not Northwind's to show.
+ *
+ * A failed read of the store is logged and read as nothing stored
+ * (`WorkspaceFileService`), so the shell still lists the project's own
+ * folder's pages, or its plugins' alone — never no shell.
  *
  * The shell, the record links and the page route all read through here.
  * @param orgId - The project.
@@ -90,7 +94,7 @@ export async function readPagesForOrg(orgId: string, enabledPlugins?: readonly s
     listStoredFiles(orgId, 'pages/', ['.yaml', '.yml']),
   ]);
   if (stored.stored) {
-    const files = new Map([...stored.files].map(([path, file]) => [path, file.content]));
+    const files = new Map([...stored.files].map(([path, file]) => [path, storedText(file)]));
     return readWorkspacePages({ enabledPlugins: plugins, stored: { orgId, files } });
   }
   const mounted = await mountedWorkspaceIsProjects(orgId).catch(() => false);
@@ -123,7 +127,7 @@ export async function readPageProse(manifest: LoadedPage, which: 'content' | 'me
     return null;
   }
   const file = (await readStoredFiles(manifest.storedIn, [path])).files.get(path);
-  return file ? substituteEnvTokens(file.content, path) : null;
+  return file ? substituteEnvTokens(storedText(file), path) : null;
 }
 
 /**

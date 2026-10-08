@@ -8,7 +8,8 @@ import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
 /**
  * Workspace tour — a guided, step-by-step walkthrough of the dashboard,
- * declared by the tenant in `WORKSPACE_PATH/pages/tour.yaml`. Rendered by
+ * declared by the tenant in its workspace's `pages/tour.yaml`, which each
+ * apply stores with the project like the pages beside it. Rendered by
  * the WorkspaceTour client overlay (spotlight + popover, driver.js-style but
  * dependency-free), mounted globally in the dashboard layout so steps can
  * walk across core pages and workspace pages alike.
@@ -44,20 +45,36 @@ export const TourManifestSchema = z.object({
 export type TourManifest = z.infer<typeof TourManifestSchema>;
 export type TourStep = z.infer<typeof StepSchema>;
 
-/** Read + validate the workspace tour, if one is defined. Never throws. */
-export function readWorkspaceTour(): TourManifest | null {
-  const dir = workspacePagesDir();
+/** The tour file's names, in the order they are looked for. */
+export const TOUR_FILES = ['tour.yaml', 'tour.yml'] as const;
+
+/**
+ * Read + validate the workspace tour from a `pages/` folder, if one is
+ * defined. Never throws. A project's own tour, stored with it on apply, is
+ * read through `readTourForOrg` (`services/workspace/WorkspaceFileService.ts`).
+ * @param dir - The workspace's `pages/` folder; default the one on `WORKSPACE_PATH`.
+ */
+export function readWorkspaceTour(dir: string | null = workspacePagesDir()): TourManifest | null {
   if (!dir) {
     return null;
   }
   // turbopackIgnore: this path is only known at runtime, so the build must not
   // trace it, or Next copies the whole project into the image (next.config.ts, #832).
-  const file = ['tour.yaml', 'tour.yml'].map(n => join(/* turbopackIgnore: true */ dir, n)).find(existsSync);
+  const file = TOUR_FILES.map(n => join(/* turbopackIgnore: true */ dir, n)).find(f => existsSync(f));
   if (!file) {
     return null;
   }
+  return parseTour(file, () => readWorkspaceTextFile(file));
+}
+
+/**
+ * Validate a tour from wherever it was read. Never throws.
+ * @param file - Names the tour in the log: the file on disk, or the stored path.
+ * @param read - The tour's text with `{{env.NAME}}` tokens resolved; an unresolvable one throws.
+ */
+export function parseTour(file: string, read: () => string): TourManifest | null {
   try {
-    const result = TourManifestSchema.safeParse(parseYaml(readWorkspaceTextFile(file)));
+    const result = TourManifestSchema.safeParse(parseYaml(read()));
     return result.success ? result.data : null;
   } catch (error) {
     // A malformed or untemplatable tour hides the launcher rather than

@@ -1320,10 +1320,12 @@ async function mirrorSources(orgId: string, loaded: LoadedWorkspace, warnings: A
 
 /**
  * Collect the folder's runtime files and make them the project's stored set.
- * A file that could not be collected is a WARNING naming it — the rest of the
- * workspace still serves. A store that could not be written is an ERROR: the
- * readers would go on serving the previous apply's files, and an apply that
- * says `applied` over that would be lying.
+ * The SKILL.md folders are collected from the catalog this apply wrote, so a
+ * resource it lists is either stored or named. A file that could not be
+ * collected, or that the database refused, is a WARNING naming it — the rest
+ * of the workspace still serves. A store that could not be written at all is
+ * an ERROR: the readers would go on serving the previous apply's files, and
+ * an apply that says `applied` over that would be lying.
  * @param orgId - The project being applied.
  * @param loaded - The loaded workspace; its folder is what is stored.
  * @param errors - The apply's errors.
@@ -1331,12 +1333,15 @@ async function mirrorSources(orgId: string, loaded: LoadedWorkspace, warnings: A
  */
 async function storeWorkspaceFiles(orgId: string, loaded: LoadedWorkspace, errors: ApplyResult['errors'], warnings: ApplyResult['warnings']): Promise<void> {
   try {
-    const collected = collectWorkspaceFiles(loaded.sourcePath);
+    const collected = collectWorkspaceFiles(loaded.sourcePath, [...loaded.skills, ...loaded.playbooks]);
     for (const skipped of collected.skipped) {
       warnings.push({ resource: 'workspaceFile', slug: skipped.path, message: `not stored: it ${skipped.reason}, so a host without this folder does not have it` });
     }
     const { replaceStoredFiles } = await import('@/services/workspace/WorkspaceFileService');
-    await replaceStoredFiles(orgId, collected.files, loaded.sha);
+    const { failed } = await replaceStoredFiles(orgId, collected.files, loaded.sha);
+    for (const refused of failed) {
+      warnings.push({ resource: 'workspaceFile', slug: refused.path, message: `not stored: the database refused it (${refused.reason}), so a host without this folder does not have it` });
+    }
   } catch (err) {
     errors.push({ resource: 'workspaceFile', slug: '(store)', message: `the workspace's files were not stored, so this project still reads the previous apply's: ${(err as Error).message}` });
   }

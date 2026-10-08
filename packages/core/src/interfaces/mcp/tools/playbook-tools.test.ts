@@ -82,6 +82,9 @@ function parseToolResult<T = unknown>(result: ToolResult): T {
  * in for the secret a traversal `resource` should never be able to reach.
  */
 const WORKSPACE_ROOT = mkdtempSync(join(tmpdir(), 'vocion-ws-playbook-tools-'));
+// Its manifest names this project: a project with nothing stored reads only
+// a folder that is its own (`ownWorkspaceFolder`).
+writeFileSync(join(WORKSPACE_ROOT, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: test\n`);
 mkdirSync(join(WORKSPACE_ROOT, 'playbooks', 'house-style'), { recursive: true });
 writeFileSync(join(WORKSPACE_ROOT, 'playbooks', 'house-style', 'SKILL.md'), SKILL_BODY);
 writeFileSync(join(WORKSPACE_ROOT, 'playbooks', 'house-style', 'REFERENCE.md'), REFERENCE_BODY);

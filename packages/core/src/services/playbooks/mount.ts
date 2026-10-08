@@ -24,8 +24,10 @@
  * `services/workspace/WorkspaceFileService.ts`), keyed by the same
  * `skills/<slug>/<file>` path this module used to open on disk. A project
  * with stored files reads them and nothing else; only a project with none
- * (not applied since the store existed) reads the folder on
- * `WORKSPACE_PATH`, exactly as before. So a sample workspace applied from
+ * (not applied since the store existed) reads a folder, and only its own
+ * (`ownWorkspaceFolder`: the one on `WORKSPACE_PATH` when it is this
+ * project's, else the one beside it named for the project) — never the
+ * mounted folder of another project. So a sample workspace applied from
  * `templates/` mounts its skills on a host whose WORKSPACE_PATH is some
  * other folder, and a host with no folder at all mounts every body a
  * project was applied with. The base pack and plugins ship inside the
@@ -49,10 +51,9 @@ import { logger } from '@/libs/Logger';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { withSpecCompliantName } from '@/libs/skills/name';
 import { pluginRoots } from '@/libs/workspace/plugins';
-import { getWorkspacePath } from '@/libs/workspace/reader';
 import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
-import { readStoredFiles } from '@/services/workspace/WorkspaceFileService';
+import { ownWorkspaceFolder, readStoredFiles, storedText } from '@/services/workspace/WorkspaceFileService';
 
 const PACK_ROOT = 'packages/core/templates/base';
 
@@ -65,6 +66,24 @@ export type MountSkillsOptions = {
 };
 
 type CatalogRow = typeof playbookSchema.$inferSelect;
+
+/**
+ * Where a row's tenant files are read from: the project's stored workspace
+ * (null when none was asked for), and — only for a project with nothing
+ * stored — the folder on this host that is the project's own, or null.
+ */
+type TenantSource = { stored: StoredFiles | null; folder: string | null };
+
+/**
+ * Read the store for these tenant files and, for a project with nothing
+ * stored, find its own folder — once per call, however many rows it serves.
+ * @param orgId - The project.
+ * @param paths - The stored paths wanted.
+ */
+async function tenantSource(orgId: string, paths: readonly string[]): Promise<TenantSource> {
+  const stored = await readStoredFiles(orgId, paths);
+  return { stored, folder: stored.stored ? null : (await ownWorkspaceFolder(orgId))?.path ?? null };
+}
 
 /**
  * Load the named skills + playbooks (and skill-attached playbooks) from
@@ -112,22 +131,22 @@ export async function mountSkills(opts: MountSkillsOptions): Promise<Record<stri
   });
 
   // Every tenant file these rows could mount, from the store in one query.
-  const tenantPaths = mounting
-    .filter(row => row.origin !== 'core')
+  const tenantRows = mounting.filter(row => row.origin !== 'core');
+  const tenantPaths = tenantRows
     .flatMap(row => ['SKILL.md', ...(row.sourceFiles ?? [])].map(rel => storedPath(row, rel)))
     .filter((path): path is string => path !== null);
-  const stored = tenantPaths.length > 0 ? await readStoredFiles(opts.orgId, tenantPaths) : null;
+  const source = tenantRows.length > 0 ? await tenantSource(opts.orgId, tenantPaths) : { stored: null, folder: null };
 
   const out: Record<string, string> = {};
   for (const row of mounting) {
-    mountRow(row, out, stored);
+    mountRow(row, out, source);
   }
   return out;
 }
 
-function mountRow(row: CatalogRow, out: Record<string, string>, stored: StoredFiles | null): void {
+function mountRow(row: CatalogRow, out: Record<string, string>, source: TenantSource): void {
   const mountBase = row.kind === 'skill' ? `/skills/${row.slug}` : `/playbooks/${row.slug}`;
-  const body = readWith(row, 'SKILL.md', stored);
+  const body = readWith(row, 'SKILL.md', source);
   if (body === null) {
     // Row exists but its file is gone (renamed?). Skip silently —
     // workspace:apply should be re-run to clean up.
@@ -141,7 +160,7 @@ function mountRow(row: CatalogRow, out: Record<string, string>, stored: StoredFi
   // mounted skill on every turn. See `libs/skills/name.ts`.
   out[`${mountBase}/SKILL.md`] = withSpecCompliantName(body, row.slug);
   for (const rel of row.sourceFiles ?? []) {
-    const content = readWith(row, rel, stored);
+    const content = readWith(row, rel, source);
     if (content !== null) {
       out[`${mountBase}/${rel}`] = content;
     }
@@ -238,8 +257,9 @@ function storedPath(row: Pick<CatalogRow, 'kind' | 'slug'>, resourcePath: string
 
 /**
  * Read one file of a cataloged folder. A tenant file comes from the
- * project's stored workspace when it has one, else from the folder on
- * `WORKSPACE_PATH`; an inherited file from the base pack or a plugin.
+ * project's stored workspace when it has one, else from the project's own
+ * folder on this host, if any; an inherited file from the base pack or a
+ * plugin.
  * Overrides read workspace-first with base-pack fallback per file (sibling
  * resources merged by path). Exported for the catalog read paths (MCP
  * playbook_get, detail pages, the voice guide, the document framework).
@@ -252,12 +272,12 @@ function storedPath(row: Pick<CatalogRow, 'kind' | 'slug'>, resourcePath: string
  */
 export async function readByOrigin(row: Pick<CatalogRow, 'orgId' | 'kind' | 'origin' | 'slug'>, resourcePath: string): Promise<string | null> {
   if (row.origin === 'core' || resourcePath.trim() === '') {
-    return readWith(row, resourcePath, null);
+    return readWith(row, resourcePath, { stored: null, folder: null });
   }
   // Asked even for a path that will be refused: whether the project is
   // stored decides which refusal applies and where it is logged.
   const path = storedPath(row, resourcePath);
-  return readWith(row, resourcePath, await readStoredFiles(row.orgId, path ? [path] : []));
+  return readWith(row, resourcePath, await tenantSource(row.orgId, path ? [path] : []));
 }
 
 /**
@@ -265,9 +285,10 @@ export async function readByOrigin(row: Pick<CatalogRow, 'orgId' | 'kind' | 'ori
  * {@link mountSkills} uses so a whole roster costs one query.
  * @param row - The catalog row whose file is being read.
  * @param resourcePath - Which file inside the row's folder to read.
- * @param stored - The project's stored files, or null when none were asked for.
+ * @param source - Where the row's tenant files come from ({@link TenantSource}).
  */
-function readWith(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePath: string, stored: StoredFiles | null): string | null {
+function readWith(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePath: string, source: TenantSource): string | null {
+  const { stored } = source;
   if (resourcePath.trim() === '') {
     // The MCP tool turns an omitted `resource` into 'SKILL.md' before it
     // gets here, so an empty string means the caller explicitly asked for
@@ -292,16 +313,18 @@ function readWith(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePat
     }
     const file = stored.files.get(path);
     if (file) {
-      // Substitution failures are deliberately not caught — see below.
-      return substituteEnvTokens(file.content, path);
+      // A file that is not text was stored base64; it reads back as the
+      // folder read gave it. Substitution failures are deliberately not
+      // caught — see below.
+      return substituteEnvTokens(storedText(file), path);
     }
     if (row.origin === 'workspace') {
       logger.debug('playbook resource is not in the project\'s stored workspace', { slug: row.slug, kind: row.kind, requestedResource: resourcePath });
       return null;
     }
-    return readFromFolders(row, resourcePath, false);
+    return readFromFolders(row, resourcePath, null);
   }
-  return readFromFolders(row, resourcePath, true);
+  return readFromFolders(row, resourcePath, source.folder);
 }
 
 /**
@@ -309,17 +332,17 @@ function readWith(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePat
  * the row's origin.
  * @param row - The catalog row whose file is being read.
  * @param resourcePath - Which file inside the row's folder to read.
- * @param withTenantFolder - Whether the folder on `WORKSPACE_PATH` may answer
- * for the tenant layer — false once the project's stored workspace has.
+ * @param tenantFolder - The project's own workspace folder, which answers for
+ * the tenant layer — null once the project's stored workspace has, or when
+ * this host has no folder of the project's.
  */
-function readFromFolders(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePath: string, withTenantFolder: boolean): string | null {
+function readFromFolders(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePath: string, tenantFolder: string | null): string | null {
   const kindFolder = row.kind === 'skill' ? 'skills' : 'playbooks';
   const tenantCandidate = (): PlaybookFileCandidate | null => {
-    const workspace = withTenantFolder ? getWorkspacePath() : null;
-    if (!workspace) {
+    if (!tenantFolder) {
       return null;
     }
-    const base = fromRepoRoot(workspace, kindFolder, row.slug);
+    const base = fromRepoRoot(tenantFolder, kindFolder, row.slug);
     return { base, path: resolve(base, resourcePath), isTenantFile: true };
   };
   // An inherited (`core`) row came from the base pack OR from an enabled

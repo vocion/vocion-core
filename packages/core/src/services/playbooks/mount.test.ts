@@ -14,6 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
+import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { logger } from '@/libs/Logger';
 
@@ -32,6 +33,9 @@ const SKILL_BODY = '# Write a lead brief\n\nResearch one lead.\n';
 const PLAYBOOK_BODY = '# House style\n\nWrite plainly.\n';
 
 mkdirSync(join(WORKSPACE, 'skills', 'write-lead-brief'), { recursive: true });
+// The manifest names this project, so the folder is its own: a project with
+// nothing stored reads its OWN folder and no other (see the last describe).
+writeFileSync(join(WORKSPACE, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: acme\n`);
 writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'SKILL.md'), SKILL_BODY);
 writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'examples.md'), 'an example');
 // A skill authored the way every Vocion workspace (and this repo's own base
@@ -84,6 +88,7 @@ symlinkSync(join(ROOT, '.env'), join(WORKSPACE, 'playbooks', 'house-style', 'lin
 /** A second workspace whose playbook names a per-deployment API URL. */
 const TEMPLATED_WORKSPACE = join(ROOT, 'workspace', 'templated');
 mkdirSync(join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
+writeFileSync(join(TEMPLATED_WORKSPACE, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: templated\n`);
 writeFileSync(
   join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'),
   '# House style\n\nFetch {{env.LARKFIELD_API_URL}}/api/sources.\n',
@@ -596,5 +601,51 @@ describe('the project\'s stored workspace', () => {
     const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: [] });
 
     expect(files).toEqual({});
+  });
+});
+
+/**
+ * The fallback for a project with nothing stored reads the project's OWN
+ * folder. A shared host mounts one company's workspace; a project that has
+ * never been applied (a personal workspace, one an operator created by
+ * script) must not mount that company's skill bodies.
+ */
+describe('a project with nothing stored', () => {
+  const STRANGER = 'org_never_applied';
+
+  beforeEach(async () => {
+    await db.delete(workspaceFileSchema);
+    await db.insert(playbookSchema).values({
+      orgId: STRANGER,
+      slug: 'house-style',
+      name: 'House style',
+      description: 'd',
+      kind: 'playbook',
+      origin: 'workspace',
+      contentSha: 'sha-house-style',
+    });
+  });
+
+  it('reads no body from a mounted folder that is another project\'s', async () => {
+    process.env.WORKSPACE_PATH = WORKSPACE;
+
+    await expect(mountSkills({ orgId: STRANGER, skillSlugs: [], playbookSlugs: ['house-style'] })).resolves.toEqual({});
+    await expect(readByOrigin({ orgId: STRANGER, kind: 'playbook', origin: 'workspace', slug: 'house-style' }, 'SKILL.md')).resolves.toBeNull();
+  });
+
+  it('still mounts from its own folder when the store cannot be read at all', async () => {
+    // A deploy serving before the store's migration ran: the table is not there.
+    process.env.WORKSPACE_PATH = WORKSPACE;
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    await db.execute(sql`alter table workspace_file rename to workspace_file_hidden`);
+    try {
+      const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: [] });
+
+      expect(files['/skills/write-lead-brief/SKILL.md']).toBe(SKILL_BODY);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('could not be read'), expect.objectContaining({ orgId: ORG }));
+    } finally {
+      await db.execute(sql`alter table workspace_file_hidden rename to workspace_file`);
+      warnSpy.mockRestore();
+    }
   });
 });
