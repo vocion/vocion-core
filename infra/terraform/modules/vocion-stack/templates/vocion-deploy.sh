@@ -261,13 +261,17 @@ compose() {
     -f "${ETC}/compose.cloud.yml" \
     -p vocion "$@"
 }
-# Core's prod overlay joins an external network, vocion_default, that only
-# the base compose creates. On a fresh box, create it that way first, starting
-# only `postgres` (which core's app service depends on): the base file
-# includes the platform stack, and pulling its images is not this step's job.
-if ! docker network inspect vocion_default >/dev/null 2>&1; then
-  docker compose --env-file "${ENV_FILE}" -f "${REPO_DIR}/docker-compose.yml" -p vocion up -d --no-recreate postgres
-fi
+# Core's prod overlay joins an external network, vocion_default, which
+# core's base file creates as the project's default network for its local
+# postgres. That postgres is off here (compose.cloud.yml: the database is
+# RDS), so nothing would create the network: create it directly, labelled the
+# way compose labels its own, so compose adopts it if a service ever does use
+# the project's default network.
+docker network inspect vocion_default >/dev/null 2>&1 ||
+  docker network create \
+    --label com.docker.compose.project=vocion \
+    --label com.docker.compose.network=default \
+    vocion_default >/dev/null
 docker network inspect corecontext >/dev/null 2>&1 || docker network create corecontext >/dev/null
 log "starting the stack"
 compose up -d --remove-orphans

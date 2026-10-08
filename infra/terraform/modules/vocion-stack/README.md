@@ -115,7 +115,10 @@ A branch name is refused: a branch is not a pin. In order:
 7. **Swap.** `docker compose up` with core's four files and the overlay:
    `docker-compose.yml`, `infra/docker-compose.platform.yml`,
    `infra/aws/docker-compose.prod.yml`, `infra/docker-compose.langfuse.prod.yml`,
-   `/etc/vocion/compose.cloud.yml`.
+   `/etc/vocion/compose.cloud.yml`. The overlay switches off core's local postgres
+   (the database is RDS) and the platform stack, so what runs is `app` and `caddy`;
+   compose neither pulls nor starts the rest. The network core's prod overlay joins,
+   `vocion_default`, is created directly on a fresh box.
 8. **Check.** The new container must report the commit that was built in its
    `/version.txt` (`deploy-pin`), and, behind the ALB, Caddy must serve it on :80.
    Otherwise the deploy fails, loudly.
