@@ -11,6 +11,7 @@
 id: company
 name: Company
 icon: building-2
+tint: butter
 order: 4
 description: A whole company function, stood up in one move from a template.
 plugins: [company]

@@ -168,7 +168,7 @@ nav: [Software factory, Production Watch] # the nav.section labels it owns
 - **Templates: a function in one move.** An app may ship templates under
   `templates/apps/<id>/templates/<slug>/` — a `template.yaml` with a short
   interview and a `files/` tree laid out like a workspace. Its start page
-  (`/dashboard/apps/<id>`, linked from the marketplace) lists them; picking one
+  (`/dashboard/apps/<id>`, the app's page on Apps) lists them; picking one
   writes the files into the workspace with the answers filled in, turns on the
   app's plugins and the template's own, and applies. The Company app is the
   first: [Company](./apps/company.md).

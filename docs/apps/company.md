@@ -13,7 +13,7 @@ the automations are on, and the team report grades it from day one.
 | **App manifest** | `packages/core/templates/apps/company/app.yaml` |
 | **Templates** | `packages/core/templates/apps/company/templates/<slug>/` |
 | **Plugin** | `company` (`packages/core/templates/plugins/company/`) — the app's switch and its nav row |
-| **Start page** | `/dashboard/apps/company` — also reached from the Marketplace ("Start from a template") |
+| **Start page** | `/dashboard/apps/company`: the app's page on Apps, with its templates under "Start from a template" |
 | **Mechanism** | `libs/workspace/appTemplates.ts` (load, fill, merge) · `services/apps/AppTemplateService.ts` (write, apply) · RPC `apps.templates`, `apps.installTemplate` |
 
 ## The three templates
@@ -117,7 +117,7 @@ or uses a placeholder nothing answers.
 fresh workspace through the real loader and holds it to the bar: a team with a
 lead and specialists, the installer accountable, measures, missions and
 automations, a budget on every agent, every trust rule off, two or three
-questions. Any app can ship templates — the start page, the marketplace link
+questions. Any app can ship templates — the app's page, its template section
 and the install name no app; the company types are concretions and live only
 in these directories.
 

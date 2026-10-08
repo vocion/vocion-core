@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
-import { ArrowRight } from 'lucide-react';
 import { eq } from 'drizzle-orm';
+import { ArrowRight } from 'lucide-react';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { FactList, Section } from '@/components/patterns';
