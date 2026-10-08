@@ -395,7 +395,7 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
       icon={<TraceMarker node={node} />}
       label={label}
       detail={[node.detail, suffix].filter(Boolean).join(' · ') || undefined}
-      radius={node.status === 'error' ? undefined : (node.result ?? (node.resultDetail && node.resultDetail.length <= 60 ? node.resultDetail : undefined))}
+      radius={node.status === 'error' ? failureOneLiner(node.result ?? node.resultDetail) : (node.result ?? (node.resultDetail && node.resultDetail.length <= 60 ? node.resultDetail : undefined))}
       error={node.status === 'error'}
       open={open}
       onToggle={drillText || hasCallDetail ? onToggle : undefined}
@@ -605,7 +605,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
                   icon={<TraceMarker node={n} />}
                   label={n.kind === 'delegate' ? `→ ${n.label}` : n.label}
                   detail={n.detail}
-                  radius={n.status === 'error' ? undefined : (n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined))}
+                  radius={n.status === 'error' ? failureOneLiner(n.result ?? n.resultDetail) : (n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined))}
                   error={n.status === 'error'}
                   open={openIds.has(n.id)}
                   onToggle={() => toggle(n.id)}
