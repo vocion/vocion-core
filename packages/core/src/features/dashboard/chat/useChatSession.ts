@@ -1474,7 +1474,10 @@ export function useChatSession({
         }),
       });
       if (!resp.ok || !resp.body) {
-        throw new Error(`HTTP ${resp.status}`);
+        // The server's own sentence when it sent one ("Too many attempts. Try
+        // again in 30 seconds."), so the turn says why rather than a status.
+        const reason = await resp.json().then((b: { error?: unknown }) => (typeof b?.error === 'string' ? b.error : null)).catch(() => null);
+        throw new Error(reason ?? `HTTP ${resp.status}`);
       }
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();

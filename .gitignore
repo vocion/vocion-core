@@ -95,3 +95,7 @@ docs/internal/
 
 # Session probes. Written to look at the running product, never shipped.
 packages/core/src/scripts/tmp-*.ts
+
+# The dev mail sink (VOCION_MAIL_SINK_DIR, packages/core/src/libs/mail/sink.ts).
+# Holds sign-in and reset links; never commit it.
+.mail-sink/

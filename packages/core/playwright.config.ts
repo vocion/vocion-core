@@ -88,6 +88,10 @@ export default defineConfig<ChromaticConfig>({
           // purpose: it encrypts test fixtures in a database that lives for the
           // length of one run. Never reuse it anywhere real.
           VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
+          // Every spec signs in from this one machine, and the per-address
+          // sign-in limit (libs/rateLimit/policies.ts) would start refusing
+          // them part-way through a run.
+          VOCION_RATE_LIMIT: 'off',
           // The worker-run routes ship dark behind this flag, so the
           // worker-run-usage project's requests would all answer 501 without
           // it. Nothing else in the suite asserts the disabled behaviour.
@@ -97,6 +101,11 @@ export default defineConfig<ChromaticConfig>({
           // purpose, exactly like the vault key above: it signs claims in a
           // database that lives for the length of one run. Never reuse it.
           VOCION_TOOL_SIGNING_SECRET: process.env.VOCION_TOOL_SIGNING_SECRET ?? 'e2e-only-tool-signing-secret-not-a-real-key',
+          // The dev mail sink (libs/mail/sink.ts): every message the server
+          // composes is written here as JSON, so e2e/accounts reads the invite
+          // and reset mails. Mail stays OFF (no VOCION_MAIL_ENABLED), so the
+          // sign-in page keeps leading with the password for every other spec.
+          VOCION_MAIL_SINK_DIR: process.env.VOCION_MAIL_SINK_DIR ?? 'e2e/.mail-sink',
           // Placeholders so "Continue with Google / Microsoft" render
           // (e2e/sign-in-methods). Nothing calls either provider.
           AUTH_GOOGLE_ID: 'e2e-placeholder-google-client',
@@ -348,6 +357,16 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/members',
       timeout: 60 * 1000,
     },
+    // Two-step sign-in through the real Auth.js cookie: set up from the
+    // profile, then password → code → dashboard. Self-seeding like
+    // `scorecard`; relies on the server's VOCION_RATE_LIMIT=off above.
+    // Run with: npx playwright test --project=two-step
+    {
+      name: 'two-step',
+      testDir: './e2e/two-step',
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
+      use: { ...devices['Desktop Chrome'] },
+    },
     // vocion-core#128 — a person in two accounts switches account by switching
     // workspace. Self-seeding like `scorecard`. Needs a multi-Org server, so it
     // skips itself unless VOCION_ORGS=multi.
@@ -394,6 +413,18 @@ export default defineConfig<ChromaticConfig>({
       name: 'sign-in-methods',
       testDir: './e2e/sign-in-methods',
       timeout: 60 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Accounts: an admin's invite emailed (read from the dev mail sink above),
+    // accepted with a password and with a simulated Google sign-in, expired
+    // and revoked invites refused, forgot-password end to end; and, on a
+    // multi-Org server only, an existing login joining a second Org at sign-in.
+    // Self-seeding like `scorecard`.
+    // Run with: npx playwright test --project=accounts
+    {
+      name: 'accounts',
+      testDir: './e2e/accounts',
+      timeout: projectTimeout(180 * 1000, 90 * 1000),
       use: { ...devices['Desktop Chrome'] },
     },
     ...(process.env.CI

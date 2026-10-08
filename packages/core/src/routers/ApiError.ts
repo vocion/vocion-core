@@ -10,4 +10,6 @@ export const ApiError = {
     new ORPCError(API_ERROR_CODE.NOT_FOUND, { status: 404, data: clientData }),
   badRequest: (message?: string) =>
     new ORPCError(API_ERROR_CODE.BAD_REQUEST, { status: 400, message }),
+  tooManyRequests: (message: string, retryAfterSeconds: number) =>
+    new ORPCError(API_ERROR_CODE.TOO_MANY_REQUESTS, { status: 429, message, data: { retryAfterSeconds } }),
 };

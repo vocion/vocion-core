@@ -13,6 +13,8 @@ vi.mock('@/libs/Auth', () => ({ auth: vi.fn() }));
 const { db } = await import('@/libs/DB');
 const { auth } = await import('@/libs/Auth');
 const { accountMembershipSchema, inviteSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { hit, RATE_LIMITS, resetMemoryRateLimits } = await import('@/libs/rateLimit');
+const { rateLimitHitSchema } = await import('@/models/Schema');
 const { POST } = await import('./route');
 
 const mockAuth = vi.mocked(auth);
@@ -26,6 +28,8 @@ function post(body: unknown) {
 }
 
 beforeEach(async () => {
+  resetMemoryRateLimits();
+  await db.delete(rateLimitHitSchema);
   await db.delete(inviteSchema);
   await db.delete(accountMembershipSchema);
   await db.delete(projectSchema);
@@ -90,5 +94,32 @@ describe('POST /api/invites/accept', () => {
     mockAuth.mockResolvedValue({ user: { id: 'user-sam' } } as never);
 
     expect((await POST(post({}))).status).toBe(400);
+  });
+
+  it('refuses a person past ten accepts an hour with a 429 and Retry-After, leaving the invite open', async () => {
+    mockAuth.mockResolvedValue({ user: { id: 'user-sam' } } as never);
+    for (let i = 0; i < RATE_LIMITS.inviteAcceptPerUser.limit; i++) {
+      await hit(RATE_LIMITS.inviteAcceptPerUser, 'user-sam');
+    }
+
+    const res = await POST(post({ inviteToken: 'tok-1' }));
+
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);
+    expect(await db.select().from(accountMembershipSchema).where(eq(accountMembershipSchema.userId, 'user-sam'))).toHaveLength(0);
+  });
+
+  it('refuses an address past twenty accepts an hour, whoever is signed in', async () => {
+    mockAuth.mockResolvedValue({ user: { id: 'user-sam' } } as never);
+    for (let i = 0; i < RATE_LIMITS.inviteAcceptPerIp.limit; i++) {
+      await hit(RATE_LIMITS.inviteAcceptPerIp, '203.0.113.7');
+    }
+    const fromThere = new Request('http://localhost/api/invites/accept', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.7' },
+      body: JSON.stringify({ inviteToken: 'tok-1' }),
+    });
+
+    expect((await POST(fromThere)).status).toBe(429);
   });
 });

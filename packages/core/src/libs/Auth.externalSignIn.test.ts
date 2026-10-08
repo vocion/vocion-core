@@ -11,7 +11,8 @@ vi.mock('@/libs/DB');
 // plain Node cannot resolve outside Next. These tests call the adapter and
 // the callback directly, so Auth.js itself is a stand-in.
 vi.mock('next-auth', () => ({
-  default: () => ({ auth: vi.fn(), handlers: {}, signIn: vi.fn(), signOut: vi.fn() }),
+  default: () => ({ auth: vi.fn(), handlers: {}, signIn: vi.fn(), signOut: vi.fn(), unstable_update: vi.fn() }),
+  CredentialsSignin: class extends Error {},
 }));
 vi.mock('next-auth/providers/credentials', () => ({ default: (config: unknown) => config }));
 vi.mock('next-auth/providers/google', () => ({ default: (config: unknown) => ({ id: 'google', options: config }) }));
@@ -26,10 +27,12 @@ process.env.AUTH_GOOGLE_SECRET = 'northwind-google-secret';
 process.env.AUTH_SECRET ??= 'northwind-test-secret-not-a-real-one';
 
 const { db } = await import('@/libs/DB');
-const { authAccountSchema, inviteSchema, tenantAccountSchema, userSchema, verificationTokenSchema } = await import('@/models/Schema');
+const { authAccountSchema, inviteSchema, rateLimitHitSchema, tenantAccountSchema, userSchema, verificationTokenSchema } = await import('@/models/Schema');
 const { buildAdapter, signInCallback } = await import('./Auth');
 
 beforeEach(async () => {
+  vi.stubEnv('VOCION_RATE_LIMIT', '');
+  await db.delete(rateLimitHitSchema);
   await db.delete(authAccountSchema);
   await db.delete(inviteSchema);
   await db.delete(userSchema);

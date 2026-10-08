@@ -7,7 +7,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * admin takes a link away: the invite dialog, right after creating one, and
  * an invite's row on the People lane, any time after.
  *
- * No email is sent; the link IS the invite. `/sign-up?invite=<token>` is the
+ * The link IS the invite. With mail on it is also emailed to the address
+ * (`services/InviteMail.ts`), and copying it stays the fallback; with mail off
+ * it is the only way the invite travels. `/sign-up?invite=<token>` is the
  * page that reads it (`app/[locale]/(auth)/(center)/sign-up`).
  */
 

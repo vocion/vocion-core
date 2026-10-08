@@ -3,4 +3,5 @@ export const API_ERROR_CODE = {
   FORBIDDEN: 'forbidden',
   NOT_FOUND: 'not-found',
   BAD_REQUEST: 'bad-request',
+  TOO_MANY_REQUESTS: 'too-many-requests',
 } as const;

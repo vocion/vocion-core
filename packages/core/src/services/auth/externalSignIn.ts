@@ -9,25 +9,34 @@
  *   in, or links the provider account to the login with the verified address
  *   (`allowDangerousEmailAccountLinking`, safe because the provider's
  *   `profile` only ever returns a verified address — `libs/identity/signInProviders.ts`).
- * - `accept-invite` — the login is created from the oldest usable invite by
- *   `acceptInviteAsNewUser`, the same function the invite link's form calls,
- *   and every other pending invite to that address is accepted on it through
- *   `acceptInviteAsExistingUser`, which applies that path's own rules (a
- *   single-Org server refuses a second Org; that invite stays for its link). Auth.js
- *   then finds the new login by its address and links the provider to it.
+ *   Linking tells the person ("Google added to your sign-in methods",
+ *   `signInMethodLinked`), and any invite still open for their address is
+ *   joined once sign-in completes (`joinPendingInvites`, from `libs/Auth.ts`).
+ * - `accept-invite` — the login is created from the first joinable invite by
+ *   `acceptInviteAsNewUser`, the same function the invite link's form calls;
+ *   the rest are joined on it as sign-in completes, by the same
+ *   `joinPendingInvites` every sign-in runs. Auth.js then finds the new login
+ *   by its address and links the provider to it.
+ * - `auto-join` — the login is created as a member of the install's Org
+ *   (`joinByDomain`, `services/auth/autoJoin.ts`), only where the operator
+ *   listed the address's domain.
  * - `refuse` — `/sign-in?error=AccessDenied&reason=<why>`; the page has a
  *   sentence for each reason.
  *
  * Auth.js never creates a user itself: `libs/Auth.ts` gives its adapter a
- * `createUser` that throws. The only way a login comes to exist is an invite.
+ * `createUser` that throws. A login comes to exist only through an invite, or
+ * a domain an operator listed.
  */
 
-import type { SignInDecision, SignInRefusal } from './signInDecision';
+import type { OrgFacts, SignInDecision, SignInRefusal } from './signInDecision';
 import type { TrustedEmail } from '@/libs/identity/trustedEmail';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { authAccountSchema, inviteSchema, userSchema } from '@/models/Schema';
-import { acceptInviteAsExistingUser, acceptInviteAsNewUser } from '@/services/InviteAcceptance';
+import { authAccountSchema, userSchema } from '@/models/Schema';
+import { acceptInviteAsNewUser } from '@/services/InviteAcceptance';
+import { orgsMode } from '@/services/OrgPolicy';
+import { autoJoinPolicy, joinByDomain } from './autoJoin';
+import { invitesFor, orgName, orgsOf, tellJoined } from './joinInvites';
 import { decideSignIn } from './signInDecision';
 
 /** One sign-in attempt, as Auth.js's `signIn` callback sees it. */
@@ -77,17 +86,6 @@ export async function userIdByEmail(email: string): Promise<string | null> {
 }
 
 /**
- * Every invite addressed to this email, in any state.
- * @param email - Lowercased.
- */
-export async function invitesFor(email: string) {
-  return db
-    .select({ token: inviteSchema.token, email: inviteSchema.email, acceptedAt: inviteSchema.acceptedAt, expiresAt: inviteSchema.expiresAt })
-    .from(inviteSchema)
-    .where(sql`lower(${inviteSchema.email}) = ${email}`);
-}
-
-/**
  * The login a provider account is linked to, if any.
  * @param provider - Auth.js's provider id.
  * @param providerAccountId - The person's id at the provider.
@@ -99,6 +97,19 @@ async function linkedUserId(provider: string, providerAccountId: string): Promis
     .where(and(eq(authAccountSchema.provider, provider), eq(authAccountSchema.providerAccountId, providerAccountId)))
     .limit(1);
   return row?.userId ?? null;
+}
+
+/**
+ * The Org rules a sign-in is decided under. The auto-join policy is read only
+ * for an address with no login, the one case it can decide.
+ * @param userId - The login the address has, if any.
+ */
+async function orgFacts(userId: string | null): Promise<OrgFacts> {
+  return {
+    mode: orgsMode(),
+    memberOf: userId ? await orgsOf(userId) : [],
+    autoJoin: userId ? null : await autoJoinPolicy(),
+  };
 }
 
 /**
@@ -116,19 +127,22 @@ export async function decide(attempt: SignInAttempt, now: Date = new Date()): Pr
     email ? userIdByEmail(email) : null,
     email ? invitesFor(email) : [],
   ]);
-  return decideSignIn({ method: attempt.method, identity, linkedUserId: linked, userIdByEmail: byEmail, invites, now });
+  const orgs = await orgFacts(linked ?? byEmail);
+  return decideSignIn({ method: attempt.method, identity, linkedUserId: linked, userIdByEmail: byEmail, invites, orgs, now });
 }
 
 /**
- * Create the login from the first invite and accept the rest on it.
+ * Create the login from the first joinable invite. The rest are joined on it
+ * as this same sign-in completes (`joinPendingInvites`), under the one rule
+ * every sign-in follows.
  * @param email - The verified address.
  * @param name - The provider's name for the person, if any.
- * @param tokens - Usable invites, oldest expiry first.
+ * @param tokens - Joinable invites, oldest expiry first.
  * @param now - The current time.
  * @returns Whether a login now exists for the address.
  */
-async function acceptInvites(email: string, name: string | null, tokens: string[], now: Date): Promise<boolean> {
-  const [first, ...rest] = tokens;
+async function acceptFirstInvite(email: string, name: string | null, tokens: string[], now: Date): Promise<boolean> {
+  const [first] = tokens;
   if (!first) {
     return false;
   }
@@ -141,16 +155,7 @@ async function acceptInvites(email: string, name: string | null, tokens: string[
     log('warn', 'invite could not be accepted at sign-in', { status: created.status, error: created.error });
     return false;
   }
-  for (const token of rest) {
-    try {
-      const joined = await acceptInviteAsExistingUser(created.userId, token);
-      if (!joined.ok) {
-        log('info', 'a further invite was left for its link', { status: joined.status, error: joined.error });
-      }
-    } catch (error) {
-      log('warn', 'accepting a further invite at sign-in failed; its link still works', { error: error instanceof Error ? error.message : String(error) });
-    }
-  }
+  await tellJoined(created.userId, [{ accountId: created.accountId, name: await orgName(created.accountId) }]);
   return true;
 }
 
@@ -169,7 +174,17 @@ export async function admitSignIn(attempt: SignInAttempt, now: Date = new Date()
       return true;
     case 'accept-invite': {
       const name = attempt.method === 'oauth' ? attempt.name : null;
-      return (await acceptInvites(decision.email, name, decision.inviteTokens, now)) ? true : refusalUrl('invite-failed', provider);
+      return (await acceptFirstInvite(decision.email, name, decision.inviteTokens, now)) ? true : refusalUrl('invite-failed', provider);
+    }
+    case 'auto-join': {
+      const name = attempt.method === 'oauth' ? attempt.name : null;
+      const joined = await joinByDomain({ email: decision.email, name, accountId: decision.accountId, domain: decision.domain });
+      if (joined.ok) {
+        await tellJoined(joined.userId, [{ accountId: joined.accountId, name: await orgName(joined.accountId) }]);
+        return true;
+      }
+      // A parallel sign-in made the login first: that is a login to link to.
+      return joined.reason === 'exists' ? true : refusalUrl('no-invite', provider);
     }
     case 'refuse':
       log('info', 'sign-in refused', { method: attempt.method, provider, reason: decision.reason });

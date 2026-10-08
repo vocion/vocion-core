@@ -17,6 +17,7 @@ vi.mock('@vocion/enterprise/index', () => ({
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, authAccountSchema, inviteSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { admitSignIn, refusalUrl } = await import('./externalSignIn');
+const { joinPendingInvites } = await import('./joinInvites');
 
 const NOW = new Date();
 const NEXT_WEEK = new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -124,7 +125,13 @@ describe('admitSignIn — a pending invite', () => {
 
     await expect(admitSignIn({ method: 'email-link', email: 'dana@northwind.example' }, NOW)).resolves.toBe(true);
 
+    // The gate made the login from the first invite; the same sign-in, as it
+    // completes, joins the rest (`completeSignIn` → `joinPendingInvites`).
     const [dana] = await usersWithEmail('dana@northwind.example');
+    const joined = await joinPendingInvites(dana!.id, NOW);
+
+    expect(joined.map(o => o.name)).toEqual(['Kestrel Capital']);
+
     const memberships = await db.select().from(accountMembershipSchema).where(eq(accountMembershipSchema.userId, dana!.id));
 
     expect(memberships.map(m => `${m.accountId}:${m.role}`).sort()).toEqual(['acct-kestrel:admin', 'acct-northwind:member']);

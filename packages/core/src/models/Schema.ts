@@ -76,6 +76,14 @@ export const userSchema = pgTable('user', {
    * number is theirs: the SMS channel answers it and a reply decides a card as them.
    */
   phone: text('phone'),
+  /**
+   * Raised whenever the person's sign-in changes under them — a new password
+   * (reset or profile), two-step sign-in turned on or off — and stamped on
+   * every session token at sign-in (0176). A token carrying an older number is
+   * read as signed out, which is how those changes end the person's other
+   * sessions (`services/auth/sessionVersion.ts`).
+   */
+  sessionVersion: integer('session_version').default(0).notNull(),
   updatedAt: timestamp('updated_at', { mode: 'date' })
     .defaultNow()
     .$onUpdate(() => new Date())
@@ -135,6 +143,98 @@ export const verificationTokenSchema = pgTable(
   ],
 );
 
+/* ==================================================================== */
+/* Sign-in protection (0175, 0176)                                       */
+/*                                                                       */
+/* rate_limit_hit         — shared fixed-window counters (libs/rateLimit) */
+/* password_reset_token   — one forgot-password link, hash only           */
+/* user_mfa               — a person's TOTP secret, vault-encrypted       */
+/* user_mfa_recovery_code — one-time codes shown once at enrolment        */
+/* ==================================================================== */
+
+/**
+ * One counter in one fixed window. The key is `<policy>:<subject>` — a policy
+ * from `libs/rateLimit/policies.ts` and who it counts (an IP, an email, a
+ * user). A hit is one upsert that returns the new count.
+ */
+export const rateLimitHitSchema = pgTable(
+  'rate_limit_hit',
+  {
+    key: text('key').notNull(),
+    windowStart: timestamp('window_start', { mode: 'date' }).notNull(),
+    count: integer('count').default(0).notNull(),
+    /** When this window stops mattering; rows past it are swept. */
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  },
+  table => [
+    primaryKey({ name: 'rate_limit_hit_pk', columns: [table.key, table.windowStart] }),
+    index('rate_limit_hit_expires_idx').on(table.expiresAt),
+  ],
+);
+
+/**
+ * A forgot-password link. Only the SHA-256 of the token is kept; the mailed
+ * link is the one copy of the secret. Single-use and short-lived
+ * (`services/auth/passwordReset.ts`).
+ */
+export const passwordResetTokenSchema = pgTable(
+  'password_reset_token',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    usedAt: timestamp('used_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('password_reset_token_hash_idx').on(table.tokenHash),
+    index('password_reset_token_user_idx').on(table.userId),
+  ],
+);
+
+/**
+ * A person's authenticator (TOTP). The secret is encrypted with the credential
+ * vault under the scope `user:<id>`. `enabledAt` is null until the person has
+ * confirmed a code from their app; `lastUsedStep` refuses a replayed code.
+ */
+export const userMfaSchema = pgTable('user_mfa', {
+  userId: text('user_id').primaryKey().references(() => userSchema.id, { onDelete: 'cascade' }),
+  // `source_dek` is declared with the connector tables further down, and
+  // drizzle only calls this back when it builds the table metadata.
+  // eslint-disable-next-line ts/no-use-before-define
+  dekId: integer('dek_id').notNull().references((): AnyPgColumn => sourceDekSchema.id, { onDelete: 'restrict' }),
+  ciphertext: text('ciphertext').notNull(),
+  nonce: text('nonce').notNull(),
+  authTag: text('auth_tag').notNull(),
+  enabledAt: timestamp('enabled_at', { mode: 'date' }),
+  lastUsedStep: bigint('last_used_step', { mode: 'number' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+/**
+ * One-time recovery codes. Each holds 50 random bits and is stored as an
+ * HMAC-SHA256 keyed from `AUTH_SECRET` (`services/auth/mfa.ts`), so a read of
+ * this table alone cannot be cracked offline; `usedAt` spends it.
+ */
+export const userMfaRecoveryCodeSchema = pgTable(
+  'user_mfa_recovery_code',
+  {
+    id: serial('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    usedAt: timestamp('used_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('user_mfa_recovery_code_user_idx').on(table.userId),
+  ],
+);
+
 /**
  * A tenant account. Self-hosted: exactly 1 row. Cloud: N rows.
  *  Billing columns are populated in vocion-cloud only; null in self-hosted.
@@ -151,6 +251,13 @@ export const tenantAccountSchema = pgTable(
     stripeSubscriptionPriceId: text('stripe_subscription_price_id'),
     stripeSubscriptionStatus: text('stripe_subscription_status'),
     stripeSubscriptionCurrentPeriodEnd: bigint('stripe_subscription_current_period_end', { mode: 'number' }),
+    /**
+     * Everyone in this account must sign in with a second factor (0176). A
+     * member without one enrols at their next sign-in, before they reach a
+     * workspace. `VOCION_REQUIRE_MFA=1` is the same rule for a whole
+     * deployment; `services/auth/mfa.ts` reads both.
+     */
+    requireMfa: boolean('require_mfa').default(false).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

@@ -6,14 +6,17 @@
  * Backs the /dashboard/members settings page: list members with roles,
  * change roles, remove members, and manage link-based invites.
  *
- * Invites are LINK-based by design: no mailer is configured (Resend/SES
- * deferred per roadmap Phase 3), so `createInvite` returns a token the
- * UI turns into a `/sign-up?invite=<token>` URL for the admin to share
+ * An invite is a LINK: `createInvite` returns a token the UI turns into a
+ * `/sign-up?invite=<token>` URL, and that link is the invite whether or not
+ * this server sends mail. With mail on, the router also mails it to the
+ * address ("Join <Org> on Vocion", `services/InviteMail.ts`) and an admin can
+ * resend it; with mail off, the admin copies the link and shares it
  * out-of-band (Slack, DM). The sign-up page reads `?invite=`: someone with
  * no login yet signs up there (`/api/signup` validates + consumes the row);
  * someone who already has a login — in another account, say — joins this
  * account on it (`/api/invites/accept`, `services/InviteAcceptance.ts`),
- * which adds a membership and never a second user (vocion-core#128). So an
+ * which adds a membership and never a second user (vocion-core#128), or is
+ * joined at their next sign-in (`services/auth/joinInvites.ts`). So an
  * invite is refused only for an email already in THIS account.
  */
 

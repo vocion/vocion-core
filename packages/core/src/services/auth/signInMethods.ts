@@ -108,6 +108,57 @@ export async function recordSignInMethodChange(actor: AdoptionActor, change: 'li
     .catch(() => {});
 }
 
+/**
+ * The notification a newly linked provider gets: its name, and what to do if
+ * the person did not add it. Pure.
+ * @param label - The provider's name as a person knows it ("Google").
+ */
+export function methodAddedNotice(label: string): { title: string; body: string } {
+  return {
+    title: `${label} added to your sign-in methods`,
+    body: `You can now sign in with ${label}. If you did not add it, remove it from your profile and change your password.`,
+  };
+}
+
+/**
+ * A provider was just linked to this login — on first use with its verified
+ * address, or from the profile page. Recorded on the adoption stream, and told
+ * to the person ("Google added to your sign-in methods") in the workspace they
+ * land in, opening their profile, where the method is listed and can be
+ * removed. Not for a login this sign-in just made: there the provider is how
+ * they joined, not an addition. Never throws: it rides on a sign-in.
+ * @param userId - The login.
+ * @param provider - Auth.js's provider id.
+ */
+export async function signInMethodLinked(userId: string, provider: string): Promise<void> {
+  try {
+    const { resolveTenancyForUser } = await import('@/libs/tenancy');
+    const tenancy = await resolveTenancyForUser(userId);
+    if (!tenancy.projectId) {
+      return;
+    }
+    await recordSignInMethodChange({ orgId: tenancy.projectId, projectId: tenancy.projectId, accountId: tenancy.accountId, userId }, 'linked', provider);
+    // A login made by this very sign-in (an invite accepted with Google) has
+    // nothing else yet: the provider is how they joined, not an addition.
+    const methods = await listSignInMethods(userId);
+    if (!methods || (!methods.password && methods.providers.filter(p => p.linked).length <= 1)) {
+      return;
+    }
+    const label = allSignInProviders().find(d => d.id === provider)?.label ?? provider;
+    const { emitEvent } = await import('@/services/EventService');
+    await emitEvent({
+      orgId: tenancy.projectId,
+      type: 'account.sign_in_method_added',
+      payload: { userId, provider, ...methodAddedNotice(label), link: '/dashboard/profile', dedupe: `${userId}:${provider}:${Date.now()}` },
+      dispatchMode: 'auto',
+    });
+  } catch (error) {
+    import('@/libs/Logger')
+      .then(({ logger }) => logger.warn('could not record or tell a linked sign-in method', { error: error instanceof Error ? error.message : String(error) }))
+      .catch(() => {});
+  }
+}
+
 export type UnlinkResult = { ok: true } | { ok: false; error: string };
 
 /**

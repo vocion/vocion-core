@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,7 +9,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
  * Members page makes, refused for someone already in, allowed only to an
  * admin (read from the person who decided, never the agent that offered it),
  * and undone by withdrawing what nobody has used yet. Scoped to the
- * workspace's own Org.
+ * workspace's own Org. Delivered like the Members page's: mailed when mail is on.
  */
 
 vi.mock('@/libs/DB');
@@ -75,5 +78,27 @@ describe('members.invite', () => {
     await expect(membersInviteAction.execute({ orgId: SUPPORT, reviewedBy: OMAR }, { emails: ['ana@northwind.example'], role: 'member' })).rejects.toThrow('Only an admin can invite people');
     await expect(membersInviteAction.execute({ orgId: SUPPORT, invokedBy: 'agent:workspace-lead' }, { emails: ['ana@northwind.example'], role: 'member' })).rejects.toThrow('Only an admin can invite people');
     expect(await invitesOf(NORTHWIND)).toHaveLength(0);
+  });
+
+  it('mails each invite when this server sends mail, as the Members page does', async () => {
+    const sink = await mkdtemp(join(tmpdir(), 'vocion-members-invite-action-'));
+    vi.stubEnv('VOCION_MAIL_ENABLED', '1');
+    vi.stubEnv('VOCION_MAIL_SINK_DIR', sink);
+    vi.stubEnv('RESEND_API_KEY', '');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.northwind.example');
+    vi.stubEnv('VOCION_RATE_LIMIT', 'off');
+    try {
+      const result = await membersInviteAction.execute({ orgId: SUPPORT, reviewedBy: DANA }, { emails: ['ana@northwind.example'], role: 'member' });
+
+      expect(result.invites).toEqual([expect.objectContaining({ email: 'ana@northwind.example', emailed: true })]);
+
+      const { readSink } = await import('@/libs/mail/sink');
+      const [mail] = await readSink(sink);
+
+      expect(mail).toMatchObject({ to: ['ana@northwind.example'], subject: 'Join Northwind on Vocion', delivered: 'sink' });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(sink, { recursive: true, force: true });
+    }
   });
 });

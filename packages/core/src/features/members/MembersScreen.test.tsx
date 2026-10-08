@@ -18,7 +18,7 @@ import en from '@/locales/en.json';
 vi.mock('@/libs/Orpc', () => ({
   client: {
     groups: { overview: vi.fn() },
-    members: { list: vi.fn(), invites: vi.fn(), invite: vi.fn(), revokeInvite: vi.fn() },
+    members: { list: vi.fn(), invites: vi.fn(), invite: vi.fn(), revokeInvite: vi.fn(), inviteDelivery: vi.fn(), resendInvite: vi.fn() },
   },
 }));
 
@@ -106,6 +106,8 @@ beforeEach(() => {
   vi.mocked(client.members.invites).mockReset().mockResolvedValue([PENDING, EXPIRED] as never);
   vi.mocked(client.members.invite).mockReset().mockResolvedValue({ ...EXPIRED, id: 'inv-devon-2', expired: false } as never);
   vi.mocked(client.members.revokeInvite).mockReset().mockResolvedValue({ ok: true } as never);
+  vi.mocked(client.members.inviteDelivery).mockReset().mockResolvedValue({ emails: false } as never);
+  vi.mocked(client.members.resendInvite).mockReset().mockResolvedValue({ delivery: { status: 'sent' } } as never);
 });
 
 afterEach(() => {
@@ -223,11 +225,45 @@ describe('invites on the People lane', () => {
   });
 });
 
+describe('invite emails', () => {
+  it('offers no "Resend email" on a server that sends no mail', async () => {
+    await renderScreen();
+
+    await userEvent.click(page.getByRole('button', { name: 'Actions for the invite to casey@kestrel.example' }));
+
+    await expect.element(page.getByRole('menuitem', { name: 'Copy invite link' })).toBeVisible();
+    await expect.element(page.getByRole('menuitem', { name: 'Resend email' })).not.toBeInTheDocument();
+  });
+
+  it('mails a pending invite again from its row when mail is on, and says so', async () => {
+    vi.mocked(client.members.inviteDelivery).mockResolvedValue({ emails: true } as never);
+    await renderScreen();
+
+    await userEvent.click(page.getByRole('button', { name: 'Actions for the invite to casey@kestrel.example' }));
+    await userEvent.click(page.getByRole('menuitem', { name: 'Resend email' }));
+
+    await vi.waitFor(() => expect(client.members.resendInvite).toHaveBeenCalledWith({ inviteId: 'inv-casey' }));
+
+    await expect.element(page.getByRole('status').filter({ hasText: 'Emailed the invite to casey@kestrel.example again.' })).toBeVisible();
+  });
+
+  it('says the dialog emails the invite when mail is on', async () => {
+    vi.mocked(client.members.inviteDelivery).mockResolvedValue({ emails: true } as never);
+    await renderScreen();
+
+    await userEvent.click(page.getByRole('button', { name: 'Invite member' }));
+
+    await expect.element(page.getByTestId('invite-dialog').getByText(/We email them a link to join/)).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Send invite' })).toBeVisible();
+  });
+});
+
 describe('a member who is not an admin', () => {
   it('reads no invites and sees no Status facet', async () => {
     await renderScreen(false);
 
     expect(client.members.invites).not.toHaveBeenCalled();
+    expect(client.members.inviteDelivery).not.toHaveBeenCalled();
     await expect.element(page.getByRole('combobox', { name: 'Status' })).not.toBeInTheDocument();
     await expect.element(summary()).toHaveTextContent('2 people');
   });

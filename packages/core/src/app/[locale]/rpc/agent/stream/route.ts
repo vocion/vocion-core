@@ -21,6 +21,8 @@ import type { CollectedDoc } from '@/services/chat/runCollector';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { cardFromRecommendation } from '@/libs/cards/card';
+import { clientIp } from '@/libs/http/clientIp';
+import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { openStream, wasStopped } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
 import { isTurnRefusal } from '@/services/agents/turnRefusal';
@@ -49,6 +51,15 @@ export async function POST(request: Request): Promise<Response> {
   const { userId, orgId } = await auth();
   if (!userId || !orgId) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  }
+  // Thirty turns a minute per person is more than anyone types; a script
+  // looping on this endpoint spends the workspace's model budget.
+  const limited = firstRefusal(
+    await hit(RATE_LIMITS.chatPerUser, userId),
+    await hit(RATE_LIMITS.chatPerIp, clientIp(request.headers)),
+  );
+  if (!limited.allowed) {
+    return tooManyRequests(limited);
   }
   const body = await request.json();
   // The reads that do not depend on who answers start now, together, and are

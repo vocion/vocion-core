@@ -1,7 +1,9 @@
 'use client';
 
+import type { InviteDelivery } from '@/services/InviteMail';
 import type { PendingInvite } from '@/services/MembersService';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, MailCheck } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,8 +28,14 @@ import { inviteUrl, useCopyInviteLink } from './inviteLink';
  * surfaces doing one job, and the dialog's copy was the only one there was —
  * you had to open "Invite member" to find out who had been invited.
  *
- * No email is sent: the invite is a link to copy and share.
+ * With mail on, the invite is also emailed to the address
+ * (`services/InviteMail.ts`) and the dialog says so; the link is shown either
+ * way, so Copy link is always the fallback. With mail off, the link is the
+ * invite, to copy and share.
  */
+
+/** A just-made invite, with what happened to its email. */
+export type CreatedInvite = PendingInvite & { delivery: InviteDelivery };
 
 /**
  * The link an invite is shared as. Re-exported here, beside `CopyLink`, so
@@ -43,25 +51,58 @@ export { inviteUrl };
  * @param props.label - The button's words (default "Copy link").
  */
 export function CopyLink({ token, label }: { token: string; label?: string }) {
+  const t = useTranslations('Members');
   const [copied, copy] = useCopyInviteLink();
   return (
     <Button variant="outline" size="sm" onClick={() => void copy(token)}>
       {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? 'Copied' : (label ?? 'Copy link')}
+      {copied ? t('copied') : (label ?? t('copy_link_short'))}
     </Button>
   );
+}
+
+/**
+ * What became of a fresh invite's email, in one line above its link.
+ * @param props - The invite.
+ * @param props.invite - The invite just made.
+ */
+function DeliveryLine({ invite }: { invite: CreatedInvite }) {
+  const t = useTranslations('Members');
+  if (invite.delivery.status === 'sent') {
+    return (
+      <p className="flex items-center gap-1.5 text-sm font-medium" role="status">
+        <MailCheck className="size-4 text-muted-foreground" aria-hidden />
+        {t('invite_emailed', { email: invite.email })}
+      </p>
+    );
+  }
+  if (invite.delivery.status === 'failed') {
+    return (
+      <p className="text-sm" role="status">
+        <span className="font-medium">{t('invite_not_emailed', { email: invite.email })}</span>
+        {' '}
+        <span className="text-muted-foreground">{invite.delivery.reason}</span>
+      </p>
+    );
+  }
+  return <p className="text-sm font-medium">{t('invite_link_for', { email: invite.email })}</p>;
 }
 
 export function InviteDialog(props: {
   open: boolean;
   pending: boolean;
   error: string | null;
+  /** Whether this server emails invites; the words and the button follow it. */
+  emails?: boolean;
   onOpenChange: (open: boolean) => void;
-  onInvite: (email: string, role: 'admin' | 'member') => Promise<PendingInvite | null>;
+  onInvite: (email: string, role: 'admin' | 'member') => Promise<CreatedInvite | null>;
 }) {
+  const t = useTranslations('Members');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'member'>('member');
-  const [fresh, setFresh] = useState<PendingInvite | null>(null);
+  const [fresh, setFresh] = useState<CreatedInvite | null>(null);
+  const [creating, setCreating] = useState(false);
+  const busy = props.pending || creating;
 
   return (
     <Dialog
@@ -75,11 +116,9 @@ export function InviteDialog(props: {
     >
       <DialogContent className="sm:max-w-lg" data-testid="invite-dialog">
         <DialogHeader>
-          <DialogTitle>Invite a member</DialogTitle>
+          <DialogTitle>{t('invite_title')}</DialogTitle>
           <DialogDescription>
-            No email is sent. You get a link to share directly, good once, and
-            only for the address you name. It waits on the People list until
-            they join.
+            {props.emails ? t('invite_description_mail') : t('invite_description_link')}
           </DialogDescription>
         </DialogHeader>
 
@@ -87,15 +126,20 @@ export function InviteDialog(props: {
           className="flex flex-wrap items-end gap-2"
           onSubmit={async (e) => {
             e.preventDefault();
-            const created = await props.onInvite(email.trim(), role);
-            if (created) {
-              setFresh(created);
-              setEmail('');
+            setCreating(true);
+            try {
+              const created = await props.onInvite(email.trim(), role);
+              if (created) {
+                setFresh(created);
+                setEmail('');
+              }
+            } finally {
+              setCreating(false);
             }
           }}
         >
           <div className="flex min-w-48 flex-1 flex-col gap-1">
-            <Label htmlFor="invite-email">Email</Label>
+            <Label htmlFor="invite-email">{t('invite_email')}</Label>
             <Input
               id="invite-email"
               type="email"
@@ -106,7 +150,7 @@ export function InviteDialog(props: {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <Label htmlFor="invite-role">Role</Label>
+            <Label htmlFor="invite-role">{t('invite_role')}</Label>
             <select
               id="invite-role"
               value={role}
@@ -117,25 +161,27 @@ export function InviteDialog(props: {
               <option value="admin">admin</option>
             </select>
           </div>
-          <Button type="submit" disabled={props.pending || !email.trim()}>
-            {props.pending ? 'Creating…' : 'Create link'}
+          <Button type="submit" disabled={busy || !email.trim()}>
+            {busy
+              ? (props.emails ? t('invite_sending') : t('invite_creating'))
+              : (props.emails ? t('invite_send') : t('invite_create'))}
           </Button>
         </form>
 
         {props.error && <p className="text-sm text-destructive">{props.error}</p>}
 
         {fresh && (
-          <div className="flex flex-col gap-2 rounded-md border border-rule bg-surface-soft p-3">
-            <p className="text-sm font-medium">{`Link for ${fresh.email}`}</p>
+          <div className="flex flex-col gap-2 rounded-md border border-rule bg-surface-soft p-3" data-testid="invite-fresh">
+            <DeliveryLine invite={fresh} />
             <div className="flex items-center gap-2">
-              <Input readOnly value={inviteUrl(fresh.token)} className="font-mono text-xs" onFocus={e => e.target.select()} />
-              <CopyLink token={fresh.token} label="Copy" />
+              <Input readOnly aria-label={t('invite_link_label')} value={inviteUrl(fresh.token)} className="font-mono text-xs" onFocus={e => e.target.select()} />
+              <CopyLink token={fresh.token} label={t('copy')} />
             </div>
           </div>
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => props.onOpenChange(false)}>Done</Button>
+          <Button variant="outline" onClick={() => props.onOpenChange(false)}>{t('done')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

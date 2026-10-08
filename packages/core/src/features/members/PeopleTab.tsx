@@ -54,6 +54,12 @@ export function PeopleTab(props: {
   onRemoveMember: (userId: string, email: string) => void;
   onRevokeInvite?: (invite: InviteRowData) => void;
   onReinvite?: (invite: InviteRowData) => void;
+  /** Mail an invite again; offered only when this server sends email. */
+  onResendInvite?: (invite: InviteRowData) => void;
+  /** Whether this server emails invites. */
+  emails?: boolean;
+  /** Clear a member's two-step sign-in so they can set it up again (lost phone and codes). */
+  onResetTwoStep?: (userId: string, email: string) => void;
 }) {
   const invites = props.invites ?? [];
   if (props.rows.length === 0 && invites.length === 0) {
@@ -148,6 +154,12 @@ export function PeopleTab(props: {
                       {!self && (
                         <>
                           <DropdownMenuSeparator />
+                          {/* The way back in for someone who lost both their
+                              phone and their recovery codes. Refused, with
+                              the reason, for a person in another account too. */}
+                          <DropdownMenuItem onSelect={() => props.onResetTwoStep?.(p.userId, p.email)}>
+                            Reset two-step sign-in
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             variant="destructive"
                             onSelect={() => props.onRemoveMember(p.userId, p.email)}
@@ -170,6 +182,7 @@ export function PeopleTab(props: {
           pending={props.pending}
           onRevoke={i => props.onRevokeInvite?.(i)}
           onReinvite={i => props.onReinvite?.(i)}
+          onResend={props.emails && props.onResendInvite ? i => props.onResendInvite?.(i) : undefined}
         />
       ))}
     </ListRows>

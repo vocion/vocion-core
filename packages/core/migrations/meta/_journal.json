@@ -1240,6 +1240,20 @@
       "when": 1791700188000,
       "tag": "0188_team_thread",
       "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1792200197000,
+      "tag": "0197_auth_rate_limit_password_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1792200198000,
+      "tag": "0198_user_mfa",
+      "breakpoints": true
     }
   ]
 }

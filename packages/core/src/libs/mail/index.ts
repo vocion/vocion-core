@@ -1,10 +1,12 @@
 /**
  * Outbound email — the one place the app sends mail from.
  *
- * Provider-neutral surface (`sendMail`) over a single transport today:
- * Resend, called with plain `fetch` (`./resend.ts`). Nothing else in the
- * codebase talks to a mail API; a second provider is a second file here and
- * a branch in `sendMail()`.
+ * Provider-neutral surface (`sendMail`) over one transport, Resend, called
+ * with plain `fetch` (`./resend.ts`), plus the dev mail sink (`./sink.ts`,
+ * `VOCION_MAIL_SINK_DIR`), which keeps a copy of every message and stands in
+ * for Resend when Resend is not configured. Nothing else in the codebase talks
+ * to a mail API; a second provider is a second file here and a branch in
+ * `sendMail()`.
  *
  * Ships DARK. `VOCION_MAIL_ENABLED=1` turns it on, following the
  * `externalWorkersEnabled()` triple: a predicate, an assert that throws the
@@ -17,11 +19,13 @@
  *   VOCION_MAIL_ENABLED=1
  *   RESEND_API_KEY=re_…
  *   VOCION_MAIL_FROM="Vocion <reports@example.com>"   (a verified Resend domain)
+ *   VOCION_MAIL_SINK_DIR=.mail-sink                   (dev only: see ./sink.ts)
  */
 
 import process from 'node:process';
 import { MailError } from './errors';
 import { sendViaResend } from './resend';
+import { mailSinkDir, writeToSink } from './sink';
 
 export { MailError } from './errors';
 
@@ -47,7 +51,7 @@ export type MailMessage = {
 
 export type SendMailResult
   = | { skipped: true; reason: 'disabled' }
-    | { skipped: false; provider: 'resend'; id: string | null };
+    | { skipped: false; provider: 'resend' | 'sink'; id: string | null };
 
 /** Feature flag — ships dark. `VOCION_MAIL_ENABLED=1` turns it on. */
 export function mailEnabled(): boolean {
@@ -59,6 +63,20 @@ export function assertMailEnabled(): void {
   if (!mailEnabled()) {
     throw new MailError('DISABLED', 'Outbound mail is not enabled on this deployment (set VOCION_MAIL_ENABLED=1).', 501);
   }
+}
+
+/**
+ * Whether mail is on AND has somewhere to go: Resend's key and sender, or the
+ * dev mail sink. What a feature that only makes sense with working mail
+ * (email sign-in links) asks before offering itself.
+ * @param env - The environment; `process.env` by default.
+ */
+export function mailTransportConfigured(env: Record<string, string | undefined> = process.env): boolean {
+  if (env.VOCION_MAIL_ENABLED !== '1') {
+    return false;
+  }
+  const resend = Boolean(env.RESEND_API_KEY?.trim()) && Boolean(env.VOCION_MAIL_FROM?.trim());
+  return resend || mailSinkDir(env) !== null;
 }
 
 /**
@@ -94,16 +112,44 @@ function log(level: 'info' | 'warn', message: string, properties: Record<string,
  * Send one message. When the flag is off, logs and returns `{ skipped: true }`
  * — never throws for "disabled", so a job can treat mail as optional. Throws
  * `MailError` for a misconfiguration or a provider rejection.
+ *
+ * With the dev mail sink on (`VOCION_MAIL_SINK_DIR`), every message is also
+ * written there — delivered or not — and with mail on but no Resend settings,
+ * the sink is where it is delivered (`./sink.ts`).
  * @param message - The mail to send.
  */
 export async function sendMail(message: MailMessage): Promise<SendMailResult> {
   const recipients = Array.isArray(message.to) ? message.to : [message.to];
+  const sink = mailSinkDir();
+  // A copy in the sink never decides a send: a disk error is logged, and
+  // only matters when the sink was the transport (then it is the failure).
+  const keep = async (delivered: 'resend' | 'sink' | false, from: string | null): Promise<string | null> => {
+    if (!sink) {
+      return null;
+    }
+    const mail = { at: new Date().toISOString(), from, to: recipients, subject: message.subject, text: message.text ?? null, html: message.html, tags: message.tags ?? {}, delivered };
+    if (delivered === 'sink') {
+      return writeToSink(sink, mail);
+    }
+    return writeToSink(sink, mail).catch((error: unknown) => {
+      log('warn', 'could not write to the dev mail sink', { error: error instanceof Error ? error.message : String(error) });
+      return null;
+    });
+  };
   if (!mailEnabled()) {
+    await keep(false, message.from ?? process.env.VOCION_MAIL_FROM?.trim() ?? null);
     log('info', 'mail skipped: VOCION_MAIL_ENABLED is not 1', { subject: message.subject, to: recipients.length });
     return { skipped: true, reason: 'disabled' };
   }
+  const resendConfigured = Boolean(process.env.RESEND_API_KEY?.trim()) && Boolean(process.env.VOCION_MAIL_FROM?.trim());
+  if (sink && !resendConfigured) {
+    const id = await keep('sink', message.from ?? process.env.VOCION_MAIL_FROM?.trim() ?? null);
+    log('info', 'mail written to the dev mail sink', { subject: message.subject, to: recipients.length });
+    return { skipped: false, provider: 'sink', id };
+  }
   const { apiKey, from } = mailConfig();
   const id = await sendViaResend({ apiKey, from: message.from ?? from, message: { ...message, to: recipients } });
+  await keep('resend', message.from ?? from);
   log('info', 'mail sent', { provider: 'resend', id, subject: message.subject, to: recipients.length });
   return { skipped: false, provider: 'resend', id };
 }

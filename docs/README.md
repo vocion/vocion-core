@@ -68,6 +68,9 @@ about them.
 ## Guides
 
 - [Getting started in a new workspace](./guides/getting-started-in-a-workspace.md) — the seeded workspace lead, the setup interview, `setup_options` / `propose_setup` and the `setup` card, `app.install` and `members.invite`, and the Getting started checklist.
+- [Sign-in](./guides/sign-in.md) — every way in (password, Google, Microsoft, email link, two-step sign-in), how invite-only holds and the order the decision runs in, invites joined at every sign-in, limits and lockouts, ending other sessions on a password change, and how one person's login works on several environments.
+- [Password reset](./guides/password-reset.md) — "Forgot password?": a single-use, 30-minute link in the URL fragment, the same answer for every address, what a reset ends and lifts, the limits, and the operator's fallback.
+- [Invites](./guides/invites.md) — inviting from Members, the "Join <Org> on Vocion" email with Copy link as the fallback, Resend and Re-invite, accepting with a password, Google, Microsoft or an email link, an existing login joining with one click or at its next sign-in, auto-join domains (`VOCION_AUTO_JOIN_DOMAINS`), and the dev mail sink.
 - [Sign in with Google or Microsoft](./guides/sign-in-with-google-or-microsoft.md) — "Continue with Google", "Continue with Microsoft" (work or school accounts) and emailed sign-in links, all still invite-only: the settings, the redirect URIs to register (`/api/auth/callback/google`, `/api/auth/callback/microsoft-entra-id`), setup in the Google Cloud console and an Entra app registration, exactly which address each provider is trusted for, and linking or unlinking from the profile.
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
 - [Extensions](./guides/extensions.md) — how a deployment builds in `@vocion/enterprise`, and the neutral seams it adds through (budget guard and observer, `ext` routes and pages, slots, the Org policy hook).

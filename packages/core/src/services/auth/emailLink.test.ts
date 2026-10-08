@@ -1,26 +1,25 @@
 /**
  * "Email me a sign-in link": offered only with mail configured, mailed only
- * to a login or a pending invite (and the asker cannot tell which), limited
- * the same for every address, and built on this deployment's own address
- * with the token in a fragment.
+ * to a login, a pending invite or an auto-join domain (and the asker cannot
+ * tell which), limited the same for every address in the shared limiter, and
+ * built on this deployment's own address with the token in a fragment.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/mail', () => ({
+vi.mock('@/libs/mail', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/mail')>()),
   sendMail: vi.fn(async () => ({ skipped: false, provider: 'resend', id: 'msg-1' })),
 }));
 
 const { db } = await import('@/libs/DB');
 const { sendMail } = await import('@/libs/mail');
-const { inviteSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, inviteSchema, rateLimitHitSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const {
   configuredOrigin,
   deliverSignInLink,
   emailLinkConfigured,
   emailLinkProvider,
-  FixedWindowLimiter,
-  forwardedClientIp,
   linkRequestAnswer,
   mailedLinkFor,
   signInLinkMail,
@@ -36,6 +35,11 @@ describe('emailLinkConfigured', () => {
     expect(emailLinkConfigured({ ...MAIL, VOCION_MAIL_ENABLED: undefined, NODE_ENV: 'development' })).toBe(false);
     expect(emailLinkConfigured({ ...MAIL, RESEND_API_KEY: ' ', NODE_ENV: 'development' })).toBe(false);
     expect(emailLinkConfigured({ ...MAIL, VOCION_MAIL_FROM: undefined, NODE_ENV: 'development' })).toBe(false);
+  });
+
+  it('counts the dev mail sink as somewhere for mail to go', () => {
+    expect(emailLinkConfigured({ VOCION_MAIL_ENABLED: '1', VOCION_MAIL_SINK_DIR: '.mail-sink', NODE_ENV: 'development' })).toBe(true);
+    expect(emailLinkConfigured({ VOCION_MAIL_SINK_DIR: '.mail-sink', NODE_ENV: 'development' })).toBe(false);
   });
 
   it('needs the deployment\'s own address in production', () => {
@@ -86,34 +90,35 @@ describe('the mailed link', () => {
 });
 
 describe('limits', () => {
-  it('allows three links per window and then says how long to wait', () => {
-    const limiter = new FixedWindowLimiter(3, 60_000);
+  // The start of a fifteen-minute window, so the wait is the whole window.
+  const WINDOW = new Date(900_000 * 2_000_000);
 
-    expect(limiter.hit('dana@northwind.example', 0).allowed).toBe(true);
-    expect(limiter.hit('dana@northwind.example', 1).allowed).toBe(true);
-    expect(limiter.hit('dana@northwind.example', 2).allowed).toBe(true);
-    expect(limiter.hit('dana@northwind.example', 3)).toEqual({ allowed: false, retryAfterSeconds: 60 });
-    expect(limiter.hit('sam@northwind.example', 3).allowed).toBe(true);
-    expect(limiter.hit('dana@northwind.example', 60_000).allowed).toBe(true);
+  beforeEach(async () => {
+    vi.stubEnv('VOCION_RATE_LIMIT', '');
+    await db.delete(rateLimitHitSchema);
   });
 
-  it('answers the fourth request for any address — known or not — with the page that says to wait', () => {
-    const answers = [0, 1, 2, 3].map(i => linkRequestAnswer({ email: 'nobody@acme.example', ip: null, now: 1_000_000 + i }));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('answers the fourth request for any address — known or not — with the page that says to wait', async () => {
+    const answers = [];
+    for (let i = 0; i < 4; i++) {
+      answers.push(await linkRequestAnswer({ email: 'nobody@acme.example', ip: null, now: WINDOW }));
+    }
 
     expect(answers.slice(0, 3)).toEqual([true, true, true]);
     expect(answers[3]).toBe('/sign-in?error=EmailLinkRateLimited&retryAfter=900');
   });
 
-  it('limits one network across many addresses', () => {
-    const results = Array.from({ length: 11 }, (_, i) => linkRequestAnswer({ email: `person${i}@acme.example`, ip: '198.51.100.7', now: 5_000_000 }));
+  it('limits one network across many addresses', async () => {
+    const results = [];
+    for (let i = 0; i < 11; i++) {
+      results.push(await linkRequestAnswer({ email: `person${i}@acme.example`, ip: '198.51.100.7', now: WINDOW }));
+    }
 
     expect(results.filter(r => r === true)).toHaveLength(10);
-  });
-
-  it('reads the caller from the hop the nearest proxy appended', () => {
-    expect(forwardedClientIp(new Headers({ 'x-forwarded-for': '203.0.113.9, 198.51.100.7' }))).toBe('198.51.100.7');
-    expect(forwardedClientIp(new Headers({ 'x-real-ip': '198.51.100.8' }))).toBe('198.51.100.8');
-    expect(forwardedClientIp(new Headers())).toBeNull();
   });
 });
 
@@ -121,6 +126,7 @@ describe('deliverSignInLink — invite-only, without telling', () => {
   beforeEach(async () => {
     vi.mocked(sendMail).mockClear();
     await db.delete(inviteSchema);
+    await db.delete(accountMembershipSchema);
     await db.delete(userSchema);
     await db.delete(tenantAccountSchema);
     await db.insert(tenantAccountSchema).values({ id: 'acct-northwind', name: 'Northwind', slug: 'northwind' });
@@ -144,5 +150,15 @@ describe('deliverSignInLink — invite-only, without telling', () => {
   it('mails nobody else', async () => {
     await expect(deliverSignInLink({ email: 'mallory@acme.example', link: 'https://app.northwind.example/sign-in/email-link#t' })).resolves.toBe('not-eligible');
     expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('mails an address in an auto-join domain the operator listed — and only that domain', async () => {
+    // The install's Org is the one people belong to.
+    await db.insert(accountMembershipSchema).values({ accountId: 'acct-northwind', userId: 'usr-sam', role: 'admin' });
+    vi.stubEnv('VOCION_AUTO_JOIN_DOMAINS', 'northwind.example');
+
+    await expect(deliverSignInLink({ email: 'ana@northwind.example', link: 'https://app.northwind.example/sign-in/email-link#t' })).resolves.toBe('sent');
+    await expect(deliverSignInLink({ email: 'ana@mail.northwind.example', link: 'https://app.northwind.example/sign-in/email-link#t' })).resolves.toBe('not-eligible');
+    await expect(deliverSignInLink({ email: 'ana@evilnorthwind.example', link: 'https://app.northwind.example/sign-in/email-link#t' })).resolves.toBe('not-eligible');
   });
 });
