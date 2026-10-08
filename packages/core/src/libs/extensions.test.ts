@@ -13,6 +13,7 @@ import {
   extensionRouters,
   extensions,
   extensionScopesSwitcherToOrg,
+  extensionWhiteLabel,
   slotComponents,
 } from './extensions';
 
@@ -30,6 +31,10 @@ describe('core with no extension built in', () => {
   it('keeps the single-Org rule and lists every workspace in the switcher', () => {
     expect(extensionAllowsMultiOrg()).toBe(false);
     expect(extensionScopesSwitcherToOrg()).toBe(false);
+  });
+
+  it('keeps "Powered by Vocion": white-labelling is not core', () => {
+    expect(extensionWhiteLabel()).toBe(false);
   });
 
   it('puts nothing in the sidebar', () => {

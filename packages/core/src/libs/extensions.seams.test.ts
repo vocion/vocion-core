@@ -16,8 +16,10 @@ vi.mock('@vocion/enterprise/index', () => {
       { name: 'first', budgetGuards: [guardA], chargeObservers: [observer], router: { ping: 'first-ping' }, pages: { first: Page }, slots: { 'system.actions': [Slot] }, orgs: { multiOrg: () => {
         throw new Error('misconfigured');
       } } },
-      { name: 'second', budgetGuards: [guardB], orgs: { multiOrg: () => true, scopeWorkspaceSwitcher: true } },
-      { name: 'third' },
+      { name: 'second', budgetGuards: [guardB], orgs: { multiOrg: () => true, scopeWorkspaceSwitcher: true }, branding: { whiteLabel: () => {
+        throw new Error('misconfigured');
+      } } },
+      { name: 'third', branding: { whiteLabel: () => true } },
     ],
   };
 });
@@ -47,5 +49,9 @@ describe('extensions a package provides', () => {
   it('lifts the single-Org rule when any extension says so, ignoring one whose hook throws', () => {
     expect(lib.extensionAllowsMultiOrg()).toBe(true);
     expect(lib.extensionScopesSwitcherToOrg()).toBe(true);
+  });
+
+  it('white-labels when an extension says so, ignoring one whose hook throws', () => {
+    expect(lib.extensionWhiteLabel()).toBe(true);
   });
 });

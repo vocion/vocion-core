@@ -15,65 +15,23 @@
  * correct it by hand; the values here beat anything recalled.
  */
 
+import type { BrandLogoKey, BrandManifest, BrandOverride } from '@/libs/workspace/brandSchema';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { z } from 'zod';
+import { BRAND_LOGO_KEYS, BrandOverrideSchema, inheritBrand } from '@/libs/workspace/brandSchema';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
-const Hex = z.string().regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i, 'a hex colour like #F18700');
-
-export const BrandManifestSchema = z.object({
-  /** The company as it appears in prose — "Metacto", capital M. */
-  name: z.string().min(1).max(80),
-  /** One line under a logo, or in a signature. */
-  descriptor: z.string().max(200).optional(),
-  website: z.string().url().optional(),
-  /** Token → hex. Tokens become `--brand-<token>` custom properties. */
-  palette: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), Hex).default({}),
-  /**
-   * Which palette tokens play which role in a document. Each value names a
-   * palette token; the frame's `:root` gets `--ink: var(--brand-<token>)`.
-   */
-  roles: z.object({
-    ink: z.string().optional(),
-    body: z.string().optional(),
-    accent: z.string().optional(),
-    teal: z.string().optional(),
-    muted: z.string().optional(),
-    background: z.string().optional(),
-    rule: z.string().optional(),
-  }).partial().default({}),
-  fonts: z.object({
-    heading: z.string().default('Inter'),
-    headingWeight: z.number().int().min(100).max(900).default(700),
-    body: z.string().default('Inter'),
-    /** A Google Fonts stylesheet URL, when the fonts are hosted there. */
-    stylesheet: z.string().url().optional(),
-  }).default({ heading: 'Inter', headingWeight: 700, body: 'Inter' }),
-  /**
-   * Logo files, relative to the workspace root (or data: URIs). `mark` is the
-   * small square one for a strip; `wordmark` the full lockup for a cover.
-   */
-  logos: z.object({
-    mark: z.string().optional(),
-    wordmark: z.string().optional(),
-    markOnDark: z.string().optional(),
-  }).partial().default({}),
-  /** The house language rules a writer applies — short, imperative lines. */
-  voice: z.array(z.string().min(1).max(300)).max(60).default([]),
-  /** Words and phrasings that never appear. */
-  banned: z.array(z.string().min(1).max(120)).max(100).default([]),
-});
-export type BrandManifest = z.infer<typeof BrandManifestSchema>;
+export { BRAND_LOGO_KEYS, BrandManifestSchema, BrandOverrideSchema, inheritBrand } from '@/libs/workspace/brandSchema';
+export type { BrandLogoKey, BrandManifest, BrandOverride } from '@/libs/workspace/brandSchema';
 
 export type BrandLoadIssue = { file: string; message: string };
 
 export type LoadedBrand = {
   brand: BrandManifest;
   /** Logos resolved to data URIs, ready to inline. */
-  logos: { mark?: string; wordmark?: string; markOnDark?: string };
+  logos: Partial<Record<BrandLogoKey, string>>;
   /** A `:root { … }` block: `--brand-<token>` per palette entry plus the role aliases. */
   cssRoot: string;
   file: string;
@@ -122,42 +80,90 @@ export function brandCssRoot(brand: BrandManifest): string {
 }
 
 /**
- * Read `brand.yaml` from a workspace directory.
+ * The `brand.yaml` a workspace directory holds, read as written — every field
+ * optional, since a workspace whose Org has a brand may write only what it
+ * overrides — or why it could not be read. No file is no brand, not an issue.
  * @param root - The workspace root; default `WORKSPACE_PATH`.
  */
-export function readWorkspaceBrand(root: string | null = getWorkspacePath()): { brand: LoadedBrand | null; issues: BrandLoadIssue[] } {
+export function readWorkspaceBrandFile(root: string | null = getWorkspacePath()): { file: string | null; override: BrandOverride | null; issues: BrandLoadIssue[] } {
   if (!root) {
-    return { brand: null, issues: [] };
+    return { file: null, override: null, issues: [] };
   }
   // turbopackIgnore: this path is only known at runtime, so the build must not
   // trace it, or Next copies the whole project into the image (next.config.ts, #832).
   const file = ['brand.yaml', 'brand.yml'].map(f => join(/* turbopackIgnore: true */ root, f)).find(f => existsSync(f));
   if (!file) {
-    return { brand: null, issues: [] };
+    return { file: null, override: null, issues: [] };
   }
   try {
     const raw = parseYaml(readWorkspaceTextFile(file)) as unknown;
-    const parsed = BrandManifestSchema.safeParse(raw);
+    const parsed = BrandOverrideSchema.safeParse(raw ?? {});
     if (!parsed.success) {
-      return { brand: null, issues: [{ file, message: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') }] };
+      return { file, override: null, issues: [{ file, message: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') }] };
     }
-    const brand = parsed.data;
-    const base = dirname(file);
-    const logos = {
-      ...(brand.logos.mark ? { mark: logoDataUri(brand.logos.mark, base) } : {}),
-      ...(brand.logos.wordmark ? { wordmark: logoDataUri(brand.logos.wordmark, base) } : {}),
-      ...(brand.logos.markOnDark ? { markOnDark: logoDataUri(brand.logos.markOnDark, base) } : {}),
-    };
-    const issues: BrandLoadIssue[] = [];
-    for (const [k, v] of Object.entries(brand.logos)) {
-      if (v && !(logos as Record<string, string | undefined>)[k]) {
-        issues.push({ file, message: `logos.${k}: "${v}" is not a readable image under the workspace` });
+    return { file, override: parsed.data, issues: [] };
+  } catch (err) {
+    return { file, override: null, issues: [{ file, message: (err as Error).message }] };
+  }
+}
+
+/**
+ * A guide with its logos resolved to data URIs and its CSS block, ready for a
+ * document. Each logo is resolved by `resolve` — a workspace file against its
+ * folder, an Org's uploaded logo from the media store — and a logo that could
+ * not be read is an issue, never a broken image.
+ * @param brand - The guide.
+ * @param file - Where it was read from, for the issues.
+ * @param resolveLogo - A logo reference to a data URI, or undefined.
+ */
+export async function loadBrand(brand: BrandManifest, file: string, resolveLogo: (key: BrandLogoKey, ref: string) => string | undefined | Promise<string | undefined>): Promise<{ brand: LoadedBrand; issues: BrandLoadIssue[] }> {
+  const logos: LoadedBrand['logos'] = {};
+  const issues: BrandLoadIssue[] = [];
+  for (const key of BRAND_LOGO_KEYS) {
+    const ref = brand.logos[key];
+    if (!ref) {
+      continue;
+    }
+    const uri = await resolveLogo(key, ref);
+    if (uri) {
+      logos[key] = uri;
+    } else {
+      issues.push({ file, message: `logos.${key}: "${ref}" is not a readable image` });
+    }
+  }
+  return { brand: { brand, logos, cssRoot: brandCssRoot(brand), file }, issues };
+}
+
+/**
+ * Read `brand.yaml` from a workspace directory, on its own: the file has to
+ * name the company. (A workspace in an Org with a brand inherits it instead —
+ * `services/branding/OrgBrandService.ts` `documentBrandFor`.)
+ * @param root - The workspace root; default `WORKSPACE_PATH`.
+ */
+export function readWorkspaceBrand(root: string | null = getWorkspacePath()): { brand: LoadedBrand | null; issues: BrandLoadIssue[] } {
+  const read = readWorkspaceBrandFile(root);
+  if (!read.file || !read.override) {
+    return { brand: null, issues: read.issues };
+  }
+  const brand = inheritBrand(null, read.override);
+  if (!brand) {
+    return { brand: null, issues: [{ file: read.file, message: 'name: Required — name the company, or give the Org a brand for this file to inherit' }] };
+  }
+  const base = dirname(read.file);
+  const logos: LoadedBrand['logos'] = {};
+  const issues: BrandLoadIssue[] = [];
+  for (const key of BRAND_LOGO_KEYS) {
+    const ref = brand.logos[key];
+    if (ref) {
+      const uri = logoDataUri(ref, base);
+      if (uri) {
+        logos[key] = uri;
+      } else {
+        issues.push({ file: read.file, message: `logos.${key}: "${ref}" is not a readable image under the workspace` });
       }
     }
-    return { brand: { brand, logos, cssRoot: brandCssRoot(brand), file }, issues };
-  } catch (err) {
-    return { brand: null, issues: [{ file, message: (err as Error).message }] };
   }
+  return { brand: { brand, logos, cssRoot: brandCssRoot(brand), file: read.file }, issues };
 }
 
 /**

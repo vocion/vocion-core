@@ -23,6 +23,7 @@
  * | `orgs.multiOrg` | `services/OrgPolicy.ts`: lifts the single-Org rule |
  * | `orgs.scopeWorkspaceSwitcher` | `projects.list`: the workspace switcher lists the current Org's workspaces only |
  * | `signInProviders` | `libs/identity/signInProviders.ts`: more "Continue with …" ways in, under core's invite-only rules |
+ * | `branding.whiteLabel` | `services/branding/OrgBrandService.ts`: drops the "Powered by Vocion" mark from sign-in and the sidebar |
  *
  * Client-side pieces (a component in the sidebar) cannot come from this list,
  * because it imports server code. They come from `@vocion/enterprise/client`
@@ -107,6 +108,14 @@ export type VocionExtension = {
    * `trustedEmail` vouches for.
    */
   signInProviders?: SignInProviderDescriptor[];
+  /**
+   * An Org's brand (`services/branding`). Core always keeps a small "Powered
+   * by Vocion" mark on sign-in and in the sidebar under an Org's own logo;
+   * `whiteLabel` returning true removes it. Not in core.
+   */
+  branding?: {
+    whiteLabel?: () => boolean;
+  };
 };
 
 /** What a component in the sidebar's nav slot receives. */
@@ -189,4 +198,15 @@ export function extensionScopesSwitcherToOrg(): boolean {
 /** Every sign-in provider extensions add, in extension order. */
 export function extensionSignInProviders(): SignInProviderDescriptor[] {
   return extensions().flatMap(e => e.signInProviders ?? []);
+}
+
+/** Whether an extension white-labels the app (no "Powered by Vocion" mark). A hook that throws white-labels nothing. */
+export function extensionWhiteLabel(): boolean {
+  return extensions().some((e) => {
+    try {
+      return e.branding?.whiteLabel?.() === true;
+    } catch {
+      return false;
+    }
+  });
 }
