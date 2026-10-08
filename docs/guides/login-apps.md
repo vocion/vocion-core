@@ -5,7 +5,9 @@ once there is an app to log in with: a client ID and secret you create at the
 vendor. Put them in the server's env, or have a workspace admin save them as
 the workspace's own **login app** on the Developers page, which needs no
 redeploy. This guide says how, per vendor. How the login itself works is in
-[connect.md](connect.md).
+[connect.md](connect.md). Signing **in to Vocion** with Google or Microsoft is
+a different client with its own settings:
+[sign-in-with-google-or-microsoft.md](sign-in-with-google-or-microsoft.md).
 
 ## The three things every vendor needs
 
