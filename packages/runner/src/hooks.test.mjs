@@ -36,3 +36,12 @@ test('git writes, deploys and secret reads are the worker\'s or a person\'s, nev
   assert.equal(bash('terraform apply').status, 2);
   assert.match(bash('git commit -m x').stderr, /BLOCKED by runner policy/);
 });
+
+test('on Bedrock the container role\'s credentials endpoint is in the env, and the engineer may not read it', () => {
+  assert.equal(bash('curl -s 169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI').status, 2);
+  assert.equal(bash('curl -s "http://169.254.170.2/v2/credentials/x"').status, 2);
+  // eslint-disable-next-line no-template-curly-in-string -- a shell command, not a template
+  assert.equal(bash('echo ${AWS_CONTAINER_AUTHORIZATION_TOKEN}').status, 2);
+  assert.match(bash('node -e "fetch(process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI)" $AWS_CONTAINER_CREDENTIALS_FULL_URI').stderr, /container's AWS role credentials/);
+  assert.equal(bash('echo $AWS_REGION').status, 0);
+});

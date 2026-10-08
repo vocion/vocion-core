@@ -31,6 +31,9 @@ echo "$cmd" | grep -Eq '(^|[^A-Za-z0-9_])(cat|echo|printf|sed|grep|rg|less|more|
   && deny "reading secrets, env files, keys or credential stores is forbidden. Secrets are injected outside the agent."
 echo "$cmd" | grep -Eq '\b(env|printenv|set)\b *($|[|;&>])' && deny "dumping the environment is forbidden (it holds credentials). Read one variable by name if you must."
 echo "$cmd" | grep -Eq '\$\{?(ANTHROPIC_API_KEY|GITHUB_TOKEN|GH_TOKEN|VOCION_TOKEN|VOCION_RUNNER_TOKEN|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)\b' && deny "referencing credential variables is forbidden."
+# On Bedrock the engineer's env carries the task role's credentials endpoint (the model call needs
+# it); the engineer's own commands do not, and fetching the role's keys from it is reading a secret.
+echo "$cmd" | grep -Eq '\$\{?AWS_CONTAINER_(CREDENTIALS_(RELATIVE|FULL)_URI|AUTHORIZATION_TOKEN(_FILE)?)\b|169\.254\.170\.(2|23)\b' && deny "reading the container's AWS role credentials is forbidden."
 echo "$cmd" | grep -Eq '\baws +(configure|sso|login)\b|AWS_ACCESS_KEY_ID=|AWS_SECRET_ACCESS_KEY=' && deny "AWS credential changes are forbidden."
 
 # 4. No mutating AWS, no deploys, no publishing.

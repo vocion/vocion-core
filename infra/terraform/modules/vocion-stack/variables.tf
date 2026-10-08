@@ -511,6 +511,12 @@ variable "runner_poll_schedule" {
   default     = ""
 }
 
+variable "runner_bedrock" {
+  description = "Run the runners' engineer on Amazon Bedrock through the runner task role instead of ANTHROPIC_API_KEY: the task role may invoke the models in bedrock_models (the same grant as the box's, inference profiles included), the runner gets CLAUDE_CODE_USE_BEDROCK=1, AWS_REGION and ANTHROPIC_MODEL (this geography's Sonnet 4.6 profile, us.anthropic.claude-sonnet-4-6 by default), and the runner secret no longer needs ANTHROPIC_API_KEY. Needs runners_enabled; model access itself is an account setting, outside this module."
+  type        = bool
+  default     = false
+}
+
 # ----- Amazon Bedrock -----
 
 variable "bedrock_enabled" {

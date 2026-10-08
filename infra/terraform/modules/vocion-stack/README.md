@@ -40,7 +40,7 @@ the application move together on one pin. A working root is in
 | Alarms | SNS topic; box CPU and status checks (system failures auto-recover), site down, 5xx, RDS CPU and free storage | `alarm_emails` |
 | Budget | none | `budget_monthly_usd` |
 | Bedrock | The box's role may invoke Anthropic models: in-region, and through this account's `us.` inference profiles in the US regions they route to (`InvokeModel`, `InvokeModelWithResponseStream`; they also authorize Converse and ConverseStream) | `bedrock_enabled`, `bedrock_models`, `bedrock_inference_profile_geography` |
-| Engineering runners | none | `runners_enabled`, `runner_*` |
+| Engineering runners | none. With `runner_bedrock`, the runner task role gets the box's Bedrock grant (same models, same inference profiles) and the engineer runs on it: `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, `ANTHROPIC_MODEL` = the geography's Sonnet 4.6 profile (`us.anthropic.claude-sonnet-4-6`), and no `ANTHROPIC_API_KEY` in the runner secret | `runners_enabled`, `runner_*` |
 | AgentCore IAM | none | `agentcore_enabled` |
 
 With `alb_enabled = false` it is the classic single box: the record points at
@@ -410,6 +410,7 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `runner_wall_clock_minutes` | number | `45` | Per run |
 | `runner_git_email` | string | `""` | Empty: `runner@<hostname>` |
 | `runner_poll_schedule` | string | `""` | Empty: no fallback poll |
+| `runner_bedrock` | bool | `false` | The engineer runs on Bedrock through the runner task role (`bedrock_models`, `bedrock_inference_profile_geography`), on `<geography>.anthropic.claude-sonnet-4-6`; the runner secret then needs no `ANTHROPIC_API_KEY` |
 | `bedrock_enabled` | bool | `true` | Bedrock invoke for the box's role |
 | `bedrock_models` | list(string) | `["anthropic.*"]` | Model id patterns the box may invoke |
 | `bedrock_inference_profile_geography` | string | `"us"` | `us`, `eu`, `apac`: the cross-region profiles allowed, and the regions their models may run in. Empty: in-region only |

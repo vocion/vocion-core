@@ -131,7 +131,8 @@ The same image runs everywhere. A deploy target only decides where the container
 | `WORKER_RUN_ID` | claim that run; unset, poll for `POLL_MAX_SECONDS` (900) |
 | `RUNNER_TARGET` | which target this container is (`on-box`, `aws-fargate`, `local`), reported at claim |
 | `RUNNER_CLAIM_AFTER` | take only a run that has waited this many seconds (default 120, the backup); 0 is primary |
-| `ANTHROPIC_API_KEY` | the model key, the only secret the engineer's process keeps |
+| `ANTHROPIC_API_KEY` | the model key, the only secret the engineer's process keeps; not needed with `CLAUDE_CODE_USE_BEDROCK` |
+| `CLAUDE_CODE_USE_BEDROCK` | `1`: the engineer runs on Amazon Bedrock through the container's role (on Fargate, the task role; the stack module's `runner_bedrock`). It keeps that role's credentials endpoint, `AWS_REGION` and `AWS_DEFAULT_REGION`, and no other AWS variable; `ANTHROPIC_MODEL` is its default model, and a contract's bare `claude-` model becomes the region's inference profile |
 | `GITHUB_TOKEN` | the repository token the runner's own git and `gh` use; the engineer never sees it |
 | `MAX_BUDGET_USD`, `WALL_CLOCK_MINUTES` | ceilings; the run's own cap and deadline tighten them |
 | `RUNNER_POSTGRES_URL` | the database the target starts beside the runner; it wins over a repo record's url, which cannot know the address on every target |

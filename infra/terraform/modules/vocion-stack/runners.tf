@@ -26,7 +26,7 @@ locals {
     local.runner_db.user, local.runner_db.password, local.runner_db.port, local.runner_db.name,
   )
 
-  runner_environment = [
+  runner_environment_base = [
     { name = "VOCION_URL", value = local.app_url },
     { name = "RUNNER_TARGET", value = "aws-fargate" },
     { name = "RUNNER_CLAIM_AFTER", value = "0" },
@@ -36,13 +36,14 @@ locals {
     { name = "GIT_AUTHOR_NAME", value = "Vocion Runner" },
     { name = "GIT_AUTHOR_EMAIL", value = local.runner_git_email },
   ]
+  runner_environment = concat(local.runner_environment_base, local.runner_bedrock_environment)
 }
 
 resource "aws_secretsmanager_secret" "runner" {
   count = local.runners
 
   name                    = "${var.name_prefix}/runner"
-  description             = "${var.hostname} engineering runners: VOCION_RUNNER_TOKEN (the app holds the same value), ANTHROPIC_API_KEY, a fallback GITHUB_TOKEN. JSON."
+  description             = "${var.hostname} engineering runners: VOCION_RUNNER_TOKEN (the app holds the same value), ANTHROPIC_API_KEY (not with runner_bedrock), a fallback GITHUB_TOKEN. JSON."
   recovery_window_in_days = var.secret_recovery_window_days
 }
 
@@ -150,12 +151,88 @@ resource "aws_iam_role_policy" "runner_execution_secret" {
   policy = data.aws_iam_policy_document.runner_execution_secret[0].json
 }
 
-# What the runner itself may do in AWS: nothing. It reaches Vocion and GitHub with tokens.
+# What the runner itself may do in AWS: nothing, unless its engineer runs on
+# Bedrock (runner_bedrock). It reaches Vocion and GitHub with tokens.
 resource "aws_iam_role" "runner_task" {
   count = local.runners
 
   name               = "${var.name_prefix}-runner-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+}
+
+# ----- the engineer on Bedrock (runner_bedrock) -----
+#
+# The same grant the box's role gets (compute.tf: the models in bedrock_models,
+# in-region and through this geography's inference profiles), on the runner
+# task role. The runner hands the engineer that role's credentials endpoint and
+# region and nothing else from AWS (packages/runner/src/bedrock.mjs), and the
+# engineer runs the geography's Sonnet profile unless a run names a model.
+
+locals {
+  runner_bedrock = var.runners_enabled && var.runner_bedrock ? 1 : 0
+
+  # The default Sonnet, as agent-runtime's BEDROCK_DEFAULT and the app's main role name it.
+  runner_bedrock_foundation_model = "anthropic.claude-sonnet-4-6"
+  runner_bedrock_model = (
+    var.bedrock_inference_profile_geography != ""
+    ? "${var.bedrock_inference_profile_geography}.${local.runner_bedrock_foundation_model}"
+    : local.runner_bedrock_foundation_model
+  )
+
+  runner_bedrock_environment = local.runner_bedrock == 1 ? [
+    { name = "CLAUDE_CODE_USE_BEDROCK", value = "1" },
+    { name = "AWS_REGION", value = local.region },
+    { name = "ANTHROPIC_MODEL", value = local.runner_bedrock_model },
+  ] : []
+
+  # On Bedrock the model credential is the task role, so the secret carries no model key (ECS
+  # refuses to start a task whose secret lacks a key it names).
+  runner_secret_keys = local.runner_bedrock == 1 ? ["VOCION_RUNNER_TOKEN", "GITHUB_TOKEN"] : ["VOCION_RUNNER_TOKEN", "ANTHROPIC_API_KEY", "GITHUB_TOKEN"]
+}
+
+data "aws_iam_policy_document" "runner_bedrock" {
+  count = local.runner_bedrock
+
+  statement {
+    sid     = "InvokeFoundationModels"
+    effect  = "Allow"
+    actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = flatten([
+      for r in local.bedrock_model_regions : [
+        for m in var.bedrock_models : "arn:${local.partition}:bedrock:${r}::foundation-model/${m}"
+      ]
+    ])
+  }
+
+  dynamic "statement" {
+    for_each = var.bedrock_inference_profile_geography != "" ? [var.bedrock_inference_profile_geography] : []
+    content {
+      sid     = "InvokeInferenceProfiles"
+      effect  = "Allow"
+      actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+      resources = [
+        for m in var.bedrock_models : "arn:${local.partition}:bedrock:${local.region}:${local.account_id}:inference-profile/${statement.value}.${m}"
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "runner_bedrock" {
+  count = local.runner_bedrock
+
+  name   = "${var.name_prefix}-runner-bedrock"
+  role   = aws_iam_role.runner_task[0].id
+  policy = data.aws_iam_policy_document.runner_bedrock[0].json
+
+  lifecycle {
+    precondition {
+      condition = anytrue([
+        for m in var.bedrock_models :
+        m == local.runner_bedrock_foundation_model || (endswith(m, "*") && startswith(local.runner_bedrock_foundation_model, trimsuffix(m, "*")))
+      ])
+      error_message = "runner_bedrock runs the engineer on ${local.runner_bedrock_foundation_model}, which bedrock_models does not allow. Add it (or anthropic.*)."
+    }
+  }
 }
 
 locals {
@@ -166,7 +243,7 @@ locals {
     essential             = true
     environment           = local.runner_environment
     secrets = [
-      for k in ["VOCION_RUNNER_TOKEN", "ANTHROPIC_API_KEY", "GITHUB_TOKEN"] :
+      for k in local.runner_secret_keys :
       { name = k, valueFrom = "${aws_secretsmanager_secret.runner[0].arn}:${k}::" }
     ]
     logConfiguration = {
