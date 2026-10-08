@@ -326,5 +326,27 @@
     "hire_failed": "Could not hire that agent. Refresh and try again.",
     "installed_apps": "Installed apps",
     "more_apps": "More apps"
+  },
+  "Members": {
+    "people_count": "{count, plural, one {# person} other {# people}}",
+    "invited_count": "{count} invited",
+    "status_label": "Status",
+    "status_all": "Status: all",
+    "status_active": "Active",
+    "status_invited": "Invited",
+    "state_invited": "Invited",
+    "state_expired": "Expired",
+    "invited_title": "Waiting for them to open the link and join",
+    "expired_title": "This link no longer works. Re-invite to make a fresh one.",
+    "invited_by": "Invited {date} by {name}",
+    "invited_on": "Invited {date}",
+    "expires_on": "expires {date}",
+    "expired_on": "expired {date}",
+    "invite_actions": "Actions for the invite to {email}",
+    "copy_link": "Copy invite link",
+    "copied": "Copied",
+    "reinvite": "Re-invite",
+    "revoke": "Revoke invite",
+    "revoke_confirm": "Revoke the invite for {email}? Their link stops working."
   }
 }

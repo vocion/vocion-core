@@ -318,6 +318,15 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/scorecard',
       timeout: 60 * 1000,
     },
+    // Members: invites as rows on the People lane, read, filtered and revoked
+    // by an admin, and never another Org's. Self-seeding like `scorecard`;
+    // nobody is in two Orgs, so it runs on a default single-Org server.
+    // Run with: npx playwright test --project=members
+    {
+      name: 'members',
+      testDir: './e2e/members',
+      timeout: 60 * 1000,
+    },
     // vocion-core#128 — a person in two accounts switches account by switching
     // workspace. Self-seeding like `scorecard`. Needs a multi-Org server, so it
     // skips itself unless VOCION_ORGS=multi.

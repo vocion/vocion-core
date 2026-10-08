@@ -1,9 +1,11 @@
 'use client';
 
+import type { InviteRow, PeopleFilter } from './access';
 import type { ListStateConfig } from '@/components/patterns';
 import type { AccessOverview } from '@/services/GroupService';
 import type { PendingInvite, TeamMember } from '@/services/MembersService';
 import { Plus } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { ListPage, ListToolbar, useListUrlState } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
@@ -18,7 +20,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { client } from '@/libs/Orpc';
-import { filterPeople, grantableWorkspaces, groupMatches, groupRows, peopleRows } from './access';
+import { filterInvites, filterPeople, grantableWorkspaces, groupMatches, groupRows, inviteRows, PEOPLE_STATUSES, peopleRows } from './access';
 import { GroupSheet } from './GroupSheet';
 import { GroupsTab } from './GroupsTab';
 import { InviteDialog } from './InviteDialog';
@@ -39,8 +41,12 @@ import { PeopleTab } from './PeopleTab';
  * hand-rolled a table with a list inside a cell, and repeated the whole roster
  * once per group — `docs/design/patterns.md` exists to stop exactly that.
  *
- * Reads are the two this screen already had: `groups.overview` for access and
- * `members.list` for the account role and the joining date. No endpoint is new.
+ * Reads are the three this screen already had: `groups.overview` for access,
+ * `members.list` for the account role and the joining date, and, for an
+ * admin, `members.invites` for the invites nobody has accepted yet. No
+ * endpoint is new. Those invites are rows on the People lane, counted in its
+ * tab and its summary ("4 people · 1 invited") and narrowed by a Status facet;
+ * the invite dialog only makes new ones.
  *
  * There is no "not in force" caveat on this screen. Access IS enforced on this
  * deployment (`VOCION_ENFORCE_WORKSPACE_ACCESS=1`, set in
@@ -56,15 +62,18 @@ const LANES = [
   { key: 'groups', label: 'Groups' },
 ] as const;
 
+const NO_FACETS = { group: '', workspace: '', role: '', status: '' };
+
 const LIST: ListStateConfig = {
-  defaults: { tab: 'people', q: '', sort: '', dir: 'asc', chips: [], facets: { group: '', workspace: '', role: '' } },
+  defaults: { tab: 'people', q: '', sort: '', dir: 'asc', chips: [], facets: NO_FACETS },
   tabs: LANES.map(l => l.key),
   // Accepted values are filled in from the data below; an unknown value in a
   // stale link falls back to "all" rather than showing an empty list.
-  facets: { group: [], workspace: [], role: ['admin', 'member'] },
+  facets: { group: [], workspace: [], role: ['admin', 'member'], status: [] },
 };
 
 export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }) {
+  const t = useTranslations('Members');
   const [overview, setOverview] = useState<AccessOverview | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
@@ -118,30 +127,58 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
   const people = useMemo(() => (overview ? peopleRows(overview, members) : []), [overview, members]);
   const groups = useMemo(() => (overview ? groupRows(overview) : []), [overview]);
   const shared = useMemo(() => (overview ? grantableWorkspaces(overview) : []), [overview]);
+  const invited = useMemo(() => inviteRows(invites, people), [invites, people]);
 
   // The accepted facet values are the data's own, so a link naming a group
   // that has since been deleted opens the unfiltered list instead of an empty
-  // one.
+  // one. Status is offered only while there is an invite to tell apart, and a
+  // link still saying "invited" after the last one went opens everybody.
   const config = useMemo<ListStateConfig>(() => ({
     ...LIST,
     facets: {
       group: groups.map(g => g.slug),
       workspace: shared.map(w => w.name),
       role: ['admin', 'member'],
+      status: invited.length > 0 ? [...PEOPLE_STATUSES] : [],
     },
-  }), [groups, shared]);
+  }), [groups, shared, invited.length]);
 
   const [list, setList] = useListUrlState(config);
   const lane = list.tab === 'groups' ? 'groups' : 'people';
 
-  const visiblePeople = useMemo(
-    () => filterPeople(people, { q: list.q, group: list.facets.group ?? '', workspace: list.facets.workspace ?? '', role: list.facets.role ?? '' }),
-    [people, list.q, list.facets],
-  );
+  const filter = useMemo<PeopleFilter>(() => ({
+    q: list.q,
+    group: list.facets.group ?? '',
+    workspace: list.facets.workspace ?? '',
+    role: list.facets.role ?? '',
+    status: list.facets.status ?? '',
+  }), [list.q, list.facets]);
+  const visiblePeople = useMemo(() => filterPeople(people, filter), [people, filter]);
+  const visibleInvites = useMemo(() => filterInvites(invited, filter), [invited, filter]);
   const visibleGroups = useMemo(() => groups.filter(g => groupMatches(g, list.q)), [groups, list.q]);
 
   const openGroup = groups.find(g => g.id === openGroupId) ?? null;
   const memberships = groups.reduce((n, g) => n + g.members.length, 0);
+
+  // "4 people · 1 invited", saying only what is there: a Status of "invited"
+  // reads "1 invited", not "0 people · 1 invited".
+  const peopleSummary = [
+    (visiblePeople.length > 0 || visibleInvites.length === 0) && t('people_count', { count: visiblePeople.length }),
+    visibleInvites.length > 0 && t('invited_count', { count: visibleInvites.length }),
+  ].filter(Boolean).join(' · ');
+
+  const revokeInvite = (invite: InviteRow) => {
+    // eslint-disable-next-line no-alert
+    if (window.confirm(t('revoke_confirm', { email: invite.email }))) {
+      run(() => client.members.revokeInvite({ inviteId: invite.inviteId }));
+    }
+  };
+  // A fresh link for the same address and role; `createInvite` replaces the
+  // expired one rather than adding a second.
+  const reinvite = (invite: InviteRow) => run(() => client.members.invite({
+    email: invite.email,
+    role: invite.accountRole === 'admin' ? 'admin' : 'member',
+  }));
 
   if (!loaded) {
     return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
@@ -174,11 +211,11 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
         tabs={{
           label: 'Lanes',
           items: [
-            { key: 'people', label: 'People', count: people.length },
+            { key: 'people', label: 'People', count: people.length + invited.length },
             { key: 'groups', label: 'Groups', count: groups.length },
           ],
           value: lane,
-          onChange: tab => setList({ tab, q: '', facets: { group: '', workspace: '', role: '' } }),
+          onChange: tab => setList({ tab, q: '', facets: NO_FACETS }),
         }}
         search={{
           value: list.q,
@@ -212,12 +249,25 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
                   { key: 'member', label: 'member' },
                 ],
               },
+              ...(invited.length > 0
+                ? [{
+                    name: 'status',
+                    label: t('status_label'),
+                    value: list.facets.status ?? '',
+                    onChange: (v: string) => setList({ facets: { ...list.facets, status: v } }),
+                    options: [
+                      { key: '', label: t('status_all') },
+                      { key: 'active', label: t('status_active') },
+                      { key: 'invited', label: t('status_invited') },
+                    ],
+                  }]
+                : []),
             ]
           : undefined}
         trailing={(
           <span className="text-[13px] text-muted-foreground tabular-nums">
             {lane === 'people'
-              ? `${visiblePeople.length} ${visiblePeople.length === 1 ? 'person' : 'people'}`
+              ? peopleSummary
               : `${visibleGroups.length} ${visibleGroups.length === 1 ? 'group' : 'groups'} · ${memberships} ${memberships === 1 ? 'membership' : 'memberships'}`}
           </span>
         )}
@@ -227,11 +277,12 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
         ? (
             <PeopleTab
               rows={visiblePeople}
+              invites={visibleInvites}
               sharedCount={shared.length}
               isAdmin={isAdmin}
               currentUserId={props.currentUserId}
               pending={pending}
-              anyPeople={people.length > 0}
+              anyPeople={people.length + invited.length > 0}
               onChangeRole={(userId, role) => run(() => client.members.changeRole({ userId, role }))}
               onRemoveDirect={(userId, projectId) => run(() => client.groups.removeDirect({ projectId, userId }))}
               onRemoveMember={(userId, email) => {
@@ -240,6 +291,8 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
                   run(() => client.members.remove({ userId }));
                 }
               }}
+              onRevokeInvite={revokeInvite}
+              onReinvite={reinvite}
             />
           )
         : (
@@ -267,7 +320,6 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
 
       <InviteDialog
         open={inviting}
-        invites={invites}
         pending={pending}
         error={error}
         onOpenChange={setInviting}
@@ -281,7 +333,6 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
             return null;
           }
         }}
-        onRevoke={inviteId => run(() => client.members.revokeInvite({ inviteId }))}
       />
 
       <Dialog open={newGroup} onOpenChange={setNewGroup}>

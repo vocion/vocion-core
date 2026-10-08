@@ -14,24 +14,27 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { inviteUrl, useCopyInviteLink } from './inviteLink';
 
 /**
- * Inviting somebody, and the pending invites, behind the People lane's primary
- * action. They were a form and a second table stacked under the members table,
- * which is a second page's worth of controls on a screen whose job is to
- * answer who reaches what.
+ * Inviting somebody, behind the People lane's primary action. It makes the
+ * link and hands it over, and that is all it does.
+ *
+ * It used to list the pending invites too, with their Copy and Revoke. Those
+ * are rows on the People lane now (`InviteRow`), the one place an invite is
+ * shown: a list inside a dialog beside the same list on the page would be two
+ * surfaces doing one job, and the dialog's copy was the only one there was —
+ * you had to open "Invite member" to find out who had been invited.
  *
  * No email is sent: the invite is a link to copy and share.
  */
 
 /**
- * The link an invite is shared as. Exported so every place that shows an
- * invite shares the same link (an extension's page among them).
- * @param token - The invite's token.
+ * The link an invite is shared as. Re-exported here, beside `CopyLink`, so
+ * every place that shows an invite shares the same link — an extension's page
+ * among them, which imports both from this module.
  */
-export function inviteUrl(token: string): string {
-  return `${window.location.origin}/sign-up?invite=${token}`;
-}
+export { inviteUrl };
 
 /**
  * Copies an invite's link, and says so for two seconds.
@@ -40,17 +43,9 @@ export function inviteUrl(token: string): string {
  * @param props.label - The button's words (default "Copy link").
  */
 export function CopyLink({ token, label }: { token: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, copy] = useCopyInviteLink();
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={async () => {
-        await navigator.clipboard.writeText(inviteUrl(token));
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-    >
+    <Button variant="outline" size="sm" onClick={() => void copy(token)}>
       {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       {copied ? 'Copied' : (label ?? 'Copy link')}
     </Button>
@@ -59,12 +54,10 @@ export function CopyLink({ token, label }: { token: string; label?: string }) {
 
 export function InviteDialog(props: {
   open: boolean;
-  invites: readonly PendingInvite[];
   pending: boolean;
   error: string | null;
   onOpenChange: (open: boolean) => void;
   onInvite: (email: string, role: 'admin' | 'member') => Promise<PendingInvite | null>;
-  onRevoke: (inviteId: string) => void;
 }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'member'>('member');
@@ -85,7 +78,8 @@ export function InviteDialog(props: {
           <DialogTitle>Invite a member</DialogTitle>
           <DialogDescription>
             No email is sent. You get a link to share directly, good once, and
-            only for the address you name.
+            only for the address you name. It waits on the People list until
+            they join.
           </DialogDescription>
         </DialogHeader>
 
@@ -137,22 +131,6 @@ export function InviteDialog(props: {
               <Input readOnly value={inviteUrl(fresh.token)} className="font-mono text-xs" onFocus={e => e.target.select()} />
               <CopyLink token={fresh.token} label="Copy" />
             </div>
-          </div>
-        )}
-
-        {props.invites.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Pending</p>
-            {props.invites.map(inv => (
-              <div key={inv.id} className="flex items-center gap-2 border-b border-border/60 py-2 text-sm last:border-b-0">
-                <span className="min-w-0 flex-1 truncate">{inv.email}</span>
-                <span className={inv.expired ? 'text-[12px] text-destructive' : 'text-[12px] text-muted-foreground'}>
-                  {inv.expired ? 'Expired' : `expires ${new Date(inv.expiresAt).toLocaleDateString()}`}
-                </span>
-                {!inv.expired && <CopyLink token={inv.token} />}
-                <Button variant="ghost" size="sm" onClick={() => props.onRevoke(inv.id)}>Revoke</Button>
-              </div>
-            ))}
           </div>
         )}
 

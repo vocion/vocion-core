@@ -6,9 +6,9 @@
  * those rows is what made the column the screen shipped with unreadable.
  */
 import type { AccessOverview } from '@/services/GroupService';
-import type { TeamMember } from '@/services/MembersService';
+import type { PendingInvite, TeamMember } from '@/services/MembersService';
 import { describe, expect, it } from 'vitest';
-import { filterPeople, grantableWorkspaces, groupMatches, groupRows, peopleRows, personMatches, reachLabel } from './access';
+import { filterInvites, filterPeople, grantableWorkspaces, groupMatches, groupRows, inviteRows, peopleRows, personMatches, reachLabel } from './access';
 
 const WORKSPACES = [
   { id: 'p-rev', slug: 'revenue', name: 'Revenue Team', kind: 'shared' },
@@ -133,6 +133,98 @@ describe('filterPeople', () => {
 
   it('applies the facets together, not one at a time', () => {
     expect(filterPeople(rows, { ...all, group: 'revops', role: 'admin' })).toEqual([]);
+  });
+
+  it('keeps everybody on "active" and nobody on "invited"', () => {
+    expect(filterPeople(rows, { ...all, status: 'active' })).toHaveLength(2);
+    expect(filterPeople(rows, { ...all, status: 'invited' })).toEqual([]);
+  });
+});
+
+const INVITES: PendingInvite[] = [
+  {
+    id: 'inv-casey',
+    email: 'casey@kestrel.example',
+    role: 'member',
+    token: 'tok-casey',
+    expiresAt: new Date('2026-10-15T00:00:00Z'),
+    createdAt: new Date('2026-10-01T00:00:00Z'),
+    expired: false,
+    invitedBy: { userId: 'u-brit', name: 'Brit Nakamura', email: 'brit@northwind.example' },
+  },
+  {
+    id: 'inv-devon',
+    email: 'devon@contoso.example',
+    role: 'admin',
+    token: 'tok-devon',
+    expiresAt: new Date('2026-09-20T00:00:00Z'),
+    createdAt: new Date('2026-09-06T00:00:00Z'),
+    expired: true,
+    invitedBy: { userId: 'u-old', name: null, email: 'ops@northwind.example' },
+  },
+  {
+    id: 'inv-seeded',
+    email: 'erin@acme.example',
+    role: 'member',
+    token: 'tok-erin',
+    expiresAt: new Date('2026-10-20T00:00:00Z'),
+    createdAt: null,
+    expired: false,
+    invitedBy: null,
+  },
+];
+
+describe('inviteRows', () => {
+  const people = peopleRows(OVERVIEW, MEMBERS);
+
+  it('makes one row per open invite, newest first as the read gave them', () => {
+    expect(inviteRows(INVITES, people).map(i => i.inviteId)).toEqual(['inv-casey', 'inv-devon', 'inv-seeded']);
+    expect(inviteRows(INVITES, people)[0]).toMatchObject({
+      email: 'casey@kestrel.example',
+      accountRole: 'member',
+      token: 'tok-casey',
+      expired: false,
+    });
+  });
+
+  it('names who sent it, by name, then by email, then not at all', () => {
+    expect(inviteRows(INVITES, people).map(i => i.invitedBy)).toEqual(['Brit Nakamura', 'ops@northwind.example', null]);
+  });
+
+  it('never repeats somebody who is already a person in the Org', () => {
+    // Alex joined another way while an invite for the same address, in another
+    // case, was still open. Alex has a row; a second one saying "Invited"
+    // would contradict it.
+    const stale: PendingInvite = { ...INVITES[0]!, id: 'inv-alex', email: 'Alex@Northwind.example' };
+
+    expect(inviteRows([stale, ...INVITES], people).map(i => i.inviteId)).toEqual(['inv-casey', 'inv-devon', 'inv-seeded']);
+  });
+});
+
+describe('filterInvites', () => {
+  const rows = inviteRows(INVITES, peopleRows(OVERVIEW, MEMBERS));
+  const all = { q: '', group: '', workspace: '', role: '' };
+
+  it('is every invite, expired ones included, when nothing is set', () => {
+    expect(filterInvites(rows, all)).toHaveLength(3);
+    expect(filterInvites(rows, { ...all, status: 'invited' })).toHaveLength(3);
+  });
+
+  it('is none on "active", which means people who have joined', () => {
+    expect(filterInvites(rows, { ...all, status: 'active' })).toEqual([]);
+  });
+
+  it('matches the email the invite went to', () => {
+    expect(filterInvites(rows, { ...all, q: 'KESTREL' }).map(i => i.inviteId)).toEqual(['inv-casey']);
+  });
+
+  it('narrows by the role they would join with', () => {
+    expect(filterInvites(rows, { ...all, role: 'admin' }).map(i => i.inviteId)).toEqual(['inv-devon']);
+  });
+
+  it('leaves no invite under a group or a workspace, which nobody invited is in yet', () => {
+    expect(filterInvites(rows, { ...all, group: 'revops' })).toEqual([]);
+    expect(filterInvites(rows, { ...all, workspace: 'Revenue Team' })).toEqual([]);
   });
 });
 

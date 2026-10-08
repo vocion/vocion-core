@@ -1,6 +1,6 @@
 'use client';
 
-import type { PersonRow } from './access';
+import type { InviteRow as InviteRowData, PersonRow } from './access';
 import { MoreHorizontal, Users } from 'lucide-react';
 import { Column, ListEmpty, ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { reachLabel } from './access';
 import { Chips } from './Chips';
+import { day } from './day';
+import { InviteRow } from './InviteRow';
 
 /**
  * People — the report half of the members screen.
@@ -29,32 +31,32 @@ import { Chips } from './Chips';
  * the group, where the roster is drawn once instead of once per person. The
  * only per-person verb is removing access they hold on their OWN — a direct
  * grant, which no group covers and which has no other home.
+ *
+ * Under the people come the invites nobody has accepted yet (admins only —
+ * nobody else can act on one, and an invite carries its link). They are the
+ * same row in the same columns; accepting one turns it into a person row, and
+ * an invite for somebody already in the Org never shows (`inviteRows`).
  */
-
-const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-
-function joined(at: Date | null): string {
-  if (!at) {
-    return '—';
-  }
-  const d = at instanceof Date ? at : new Date(at);
-  return Number.isNaN(d.getTime()) ? '—' : DAY.format(d);
-}
 
 export function PeopleTab(props: {
   rows: readonly PersonRow[];
+  /** Open invites, after the filters; empty for anybody but an admin. */
+  invites?: readonly InviteRowData[];
   /** How many shared workspaces the account has, for the "all" collapse. */
   sharedCount: number;
   isAdmin: boolean;
   currentUserId: string;
   pending: boolean;
-  /** Whether anything matched before the filters narrowed it. */
+  /** Whether anything — a person or an invite — was on the lane before the filters narrowed it. */
   anyPeople: boolean;
   onChangeRole: (userId: string, role: 'admin' | 'member') => void;
   onRemoveDirect: (userId: string, projectId: string, workspace: string) => void;
   onRemoveMember: (userId: string, email: string) => void;
+  onRevokeInvite?: (invite: InviteRowData) => void;
+  onReinvite?: (invite: InviteRowData) => void;
 }) {
-  if (props.rows.length === 0) {
+  const invites = props.invites ?? [];
+  if (props.rows.length === 0 && invites.length === 0) {
     return props.anyPeople
       ? <ListEmpty variant="inline" title="Nobody matches that." description="Clear the search or a filter." />
       : <ListEmpty variant="page" icon={Users} title="Nobody here yet" description="Invite somebody and they show up on this list." />;
@@ -107,7 +109,7 @@ export function PeopleTab(props: {
                 <Column kind="score" align="left" grow always>
                   <Chips items={reach.chips} empty="nothing" />
                 </Column>
-                <Column kind="date">{joined(p.joinedAt)}</Column>
+                <Column kind="date">{day(p.joinedAt)}</Column>
               </>
             )}
             actionsAlways
@@ -150,7 +152,7 @@ export function PeopleTab(props: {
                             variant="destructive"
                             onSelect={() => props.onRemoveMember(p.userId, p.email)}
                           >
-                            Remove from account
+                            Remove from Org
                           </DropdownMenuItem>
                         </>
                       )}
@@ -161,6 +163,15 @@ export function PeopleTab(props: {
           />
         );
       })}
+      {invites.map(inv => (
+        <InviteRow
+          key={inv.inviteId}
+          invite={inv}
+          pending={props.pending}
+          onRevoke={i => props.onRevokeInvite?.(i)}
+          onReinvite={i => props.onReinvite?.(i)}
+        />
+      ))}
     </ListRows>
   );
 }
