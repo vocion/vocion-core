@@ -1,6 +1,7 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
+import type { CardDecision } from './cards/CardDecisions';
 import type { AgentOption } from './types';
 import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import type { PageContext } from '@/services/chat/pageContext';
@@ -34,6 +35,7 @@ import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
+import { ConversationDecisions } from './decisions/DecisionDock';
 import { RAIL_SET_EVENT } from './dockState';
 import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
@@ -295,8 +297,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // The record the page beside the rail is about — it refreshes itself, so
   // the turn's follow chips leave it out (Chris, 2026-09-29).
   const pageRecord = useMemo(() => followExcludeOf(effectiveContext?.record ?? (effectiveContext?.path ? recordFromPath(effectiveContext.path) : null) ?? (scopeRef ? scopeRefToRecord(scopeRef) : null)), [effectiveContext, scopeRef]);
-  // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
-  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+  // A card's decision is recorded on the card in THIS conversation (backlog 025) — never as a user turn.
+  const recordCardDecision = useCallback((d: CardDecision) => {
     if (session.conversationId === null) {
       return;
     }
@@ -798,6 +800,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   onSomethingElse={text => void session.sendMessage(text)}
                 />
               )}
+              <ConversationDecisions session={session} />
               {comments && (
                 <CommentChips
                   comments={comments.open}

@@ -21,6 +21,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
+import { DoneReceipts } from './decisions/DoneReceipts';
 import { liveWorkIndex, segmentTurn } from './interleave';
 import { classifyDashboardLink, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
@@ -587,6 +588,10 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           )}
           {(message.selfUpdates?.length ?? 0) > 0 && (
             <SelfUpdateChips updates={message.selfUpdates!} />
+          )}
+          {/* Done inside the trust bar: one line each, Undo only where real. */}
+          {(message.receipts?.length ?? 0) > 0 && (
+            <DoneReceipts receipts={message.receipts!} />
           )}
         </div>
         {/* How the turn ended, when that is not "it finished" (#114). Three

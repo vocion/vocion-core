@@ -1,6 +1,7 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
+import type { CardDecision } from './cards/CardDecisions';
 import type { AgentOption, ChatAttachment, RecommendedAction } from './types';
 import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import type { PageContext } from '@/services/chat/pageContext';
@@ -25,6 +26,7 @@ import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
+import { ConversationDecisions } from './decisions/DecisionDock';
 import { mayDockCard } from './emptyChat';
 import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
@@ -216,8 +218,8 @@ function ChatShellInner({
     };
   }, [intent, pathname]);
   const session = useChatSession({ agents, initialComposerValue, initialAttachments, suggestions, greeting, resumeConversationId: conversationId, pageContext });
-  // A card's decision becomes a typed user turn in THIS conversation (backlog 025).
-  const recordCardDecision = useCallback((d: { cardId: string; label: string; action: 'approve' | 'reject' | 'defer' | 'undo'; runId?: number }) => {
+  // A card's decision is recorded on the card in THIS conversation (backlog 025) — never as a user turn.
+  const recordCardDecision = useCallback((d: CardDecision) => {
     if (session.conversationId === null) {
       return;
     }
@@ -505,23 +507,24 @@ function ChatShellInner({
                 )}
 
           <ChatComposer
-            above={intent?.context?.selection || intent?.context?.record || connectWalk.active
-              ? (
-                  <>
-                    {connectWalk.active && (
-                      <ConnectSystemsFlow
-                        key={connectWalk.active.key}
-                        input={connectWalk.active.input}
-                        card={connectWalk.active.cardId && session.conversationId !== null ? { conversationId: session.conversationId, cardId: connectWalk.active.cardId } : null}
-                        onClose={connectWalk.close}
-                        onSomethingElse={text => void session.sendMessage(text)}
-                      />
-                    )}
-                    {intent?.context?.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
-                    {intent?.context?.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
-                  </>
-                )
-              : undefined}
+            above={(
+              <>
+                {connectWalk.active && (
+                  <ConnectSystemsFlow
+                    key={connectWalk.active.key}
+                    input={connectWalk.active.input}
+                    card={connectWalk.active.cardId && session.conversationId !== null ? { conversationId: session.conversationId, cardId: connectWalk.active.cardId } : null}
+                    onClose={connectWalk.close}
+                    onSomethingElse={text => void session.sendMessage(text)}
+                  />
+                )}
+                {/* The Decision this thread waits on, docked first — the
+                    composer below stays live to answer in words. */}
+                <ConversationDecisions session={session} />
+                {intent?.context?.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
+                {intent?.context?.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
+              </>
+            )}
             onCommand={onCommand}
             // The thread's settings, in the bar: its rung (done for you / ask
             // first) and its model — one cluster, every surface (2026-09-18).

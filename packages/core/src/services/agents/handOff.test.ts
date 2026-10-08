@@ -4,7 +4,7 @@
  * asked for lands first.
  */
 import { describe, expect, it } from 'vitest';
-import { HandOffGateCallback, HandOffGuard, TurnHandedOff } from './handOff';
+import { HandOffGateCallback, HandOffGuard, handsOff, TurnHandedOff } from './handOff';
 
 describe('HandOffGuard', () => {
   it('does nothing until a card is up, then stops the turn at the next model call', () => {
@@ -65,5 +65,30 @@ describe('HandOffGuard', () => {
     await cb.handleChatModelStart();
 
     expect(guard.stopped).toBe(true);
+  });
+});
+
+describe('raising a Decision ends the turn', () => {
+  const asked = { id: 41, kind: 'choice' as const, question: 'Which repo should the factory build in?', options: [], allowOther: true, multiple: false, agentSlug: 'product-manager', ownerUserId: 'usr-dana', conversationId: 392 };
+
+  it('an open Decision and an approval gate hand the next move to the person', () => {
+    expect(handsOff({ type: 'decision', decision: { ...asked, state: 'open' } })).toBe('Which repo should the factory build in?');
+    expect(handsOff({ type: 'hitl_gate', gate: { name: 'send-email', question: 'Send this follow-up to Northwind?' } })).toBe('Send this follow-up to Northwind?');
+  });
+
+  it('an answered Decision, or anything else, hands nothing off', () => {
+    expect(handsOff({ type: 'decision', decision: { ...asked, state: 'answered' } })).toBeNull();
+    expect(handsOff({ type: 'response_delta', delta: 'One question before I go on.' })).toBeNull();
+  });
+
+  it('the gate stops the turn at the next model call, where it used to say "wait" and talk on', () => {
+    const guard = new HandOffGuard();
+    guard.arm(true);
+    const handed = handsOff({ type: 'hitl_gate', gate: { name: 'send-email', question: 'Send this follow-up to Northwind?' } });
+    guard.handOff(handed!);
+    guard.beforeModelCall();
+
+    expect(guard.stopped).toBe(true);
+    expect(guard.stopError?.cards).toEqual(['Send this follow-up to Northwind?']);
   });
 });

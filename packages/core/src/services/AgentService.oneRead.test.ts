@@ -193,6 +193,15 @@ describe('an act the person asked for that wrote nothing gets one more pass, no 
     expect(result.response).toContain('the field is locked');
   });
 
+  it('a Decision answered on its card already landed: the asking agent is not told to "do it now"', async () => {
+    const { answeredIntent } = await import('@/services/agents/turnJudge');
+    const inputs = passes([say('Building in the Northwind API now.')]);
+
+    await runAgentDeep({ orgId: ORG, agentSlug: 'product-manager', message: '[decision #41 answered] Which repo?\nChosen: Northwind API (option api)', onEvent: () => {}, userId: PERSON, intent: answeredIntent('Northwind API'), landedWrites: 1 });
+
+    expect(inputs).toHaveLength(1);
+  });
+
   it('an answer that only promises is not continued: the turn ends as written', async () => {
     const inputs = passes([say('Let me look into that.')]);
 

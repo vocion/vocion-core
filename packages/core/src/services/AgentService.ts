@@ -29,7 +29,7 @@ import { flatHistory, historyMessages, withLiveCardState } from '@/services/chat
 import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
-import { HandOffGateCallback, HandOffGuard } from './agents/handOff';
+import { HandOffGateCallback, HandOffGuard, handsOff } from './agents/handOff';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
@@ -593,6 +593,18 @@ export async function runAgentDeep(opts: {
    * they ask for something beyond the agent's own defaults.
    */
   modelPrefs?: import('@/libs/llm/modelPrefs').ModelPrefs;
+  /**
+   * What the person wants from this turn, already known — a turn that
+   * answers an open Decision (`turnJudge.answeredIntent`). The answer is a
+   * typed record, so the turn is not read again; absent, `readIntent` reads it.
+   */
+  intent?: import('./agents/turnJudge').TurnIntent;
+  /**
+   * Writes that landed for this turn before it ran: a Decision's answer is
+   * recorded (and its chosen option run) before the asking agent hears it, so
+   * the act the turn was "asked for" has already happened — no owed-act pass.
+   */
+  landedWrites?: number;
 }): Promise<{
   response: string;
   /** The words after the last tool call, for a surface with no trace (`lastAnswerOf`); the harnesses that cannot tell leave it out. */
@@ -661,6 +673,14 @@ export async function runAgentDeep(opts: {
     // before the model speaks again.
     if (event.type === 'card' && (event.card.state === 'proposed' || event.card.state === 'filed')) {
       handOffGuard.handOff(event.card.title);
+    }
+    // RAISING A DECISION ENDS THE TURN. An open Decision docked above the
+    // composer, or an approval gate, is the next move handed to the person;
+    // the gate used to say "wait for the user" in its tool result and the
+    // model kept talking past it (`handsOff`).
+    const handed = handsOff(event);
+    if (handed) {
+      handOffGuard.handOff(handed);
     }
     if (event.type === 'record_created') {
       createdRecords.push(event.record);
@@ -984,25 +1004,27 @@ export async function runAgentDeep(opts: {
   // the turn read-only (`agents/turnScope.ts`): nothing is filed, changed or
   // put up as a card. An act the person asked for that did not land gets
   // one more pass, below. A failed read changes nothing.
-  const intentP = !opts.missionRunId
-    ? readIntent({
-        orgId: opts.orgId,
-        message: opts.message,
-        page: opts.pageContext?.record?.label ?? null,
-        recordTypes: (boundCtx.filingTypes ?? []).map(t => t.slug),
-        previous: {
-          person: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'user')?.content,
-          agent: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content,
-        },
-      })
-    : Promise.resolve(NO_INTENT);
+  const intentP = opts.intent
+    ? Promise.resolve(opts.intent)
+    : !opts.missionRunId
+        ? readIntent({
+            orgId: opts.orgId,
+            message: opts.message,
+            page: opts.pageContext?.record?.label ?? null,
+            recordTypes: (boundCtx.filingTypes ?? []).map(t => t.slug),
+            previous: {
+              person: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'user')?.content,
+              agent: [...(opts.conversationHistory ?? [])].reverse().find(t => t.role === 'assistant')?.content,
+            },
+          })
+        : Promise.resolve(NO_INTENT);
   boundCtx.turnIntent = intentP;
   const personTurn = Boolean(opts.userId) && !opts.missionRunId && !opts.userId!.startsWith('token:');
   // Armed only where a person is reading a conversation as it happens: a
   // person's turn that has a conversation. A briefing, an eval, a workflow or
   // the mission planner has a userId too, and nobody waiting at a card.
   handOffGuard.arm(personTurn && opts.conversationId !== undefined);
-  const turn: TurnScope = { readOnly: false, writes: 0 };
+  const turn: TurnScope = { readOnly: false, writes: opts.landedWrites ?? 0 };
   // The model starts before the intent read and the router have answered;
   // every tool waits here for both (`agents/turnGate.ts`), and so does
   // everything after the graph — the text tool calls and the answer pass

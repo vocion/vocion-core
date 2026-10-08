@@ -280,6 +280,20 @@ export type AgentEvent
     | { type: 'self_update'; selfUpdate: SelfUpdateReceipt }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     /**
+     * A Decision in front of the person (`libs/decisions/decision.ts`): raised
+     * in this turn, or answered. An `open` one docks above the composer and
+     * ENDS the turn — the next move is theirs (`agents/handOff.ts`). The same
+     * event with another state moves the card (answered, skipped), so the
+     * dock and the transcript read one fact.
+     */
+    | { type: 'decision'; decision: import('@/libs/decisions/decision').DecisionView }
+    /**
+     * Something was done for the person inside the trust bar — no card, no
+     * question — and this is the one line that says so, with Undo only where
+     * the action's kind has one (`libs/decisions/receipt.ts`).
+     */
+    | { type: 'receipt'; receipt: import('@/libs/decisions/receipt').DoneReceipt }
+    /**
      * One tool call failed, reported by the BYOA artifact. Unlike `error` the
      * turn continues: the model is handed the failure as that tool's output
      * and can react to it.

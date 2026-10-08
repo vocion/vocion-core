@@ -47,8 +47,27 @@ export type AgentRun
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
     | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; brand?: string; decision?: CardDecision; draft?: { prompt: string; missing: string } }
-    /** A person's decision on a card, written as a user turn. */
-    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
+    /** A person's decision on a card, as rows before 2026-10 wrote it (a user turn). Now recorded on the card. */
+    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
+    /** A Decision this turn put in front of the person (`libs/decisions/decision.ts`). */
+    | { type: 'decision'; id: number; question: string; state?: string }
+    /** A person's answer to a Decision — on a `decision` row (keys or a click) or the user row whose words answered it. */
+    | { type: 'decision_answer'; id: number; question: string; answer: import('@/libs/decisions/decision').DecisionAnswer; line: string; via?: string }
+    /** Something done inside the trust bar, said once, with Undo only where the kind has one. */
+    | { type: 'receipt'; receipt: import('@/libs/decisions/receipt').DoneReceipt };
+
+/**
+ * A person's answer to a Decision, as the transcript draws it: a quiet line
+ * on their side — "Chose Northwind API" — never a bubble of words they did
+ * not type. `via: 'composer'` marks typed words that were read as the answer.
+ */
+export type DecisionAnswerReceipt = {
+  id: number;
+  question: string;
+  line: string;
+  kind: import('@/libs/decisions/decision').DecisionAnswer['kind'];
+  via?: string;
+};
 
 /** A source surfaced by an actor during the turn (bubbles into the trace). */
 export type TraceCitation = {
@@ -251,6 +270,13 @@ export type ChatMessage = {
   selfUpdates?: SelfUpdateReceipt[];
   /** Files the person attached to this (user) message — chips above its text. */
   attachments?: ChatAttachment[];
+  /**
+   * A person's answer to a Decision (user rows). With `via: 'card'` there is
+   * no text — the row is the answer, drawn as a receipt line, not a bubble.
+   */
+  decisionAnswer?: DecisionAnswerReceipt;
+  /** Done receipts for what this turn did inside the trust bar — Undo only where the kind has one. */
+  receipts?: import('@/libs/decisions/receipt').DoneReceipt[];
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];

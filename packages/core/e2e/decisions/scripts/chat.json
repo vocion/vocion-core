@@ -1,0 +1,74 @@
+{
+  "turns": [
+    {
+      "match": "file a question on the Needs you queue",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "Open decision: Which repo should the factory build in?",
+      "steps": [
+        {
+          "tool": "report_decision_answer",
+          "args": {
+            "answers_open_decision": {
+              "kind": "option",
+              "option_ids": [
+                "portal"
+              ],
+              "free_text": null
+            }
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "build the viewer export",
+      "steps": [
+        {
+          "tool": "file_ask",
+          "args": {
+            "title": "Which repo should the factory build in?",
+            "body": "Two repos match \"Northwind\" and the request names neither.",
+            "kind": "ruling",
+            "options": [
+              {
+                "id": "api",
+                "label": "Northwind API",
+                "description": "Builds land in northwind/api; CI runs on every push.",
+                "recommended": true
+              },
+              {
+                "id": "portal",
+                "label": "Northwind Portal",
+                "description": "Builds land in the customer portal."
+              }
+            ],
+            "confidence": 0.9
+          }
+        }
+      ],
+      "reply": "One question before I start."
+    },
+    {
+      "match": "the second one",
+      "steps": [],
+      "reply": "Building the export in the Northwind Portal, as you said."
+    },
+    {
+      "match": "answered] which repo should the factory build in?",
+      "steps": [],
+      "reply": "Building the export in the Northwind API now."
+    }
+  ],
+  "fallback": "This scripted model has no line for that message."
+}

@@ -142,6 +142,36 @@ export class RunCollector {
     this.mentionLinks.push(...links);
   }
 
+  /**
+   * A Decision this turn raised, or one whose state moved: one run per
+   * Decision, its state kept current.
+   * @param d - The Decision.
+   * @param d.id - Its id.
+   * @param d.question - Its question.
+   * @param d.state - Its state.
+   */
+  onDecision(d: { id: number; question: string; state: string }): void {
+    const known = this.runs.find((r): r is Extract<ConversationRun, { type: 'decision' }> => r.type === 'decision' && r.id === d.id);
+    if (known) {
+      known.state = d.state;
+      return;
+    }
+    this.flushText();
+    this.runs.push({ type: 'decision', id: d.id, question: d.question, state: d.state });
+  }
+
+  /**
+   * A Done receipt: one per run, so a re-emitted receipt does not stack.
+   * @param receipt - The receipt.
+   */
+  onReceipt(receipt: Extract<ConversationRun, { type: 'receipt' }>['receipt']): void {
+    if (this.runs.some(r => r.type === 'receipt' && r.receipt.runId === receipt.runId)) {
+      return;
+    }
+    this.flushText();
+    this.runs.push({ type: 'receipt', receipt });
+  }
+
   onCard(card: CardRunInput): void {
     // Written once: the route tees a card when it is first seen AND again
     // when the auto-filed copy is written to the stream (finding 18).

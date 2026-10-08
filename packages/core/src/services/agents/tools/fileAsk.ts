@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { ASK_KINDS, ASK_RISKS, getAsk } from '@/services/AskService';
 import { checkProposalBudget, isAgentsOwnSchedule } from '@/services/proposals/ProposalBudgetService';
-import { askHeldByThePersonHere } from '../decisionHolder';
+import { whoHoldsTheAsk } from '../decisionHolder';
 
 /**
  * The agent principal every tool-made proposal rides — working autonomy, judged by the ladder.
@@ -37,6 +37,84 @@ function agentPrincipal(ctx: RuntimeContext) {
     grants: ['*'],
     autonomy: 2 as const,
   };
+}
+
+/** An option as the model writes it. */
+type ToolOption = string | { id?: string; label: string; description?: string; recommended?: boolean; confidence?: number; effect?: { action_id: string; input?: Record<string, unknown> } };
+
+/**
+ * An option as the ask stores it: the model's `effect` is the option's `action`.
+ * @param o - The option as the model wrote it.
+ */
+function optionForAsk(o: ToolOption): NonNullable<AskFileInput['options']>[number] {
+  if (typeof o === 'string') {
+    return o;
+  }
+  const { effect, ...rest } = o;
+  return { ...rest, ...(effect ? { action: { id: effect.action_id, input: effect.input ?? {} } } : {}) };
+}
+
+/**
+ * Ask the person in this conversation, here: a Decision docked above their
+ * composer. The turn ends at it (`agents/handOff.ts`), and their answer comes
+ * back to this agent as a typed decision event — so nothing here tells the
+ * model to wait, to ask in words, or that the question is on Needs you.
+ * @param ctx - The turn.
+ * @param args - The ask, as the model wrote it.
+ * @param args.title - The question.
+ * @param args.body - Why.
+ * @param args.kind - What sort of thing.
+ * @param args.risk - How much rides on it.
+ * @param args.object_refs - What it is about.
+ * @param args.allow_other - Offer a free-text answer.
+ * @param args.multiple - Several options at once.
+ * @param args.due_at - When it must be decided by.
+ * @param args.context_md - The long form.
+ * @param args.source_ref - The filer's idempotency key.
+ * @param options - Its options, as the ask stores them.
+ * @param held - Who holds it.
+ */
+async function raiseHere(
+  ctx: RuntimeContext,
+  args: { title: string; body?: string; kind?: AskFileInput['kind']; risk?: AskFileInput['risk']; object_refs?: Array<{ type: string; id: string | number }>; allow_other?: boolean; multiple?: boolean; due_at?: string; context_md?: string; source_ref?: string },
+  options: NonNullable<AskFileInput['options']>,
+  held: Extract<NonNullable<Awaited<ReturnType<typeof whoHoldsTheAsk>>>, { held: 'here' }>,
+): Promise<string> {
+  const { AskError, normaliseObjectRefs, normaliseOptions } = await import('@/services/AskService');
+  const { raiseDecision } = await import('@/services/decisions/DecisionService');
+  try {
+    const { view, created } = await raiseDecision({
+      orgId: ctx.orgId,
+      conversationId: ctx.conversationId!,
+      ownerUserId: ctx.userId!,
+      agentSlug: ctx.agentSlug ?? null,
+      kind: args.kind ?? 'approval',
+      question: args.title,
+      body: args.body ?? null,
+      options: normaliseOptions(options),
+      allowOther: args.allow_other ?? true,
+      multiple: args.multiple ?? false,
+      objectRefs: normaliseObjectRefs(args.object_refs),
+      risk: args.risk ?? null,
+      dueAt: args.due_at ? new Date(args.due_at) : null,
+      contextMd: args.context_md ?? null,
+      sourceRef: args.source_ref ?? null,
+    });
+    ctx.emit({ type: 'decision', decision: view });
+    ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { decisionId: view.id, docked: true, created } } as never);
+    const who = held.name ?? 'The person';
+    return [
+      `Asked ${who} here: decision #${view.id} is docked above their composer${view.options.length > 0 ? `, ${view.options.length} options${view.options[0]?.recommended ? ', your recommendation first' : ''}` : ', answered in their words'}. Your turn ends now; their answer comes back to you as a typed decision event.`,
+      'Do not ask it again in words, do not say it is on Needs you, and do not route it to "the owner" — they are the one deciding.',
+      held.href ? `It is about ${held.about ?? 'the record'}: ${held.href}` : null,
+      held.merge ? `What the records say: ${held.merge}` : null,
+    ].filter(Boolean).join(' ');
+  } catch (err) {
+    if (err instanceof AskError) {
+      return `Not asked (${err.code}): ${err.message}`;
+    }
+    return `Not asked: ${(err as Error).message}`;
+  }
 }
 
 const KIND_GUIDE = 'approval (approve, reject or mark done), input (you need a value or a decision only they have), ruling (choose between options), credential (paste a secret; the value never travels through the ask), merge (a PR for a person to merge), recommendation (you recommend an outcome; they authorise), gate (a run may not continue without a yes)';
@@ -57,7 +135,9 @@ export function fileAskTool(ctx: RuntimeContext) {
         title: string;
         body?: string;
         kind?: AskFileInput['kind'];
-        options?: AskFileInput['options'];
+        options?: ToolOption[];
+        allow_other?: boolean;
+        multiple?: boolean;
         risk?: AskFileInput['risk'];
         group_key?: string;
         group_title?: string;
@@ -69,19 +149,24 @@ export function fileAskTool(ctx: RuntimeContext) {
         due_at?: string;
         confidence: number;
       };
+      const options = args.options?.map(optionForAsk);
       // THE PERSON ASKING IS THE OWNER (backlog 044): a decision the person in
-      // this turn holds is asked here, not filed for "the owner"; a merge that
-      // runs itself on its trust rule is asked of nobody.
-      const held = await askHeldByThePersonHere(ctx, { kind: args.kind, title: args.title, objectRefs: args.object_refs });
-      if (held) {
-        ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { filed: false, reason: 'decision_held_here' } } as never);
-        return held;
+      // this turn holds is asked HERE, docked above their composer, not filed
+      // for "the owner"; a merge that runs itself on its trust rule is asked
+      // of nobody.
+      const held = await whoHoldsTheAsk(ctx, { kind: args.kind, title: args.title, objectRefs: args.object_refs });
+      if (held?.held === 'moot') {
+        ctx.emit({ type: 'tool_progress', tool: 'file_ask', meta: { filed: false, reason: 'decision_moot' } } as never);
+        return held.message;
+      }
+      if (held?.held === 'here' && ctx.conversationId && ctx.userId) {
+        return raiseHere(ctx, args, options ?? [], held);
       }
       const input: Record<string, unknown> = {
         title: args.title,
         body: args.body,
         kind: args.kind,
-        options: args.options,
+        options,
         risk: args.risk,
         groupKey: args.group_key,
         groupTitle: args.group_title,
@@ -147,7 +232,7 @@ export function fileAskTool(ctx: RuntimeContext) {
     },
     {
       name: 'file_ask',
-      description: `Put ONE question in front of a person on Needs you when you need a ruling, an approval, an input, a credential, a merge, or want to recommend an outcome a person must authorise. Nothing executes when they answer: the answer IS the outcome, and you (or an automation on ask.decided) read it back. Write it to be answered from a phone: a title that is the question (≤ 80 chars), a body of two to four lines (≤ 400 chars) saying why and what happens on each answer, and options whose description is the consequence of picking each, and the long form goes in context_md. Name the records it is about in object_refs so the answer can be written back onto them. Several questions decided together share a group_key, and so does ONE question asked about several records: if a person would answer all of them with a single rule, it is one decision sheet, not one ask per record. Kinds: ${KIND_GUIDE}. Done for you above the confidence bar (the ask is filed at once, and a person can withdraw it with Undo); below it, or where the workspace holds ask.file at approval, a person first decides whether you may ask.`,
+      description: `Put ONE question in front of a person when you need a ruling, an approval, an input, a credential, a merge, or want to recommend an outcome a person must authorise. In a person's own conversation it is asked THERE, as a card docked above their composer, and your turn ends at it: their answer comes back to you as a typed decision event. With nobody here (a mission, an automation) it lands on Needs you with a deadline and a default. An option's effect runs as the person the moment they choose it; otherwise the answer IS the outcome, and you (or an automation on ask.decided) read it back. Write it to be answered from a phone: a title that is the question (≤ 80 chars), a body of two to four lines (≤ 400 chars) saying why and what happens on each answer, and options whose description is the consequence of picking each, and the long form goes in context_md. Name the records it is about in object_refs so the answer can be written back onto them. Several questions decided together share a group_key, and so does ONE question asked about several records: if a person would answer all of them with a single rule, it is one decision sheet, not one ask per record. Kinds: ${KIND_GUIDE}. Done for you above the confidence bar (the ask is filed at once, and a person can withdraw it with Undo); below it, or where the workspace holds ask.file at approval, a person first decides whether you may ask.`,
       schema: z.object({
         title: z.string().min(1).max(200).describe('The question, as a person would ask it aloud. One line, ≤ 80 characters reads best.'),
         body: z.string().max(4_000).optional().describe('Two to four lines: why, and what happens on each answer. Markdown. ≤ 400 characters reads best; put the rest in context_md.'),
@@ -160,8 +245,14 @@ export function fileAskTool(ctx: RuntimeContext) {
             description: z.string().max(400).optional().describe('The consequence of picking it, one line.'),
             recommended: z.boolean().optional().describe('At most one option. Pre-selected and drawn as the obvious choice.'),
             confidence: z.number().min(0).max(1).optional().describe('How sure you are of THIS option, 0–1. For the recommended one.'),
+            effect: z.object({
+              action_id: z.string().min(1).max(120).describe('A registered action id from ACTIONS in your instructions.'),
+              input: z.record(z.string(), z.unknown()).default({}).describe('Its input, exactly as propose_action would take it.'),
+            }).optional().describe('What choosing it DOES: this action runs as the person who chose it, the moment they choose. Omit for an answer that only informs you.'),
           }),
-        ])).max(8).optional().describe('Named answers, at most 8. Bare strings work. Approve / Reject / Mark done and a free-text "other" are always there on top.'),
+        ])).max(8).optional().describe('Named answers, at most 8. Bare strings work. A free-text answer and Skip are always there on top; an approval with no options answers Approve or Reject.'),
+        allow_other: z.boolean().optional().describe('Offer "Something else" — an answer in their own words. Default true.'),
+        multiple: z.boolean().optional().describe('Several options may be chosen together. Default false.'),
         risk: z.enum(ASK_RISKS).optional().describe('How much rides on the answer, shown as a chip on the row.'),
         group_key: z.string().min(1).max(200).optional().describe('Several asks under one key are answered as one decision sheet, one question per screen. Use one key per batch AND whenever one question is being asked about several records: four asks that a person answers with one rule are one decision, not four, and filing them ungrouped is four screens of the same question.'),
         group_title: z.string().min(1).max(200).optional().describe('What the sheet is called.'),

@@ -91,12 +91,13 @@ export function RecommendedActionCard(props: CardProps) {
 function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
   const [drafting, setDrafting] = useState(false);
-  // The decision goes into the conversation as a typed user turn (backlog
-  // 025), so the next turn binds "approve" to THIS card, never to words.
+  // The decision is recorded ON THE CARD (backlog 025) — which option too,
+  // on a ruling — never as a turn the person did not type; the next turn
+  // binds "approve" to THIS card by its proposal, never to words.
   const recordDecision = useRecordCardDecision();
-  const record = (action: 'approve' | 'reject' | 'defer' | 'undo', runId?: number) => {
+  const record = (action: 'approve' | 'reject' | 'defer' | 'undo', runId?: number, optionId?: string) => {
     if (rec.id) {
-      recordDecision({ cardId: rec.id, label: rec.label, action, runId });
+      recordDecision({ cardId: rec.id, label: rec.label, action, runId, ...(optionId ? { optionId } : {}) });
     }
   };
   const [deciding, setDeciding] = useState<'approve' | 'reject' | 'defer' | 'undo' | null>(null);
@@ -225,7 +226,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
         onProposed?.(runId);
       }
       await client.review.decideAction({ id: runId, decision: 'approve', editedInput: answerInput(rec.input, optionId) });
-      record('approve', runId);
+      record('approve', runId, optionId);
       settle('approve');
     } catch (err) {
       settle('approve', err);

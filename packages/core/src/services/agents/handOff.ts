@@ -106,3 +106,19 @@ export class HandOffGateCallback extends BaseCallbackHandler {
     this.guard.beforeModelCall();
   }
 }
+
+/**
+ * What an event hands to the person, by name — or null when it hands them
+ * nothing. An open Decision and an approval gate both do: the turn ends at
+ * them. (A card is marked where it is emitted, with its own state rules.)
+ * @param event - One event of the turn.
+ */
+export function handsOff(event: import('./types').AgentEvent): string | null {
+  if (event.type === 'decision' && (event.decision.state === 'open' || event.decision.state === 'expired')) {
+    return event.decision.question;
+  }
+  if (event.type === 'hitl_gate') {
+    return event.gate.question;
+  }
+  return null;
+}

@@ -128,3 +128,29 @@ describe('RunCollector', () => {
     });
   });
 });
+
+describe('RunCollector — Decisions and Done receipts', () => {
+  it('keeps one run per Decision a turn raised, with its state current', () => {
+    const c = new RunCollector();
+    c.onTextDelta('One question before I go on.');
+    c.onDecision({ id: 41, question: 'Which repo should the factory build in?', state: 'open' });
+    c.onDecision({ id: 41, question: 'Which repo should the factory build in?', state: 'expired' });
+
+    expect(c.finalise().runs).toEqual([
+      { type: 'text', text: 'One question before I go on.' },
+      { type: 'decision', id: 41, question: 'Which repo should the factory build in?', state: 'expired' },
+    ]);
+  });
+
+  it('keeps one receipt per run, so a reload shows the Done line — and its Undo only where it was real', () => {
+    const c = new RunCollector();
+    c.onReceipt({ runId: 7, actionId: 'objects.update_meta', label: 'Updated Northwind', undoable: true });
+    c.onReceipt({ runId: 7, actionId: 'objects.update_meta', label: 'Updated Northwind', undoable: true });
+    c.onReceipt({ runId: 8, actionId: 'gmail.send', label: 'Sent the follow-up', undoable: false });
+
+    expect(c.finalise().runs).toEqual([
+      { type: 'receipt', receipt: { runId: 7, actionId: 'objects.update_meta', label: 'Updated Northwind', undoable: true } },
+      { type: 'receipt', receipt: { runId: 8, actionId: 'gmail.send', label: 'Sent the follow-up', undoable: false } },
+    ]);
+  });
+});

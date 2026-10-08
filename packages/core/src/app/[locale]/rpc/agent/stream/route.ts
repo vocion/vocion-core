@@ -83,7 +83,8 @@ export async function POST(request: Request): Promise<Response> {
   const historyRead = started(conversationIdAsked !== null
     ? Promise.all([listMessages({ orgId, conversationId: conversationIdAsked }), listAttachmentsByMessage({ orgId, conversationId: conversationIdAsked })])
     : Promise.resolve(null));
-  const message = body.message as string;
+  // A card's answer carries no typed message; everything below reads a string.
+  const message: string = typeof body.message === 'string' ? body.message : '';
   // Where the person is when they ask (058): the everything-scoped dock off a
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
@@ -149,7 +150,32 @@ export async function POST(request: Request): Promise<Response> {
       leadNow = import('@/services/TeamService').then(m => m.getWorkspaceLead(orgId));
     }
   }
-  if (!agentSlug || body.route === true) {
+  // ANSWERS FIRST (`services/decisions/answersFirst.ts`). Before anything
+  // reads this turn for who should answer or what is wanted: a card's typed
+  // answer is recorded as it is, and a typed message in a conversation with
+  // an open Decision is read against it. An answer goes to the agent that
+  // asked; only a message that is not one routes as usual.
+  const { answersFirst, stillOpenNote } = await import('@/services/decisions/answersFirst');
+  const visibleConversation = conversationIdAsked !== null ? await existingRead : null;
+  const first = await answersFirst({ orgId, userId, conversationId: visibleConversation?.id ?? null, message, wire: body.decision_answer });
+  if (first.kind === 'refused') {
+    return new Response(JSON.stringify({ error: first.message }), { status: first.status });
+  }
+  const answered = first.kind === 'answered' ? first : null;
+  const { answeredIntent } = await import('@/services/agents/turnJudge');
+  const { answerLine, decisionForModel } = await import('@/libs/decisions/decision');
+  // The record of what they chose, as the asking agent reads it.
+  const answerText = answered ? decisionForModel(answered.answered.asked, answered.answered.answer) : null;
+  const answerRun = answered
+    ? { type: 'decision_answer' as const, id: answered.answered.asked.id, question: answered.answered.asked.question, answer: answered.answered.answer, line: answerLine(answered.answered.asked, answered.answered.answer), via: answered.source }
+    : null;
+  if (answered) {
+    const asker = answered.answered.asked.agentSlug;
+    const named = typeof body.agent_slug === 'string' ? body.agent_slug : null;
+    const lead = (await leadNow).leadAgentSlug;
+    agentSlug = [asker, visibleConversation?.agentSlug ?? null, named, lead].find((s): s is string => !!s && roster.some(a => a.slug === s)) ?? roster[0]?.slug ?? agentSlug;
+  }
+  if (!answered && (!agentSlug || body.route === true)) {
     const agents = roster;
     if (agents.length === 0) {
       return new Response(
@@ -158,7 +184,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
     const lead = await leadNow;
-    if (body.route === true && typeof message === 'string' && message.trim()) {
+    if (body.route === true && message.trim()) {
       const { followUpDecision, pageOwnerDecision, recordOwnerSlug, routableFromRow, routeFirstTurn } = await import('@/services/agents/router');
       // A follow-up stays with the agent the thread is with; the router
       // picks only a conversation's first turn, or an agent the person names
@@ -181,6 +207,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     agentSlug = routing?.chosen
       ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
+  }
+  if (!agentSlug) {
+    return new Response(JSON.stringify({ error: 'No agents authored for this project. See /dashboard/chat for setup.' }), { status: 404 });
   }
   // While the router reads, `agentSlug` is the lead: who answers when it is
   // unsure, and who answers most first turns.
@@ -239,7 +268,7 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  if (!message?.trim()) {
+  if (!message?.trim() && answered?.source !== 'card') {
     return new Response(JSON.stringify({ error: 'Message required' }), { status: 400 });
   }
 
@@ -278,13 +307,20 @@ export async function POST(request: Request): Promise<Response> {
   // A correction: last turn the agent said something could not be found, and
   // this message hands it over. The agent is told to own it, and a learning
   // candidate is drafted in the background (`correctionReflector.ts`).
-  let messageForModel = message;
+  // A card's answer is the typed record of what they chose; typed words that
+  // answered carry it beneath them; a message that did not answer an open
+  // Decision is told it is still waiting, so it is never asked twice.
+  let messageForModel = answered?.source === 'card'
+    ? answerText!
+    : answered
+      ? `${message}\n\n${answerText}`
+      : first.kind === 'none' && first.open ? `${message}${stillOpenNote(first.open)}` : message;
   let absenceCorrected = false;
   const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
-  const correction = detectCorrection([...conversationHistory].reverse().find(t => t.role === 'assistant')?.content, message);
+  const correction = answered ? null : detectCorrection([...conversationHistory].reverse().find(t => t.role === 'assistant')?.content, message);
   if (correction) {
     absenceCorrected = true;
-    messageForModel = `${message}\n\n${correctionNote(correction)}`;
+    messageForModel = `${messageForModel}\n\n${correctionNote(correction)}`;
   }
 
   const [allowedSourceSlugs, grounding] = await Promise.all([allowedSourceSlugsRead, groundingRead]);
@@ -313,6 +349,9 @@ export async function POST(request: Request): Promise<Response> {
       modelPrefs,
       onEvent,
       ...(hold ? { hold } : {}),
+      // An answer is a typed record: the turn is not read again, and the
+      // decision it carried has already landed.
+      ...(answerRun ? { intent: answeredIntent(answerRun.line), landedWrites: 1 } : {}),
     });
     // What this turn cost — its own model calls and every specialist it
     // delegated to — is counted while it runs and written with the
@@ -363,14 +402,20 @@ export async function POST(request: Request): Promise<Response> {
   let userMessageId: number | null = null;
   if (conversationId !== null) {
     try {
-      const userMsg = await appendMessage({
-        orgId,
-        conversationId,
-        role: 'user',
-        content: message,
-        userId,
-        ...(routing ? { routing } : {}),
-      });
+      // A card's answer is a `decision` row — the typed answer, never drawn
+      // as words they typed. Typed words that answered keep their own row and
+      // carry the answer beside them.
+      const userMsg = answered?.source === 'card'
+        ? await appendMessage({ orgId, conversationId, role: 'decision', content: answerText!, runs: [answerRun!] })
+        : await appendMessage({
+            orgId,
+            conversationId,
+            role: 'user',
+            content: message,
+            userId,
+            ...(routing ? { routing } : {}),
+            ...(answerRun ? { runs: [answerRun] } : {}),
+          });
       userMessageId = userMsg.id;
       if (attachments.length > 0) {
         await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
@@ -395,7 +440,7 @@ export async function POST(request: Request): Promise<Response> {
   // place below. A ledger that cannot be written changes nothing: the row is
   // then written at the end, as before.
   const turnRow = conversationId !== null
-    ? await beginTurn({ orgId, conversationId, agentSlug, turn: { streamId, userMessageId, request: { message, messageForModel: modelMessage, agentSlug, userId, allowedSourceSlugs, timeZone, ...(deliverable ? { deliverable } : {}), attachmentIds, ...(modelPrefs ? { modelPrefs } : {}), ...(pageContext ? { pageContext } : {}), autonomy, ...(clientHistory.length > 0 ? { clientHistory } : {}) } } })
+    ? await beginTurn({ orgId, conversationId, agentSlug, turn: { streamId, userMessageId, request: { message: answered?.source === 'card' ? answerText! : message, messageForModel: modelMessage, agentSlug, userId, allowedSourceSlugs, timeZone, ...(deliverable ? { deliverable } : {}), attachmentIds, ...(modelPrefs ? { modelPrefs } : {}), ...(pageContext ? { pageContext } : {}), autonomy, ...(clientHistory.length > 0 ? { clientHistory } : {}) } } })
     : null;
 
   // Multiplex the agent event stream + a 15s keepalive timer into one
@@ -451,6 +496,11 @@ export async function POST(request: Request): Promise<Response> {
             collector.onCard({ label: r.label, actionId: r.actionId, input: r.input, runId: r.runId, href: r.href, hrefLabel: r.hrefLabel });
           } else if (event.type === 'record_links') {
             collector.onRecordLinks(event.links);
+          } else if (event.type === 'decision' && (event.decision.state === 'open' || event.decision.state === 'expired')) {
+            // A Decision this turn raised, kept on the turn that raised it.
+            collector.onDecision({ id: event.decision.id, question: event.decision.question, state: event.decision.state });
+          } else if (event.type === 'receipt') {
+            collector.onReceipt(event.receipt);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -505,6 +555,16 @@ export async function POST(request: Request): Promise<Response> {
       // Always, routed or named: the turn's speaker is a typed frame the
       // transcript consumes, the same fact the assistant row is stamped with.
       writeEvent({ type: 'turn_agent', agent: turnAgent });
+      // The answer, as a fact the dock reads: the card leaves, the receipt
+      // stays. When the chosen option ran an action, its Done line comes
+      // with it — Undo only where that kind has one.
+      if (answered) {
+        writeEvent({ type: 'decision', decision: answered.answered.view });
+        const effect = answered.answered.effect;
+        if (effect && effect.status === 'done') {
+          writeEvent({ type: 'receipt', receipt: { runId: effect.runId, actionId: effect.actionId, label: effect.label, undoable: effect.undoable } });
+        }
+      }
 
       try {
         // The head start, when the lead was picked, has been running all along;
@@ -621,8 +681,12 @@ export async function POST(request: Request): Promise<Response> {
           // handed the person (`agents/handOff.ts` ends the turn there), so a
           // setup plan of cards with no words around it is complete, not stalled.
           const toolCalls = runs.filter(r => r.type === 'tool').length;
+          // A turn that ended at its cards, or at a Decision, ENDED where it
+          // should: what is docked above the composer is its answer, and the
+          // next move is the person's — never "stopped without answering".
           const cardsShown = runs.some(r => r.type === 'card');
-          if (ending === 'complete' && !cardsShown && stoppedShort({ text, toolCalls })) {
+          const askedThem = runs.some(r => r.type === 'decision');
+          if (ending === 'complete' && !cardsShown && !askedThem && stoppedShort({ text, toolCalls })) {
             ending = 'stalled';
             endingReason = `the turn ran ${toolCalls} step${toolCalls === 1 ? '' : 's'} and ended without answering`;
           }
