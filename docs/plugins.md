@@ -144,8 +144,11 @@ nav: [Software factory, Production Watch] # the nav.section labels it owns
   interview and a `files/` tree laid out like a workspace. Its start page
   (`/dashboard/apps/<id>`, linked from the marketplace) lists them; picking one
   writes the files into the workspace with the answers filled in, turns on the
-  app's plugins and the template's own, and applies. The Company app is the
-  first: [Company](./apps/company.md).
+  app's plugins and the template's own, and applies. An app may also start
+  **blank** (`app.yaml` `blank:`): the person describes the function, a model
+  drafts a typed plan of the same pieces, the person edits it on a preview,
+  and one Create installs it through the same path — undoable as one unit.
+  The Company app is the first: [Company](./apps/company.md).
 - **One picker.** Every app's nav starts with the workspace switcher, listing
   only the workspaces that have that app (`apps.forUser` RPC); switching keeps
   the app when the target has it and falls back to Workforce when it does not.

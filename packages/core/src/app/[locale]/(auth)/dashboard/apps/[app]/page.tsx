@@ -27,8 +27,10 @@ export async function generateMetadata(props: { params: Promise<{ app: string }>
   }
 }
 
-export default async function AppStartPage(props: { params: Promise<{ locale: string; app: string }> }) {
+export default async function AppStartPage(props: { params: Promise<{ locale: string; app: string }>; searchParams?: Promise<{ start?: string }> }) {
   const { locale, app } = await props.params;
+  // `?start=blank` opens Describe your own — the link a chat card offers (`blankStartHref`).
+  const startBlank = (await props.searchParams)?.start === 'blank';
   setRequestLocale(locale);
   const { orgId, userId, has } = await auth();
   if (!orgId || !userId) {
@@ -41,7 +43,7 @@ export default async function AppStartPage(props: { params: Promise<{ locale: st
   }
   return (
     <ListPage title={view.app.name} description={view.app.description}>
-      <TemplatePicker appId={view.app.id} templates={view.templates} writable={view.writable} canInstall={has({ role: ORG_ROLE.ADMIN })} />
+      <TemplatePicker appId={view.app.id} templates={view.templates} blank={view.blank} startBlank={startBlank} writable={view.writable} canInstall={has({ role: ORG_ROLE.ADMIN })} />
     </ListPage>
   );
 }

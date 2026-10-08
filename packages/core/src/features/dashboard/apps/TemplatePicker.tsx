@@ -1,6 +1,7 @@
 'use client';
 
-import type { AppTemplateCardData, TemplateInstallReceipt } from '@/services/apps/AppTemplateService';
+import type { CreatePlan, DraftPlan } from './BlankStart';
+import type { AppTemplateCardData, BlankStartData, TemplateInstallReceipt } from '@/services/apps/AppTemplateService';
 import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createElement, useState } from 'react';
@@ -12,9 +13,10 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { BlankStartCard, BlankStartDialog } from './BlankStart';
 
-/** What an install came back with: the receipt, or why not in words (with each question's problem). */
-export type InstallOutcome = { ok: true; receipt: TemplateInstallReceipt } | { ok: false; message: string; problems?: Record<string, string> };
+/** What an install came back with: the receipt (and the run whose Undo puts it back), or why not in words (with each question's problem). */
+export type InstallOutcome = { ok: true; receipt: TemplateInstallReceipt & { runId?: number } } | { ok: false; message: string; problems?: Record<string, string> };
 
 /** Install one template; the default calls the `apps.installTemplate` RPC. */
 export type InstallTemplate = (template: string, answers: Record<string, string>) => Promise<InstallOutcome>;
@@ -28,9 +30,37 @@ function rpcInstall(appId: string): InstallTemplate {
     try {
       return { ok: true, receipt: await client.apps.installTemplate({ appId, template, answers }) };
     } catch (error) {
-      const data = (error as { data?: { problems?: Record<string, string> } }).data;
-      return { ok: false, message: error instanceof Error ? error.message : 'The template could not be set up.', problems: data?.problems };
+      return refusal(error, 'The template could not be set up.');
     }
+  };
+}
+
+function refusal(error: unknown, fallback: string): { ok: false; message: string; problems?: Record<string, string> } {
+  const data = (error as { data?: { problems?: Record<string, string> } }).data;
+  return { ok: false, message: error instanceof Error ? error.message : fallback, problems: data?.problems };
+}
+
+/**
+ * The default draft and create — the RPCs.
+ * @param appId - The app.
+ */
+function rpcBlank(appId: string): { draft: DraftPlan; create: CreatePlan } {
+  return {
+    draft: async (description, answers) => {
+      try {
+        const { plan } = await client.apps.draftPlan({ appId, description, answers });
+        return { ok: true, plan };
+      } catch (error) {
+        return refusal(error, 'The draft could not be written.');
+      }
+    },
+    create: async (plan) => {
+      try {
+        return { ok: true, receipt: await client.apps.createFromPlan({ appId, plan: plan as unknown as Record<string, unknown> }) };
+      } catch (error) {
+        return refusal(error, 'It could not be created.');
+      }
+    },
   };
 }
 
@@ -103,9 +133,38 @@ export function TemplateCard(props: { template: AppTemplateCardData; action: Rea
  * What an install did, said in a person's words, with the two places to go next.
  * @param props - The receipt.
  * @param props.receipt - What the install did.
+ * @param props.undo - Override the undo (stories); defaults to the review queue's undo.
  */
-export function InstallReceipt(props: { receipt: TemplateInstallReceipt }) {
+export function InstallReceipt(props: { receipt: TemplateInstallReceipt & { runId?: number }; undo?: (runId: number) => Promise<string | null> }) {
   const r = props.receipt;
+  const [undone, setUndone] = useState<'idle' | 'busy' | 'done' | string>('idle');
+  const undo = props.undo ?? (async (runId: number) => {
+    try {
+      await client.review.undoAction({ id: runId });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'It could not be put back.';
+    }
+  });
+  const runUndo = async () => {
+    if (!r.runId) {
+      return;
+    }
+    setUndone('busy');
+    const failed = await undo(r.runId);
+    setUndone(failed ?? 'done');
+  };
+  if (undone === 'done') {
+    return (
+      <p data-testid="template-undone" className="text-sm">
+        Put back:
+        {' '}
+        {r.name}
+        {' '}
+        is gone from this workspace — its files, teams and agents, as one unit.
+      </p>
+    );
+  }
   const errors = r.applied.errors;
   const createdNothing = r.files.created.length === 0 && r.pluginsAdded.length === 0 && r.trustRulesAdded.length === 0;
   return (
@@ -165,7 +224,13 @@ export function InstallReceipt(props: { receipt: TemplateInstallReceipt }) {
         <Button asChild size="sm" variant="outline">
           <Link href={r.links.teamReport}>Open the team report</Link>
         </Button>
+        {r.runId !== undefined && (
+          <Button size="sm" variant="ghost" onClick={runUndo} disabled={undone === 'busy'} data-testid="template-undo">
+            {undone === 'busy' ? 'Putting it back…' : 'Undo'}
+          </Button>
+        )}
       </div>
+      {undone !== 'idle' && undone !== 'busy' && <p role="alert" className="text-xs text-destructive">{undone}</p>}
     </div>
   );
 }
@@ -269,11 +334,17 @@ export function TemplateInterview(props: { template: AppTemplateCardData | null;
  * @param props.writable - Whether a template can be written here, or why not.
  * @param props.canInstall - Whether this viewer may set one up (admins).
  * @param props.install - Override the install (stories); defaults to the RPC.
+ * @param props.blank - The app's blank start, when it has one.
+ * @param props.startBlank - Open Describe your own at once (`?start=blank`).
+ * @param props.draft - Override the draft (stories).
+ * @param props.create - Override the create (stories).
  */
-export function TemplatePicker(props: { appId: string; templates: AppTemplateCardData[]; writable: { ok: true } | { ok: false; reason: string }; canInstall: boolean; install?: InstallTemplate }) {
+export function TemplatePicker(props: { appId: string; templates: AppTemplateCardData[]; blank?: BlankStartData | null; startBlank?: boolean; writable: { ok: true } | { ok: false; reason: string }; canInstall: boolean; install?: InstallTemplate; draft?: DraftPlan; create?: CreatePlan }) {
   const router = useRouter();
   const [open, setOpen] = useState<AppTemplateCardData | null>(null);
+  const [blankOpen, setBlankOpen] = useState(Boolean(props.startBlank && props.blank && props.canInstall && props.writable.ok));
   const install = props.install ?? rpcInstall(props.appId);
+  const rpc = rpcBlank(props.appId);
   const blocked = !props.writable.ok ? props.writable.reason : null;
 
   return (
@@ -295,8 +366,17 @@ export function TemplatePicker(props: { appId: string; templates: AppTemplateCar
               : <span className="text-xs text-muted-foreground">{blocked ? 'Set up from the workspace repo' : 'An admin sets this up'}</span>}
           />
         ))}
+        {props.blank && (
+          <BlankStartCard
+            blank={props.blank}
+            action={props.canInstall && !blocked
+              ? <Button size="sm" variant="outline" onClick={() => setBlankOpen(true)} data-testid="template-open-blank">Describe your own</Button>
+              : <span className="text-xs text-muted-foreground">{blocked ? 'Set up from the workspace repo' : 'An admin sets this up'}</span>}
+          />
+        )}
       </div>
       <TemplateInterview template={open} onClose={() => setOpen(null)} install={install} onInstalled={() => router.refresh()} />
+      <BlankStartDialog blank={blankOpen ? props.blank ?? null : null} onClose={() => setBlankOpen(false)} draft={props.draft ?? rpc.draft} create={props.create ?? rpc.create} onCreated={() => router.refresh()} />
     </>
   );
 }

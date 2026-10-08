@@ -439,6 +439,22 @@ export const PluginManifestSchema = z.object({
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
 /**
+ * One question of an app template's interview. The answer fills `{{key}}`
+ * wherever the template's files carry it; `default` (which may itself carry
+ * `{{workspace.name}}`) is what an empty answer becomes, and a question with
+ * no default must be answered.
+ */
+export const AppTemplateQuestionSchema = z.object({
+  key: z.string().regex(/^[a-z][a-zA-Z0-9]*$/, 'a question key is one camelCase word, e.g. company'),
+  question: z.string().min(1),
+  placeholder: z.string().min(1).optional(),
+  help: z.string().min(1).optional(),
+  default: z.string().min(1).optional(),
+  maxLength: z.number().int().min(10).max(400).default(160),
+});
+export type AppTemplateQuestion = z.infer<typeof AppTemplateQuestionSchema>;
+
+/**
  * App manifest — `templates/apps/<id>/app.yaml`. An app is what a person picks
  * in the dashboard's left rail: a named set of plugins and the nav sections
  * their rows sit in. It adds no capability of its own — it is installed in a
@@ -472,24 +488,29 @@ export const AppManifestSchema = z.object({
    * in the default section is shown under the first.
    */
   nav: z.array(z.string().min(1)).default([]),
+  /**
+   * The app's blank start, beside its templates: the person describes the
+   * function in their own words, answers the same short interview, and a
+   * model drafts a plan of the same pieces a template ships — previewed and
+   * edited before anything is created (`services/apps/FunctionDraftService.ts`).
+   * `brief` is a markdown file in the app's directory: what the model reads
+   * about drafting for this app. Omit for no blank start.
+   */
+  blank: z.object({
+    label: z.string().min(1),
+    description: z.string().min(1),
+    brief: z.string().regex(/^[\w./-]+\.md$/, 'brief is a markdown file in the app directory, e.g. blank.md'),
+    /** The describe-it-yourself question, first on the form. */
+    describe: z.object({
+      question: z.string().min(1),
+      placeholder: z.string().min(1).optional(),
+      help: z.string().min(1).optional(),
+      maxLength: z.number().int().min(40).max(4000).default(1500),
+    }),
+    interview: z.array(AppTemplateQuestionSchema).min(1).max(3),
+  }).optional(),
 }).refine(a => !a.core || a.plugins.length === 0, { message: 'the core app lists no plugins — it keeps every row no other app claims', path: ['plugins'] });
 export type AppManifest = z.infer<typeof AppManifestSchema>;
-
-/**
- * One question of an app template's interview. The answer fills `{{key}}`
- * wherever the template's files carry it; `default` (which may itself carry
- * `{{workspace.name}}`) is what an empty answer becomes, and a question with
- * no default must be answered.
- */
-export const AppTemplateQuestionSchema = z.object({
-  key: z.string().regex(/^[a-z][a-zA-Z0-9]*$/, 'a question key is one camelCase word, e.g. company'),
-  question: z.string().min(1),
-  placeholder: z.string().min(1).optional(),
-  help: z.string().min(1).optional(),
-  default: z.string().min(1).optional(),
-  maxLength: z.number().int().min(10).max(400).default(160),
-});
-export type AppTemplateQuestion = z.infer<typeof AppTemplateQuestionSchema>;
 
 /**
  * App template — `templates/apps/<app>/templates/<slug>/template.yaml`, with

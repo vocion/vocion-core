@@ -23,6 +23,17 @@ software factory's five seats, and Marketing Agency reuses the growth loop's
 brief, production, quality gate and reading. The template adds the layer the
 plugin does not have.
 
+**Describe your own**
+
+None of the three fits? The fourth card drafts one from your own words: say
+what the function does and for whom, answer the same short interview, and a
+plan is drafted — reusing catalog roles and plugins where they fit, a new seat
+only where none does. You see it before anything exists (teams, agents,
+missions, automations — rename anything, remove what you do not want) and one
+Create stands it up. From chat, an agent can draft it too and offer it as one
+card. Every install, template or not, has Undo on its receipt and puts the
+whole function back as one unit.
+
 **The interview**
 
 Two or three questions, each with a default so an empty form still stands the
