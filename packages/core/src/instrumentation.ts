@@ -26,6 +26,10 @@ const sentryOptions: Sentry.NodeOptions | Sentry.EdgeOptions = {
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // The event bus, for code on the sign-in path that must not import it
+    // (`libs/eventBridge.ts`). Awaited: it is in place before the first request.
+    const [{ provideEventBus }, { emitEvent }] = await Promise.all([import('./libs/eventBridge'), import('./services/EventService')]);
+    provideEventBus(emitEvent);
     // The one durable executor (backlog 054): resumes waiting runs after every deploy.
     // Never awaited: a database that is slow to answer must not hold the server's boot.
     void import('./libs/durable/executor').then(m => m.startDurableExecutor());

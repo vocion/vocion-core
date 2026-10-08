@@ -174,8 +174,10 @@ export async function storeCredentialForSource(input: {
  */
 async function announceConnected(orgId: string, payload: import('@/services/EventService').SourceConnectedPayload): Promise<void> {
   try {
-    const { emitEvent, SOURCE_CONNECTED } = await import('@/services/EventService');
-    await emitEvent({
+    // Through the bridge: this service is imported widely, and the bus would
+    // bring every workflow, agent and connector with it (`libs/eventBridge.ts`).
+    const [{ emitEventDetached }, { SOURCE_CONNECTED }] = await Promise.all([import('@/libs/eventBridge'), import('@/services/eventNames')]);
+    await emitEventDetached({
       orgId,
       type: SOURCE_CONNECTED,
       payload,

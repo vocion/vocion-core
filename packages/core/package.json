@@ -31,6 +31,7 @@
     "check:types": "tsc --noEmit --pretty",
     "check:i18n": "i18n-check -l src/locales -s en -u src -f next-intl",
     "check:migrations": "tsx src/scripts/check-migration-safety.ts",
+    "check:route-graph": "tsx src/scripts/check-route-graph.ts",
     "check:symlinks": "tsx src/scripts/check-tracked-symlinks.ts",
     "openapi:generate": "tsx src/scripts/generate-openapi.ts",
     "test": "vitest run",

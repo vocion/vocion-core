@@ -132,9 +132,9 @@ export async function tellJoined(userId: string, joined: readonly JoinedOrg[]): 
     return;
   }
   try {
-    const [{ activeWorkspaceForUser, listProjectsForUser }, { emitEvent }] = await Promise.all([
+    const [{ activeWorkspaceForUser, listProjectsForUser }, { emitEventDetached: emitEvent }] = await Promise.all([
       import('@/services/ProjectService'),
-      import('@/services/EventService'),
+      import('@/libs/eventBridge'),
     ]);
     const projects = await listProjectsForUser(userId);
     for (const org of joined) {
@@ -233,9 +233,9 @@ export async function tellInvitee(input: { email: string; accountId: string; inv
     if (!user) {
       return;
     }
-    const [{ activeWorkspaceForUser }, { emitEvent }] = await Promise.all([
+    const [{ activeWorkspaceForUser }, { emitEventDetached: emitEvent }] = await Promise.all([
       import('@/services/ProjectService'),
-      import('@/services/EventService'),
+      import('@/libs/eventBridge'),
     ]);
     const landing = await activeWorkspaceForUser(user.id);
     if (!landing) {

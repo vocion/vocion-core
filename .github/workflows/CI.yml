@@ -143,6 +143,14 @@ jobs:
       - name: Migration conventions
         run: npm run check:migrations
 
+      # The production build compiles everything a route reaches into that
+      # route, so one edge from a widely imported module to the event bus put
+      # the whole server into almost every route: v5.15.1 timed out on the
+      # deploy runner and was killed for memory on a 32 GB box. A few seconds,
+      # no build (src/scripts/check-route-graph.ts).
+      - name: Route module graph (build size)
+        run: npm run check:route-graph
+
       - name: Linter
         run: npm run lint
 

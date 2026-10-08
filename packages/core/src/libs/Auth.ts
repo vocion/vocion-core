@@ -560,52 +560,66 @@ export async function sessionCallback({ session, token }: SessionParams): Promis
   return session;
 }
 
-export const { auth, handlers, signIn, signOut, unstable_update } = NextAuth({
-  adapter: buildAdapter(),
-  session: { strategy: 'jwt' },
-  pages: {
-    signIn: '/sign-in',
-    // A refused or failed sign-in (no invite, an expired link) lands back on
-    // the form with `?error=`, which says so in a sentence, rather than on
-    // Auth.js's own page. So does "check your email" after a link request.
-    error: '/sign-in',
-    verifyRequest: '/sign-in',
-  },
-  providers: [
-    Credentials({
-      credentials: {
-        email: { label: 'Email', type: 'email' },
-        password: { label: 'Password', type: 'password' },
-      },
-      authorize: (credentials, request) => authorizeCredentials(credentials, request),
-    }),
-    // "Continue with Google" / "Continue with Microsoft" — each only when its
-    // client id and secret are set (`libs/identity/signInProviders.ts`).
-    ...configuredSignInProviders().map(descriptor => descriptor.build(process.env)),
-    // "Email me a sign-in link" — only when outbound mail is configured.
-    ...(emailLinkConfigured() ? [emailLinkProvider()] : []),
-  ],
-  events: {
-    // A provider linked to a login, on first use or from the profile page.
-    // Recorded on the adoption stream and told to the person ("Google added
-    // to your sign-in methods"); never stops the sign-in it rides on.
-    async linkAccount({ user, account }) {
-      try {
-        if (user.id) {
-          const { signInMethodLinked } = await import('@/services/auth/signInMethods');
-          await signInMethodLinked(user.id, account.provider);
-        }
-      } catch {
-        // Telemetry about a sign-in; the sign-in goes on without it.
-      }
+/**
+ * The Auth.js config, built on first use rather than when this module loads.
+ * The sign-in providers include an extension's (`libs/extensions.ts`), and an
+ * extension's own modules import this one: built at load, the list was read
+ * while the enterprise package was still loading and the build failed at
+ * "Collecting page data" (Cannot read properties of undefined (reading
+ * 'extensions')). Built once and kept, like the object it replaces.
+ */
+let authConfig: NextAuthConfig | null = null;
+
+function buildAuthConfig(): NextAuthConfig {
+  return {
+    adapter: buildAdapter(),
+    session: { strategy: 'jwt' },
+    pages: {
+      signIn: '/sign-in',
+      // A refused or failed sign-in (no invite, an expired link) lands back on
+      // the form with `?error=`, which says so in a sentence, rather than on
+      // Auth.js's own page. So does "check your email" after a link request.
+      error: '/sign-in',
+      verifyRequest: '/sign-in',
     },
-  },
-  callbacks: {
-    signIn: signInCallback,
-    jwt: jwtCallback,
-    session: sessionCallback,
-  },
-});
+    providers: [
+      Credentials({
+        credentials: {
+          email: { label: 'Email', type: 'email' },
+          password: { label: 'Password', type: 'password' },
+        },
+        authorize: (credentials, request) => authorizeCredentials(credentials, request),
+      }),
+      // "Continue with Google" / "Continue with Microsoft" — each only when its
+      // client id and secret are set (`libs/identity/signInProviders.ts`).
+      ...configuredSignInProviders().map(descriptor => descriptor.build(process.env)),
+      // "Email me a sign-in link" — only when outbound mail is configured.
+      ...(emailLinkConfigured() ? [emailLinkProvider()] : []),
+    ],
+    events: {
+      // A provider linked to a login, on first use or from the profile page.
+      // Recorded on the adoption stream and told to the person ("Google added
+      // to your sign-in methods"); never stops the sign-in it rides on.
+      async linkAccount({ user, account }) {
+        try {
+          if (user.id) {
+            const { signInMethodLinked } = await import('@/services/auth/signInMethods');
+            await signInMethodLinked(user.id, account.provider);
+          }
+        } catch {
+          // Telemetry about a sign-in; the sign-in goes on without it.
+        }
+      },
+    },
+    callbacks: {
+      signIn: signInCallback,
+      jwt: jwtCallback,
+      session: sessionCallback,
+    },
+  };
+}
+
+export const { auth, handlers, signIn, signOut, unstable_update } = NextAuth(() => (authConfig ??= buildAuthConfig()));
 
 /**
  * Keep the session this request came from after a change that ended the

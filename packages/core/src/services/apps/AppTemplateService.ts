@@ -89,11 +89,12 @@ type PlannedWrite = { path: string; abs: string; prior: string | null; content: 
  * @param dir - The workspace folder.
  */
 function trustFileOf(dir: string): string {
-  return ['trust.yaml', 'trust.yml'].map(n => join(dir, n)).find(existsSync) ?? join(dir, TEMPLATE_TRUST_FILE);
+  // turbopackIgnore: a workspace folder is only known at runtime (next.config.ts, #832).
+  return ['trust.yaml', 'trust.yml'].map(n => join(/* turbopackIgnore: true */ dir, n)).find(existsSync) ?? join(dir, TEMPLATE_TRUST_FILE);
 }
 
 function manifestFileOf(dir: string): string | null {
-  return ['workspace.yaml', 'workspace.yml'].map(n => join(dir, n)).find(existsSync) ?? null;
+  return ['workspace.yaml', 'workspace.yml'].map(n => join(/* turbopackIgnore: true */ dir, n)).find(existsSync) ?? null;
 }
 
 function readOrNull(abs: string): string | null {
@@ -212,7 +213,7 @@ export async function installAppTemplate(opts: {
       writes.push({ path: abs.slice(dir.length + 1), abs, prior, content: merged.content });
     }
   }
-  const manifestPrior = readFileSync(manifestFile, 'utf8');
+  const manifestPrior = readFileSync(/* turbopackIgnore: true */ manifestFile, 'utf8');
   const edit = editWorkspaceManifest(manifestPrior, {
     plugins: [...app.plugins, ...template.manifest.plugins],
     lead: template.manifest.lead,
