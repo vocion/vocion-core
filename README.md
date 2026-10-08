@@ -255,9 +255,9 @@ The logos of the services Vocion connects to (GitHub, HubSpot, Google and the
 rest) are trademarks of their respective owners. They are shown only to
 identify the service an integration connects to, and imply no endorsement or
 partnership. The marks come from [simple-icons](https://simpleicons.org)
-(CC0-1.0); where a brand is missing there, or its owner's guidelines do not
-allow this use, Vocion shows the name's initials instead. Each logo's source
-and licence is listed in
+(CC0-1.0) or, where the owner's brand kit allows it, from the owner's own file,
+unmodified; where neither is allowed, Vocion shows the name's initials instead.
+Each logo's source, licence and terms are listed in
 [`packages/core/src/libs/brands/ATTRIBUTION.md`](packages/core/src/libs/brands/ATTRIBUTION.md).
 
 ## Docs

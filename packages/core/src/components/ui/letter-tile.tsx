@@ -32,7 +32,12 @@ const LOGO_SIZE = { xs: '[&>svg]:size-3', sm: '[&>svg]:size-4', md: '[&>svg]:siz
  * A brand mark to draw in the tile: one SVG path in a 24×24 box and its fill
  * in each theme — the brand colour, or null to draw in the tile's ink.
  */
-export type TileLogo = { path: string; fills: { light: string | null; dark: string | null } };
+export type TileLogo
+  = | { kind: 'path'; path: string; fills: { light: string | null; dark: string | null } }
+    | { kind: 'file'; light: string; dark: string | null };
+
+/** A vendor file sits a little larger than a path mark: kits draw their own clear space into the file. */
+const FILE_SIZE = { xs: 'size-3.5', sm: 'size-5', md: 'size-6', lg: 'size-7' } as const;
 
 /**
  * Up to two letters for a name: the first letter of the first two words, or
@@ -67,37 +72,52 @@ export function LetterTile({ name, logo, icon: Icon, tint, size = 'md', muted = 
   className?: string;
 }) {
   // Something not here yet draws its mark in muted ink, like its monogram would.
-  const fills = logo && !muted ? logo.fills : { light: null, dark: null };
+  const fills = logo?.kind === 'path' && !muted ? logo.fills : { light: null, dark: null };
+  // A vendor's file is never recoloured: with no dark variant in its kit it
+  // keeps the white it was drawn for, in both themes.
+  const whiteTile = logo?.kind === 'file' && !logo.dark && !muted;
   return (
     <span
       aria-hidden
       data-slot="letter-tile"
-      data-logo={logo ? '' : undefined}
+      data-logo={logo ? logo.kind : undefined}
       className={cn(
         'inline-flex shrink-0 items-center justify-center font-semibold tracking-tight select-none',
         SIZE[size],
-        logo && LOGO_SIZE[size],
+        logo?.kind === 'path' && LOGO_SIZE[size],
         muted
           ? 'border border-dashed border-ink-secondary/40 text-muted-foreground'
           : tint && !logo
             ? [TINT_BG[tint], 'text-foreground']
-            : 'border border-border bg-card text-foreground',
+            : whiteTile
+              ? 'border border-border bg-white text-foreground'
+              : 'border border-border bg-card text-foreground',
         className,
       )}
     >
-      {logo
-        ? (
-            <svg
-              viewBox="0 0 24 24"
-              aria-hidden
-              focusable="false"
-              className="fill-(--logo-light) dark:fill-(--logo-dark)"
-              style={{ '--logo-light': fills.light ?? 'currentColor', '--logo-dark': fills.dark ?? 'currentColor' } as CSSProperties}
-            >
-              <path d={logo.path} />
-            </svg>
-          )
-        : Icon ? <Icon aria-hidden /> : monogram(name)}
+      {logo?.kind === 'path' && (
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden
+          focusable="false"
+          className="fill-(--logo-light) dark:fill-(--logo-dark)"
+          style={{ '--logo-light': fills.light ?? 'currentColor', '--logo-dark': fills.dark ?? 'currentColor' } as CSSProperties}
+        >
+          <path d={logo.path} />
+        </svg>
+      )}
+      {logo?.kind === 'file' && (
+        <>
+          {/* The vendor's file, served unmodified (libs/brands/ATTRIBUTION.md). */}
+          {/* eslint-disable-next-line next/no-img-element */}
+          <img src={logo.light} alt="" aria-hidden className={cn(FILE_SIZE[size], 'object-contain', logo.dark && 'dark:hidden', muted && 'opacity-50 grayscale')} />
+          {logo.dark && (
+            // eslint-disable-next-line next/no-img-element
+            <img src={logo.dark} alt="" aria-hidden className={cn(FILE_SIZE[size], 'hidden object-contain dark:block', muted && 'opacity-50 grayscale')} />
+          )}
+        </>
+      )}
+      {!logo && (Icon ? <Icon aria-hidden /> : monogram(name))}
     </span>
   );
 }

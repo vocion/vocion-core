@@ -49,29 +49,42 @@ about a mark is altered.
 | `xero` | Xero | simple-icons, from https://www.xero.com/uk/about/media/downloads | CC0-1.0 (drawing) | — |
 | `zoom` | Zoom | simple-icons, from https://brand.zoom.us/media-library/ | CC0-1.0 (drawing) | https://brand.zoom.us/usage-legal/ |
 
+## Vendored official files
+
+Each file is the vendor's own, downloaded on 2026-10-08 and committed byte for
+byte under `packages/core/public/brand/integrations/`. It is never recoloured:
+it sits on a neutral tile, and where the kit ships a variant for dark
+backgrounds the tile switches to it in dark mode. Each row names where the file
+came from, the page whose terms were read, and the sentence on that page the
+use rests on.
+
+| Key | Brand | Logo | Source | Terms, and the sentence relied on |
+| --- | --- | --- | --- | --- |
+| `firecrawl` | Firecrawl | Vendored `firecrawl/firecrawl-logo.svg` (the symbol, both themes) | https://www.firecrawl.dev/brand/brand-assets.zip | https://www.firecrawl.dev/press-brand — offers every logo to download and asks only "Avoid stretching, recoloring, or modifying the wordmark"; the symbol "should be used when square or minimal versions of the logo are required." It names no restriction on who may use them. |
+| `granola` | Granola | Vendored `granola/logo-square.svg` (app icon, both themes) | The "Logos" folder of Granola's press kit | https://grano.la/press — Granola's own address for its press kit, a public folder of logos to download. It publishes no usage terms, and its terms of service have no logo clause, so nothing restricts this use. |
+| `slate` | Slate | Vendored `slate/slate-icon.svg` (app icon, both themes) | https://slatevideo.com/favicon.svg | https://slatevideo.com/terms — "the Slate name and the clapper mark, is owned by MetaCTO LLC or its licensors"; Slate is a Metacto product, and its owner approves this use. |
+| `tavily` | Tavily | Vendored `tavily/tavily-mark-black.svg`, dark `tavily/tavily-mark-offwhite.svg` | https://www.tavily.com/logos/ | https://www.tavily.com/brand — "Third parties may refer to Tavily assets to identify Tavily products or services (e.g. in compatibility statements)." The same page asks not to use them "alongside other entities without obtaining formal permission"; a catalog of tools may count, so this is flagged for confirmation with Tavily. |
+
 ## Brands drawn without a logo
 
-These brands are not in simple-icons. A vendor's own SVG is vendored only when
-its brand guidelines explicitly let a third party show the logo to indicate an
-integration; none below met that bar when checked on 2026-10-08, so each tile
-draws the integration's icon or initials instead. To add one later, vendor the
-official file, cite the sentence that permits it here, and give its catalog
-entry a mark.
+These brands are not in simple-icons, and their owners' own terms do not let a
+third party show the logo to say an integration exists, or permit it only in
+another form (a badge, a sign-in button, an architecture diagram). Each tile
+draws the integration's icon or initials instead. Re-checked against each
+vendor's own page on 2026-10-08. To add one later, vendor the official file,
+quote the sentence that permits it above, and give its catalog entry a
+`vendored` mark.
 
 | Key | Brand | Logo | Why |
 | --- | --- | --- | --- |
-| `amazons3` | Amazon S3 | No logo | AWS's trademark guidelines allow a plain-text reference only, no logos: https://aws.amazon.com/trademark-guidelines/. simple-icons dropped AWS marks in v15. |
+| `amazons3` | Amazon S3 | No logo | https://aws.amazon.com/trademark-guidelines/ — fair use "should be in plain text only (no logos)". The "Powered by AWS" badge is licensed to a customer for its own software and cannot be passed on, and the Architecture Icons are "to create architecture diagrams". |
 | `amazonwebservices` | Amazon Web Services | No logo | As above. Covers Amazon Bedrock and the AWS credential. |
-| `apolloio` | Apollo.io | No logo | Apollo.io's terms forbid using its logos without prior written permission: https://www.apollo.io/terms. Not to be confused with simple-icons' `apollographql`, a different company. |
+| `apolloio` | Apollo.io | No logo | https://www.apollo.io/terms — "The Apollo names and logos … may not be copied, imitated, or used, in whole or in part, without Apollo's prior written permission." No brand kit is published. Not to be confused with simple-icons' `apollographql`, a different company. |
 | `bill` | BILL | No logo | BILL publishes no terms for third-party use of its logo. |
-| `firecrawl` | Firecrawl | No logo | Firecrawl's brand page covers how to treat the marks, not third-party or integration use: https://www.firecrawl.dev/brand. |
-| `granola` | Granola | No logo | Granola publishes a press kit but no terms for third-party use of its logo: https://grano.la/press. |
-| `microsoftazure` | Microsoft Azure | No logo | Microsoft requires an express licence for its logos and product icons (Azure icons are for architecture diagrams and documentation only): https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks. simple-icons removed Microsoft marks in v13 at Microsoft's request. |
+| `microsoftazure` | Microsoft Azure | No logo | https://learn.microsoft.com/en-us/azure/architecture/icons/ — "Microsoft permits the use of these icons in architectural diagrams, training materials, or documentation" and "Don't use Microsoft product icons to represent your product or service." Microsoft's logos otherwise "can never be used without an express license". |
 | `netsuite` | NetSuite | No logo | Oracle's trademark guidelines do not permit third parties to use its logos: https://www.oracle.com/legal/trademarks.html. |
-| `openai` | OpenAI | No logo | OpenAI's brand guidelines ask products built on its API to be free of its logos and to ask permission first: https://openai.com/brand/. simple-icons dropped the mark in v16. |
+| `openai` | OpenAI | No logo | https://openai.com/brand/ — API developers "may truthfully identify the OpenAI technology you use", but "Don't: Use the logo without permission or outside OpenAI's terms"; permission is requested from partnercomms@openai.com. |
 | `ramp` | Ramp | No logo | Ramp publishes no terms for third-party use of its logo. |
 | `rippling` | Rippling | No logo | Rippling publishes no terms for third-party use of its logo. |
-| `slack` | Slack | No logo | Slack's brand terms require a written licence for most logo use and allow an integration to be stated in text only: https://slack.com/terms-of-service/slack-brand. simple-icons dropped Salesforce marks in v16. The "Sign in with Slack" button is Slack's own sign-in asset and is a separate matter. |
-| `slate` | Slate | No logo | Slate publishes no brand guidelines. |
-| `tavily` | Tavily | No logo | Tavily's brand page allows its marks in a compatibility statement but not alongside other companies' without formal permission, which a catalog of tools is: https://www.tavily.com/brand. Ask Tavily before adding it. |
+| `slack` | Slack | No logo | https://slack.com/terms-of-service/slack-brand — "Most uses require a specific written license", "Don't use the Slack logo (with or without your company logo)" and "Don't distribute or otherwise make available our logos", which committing the file to a public repository would do. An app may say in text that it is integrated with Slack. |
 | `workday` | Workday | No logo | Workday's trademark guidelines require permission to use its logos: https://www.workday.com/en-us/legal/trademarks.html. |
