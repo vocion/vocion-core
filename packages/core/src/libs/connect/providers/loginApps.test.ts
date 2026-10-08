@@ -20,6 +20,7 @@ const { atlassianProvider } = await import('./atlassian');
 const { googleProvider } = await import('./google');
 const { hubspotProvider, refreshHubspotGrant } = await import('./hubspot');
 const { notionProvider } = await import('./notion');
+const { quickbooksProvider, refreshQuickbooksGrant } = await import('./quickbooks');
 const { slackProvider } = await import('./slack');
 const { refreshZoomGrant, zoomProvider } = await import('./zoom');
 const { refreshAtlassianGrant } = await import('@/libs/atlassian/oauth');
@@ -38,6 +39,7 @@ const LOGIN_APP_PROVIDERS: Array<{ provider: ConnectProvider; connector: string 
   { provider: notionProvider, connector: 'notion' },
   { provider: zoomProvider, connector: 'zoom' },
   { provider: apolloProvider, connector: 'apollo' },
+  { provider: quickbooksProvider, connector: 'quickbooks' },
 ];
 
 /** Each refresh that takes the login's app, by the provider it belongs to. */
@@ -45,6 +47,7 @@ const REFRESHES: Array<{ id: string; refresh: (refreshToken: string, client?: Lo
   { id: 'hubspot', refresh: refreshHubspotGrant },
   { id: 'zoom', refresh: refreshZoomGrant },
   { id: 'apollo', refresh: refreshApolloGrant },
+  { id: 'quickbooks', refresh: refreshQuickbooksGrant },
   { id: 'atlassian', refresh: refreshAtlassianGrant },
 ];
 
@@ -84,7 +87,7 @@ function refusingVendor() {
 
 describe('a workspace\'s own login app, for every provider that takes one', () => {
   beforeEach(() => {
-    for (const id of ['SLACK', 'HUBSPOT', 'NOTION', 'ZOOM', 'APOLLO']) {
+    for (const id of ['SLACK', 'HUBSPOT', 'NOTION', 'ZOOM', 'APOLLO', 'QUICKBOOKS']) {
       env[`${id}_CLIENT_ID`] = `server_${id.toLowerCase()}`;
       env[`${id}_CLIENT_SECRET`] = 'server_secret';
     }
@@ -121,7 +124,8 @@ describe('a workspace\'s own login app, for every provider that takes one', () =
     const vendor = refusingVendor();
     vi.stubGlobal('fetch', vendor);
 
-    await provider.exchange({ query: { code: 'c0de' }, redirectUri: REDIRECT, client: WORKSPACE_APP });
+    // `realmId` is the company QuickBooks sends beside the code; every other vendor ignores it.
+    await provider.exchange({ query: { code: 'c0de', realmId: '4620816365211234' }, redirectUri: REDIRECT, client: WORKSPACE_APP });
 
     const calls = vendor.mock.calls as unknown as Array<[string, RequestInit]>;
 

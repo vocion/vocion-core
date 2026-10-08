@@ -3308,13 +3308,13 @@ export const apiTokenSchema = pgTable(
     // TypeScript; `MANY_CREDENTIAL_PLATFORM_IDS` in
     // `src/libs/platforms/registry.ts` is the copy application code reads, and
     // `registry.test.ts` fails if this declaration, that list or the migration
-    // that last rebuilt the index drift apart. Migration 0153 is the current
+    // that last rebuilt the index drift apart. Migration 0181 is the current
     // one, and this predicate has to match it character for character in
     // membership — nothing applies the DDL from here, so a difference is
     // invisible until someone reads one and trusts it.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom', 'rest', 'app-login')`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom', 'rest', 'app-login', 'quickbooks')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.

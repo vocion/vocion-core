@@ -47,7 +47,7 @@ describe('howToConnect declarations', () => {
   });
 
   it('login alone is enough where every setting has a default, and not where the source must be pointed somewhere', () => {
-    for (const slug of ['slack', 'notion', 'hubspot', 'zoom', 'apollo', 'gmail', 'drive', 'google-calendar']) {
+    for (const slug of ['slack', 'notion', 'hubspot', 'zoom', 'apollo', 'gmail', 'drive', 'google-calendar', 'quickbooks']) {
       expect(loginIsEnough(slug), slug).toBe(true);
     }
     for (const slug of ['github', 'jira', 'ga4', 'posthog']) {
@@ -69,12 +69,28 @@ describe('howToConnect declarations', () => {
     }
 
     expect(howToConnectFor('google-ads')?.login).toBeUndefined();
-    expect(howToConnectFor('google-ads')?.paste.credential).toBe('OAuth client and refresh token');
+    expect(howToConnectFor('google-ads')?.paste?.credential).toBe('OAuth client and refresh token');
+  });
+
+  it('a connector with nothing to paste declares no paste and no inputs, so the form offers its login alone', () => {
+    const quickbooks = platformForConnectorSlug('quickbooks');
+
+    expect(howToConnectFor('quickbooks')?.paste).toBeUndefined();
+    expect(howToConnectFor('quickbooks')?.login?.provider).toBe('quickbooks');
+    expect(quickbooks?.fields).toEqual([]);
+
+    // Every connector that does declare a paste has something to paste into.
+    for (const platform of connectorPlatforms.filter(p => p.howToConnect?.paste)) {
+      expect(platform.fields.length, platform.id).toBeGreaterThan(0);
+    }
+    for (const platform of connectorPlatforms.filter(p => !p.howToConnect?.paste)) {
+      expect(platform.fields, platform.id).toEqual([]);
+    }
   });
 
   it('only documented https URLs are offered for making a credential by hand', () => {
     for (const platform of connectorPlatforms) {
-      const url = platform.howToConnect?.paste.getItAt?.url;
+      const url = platform.howToConnect?.paste?.getItAt?.url;
       if (url) {
         expect(url.startsWith('https://'), platform.id).toBe(true);
       }

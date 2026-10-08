@@ -85,7 +85,7 @@ export type CredentialDraft = {
  */
 export function credentialInputsFor(connector: string): CredentialInput[] {
   const platform = platformForConnectorSlug(connector);
-  const credential = howToConnectFor(connector)?.paste.credential;
+  const credential = howToConnectFor(connector)?.paste?.credential;
   if (!platform || !credential) {
     return [];
   }
@@ -380,7 +380,7 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
                 <p className="text-xs text-muted-foreground">{`Asks for: ${accessForDisplay(login.access)}`}</p>
               )}
               <p className="text-xs text-muted-foreground" data-testid="connect-after-login">{afterLoginText(login.settingsAfterLogin)}</p>
-              <p className="pt-1 text-sm font-medium text-foreground/80">{`or paste ${withArticle(how.paste.credential)}`}</p>
+              {how.paste && <p className="pt-1 text-sm font-medium text-foreground/80">{`or paste ${withArticle(how.paste.credential)}`}</p>}
             </div>
           )
         : null}
@@ -389,7 +389,7 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
           <CredentialBox key={input.name} input={input} draft={draft} setDraft={setDraft} focusWhenShown={focusFirst && index === 0} />
         ))}
       </div>
-      <PasteHelp paste={how.paste} />
+      {how.paste && <PasteHelp paste={how.paste} />}
     </div>
   );
 }

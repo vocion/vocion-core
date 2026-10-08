@@ -658,6 +658,25 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'Counts only — never an issue\'s name, message or stack trace. Skipped, and said so, on a PostHog that does not expose the API.',
     },
   ],
+
+  // The login is the company: nothing to pick after it. Sample data reads a
+  // fictional company with no login, to try the connector first.
+  'quickbooks': [
+    {
+      key: 'sample',
+      label: 'Use sample data',
+      type: 'boolean',
+      defaultValue: false,
+      help: 'Reads a fictional company instead of yours, with no login. Every document it makes says it is sample data.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      help: 'Leave blank: the login knows whether its company is in production or the sandbox.',
+    },
+  ],
 };
 
 /**
