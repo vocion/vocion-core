@@ -214,7 +214,7 @@ resource "aws_wafv2_web_acl" "app" {
         name        = "AWSManagedRulesCommonRuleSet"
 
         dynamic "rule_action_override" {
-          for_each = toset(var.waf_count_rules)
+          for_each = toset(local.waf_count_rules)
           content {
             name = rule_action_override.value
             action_to_use {

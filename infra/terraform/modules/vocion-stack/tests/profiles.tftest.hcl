@@ -91,6 +91,10 @@ run "cloud_profile_defaults" {
     error_message = "the Cloud profile puts an ALB with a WAF in front of the box"
   }
   assert {
+    condition     = toset(flatten([for r in aws_wafv2_web_acl.app[0].rule : [for st in r.statement : [for g in st.managed_rule_group_statement : [for o in g.rule_action_override : o.name]]] if r.name == "aws-common"])) == toset(["CrossSiteScripting_BODY", "SizeRestrictions_BODY"])
+    error_message = "the WAF's two body rules count, not block, by default"
+  }
+  assert {
     condition     = length(aws_vpc_security_group_ingress_rule.app_public) == 0 && length(aws_vpc_security_group_ingress_rule.app_ssh) == 0
     error_message = "behind the ALB the box takes no public ingress and no SSH"
   }
@@ -238,6 +242,33 @@ run "logging_off" {
       && length(aws_flow_log.vpc) == 0 && length(aws_iam_role.flow_logs) == 0
     )
     error_message = "each log turns off on its own variable"
+  }
+}
+
+run "waf_body_rules_block" {
+  command = plan
+
+  variables {
+    waf_body_rules_action = "block"
+  }
+
+  assert {
+    condition     = length(toset(flatten([for r in aws_wafv2_web_acl.app[0].rule : [for st in r.statement : [for g in st.managed_rule_group_statement : [for o in g.rule_action_override : o.name]]] if r.name == "aws-common"]))) == 0
+    error_message = "waf_body_rules_action = block leaves no rule counting"
+  }
+}
+
+run "waf_one_body_rule_counts" {
+  command = plan
+
+  variables {
+    waf_body_rules_action = "block"
+    waf_count_rules       = ["SizeRestrictions_BODY"]
+  }
+
+  assert {
+    condition     = toset(flatten([for r in aws_wafv2_web_acl.app[0].rule : [for st in r.statement : [for g in st.managed_rule_group_statement : [for o in g.rule_action_override : o.name]]] if r.name == "aws-common"])) == toset(["SizeRestrictions_BODY"])
+    error_message = "a body rule named in waf_count_rules keeps counting when the other blocks"
   }
 }
 

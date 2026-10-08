@@ -20,7 +20,12 @@ locals {
 
   app_url = "https://${var.hostname}"
 
-  waf_enabled    = var.alb_enabled && var.waf_enabled
+  waf_enabled = var.alb_enabled && var.waf_enabled
+  # Common-rule-set rules overridden to COUNT (edge.tf).
+  waf_count_rules = distinct(concat(
+    var.waf_body_rules_action == "count" ? ["SizeRestrictions_BODY", "CrossSiteScripting_BODY"] : [],
+    var.waf_count_rules,
+  ))
   create_db_key  = var.db_kms_key_arn == ""
   db_kms_key_arn = local.create_db_key ? aws_kms_key.data[0].arn : var.db_kms_key_arn
 

@@ -168,10 +168,21 @@ variable "waf_rate_limit" {
   default     = 2000
 }
 
+variable "waf_body_rules_action" {
+  description = "What the common rule set's two body rules, SizeRestrictions_BODY (a body over 8 KB) and CrossSiteScripting_BODY, do: \"count\" (log the match, let the request through) or \"block\". Count by default: chat turns and uploads run past 8 KB, and people paste code and HTML that reads as script. Test the app's large and rich bodies against the WAF log before blocking (README, \"WAF: the body rules\")."
+  type        = string
+  default     = "count"
+
+  validation {
+    condition     = contains(["count", "block"], var.waf_body_rules_action)
+    error_message = "waf_body_rules_action must be count or block."
+  }
+}
+
 variable "waf_count_rules" {
-  description = "Rules of AWSManagedRulesCommonRuleSet set to COUNT instead of BLOCK. The defaults would block ordinary use: chat turns and uploads are larger than the 8 KB body limit, and people paste code that reads as cross-site scripting."
+  description = "Further rules of AWSManagedRulesCommonRuleSet to COUNT instead of BLOCK, on top of the body rules when waf_body_rules_action is count. Naming a body rule here keeps that one counting when the other is switched to block."
   type        = list(string)
-  default     = ["SizeRestrictions_BODY", "CrossSiteScripting_BODY"]
+  default     = []
 }
 
 # ----- logging -----

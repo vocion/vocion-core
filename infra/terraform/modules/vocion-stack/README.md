@@ -28,7 +28,7 @@ the application move together on one pin. A working root is in
 |---|---|---|
 | Network | VPC, public subnets in every AZ (ALB, box), private DB subnets (no route out) | `vpc_cidr`, `azs` |
 | Edge | ALB, ACM certificate (DNS-validated in your zone), HTTP → HTTPS, only `hostname` forwarded | `alb_enabled` |
-| WAF | AWS common + known-bad-inputs rule sets, per-IP rate limit | `waf_enabled`, `waf_rate_limit`, `waf_count_rules` |
+| WAF | AWS common + known-bad-inputs rule sets, per-IP rate limit; the two body rules count rather than block ([below](#waf-the-body-rules)) | `waf_enabled`, `waf_rate_limit`, `waf_body_rules_action`, `waf_count_rules` |
 | Box | One EC2 (Amazon Linux 2023), encrypted root, IMDSv2, Elastic IP for egress; reachable only from the ALB | `instance_type`, `root_volume_gb`, `eip_enabled` |
 | Access | SSM Session Manager. No port 22 | `ssh_enabled`, `ssh_cidrs`, `key_name` |
 | Database | RDS PostgreSQL 16, pgvector allowed, TLS forced, CMK-encrypted, PITR, deletion protection | `db_*` |
@@ -260,6 +260,62 @@ terminates: it appears in `ruleGroupList.*.nonTerminatingMatchingRules`.
 
 ---
 
+## WAF: the body rules
+
+Two rules of the AWS common rule set read the request body, and both match
+ordinary use of the app:
+
+- **`SizeRestrictions_BODY`** matches any body over 8 KB. On an ALB, WAF
+  inspects only the first 8 KB of a body, and this rule flags whatever is
+  longer. A chat turn with a pasted document, a file upload, a large artifact
+  saved from the editor: all run past it.
+- **`CrossSiteScripting_BODY`** matches script-like content in the body. People
+  paste HTML, JavaScript and code into chat and artifacts as a matter of course.
+
+So both **count** by default (`waf_body_rules_action = "count"`): the WAF logs
+the match and lets the request through. `waf_body_rules_action = "block"` turns
+both into blocks. Under `block` a matching request gets a 403 from the ALB
+before it reaches the app, so the app logs nothing about it, and the symptom is
+a send or an upload that fails with no app error.
+
+Before switching an installation to `block`, test the app's large and rich
+bodies against it:
+
+1. Turn it on where nobody depends on it first (a dev installation), or leave
+   production on `count` and read its WAF log for a while: every COUNT match
+   there is a request that `block` would have refused.
+2. Exercise the bodies that matter, signed in, through the hostname (the WAF
+   only sees traffic through the ALB):
+   - a chat turn with more than 8 KB of pasted text, and one with pasted HTML
+     and JavaScript (`<script>`, `onerror=`, `javascript:` links);
+   - file uploads in chat: an image, a PDF, a recording;
+   - saving a large artifact or document, and one containing HTML or code;
+   - any integration that posts to the API (`/api/v1/...`) with a large or
+     HTML-bearing JSON body.
+3. Read the WAF log (`waf_log_group_name`) for each rule. In Logs Insights, once
+   per rule:
+
+   ```
+   fields @timestamp, httpRequest.httpMethod as method, httpRequest.uri as uri
+   | filter @message like /"ruleId":"CrossSiteScripting_BODY"/
+   | stats count(*) as requests by method, uri
+   | sort requests desc
+   ```
+
+   The rule's matches, by path. Under `count` they are in
+   `ruleGroupList.*.nonTerminatingMatchingRules`; under `block`,
+   `ruleGroupList.*.terminatingRule`.
+4. Any match on a legitimate request is a path `block` breaks. Either keep that
+   rule counting (`waf_count_rules = ["SizeRestrictions_BODY"]` keeps it
+   counting while the other blocks), or exempt the path with a scoped rule of
+   your own before blocking.
+
+Expect `SizeRestrictions_BODY` to match every upload and every long turn, so
+it normally stays on `count`. `CrossSiteScripting_BODY` is the one to block
+once its log shows no legitimate matches.
+
+---
+
 ## Inputs
 
 Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
@@ -288,7 +344,8 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `alb_ssl_policy` | string | `"ELBSecurityPolicy-TLS13-1-2-2021-06"` | |
 | `waf_enabled` | bool | `true` | Needs `alb_enabled` |
 | `waf_rate_limit` | number | `2000` | Requests per IP per 5 minutes |
-| `waf_count_rules` | list(string) | `["SizeRestrictions_BODY", "CrossSiteScripting_BODY"]` | Common-rule-set rules counted, not blocked (chat bodies are large and contain code) |
+| `waf_body_rules_action` | string | `"count"` | `count` or `block`: `SizeRestrictions_BODY` and `CrossSiteScripting_BODY` ([WAF: the body rules](#waf-the-body-rules)) |
+| `waf_count_rules` | list(string) | `[]` | Further common-rule-set rules counted, not blocked; a body rule named here keeps counting under `block` |
 | `alb_access_logs_enabled` | bool | `true` | ALB access logs to S3. Needs `alb_enabled` |
 | `alb_access_logs_bucket_name` | string | `""` | Empty: `<name_prefix>-alb-logs` |
 | `alb_access_logs_retention_days` | number | `90` | |
