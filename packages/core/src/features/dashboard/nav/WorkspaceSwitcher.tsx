@@ -5,7 +5,7 @@ import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
 import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
@@ -136,10 +136,12 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const projects = props.projects ?? [];
   const active = projects.find(p => p.id === props.activeId) ?? (props.placeholder === undefined ? projects[0] ?? null : null);
   const keepEmpty = props.keepEmpty ?? false;
-  const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null, keepEmpty }), [projects, query, showEmpty, active, keepEmpty]);
+  // The person's own workspace is "Personal" (in their language), whatever its
+  // row holds; the search matches the name shown.
+  const personalName = t('personal_workspace');
+  const nameOf = useCallback((p: SwitcherProject) => (isPersonalProject(p) ? personalName : p.name), [personalName]);
+  const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null, keepEmpty, nameOf }), [projects, query, showEmpty, active, keepEmpty, nameOf]);
   const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null, keepEmpty);
-  // The person's own workspace is "Personal", whatever its row holds.
-  const nameOf = (p: SwitcherProject) => (isPersonalProject(p) ? t('personal_workspace') : p.name);
   const accounts = props.accounts ?? [];
   const groups = accounts.length > 1 ? groupByAccount(visible, accounts) : null;
   const headingIdPrefix = useId();

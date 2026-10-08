@@ -2,6 +2,7 @@
 
 import type { RecommendedAction } from './types';
 import { ArrowRight, CalendarClock, Check, Clock3, FilePen, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X, Zap } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
@@ -41,6 +42,18 @@ import { TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
  * review call, authorized by `actAs`), and its review link opens it there. The
  * record stays that workspace's.
  */
+
+/**
+ * "Open in <workspace>", in the person's language: the link on a card whose
+ * run lives in another workspace. Its own component so only such a card reads
+ * the translations.
+ * @param props - The workspace.
+ * @param props.name - Its name.
+ */
+function OpenInWorkspace({ name }: { name: string }) {
+  const t = useTranslations('Chat');
+  return <>{t('open_in_workspace', { workspace: name })}</>;
+}
 
 /** A secondary control on a card: an icon, no border, a tint on hover. */
 const QUIET_ICON = 'inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-60';
@@ -569,7 +582,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
             </span>
             {phase.runId !== undefined && (
               <Link href={proposalHref(rec, phase.runId)} className="inline-flex items-center gap-1 text-sm text-brand-amber-deep hover:opacity-90">
-                {rec.workspace ? `Open in ${rec.workspace.name}` : 'Open in review'}
+                {rec.workspace ? <OpenInWorkspace name={rec.workspace.name} /> : 'Open in review'}
                 <ArrowRight className="size-3.5" aria-hidden />
               </Link>
             )}
@@ -624,7 +637,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
                         href={reviewHref}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
                       >
-                        {rec.workspace ? `Open in ${rec.workspace.name}` : status === 'pending' ? 'Decide in review' : 'Open in review'}
+                        {rec.workspace ? <OpenInWorkspace name={rec.workspace.name} /> : status === 'pending' ? 'Decide in review' : 'Open in review'}
                         <ArrowRight className="size-3.5" aria-hidden />
                       </Link>
                     )}

@@ -300,6 +300,8 @@ describe('ask_workspace on a workspace the person can act in', () => {
     // Both tenses name the ask, so a folded group says "Asked Revenue Team"
     // rather than "Consulted Revenue Team answered"; who answered is the result.
     expect(row.labels).toEqual({ running: 'Asking Revenue Team', done: 'Asked Revenue Team' });
+    // The phrase a folded group's line takes, marked so a 5.0 row (labels only) is never read as one.
+    expect(row.headline).toEqual({ running: 'asking Revenue Team', done: 'asked Revenue Team' });
     expect(nodes.at(-1)).toMatchObject({ id: row.id, kind: 'delegate', status: 'done', label: 'Asked Revenue Team', result: 'Revenue Lead answered' });
 
     const inner = nodes.filter(n => n.id !== row.id);
@@ -364,7 +366,8 @@ describe('ask_workspace brings what the workspace filed back as cards', () => {
       proposal: { confidence: 0.82, rationale: 'Legal asked for it on the Sep 14 call.', agentSlug: 'revenue-lead', suggestedDecision: 'approve', suggestedDecisionReason: 'The renewal date is close.' },
     }).returning();
     revenueAnswers(run!.id);
-    const ctx = assistantCtx();
+    // The app's chat, which draws the card.
+    const ctx = assistantCtx({ rendersCards: true });
 
     const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form.' }));
     const cards = ctx.events.filter((e): e is Extract<AgentEvent, { type: 'card' }> => e.type === 'card').map(e => e.card);
@@ -388,9 +391,57 @@ describe('ask_workspace brings what the workspace filed back as cards', () => {
     const [still] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, run!.id));
 
     expect(still).toMatchObject({ orgId: REVENUE, status: 'pending' });
-    // The model is told the card is up here, and still gets the link.
+    // The model is told the card is up here, and still gives the person the link.
     expect(out).toContain('on a card in this thread now');
+    expect(out).toContain('give them these links as written');
     expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}`);
+    // The asked workspace hears the same: the person sees its card in their thread.
+    expect(vi.mocked(runAgentDeep).mock.calls[0]![0].message).toContain('sees it as a card in their own thread');
+  });
+
+  // 5.0.1 review: a text, Slack thread or email reaches the assistant through
+  // the chat surfaces, which send the turn's words and draw no card. There the
+  // model is never told a card is waiting, and always gives the links.
+  it('off the app\'s chat, never says a card is up, and always gives the links', async () => {
+    const [run] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'email.send', status: 'pending', invokedBy: 'agent:revenue-lead', input: { to: 'buyer@contoso.example' } }).returning();
+    revenueAnswers(run!.id);
+    const ctx = assistantCtx();
+
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form.' }));
+
+    expect(out).not.toContain('on a card');
+    expect(out).not.toContain('in this thread');
+    expect(out).toContain('give them these links as written');
+    expect(out).toContain(`[Proposed email.send](`);
+    expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}?account=northwind-asst) — pending`);
+
+    // The asked workspace is not told the person sees a card either.
+    const note = vi.mocked(runAgentDeep).mock.calls[0]![0].message;
+
+    expect(note).not.toContain('sees it as a card');
+    expect(note).toContain('decides it from the link their assistant gives them');
+    // The typed event still goes out (a surface that draws cards would show
+    // it, and the turn counts it as shown); only the words depend on the surface.
+    expect(ctx.events.some(e => e.type === 'card')).toBe(true);
+  });
+
+  // Accelerate 1: the person's word runs, with undo, and shows no card. A run
+  // the asked workspace already ran, or that failed, is not waiting on anyone.
+  it('puts up no card for a run that already ran or failed, and does not say one is waiting', async () => {
+    for (const status of ['done', 'failed'] as const) {
+      await db.delete(actionRunSchema);
+      vi.mocked(runAgentDeep).mockReset();
+      const [run] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'email.send', status, invokedBy: 'person:usr-asst-alex', input: { to: 'buyer@contoso.example' } }).returning();
+      revenueAnswers(run!.id);
+      const ctx = assistantCtx({ rendersCards: true });
+
+      const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form now.' }));
+
+      expect(ctx.events.some(e => e.type === 'card')).toBe(false);
+      expect(out).not.toContain('on a card');
+      expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}?account=northwind-asst) — ${status}`);
+      expect(out).toContain('give them these links as written');
+    }
   });
 
   it('titles the card with the words the workspace\'s agent put on it, when it put one up', async () => {
@@ -417,7 +468,8 @@ describe('ask_workspace brings what the workspace filed back as cards', () => {
 
     expect(ctx.events.some(e => e.type === 'card')).toBe(false);
     expect(out).toContain('A question for you');
-    expect(out).toContain('these stay there and the person decides them there');
+    expect(out).toContain('these stay there, where the person decides what is waiting on them');
+    expect(out).toContain('give them these links as written');
   });
 
   it('puts up nothing when the workspace filed nothing', async () => {
@@ -440,5 +492,15 @@ describe('raisedCard', () => {
 
   it('is no card when the run names no action to press', () => {
     expect(raisedCard({ ...base, actionId: '' }, where)).toBeNull();
+  });
+
+  it('is a card only while the run waits on the person', () => {
+    expect(raisedCard(base, where)).not.toBeNull();
+
+    for (const status of ['done', 'failed', 'rejected', 'snoozed', 'executing']) {
+      expect(raisedCard({ ...base, status }, where)).toBeNull();
+    }
+
+    expect(raisedCard({ ...base, askId: 77 }, where)).toBeNull();
   });
 });

@@ -529,7 +529,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
   // more than any composition of it.
   const solo = actions.length === 1 && reasons.length === 0 && sources === 0 ? actions[0]! : null;
   const soloRadius = solo ? (solo.result ?? (solo.resultDetail && solo.resultDetail.length <= 60 ? solo.resultDetail : undefined)) : undefined;
-  const headline = solo ? null : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool, ...(n.labels ? { labels: n.labels } : {}) })), sources);
+  const headline = solo ? null : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool, ...(n.headline ? { headline: n.headline } : {}) })), sources);
   const failed = actions.some(n => n.status === 'error');
 
   return (
@@ -666,7 +666,7 @@ export function LiveStatus({ text, elapsed }: { text: string; elapsed: number })
 function StepGroupLine({ actions, sources, expanded, onToggle }: { actions: TraceNode[]; sources: number; expanded: boolean; onToggle: () => void }) {
   const text = actions.length === 1
     ? liveStepLabel(actions[0]!)
-    : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool, ...(n.labels ? { labels: n.labels } : {}) })), sources);
+    : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool, ...(n.headline ? { headline: n.headline } : {}) })), sources);
   return (
     <button
       type="button"

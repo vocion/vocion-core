@@ -13,6 +13,7 @@ import type { Script } from '@/libs/llm/scripted';
 import { describe, expect, it, vi } from 'vitest';
 import { ScriptedChatModel } from '@/libs/llm/scripted';
 import { buildOrFiling, cardRulesOf, FILE_ACTION, isSameCard, parseTouches, runCardBackstop } from './cardBackstop';
+import { cardOnScreen } from './handOff';
 import { cardRecordRef, recommendActionTool } from './tools/recommendAction';
 
 vi.mock('@/services/objects/recordHref', () => ({
@@ -164,6 +165,29 @@ describe('the card pass writes every card at once, on the scripted model', () =>
     expect(out.emitted).toBe(1);
     expect(h.events.filter(e => e.type === 'recommended_action').map(e => (e as { recommendation: { label: string } }).recommendation.label)).toEqual(['Defer the admin panel']);
     expect(h.charge).toHaveBeenCalledTimes(2);
+  });
+
+  // 5.0.1: a proposal the assistant brought back from a workspace it asked is
+  // already a filed card on screen. The turn counts it as shown, so the pass
+  // never writes it again — which would file it into the asking workspace too.
+  it('counts a filed card a tool put up as on screen, and never writes it again', async () => {
+    const brought: AgentEvent = { type: 'card', card: { id: 'card_run41', kind: 'action', title: 'Approve the upload fix', actions: [{ label: 'Approve the upload fix', actionId: 'gmail.send', input: { to: 'ops@northwind.example' }, style: 'primary' }], source: { tool: 'ask_workspace' }, runId: 41, workspace: { id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue' }, state: 'filed' } };
+    const already = [brought].map(cardOnScreen).filter((t): t is string => t !== null);
+
+    expect(already).toEqual(['Approve the upload fix']);
+
+    const h = harness([mail('Approve the upload fix', 'ops@northwind.example', 5), mail('Defer the admin panel', 'pm@northwind.example', 5)]);
+    const out = await runCardBackstop({ answer: ANSWER, already, agentPrompt: 'Cards.' }, h.deps);
+
+    expect(out.emitted).toBe(1);
+    expect(h.events.filter(e => e.type === 'recommended_action').map(e => (e as { recommendation: { label: string } }).recommendation.label)).toEqual(['Defer the admin panel']);
+  });
+
+  it('counts a recommendation as on screen, and not a card with no action to press or no run', () => {
+    expect(cardOnScreen({ type: 'recommended_action', recommendation: { label: 'Tell Northwind', actionId: 'gmail.send', input: {} } })).toBe('Tell Northwind');
+    expect(cardOnScreen({ type: 'card', card: { id: 'c1', kind: 'connect', title: 'Connect GitHub', actions: [], source: {}, state: 'proposed' } })).toBeNull();
+    expect(cardOnScreen({ type: 'card', card: { id: 'c2', kind: 'action', title: 'Send it', actions: [{ label: 'Send it', actionId: 'gmail.send', input: {}, style: 'primary' }], source: {}, state: 'proposed' } })).toBeNull();
+    expect(cardOnScreen({ type: 'status', label: 'Working' } as AgentEvent)).toBeNull();
   });
 
   it('a card its action refuses is no card at all: one line for under the answer, a tool_call row saying why', async () => {

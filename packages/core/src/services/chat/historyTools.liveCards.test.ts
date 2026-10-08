@@ -11,12 +11,12 @@
  * Now a card replays as ONE call, as what its proposal is when the history is
  * assembled: ran (and what it did), failed, turned down, or still waiting.
  */
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, actionRunSchema, projectMemberSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { historyMessages, outcomeOf, toolsMarker, withLiveCardState } = await import('./historyTools');
 
 const ORG = 'org_live_cards';
@@ -103,5 +103,87 @@ describe('withLiveCardState — the proposal as it stands when the history is as
     const live = await withLiveCardState(ORG, stored);
 
     expect((live![0]!.runs as Array<{ status?: string }>)[0]!.status).toBeUndefined();
+  });
+});
+
+/**
+ * A card the person's assistant brought back from a workspace it asked lives
+ * THERE (`workspace` on the card). The replay reads it there, as the person,
+ * only while they can still act in that workspace; one they can no longer
+ * reach is dropped, never read under the asking thread's workspace.
+ */
+describe('withLiveCardState — a card whose run lives in another workspace', () => {
+  const NORTHWIND = 'acct-live-cards';
+  const ALEX = 'usr-live-cards-alex';
+  const REVENUE = 'proj-live-cards-revenue'; // Alex holds a grant
+  const DELIVERY = 'proj-live-cards-delivery'; // Alex holds none
+
+  async function seed() {
+    process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
+    await db.insert(tenantAccountSchema).values({ id: NORTHWIND, name: 'Northwind', slug: 'northwind-live-cards' });
+    await db.insert(userSchema).values({ id: ALEX, email: 'alex@northwind.example', name: 'Alex Rivera' });
+    await db.insert(accountMembershipSchema).values({ accountId: NORTHWIND, userId: ALEX, role: 'member' });
+    await db.insert(projectSchema).values([
+      { id: REVENUE, accountId: NORTHWIND, slug: 'revenue', name: 'Northwind Revenue' },
+      { id: DELIVERY, accountId: NORTHWIND, slug: 'delivery', name: 'Delivery' },
+    ]);
+    await db.insert(projectMemberSchema).values({ projectId: REVENUE, userId: ALEX, role: 'member' });
+  }
+
+  afterEach(async () => {
+    delete process.env.VOCION_ENFORCE_WORKSPACE_ACCESS;
+    await db.delete(actionRunSchema);
+    await db.delete(projectMemberSchema);
+    await db.delete(projectSchema);
+    await db.delete(accountMembershipSchema);
+    await db.delete(userSchema);
+    await db.delete(tenantAccountSchema);
+  });
+
+  const revenue = { id: REVENUE, slug: 'revenue', name: 'Northwind Revenue' };
+  const delivery = { id: DELIVERY, slug: 'delivery', name: 'Delivery' };
+
+  it('reads the run in its own workspace: a card stored "filed" that was approved there replays as run', async () => {
+    await seed();
+    const [done] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'email.send', input: {}, status: 'done', result: { objectId: 88, objectType: 'follow_up' } }).returning({ id: actionRunSchema.id });
+    const stored = [{ ...turn, runs: [{ type: 'card', label: 'Send Contoso the order form', actionId: 'email.send', runId: done!.id, state: 'filed', workspace: revenue }] }];
+
+    const live = await withLiveCardState(ORG, stored, ALEX);
+    const [result] = cardResults(historyMessages(live![0]!));
+
+    expect((live![0]!.runs as Array<{ status?: string }>)[0]!.status).toBe('done');
+    expect(result).toMatch(new RegExp(`ran \\(proposal #${done!.id} in Northwind Revenue executed\\): it wrote follow up #88`));
+  });
+
+  it('a card still waiting there points "go" at the card, never at a decide call from here', async () => {
+    await seed();
+    const [waiting] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'email.send', input: {}, status: 'pending' }).returning({ id: actionRunSchema.id });
+    const stored = [{ ...turn, runs: [{ type: 'card', label: 'Send Contoso the order form', actionId: 'email.send', runId: waiting!.id, state: 'filed', workspace: revenue }] }];
+
+    const [result] = cardResults(historyMessages((await withLiveCardState(ORG, stored, ALEX))![0]!));
+
+    expect(result).toContain(`proposal #${waiting!.id} in Northwind Revenue, waiting on the person`);
+    expect(result).toContain('press it on the card');
+    expect(result).not.toContain('decide_proposal');
+  });
+
+  it('drops a card in a workspace the person can no longer reach, and every other workspace\'s card when no person is named', async () => {
+    await seed();
+    const [granted] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'email.send', input: {}, status: 'done' }).returning({ id: actionRunSchema.id });
+    const [ungranted] = await db.insert(actionRunSchema).values({ orgId: DELIVERY, actionId: 'email.send', input: {}, status: 'done' }).returning({ id: actionRunSchema.id });
+    const [here] = await db.insert(actionRunSchema).values({ orgId: ORG, actionId: 'factory.dispatch_task', input: {}, status: 'failed', error: 'no worker' }).returning({ id: actionRunSchema.id });
+    const stored = [{ ...turn, runs: [
+      { type: 'card', label: 'Revenue card', actionId: 'email.send', runId: granted!.id, workspace: revenue },
+      { type: 'card', label: 'Delivery card', actionId: 'email.send', runId: ungranted!.id, workspace: delivery },
+      { type: 'card', label: 'Here card', actionId: 'factory.dispatch_task', runId: here!.id },
+    ] }];
+
+    const asAlex = (await withLiveCardState(ORG, stored, ALEX))![0]!.runs as Array<{ label: string; status?: string }>;
+
+    expect(asAlex.map(r => [r.label, r.status])).toEqual([['Revenue card', 'done'], ['Here card', 'failed']]);
+
+    const asNobody = (await withLiveCardState(ORG, stored))![0]!.runs as Array<{ label: string; status?: string }>;
+
+    expect(asNobody.map(r => [r.label, r.status])).toEqual([['Here card', 'failed']]);
   });
 });

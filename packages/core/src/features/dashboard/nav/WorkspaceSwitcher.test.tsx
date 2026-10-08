@@ -5,6 +5,7 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import en from '@/locales/en.json';
+import fr from '@/locales/fr.json';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 vi.mock('@/libs/I18nNavigation', () => ({
@@ -162,6 +163,22 @@ describe('WorkspaceSwitcher, 5.0 fixes', () => {
     await expect.element(page.getByRole('option', { name: /Support/ })).toHaveTextContent(/support/);
     await expect.element(page.getByRole('button', { name: 'Switch workspace' })).toHaveTextContent(/Personal/);
     expect(page.getByText('personal-3f9a2c1b').elements()).toHaveLength(0);
+  });
+
+  // 5.0.1 review: the row read "Personnel" in French while the search
+  // matched only the stored "Personal".
+  it('finds the person\'s own workspace by the name it is shown by, in their language', async () => {
+    await render(
+      <NextIntlClientProvider locale="fr" messages={fr}>
+        <SidebarProvider>
+          <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={[ACCOUNTS[1]!]} projects={[personal, PROJECTS[1]!]} activeId={PROJECTS[1]!.id} defaultOpen navigate={() => {}} />
+        </SidebarProvider>
+      </NextIntlClientProvider>,
+    );
+
+    await page.getByRole('textbox', { name: fr.DashboardLayout.search_workspaces }).fill('personnel');
+
+    await expect.element(page.getByRole('option', { name: 'Personnel', exact: true })).toBeVisible();
   });
 
   it('lists, in an app\'s picker, a workspace with the app and no agents yet', async () => {

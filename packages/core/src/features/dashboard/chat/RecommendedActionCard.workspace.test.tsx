@@ -1,7 +1,10 @@
 import type { RecommendedAction } from './types';
+import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import en from '@/locales/en.json';
+import fr from '@/locales/fr.json';
 import '@/styles/global.css';
 
 /**
@@ -28,6 +31,19 @@ const { TooltipProvider } = await import('@/components/ui/tooltip');
 const { RecommendedActionCard } = await import('./RecommendedActionCard');
 
 const revenue = { id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue', accountSlug: 'northwind' };
+
+/**
+ * The card as a thread shows it.
+ * @param card - The card.
+ * @param locale - The person's language.
+ */
+function show(card: RecommendedAction, locale: 'en' | 'fr' = 'en') {
+  return render(
+    <NextIntlClientProvider locale={locale} messages={locale === 'fr' ? fr : en}>
+      <TooltipProvider><RecommendedActionCard rec={card} /></TooltipProvider>
+    </NextIntlClientProvider>,
+  );
+}
 const rec: RecommendedAction = { id: 'card_run41', actionId: 'email.send', input: { to: 'buyer@contoso.example', subject: 'Order form' }, label: 'Send Contoso the order form', agentSlug: 'revenue-lead', runId: 41, state: 'filed', workspace: revenue };
 
 beforeEach(() => {
@@ -41,7 +57,7 @@ beforeEach(() => {
 
 describe('a card whose run lives in another workspace', () => {
   it('reads its status there and approves it there, from this thread', async () => {
-    await render(<TooltipProvider><RecommendedActionCard rec={rec} /></TooltipProvider>);
+    await show(rec);
 
     await expect.element(page.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
 
@@ -53,7 +69,7 @@ describe('a card whose run lives in another workspace', () => {
   });
 
   it('defers it there', async () => {
-    await render(<TooltipProvider><RecommendedActionCard rec={rec} /></TooltipProvider>);
+    await show(rec);
     await page.getByRole('button', { name: 'Defer' }).click();
 
     await expect.poll(() => snoozeAction.mock.calls.length).toBe(1);
@@ -61,16 +77,22 @@ describe('a card whose run lives in another workspace', () => {
   });
 
   it('says where it lives, and opens it there', async () => {
-    await render(<TooltipProvider><RecommendedActionCard rec={rec} /></TooltipProvider>);
+    await show(rec);
     const open = page.getByRole('link', { name: /Open in Northwind Revenue/ });
 
     await expect.element(open).toBeInTheDocument();
     await expect.element(open).toHaveAttribute('href', '/w/revenue/dashboard/inbox/proposal-41?account=northwind');
   });
 
+  it('says where it lives in the person\'s language', async () => {
+    await show(rec, 'fr');
+
+    await expect.element(page.getByRole('link', { name: /Ouvrir dans Northwind Revenue/ })).toBeInTheDocument();
+  });
+
   it('a card of this workspace calls as it always did', async () => {
     const { workspace: _w, ...here } = rec;
-    await render(<TooltipProvider><RecommendedActionCard rec={here} /></TooltipProvider>);
+    await show(here);
     await page.getByRole('button', { name: 'Approve' }).click();
 
     expect(actionStatus).toHaveBeenCalledWith({ id: 41 });

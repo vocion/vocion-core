@@ -88,6 +88,8 @@ export type TraceNode = {
   result?: string;
   /** Both tenses of the step's name, once known; `label` is re-derived from it as the status changes. */
   labels?: { running: string; done: string };
+  /** What the step adds to a folded group's line, both tenses, as written (`stepHeadline`). */
+  headline?: { running: string; done: string };
   confidence?: number;
   citations?: TraceCitation[];
   /**

@@ -44,6 +44,11 @@ export type TenantClaim = {
    * the artifact can relay it but never change it.
    */
   pageContext?: import('@/services/chat/pageContext').PageContext;
+  /**
+   * The surface draws this turn's cards (the app's chat), so a tool may say a
+   * card is on screen (`RuntimeContext.rendersCards`). Signed, like the rest.
+   */
+  rendersCards?: boolean;
   /** Unix ms expiry. Claims are per-invocation and short-lived. */
   exp: number;
 };

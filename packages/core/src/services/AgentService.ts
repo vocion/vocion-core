@@ -29,7 +29,7 @@ import { flatHistory, historyMessages, withLiveCardState } from '@/services/chat
 import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
-import { HandOffGateCallback, HandOffGuard } from './agents/handOff';
+import { cardOnScreen, HandOffGateCallback, HandOffGuard } from './agents/handOff';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
@@ -549,6 +549,13 @@ export async function runAgentDeep(opts: {
   /** The person's IANA time zone for this turn (from the browser); the workspace's when absent. */
   timeZone?: string;
   /**
+   * The surface draws this turn's `card` events where the person reads the
+   * answer — set by the app's chat route (`rpc/agent/stream`) alone. A text,
+   * Slack, email, schedule or MCP turn leaves it unset and gets words only, so
+   * no tool says a card is on screen there (`RuntimeContext.rendersCards`).
+   */
+  rendersCards?: boolean;
+  /**
    * What this turn OWES (`libs/chat/deliverable.ts`). `artifact` means the
    * turn must end with an artifact beside the conversation; if the loop does
    * not make one, `applyTurnGuarantees` does. `answer` (and absent) means the
@@ -652,19 +659,20 @@ export async function runAgentDeep(opts: {
         }
       }
     }
+    // A card on screen — a recommendation, or a filed card a tool put up (one
+    // the assistant brought back from a workspace it asked) — is never
+    // written again by the card pass.
+    const shown = cardOnScreen(event);
+    if (shown !== null) {
+      emittedCards.push(shown);
+    }
     if (event.type === 'recommended_action') {
-      emittedCards.push(event.recommendation.label);
       handOffGuard.handOff(event.recommendation.label);
     }
     // A card that waits on a person (a connection to make, state `proposed`)
     // hands them the next move: the turn ends before the model speaks again.
     if (event.type === 'card' && event.card.state === 'proposed') {
       handOffGuard.handOff(event.card.title);
-    }
-    // A filed card a tool put up (one the assistant brought back from a
-    // workspace it asked) is on screen: the card pass must not write it again.
-    if (event.type === 'card' && event.card.runId !== undefined && event.card.actions.length > 0) {
-      emittedCards.push(event.card.title);
     }
     if (event.type === 'record_created') {
       createdRecords.push(event.record);
@@ -734,7 +742,7 @@ export async function runAgentDeep(opts: {
   // Each card a past turn put up replays as what its proposal is NOW — run,
   // failed, still waiting — not as the turn stored it (conversation 360: two
   // cards that had started the build replayed as undecided duplicates).
-  const conversationHistory = await withLiveCardState(opts.orgId, opts.conversationHistory);
+  const conversationHistory = await withLiveCardState(opts.orgId, opts.conversationHistory, opts.userId);
   const [agentRow] = await db
     .select({ harnessConfig: agentSchema.harnessConfig, systemPrompt: agentSchema.systemPrompt })
     .from(agentSchema)
@@ -783,22 +791,20 @@ export async function runAgentDeep(opts: {
   // The graph and its tools are compiled for THIS turn, on this person's
   // context. Nothing here is shared with a turn running beside it — which is
   // what a shared, overwritten context cost us (harness.ts, issue #109).
-  let compiled = await compileAgentForRequest(
-    opts.orgId,
-    opts.agentSlug,
-    {
-      emit,
-      userId: opts.userId,
-      allowedSourceSlugs: opts.allowedSourceSlugs,
-      missionSlug: opts.missionSlug,
-      missionRunId: opts.missionRunId,
-      conversationId: opts.conversationId,
-      pageContext: opts.pageContext,
-      turnMessage: opts.message,
-      timeZone: opts.timeZone,
-    },
-    { modelOverride },
-  );
+  // The same request on every compile of this turn (the retries below).
+  const turnRequest: import('./agents/harness').AgentRequest = {
+    emit,
+    userId: opts.userId,
+    allowedSourceSlugs: opts.allowedSourceSlugs,
+    missionSlug: opts.missionSlug,
+    missionRunId: opts.missionRunId,
+    conversationId: opts.conversationId,
+    pageContext: opts.pageContext,
+    turnMessage: opts.message,
+    timeZone: opts.timeZone,
+    ...(opts.rendersCards ? { rendersCards: true } : {}),
+  };
+  let compiled = await compileAgentForRequest(opts.orgId, opts.agentSlug, turnRequest, { modelOverride });
   const boundCtx = compiled.ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
@@ -1280,17 +1286,7 @@ export async function runAgentDeep(opts: {
         compiled = await compileAgentForRequest(
           opts.orgId,
           opts.agentSlug,
-          {
-            emit,
-            userId: opts.userId,
-            allowedSourceSlugs: opts.allowedSourceSlugs,
-            missionSlug: opts.missionSlug,
-            missionRunId: opts.missionRunId,
-            conversationId: opts.conversationId,
-            pageContext: opts.pageContext,
-            turnMessage: opts.message,
-            timeZone: opts.timeZone,
-          },
+          turnRequest,
           { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider } },
         );
         graphMessages = null;
@@ -1341,17 +1337,7 @@ export async function runAgentDeep(opts: {
         compiled = await compileAgentForRequest(
           opts.orgId,
           opts.agentSlug,
-          {
-            emit,
-            userId: opts.userId,
-            allowedSourceSlugs: opts.allowedSourceSlugs,
-            missionSlug: opts.missionSlug,
-            missionRunId: opts.missionRunId,
-            conversationId: opts.conversationId,
-            pageContext: opts.pageContext,
-            turnMessage: opts.message,
-            timeZone: opts.timeZone,
-          },
+          turnRequest,
           // A ModelOverride names its model; without one the provider lookup
           // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,
           // finding 25). The retry keeps the model the turn already chose.

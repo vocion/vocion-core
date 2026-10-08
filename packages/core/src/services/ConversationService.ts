@@ -69,6 +69,8 @@ export type ConversationTraceNode = {
   result?: string;
   /** Both tenses of the step's name, when a labeler supplied them. */
   labels?: { running: string; done: string };
+  /** What the step adds to a folded group's line, both tenses, as written (`stepHeadline`). */
+  headline?: { running: string; done: string };
   confidence?: number;
   citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
   /** How many text runs had started when this step began — its place between the passages. */

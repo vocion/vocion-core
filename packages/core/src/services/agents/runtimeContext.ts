@@ -135,6 +135,8 @@ export type RuntimeContextOptions = {
   turnMessage?: string;
   /** The person's own time zone for this turn; falls back to the workspace's. */
   timeZone?: string;
+  /** The surface draws this turn's cards (the app's chat); see `RuntimeContext.rendersCards`. */
+  rendersCards?: boolean;
   /** Which harness runs the loop — stamped on tool_call rows. */
   provider?: RuntimeContext['provider'];
   /** Where this turn's structured events go. Dropped when absent. */
@@ -182,6 +184,7 @@ export function runtimeContextFromScope(
     conversationId: opts.conversationId,
     pageContext: opts.pageContext,
     turnMessage: opts.turnMessage,
+    ...(opts.rendersCards ? { rendersCards: true } : {}),
     provider: opts.provider,
     delegations: opts.delegations,
     // Citation numbering restarts each turn, and the numbers the model cites

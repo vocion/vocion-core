@@ -84,6 +84,17 @@ describe('ask_workspace over the tool endpoint', () => {
     expect(child).toMatchObject({ createdBy: DANA, surface: 'assistant' });
   });
 
+  // Whether the surface draws cards rides in the signed claim, so the
+  // container's tool call words the ask exactly as the in-process loop does.
+  it('carries whether the surface draws cards from the claim to the tool', async () => {
+    await executeToolCall({ token: signClaim({ orgId: danaHome, agentSlug: 'assistant', userId: DANA, rendersCards: true }), tool: 'ask_workspace', input: { workspace: 'revenue', message: 'What closes this month?' } });
+    await executeToolCall({ token: signClaim({ orgId: danaHome, agentSlug: 'assistant', userId: DANA }), tool: 'ask_workspace', input: { workspace: 'revenue', message: 'What closes this month?' } });
+    const [inApp, byText] = vi.mocked(runAgentDeep).mock.calls.map(c => c[0].message);
+
+    expect(inApp).toContain('sees it as a card in their own thread');
+    expect(byText).toContain('decides it from the link their assistant gives them');
+  });
+
   it('a claim for someone else in this personal workspace reaches nothing', async () => {
     const token = signClaim({ orgId: danaHome, agentSlug: 'assistant', userId: EVAN });
     const result = await executeToolCall({ token, tool: 'ask_workspace', input: { workspace: 'revenue', message: 'What closes this month?' } });

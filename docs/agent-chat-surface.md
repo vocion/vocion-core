@@ -37,14 +37,20 @@ never hide truth*).
   and the question and answer land there as a conversation with surface
   `assistant` and `parent_conversation_id` pointing at the asking thread. That
   conversation is the workspace's record, visible to its members; the asking
-  thread stays its owner's alone. A proposal the workspace filed comes back
-  as a card in the asking thread (2026-10-07): the same action card, carrying
-  `card.workspace`, so its status, Approve, Defer and Undo go to that
-  workspace's run (`workspaceId` on the review routes, allowed exactly when
-  the person could switch there — `routers/actingWorkspace.ts`), and "Open in
-  <workspace>" opens it there. The run stays that workspace's record, in its
-  Review. A question it filed is answered on its own page there, and the
-  answer links it (`workspaceUrl`). See `services/agents/tools/assistant.ts`.
+  thread stays its owner's alone. A proposal the workspace filed that still
+  waits on the person comes back as a card in the asking thread (2026-10-07):
+  the same action card, carrying `card.workspace`, so its status, Approve,
+  Defer and Undo go to that workspace's run (`workspaceId` on the review
+  routes, allowed exactly when the person could switch there —
+  `routers/actingWorkspace.ts`), and "Open in <workspace>" opens it there.
+  The run stays that workspace's record, in its Review. A run that already
+  ran, failed or was turned down shows no card. A question it filed is
+  answered on its own page there. The answer always carries the links
+  (`workspaceUrl`), and the model is told a card is up only on a surface that
+  draws one (`rendersCards`, set by `rpc/agent/stream` alone): a text, Slack
+  thread or email gets the links. The folded group's line takes the ask's own
+  marked phrase (`headline`: "asking …" while it runs, "asked …" once it
+  lands). See `services/agents/tools/assistant.ts`.
 
 ## §3 — The dock is a core component
 

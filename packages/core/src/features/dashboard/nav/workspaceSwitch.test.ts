@@ -49,6 +49,17 @@ describe('workspace switcher', () => {
     expect(filterProjects([personal, shared], { query: 'person' }).map(p => p.id)).toEqual(['p-mine']);
   });
 
+  // 5.0.1 review: the row reads "Personnel" in French, but the search matched
+  // only the stored "Personal", so typing what was on screen found nothing.
+  it('searches the name a row is shown by', () => {
+    const personal = { id: 'p-mine', slug: 'personal-3f9a2c1b', name: 'Personal', agentCount: 1, kind: 'personal' as const };
+    const shared = { ...projects[1]!, kind: 'shared' as const };
+    const nameOf = (p: { kind?: string; name: string }) => (p.kind === 'personal' ? 'Personnel' : p.name);
+
+    expect(filterProjects([personal, shared], { query: 'personnel', nameOf }).map(p => p.id)).toEqual(['p-mine']);
+    expect(filterProjects([personal, shared], { query: 'revenue', nameOf }).map(p => p.id)).toEqual(['p-rev']);
+  });
+
   it('re-points a canonical path at the workspace being switched to, rather than nesting a second one', () => {
     // The switcher reads `usePathname()`, which now gives the app path — but a
     // caller handing it the canonical one must not produce `/w/a/w/b/…`, which

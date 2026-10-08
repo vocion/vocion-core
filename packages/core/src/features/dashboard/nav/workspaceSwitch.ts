@@ -115,9 +115,11 @@ export function slugLine(p: Pick<SwitcherProject, 'kind' | 'slug'>): string | nu
 }
 
 /**
- * The switcher's list: filtered by a case-insensitive match on name or the
- * slug it shows, empty projects hidden unless `showEmpty`, the active one
- * always kept.
+ * The switcher's list: filtered by a case-insensitive match on the name it
+ * shows or the slug it shows, empty projects hidden unless `showEmpty`, the
+ * active one always kept. The shown name is `nameOf`'s when given — the
+ * personal workspace reads "Personnel" in French, and a person searches for
+ * what they see, not what the row stores.
  *
  * `keepEmpty` is an app's picker: every workspace handed to it has the app,
  * so none is hidden for having no agents yet — a workspace that just installed
@@ -128,14 +130,16 @@ export function slugLine(p: Pick<SwitcherProject, 'kind' | 'slug'>): string | nu
  * @param opts.showEmpty - The empty-projects toggle is on.
  * @param opts.activeId - The current workspace, kept whatever else holds.
  * @param opts.keepEmpty - Never hide a row for having no agents.
+ * @param opts.nameOf - The name a row is shown by; its stored name when absent.
  */
-export function filterProjects<T extends SwitcherProject>(projects: T[], opts: { query?: string; showEmpty?: boolean; activeId?: string | null; keepEmpty?: boolean }): T[] {
+export function filterProjects<T extends SwitcherProject>(projects: T[], opts: { query?: string; showEmpty?: boolean; activeId?: string | null; keepEmpty?: boolean; nameOf?: (p: T) => string }): T[] {
   const q = (opts.query ?? '').trim().toLowerCase();
+  const nameOf = opts.nameOf ?? ((p: T) => p.name);
   return projects.filter((p) => {
     if (!opts.keepEmpty && !opts.showEmpty && isEmptyProject(p) && p.id !== opts.activeId) {
       return false;
     }
-    return q === '' || p.name.toLowerCase().includes(q) || (slugLine(p)?.toLowerCase().includes(q) ?? false);
+    return q === '' || nameOf(p).toLowerCase().includes(q) || (slugLine(p)?.toLowerCase().includes(q) ?? false);
   });
 }
 

@@ -61,14 +61,20 @@ const { guardAuth } = await import('./AuthGuards');
 const { decide, snooze } = await import('@/services/ReviewService');
 const { undoAction } = await import('@/services/ActionService');
 const { ensurePersonalProject } = await import('@/services/workspace/personalProject');
+const { resolveProjectForUser } = await import('@/services/ProjectService');
 const { actionStatusRoute, decideActionRoute, snoozeActionRoute, undoActionRoute } = await import('./Review');
 const { actingOrgId } = await import('./actingWorkspace');
 
 const NORTHWIND = 'acct-review-acting';
+const KESTREL = 'acct-review-kestrel'; // a second account Alex belongs to
+const LARKFIELD = 'acct-review-larkfield'; // an account Alex is not in
 const ALEX = 'usr-review-alex'; // decides from their personal thread
 const BRIT = 'usr-review-brit'; // a colleague
 const REVENUE = 'proj-review-revenue'; // shared, Alex granted
 const DELIVERY = 'proj-review-delivery'; // shared, no grant for Alex
+const KESTREL_OPS = 'proj-review-kestrel-ops'; // on Kestrel, no grant for Alex
+const KESTREL_DESK = 'proj-review-kestrel-desk'; // on Kestrel, Alex granted
+const LARKFIELD_OPS = 'proj-review-larkfield-ops'; // on an account Alex is not in
 
 let alexHome: string;
 let britHome: string;
@@ -112,7 +118,11 @@ beforeEach(async () => {
   vi.clearAllMocks();
   process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
   await reset();
-  await db.insert(tenantAccountSchema).values({ id: NORTHWIND, name: 'Northwind', slug: 'northwind-review' });
+  await db.insert(tenantAccountSchema).values([
+    { id: NORTHWIND, name: 'Northwind', slug: 'northwind-review' },
+    { id: KESTREL, name: 'Kestrel Capital', slug: 'kestrel-review' },
+    { id: LARKFIELD, name: 'Larkfield Systems', slug: 'larkfield-review' },
+  ]);
   await db.insert(userSchema).values([
     { id: ALEX, email: 'alex@northwind.example', name: 'Alex Rivera' },
     { id: BRIT, email: 'brit@northwind.example', name: 'Brit Okafor' },
@@ -120,12 +130,20 @@ beforeEach(async () => {
   await db.insert(accountMembershipSchema).values([
     { accountId: NORTHWIND, userId: ALEX, role: 'member' },
     { accountId: NORTHWIND, userId: BRIT, role: 'member' },
+    { accountId: KESTREL, userId: ALEX, role: 'member' },
+    { accountId: LARKFIELD, userId: BRIT, role: 'member' },
   ]);
   await db.insert(projectSchema).values([
     { id: REVENUE, accountId: NORTHWIND, slug: 'revenue', name: 'Northwind Revenue' },
     { id: DELIVERY, accountId: NORTHWIND, slug: 'delivery', name: 'Delivery' },
+    { id: KESTREL_OPS, accountId: KESTREL, slug: 'ops', name: 'Kestrel Ops' },
+    { id: KESTREL_DESK, accountId: KESTREL, slug: 'desk', name: 'Kestrel Desk' },
+    { id: LARKFIELD_OPS, accountId: LARKFIELD, slug: 'ops', name: 'Larkfield Ops' },
   ]);
-  await db.insert(projectMemberSchema).values({ projectId: REVENUE, userId: ALEX, role: 'member' });
+  await db.insert(projectMemberSchema).values([
+    { projectId: REVENUE, userId: ALEX, role: 'member' },
+    { projectId: KESTREL_DESK, userId: ALEX, role: 'member' },
+  ]);
   alexHome = (await ensurePersonalProject(ALEX, NORTHWIND)).id;
   britHome = (await ensurePersonalProject(BRIT, NORTHWIND)).id;
   signedIn(alexHome);
@@ -158,6 +176,39 @@ describe('actingOrgId', () => {
   it('is the same not-found for an ungranted workspace, someone else\'s personal one, and one that does not exist', async () => {
     for (const ws of [DELIVERY, britHome, 'proj-nowhere']) {
       await expect(actingOrgId({ userId: ALEX, orgId: alexHome }, ws)).rejects.toMatchObject({ status: 404 });
+    }
+  });
+
+  /**
+   * Whether the person may act in a workspace, as switching decides it
+   * (`resolveProjectForUser`): acting is never wider than switching, and
+   * never narrower.
+   * @param ws - The workspace.
+   */
+  async function bothSay(ws: string): Promise<{ switches: boolean; acts: boolean }> {
+    const switches = (await resolveProjectForUser(ALEX, { id: ws })) !== null;
+    const acts = await actingOrgId({ userId: ALEX, orgId: alexHome }, ws).then(() => true, (err: { status?: number }) => {
+      expect(err.status).toBe(404);
+
+      return false;
+    });
+    return { switches, acts };
+  }
+
+  it('with access enforced, matches switching across accounts: a grant on another account the person is in, never an account they are not in', async () => {
+    const cases: Array<[string, boolean]> = [[REVENUE, true], [DELIVERY, false], [KESTREL_DESK, true], [KESTREL_OPS, false], [LARKFIELD_OPS, false], [britHome, false]];
+
+    for (const [ws, allowed] of cases) {
+      expect({ ws, ...(await bothSay(ws)) }).toEqual({ ws, switches: allowed, acts: allowed });
+    }
+  });
+
+  it('with access not enforced (the self-host default), any member of the owning account may act — still never in someone else\'s personal workspace or another account', async () => {
+    delete process.env.VOCION_ENFORCE_WORKSPACE_ACCESS;
+    const cases: Array<[string, boolean]> = [[REVENUE, true], [DELIVERY, true], [KESTREL_DESK, true], [KESTREL_OPS, true], [LARKFIELD_OPS, false], [britHome, false]];
+
+    for (const [ws, allowed] of cases) {
+      expect({ ws, ...(await bothSay(ws)) }).toEqual({ ws, switches: allowed, acts: allowed });
     }
   });
 });
@@ -195,6 +246,19 @@ describe('the review routes, for a run in the workspace a card names', () => {
     }
 
     expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('refuses, as not found, to defer or undo in a workspace the person could not switch to — and calls nothing', async () => {
+    const id = await runIn(DELIVERY, { status: 'done' });
+    const until = new Date(Date.now() + 86_400_000).toISOString();
+
+    for (const workspaceId of [DELIVERY, britHome, LARKFIELD_OPS, 'proj-nowhere']) {
+      await expect(call(snoozeActionRoute, { id, until, workspaceId })).rejects.toMatchObject({ status: 404 });
+      await expect(call(undoActionRoute, { id, workspaceId })).rejects.toMatchObject({ status: 404 });
+    }
+
+    expect(snooze).not.toHaveBeenCalled();
+    expect(undoAction).not.toHaveBeenCalled();
   });
 
   it('links what a done run made into its own workspace', async () => {

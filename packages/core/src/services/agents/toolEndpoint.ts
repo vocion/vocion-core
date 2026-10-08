@@ -68,6 +68,7 @@ export async function executeToolCall(opts: {
     conversationId: claim.conversationId,
     pageContext: claim.pageContext,
     timeZone: claim.timeZone,
+    ...(claim.rendersCards ? { rendersCards: true } : {}),
     provider: 'runtime',
     emit: e => events.push(e),
   });

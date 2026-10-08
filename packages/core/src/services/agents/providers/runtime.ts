@@ -80,6 +80,8 @@ export type RuntimeRunOptions = {
   timeZone?: string;
   /** Where the person is in the app — carried in the claim for `page_context` and record-scoped tools. */
   pageContext?: import('@/services/chat/pageContext').PageContext;
+  /** The surface draws this turn's cards (the app's chat) — carried in the claim; see `RuntimeContext.rendersCards`. */
+  rendersCards?: boolean;
   /**
    * What this turn's spans are grouped under, as `session.id`.
    *
@@ -138,6 +140,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     timeZone,
     pageContext: opts.pageContext,
     conversationId: opts.conversationId,
+    ...(opts.rendersCards ? { rendersCards: true } : {}),
   }));
 
   const claim = signClaim({
@@ -150,6 +153,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     conversationId: opts.conversationId,
     timeZone,
     pageContext: opts.pageContext,
+    ...(opts.rendersCards ? { rendersCards: true } : {}),
   });
 
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
