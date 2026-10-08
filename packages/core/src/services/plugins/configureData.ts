@@ -39,6 +39,7 @@ import { effectivePolicies } from '@/services/autonomy/AutonomyService';
 import { isRung, RUNG_LABEL, rungAutomates, rungFromTrustRule } from '@/services/autonomy/rungs';
 import { agentBudgetStatuses } from '@/services/BudgetService';
 import { readPluginLearnings } from '@/services/plugins/pluginReads';
+import { setupStateForOrg } from '@/services/plugins/setupState';
 import { readTeamMeasures } from '@/services/team-report';
 
 /**
@@ -346,7 +347,8 @@ export async function loadConfigure(orgId: string, pluginSlug: string, now: Date
 
   const learned: ConfigureLearningInput[] = learnings.map(l => ({ id: l.id, text: l.text, status: l.status, at: l.at, step: l.step, origin: l.origin ?? null }));
 
-  return { pluginName: plugin.manifest.name, seats, skills, automations, trust, learnings: learned, measures, changes };
+  const setup = (await setupStateForOrg(orgId).catch(() => [])).find(p => p.plugin === pluginSlug) ?? null;
+  return { pluginName: plugin.manifest.name, pluginSlug, setup: setup ? { complete: setup.complete, steps: setup.steps } : null, seats, skills, automations, trust, learnings: learned, measures, changes };
 }
 
 /**

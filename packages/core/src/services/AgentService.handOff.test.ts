@@ -56,6 +56,7 @@ let modelCallsStarted = 0;
 
 const CONNECT_CARD = { type: 'card', card: { id: 'card-1', kind: 'link', title: 'Connect GitHub', rationale: 'Read the repositories.', actions: [], source: {}, href: '/dashboard/connectors?add=github', hrefLabel: 'Connect GitHub', state: 'proposed' } };
 const RECOMMENDATION = { type: 'recommended_action', recommendation: { id: 'rec-1', label: 'Approve the build', actionId: 'factory.dispatch_task', input: {} } };
+const PENDING_CARD = { type: 'card', card: { id: 'card-2', kind: 'action', title: 'Propose candidate: northwind/send-api', actions: [{ label: 'Approve', actionId: 'objects.propose_candidate', input: {}, style: 'primary' }], source: {}, runId: 77, state: 'filed' } };
 
 /**
  * Three model calls; after the call numbered `cardAfter`, a tool puts `card` up.
@@ -134,6 +135,16 @@ describe('a turn that puts a card in front of a person', () => {
 
     expect(error).toBeNull();
     expect(modelCallsStarted).toBe(3);
+  });
+
+  it('treats a proposal filed for approval (a card in state filed) the same way', async () => {
+    streamEvents.mockReset().mockImplementation(async (_input: unknown, config: StreamConfig) => stream(1, PENDING_CARD, config));
+
+    const { result, error } = await run({ userId: 'usr-jamie' });
+
+    expect(error).toBeNull();
+    expect(modelCallsStarted).toBe(1);
+    expect(result?.response).not.toContain('part2');
   });
 
   it('treats a recommended action the same way', async () => {

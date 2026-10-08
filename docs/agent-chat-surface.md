@@ -473,6 +473,13 @@ run, a briefing, an eval or a workflow has nobody waiting at a card and runs
 on. The in-process loop only: an agent on `harness.runsOn: agentcore-container`
 runs its loop in the container.
 
+A proposal that waits on a person, filed during their conversation, is a card
+there too (`services/agents/tools/proposeAction.ts`): the same action run the
+Review queue holds, with Approve on it, drawn in state `filed` so the card
+starts in its status view and decides through `review.decideAction`. The
+agent is told the card is in front of the person and not to send them to the
+queue. It ends the turn like any other card.
+
 Beside it, `file_<type>` refuses a record of a type a plugin's `setup.records`
 names while a connector in that plugin's `setup.connectors` is unconnected —
 there is nothing to read it from — unless the person themselves asked for the

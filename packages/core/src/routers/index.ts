@@ -147,6 +147,7 @@ import {
 } from './Review';
 import { glanceRoute as runGlanceRoute, logRoute as runLogRoute } from './Runs';
 import { scorecardAgentsRoute } from './Scorecard';
+import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimitive, resume as resumeWorkspaceRoute, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, pauseState as workspacePauseState, writeFile } from './Workspace';
@@ -188,6 +189,10 @@ export const router = {
     pauseState: workspacePauseState,
     pause: pauseWorkspaceRoute,
     resume: resumeWorkspaceRoute,
+  },
+  setup: {
+    state: setupStateRoute,
+    reset: resetSetupRoute,
   },
   plugins: {
     list: listPluginsRoute,

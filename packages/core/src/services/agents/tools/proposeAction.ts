@@ -70,6 +70,16 @@ type ProposalRequest = {
  * @param opts.refused - The answer for a refused proposal (ActionError).
  */
 /**
+ * The words on a pending proposal's card: a filing names its record type
+ * ("New repo"), anything else its action id as words ("Github open pull").
+ * @param actionId - The proposed action.
+ */
+function actionLabelFor(actionId: string): string {
+  const last = actionId.split('.').pop() ?? actionId;
+  return last.replace(/[_-]+/g, ' ').replace(/^\w/, c => c.toUpperCase());
+}
+
+/**
  * Did the person ask for this filing in their own turn? Read off the turn's
  * intent (a model's reading, never their words), and never true for a
  * factory step, a schedule or a mission.
@@ -245,6 +255,32 @@ export async function runProposal(
       return `${nounCode('action', res.runId)} for ${action_id} was updated in place — it was already waiting for approval, and now carries this payload (confidence ${confidence}). No new review item was created. Do NOT claim the change was made.`;
     }
     if (res.status === 'pending') {
+      // THE APPROVAL COMES TO THE CONVERSATION. A proposal that waits on a
+      // person, filed during their turn, is a card where they are reading,
+      // with Approve on it (Jamie, 2026-10-07: "anything I needed to approve
+      // should have been served as action items in chat; I shouldn't be
+      // required to go to the review queue page"). The queue still holds it;
+      // the card is the same run, decided through the same path.
+      if (ctx.conversationId) {
+        const { newCardId } = await import('@/libs/cards/card');
+        const titled = action_input && typeof action_input === 'object' && typeof (action_input as { title?: unknown }).title === 'string' ? (action_input as { title: string }).title : null;
+        ctx.emit({
+          type: 'card',
+          card: {
+            id: newCardId(),
+            kind: 'action',
+            title: titled ? `${actionLabelFor(action_id)}: ${titled}` : actionLabelFor(action_id),
+            actions: [{ label: 'Approve', actionId: action_id, input: (action_input ?? {}) as Record<string, unknown>, style: 'primary' }],
+            source: { agentSlug: ctx.agentSlug, tool: opts.tool },
+            runId: res.runId,
+            state: 'filed',
+            ...(rationale ? { rationale } : {}),
+            ...(typeof confidence === 'number' ? { confidence } : {}),
+            ...(suggested_decision ? { suggestedDecision: suggested_decision, ...(reason ? { suggestedDecisionReason: reason } : {}) } : {}),
+          },
+        });
+        return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is waiting on the person's approval, as a card in this conversation (confidence ${confidence}). Do NOT claim the change was made, and do not tell them to open the review queue: the card is in front of them. Say in one line what it is.`);
+      }
       return withAdvice(`Proposed ${action_id} → ${nounCode('action', res.runId)} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`);
     }
     // A DONE THAT MADE A RECORD SAYS WHICH, WITH ITS LINK. Conversation

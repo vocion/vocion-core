@@ -6,6 +6,7 @@ import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { ConfigureRows } from './ConfigureRows';
+import { SetupResetButton } from './SetupResetButton';
 
 /**
  * The `configure` archetype's layout: a main block of tabs — each a hairline
@@ -106,6 +107,12 @@ function AsideBlock({ block, testId }: { block: ConfigureAside; testId?: string 
         : undefined}
     >
       <ul className="-my-1.5 divide-y divide-rule">
+        {block.kind === 'setup' && block.items.map(item => (
+          <li key={item.id} className="flex items-baseline justify-between gap-3 py-2" data-testid={`configure-setup-${item.id}`}>
+            <span className="min-w-0 truncate">{item.label}</span>
+            <span className={cn('shrink-0 text-xs', item.done ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')}>{item.done ? 'Done' : 'To do'}</span>
+          </li>
+        ))}
         {block.kind === 'health' && block.items.map(m => (
           <li key={m.id} className="py-2">
             <div className="flex items-baseline justify-between gap-3">
@@ -140,6 +147,11 @@ function AsideBlock({ block, testId }: { block: ConfigureAside; testId?: string 
           </li>
         ))}
       </ul>
+      {block.kind === 'setup' && (
+        <div className="mt-3 border-t border-rule pt-3">
+          <SetupResetButton plugin={block.plugin} anythingToReset={block.items.some(i => i.done)} />
+        </div>
+      )}
     </Section>
   );
 }
