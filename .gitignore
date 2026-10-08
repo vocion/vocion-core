@@ -75,6 +75,12 @@ infra/terraform/*.tfstate.*
 infra/terraform/*.tfplan
 infra/terraform/terraform.tfvars
 infra/terraform/crash.log
+# modules/vocion-stack and its examples: init/validate leave these behind
+infra/terraform/modules/**/.terraform/
+infra/terraform/modules/**/.terraform.lock.hcl
+infra/terraform/modules/**/*.tfstate
+infra/terraform/modules/**/*.tfstate.*
+infra/terraform/modules/**/*.tfvars
 
 # AWS production env (operator-managed; never commit)
 infra/aws/.env.production
