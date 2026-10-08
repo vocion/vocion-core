@@ -84,6 +84,18 @@ container's `VOCION_LLM_MODEL_MAIN`, else `us.anthropic.claude-sonnet-4-6`; an
 account that has not subscribed to that model on Bedrock sets another through
 `EXTRA_ENV_JSON` on `deploy-runtime.sh`.
 
+### A team thread on the container
+
+A [team thread](./guides/team-threads.md) is a run of several turns, and every
+turn goes through `runAgentDeep`, so each member answers on its own `runsOn`
+with the thread's `missionRunId` in its claim. What differs is the
+`open_team_thread` call that started it: on the container a tool call is one
+HTTP round trip under `VOCION_TOOL_TIMEOUT_MS`, so the call waits until 20
+seconds before that and, when the thread is still going, says so and returns. The
+thread keeps running in core and its outcome lands on its run. In this process
+the call waits for the outcome. Same tool, same events — the run as
+`record_created`, the posts as `step_progress` — on both.
+
 ### What it means that tools call back
 
 On `agentcore-container` the container holds no database credential and no KMS grant. It

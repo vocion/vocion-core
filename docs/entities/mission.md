@@ -60,6 +60,15 @@ or, for a scheduled check with nothing left after this turn, the automation's ti
 Answering the asks resumes it from that task on a durable job; the mission-run reaper leaves a
 parked run alone however long the answer takes.
 
+## A question for the whole team
+
+A mission step is a turn of its owning agent, so a lead that needs its
+specialists to argue a question out — not just answer one each — opens a
+[team thread](../guides/team-threads.md) from that step with `open_team_thread`.
+The thread is its own run (a `mission_run` with a `thread` column), names the
+mission run it came from, and keeps its own cost: the step's run does not count
+it again.
+
 ## Mission, workflow, or automation?
 
 | Use | When |
@@ -77,4 +86,4 @@ parked run alone however long the answer takes.
 
 ## Related
 
-[Agent](./agent.md) · [Workflow](./workflow.md) · [Automation](./automation.md)
+[Agent](./agent.md) · [Workflow](./workflow.md) · [Automation](./automation.md) · [Team threads](../guides/team-threads.md)

@@ -1445,6 +1445,14 @@ export const missionRunSchema = pgTable('mission_run', {
    */
   tokens: bigint('tokens', { mode: 'number' }).default(0),
   microCents: bigint('micro_cents', { mode: 'number' }).default(0),
+  /**
+   * Set when this run is a TEAM THREAD (migration 0188): the question, who was
+   * assigned, the caps, who marked complete, which rule settled it and the
+   * lead's outcome. The posts are the plan's steps and the cost is the two
+   * columns above, so a thread is one run, never a second history. NULL for
+   * every other run. Shape: `TeamThreadState` in `libs/teams/thread.ts`.
+   */
+  thread: jsonb('thread').$type<import('@/libs/teams/thread').TeamThreadState>(),
   rating: text('rating'),
   feedbackNote: text('feedback_note'),
   feedbackBy: text('feedback_by'),

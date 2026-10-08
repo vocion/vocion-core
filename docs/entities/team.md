@@ -9,7 +9,7 @@ specialists it can hand work to, and the unit the team report grades.
 | **Path** | `teams/<slug>.yaml` — **the filename is the slug** |
 | **Schema** | `TeamManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
 | **Applied to** | `team` table |
-| **Runtime** | Lead consultation merge in the harness |
+| **Runtime** | Lead consultation merge in the harness; [team threads](../guides/team-threads.md) |
 | **Surface** | `/dashboard/teams` (org chart) · `/dashboard/team-report` (team performance) |
 | **Layering** | Workspace-only — a base pack ships no teams |
 
@@ -142,6 +142,18 @@ contract, collapsed by default, with one chain per executed action: action ·
 human decision · what the CRM shows now · cost. Board reviews and red-team
 grades are counted as judgement spend, not output.
 
+## Team threads
+
+A lead can put one question to its team **together** — a
+[team thread](../guides/team-threads.md). The members post in rounds and read
+and answer each other's posts; the thread ends on a settle rule (the lead
+declares it done, every member marks their part complete, or its round or budget
+cap is reached) and the lead writes the outcome. The whole thread is one run with
+its cost, owned by the lead and this team's `accountableUser`. The members are
+this team's roster — the same agents the lead delegates to — never a list the
+model typed. Open one with the lead's `open_team_thread` tool or the `team-thread`
+automation job (`input: { team: <slug>, question: … }`).
+
 ## Rules
 
 - The filename must be a valid slug: lowercase, starts with a letter, letters/numbers/dashes/underscores.
@@ -154,4 +166,4 @@ grades are counted as judgement spend, not output.
 
 ## Related
 
-[Agent](./agent.md) · [Workspace manifest](./workspace-manifest.md) · [Worker run](./worker-run.md) · [Team performance](../guides/team-performance.md)
+[Agent](./agent.md) · [Workspace manifest](./workspace-manifest.md) · [Worker run](./worker-run.md) · [Team performance](../guides/team-performance.md) · [Team threads](../guides/team-threads.md)

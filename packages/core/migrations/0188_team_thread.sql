@@ -1,0 +1,15 @@
+-- A team thread, kept on the run it is (`services/teams/TeamThreadService.ts`).
+--
+-- A lead, a mission step or an automation opens a thread for one question;
+-- the team's specialists post in it, read each other's posts and answer them,
+-- and it ends on a settle rule — the lead declares it done, every assigned
+-- member marks its part complete, or the round or budget cap is reached — with
+-- the lead writing the outcome. The thread IS a `mission_run`: its posts are
+-- the run's plan steps, its cost is the run's `tokens`/`micro_cents`, its owner
+-- is the run's lead and the team's accountable human. This column holds only
+-- what is particular to a thread: the question, who was assigned, the caps,
+-- who marked complete, which rule settled it and the outcome.
+--
+-- Expand-only: one nullable column, no default, no index. Every existing run
+-- reads NULL, which is what it is — not a thread.
+ALTER TABLE "mission_run" ADD COLUMN IF NOT EXISTS "thread" jsonb;

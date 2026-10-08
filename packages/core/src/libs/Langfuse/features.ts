@@ -76,6 +76,8 @@ export const FEATURES = {
   ORG_REVIEW: 'org.review',
   /** The walkthrough a seat speaks over a recording it made (`services/artifacts/walkthrough.ts`). */
   RECORDING_WALKTHROUGH: 'recording.walkthrough',
+  /** A team thread's reads of each post — did a member mark its part complete, did the lead settle it (`services/teams/threadRead.ts`). */
+  TEAM_THREAD_READ: 'team.thread_read',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

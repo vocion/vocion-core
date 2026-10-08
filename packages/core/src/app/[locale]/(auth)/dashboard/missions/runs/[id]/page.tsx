@@ -1,12 +1,15 @@
+import type { MissionRunSummary } from '@/services/MissionService';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionRunActions } from '@/features/dashboard/MissionRunActions';
+import { TeamThreadView } from '@/features/dashboard/teamThread/TeamThreadView';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { recordRef } from '@/services/chat/recordContext';
 import { getMissionRun } from '@/services/MissionService';
+import { threadViewOfRun } from '@/services/teams/TeamThreadService';
 
 const TASK_STATUS_TONE: Record<string, string> = {
   completed: 'text-emerald-600 dark:text-emerald-400',
@@ -41,18 +44,44 @@ export default async function MissionRunPage(props: {
   const tasks = run.plan?.tasks ?? [];
   const artifacts = run.artifacts ?? [];
   const team = run.team;
+  // A team thread is this same run, read as the thread it is: outcome first.
+  const thread = orgId ? await threadViewOfRun(orgId, run) : null;
 
   return (
     <>
       <RecordContext record={recordRef('mission_run', run.id, run.title)} />
       <TitleBar
         title={run.title}
-        description={`Mission · ${run.status.replace('_', ' ')}`}
+        description={`${thread ? 'Team thread' : 'Mission'} · ${run.status.replace('_', ' ')}`}
       />
 
       <div className="mb-5">
         <MissionRunActions runId={run.id} status={run.status} />
       </div>
+
+      {thread
+        ? <TeamThreadView thread={thread} />
+        : <MissionRunBody run={run} tasks={tasks} artifacts={artifacts} team={team} />}
+    </>
+  );
+}
+
+/**
+ * A planned mission run: the brief, the team, the plan and what it produced.
+ * @param props - The component's props.
+ * @param props.run - The run.
+ * @param props.tasks - Its plan.
+ * @param props.artifacts - What it produced.
+ * @param props.team - Its team.
+ */
+function MissionRunBody({ run, tasks, artifacts, team }: {
+  run: MissionRunSummary;
+  tasks: NonNullable<MissionRunSummary['plan']>['tasks'];
+  artifacts: NonNullable<MissionRunSummary['artifacts']>;
+  team: MissionRunSummary['team'];
+}) {
+  return (
+    <>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Brief">

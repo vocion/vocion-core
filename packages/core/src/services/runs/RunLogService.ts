@@ -518,11 +518,13 @@ async function agentHeader(run: MissionRunRow): Promise<RunHeader> {
     attempt: null,
     startedAt: iso(run.createdAt),
     endedAt: iso(run.completedAt),
-    cents: null,
+    // What its model calls cost, recorded on the run since 0164; null before.
+    cents: run.microCents === null || run.microCents === undefined ? null : Math.round(run.microCents / 1_000_000),
     model: null,
     prUrl: null,
     error: missionRunError(run),
-    summary: null,
+    // A team thread's summary is the outcome its lead wrote (0188).
+    summary: run.thread?.outcome ?? null,
     links: artifacts.filter(a => typeof a.url === 'string' && a.url).slice(0, 12).map(a => ({ label: a.title ?? a.kind ?? 'Artifact', href: a.url, external: /^https?:\/\//.test(a.url) })),
     logLinks: { stream: null, stderr: null, checks: {} },
     attach: await missionRunAttach(run),

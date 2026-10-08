@@ -40,6 +40,9 @@
  *     about that move (`x-tell`), the conversation it was asked in hears it,
  *     in the app's chat and its Slack thread, once. `slack-thread-recording`
  *     carries a filed demo into that thread. `services/jobs/askerFollow.ts`.
+ *   - `team-thread` — opens a team thread: a lead's specialists argue one
+ *     question out in rounds and the lead writes the outcome, recorded as one
+ *     run with its cost. `services/jobs/teamThread.ts`.
  *   - `narrate-recording` — a recording just filed is narrated in a seat's
  *     voice, off the event's path, when a voice is connected. Subscribed by
  *     the software-factory plugin when its `narrateRecordings` setting is on.
@@ -60,6 +63,7 @@ import { NARRATE_RECORDING_JOB, runNarrateRecordingJob } from './narrateRecordin
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
 import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
 import { runSweepIdleConversationsJob, SWEEP_IDLE_CONVERSATIONS_JOB } from './sweepIdleConversations';
+import { runTeamThreadJob, TEAM_THREAD_JOB } from './teamThread';
 
 type BuiltInJob = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -76,6 +80,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [NARRATE_RECORDING_JOB]: (orgId, input) => runNarrateRecordingJob(orgId, input),
   [ASKER_FOLLOW_JOB]: (orgId, input) => runAskerFollowJob(orgId, input),
   [ASKER_RECORDING_JOB]: (orgId, input) => runAskerRecordingJob(orgId, input),
+  [TEAM_THREAD_JOB]: (orgId, input) => runTeamThreadJob(orgId, input),
   // A workspace whose old automation still names these hears nothing from them: asker-follow says it.
   ...Object.fromEntries(RETIRED_FOLLOW_JOBS.map(name => [name, async () => ({ said: false, reason: `${name} is retired; asker-follow tells the asker` })])),
 };
