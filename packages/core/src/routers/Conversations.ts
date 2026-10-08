@@ -13,6 +13,7 @@ import {
   latestConversationForScope,
   listConversations,
   listMessages,
+  markCardRun,
   renameConversation,
   searchConversations,
   setConversationAutonomy,
@@ -225,12 +226,25 @@ export const recordCardDecision = os
     label: z.string().min(1),
     action: z.enum(['approve', 'reject', 'defer', 'undo']),
     runId: z.number().int().optional(),
+    /**
+     * False: the card records the run it became and nothing is said in the
+     * conversation. A setup card (`cards/SetupCard.tsx`) is the person's own
+     * press on a step they were offered; the next turn reads what became of it
+     * from the card's run (`withLiveCardState`), not from words written for them.
+     */
+    turn: z.boolean().optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const conversation = await getConversation({ orgId, id: input.id, viewerId: userId });
     if (!conversation) {
       throw ApiError.notFound({ id: input.id });
+    }
+    if (input.turn === false) {
+      const marked = input.runId !== undefined && (input.action === 'approve' || input.action === 'reject')
+        ? await markCardRun({ orgId, conversationId: input.id, cardId: input.cardId, patch: { runId: input.runId, state: 'decided', decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}) } } }).catch(() => false)
+        : false;
+      return { id: null, marked };
     }
     const verb = { approve: 'Approved', reject: 'Rejected', defer: 'Deferred', undo: 'Undid' }[input.action];
     const row = await appendMessage({
@@ -241,5 +255,10 @@ export const recordCardDecision = os
       content: `${verb} the card "${input.label}"${input.runId !== undefined ? ` (proposal #${input.runId})` : ''}.`,
       runs: [{ type: 'card_decision', cardId: input.cardId, action: input.action, label: input.label, ...(input.runId !== undefined ? { runId: input.runId } : {}) }],
     });
-    return { id: row.id };
+    // The card itself remembers the run it became, so a reload draws the run
+    // (done, Undo) where the button was, rather than the button again.
+    if (input.runId !== undefined && (input.action === 'approve' || input.action === 'reject')) {
+      await markCardRun({ orgId, conversationId: input.id, cardId: input.cardId, patch: { runId: input.runId, state: 'decided', decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}) } } }).catch(() => false);
+    }
+    return { id: row.id, marked: input.runId !== undefined };
   });

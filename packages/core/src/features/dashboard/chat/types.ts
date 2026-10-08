@@ -46,7 +46,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: { prompt: string; missing: string } }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
@@ -136,6 +136,8 @@ export type RecommendedAction = {
   hrefLabel?: string;
   /** What kind of card this is (`action`, `link`, ...). Absent on a row from before cards were typed. */
   kind?: string;
+  /** The words on the card's one button ("Add", "Hire"), when they are not its title. */
+  actionLabel?: string;
   /** The sentence or two under the title. */
   body?: string;
   fields?: CardField[];

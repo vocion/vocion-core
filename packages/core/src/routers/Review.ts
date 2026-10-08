@@ -244,6 +244,62 @@ export const proposeFromRecommendationRoute = os
     return res;
   });
 
+/**
+ * A PERSON RUNS A STEP THEY WERE OFFERED — their press is the decision.
+ *
+ * For a card that offers a person something to do for themselves (a setup
+ * step from the workspace lead's `propose_setup`, `cards/SetupCard.tsx`): the
+ * action is proposed AS THE PERSON, the way a person's own word is in chat
+ * (`proposeAction`'s `asPerson`), so it runs within their authority, with
+ * undo, and the run records them — not the agent that offered it — as the one
+ * who did it. The agent that offered it rides along as `agentSlug`, so the run
+ * still says where the offer came from. An action that waits for a person
+ * whatever it is (`approvalRequired`) comes back `pending`, and the card
+ * approves it in the same press.
+ */
+export const actAsPersonRoute = os
+  .input(z.object({
+    actionId: z.string().min(1),
+    input: z.record(z.string(), z.unknown()),
+    /** The agent that offered it. */
+    agentSlug: z.string().optional(),
+    /** Why it was offered, in the person's terms — kept on the run. */
+    rationale: z.string().max(500).optional(),
+    /** One card, one run: a second press finds the run the first one made. */
+    dedupKey: z.string().optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    if (!userId) {
+      throw ApiError.forbidden();
+    }
+    const { proposeAction } = await import('@/services/ActionService');
+    try {
+      return await proposeAction({
+        orgId,
+        actionId: input.actionId,
+        input: input.input,
+        principal: { kind: 'user', id: userId, role: 'member', scope: { orgId } },
+        invokedBy: userId,
+        proposal: {
+          ...(input.agentSlug ? { agentSlug: input.agentSlug } : {}),
+          ...(input.rationale ? { rationale: input.rationale } : {}),
+          suggestedDecision: null,
+          suggestedDecisionReason: null,
+        },
+        dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),
+        origin: { userId, byPerson: true },
+      });
+    } catch (err) {
+      // A step the action refuses is the person's to read, not a 500.
+      const code = (err as { code?: unknown }).code;
+      if (code === 'VALIDATION_FAILED' || code === 'UNKNOWN_ACTION' || code === 'FORBIDDEN') {
+        throw new ORPCError('BAD_REQUEST', { message: (err as Error).message });
+      }
+      throw err;
+    }
+  });
+
 /** Record a typed triage signal (skip/save/rewrite/edit) from the UI. */
 export const recordSignalRoute = os
   .input(z.object({

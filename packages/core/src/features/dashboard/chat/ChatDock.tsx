@@ -33,8 +33,9 @@ import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
 import { RAIL_SET_EVENT } from './dockState';
-import { EmptyState, NoAgentsState } from './EmptyState';
+import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
+import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { RailColumn } from './RailColumn';
@@ -50,7 +51,7 @@ import {
   writeCollapsed,
   writeStoredRailWidth,
 } from './railState';
-import { hasWorkspaceAgents, parseSearchCommand } from './routing';
+import { defaultAgentName, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
@@ -727,16 +728,21 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             happened — hiding the flow the moment it is decided would drop the
             one card that says so. */}
         {session.messages.length === 0 && blocks.length === 0 && !workspaceHasAgents
-          ? <NoAgentsState />
+          ? <NoAgentsYet />
           : session.messages.length === 0 && blocks.length === 0
             ? (
-                <EmptyState
-                  greeting={session.emptyGreeting}
-                  suggestions={session.emptyChips}
-                  suggestionsLoading={session.emptyChipsLoading}
-                  onPick={session.handlePickSuggestion}
-                  disabled={!session.booted}
-                />
+                // A workspace on its first day opens on its lead (`LeadIntro`).
+                wantsLeadIntro(agents)
+                  ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} disabled={!session.booted} />
+                  : (
+                      <EmptyState
+                        greeting={session.emptyGreeting}
+                        suggestions={session.emptyChips}
+                        suggestionsLoading={session.emptyChipsLoading}
+                        onPick={session.handlePickSuggestion}
+                        disabled={!session.booted}
+                      />
+                    )
               )
             : (
                 <CardDecisionProvider value={recordCardDecision}>

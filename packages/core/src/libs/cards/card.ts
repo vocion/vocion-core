@@ -10,7 +10,8 @@ import type { RecommendedActionPayload } from '@/services/agents/types';
  *
  * Kinds are registered by descriptor — a schema for the payload and the name
  * of a renderer — so a plugin adds a kind without touching this file. Core
- * ships `action` (today's recommendation), `decision`, `ask`, `record` and `link`.
+ * ships `action` (today's recommendation), `decision`, `ask`, `record`, `link`
+ * and `setup` (one step of a workspace's setup plan).
  * A card is emitted INTO this contract by exactly three producers: the
  * `recommend_action`/`put_card` tool, a tool's result-to-card descriptor, and
  * the gated backstop. Tools are the door, not the feature.
@@ -77,6 +78,9 @@ export const CardSchema = z.object({
 export type Card = z.infer<typeof CardSchema>;
 
 /** What a kind declares: how its payload is checked and what draws it. */
+/** The kind a step of a workspace's setup plan is drawn as (`propose_setup`, `SetupCard.tsx`). */
+export const SETUP_CARD_KIND = 'setup';
+
 export type CardKindDescriptor = {
   kind: string;
   /** The renderer's name in the UI registry (`features/dashboard/chat/cards`). */
@@ -115,6 +119,9 @@ registerCardKind({ kind: 'decision', renderer: 'decision', refine: c => (c.actio
 registerCardKind({ kind: 'ask', renderer: 'ask' });
 registerCardKind({ kind: 'record', renderer: 'record' });
 registerCardKind({ kind: 'link', renderer: 'link', refine: c => (c.href ? null : 'a link card names where it opens (href)') });
+// One step of a workspace's setup plan (`propose_setup`): one action the
+// person runs with one press, and Undo once it has run.
+registerCardKind({ kind: SETUP_CARD_KIND, renderer: 'setup', refine: c => (c.actions.length === 1 ? null : 'a setup card offers exactly one action') });
 
 export type CardCheck = { ok: true; card: Card } | { ok: false; reason: string };
 

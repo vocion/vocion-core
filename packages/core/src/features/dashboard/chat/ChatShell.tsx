@@ -22,12 +22,13 @@ import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
-import { EmptyState, NoAgentsState } from './EmptyState';
+import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
+import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { QuotedPassage } from './QuotedPassage';
-import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
+import { defaultAgentName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
@@ -429,16 +430,22 @@ function ChatShellInner({
                   hasWorkspaceAgents(agents)
                     ? (
                         <>
-                          <EmptyState
-                            greeting={session.emptyGreeting}
-                            suggestions={session.emptyChips}
-                            suggestionsLoading={session.emptyChipsLoading}
-                            onPick={session.handlePickSuggestion}
-                          />
+                          {/* A workspace on its first day opens on its lead
+                              and the three ways to set it up (`LeadIntro`). */}
+                          {wantsLeadIntro(agents)
+                            ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} />
+                            : (
+                                <EmptyState
+                                  greeting={session.emptyGreeting}
+                                  suggestions={session.emptyChips}
+                                  suggestionsLoading={session.emptyChipsLoading}
+                                  onPick={session.handlePickSuggestion}
+                                />
+                              )}
                           {waiting && <div className="shrink-0 pb-3">{waiting}</div>}
                         </>
                       )
-                    : <NoAgentsState />
+                    : <NoAgentsYet />
                 )
               : (
                   <CardDecisionProvider value={recordCardDecision}>

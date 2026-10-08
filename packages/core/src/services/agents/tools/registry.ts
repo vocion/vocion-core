@@ -88,6 +88,7 @@ import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { sentryTools } from './sentry';
+import { setupWorkspaceTools } from './setupWorkspace';
 import { setVoiceTool } from './setVoice';
 import { openTeamThreadTool } from './teamThread';
 import { trackerTools } from './trackerTools';
@@ -315,6 +316,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // Personal workspaces only: the person's own assistant lists and asks the
     // shared workspaces they can act in (list_my_workspaces, ask_workspace).
     ...assistantTools(ctx),
+    // Granted-only, shared workspaces only: the workspace lead's setup — where
+    // the workspace stands and what it could add (setup_options), and the plan
+    // as one-click cards (propose_setup).
+    ...setupWorkspaceTools(ctx),
   ] as StructuredToolInterface[];
 }
 
