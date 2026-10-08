@@ -35,7 +35,7 @@ function isoDate(d: Date): string {
 export const googleAdsConnector: SourceConnector<typeof googleAdsConfigSchema> = {
   slug: 'google-ads',
   name: 'Google Ads',
-  description: 'Ingest Google Ads campaign performance (impressions, clicks, cost, conversions) by day.',
+  description: 'Campaign performance from Google Ads. Impressions, clicks, cost and conversions by day.',
   icon: 'Megaphone',
   authKind: 'oauth',
   configSchema: googleAdsConfigSchema,

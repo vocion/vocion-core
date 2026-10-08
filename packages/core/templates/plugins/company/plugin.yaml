@@ -6,7 +6,7 @@
 slug: company
 name: Company
 version: 1.0.0
-description: The Company app — pick a software company, a marketing agency or a support org and the workspace gets its teams, measures, missions, automations, trust rules and budgets in one move, with you accountable for it.
+description: A whole company function from a template, with you accountable for it. Pick a software company, a marketing agency or a support org and the workspace gets its teams, measures, missions, automations, trust rules and budgets in one move, with you accountable for it.
 depends: []
 surfaces: []
 nav: {section: Company, order: 0}

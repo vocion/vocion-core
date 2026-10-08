@@ -143,7 +143,7 @@ export const HireARole: Story = {
       confidenceSubject: 'This change is right',
       summary: 'Revenue Ops is at 20% of its qualified-referrals target, and nobody on the team works search demand.',
       fields: [
-        { label: 'Role', value: 'SEO Specialist — finds the search demand a team is missing', href: '/dashboard/marketplace/seo-specialist' },
+        { label: 'Role', value: 'SEO Specialist — finds the search demand a team is missing', href: '/dashboard/hire/seo-specialist' },
         { label: 'Allowance', value: '$20.00 a day, soft and hard' },
         { label: 'Qualified referrals', value: '2 referrals of 10 referrals (20%) over 30d — human-confirmed', href: '/dashboard/team-report' },
         { label: 'On the team', value: 'deal-desk, outreach-writer', href: '/dashboard/teams' },

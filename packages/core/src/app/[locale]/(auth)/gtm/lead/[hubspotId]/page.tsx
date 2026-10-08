@@ -65,7 +65,7 @@ export default async function LeadPage(props: {
       <EmptyState
         icon={UserSearch}
         title="Not on the personalization ledger"
-        description="This lead has not been through the personalization sweep, so there is no brief, no research, and no draft to show. The hourly sweep queues each new MQL; a lead gets a page here once it has been picked up."
+        description="The hourly sweep has not picked this lead up yet, so there is no brief, research or draft to show."
         action={{ label: 'Back to the queue', href: '/gtm/personalization' }}
         {...(contactHref ? { secondaryAction: { label: 'Open in HubSpot', href: contactHref } } : {})}
       />

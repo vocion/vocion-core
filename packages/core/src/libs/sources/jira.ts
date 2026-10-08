@@ -464,7 +464,7 @@ export async function inspectJira(auth: JiraAuth, projectKeys: string[]): Promis
 export const jiraConnector: SourceConnector<typeof jiraConfigSchema> = {
   slug: 'jira',
   name: 'Jira',
-  description: 'Ingest Jira projects and issues (key, summary, status, description) — incremental by updated date.',
+  description: 'Projects and issues from Jira. Key, summary, status and description, synced incrementally by updated date.',
   icon: 'SquareKanban',
   authKind: 'apikey',
   configSchema: jiraConfigSchema,

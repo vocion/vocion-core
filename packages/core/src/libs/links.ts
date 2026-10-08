@@ -34,6 +34,16 @@ export const WORKSPACE_ROOT_SEGMENTS: readonly string[] = ['dashboard', ...SURFA
  */
 export const DASHBOARD_HOME = '/dashboard/chat';
 
+/**
+ * Chat with a question already typed: the one action an empty page offers
+ * when the next step is to ask (`/dashboard/chat?prompt=`). The person still
+ * sends it, so they can change it first.
+ * @param prompt - What the composer opens with.
+ */
+export function askInChatHref(prompt: string): string {
+  return `${DASHBOARD_HOME}?prompt=${encodeURIComponent(prompt)}`;
+}
+
 /** The segment the workspace entry route lives under. Reserved: no project slug may be `w`. */
 export const WORKSPACE_ENTRY_SEGMENT = 'w';
 

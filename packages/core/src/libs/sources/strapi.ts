@@ -315,7 +315,7 @@ async function* syncOneCollection(
 export const strapiConnector: SourceConnector<typeof strapiConfigSchema> = {
   slug: 'strapi',
   name: 'Strapi',
-  description: 'Ingest entries from one or more Strapi CMS collections — incremental by updatedAt.',
+  description: 'Entries from Strapi CMS collections. One or more collections, synced incrementally by updatedAt.',
   icon: 'Database',
   authKind: 'apikey',
   configSchema: strapiConfigSchema,

@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { ListEmpty, ListPage } from '@/components/patterns';
 import { DiscoveryLedger } from '@/features/discovery/DiscoveryLedger';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { askInChatHref } from '@/libs/links';
 import { loadDiscoveryLedger } from '@/services/discovery/ledger';
 
 /**
@@ -44,7 +45,8 @@ export default async function DiscoveryLedgerPage(props: {
             <ListEmpty
               icon={Radar}
               title="No assessed calls yet"
-              description="The hourly discovery check records every matched meeting here — or ask the RevOps Lead to run a detection pass in chat."
+              description="Every hour, each matched call is assessed and recorded here with what was decided and why."
+              action={{ label: 'Check recent calls now', href: askInChatHref('Run a discovery check on recent calls.') }}
             />
           )
         : <DiscoveryLedger entries={entries} />}

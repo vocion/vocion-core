@@ -9,6 +9,7 @@ import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { formatPassRate } from '@/libs/evals/formatPassRate';
 import { Link } from '@/libs/I18nNavigation';
+import { askInChatHref } from '@/libs/links';
 import { passThresholdFor } from '@/services/evals/runOutcome';
 import { EVAL_DATASETS_PAGE_SIZE, listDatasetsPage, summariseDatasetRuns } from '@/services/EvalService';
 import { summariseLastRun } from './lastRun';
@@ -55,7 +56,7 @@ export default async function EvalsPage(props: Props) {
     <>
       <TitleBar
         title="Evals"
-        description="Whether an agent still does its job: cases run on demand or on a schedule, scored by graders, with every run kept as history. Authored in workspace/evals."
+        description="Checks that an agent still does its job, run on demand or on a schedule, with every run kept."
       />
 
       <form action="/dashboard/evals" className="mb-4 flex flex-wrap items-center gap-2">
@@ -86,14 +87,27 @@ export default async function EvalsPage(props: Props) {
               ? (
                   <EmptyState
                     title={`Nothing matches "${search}"`}
-                    description="Search covers the dataset name, its slug and the agent it runs. Clear the search to see them all."
+                    description="Search covers the dataset name, its slug and the agent it runs."
                     icon={Search}
                   />
                 )
               : (
                   <EmptyState
-                    title="No eval datasets yet"
-                    description="Author one at workspace/<org>/evals/<slug>.yaml and run `npm run workspace:apply` to register it."
+                    title="No evals yet"
+                    description="An eval is a set of example cases an agent should get right, scored every time it runs."
+                    action={{ label: 'Ask which checks matter', href: askInChatHref('Which evals should we set up first, and what cases should each one check?') }}
+                    authoring={(
+                      <>
+                        An eval dataset is
+                        {' '}
+                        <code>evals/&lt;slug&gt;.yaml</code>
+                        {' '}
+                        in the workspace, registered by
+                        {' '}
+                        <code>npm run workspace:apply</code>
+                        .
+                      </>
+                    )}
                     icon={TestTube}
                   />
                 )

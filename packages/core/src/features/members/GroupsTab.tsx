@@ -30,7 +30,7 @@ export function GroupsTab(props: {
             variant="page"
             icon={UsersRound}
             title="No groups yet"
-            description="A group opens a set of workspaces for the people in it. Make one, then put people in it."
+            description="A group opens a set of workspaces to everyone in it."
           />
         );
   }

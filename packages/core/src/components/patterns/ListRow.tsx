@@ -53,6 +53,11 @@ export const COLUMN = {
   status: 'w-28',
   /** A chip. */
   chip: 'w-24',
+  /**
+   * What a thing holds, labelled, in one short line: "2 agents · 3 skills".
+   * Never bare numbers side by side — a reader cannot tell "2 3 2" apart.
+   */
+  contents: 'w-48',
 } as const;
 
 export type ColumnKind = keyof typeof COLUMN;

@@ -81,7 +81,7 @@ function renderEvent(ev: CalEvent): string {
 export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchema> = {
   slug: 'google-calendar',
   name: 'Google Calendar',
-  description: 'Ingest calendar events (title, time, attendees, description) — a rolling window of recent + upcoming.',
+  description: 'Meetings from your calendar. Title, time, attendees and description over a rolling window of recent and upcoming events.',
   icon: 'Calendar',
   authKind: 'oauth',
   configSchema: calendarConfigSchema,

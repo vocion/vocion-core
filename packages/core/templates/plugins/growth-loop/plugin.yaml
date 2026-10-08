@@ -39,7 +39,7 @@
 slug: growth-loop
 name: Growth loop
 version: 1.0.0
-description: Evidence that somebody wanted something becomes a brief with one claim, a list of what it may not say and the number it will be judged on; a producer makes it, an editor decides whether it is fit to publish against that brief and nothing else, a person releases it, and a reading taken weeks later says whether it was worth doing — with what gets briefed next decided by those readings, and the team able to add a teammate only where work actually waited and only inside a budget.
+description: Growth work briefed from evidence and judged on what it returned. Evidence that somebody wanted something becomes a brief with one claim, a list of what it may not say and the number it will be judged on; a producer makes it, an editor decides whether it is fit to publish against that brief and nothing else, a person releases it, and a reading taken weeks later says whether it was worth doing — with what gets briefed next decided by those readings, and the team able to add a teammate only where work actually waited and only inside a budget.
 depends: []
 surfaces: []
 nav: {section: Growth}

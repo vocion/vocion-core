@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Cpu, ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
+import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
 import { combinedPageTitle } from '@/features/navigation/combinedPages';
@@ -117,7 +118,20 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
             <span className="ml-2 font-normal text-muted-foreground">{`${r.classifier.runs.length} version${r.classifier.runs.length === 1 ? '' : 's'} · each row is one training of the classifier`}</span>
           </div>
           {r.classifier.runs.length === 0
-            ? <p className="px-5 py-6 text-sm text-muted-foreground">{r.classifier.configured ? 'No training runs yet.' : 'No classifier configured (VOCION_REKOGNITION_PROJECT_ARN).'}</p>
+            ? (
+                <div className="px-5 py-6 text-sm text-muted-foreground">
+                  <p>{r.classifier.configured ? 'No training runs yet.' : 'No image classifier is set up for this workspace yet.'}</p>
+                  {!r.classifier.configured && (
+                    <HowItsAuthored className="mt-2">
+                      Set
+                      {' '}
+                      <code>VOCION_REKOGNITION_PROJECT_ARN</code>
+                      {' '}
+                      on the server to the Rekognition project to use.
+                    </HowItsAuthored>
+                  )}
+                </div>
+              )
             : (
                 <ul className="divide-y divide-border">
                   {r.classifier.runs.map(run => (

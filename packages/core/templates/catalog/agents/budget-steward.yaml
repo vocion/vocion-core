@@ -1,6 +1,6 @@
 slug: budget-steward
 name: Budget Steward
-description: Watches what the team is spending against what it has, throttles before the cap rather than at it, and asks for more in exact numbers.
+description: "Keeps the team's spending inside its budget. It watches spend against what the team has, throttles before the cap rather than at it, and asks for more in exact numbers."
 icon: gauge
 accent: emerald
 team: operations

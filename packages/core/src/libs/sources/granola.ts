@@ -80,7 +80,7 @@ function flattenTranscript(segments: NonNullable<GranolaNote['transcript']>): st
 export const granolaConnector: SourceConnector<typeof granolaConfigSchema> = {
   slug: 'granola',
   name: 'Granola',
-  description: 'Ingest Granola meeting notes — AI summary + transcript per meeting (personal API).',
+  description: 'Meeting notes from Granola. An AI summary and the transcript of each meeting, through the personal API.',
   icon: 'NotebookPen',
   authKind: 'apikey',
   configSchema: granolaConfigSchema,

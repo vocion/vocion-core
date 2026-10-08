@@ -106,7 +106,7 @@ export default async function AgentsPage(props: {
     <>
       <CombinedPageHeader
         active="/dashboard/agents"
-        description="Your lead AI agents — the ones you brief directly. Open one to see the specialists it coordinates, its tools, and how it works. Authored in workspace/agents; hire another from the Marketplace."
+        description="The lead agents you brief directly, each with the specialists it coordinates."
       />
 
       {activatedCards.length === 0 && ghostCards.length === 0
@@ -114,8 +114,22 @@ export default async function AgentsPage(props: {
             <EmptyState
               icon={Bot}
               title="No agents yet"
-              description="Author agents in workspace/<org>/agents/ and run workspace:apply. Add `parent: <lead-slug>` to nest a specialist under a lead; omit it for a lead."
-              action={{ label: 'How agents work', href: 'https://www.vocion.ai/docs/features/teams' }}
+              description="An agent does one job for the team, and a lead agent coordinates its specialists."
+              action={{ label: 'Hire an agent', href: '/dashboard/hire' }}
+              secondaryAction={{ label: 'How agents work', href: 'https://www.vocion.ai/docs/features/teams' }}
+              authoring={(
+                <>
+                  An agent is a YAML file under
+                  {' '}
+                  <code>agents/</code>
+                  {' '}
+                  in the workspace;
+                  {' '}
+                  <code>parent: &lt;lead-slug&gt;</code>
+                  {' '}
+                  nests a specialist under its lead.
+                </>
+              )}
             />
           )
         : (

@@ -29,10 +29,17 @@ Eight ship in core, at `packages/core/templates/plugins/`:
 | **`red-team`** | A second reader on everything an agent publishes outside — `gmail.send`, `release.announce`, `notify.requester`, `chat.post_message`: a model from a **different vendor** than the one that wrote it reads it against the workspace's voice rules and wiki and returns typed findings. Serious findings send the draft back to the agent once, then to a person; on a person's own word they are advice and it runs. See [Action gates](#action-gates--a-second-reader-before-anything-goes-out). | — |
 
 Each plugin directory has a `README.md` that says what it adds and how to
-customise it; the **Marketplace** (`/dashboard/marketplace`, under Build) shows
-the same catalogue with an on/off switch, beside the catalog agents this
-workspace has not hired. `/dashboard/plugins` 308s there; the per-plugin detail
-page stays at `/dashboard/plugins/<slug>`.
+customise it. People never see the word: in the product a plugin is a
+**feature of its app**. **Apps** (`/dashboard/apps`, under Build, where the
+rail's "+ Add app" lands) shows one card per app; each app's page
+(`/dashboard/apps/<id>`) has its features as On/Off switches, what they bring
+by name, the connectors they read with live status, and a closed Details
+disclosure with the plugin slugs and the `workspace.yaml` line. "Add" turns on
+every feature the app lists in one apply (`plugins.addApp`).
+`/dashboard/plugins` and `/dashboard/marketplace/plugins` 308 to Apps, and
+`/dashboard/plugins/<slug>` 308s to its app's page at that feature. Agents for
+hire are Workforce's **Hire an agent** (`/dashboard/hire`, a Teams & agents
+tab); `/dashboard/marketplace` 308s there.
 
 ## Turning one on
 
@@ -105,17 +112,36 @@ pinned by default. A plugin names a section only when it is part of a named
 app: `proposals` says `nav: {section: GTM}` and sits under GTM with the
 workspace's own Personalization and Discovery surfaces, one heading.
 
+**Which rows start pinned** is declared too, in `nav.pinByDefault` — a list of
+the plugin's own row urls (a core route it owns, or one of its pages) that
+start pinned in Workforce's Workspace group while the plugin is on:
+
+```yaml
+# templates/plugins/data-rooms/plugin.yaml
+nav: {pinByDefault: [/dashboard/rooms]}
+```
+
+It sets a default and nothing more. A person who unpins the row keeps it
+unpinned (the unpin is recorded as a dismissal), and their own pins keep their
+order. A url that is not the plugin's own row — another plugin's page, a route
+it only offers, a typo — pins nothing. A pinnable core route
+(`DashboardRoute.pinnable`) whose plugin belongs to an app is listed in both
+places: under the app's heading, and as a Workforce work row (pinned when the
+manifest says so, otherwise under More). Core names no plugin here; the
+manifest says it (`features/navigation/pluginNav.ts`, `apps.ts`
+`splitNavByApp`).
+
 ## Apps — plugins as a person picks them
 
 The dashboard's far-left **app rail** lists apps: Workforce first, then the
-prebuilt apps (Software Factory, GTM, Company), then "Add app", which opens the
-marketplace. An app is a manifest at `packages/core/templates/apps/<id>/app.yaml`
+prebuilt apps (Software Factory, GTM, Company), then "Add app", which opens Apps. An app is a manifest at `packages/core/templates/apps/<id>/app.yaml`
 (`AppManifestSchema`, loaded by `libs/workspace/apps.ts`), not new capability:
 
 ```yaml
 id: software-factory
 name: Software Factory
 icon: git-branch # a lucide name the sidebar can draw (features/dashboard/iconByName.ts)
+tint: mint # optional: violet | sky | mint | peach | butter | rose; default derived from the id
 order: 2 # rail position
 description: Requests become approved work, verified changes and releases.
 plugins: [software-factory, production-watch] # member plugins
@@ -142,15 +168,15 @@ nav: [Software factory, Production Watch] # the nav.section labels it owns
 - **Templates: a function in one move.** An app may ship templates under
   `templates/apps/<id>/templates/<slug>/` — a `template.yaml` with a short
   interview and a `files/` tree laid out like a workspace. Its start page
-  (`/dashboard/apps/<id>`, linked from the marketplace) lists them; picking one
+  (`/dashboard/apps/<id>`, the app's page on Apps) lists them; picking one
   writes the files into the workspace with the answers filled in, turns on the
   app's plugins and the template's own, and applies. The Company app is the
   first: [Company](./apps/company.md).
 - **One picker.** Every app's nav starts with the workspace switcher, listing
   only the workspaces that have that app (`apps.forUser` RPC); switching keeps
   the app when the target has it and falls back to Workforce when it does not.
-  The marketplace's plugin list is grouped the same way: installed apps, each
-  with its plugins as its features, then the apps this workspace lacks.
+  Apps reads the same grouping (`groupPluginsByApp`): each app's plugins are
+  its features, and Workforce keeps every plugin no app lists (Wiki).
 
 ## Anatomy of a plugin
 

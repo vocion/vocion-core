@@ -82,6 +82,7 @@ export async function loadChatAgentContext(orgId: string): Promise<ChatAgentCont
       description: agent.description ?? undefined,
       suggestions: agent.suggestions ?? [],
       placeholder: `Message ${agent.name}…`,
+      ...(agent.accent ? { accent: agent.accent } : {}),
       ...(workspace?.projectName ? { workspaceName: workspace.projectName } : {}),
     })),
     { ...SEARCH_ONLY_AGENT, ...(workspace?.projectName ? { workspaceName: workspace.projectName } : {}) },

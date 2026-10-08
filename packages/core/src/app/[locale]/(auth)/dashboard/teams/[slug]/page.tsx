@@ -3,13 +3,12 @@ import { ArrowLeft, ArrowUpRight, TriangleAlert, Users, Wrench } from 'lucide-re
 import { useTranslations } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { createElement } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { ownerProvenance } from '@/features/dashboard/teams/helpers';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { agentAccent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
@@ -143,12 +142,7 @@ function TeamDetailScreen({ team, boundary, files, editInGitPath, dirty, dirtyFi
             {team.lead
               ? (
                   <Link href={`/dashboard/agents/${team.lead.slug}`} className="group inline-flex items-center gap-2">
-                    <span
-                      className="flex size-5 shrink-0 items-center justify-center rounded-md text-background"
-                      style={{ background: a.stripe }}
-                    >
-                      {createElement(agentIcon(team.lead.icon, { primary: true }), { 'className': 'size-3', 'aria-hidden': true })}
-                    </span>
+                    <AgentDot name={team.lead.name} accent={team.lead.accent} size="sm" decorative />
                     <span className="text-sm font-medium group-hover:text-primary">{team.lead.name}</span>
                   </Link>
                 )
@@ -212,9 +206,7 @@ function TeamDetailScreen({ team, boundary, files, editInGitPath, dirty, dirtyFi
                           href={`/dashboard/agents/${member.slug}`}
                           className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3.5 transition hover:bg-muted/30"
                         >
-                          <span className="shrink-0" style={{ color: mAccent.ink }}>
-                            {createElement(agentIcon(member.icon, { primary: isLead }), { 'className': 'size-5', 'aria-hidden': true })}
-                          </span>
+                          <AgentDot name={member.name} accent={member.accent} size="md" decorative />
                           <div className="min-w-0 flex-1">
                             <span className="inline-flex flex-wrap items-center gap-2">
                               <span className="truncate text-sm font-medium group-hover:text-primary">{member.name}</span>

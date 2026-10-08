@@ -253,7 +253,7 @@ export async function resolveHubspotToken(credentials: Record<string, unknown> |
 export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   slug: 'hubspot',
   name: 'HubSpot',
-  description: 'Ingest HubSpot CRM records (contacts, deals, companies) — incremental by last-modified.',
+  description: 'Contacts, deals and companies from HubSpot. CRM records sync incrementally by last-modified.',
   icon: 'Contact',
   authKind: 'apikey',
   configSchema: hubspotConfigSchema,

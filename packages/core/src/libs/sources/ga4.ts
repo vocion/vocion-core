@@ -31,7 +31,7 @@ function isoDate(d: Date): string {
 export const ga4Connector: SourceConnector<typeof ga4ConfigSchema> = {
   slug: 'ga4',
   name: 'Google Analytics 4',
-  description: 'Ingest GA4 report rows (sessions, conversions, bounce rate) by date + landing page.',
+  description: 'Sessions, conversions and bounce rate from Google Analytics. One GA4 report row per date and landing page.',
   icon: 'BarChart3',
   authKind: 'oauth',
   configSchema: ga4ConfigSchema,

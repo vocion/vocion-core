@@ -31,7 +31,7 @@ name: Wiki
 # conversation sweep, the index pass and the weekly curation were paused
 # everywhere they ran; they and the debrief mission are deleted.
 version: 2.0.0
-description: The workspace's long-term memory — voice, standing rules, who is who, decisions that hold — seeded from the repo, written by the agents (done for you, with undo), mounted into every agent's context, searchable, answered from by a researcher.
+description: The workspace's long-term memory, kept by the agents. Voice, standing rules, who is who and decisions that hold are seeded from the repo, written by the agents (done for you, with undo), mounted into every agent's context, searchable, answered from by a researcher.
 recommend:
   when:
     - a person repeats a standing fact, a preference or a rule they have said before

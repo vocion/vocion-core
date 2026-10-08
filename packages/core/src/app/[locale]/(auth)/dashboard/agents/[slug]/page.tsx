@@ -1,16 +1,16 @@
 import { ArrowLeft, ArrowUpRight, CalendarClock, Compass, CornerUpLeft, GitBranch, ScrollText, TriangleAlert } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { createElement } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
 import { AgentVoiceControl } from '@/features/dashboard/AgentVoiceControl';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
+import { authoredIcon } from '@/features/dashboard/iconByName';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { agentAccent as accent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { resolveVoice } from '@/libs/agents/voice';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -119,12 +119,7 @@ export default async function AgentDetailPage(props: {
 
       {/* ── Hero — a single clean header, no nested boxes ─────────────── */}
       <header className="flex flex-col gap-5 border-b border-border pb-7 sm:flex-row sm:items-start sm:gap-5">
-        <div
-          className="flex size-14 shrink-0 items-center justify-center rounded-2xl"
-          style={{ background: a.tint, color: a.ink }}
-        >
-          {createElement(agentIcon(agent.icon, { primary: isLead }), { 'className': 'size-7', 'aria-hidden': true })}
-        </div>
+        <AgentDot name={agent.name} accent={agent.accent} icon={authoredIcon(agent.icon)} size="xl" decorative />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -411,16 +406,13 @@ export default async function AgentDetailPage(props: {
               </p>
               <div className="divide-y divide-border/60 border-y border-border/60">
                 {specialists.map((sp) => {
-                  const spInk = accent(sp.accent).ink;
                   return (
                     <Link
                       key={sp.id}
                       href={`/dashboard/agents/${sp.slug}`}
                       className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3.5 transition hover:bg-muted/30"
                     >
-                      <span className="shrink-0" style={{ color: spInk }}>
-                        {createElement(agentIcon(sp.icon), { 'className': 'size-5', 'aria-hidden': true })}
-                      </span>
+                      <AgentDot name={sp.name} accent={sp.accent} size="md" decorative />
                       <div className="min-w-0 flex-1">
                         <span className="truncate text-sm font-medium group-hover:text-primary">{sp.name}</span>
                         {sp.description && (

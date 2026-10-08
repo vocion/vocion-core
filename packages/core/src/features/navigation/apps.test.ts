@@ -2,9 +2,11 @@ import type { AppDefinition } from './apps';
 import type { PluginNav } from './pluginNav';
 import type { PluginManifest } from '@/libs/workspace/schemas';
 import { describe, expect, it } from 'vitest';
+import { defaultPinDismissal, resolveWorkPins } from '@/features/dashboard/nav/navPins';
+import { defaultTint } from '@/libs/tints';
 import { listApps } from '@/libs/workspace/apps';
 import { listPlugins } from '@/libs/workspace/plugins';
-import { appOwningPath, groupPluginsByApp, installedApps, resolveActiveApp, splitNavByApp, workspacesByApp, workspaceSwitchPath } from './apps';
+import { appForPlugin, appOwningPath, groupPluginsByApp, installedApps, resolveActiveApp, splitNavByApp, workspacesByApp, workspaceSwitchPath } from './apps';
 import { DASHBOARD_ROUTES } from './dashboardNav';
 import { pluginNav } from './pluginNav';
 
@@ -16,7 +18,7 @@ function app(over: Partial<AppDefinition> & { id: string }): AppDefinition {
 }
 
 const home = app({ id: 'home', core: true, order: 0, entry: '/dashboard/chat', nav: ['Workspace', 'Team'] });
-const factory = app({ id: 'factory', order: 2, plugins: ['builder', 'watcher'], nav: ['Builder', 'Watch'], entry: '/dashboard/p/board' });
+const factory = app({ id: 'factory', order: 2, tint: 'peach', plugins: ['builder', 'watcher'], nav: ['Builder', 'Watch'], entry: '/dashboard/p/board' });
 const sales = app({ id: 'sales', order: 3, plugins: ['deals', 'rooms'], surfaces: ['personalization', 'discovery'], nav: ['Sales'], entry: '/gtm/proposals' });
 const later = app({ id: 'later', order: 1, hidden: true, plugins: ['builder'] });
 const CATALOGUE = [sales, later, factory, home];
@@ -66,9 +68,9 @@ describe('workspacesByApp', () => {
 
   it('puts in the rail only the apps the person has somewhere, core first, with what the rail draws', () => {
     expect(workspacesByApp(workspaces, CATALOGUE).apps).toEqual([
-      { id: 'home', name: 'home', icon: 'box', order: 0, core: true, entry: '/dashboard/chat' },
-      { id: 'factory', name: 'factory', icon: 'box', order: 2, core: false, entry: '/dashboard/p/board' },
-      { id: 'sales', name: 'sales', icon: 'box', order: 3, core: false, entry: '/gtm/proposals' },
+      { id: 'home', name: 'home', icon: 'box', order: 0, core: true, entry: '/dashboard/chat', tint: defaultTint('home') },
+      { id: 'factory', name: 'factory', icon: 'box', order: 2, core: false, entry: '/dashboard/p/board', tint: 'peach' },
+      { id: 'sales', name: 'sales', icon: 'box', order: 3, core: false, entry: '/gtm/proposals', tint: defaultTint('sales') },
     ]);
     expect(workspacesByApp([workspaces[2]!], CATALOGUE).apps.map(a => a.id)).toEqual(['home']);
   });
@@ -79,7 +81,7 @@ describe('workspacesByApp', () => {
 });
 
 function nav(sections: PluginNav['sections'], claimed: Partial<PluginNav> = {}): PluginNav {
-  return { sections, claimedSurfaces: [], claimedPages: [], claimedRoutes: [], ...claimed };
+  return { sections, claimedSurfaces: [], claimedPages: [], claimedRoutes: [], pinnedByDefault: [], ...claimed };
 }
 
 describe('splitNavByApp', () => {
@@ -151,6 +153,28 @@ describe('splitNavByApp', () => {
     expect(byId.sales!.href).toBe('/dashboard/rooms');
     expect(byId.home!.href).toBe('/dashboard/chat');
     expect(byId.home!.sections).toEqual([]);
+  });
+
+  it('releases a PINNABLE route an app took, so Workforce still offers it as a pinnable row; the app lists it too', () => {
+    const pinnable = [{ url: '/dashboard/rooms', plugin: 'rooms', pinnable: true }, { url: '/dashboard/ledger', plugin: 'deals' }];
+    const r = splitNavByApp({
+      apps: installed,
+      nav: nav([{ label: 'Workspace', items: [
+        { title: 'Data rooms', url: '/dashboard/rooms', icon: 'folder-open', plugin: 'rooms', order: 0 },
+        { title: 'Ledger', url: '/dashboard/ledger', icon: 'book-open', plugin: 'deals', order: 1 },
+      ] }], { claimedRoutes: ['/dashboard/rooms', '/dashboard/ledger'], pinnedByDefault: ['/dashboard/rooms'] }),
+      surfaces: [],
+      pages: [],
+      coreRoutes: pinnable,
+    });
+    const salesApp = r.apps.find(a => a.id === 'sales')!;
+
+    expect(salesApp.sections[0]!.items.map(i => i.url)).toEqual(['/dashboard/rooms', '/dashboard/ledger']);
+    expect(salesApp.owns).toContain('/dashboard/rooms');
+    // Released: not pinnable rows stay claimed (they have no Workforce row to fall back to).
+    expect(r.core.nav.claimedRoutes).toEqual(['/dashboard/ledger']);
+    expect(r.core.nav.sections).toEqual([]);
+    expect(r.core.nav.pinnedByDefault).toEqual(['/dashboard/rooms']);
   });
 
   it('with no apps installed beyond the core, changes nothing', () => {
@@ -270,5 +294,35 @@ describe('the shipped apps over the shipped plugins', () => {
     expect(apps.find(a => a.id === owner.id)!.plugins).toContain('data-rooms');
     expect(appOwningPath('/dashboard/rooms/r-1', split.apps)).toBe(owner.id);
     expect(owner.href).toBe('/dashboard/rooms');
+  });
+
+  it('Data rooms stays a Workforce door, pinned by default from its manifest — until the person unpins it', () => {
+    const installed = installedApps(['data-rooms'], [], apps);
+    const split = splitNavByApp({ apps: installed, nav: pluginNav({ plugins: manifests(['data-rooms']), pages: [], routes: DASHBOARD_ROUTES }), surfaces: [], pages: [], coreRoutes: DASHBOARD_ROUTES });
+    const defaults = ['/dashboard/briefings', ...split.core.nav.pinnedByDefault];
+
+    expect(split.core.nav.claimedRoutes).not.toContain('/dashboard/rooms');
+    expect(split.core.nav.pinnedByDefault).toEqual(['/dashboard/rooms']);
+    expect(resolveWorkPins({ pins: [], dismissed: [], defaults })).toEqual(['/dashboard/briefings', '/dashboard/rooms']);
+    // A person's choices win: unpinned stays unpinned, and their own order holds.
+    expect(resolveWorkPins({ pins: [], dismissed: [defaultPinDismissal('/dashboard/rooms')], defaults })).toEqual(['/dashboard/briefings']);
+    expect(resolveWorkPins({ pins: ['/dashboard/search', '/dashboard/rooms'], dismissed: [defaultPinDismissal('/dashboard/briefings')], defaults })).toEqual(['/dashboard/search', '/dashboard/rooms']);
+  });
+});
+
+describe('appForPlugin', () => {
+  const plugins = ['builder', 'deals', 'rooms', 'watcher', 'wiki'];
+
+  it('finds the app whose manifest lists the plugin', () => {
+    expect(appForPlugin('rooms', plugins, CATALOGUE)?.id).toBe('sales');
+    expect(appForPlugin('builder', plugins, CATALOGUE)?.id).toBe('factory');
+  });
+
+  it('hands a plugin no app lists to the core app', () => {
+    expect(appForPlugin('wiki', plugins, CATALOGUE)?.id).toBe('home');
+  });
+
+  it('knows nothing of a plugin outside the catalogue', () => {
+    expect(appForPlugin('missing', plugins, CATALOGUE)).toBeUndefined();
   });
 });

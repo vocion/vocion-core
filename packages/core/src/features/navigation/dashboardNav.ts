@@ -3,7 +3,6 @@ import {
   Activity,
   BarChart3,
   Bell,
-  Blocks,
   BookOpen,
   CalendarClock,
   CheckSquare,
@@ -17,6 +16,7 @@ import {
   Gauge,
   GitBranch,
   Inbox,
+  LayoutGrid,
   LineChart,
   MessageSquare,
   Network,
@@ -24,10 +24,10 @@ import {
   Plug,
   ShieldCheck,
   Sparkles,
-  Store,
   TestTube,
   TrendingUp,
   UserPlus,
+  UserRoundPlus,
   Users,
   Wrench,
   Zap,
@@ -143,6 +143,9 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
   { url: '/dashboard/teams', title: 'Teams & agents', tabTitle: 'Teams', tabI18nKey: 'teams', group: 'Team', icon: Network, i18nKey: 'teams_agents', keywords: ['org chart', 'roster', 'teams'] },
   { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users, i18nKey: 'agents', tabOf: '/dashboard/teams', keywords: ['roster', 'leads', 'specialists'] },
+  // Agents for hire, beside the agents you already have (Chris, 2026-10-08:
+  // out of the marketplace, into Workforce). `/dashboard/marketplace` 308s here.
+  { url: '/dashboard/hire', title: 'Hire an agent', group: 'Team', icon: UserRoundPlus, i18nKey: 'hire_agent', tabOf: '/dashboard/teams', keywords: ['hire', 'recruit', 'catalog', 'roles', 'agents for hire', 'marketplace', 'inactive agents'] },
   { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass, i18nKey: 'missions', keywords: ['goals', 'objectives'] },
   { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch, i18nKey: 'workflows' },
   // Automations are workspace plumbing, not daily work (Chris, 2026-10-02:
@@ -166,19 +169,12 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/tools', title: 'Tools', group: 'Build', icon: Wrench, i18nKey: 'tools', tabOf: '/dashboard/skills', keywords: ['capabilities', 'web search', 'keys'] },
   { url: '/dashboard/models', title: 'Vision models', group: 'Build', icon: Cpu, i18nKey: 'vision_models', tabOf: '/dashboard/skills', keywords: ['rekognition', 'classifier', 'analyze'] },
   { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, i18nKey: 'evals', offeredBy: 'software-factory', keywords: ['tests', 'datasets', 'reference sets', 'gold standards'] },
-  // Where you go to ADD capability, as against Teams & agents, which is what
-  // you already have (Chris, 2026-09-19: "Teams/Agents = where you go to see
-  // your agents and capabilities. Marketplace = where you go to add capability
-  // (hire agents, enable plugins)"). Two tabs, because the plugins this core
-  // ships and the catalog agents nobody has hired are two lists, not one long
-  // page. Under Build beside Skills & tools and Evals because both are
-  // capability.
-  { url: '/dashboard/marketplace', title: 'Marketplace', tabTitle: 'Agents for hire', tabI18nKey: 'agents_for_hire', group: 'Build', icon: Store, i18nKey: 'marketplace', keywords: ['catalog', 'hire', 'recruit', 'roles', 'inactive agents', 'plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
-  // The second tab. Hiring is what a person comes here for most often, so the
-  // owner URL is the agent catalog (Chris, 2026-09-20: "flip agents and
-  // plugins on these tabs"); plugins keep a stable URL of their own, and
-  // `/dashboard/plugins` still lands on them.
-  { url: '/dashboard/marketplace/plugins', title: 'Plugins', group: 'Build', icon: Blocks, i18nKey: 'plugins', tabOf: '/dashboard/marketplace', keywords: ['plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
+  // Where you go to ADD capability (Chris, 2026-10-08, from the rail's
+  // "+ Add app"): one card per app, and each app's page with its features as
+  // On/Off switches. It replaced the Marketplace's Plugins tab
+  // (`/dashboard/marketplace/plugins` and `/dashboard/plugins` 308 here).
+  // Under Build beside Skills & tools and Evals because it is capability.
+  { url: '/dashboard/apps', title: 'Apps', group: 'Build', icon: LayoutGrid, i18nKey: 'apps', keywords: ['add app', 'apps', 'features', 'feature', 'marketplace', 'plugin', 'plugins', 'module', 'modules', 'install', 'enable', 'turn on', 'turn off', 'wiki', 'data rooms', 'proposals'] },
 
   // ── MANAGE · Insights — how it is going ─────────────────────────────────
   { url: '/dashboard/team-report', title: 'Team report', group: 'Insights', icon: Network, i18nKey: 'team_report', keywords: ['outcome', 'kpi', 'spend', 'members'] },

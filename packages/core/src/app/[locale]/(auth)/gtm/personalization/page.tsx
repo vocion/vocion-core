@@ -9,6 +9,7 @@ import { loadQueueBriefRows } from '@/features/personalization/queueRows';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
+import { askInChatHref } from '@/libs/links';
 import { leadBriefSchema } from '@/models/Schema';
 import { QUEUED_STATUS } from '@/services/PersonalizationQueueService';
 import { ORG_ROLE } from '@/types/Auth';
@@ -79,8 +80,9 @@ export default async function PersonalizationPage(props: {
               icon={Sparkles}
               title="No briefs yet"
               description={waitingCount > 0
-                ? `${waitingCount} ${waitingCount === 1 ? 'lead is' : 'leads are'} recorded and waiting to be researched. A lead appears here once its brief is written, so this fills in as the hourly sweep works through them.`
-                : 'The hourly sweep queues each new MQL, researches it, and posts the brief here. Ask the RevOps Lead to run a pass in chat, or wait for the next sweep.'}
+                ? `${waitingCount} ${waitingCount === 1 ? 'lead is' : 'leads are'} waiting to be researched, and each appears here once its brief is written.`
+                : 'Each new lead is researched every hour, and its brief lands here for your decision.'}
+              action={{ label: 'Research new leads now', href: askInChatHref('Research the new leads now and write their briefs.') }}
             />
           )
         : <PersonalizationQueue briefs={briefs} />}

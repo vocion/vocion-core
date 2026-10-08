@@ -30,7 +30,7 @@ export async function ConfigurePage(props: {
     return (
       <>
         <TitleBar title={manifest.title} description={manifest.description} />
-        <ListEmpty variant="inline" title="Turn on the plugin this page configures." />
+        <ListEmpty variant="inline" title="Turn on the feature this page configures." action={{ label: 'Browse apps', href: '/dashboard/apps' }} />
       </>
     );
   }

@@ -51,7 +51,6 @@
         "src/libs/crypto/**",
         "src/libs/docs/**",
         "src/libs/I18n.ts",
-        "src/libs/agentAccent.ts",
         "src/libs/Langfuse.ts",
         "src/services/**",
         "src/routers/**"

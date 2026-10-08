@@ -2,12 +2,11 @@ import type { WorkerRun } from '@/services/WorkerRunService';
 import { ArrowLeft } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { createElement } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { ContractGrid } from '@/features/dashboard/team-report/ContractGrid';
 import { ago, compact, duration, pct, usd, windowLabel } from '@/features/dashboard/team-report/format';
 import { KindMix, RunKindBadge } from '@/features/dashboard/team-report/RunKindBadge';
 import { agentAccent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { memberReport, parseReportWindow } from '@/services/TeamReportService';
@@ -54,9 +53,7 @@ export default async function MemberReportPage(props: {
       </div>
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl" style={{ background: a.tint, color: a.ink }}>
-          {createElement(agentIcon(member.icon, { primary: member.isLead }), { 'className': 'size-6', 'aria-hidden': true })}
-        </div>
+        <AgentDot name={member.name} accent={member.accent} size="lg" decorative className="size-12 text-lg" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl leading-tight font-semibold tracking-tight">{member.name}</h1>

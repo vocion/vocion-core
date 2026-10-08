@@ -282,6 +282,16 @@ async function openStrapiForm() {
   await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
 }
 
+/**
+ * Open a configured row's overflow menu and choose an entry — Edit and Delete
+ * live there, beside the row's one primary action.
+ * @param name - The menu entry.
+ */
+async function openRowAction(name: string) {
+  await page.getByRole('button', { name: /^More for / }).first().click();
+  await page.getByRole('menuitem', { name }).click();
+}
+
 async function openPicker() {
   await page.getByRole('button', { name: 'Add connector' }).first().click();
 
@@ -955,7 +965,7 @@ describe('editing and deleting a source', () => {
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByText('Edit Strapi source')).toBeVisible();
     await expect.element(page.getByLabelText(/Strapi URL/)).toHaveValue('https://cms.partner.org');
@@ -986,7 +996,7 @@ describe('editing and deleting a source', () => {
     stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByText(/Saving restarts this connector's sync/)).toBeVisible();
   });
@@ -1010,7 +1020,7 @@ describe('editing and deleting a source', () => {
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
     await userEvent.fill(page.getByLabelText(/API token/), 'fresh-token');
     await page.getByRole('button', { name: 'Save changes' }).click();
 
@@ -1021,7 +1031,7 @@ describe('editing and deleting a source', () => {
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Delete' }).click();
+    await openRowAction('Delete…');
 
     await expect.element(page.getByText(/It cannot be undone/)).toBeVisible();
 
@@ -1029,7 +1039,7 @@ describe('editing and deleting a source', () => {
 
     expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(0);
 
-    await page.getByRole('button', { name: 'Delete' }).click();
+    await openRowAction('Delete…');
     await page.getByRole('button', { name: 'Delete connector' }).click();
 
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(1));
@@ -1053,7 +1063,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
   });
@@ -1067,7 +1077,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1085,7 +1095,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1107,7 +1117,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1135,7 +1145,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1168,7 +1178,7 @@ describe('the stored token on an edit', () => {
     vi.stubGlobal('fetch', fetchStub);
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByRole('alert')).toHaveTextContent(/could not be decrypted/);
   });
@@ -1417,7 +1427,7 @@ describe('editing a connector set up before the URL moved', () => {
       storedToken: 'tok-legacy',
     });
     renderPanel();
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
 
@@ -1443,7 +1453,7 @@ describe('editing a connector set up before the URL moved', () => {
       storedToken: 'tok-legacy',
     });
     renderPanel();
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
 
@@ -1465,7 +1475,7 @@ describe('editing a connector set up before the URL moved', () => {
     // connector that was syncing stops.
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [legacyStrapiRow()] });
     renderPanel();
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/Strapi URL/)).toHaveValue('https://cms.partner.org');
 
@@ -1488,7 +1498,7 @@ describe('editing a connector set up before the URL moved', () => {
       storedBaseUrl: 'https://cms.partner.org',
     });
     renderPanel();
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
 
@@ -1704,7 +1714,7 @@ describe('a form built from the connector\'s own fields', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Edit' }).first().click();
+    await openRowAction('Edit settings');
 
     await expect.element(page.getByLabelText(/Site URL/)).toHaveValue('https://acme.atlassian.net');
     await expect.element(page.getByLabelText(/Project keys/)).toHaveValue('ENG');

@@ -1,9 +1,7 @@
 import type { TeamReportTeam } from '@/services/TeamReportService';
 import { ArrowUpRight } from 'lucide-react';
-import { createElement } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { ownerDisplayName } from '@/features/dashboard/teams/helpers';
-import { agentAccent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { Link } from '@/libs/I18nNavigation';
 import { RUNG_LABEL } from '@/services/autonomy/rungs';
 import { age } from './format';
@@ -26,13 +24,10 @@ export function Roster({ team }: { team: TeamReportTeam }) {
         </span>
         {team.members.length > 0 && <span className="text-muted-foreground/60">·</span>}
         {team.members.map((m, i) => {
-          const a = agentAccent(m.accent);
           return (
             <span key={m.slug} className="inline-flex items-center gap-1">
               <Link href={`/dashboard/team-report/${encodeURIComponent(m.slug)}`} className="inline-flex items-center gap-1 hover:text-primary">
-                <span className="flex size-4 shrink-0 items-center justify-center rounded-sm" style={{ background: a.tint, color: a.ink }}>
-                  {createElement(agentIcon(m.icon, { primary: m.isLead }), { 'className': 'size-2.5', 'aria-hidden': true })}
-                </span>
+                <AgentDot name={m.name} accent={m.accent} size="xs" decorative />
                 <span className={m.isLead ? 'font-medium' : 'text-foreground/85'}>{m.name}</span>
               </Link>
               {m.isLead && <span className="rounded-sm bg-surface-soft px-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">AI lead</span>}

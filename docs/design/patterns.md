@@ -4,7 +4,9 @@ Two things live here, and they are the same thing seen from two sides.
 
 **The archetypes** — `packages/core/src/components/patterns/` is the UI
 pattern library every dashboard page composes from. Three archetypes cover
-every page the dashboard has or is likely to get; a change to a pattern
+every page where work happens — List, Detail, Ledger — and a fourth, **Front
+doors**, covers the few places a person chooses or starts something instead
+of working on it. A change to a pattern
 changes every page that uses it, which is the point. **New dashboard pages use
 `components/patterns`; nobody hand-rolls a list, a detail or a ledger layout.**
 
@@ -32,8 +34,9 @@ The bar these patterns are held to is `docs/DESIGN-PRINCIPLES.md`:
 - **#16 Beautiful is functional** — hairlines, not boxes. Space, not chrome.
   A powerful platform should feel calm.
 
-Storybook: `Patterns/List`, `Patterns/Detail`, `Patterns/Ledger`, and the
-three reference pages `Personalization/Queue`, `Personalization/LeadPage`,
+Storybook: `Patterns/List`, `Patterns/Detail`, `Patterns/Ledger`,
+`Patterns/Front doors`, `UI/Front-door primitives`, and the three reference
+pages `Personalization/Queue`, `Personalization/LeadPage`,
 `Discovery/Ledger`.
 
 ## Which archetype
@@ -43,6 +46,7 @@ three reference pages `Personalization/Queue`, `Personalization/LeadPage`,
 | Many records of one kind, each a door to its own page, filtered by lane or category | **List** | `/gtm/personalization` |
 | One record — its facts, its evidence, and (often) a decision to take on it | **Detail** | `/gtm/lead/[hubspotId]` |
 | What the system did over time: every assessment with its scores, verdict, provenance and the human follow-up — read, rarely acted on | **Ledger** | `/gtm/discovery` |
+| A handful of things to choose from or start — apps, agents to hire, connectors to add, the first step on an empty page | **Front doors** | `/dashboard/apps` |
 
 A Ledger is a List whose rows are richer and read-mostly. If a row has a
 score, a verdict and a provenance footer, it is a Ledger. If a row is a door
@@ -56,6 +60,14 @@ soft chips), `--action` / `--action-foreground` (the one ink primary),
 `--ink-muted`; and the brand semantic set `--brand-pass` (green),
 `--brand-borderline` (amber), `--brand-fail` (red) for pass/amber/fail
 meanings. No hard-coded Tailwind colours.
+
+The neutrals are warm (from the marketing site, 2026-10): ink `#15131A`,
+secondary `#625D66` on a `#FCFAF6` background — 17.7:1 and 6.2:1 — with warm
+dark equivalents (`#F4F1EC` / `#A8A2AB` on `#141217`, 16.5:1 and 7.5:1).
+Front doors add six tints, `--tint-violet|sky|mint|peach|butter|rose`
+(`bg-tint-*`, names in `libs/tints.ts`), with dark variants; secondary ink on
+every tint is ≥ 5.3:1 in light and ≥ 5.4:1 in dark. Tints belong to front
+doors only — never to a row, a section or a record.
 
 ## List
 
@@ -138,6 +150,14 @@ not fork one locally.
 - **columns** — right-aligned `<Column>`s at the `COLUMN` widths, in a fixed
   order per page, `tabular-nums`, hidden below `sm` unless `always`. Facts:
   they sit inside the row link, so the whole row is one click target.
+- **one quiet primary + `RowMenu`** — a row offers the ONE action it needs
+  next (Sync now, Connect, Reconnect), as a hairline pill. Everything else —
+  Edit, Delete — sits in the row's `RowMenu` (`components/patterns/RowMenu`).
+  No red on a row: Delete opens its confirm dialog, and the dialog's button
+  is the only red.
+- **labelled counts** — several counts on one row are one `contents` column,
+  labelled and joined ("2 agents · 3 skills · 1 page"), never bare numbers
+  side by side.
 - **columnsAside** — the same columns, for a row where one of them clicks
   through to somewhere of its own (a chip that opens the document). They
   render beside the link instead of inside it. Pass a row's WHOLE set here
@@ -384,6 +404,98 @@ confidence is not comparable; the raw number goes behind Evidence, labelled.
 An audit ledger that asserts a probability it cannot justify is worse than one
 that admits it does not know.
 
+## Front doors
+
+```
+CatalogCards (1 → 2 → 3 columns) ─────────────────────────────────────────
+┌ CatalogCard ─────────────────────┐ ┌ CatalogCard (tint) ───────────────┐
+│ [mark]  KICKER          [badge]  │ │ [mark]  APP                       │
+│         Title                    │ │         Software Factory          │
+│         One sentence: the job.   │ │         Requests become releases. │
+│         Action →                 │ │         See its 2 plugins →       │
+│ [small visual — optional]        │ │                                   │
+└──────────────────────────────────┘ └───────────────────────────────────┘
+```
+
+A front door is where a person **chooses or starts** — an app, an agent to
+hire, a connector to add, the first thing to do on an empty page. It is not
+where they work. Everything a person works on is a record, and records are
+rows.
+
+- `CatalogCard` — `tint`, `kicker` (what kind of thing), `title`, `job` (ONE
+  sentence), `action` (ONE arrow link, or a button for a door that opens a
+  dialog; the whole card is its target), and optionally `lead` (a
+  `LetterTile` or `AgentDot`), `badge` (a `StatusBadge`) and `visual` (a
+  small picture under the text). It is a `Surface`, so a card inside a
+  bordered surface warns in development.
+- **Every card wears a tint, by its app or category** — an app its own tint,
+  an agent for hire its team's (`defaultTint(team)`), a connector how it signs
+  in (Sign in · API key · No sign-in). Rounded, no border on the tint, no
+  hairline-box variant: a grid of front doors reads as one family.
+- `CatalogCards` — the grid. One column on a phone, two, then three, every
+  row the height of the tallest card, with each card's action on its bottom
+  line.
+- `LetterTile` — the one square mark for a thing with no logo: a monogram, or
+  an app's icon on its tint; `muted` (dashed) for something not here yet.
+- `AgentDot` / `AgentDots` — the one shape an agent takes anywhere it is
+  named: a dot in the agent's authored `accent` with its initial, white on a
+  fill chosen to clear AA (`libs/agentAccents.ts`, checked in its test).
+  Nothing hand-rolls an agent avatar.
+- `StatusBadge` — `available` / `beta` / `coming`: whether a catalog item can
+  be had yet. Drawn in `StatusPill`'s token sets, so the two never drift.
+- `EmptyState` — an empty page is a front door: a mark, a title, one
+  sentence, one arrow. A quiet docs link may sit beside the action; a second
+  button may not. The arrow is something a person can do **in the product**
+  — create, connect, ask in chat, install, hire — never "author a file".
+- `HowItsAuthored` — where developer detail goes: the folder a thing is
+  authored in, the manifest key, the command that applies it. A closed
+  "How it's authored" disclosure under the empty state (`authoring` on
+  `EmptyState` / `ListEmpty`), never in the sentence or the page intro.
+- **App tint.** `app.yaml` takes `tint:`; an app that names none gets a stable
+  tint from its id (`resolveTint`). The rail, the app's nav header, its
+  workspace picker and the marketplace all draw the app on it.
+
+### CatalogCard or List
+
+| | CatalogCard | ListRow |
+|---|---|---|
+| The person is… | choosing or starting | working, comparing, deciding |
+| How many | a handful to a few dozen, searchable | any number |
+| What a row carries | one sentence and one door | columns, a state chip, verbs |
+| State that changes | none — it is a door | the point of the row |
+
+If a thing has a state the person acts on (connected, syncing, failed, on,
+off), it is a row: the connectors page lists **connected** connectors as rows
+and offers the rest as cards; Apps offers every app as a card, and an app's
+own page lists its features as rows with On/Off switches (the switch is work).
+If a card needs columns, it was a row.
+
+### One sentence
+
+The `job` is ONE sentence, in the reader's terms: what this does for them —
+"Drafts the Contoso proposal from every call, email and file on the deal." —
+not what it is made of, not a feature list, not two sentences. The full
+description lives where the door leads. Copy from data (a catalog entry, a
+manifest, a connector) goes through `firstSentence`, so the card shows the
+first sentence whole. **It is never clamped with an ellipsis**: a first
+sentence too long for a card is rewritten at its source — a short sentence
+first, the detail after it — so the card reads complete and the profile
+still has everything.
+
+The same goes for a page intro: one plain sentence under the title. "Authored
+in workspace/evals" is developer detail; it belongs behind `HowItsAuthored`.
+
+### Never on a front door
+
+No display-size type (a card title is 15px), no glow, no gradient, no
+shadow, no marquee, no motion beyond the arrow's nudge. And never on a work
+surface: no `CatalogCard`, no tint, no panel on a List, Detail or Ledger page.
+
+**Where it came from.** The marketing site's warm, card-per-app pages
+(2026-10), approved by the founder for the places in the product that do the
+same job: the app drawer, the connectors catalog, the plugin marketplace and
+empty states.
+
 ## Do / don't
 
 - **Do** draw hairlines (`border-rule`, `divide-rule`) between things. **Don't**
@@ -443,7 +555,8 @@ Audited 2026-09-16. "On `ListRow`" means the page renders its records through
 | Briefings | bordered cards for previous briefs | Owed — List for the archive; the brief itself is prose |
 | Skills / Tools / Models | hairline rows in a bordered box (Skills); card grids (Tools); raw tables (Models) | Owed — List |
 | Teams / Agents / Missions / Workflows / Objects / Evals / Automation | card grids | Owed — List; a card grid hides the columns that let you compare |
-| Connectors | 2-col card grid (`SourcesPanel`) | Owed — List; the largest single migration (one 2,800-line component) |
+| Connectors (`/dashboard/connectors`) | `ListRows` for connected connectors; `CatalogCard`s for the rest | **On `ListRow` + Front doors** — connected is work, the catalog is choosing |
+| Apps (`/dashboard/apps`) and Hire an agent (`/dashboard/hire`) | `CatalogCard`s (apps, agents for hire); hairline rows with On/Off switches for an app's features | **On Front doors** |
 | Members | shadcn `Table` | Owed — List; the only shadcn `Table` left |
 | Team report roster (`MemberTable`) | raw `<table>`, 8 columns | **Left as a table.** A per-member cost/usage matrix is scanned across columns, not down rows; §4 says one obvious reading, and for this the reading is the grid |
 | Adoption, Autonomy, Automation runs | raw `<table>`s | **Left as tables**, same reason: they are matrices with sortable columns, not queues of records |

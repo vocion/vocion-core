@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChatMessage, ConversationAutonomy } from './types';
+import type { AgentOption, ChatMessage, ConversationAutonomy } from './types';
 import type { FollowExclude } from '@/libs/chat/turnFollowups';
 import { Quote } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -65,12 +65,14 @@ export type MessageListProps = {
   onBuildCard?: (card: import('./types').ChatMessageArtifact) => void;
   /** The thread — stamped into a failed step's Copy details block. */
   conversationId?: number | null;
+  /** The workspace's agents, so an attributed turn draws the specialist's `AgentDot`. */
+  agents?: ReadonlyArray<Pick<AgentOption, 'slug' | 'name' | 'accent'>>;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, conversationId, pageRecord }: MessageListProps) {
+export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, conversationId, pageRecord, agents }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -203,6 +205,14 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                     via={(() => {
                       const who = turnAttribution(msg, { slug: ownAgentSlug, name: agentName });
                       return who ? t('via', { name: who }) : undefined;
+                    })()}
+                    viaAgent={(() => {
+                      const who = turnAttribution(msg, { slug: ownAgentSlug, name: agentName });
+                      if (!who) {
+                        return undefined;
+                      }
+                      const known = agents?.find(a => (msg.agentSlug ? a.slug === msg.agentSlug : a.name === who));
+                      return { name: who, accent: known?.accent ?? null };
                     })()}
                     viaReason={msg.routing?.reason}
                     streaming={streaming && i === lastIdx}

@@ -26,7 +26,7 @@ export default async function ObjectsPage(props: {
     <>
       <TitleBar
         title="Objects"
-        description="Business entities your tenant cares about, authored in workspace/<org>/objects/. Documents and skill runs link back to an instance."
+        description="The things your business tracks, like accounts and transcripts, with every document and run that mentions them."
       />
 
       <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-5">
@@ -46,9 +46,19 @@ export default async function ObjectsPage(props: {
           ? (
               <EmptyState
                 icon={Database}
-                title="No Object types yet"
-                description="Object types are typed business entities (Account, Opportunity, Transcript) your tenant cares about. Define one in workspace/<org>/objects/."
-                action={{ label: 'How to define an Object type', href: '/dashboard/docs/docs/concepts/objects' }}
+                title="No object types yet"
+                description="An object type is a kind of thing your business tracks, like an account or a transcript."
+                action={{ label: 'Browse apps', href: '/dashboard/apps' }}
+                secondaryAction={{ label: 'How objects work', href: '/dashboard/docs/docs/concepts/objects' }}
+                authoring={(
+                  <>
+                    An object type is a YAML file under
+                    {' '}
+                    <code>objects/</code>
+                    {' '}
+                    in the workspace, applied with the rest of it.
+                  </>
+                )}
               />
             )
           : (
@@ -88,8 +98,9 @@ export default async function ObjectsPage(props: {
           ? (
               <EmptyState
                 icon={Link2}
-                title="No instances yet"
-                description="Instances are created automatically when the classifier matches a document to one of your Object types."
+                title="Nothing tracked yet"
+                description="Records appear here on their own as documents arrive that match one of your object types."
+                action={{ label: 'Connect a tool', href: '/dashboard/connectors' }}
               />
             )
           : (

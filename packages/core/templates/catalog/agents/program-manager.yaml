@@ -1,6 +1,6 @@
 slug: program-manager
 name: Program Manager
-description: 'Holds the plan as a living object — the sequence, the dependencies, and the dates that follow from them.'
+description: 'Keeps the plan current. It holds the sequence, the dependencies, and the dates that follow from them.'
 icon: route
 accent: sky
 team: operations

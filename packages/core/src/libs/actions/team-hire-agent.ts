@@ -134,7 +134,7 @@ export const teamHireAgentAction: Action<typeof hireAgentInput> = {
       ],
       summary: input.reason,
       fields: [
-        { label: 'Role', value: `${name} — ${entry?.description ?? 'no description'}`, href: `/dashboard/marketplace/${input.slug}` },
+        { label: 'Role', value: `${name} — ${entry?.description ?? 'no description'}`, href: `/dashboard/hire/${input.slug}` },
         { label: 'Team', value: entry?.teamName ?? entry?.team ?? 'none — it will sit in the unassigned strip' },
         { label: 'Composes', value: entry && entry.skills.length > 0 ? `${entry.skills.length} skills — ${entry.skills.join(', ')}` : 'no skills; the system prompt is the whole definition' },
         { label: 'Reaches for', value: entry && entry.optional.length > 0 ? `${entry.optional.join(', ')} when connected; works from files with none` : 'nothing — works from files' },

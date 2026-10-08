@@ -4,7 +4,9 @@ import type { LucideIcon } from 'lucide-react';
 import type { RefObject } from 'react';
 import type { FailedAttempt } from '../LastAttemptLine';
 import type { ConnectorRow, Source } from './connectorRows';
+import type { RowMenuItem } from '@/components/patterns';
 import type { GrantSummary } from '@/libs/connect/provider';
+import type { Tint } from '@/libs/tints';
 import {
   AlertTriangle,
   BarChart3,
@@ -39,8 +41,10 @@ import {
   Video,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { ListRows } from '@/components/patterns';
+import { CatalogCard, CatalogCards, firstSentence, ListRows, RowMenu } from '@/components/patterns';
+import { LetterTile } from '@/components/ui/letter-tile';
 import { Link } from '@/libs/I18nNavigation';
+import { cn } from '@/utils/Helpers';
 import { LastAttemptLine } from '../LastAttemptLine';
 import { describeSourceConfig, filterConnectorRows, formatRelative, offersReconnect } from './connectorRows';
 
@@ -51,13 +55,27 @@ import { describeSourceConfig, filterConnectorRows, formatRelative, offersReconn
  * on the row and opens in place to what Vocion is responsible for and the
  * reference is not: the last run and its errors, the size in documents and
  * chunks, a running sync's progress, the scopes it needs and which are
- * missing, and Reconnect / Sync now / Edit / Delete.
+ * missing. Each connection keeps ONE quiet action on its row (Sync now,
+ * Connect, Reconnect or Test connection) and the rest — Edit, Delete — in its
+ * `RowMenu`.
  *
- * Hairlines, not cards; one primary action per row (`docs/design/patterns.md`).
+ * Hairlines for the connected half; one primary action per row
+ * (`docs/design/patterns.md`). The connectors not connected yet are front
+ * doors — tinted cards, one sentence and Connect.
  */
 
 /** How many rows render before "Show more" — the search is what makes a long list usable. */
 const PAGE_SIZE = 25;
+
+/** The catalog half's anchor, which Add connector scrolls to. */
+const CATALOG_ID = 'connector-catalog';
+
+/**
+ * A connector card's category is how it connects — the kicker says it, and
+ * the card's tint says it at a glance, so the catalog groups itself by colour.
+ */
+const AUTH_KICKER: Record<ConnectorRow['tile']['authKind'], string> = { oauth: 'Sign in', apikey: 'API key', none: 'No sign-in' };
+const AUTH_TINT: Record<ConnectorRow['tile']['authKind'], Tint> = { oauth: 'sky', apikey: 'violet', none: 'mint' };
 
 /**
  * The Lucide icons connectors name in their `icon` field (`libs/sources/*.ts`),
@@ -83,11 +101,6 @@ const ICONS: Record<string, LucideIcon> = {
   SquareKanban,
   Video,
 };
-
-function ConnectorIcon({ name }: { name: string }) {
-  const Icon = ICONS[name] ?? Plug;
-  return <Icon className="size-4" aria-hidden="true" />;
-}
 
 export type ConnectorListProps = {
   rows: ConnectorRow[];
@@ -127,6 +140,8 @@ export function ConnectorList(props: ConnectorListProps) {
     setVisibleCount(PAGE_SIZE);
   };
   const toggle = (slug: string) => setOpen(o => ({ ...o, [slug]: !o[slug] }));
+  const connectedRows = visible.filter(row => row.state !== 'not-connected');
+  const availableRows = visible.filter(row => row.state === 'not-connected');
 
   return (
     <div className="flex flex-col gap-3" data-testid="connector-list">
@@ -149,31 +164,55 @@ export function ConnectorList(props: ConnectorListProps) {
             : `${matches.length} of ${rows.length} connectors`}
           {connectedCount > 0 && matches.length === rows.length ? ` · ${connectedCount} connected` : ''}
         </p>
+        {/* The page's one primary: it takes you to the catalog and the search over it. */}
+        <button
+          type="button"
+          onClick={() => {
+            document.getElementById(CATALOG_ID)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            searchRef?.current?.focus({ preventScroll: true });
+          }}
+          className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1.5 text-sm font-medium text-action-foreground transition-colors hover:bg-action/90"
+        >
+          <Plus className="size-4" aria-hidden />
+          Add connector
+        </button>
       </div>
 
-      <ListRows>
-        {visible.map(row => (row.state === 'not-connected'
-          ? (
-              <AvailableRow key={row.tile.slug} row={row} attempt={props.lastAttempts?.[row.tile.slug]} timeZone={props.timeZone} onConnect={() => props.onConnectNew(row.tile.slug)} />
-            )
-          : (
-              <ConnectedRow
-                key={row.tile.slug}
-                row={row}
-                attempt={props.lastAttempts?.[row.tile.slug]}
-                timeZone={props.timeZone}
-                open={Boolean(open[row.tile.slug])}
-                onToggle={() => toggle(row.tile.slug)}
-                syncingId={props.syncingId}
-                onConnectNew={() => props.onConnectNew(row.tile.slug)}
-                onSync={props.onSync}
-                onTest={props.onTest}
-                onEdit={props.onEdit}
-                onDelete={props.onDelete}
-                onConnect={props.onConnect}
-              />
-            )))}
-      </ListRows>
+      {connectedRows.length > 0 && (
+        <ListRows>
+          {connectedRows.map(row => (
+            <ConnectedRow
+              key={row.tile.slug}
+              row={row}
+              attempt={props.lastAttempts?.[row.tile.slug]}
+              timeZone={props.timeZone}
+              open={Boolean(open[row.tile.slug])}
+              onToggle={() => toggle(row.tile.slug)}
+              syncingId={props.syncingId}
+              onConnectNew={() => props.onConnectNew(row.tile.slug)}
+              onSync={props.onSync}
+              onTest={props.onTest}
+              onEdit={props.onEdit}
+              onDelete={props.onDelete}
+              onConnect={props.onConnect}
+            />
+          ))}
+        </ListRows>
+      )}
+
+      {/* The catalog half is a set of front doors (docs/design/patterns.md §
+          Front doors): what each one reads, in one sentence, and Connect. The
+          connected half above stays a list — it is work, not choosing. */}
+      {availableRows.length > 0 && (
+        <section id={CATALOG_ID} aria-label="Add a connector" className={cn('scroll-mt-4', connectedRows.length > 0 && 'mt-4')}>
+          {connectedRows.length > 0 && <h2 className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">Add a connector</h2>}
+          <CatalogCards>
+            {availableRows.map(row => (
+              <AvailableCard key={row.tile.slug} row={row} attempt={props.lastAttempts?.[row.tile.slug]} timeZone={props.timeZone} onConnect={() => props.onConnectNew(row.tile.slug)} />
+            ))}
+          </CatalogCards>
+        </section>
+      )}
 
       {matches.length === 0 && (
         <p className="py-6 text-center text-sm text-muted-foreground">
@@ -203,43 +242,26 @@ export function ConnectorList(props: ConnectorListProps) {
 }
 
 /**
- * A connector nobody has connected: the whole row is the Connect action.
+ * A connector nobody has connected, as a front door: its mark, how it signs
+ * in as the kicker, its name, one sentence of what it reads, and Connect.
+ * The whole card is the Connect action.
  * @param root0
  * @param root0.row
  * @param root0.attempt - The newest failed connect attempt, when there is one.
  * @param root0.timeZone - IANA zone for its date.
  * @param root0.onConnect
  */
-function AvailableRow({ row, attempt, timeZone, onConnect }: { row: ConnectorRow; attempt?: FailedAttempt; timeZone?: string; onConnect: () => void }) {
+function AvailableCard({ row, attempt, timeZone, onConnect }: { row: ConnectorRow; attempt?: FailedAttempt; timeZone?: string; onConnect: () => void }) {
   return (
-    <div>
-      <button
-        type="button"
-        onClick={onConnect}
-        aria-label={`Connect ${row.tile.name}`}
-        className="group flex min-h-12 w-full items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-      >
-        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-soft text-muted-foreground">
-          <ConnectorIcon name={row.tile.icon} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{row.tile.name}</span>
-          <span className="block truncate text-[13px] text-muted-foreground">{row.tile.description}</span>
-        </span>
-        {row.tile.authKind !== 'none' && (
-          <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">{row.tile.authKind === 'oauth' ? 'OAuth' : 'API key'}</span>
-        )}
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors group-hover:border-foreground/30 group-hover:text-foreground">
-          <Plus className="size-3" aria-hidden />
-          Connect
-        </span>
-      </button>
-      {attempt && (
-        <div className="px-2 pb-2 pl-13">
-          <LastAttemptLine attempt={attempt} timeZone={timeZone} />
-        </div>
-      )}
-    </div>
+    <CatalogCard
+      tint={AUTH_TINT[row.tile.authKind]}
+      lead={<LetterTile name={row.tile.name} icon={ICONS[row.tile.icon] ?? Plug} />}
+      kicker={AUTH_KICKER[row.tile.authKind]}
+      title={row.tile.name}
+      job={firstSentence(row.tile.description)}
+      action={{ label: 'Connect', onClick: onConnect }}
+      visual={attempt ? <div className="relative z-[1]"><LastAttemptLine attempt={attempt} timeZone={timeZone} /></div> : undefined}
+    />
   );
 }
 
@@ -308,9 +330,7 @@ function ConnectedRow(props: {
         className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
       >
         <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-soft text-foreground">
-          <ConnectorIcon name={row.tile.icon} />
-        </span>
+        <LetterTile name={row.tile.name} icon={ICONS[row.tile.icon] ?? Plug} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{row.tile.name}</span>
           <span className="block truncate text-[13px] text-muted-foreground">{summary}</span>
@@ -482,6 +502,22 @@ function SyncRunLine({ sync }: { sync: Source['sync'] }) {
   return null;
 }
 
+/**
+ * A configured connection's actions: ONE quiet primary on the row — the thing
+ * this connection needs next — and the rest in the row's overflow menu
+ * (`RowMenu`). Connect while no credential is stored; Test connection for a
+ * connector that never syncs; Reconnect after a failed run; otherwise Sync
+ * now. Edit and Delete live in the menu, and Delete opens the confirm dialog,
+ * whose button is the only red on the page.
+ * @param props
+ * @param props.source
+ * @param props.syncing - A Sync now this tab started is running on this row.
+ * @param props.onSync
+ * @param props.onTest
+ * @param props.onEdit
+ * @param props.onDelete
+ * @param props.onConnect
+ */
 function SourceActions(props: {
   source: Source;
   syncing: boolean;
@@ -495,62 +531,64 @@ function SourceActions(props: {
   const needsCreds = source.authKind !== 'none' && !source.credentialConnected;
   const runningElsewhere = source.sync?.status === 'running';
   const busy = props.syncing || runningElsewhere;
-  const pill = 'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50';
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2">
-      {/* Connect is the call to action while nothing is stored; once a credential
-          exists, Edit changes it with everything else. Reconnect stores a fresh
-          one (a login or a paste) when the stored one stopped working. */}
-      {needsCreds && (
-        <button type="button" onClick={() => props.onConnect(source)} className={pill}>
-          <KeyRound className="size-3" aria-hidden />
-          Connect
-        </button>
-      )}
-      {offersReconnect(source) && (
-        <button type="button" onClick={() => props.onConnect(source)} title="Log in or paste the credential again" className={pill}>
-          <KeyRound className="size-3" aria-hidden />
-          Reconnect
-        </button>
-      )}
-      <button type="button" onClick={() => props.onEdit(source)} title="Edit this connector's settings" className={pill}>
-        <Pencil className="size-3" aria-hidden />
-        Edit
-      </button>
-      <button type="button" onClick={() => props.onDelete(source)} title="Delete this connector and everything ingested from it" className={`${pill} text-destructive hover:bg-destructive/5`}>
-        <Trash2 className="size-3" aria-hidden />
-        Delete
-      </button>
-      {source.syncless
+  const reconnect = offersReconnect(source);
+  const pill = 'inline-flex min-h-9 items-center gap-1.5 rounded-full border border-rule px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-50 sm:min-h-0';
+
+  const sync = (
+    <button
+      type="button"
+      onClick={() => props.onSync(source)}
+      disabled={busy}
+      title={runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined}
+      className={pill}
+    >
+      {busy
         ? (
-            <button type="button" onClick={() => props.onTest(source)} disabled={needsCreds || !source.inspectable} title={needsCreds ? 'Connect credentials first' : undefined} className={pill}>
-              <Plug className="size-3" aria-hidden />
-              Test connection
-            </button>
+            <>
+              <Loader2 className="size-3 animate-spin" aria-hidden />
+              Syncing…
+            </>
           )
         : (
-            <button
-              type="button"
-              onClick={() => props.onSync(source)}
-              disabled={busy || needsCreds}
-              title={needsCreds ? 'Connect credentials first' : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
-              className={pill}
-            >
-              {busy
-                ? (
-                    <>
-                      <Loader2 className="size-3 animate-spin" aria-hidden />
-                      Syncing…
-                    </>
-                  )
-                : (
-                    <>
-                      <RefreshCw className="size-3" aria-hidden />
-                      Sync now
-                    </>
-                  )}
-            </button>
+            <>
+              <RefreshCw className="size-3" aria-hidden />
+              Sync now
+            </>
           )}
+    </button>
+  );
+  const test = (
+    <button type="button" onClick={() => props.onTest(source)} disabled={!source.inspectable} className={pill}>
+      <Plug className="size-3" aria-hidden />
+      Test connection
+    </button>
+  );
+  const connect = (label: string) => (
+    <button type="button" onClick={() => props.onConnect(source)} title={label === 'Reconnect' ? 'Log in or paste the credential again' : undefined} className={pill}>
+      <KeyRound className="size-3" aria-hidden />
+      {label}
+    </button>
+  );
+  // The one thing this connection needs next: a credential, a fresh login
+  // after a failed run, or — once it is healthy — the run itself. A connector
+  // that never syncs is checked by Test connection; its Reconnect (always
+  // offered, since no failed run will ever say its login died) waits in the menu.
+  const primary = needsCreds ? connect('Connect') : source.syncless ? test : reconnect ? connect('Reconnect') : sync;
+
+  // Everything else it can do, in the menu.
+  const menu: RowMenuItem[] = [];
+  if (!needsCreds && reconnect) {
+    menu.push(source.syncless
+      ? { label: 'Reconnect', icon: KeyRound, onClick: () => props.onConnect(source) }
+      : { label: 'Sync now', icon: RefreshCw, onClick: () => props.onSync(source), disabled: busy });
+  }
+  menu.push({ label: 'Edit settings', icon: Pencil, onClick: () => props.onEdit(source) });
+  menu.push({ label: 'Delete…', icon: Trash2, onClick: () => props.onDelete(source) });
+
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      {primary}
+      <RowMenu items={menu} label={`More for ${source.slug}`} />
     </div>
   );
 }

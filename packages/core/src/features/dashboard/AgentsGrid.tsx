@@ -1,9 +1,10 @@
 'use client';
 
 import { ArrowRight } from 'lucide-react';
-import { createElement, useState } from 'react';
+import { useState } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
+import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { agentAccent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { Link } from '@/libs/I18nNavigation';
 
 /**
@@ -122,9 +123,7 @@ function ActiveCard({ card }: { card: AgentCard }) {
       <span className="absolute inset-x-0 top-0 h-1" style={{ background: a.stripe }} aria-hidden />
 
       <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl" style={{ background: a.tint, color: a.ink }}>
-          {createElement(agentIcon(card.icon, { primary: true }), { 'className': 'size-5', 'aria-hidden': true })}
-        </div>
+        <AgentDot name={card.name} accent={card.accent} size="lg" decorative className="size-10 text-[15px]" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-display text-base leading-tight font-semibold">{card.name}</h3>
@@ -175,14 +174,12 @@ function GhostCard({ card }: { card: AgentCard }) {
   return (
     <div
       className="relative flex flex-col overflow-hidden rounded-2xl border border-dashed border-border bg-muted/20 p-5 pt-6 opacity-70 grayscale transition hover:opacity-100"
-      title="Ships with the core base pack — activate it in your workspace.yaml `use:` list."
+      title="Ships with the platform and is not on in this workspace yet."
     >
       <span className="absolute inset-x-0 top-0 h-1 bg-muted-foreground/20" aria-hidden />
 
       <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-          {createElement(agentIcon(card.icon, { primary: true }), { 'className': 'size-5', 'aria-hidden': true })}
-        </div>
+        <AgentDot name={card.name} accent={card.accent} size="lg" decorative className="size-10 text-[15px]" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-display text-base leading-tight font-semibold text-muted-foreground">{card.name}</h3>
@@ -210,13 +207,22 @@ function GhostCard({ card }: { card: AgentCard }) {
         </div>
       )}
 
-      <div className="mt-auto flex items-center gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground/70">
-        <span>Available in core</span>
-        <span className="ml-auto font-mono">
-          use: [
-          {card.slug}
-          ]
-        </span>
+      <div className="mt-auto flex flex-wrap items-start gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground/70">
+        <span className="py-0.5">Available in core</span>
+        <HowItsAuthored className="ml-auto text-[11px]" label="How to turn it on">
+          Add
+          {' '}
+          <code>{card.slug}</code>
+          {' '}
+          to the
+          {' '}
+          <code>use:</code>
+          {' '}
+          list in
+          {' '}
+          <code>workspace.yaml</code>
+          .
+        </HowItsAuthored>
       </div>
     </div>
   );

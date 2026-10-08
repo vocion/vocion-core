@@ -18,16 +18,16 @@ describe('buildCrumbs', () => {
   });
 
   it('does not repeat the owner when the tab sits UNDER it', () => {
-    // `/dashboard/marketplace/plugins` walks past its own owner on the first
-    // segment; inserting it again gave two identical crumbs and two React
-    // children with the same key (seen in the browser, 2026-09-19).
-    expect(buildCrumbs({ pathname: '/dashboard/marketplace/plugins', docTitle: '' })).toEqual([
-      { url: '/dashboard/marketplace', label: 'Marketplace' },
-      { url: '/dashboard/marketplace/plugins', label: 'Plugins' },
+    // `/dashboard/notifications/settings` walks past its own owner on the
+    // first segment; inserting it again gave two identical crumbs and two
+    // React children with the same key (seen in the browser, 2026-09-19).
+    expect(buildCrumbs({ pathname: '/dashboard/notifications/settings', docTitle: '' })).toEqual([
+      { url: '/dashboard/notifications', label: 'Notifications' },
+      { url: '/dashboard/notifications/settings', label: 'Notification settings' },
     ]);
-    // …and an agent profile under the Marketplace still reads as its own leaf.
-    expect(buildCrumbs({ pathname: '/dashboard/marketplace/lead-researcher', docTitle: 'Lead Researcher' })?.map(c => c.label))
-      .toEqual(['Marketplace', 'Lead Researcher']);
+    // …and an agent's hiring profile under Hire an agent reads as its own leaf.
+    expect(buildCrumbs({ pathname: '/dashboard/hire/lead-researcher', docTitle: 'Lead Researcher' })?.map(c => c.label))
+      .toEqual(['Teams & agents', 'Hire an agent', 'Lead Researcher']);
   });
 
   it('carries the tab crumbs into a detail page and uses the document title for its leaf', () => {
@@ -66,10 +66,10 @@ describe('decision sheets', () => {
     expect(crumbs?.map(c => c.url)).not.toContain('/dashboard/p');
   });
 
-  it('drops the apps folder: an app\'s start page reads as the app', () => {
+  it('reads an app\'s page as Apps › the app', () => {
     const crumbs = buildCrumbs({ pathname: '/en/dashboard/apps/company', docTitle: 'Company', workspaceName: 'Northwind' });
 
-    expect(crumbs?.map(c => c.url)).not.toContain('/dashboard/apps');
+    expect(crumbs?.map(c => c.url)).toContain('/dashboard/apps');
     expect(crumbs?.at(-1)?.label).toBe('Company');
   });
 });

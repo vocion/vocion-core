@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { appBaseUrl, canonicalise, isReservedSegment, isWorkspacePath, orgSlugFromSearch, parseWorkspacePath, projectSlugProblem, stripWorkspacePrefix, workspaceRedirectPath, workspaceUrl } from './links';
+import { appBaseUrl, askInChatHref, canonicalise, isReservedSegment, isWorkspacePath, orgSlugFromSearch, parseWorkspacePath, projectSlugProblem, stripWorkspacePrefix, workspaceRedirectPath, workspaceUrl } from './links';
 
 const ORIGINAL = process.env.NEXT_PUBLIC_APP_URL;
 
@@ -215,5 +215,11 @@ describe('canonicalise', () => {
 
   it('degrades to the href as written when no workspace is in scope', () => {
     expect(canonicalise('/dashboard/inbox', null)).toBe('/dashboard/inbox');
+  });
+});
+
+describe('askInChatHref', () => {
+  it('opens chat with the question typed, encoded', () => {
+    expect(askInChatHref('Which checks matter for the PR Reviewer?')).toBe('/dashboard/chat?prompt=Which%20checks%20matter%20for%20the%20PR%20Reviewer%3F');
   });
 });

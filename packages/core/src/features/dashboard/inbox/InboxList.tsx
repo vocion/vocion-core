@@ -1,3 +1,4 @@
+import type { InboxAgent } from './InboxRow';
 import type { Inbox, InboxTab } from '@/services/InboxService';
 import { COLUMN, ListRows } from '@/components/patterns';
 import { cn } from '@/utils/Helpers';
@@ -18,8 +19,9 @@ import { InboxRow } from './InboxRow';
  * @param props.tab
  * @param props.workspaceId - The workspace the page runs in. On a list that
  *  spans workspaces, rows from any other one open there instead of deciding here.
+ * @param props.agents - This workspace's agents by slug, so a row can draw who it is about.
  */
-export function InboxList({ inbox, tab, workspaceId }: { inbox: Pick<Inbox, 'items'>; tab: InboxTab; workspaceId?: string }) {
+export function InboxList({ inbox, tab, workspaceId, agents }: { inbox: Pick<Inbox, 'items'>; tab: InboxTab; workspaceId?: string; agents?: Readonly<Record<string, InboxAgent>> }) {
   return (
     <div data-testid="inbox-list">
       <div className="mb-1 hidden items-center gap-3 px-2 text-[11px] text-muted-foreground/70 sm:flex">
@@ -33,7 +35,7 @@ export function InboxList({ inbox, tab, workspaceId }: { inbox: Pick<Inbox, 'ite
         <span className="w-[76px]" />
       </div>
       <ListRows className="border-y border-border/70">
-        {inbox.items.map(item => <InboxRow key={item.key} item={item} tab={tab} workspaceId={workspaceId} />)}
+        {inbox.items.map(item => <InboxRow key={item.key} item={item} tab={tab} workspaceId={workspaceId} agent={item.agentSlug ? agents?.[item.agentSlug] : undefined} />)}
       </ListRows>
     </div>
   );

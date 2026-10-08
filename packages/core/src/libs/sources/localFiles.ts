@@ -42,7 +42,7 @@ const localFilesConfigSchema = z.object({
 export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema> = {
   slug: 'local-files',
   name: 'Local files',
-  description: 'Ingest a directory of markdown / plain-text files from the filesystem. Useful for demos, fixtures, and one-shot corpus imports.',
+  description: 'Markdown and text files from a folder on the server. Useful for demos, fixtures, and one-shot corpus imports.',
   icon: 'FolderOpen',
   authKind: 'none',
   configSchema: localFilesConfigSchema,

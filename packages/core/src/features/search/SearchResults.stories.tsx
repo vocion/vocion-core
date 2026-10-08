@@ -19,7 +19,7 @@ const meta: Meta<typeof SearchResults> = {
         <div className="@container mx-auto max-w-5xl">
           <ListPage
             title="Search"
-            description="Hybrid retrieval across every connected connector — pgvector and Postgres full-text with reciprocal rank fusion, the same pipeline your agents use."
+            description="Search everything your connected tools hold, the same way your agents do."
           >
             <Story />
           </ListPage>

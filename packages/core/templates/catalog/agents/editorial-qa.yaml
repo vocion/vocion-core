@@ -1,6 +1,6 @@
 slug: editorial-qa
 name: Editorial QA
-description: 'The gate before anything is public: checks a draft against its brief and the source of truth, and never rewrites the voice.'
+description: 'Checks every draft before it goes public. It compares the draft with its brief and the source of truth, and never rewrites the voice.'
 icon: shield-check
 accent: rose
 team: content-studio

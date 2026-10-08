@@ -122,7 +122,7 @@ import {
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
-import { list as listPluginsRoute, set as setPluginRoute } from './Plugins';
+import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
 import { changePasswordRoute, getProfileRoute, signInMethodsRoute, unlinkSignInMethodRoute, updateNameRoute, updatePhoneRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
@@ -199,6 +199,7 @@ export const router = {
   plugins: {
     list: listPluginsRoute,
     set: setPluginRoute,
+    addApp: addAppRoute,
   },
   preview: {
     get: getPreviewRoute,

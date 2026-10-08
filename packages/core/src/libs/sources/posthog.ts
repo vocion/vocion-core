@@ -552,7 +552,7 @@ function loginWasRenewed(given: Record<string, unknown>, used: Record<string, un
 export const posthogConnector: SourceConnector<typeof posthogConfigSchema> = {
   slug: 'posthog',
   name: 'PostHog',
-  description: 'Daily event counts and unique users per event, plus totals and error counts, as one document per day. Aggregates only — no people, no properties, no content.',
+  description: 'Daily product usage from PostHog, as aggregates only. Event counts and unique users per event, plus totals and error counts, one document per day: no people, no properties, no content.',
   icon: 'Activity',
   authKind: 'apikey',
   configSchema: posthogConfigSchema,

@@ -1,6 +1,6 @@
 slug: designer
 name: Designer
-description: 'Holds the interface standard — critiques against it, documents it, and hands it over in a buildable form.'
+description: 'Holds the interface standard. It critiques against it, documents it, and hands it over in a buildable form.'
 icon: palette
 accent: fuchsia
 team: product

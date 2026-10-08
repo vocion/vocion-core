@@ -1,6 +1,6 @@
 slug: claim-adversary
 name: Claim Adversary
-description: Reads finished work the way somebody looking for a reason to distrust it would, and says which claim would cost a retraction.
+description: 'Finds the claims in finished work that would not hold up. It reads the work the way somebody looking for a reason to distrust it would, and says which claim would cost a retraction.'
 icon: swords
 accent: amber
 team: content-studio

@@ -193,7 +193,7 @@ export async function resolveThreadIdForMessage(opts: {
 export const gmailConnector: SourceConnector<typeof gmailConfigSchema> = {
   slug: 'gmail',
   name: 'Gmail',
-  description: 'Ingest Gmail messages (subject, sender, snippet) — incremental by received date.',
+  description: 'Email from Gmail. Subject, sender and snippet, synced incrementally by received date.',
   icon: 'Mail',
   authKind: 'oauth',
   configSchema: gmailConfigSchema,

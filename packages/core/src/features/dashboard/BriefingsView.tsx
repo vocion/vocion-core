@@ -4,7 +4,7 @@ import type { BriefingV2 } from '@/services/briefings/document';
 import type { InboxItem } from '@/services/InboxService';
 import { Check, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ListRow, ListRows } from '@/components/patterns';
+import { ListEmpty, ListRow, ListRows } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
@@ -130,7 +130,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
   }, [regen, teamSlug, hasGroup, router]);
 
   if (!g) {
-    return <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">No teams configured yet.</div>;
+    return <ListEmpty variant="inline" title="No teams yet." description="A briefing is written for each team, so set up a team first." action={{ label: 'Set up teams', href: '/dashboard/teams' }} />;
   }
 
   return (

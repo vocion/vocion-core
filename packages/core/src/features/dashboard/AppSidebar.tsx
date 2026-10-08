@@ -11,6 +11,7 @@ import type { SurfaceId } from '@/features/navigation/surfaces';
 import { ArrowLeft, FileText, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { LetterTile } from '@/components/ui/letter-tile';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
@@ -228,6 +229,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
         only={pickerOnly}
         onManage={() => pick('manage')}
         placeholder={pickerForAll ? undefined : t('pick_workspace')}
+        tint={view === 'manage' ? coreAppNav?.tint : activeApp?.tint}
         targetPath={switchTarget}
       />
     </>
@@ -275,7 +277,11 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     ...workPinnableRoutes(viewer).filter(r => !claimedRoutes.has(r.url)).map(toWorkItem),
     ...pluginWorkspace.map(i => ({ title: i.title, url: i.url, icon: pluginIcon(i.url, i.icon), origin: 'work' as const })),
   ], [toWorkItem, viewer, claimedRoutes, pluginWorkspace]);
-  const workDefaults = useMemo(() => [...DEFAULT_WORK_PINS, ...pluginWorkspace.map(i => i.url)], [pluginWorkspace]);
+  // Defaults: the registry's (Briefings, Scorecard), a plugin's Workspace rows,
+  // and what an enabled plugin's manifest declares (`nav.pinByDefault`) —
+  // including a pinnable route its app also lists. A person's own pins and
+  // unpins win (`resolveWorkPins`).
+  const workDefaults = useMemo(() => [...new Set([...DEFAULT_WORK_PINS, ...pluginWorkspace.map(i => i.url), ...(pluginNav?.pinnedByDefault ?? [])])], [pluginWorkspace, pluginNav]);
   const workPins = resolveWorkPins({ pins: prefs.pins, dismissed: prefs.dismissed, defaults: workDefaults });
   const workspaceItems = [...workCore, ...applyPins(workOptional, workPins), ...withoutPins(workOptional, workPins)];
   const workShown = workCore.length + applyPins(workOptional, workPins).length;
@@ -383,6 +389,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     </>
   );
 
+  const headerApp = view === 'manage' ? railApps.find(a => a.core) : activeApp;
   const nav = (
     <>
       {/* Every app's nav opens with the workspace picker. */}
@@ -394,6 +401,14 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
             {/* eslint-disable-next-line next/no-img-element */}
             <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
             {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
+          </div>
+        )}
+        {/* The app's own header: its mark on its tint and its name, so the
+            nav says which app it is without a tooltip (front doors). */}
+        {headerApp && (
+          <div data-testid="app-header" className="flex items-center gap-2 px-2 pb-1.5 group-data-[collapsible=icon]:hidden">
+            <LetterTile name={headerApp.name} icon={iconByName(headerApp.icon)} tint={headerApp.tint} size="sm" />
+            <span className="truncate text-[13px] font-semibold text-foreground">{headerApp.name}</span>
           </div>
         )}
         <div className="px-0 group-data-[collapsible=icon]:px-0">{picker}</div>
@@ -510,7 +525,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                 brandMark={BRAND_MARK}
                 label={t('apps')}
                 addLabel={t('add_app')}
-                addHref="/dashboard/marketplace/plugins"
+                addHref="/dashboard/apps"
                 elsewhereLabel={t('app_elsewhere')}
               />
               <div className="flex min-w-0 flex-1 flex-col">{nav}</div>

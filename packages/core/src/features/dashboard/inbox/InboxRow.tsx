@@ -6,6 +6,7 @@ import { ArrowUpRight, Check, ChevronRight, Loader2, RotateCcw, X } from 'lucide
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Column, ListRow, Subline } from '@/components/patterns';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
@@ -16,6 +17,9 @@ import { actionIcon } from './actionIcon';
 import { rowVerbs } from './decisionVerbs';
 import { agoLabel, INBOX_KIND_META, riskTone, waitingFor } from './inboxMeta';
 import { withMinimumPending } from './pending';
+
+/** An agent as a row names it: who proposed or asked. */
+export type InboxAgent = { name: string; accent: string | null };
 
 /**
  * One row of the Needs-you queue, rendered through `patterns/ListRow` — the
@@ -37,8 +41,10 @@ import { withMinimumPending } from './pending';
  * @param props.workspaceId - The workspace the page runs in. A row tagged with
  * another workspace (a list across workspaces) is opened there, never decided
  * from here: the decide endpoints act in the workspace the request runs in.
+ * @param props.agent - The agent the row is about (`item.agentSlug`), resolved
+ * by the page: its `AgentDot` leads the title, the one shape an agent takes.
  */
-export function InboxRow({ item, tab, why, workspaceId }: { item: InboxItem; tab: InboxTab; why?: string; workspaceId?: string }) {
+export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxItem; tab: InboxTab; why?: string; workspaceId?: string; agent?: InboxAgent }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +118,7 @@ export function InboxRow({ item, tab, why, workspaceId }: { item: InboxItem; tab
         icon={KindIcon}
         title={(
           <span className="flex min-w-0 items-center gap-2">
+            {agent && <span className="inline-flex shrink-0" title={agent.name}><AgentDot name={agent.name} accent={agent.accent} size="xs" decorative /></span>}
             <span className="truncate font-normal" title={item.titleHint}>{item.title}</span>
             {item.shape === 'sheet' && item.count !== undefined && (
               // The count is a label, not the title (Chris, 2026-09-16). Quiet

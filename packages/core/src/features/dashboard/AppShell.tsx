@@ -14,24 +14,18 @@ import { PageContextProvider } from '@/features/dashboard/context/PageContextPro
 import { PageSelectionAsk } from '@/features/dashboard/context/PageSelectionAsk';
 import { PageWidth } from '@/features/dashboard/PageWidth';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
+import { workspaceAppNav } from '@/features/dashboard/workspaceAppNav';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspacePausedBanner } from '@/features/dashboard/WorkspaceOffSwitch';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
-import { installedApps, splitNavByApp } from '@/features/navigation/apps';
 import { NavigationTrail } from '@/features/navigation/cameFrom';
-import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
-import { pluginNav } from '@/features/navigation/pluginNav';
 import { isSurfaceId } from '@/features/navigation/surfaces';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { safeListApps } from '@/libs/workspace/apps';
-import { readWorkspacePages } from '@/libs/workspace/pages';
-import { listPlugins } from '@/libs/workspace/plugins';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { agentBudgetStatuses, listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
-import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -119,38 +113,16 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // The "Review queue" badge. Counted in SQL, and a failure here must never take
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waitingRead = orgId ? needsYouCount(orgId).catch(() => 0) : Promise.resolve(0);
-  const mountedRead = orgId ? mountedWorkspaceIsProjects(orgId).catch(() => false) : Promise.resolve(true);
+  const appNavRead = workspaceAppNav({ orgId: orgId ?? null, enabledPlugins, enabledSurfaces });
   const usageRead = orgId ? shellUsage(orgId) : Promise.resolve(null);
   const blockedRead = orgId ? shellBlockedAgents(orgId) : Promise.resolve([]);
   const agents = await agentsRead;
   const waiting = await waitingRead;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
-  // Where each enabled plugin's rows sit (plugin.yaml `nav.section`): its
-  // pages, the core routes it owns and its surfaces fold into one section, so
-  // the generic Pages and surface groups skip what a plugin claimed. The
-  // project's plugins come from the row read above — no second lookup — so a
-  // plugin only this project turned on lists its pages under a shared mount.
-  // The mounted folder's own pages (and its plugins') list only for the
-  // project that folder was applied to; another project under the same mount
-  // sees its plugins' pages and nothing of the folder's.
-  const mounted = await mountedRead;
-  const ownDir = orgId && !mounted ? await projectPagesFolder(orgId).catch(() => null) : null;
-  const pages = readWorkspacePages({ enabledPlugins, mounted, dir: ownDir }).pages;
-  const nav = pluginNav({
-    plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
-    pages,
-    routes: DASHBOARD_ROUTES,
-  });
-  // The rail's apps for this workspace (templates/apps, installed when one of
-  // their plugins is on) and each row handed to the app that owns it; the
-  // core app (Workforce) keeps the rest, in the shape the sidebar always drew.
-  const byApp = splitNavByApp({
-    apps: installedApps(enabledPlugins, enabledSurfaces, safeListApps()),
-    nav,
-    surfaces: enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id)),
-    pages: pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary })),
-    coreRoutes: DASHBOARD_ROUTES,
-  });
+  // Each row handed to the app that owns it (`workspaceAppNav`): the rail's
+  // apps for this workspace, and the core app (Workforce) keeps the rest, in
+  // the shape the sidebar always drew.
+  const byApp = await appNavRead;
   // This workspace's spend vs cap this period — the header avatar's ring and
   // the menu's usage row. Hidden entirely when no budget exists.
   //
@@ -256,15 +228,6 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
  */
 function formatPauseTime(at: Date): string {
   return `${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(at)} UTC`;
-}
-
-/** The plugin catalogue, or nothing — a broken plugin.yaml must never take the shell down. */
-function safeListPlugins(): ReturnType<typeof listPlugins> {
-  try {
-    return listPlugins();
-  } catch {
-    return [];
-  }
 }
 
 /**

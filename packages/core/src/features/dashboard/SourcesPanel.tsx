@@ -13,7 +13,6 @@ import {
   KeyRound,
   Loader2,
   Plug,
-  Plus,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
@@ -237,23 +236,6 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Every system Vocion can read, in one list. Connected ones sit at the top and open to their last run, size and progress.
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            searchRef.current?.focus();
-            searchRef.current?.scrollIntoView({ block: 'nearest' });
-          }}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
-        >
-          <Plus className="size-4" />
-          Add connector
-        </button>
-      </div>
-
       {connectOutcome
         ? (
             <div

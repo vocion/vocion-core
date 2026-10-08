@@ -316,7 +316,7 @@ function* dayWindows(fromMs: number, toMs: number): Generator<{ from: string; to
 export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
   slug: 'zoom',
   name: 'Zoom',
-  description: 'Ingest cloud-recording meetings + transcripts, company-wide (Server-to-Server OAuth) or for the person who logged in with Zoom.',
+  description: 'Meeting recordings and transcripts from Zoom. Company-wide (Server-to-Server OAuth) or for the person who logged in with Zoom.',
   icon: 'Video',
   authKind: 'oauth',
   configSchema: zoomConfigSchema,

@@ -89,7 +89,7 @@ async function memberChannels(baseUrl: string, headers: Record<string, string>, 
 export const slackConnector: SourceConnector<typeof slackConfigSchema> = {
   slug: 'slack',
   name: 'Slack',
-  description: 'Ingest messages from Slack — one channel, or every channel the bot is in. Incremental by timestamp.',
+  description: 'Messages from Slack. One channel, or every channel the bot is in, synced incrementally by timestamp.',
   icon: 'MessageSquare',
   authKind: 'oauth',
   configSchema: slackConfigSchema,

@@ -112,13 +112,13 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
       <div className="mt-4 grid gap-8 lg:grid-cols-2">
         <Group heading="Measures" href="/dashboard/team-report">
           {view.measures.length === 0
-            ? <Nothing>No measure declared — add one to this plugin's team to grade it.</Nothing>
+            ? <Nothing>No measure yet: add one to this feature's team to grade it.</Nothing>
             : view.measures.map(({ id, teamName, reading }) => <Reading key={id} teamName={teamName} reading={reading} />)}
         </Group>
 
         <Group heading="Agents">
           {view.agents.length === 0
-            ? <Nothing>This plugin ships no agent.</Nothing>
+            ? <Nothing>This feature brings no agent.</Nothing>
             : view.agents.map(a => (
                 <li key={a.slug} className="py-2 text-sm">
                   <div className="flex items-baseline justify-between gap-3">
@@ -132,7 +132,7 @@ export async function PluginPanel({ orgId, slug }: { orgId: string; slug: string
 
         <Group heading="Skills & playbooks" href="/dashboard/skills">
           {view.skills.length === 0
-            ? <Nothing>This plugin ships no skill.</Nothing>
+            ? <Nothing>This feature brings no skill.</Nothing>
             : view.skills.map(s => (
                 <li key={`${s.hint}/${s.slug}`} className="flex flex-wrap items-baseline justify-between gap-x-3 py-2 text-sm">
                   <Link href={s.href} className="font-medium hover:underline">{s.label}</Link>
