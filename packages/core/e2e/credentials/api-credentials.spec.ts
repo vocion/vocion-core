@@ -190,6 +190,15 @@ test.describe('the platform selector decides which controls exist', () => {
       'Zoom',
       // The measure sources a workspace verifies its own numbers against.
       'Google Analytics',
+      // A business's numbers: the warehouses, product analytics and ad platforms.
+      'Snowflake',
+      'BigQuery',
+      'Databricks',
+      'Amazon Redshift',
+      'Mixpanel',
+      'Amplitude',
+      'LinkedIn Ads',
+      'Meta Ads',
       // The tool providers, which an org supplies its own key for so the
       // search and crawl tools run on the org's account rather than the
       // deployment's.
@@ -210,6 +219,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'QuickBooks login app',
       'Xero login app',
       'Gusto login app',
+      'LinkedIn login app',
       'Other platform',
     ]);
   });
