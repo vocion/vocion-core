@@ -184,3 +184,8 @@ refusal reasons are short codes a person can be shown.
   it; it does not uninstall the app at the vendor.
 - **Several accounts of one connector**, told apart by the vendor's username
   or email (#1173).
+
+## Several systems at once
+
+To connect several systems in one go, ranked from what the workspace already
+uses and checked as they connect, see [Connect your systems](./connect-your-systems.md).
