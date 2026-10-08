@@ -96,9 +96,9 @@ describe('collectDailyTeamReport', () => {
     // Workspace-aware: the mail is about `vocion-workforce`, so its links must open it (not the reader's last-active project),
     // on its own account — another account the reader is in may have a `vocion-workforce` too (vocion-core#128).
     expect(d.links).toEqual({
-      inbox: 'https://agents.example.com/w/vocion-workforce/dashboard/inbox?account=metacto',
-      teamReport: 'https://agents.example.com/w/vocion-workforce/dashboard/team-report?account=metacto',
-      briefings: 'https://agents.example.com/w/vocion-workforce/dashboard/briefings?account=metacto',
+      inbox: 'https://agents.example.com/w/vocion-workforce/dashboard/inbox?org=metacto',
+      teamReport: 'https://agents.example.com/w/vocion-workforce/dashboard/team-report?org=metacto',
+      briefings: 'https://agents.example.com/w/vocion-workforce/dashboard/briefings?org=metacto',
     });
   });
 
