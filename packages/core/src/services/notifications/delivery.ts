@@ -213,7 +213,7 @@ export async function smsTargetFor(orgId: string, userId: string): Promise<{ fro
   const { textingNumberFor } = await import('@/services/chat/smsChannel');
   const from = await textingNumberFor(orgId);
   if (!from) {
-    return { error: 'no text number is bound to this workspace or its account — bind one (`answers: "sender"` makes it the account\'s shared number)' };
+    return { error: 'no text number is bound to this workspace or its Org — bind one (`answers: "sender"` makes it the Org\'s shared number)' };
   }
   return { from, to: user.phone };
 }

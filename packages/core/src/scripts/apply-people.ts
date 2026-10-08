@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 
   const accountId = arg('account') ?? await defaultAccountId();
   if (!accountId) {
-    console.error('[people:apply] no tenant account has any members yet — sign in once, then re-run.');
+    console.error('[people:apply] no Org has any members yet — sign in once, then re-run.');
     process.exit(1);
   }
 

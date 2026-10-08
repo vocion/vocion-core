@@ -38,7 +38,7 @@ beforeEach(async () => {
   await db.delete(userSchema);
 
   await db.insert(userSchema).values({ id: 'user-chris', email: 'chris@example.com', name: 'Chris' });
-  await db.insert(tenantAccountSchema).values({ id: 'acct-1', name: 'Metacto', slug: 'metacto' });
+  await db.insert(tenantAccountSchema).values({ id: 'acct-1', name: 'Northwind', slug: 'northwind' });
   await db.insert(projectSchema).values([
     { id: ORG, accountId: 'acct-1', slug: 'vocion-workforce', name: 'Vocion Workforce', accountableUserId: 'user-chris' },
     { id: OTHER, accountId: 'acct-1', slug: 'other', name: 'Other' },
@@ -96,9 +96,9 @@ describe('collectDailyTeamReport', () => {
     // Workspace-aware: the mail is about `vocion-workforce`, so its links must open it (not the reader's last-active project),
     // on its own account — another account the reader is in may have a `vocion-workforce` too (vocion-core#128).
     expect(d.links).toEqual({
-      inbox: 'https://agents.example.com/w/vocion-workforce/dashboard/inbox?account=metacto',
-      teamReport: 'https://agents.example.com/w/vocion-workforce/dashboard/team-report?account=metacto',
-      briefings: 'https://agents.example.com/w/vocion-workforce/dashboard/briefings?account=metacto',
+      inbox: 'https://agents.example.com/w/vocion-workforce/dashboard/inbox?org=northwind',
+      teamReport: 'https://agents.example.com/w/vocion-workforce/dashboard/team-report?org=northwind',
+      briefings: 'https://agents.example.com/w/vocion-workforce/dashboard/briefings?org=northwind',
     });
   });
 

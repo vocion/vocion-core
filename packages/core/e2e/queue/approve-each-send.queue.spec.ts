@@ -78,7 +78,7 @@ function createBootstrapAdmin(): void {
   try {
     execFileSync(
       'npm',
-      ['run', '--silent', 'user:create', '--', '--email', ADMIN.email, '--name', ADMIN.name, '--account', ADMIN.account, '--password', ADMIN.password, '--role', 'admin'],
+      ['run', '--silent', 'user:create:e2e', '--', '--email', ADMIN.email, '--name', ADMIN.name, '--account', ADMIN.account, '--password', ADMIN.password, '--role', 'admin'],
       { stdio: 'pipe' },
     );
   } catch (error) {

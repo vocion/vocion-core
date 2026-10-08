@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { appBaseUrl, canonicalise, isReservedSegment, isWorkspacePath, parseWorkspacePath, projectSlugProblem, stripWorkspacePrefix, workspaceRedirectPath, workspaceUrl } from './links';
+import { appBaseUrl, canonicalise, isReservedSegment, isWorkspacePath, orgSlugFromSearch, parseWorkspacePath, projectSlugProblem, stripWorkspacePrefix, workspaceRedirectPath, workspaceUrl } from './links';
 
 const ORIGINAL = process.env.NEXT_PUBLIC_APP_URL;
 
@@ -11,10 +11,19 @@ afterEach(() => {
   }
 });
 
+describe('orgSlugFromSearch', () => {
+  it('reads ?org=, and still reads the older ?account= so mailed links keep working', () => {
+    expect(orgSlugFromSearch(new URLSearchParams('org=kestrel'))).toBe('kestrel');
+    expect(orgSlugFromSearch(new URLSearchParams('account=kestrel'))).toBe('kestrel');
+    expect(orgSlugFromSearch(new URLSearchParams('org=northwind&account=kestrel'))).toBe('northwind');
+    expect(orgSlugFromSearch(new URLSearchParams('tab=open'))).toBeNull();
+  });
+});
+
 describe('workspaceUrl', () => {
-  it('names the account when asked, keeping the path\'s own query and fragment (vocion-core#128)', () => {
-    expect(workspaceUrl('sales', '/dashboard/inbox/42', { accountSlug: 'Contoso' })).toBe('/w/sales/dashboard/inbox/42?account=contoso');
-    expect(workspaceUrl('sales', '/dashboard/inbox?status=open#top', { accountSlug: 'contoso' })).toBe('/w/sales/dashboard/inbox?status=open&account=contoso#top');
+  it('names the Org when asked, keeping the path\'s own query and fragment (vocion-core#128)', () => {
+    expect(workspaceUrl('sales', '/dashboard/inbox/42', { accountSlug: 'Contoso' })).toBe('/w/sales/dashboard/inbox/42?org=contoso');
+    expect(workspaceUrl('sales', '/dashboard/inbox?status=open#top', { accountSlug: 'contoso' })).toBe('/w/sales/dashboard/inbox?status=open&org=contoso#top');
     expect(workspaceUrl('sales', '/dashboard', {})).toBe('/w/sales/dashboard');
   });
 

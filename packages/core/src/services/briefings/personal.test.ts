@@ -83,7 +83,7 @@ describe('composePersonalBrief', () => {
     const factory = brief.workspaces.find(w => w.workspace.id === FACTORY)!;
 
     expect(factory.briefing).toMatchObject({ headline: 'Two builds shipped; the Kestrel import is blocked on a credential.', at: at(5) });
-    expect(factory.briefing!.href).toMatch(/^\/w\/factory\/dashboard\/briefings\/\d+\?account=northwind$/);
+    expect(factory.briefing!.href).toMatch(/^\/w\/factory\/dashboard\/briefings\/\d+\?org=northwind$/);
     expect(brief.workspaces.find(w => w.workspace.id === REVENUE)!.briefing!.headline).toBe('Revenue team — Tue, Oct 6, 2026');
 
     expect(brief.markdown).toContain('1 is yours, 2 decisions in all, across 2 workspaces.');

@@ -17,7 +17,15 @@ import { expect, test } from '@playwright/test';
  *
  * A third account, "E2E Switch Invited", has an open invite for the person:
  * the second test joins it on the login they already have.
+ *
+ * Accounts are Orgs, and a person in several Orgs exists only on a multi-Org
+ * deployment: a single-Org install (the default) refuses the second
+ * membership. So this spec needs the server under test started with
+ * `VOCION_ORGS=multi` (`VOCION_ORGS=multi npx playwright test
+ * --project=account-switch`) and skips itself otherwise.
  */
+
+test.skip(process.env.VOCION_ORGS !== 'multi', 'a person in several Orgs needs VOCION_ORGS=multi on the server under test');
 
 const SEED_SCRIPT = 'e2e/account-switch/support/seed-account-switch-fixtures.ts';
 // Must match the seed script. Duplicated rather than imported because
@@ -105,7 +113,7 @@ test('switching to a workspace on another account moves the whole session there,
   // The same slug lives on both accounts. Picking the one under Second must
   // open Second's, not First's.
   await switchTo(page, SECOND_ACCOUNT, 'Shared In Second');
-  await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard.*account=e2e-switch-second/);
+  await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard.*org=e2e-switch-second/);
 
   await expect(switcher(page)).toContainText('Shared In Second');
   await expect(switcher(page)).toContainText(SECOND_ACCOUNT);
@@ -120,7 +128,7 @@ test('switching to a workspace on another account moves the whole session there,
   await page.goto('/dashboard');
   await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard/);
 
-  expect(page.url()).not.toContain('account=');
+  expect(page.url()).not.toContain('org=');
   await expect(switcher(page)).toContainText('Shared In Second');
   await expect(switcher(page)).toContainText(SECOND_ACCOUNT);
 
@@ -132,7 +140,7 @@ test('switching to a workspace on another account moves the whole session there,
 
   // And back across to First's copy of the same slug.
   await switchTo(page, FIRST_ACCOUNT, 'Shared In First');
-  await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard.*account=e2e-switch-first/);
+  await page.waitForURL(/\/w\/e2e-switch-shared\/dashboard.*org=e2e-switch-first/);
 
   await expect(switcher(page)).toContainText('Shared In First');
   await expect(switcher(page)).toContainText(FIRST_ACCOUNT);

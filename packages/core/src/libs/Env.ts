@@ -60,6 +60,14 @@ export const Env = createEnv({
      */
     VOCION_ENFORCE_WORKSPACE_ACCESS: z.string().optional(),
     /**
+     * How many Orgs (tenants — `tenant_account` rows) this deployment holds.
+     * `single` (default): a one-tenant install — no Org switcher, and creating
+     * a second Org or accepting an invite into a second Org is refused.
+     * `multi`: Vocion Cloud. Read through `orgsMode()` in
+     * `services/OrgPolicy.ts`, not directly.
+     */
+    VOCION_ORGS: z.enum(['single', 'multi']).default('single'),
+    /**
      * Outbound email (`libs/mail`). Ships dark: nothing is sent unless
      * VOCION_MAIL_ENABLED is exactly '1'. The transport is Resend; the
      * sender must be on a domain verified in Resend. Read through
@@ -143,6 +151,7 @@ export const Env = createEnv({
     VOCION_THINKING_BUDGET: process.env.VOCION_THINKING_BUDGET,
     VOCION_ALLOW_QUEUE_RESET: process.env.VOCION_ALLOW_QUEUE_RESET,
     VOCION_ENFORCE_WORKSPACE_ACCESS: process.env.VOCION_ENFORCE_WORKSPACE_ACCESS,
+    VOCION_ORGS: process.env.VOCION_ORGS,
     VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,

@@ -156,7 +156,7 @@ describe('ask_workspace', () => {
       // The inactive agent handled "wiki" too and was never on the roster the model read.
       expect((readRoute.mock.calls[0]![0] as { agents: Array<{ slug: string }> }).agents.map(a => a.slug)).toEqual(['revenue-lead', 'wiki-researcher']);
       // Named with its account, for a reader in two accounts (vocion-core#128).
-      expect(out.url).toBe(`/w/northwind/dashboard/chat/${out.conversationId}?account=northwind`);
+      expect(out.url).toBe(`/w/northwind/dashboard/chat/${out.conversationId}?org=northwind`);
 
       // The turn ran as the researcher, as the token, with the surface note under the message.
       expect(runAgentDeep).toHaveBeenCalledTimes(1);

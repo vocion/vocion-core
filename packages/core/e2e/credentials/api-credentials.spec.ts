@@ -50,7 +50,7 @@ function createBootstrapAdmin(): void {
         '--',
         'npx',
         'tsx',
-        'src/scripts/create-local-user.ts',
+        'tests/support/create-e2e-user.ts',
         '--email',
         ADMIN.email,
         '--name',

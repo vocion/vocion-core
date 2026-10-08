@@ -21,7 +21,7 @@ about. Everything else is a spelling of it:
 | `/w/metacto-revenue/inbox` | that page — a bare page name is a dashboard page |
 | `/w/metacto-revenue/gtm/discovery` | that page — a registered surface stands on its own |
 | `/w/metacto-revenue` | `/w/metacto-revenue/dashboard` |
-| `/w/not-yours/dashboard` | `404`, whether the slug is unknown or on another account |
+| `/w/not-yours/dashboard` | `404`, whether the slug is unknown or in another Org |
 | `/fr/w/metacto-revenue/inbox` | the same, in French |
 
 ## How it works
@@ -34,10 +34,11 @@ about. Everything else is a spelling of it:
 2. The proxy resolves the slug **on the signed-in user's accounts** and
    sets the resolved project on the rewritten request as
    `x-vocion-project-id` (`WORKSPACE_HEADER`), plus the slug for the layout.
-   A slug is only unique inside an account, so for a person in two accounts
-   `?account=<account-slug>` (set by a switch that crosses accounts) names
-   the one meant; without it the slug resolves on the account of the
-   last-active workspace, then on the account they joined first.
+   A slug is only unique inside an Org (a tenant — a `tenant_account` row),
+   so for a person in two Orgs `?org=<org-slug>` (set by a switch that
+   crosses Orgs) names the one meant; the older `?account=` spelling is still
+   read. Without it the slug resolves in the Org of the last-active
+   workspace, then in the Org they joined first.
 3. **Tenancy** (`resolveTenancyForUser`, `libs/tenancy.ts`) reads that header
    first. A browser fetch from a page (`/rpc`, `/api/chat`, the session poll)
    never passes through that rewrite, so next comes the page's own
@@ -88,9 +89,10 @@ about. Everything else is a spelling of it:
 - **The cookie is "last active", nothing more.** It decides where a bare URL is
   sent and which workspace a fresh sign-in lands in. It never overrides a URL,
   neither the one requested nor the one the request came from.
-- **Links that leave the app name the account.** Mail, Slack and API links
-  pass `accountSlug` to `workspaceUrl`, so `/w/sales/…?account=contoso` opens
-  Contoso's `sales` for a reader who also has a `sales` elsewhere.
+- **Links that leave the app name the Org.** Mail, Slack and API links
+  pass `accountSlug` to `workspaceUrl`, so `/w/sales/…?org=contoso` opens
+  Contoso's `sales` for a reader who also has a `sales` elsewhere. Links
+  already sent with `?account=contoso` keep working (`orgSlugFromSearch`).
 - **Pages that do not belong to a workspace are left alone**: `/rpc` (the oRPC
   transport), `/onboarding` (which runs before a workspace exists), `/api-docs`
   (account-wide), `/api/*` (owns its own routing). `isWorkspacePath()` is that

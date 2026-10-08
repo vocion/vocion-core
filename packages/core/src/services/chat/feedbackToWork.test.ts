@@ -94,7 +94,7 @@ describe('fileFeedback', () => {
 
     // The link a reply pastes: workspace-scoped, never a hard-coded host, and
     // naming its account for a reader who has a `workforce` in another one.
-    expect(filed.inboxUrl).toMatch(new RegExp(`/w/workforce/dashboard/inbox/${asks[0]!.id}\\?account=acct-feedback$`));
+    expect(filed.inboxUrl).toMatch(new RegExp(`/w/workforce/dashboard/inbox/${asks[0]!.id}\\?org=acct-feedback$`));
     expect(filed.team).toEqual({ slug: 'engineering', name: 'Engineering' });
     expect(filed.candidateId).toBe(candidates[0]!.id);
   });

@@ -397,6 +397,17 @@ credential stored under the previous one.
 
 ## Multi-Tenancy
 
+- **People call a tenant an Org.** In the schema it is a `tenant_account` row
+  (people join through `account_membership`), and in code `orgId` means the
+  WORKSPACE (`project.id`), not the Org — so identifiers keep saying
+  "account"; only text a person reads says "Org". Never rename the code to
+  match.
+- `VOCION_ORGS` (`src/libs/Env.ts`, read through `orgsMode()` in
+  `src/services/OrgPolicy.ts`): `single` (default, self-hosted) holds one Org
+  and each person in at most one — creating a second Org
+  (`newOrgProblem`) or accepting an invite into a second Org
+  (`secondOrgProblem`) is refused, with a sentence saying why. `multi` is
+  Vocion Cloud.
 - Tenancy is first-party, not delegated to an identity provider: a
   `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
 - Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`
@@ -419,7 +430,7 @@ credential stored under the previous one.
   fields live on `tenant_account`
 - **user** / **auth_account** / **session** / **verification_token** - Auth.js
   tables, wired through `@auth/drizzle-adapter` in `src/libs/Auth.ts`
-- **account_membership** - user ↔ account membership and role
+- **account_membership** - user ↔ Org (`tenant_account`) membership and role
 - **organization** - legacy tenancy row (plain text id, Stripe subscription
   fields, timestamps); superseded by `tenant_account` / `project`
 - **todo** - Sample CRUD entity scoped to user/org

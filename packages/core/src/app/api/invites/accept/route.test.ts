@@ -52,7 +52,7 @@ describe('POST /api/invites/accept', () => {
     const res = await POST(post({ inviteToken: 'tok-1' }));
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ ok: true, openPath: '/w/ops/dashboard?account=contoso' });
+    await expect(res.json()).resolves.toEqual({ ok: true, openPath: '/w/ops/dashboard?org=contoso' });
     expect(await db.select().from(accountMembershipSchema).where(eq(accountMembershipSchema.userId, 'user-sam'))).toHaveLength(1);
   });
 

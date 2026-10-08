@@ -13,7 +13,7 @@ import { cookies, headers } from 'next/headers';
 import { resolveProjectForUser } from '@/services/ProjectService';
 import { resolveActiveWorkspace } from '@/services/WorkspaceAccessService';
 import { ACTIVE_PROJECT_COOKIE } from './activeProject';
-import { parseWorkspacePath, WORKSPACE_ACCOUNT_PARAM, WORKSPACE_HEADER } from './links';
+import { orgSlugFromSearch, parseWorkspacePath, WORKSPACE_HEADER } from './links';
 
 export type Tenancy = {
   accountId: string | null;
@@ -32,7 +32,7 @@ export type Tenancy = {
  * reads and saves in the other tab's workspace, and with two accounts that is
  * another client's data (vocion-core#128). Browsers send the page's URL as
  * `Referer` on same-origin requests by default, so the tab's own `/w/<slug>`
- * (and `?account=`, when the URL has it) decides instead.
+ * (and `?org=` / the older `?account=`, when the URL has it) decides instead.
  *
  * A Referer is caller-supplied, like the header; it only ever picks among
  * workspaces this person can open, because the slug is resolved on their own
@@ -52,7 +52,7 @@ async function workspaceFromReferer(userId: string, referer: string | null, last
     return undefined;
   }
   const project = await resolveProjectForUser(userId, { slug: canonical.slug }, {
-    accountSlug: pageUrl.searchParams.get(WORKSPACE_ACCOUNT_PARAM),
+    accountSlug: orgSlugFromSearch(pageUrl.searchParams),
     lastActiveProjectId,
   });
   return project?.id;

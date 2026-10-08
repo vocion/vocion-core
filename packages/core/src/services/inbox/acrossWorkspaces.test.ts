@@ -109,7 +109,7 @@ describe('listInboxForUser', () => {
     const renewal = inbox.items.find(i => i.title === 'Sign off the Acme renewal discount')!;
 
     expect(renewal.workspace).toEqual({ id: REVENUE, slug: 'revenue', name: 'Revenue', kind: 'shared' });
-    expect(renewal.href).toMatch(/^\/w\/revenue\/dashboard\/inbox\/\d+\?account=northwind$/);
+    expect(renewal.href).toMatch(/^\/w\/revenue\/dashboard\/inbox\/\d+\?org=northwind$/);
     expect(renewal.link).toBe(`https://app.vocion.example${renewal.href}`);
     // Keys stay unique when two workspaces hold rows with the same id.
     expect(new Set(inbox.items.map(i => i.key)).size).toBe(inbox.items.length);

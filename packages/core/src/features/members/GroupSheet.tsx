@@ -213,7 +213,7 @@ export function GroupSheet(props: {
             <DialogDescription>
               {group.grants.length === 0
                 ? 'This group opens nothing, and nobody loses a workspace.'
-                : `${group.members.length === 1 ? '1 person' : `${group.members.length} people`} lose ${group.grants.map(g => g.name).join(', ')}. Nobody loses their place on the account.`}
+                : `${group.members.length === 1 ? '1 person' : `${group.members.length} people`} lose ${group.grants.map(g => g.name).join(', ')}. Nobody loses their place in the Org.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

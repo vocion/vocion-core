@@ -67,7 +67,7 @@ function NoWorkspaceYet({ accountName, title }: { accountName: string; title: st
   return (
     <Card title={title}>
       <p className="text-sm text-muted-foreground">
-        {`You don't have a workspace in ${accountName} yet. Once an admin there gives you one, it shows in your workspace switcher.`}
+        {`You don't have a workspace in the ${accountName} Org yet. Once an admin there gives you one, it shows in your workspace switcher.`}
       </p>
       <Link className="text-sm underline" href="/dashboard">Go to your dashboard</Link>
     </Card>
@@ -137,7 +137,7 @@ export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
   if (invite.standing === 'accepted' || invite.standing === 'expired') {
     return (
       <Card title={invite.standing === 'accepted' ? 'Invite already used' : 'Invite expired'}>
-        <p className="text-sm text-muted-foreground">{`Ask an admin of ${invite.accountName} for a new invite link.`}</p>
+        <p className="text-sm text-muted-foreground">{`Ask an admin of the ${invite.accountName} Org for a new invite link.`}</p>
         <Link className="text-sm underline" href="/dashboard">Go to your dashboard</Link>
       </Card>
     );
@@ -147,7 +147,7 @@ export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
     return (
       <Card title="This invite is for a different email">
         <p className="text-sm text-muted-foreground">
-          {`You're signed in as ${who}, but this invite to ${invite.accountName} was sent to another email. Sign out, then sign in or sign up with the invited email.`}
+          {`You're signed in as ${who}, but this invite to the ${invite.accountName} Org was sent to another email. Sign out, then sign in or sign up with the invited email.`}
         </p>
         <Button className="w-full" variant="outline" onClick={() => signOut({ callbackUrl: `/sign-up?invite=${encodeURIComponent(inviteToken)}` })}>
           Sign out and continue
@@ -179,7 +179,7 @@ export function JoinAccountCard({ inviteToken, invite, signedInEmail }: Props) {
   return (
     <Card title={`Join ${invite.accountName}`}>
       <p className="text-sm text-muted-foreground">
-        {`You've been invited as ${invite.role === 'admin' ? 'an admin' : 'a member'}. You'll join with the login you're using now, ${who}, and ${invite.accountName}'s workspaces will show in your workspace switcher next to the ones you already have.`}
+        {`You've been invited to the ${invite.accountName} Org as ${invite.role === 'admin' ? 'an admin' : 'a member'}. You'll join with the login you're using now, ${who}, and its workspaces will show in your switcher next to the ones you already have.`}
       </p>
       {error && (
         <p className="text-sm text-destructive" role="alert">

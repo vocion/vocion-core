@@ -87,7 +87,7 @@ export function PeopleTab(props: {
                         <select
                           value={p.accountRole}
                           disabled={props.pending}
-                          aria-label={`Account role for ${p.email}`}
+                          aria-label={`Org role for ${p.email}`}
                           onChange={e => props.onChangeRole(p.userId, e.target.value as 'admin' | 'member')}
                           className="h-7 w-full rounded-md bg-surface-soft px-1.5 text-[13px] text-foreground outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
                         >

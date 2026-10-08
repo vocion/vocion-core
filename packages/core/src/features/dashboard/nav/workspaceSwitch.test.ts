@@ -53,36 +53,38 @@ describe('workspace switcher', () => {
   // vocion-core#128: a person in two accounts can hold the same slug in both.
   describe('across accounts', () => {
     const accounts = [
-      { id: 'acct-metacto', name: 'Metacto', slug: 'metacto' },
+      { id: 'acct-northwind', name: 'Northwind', slug: 'northwind' },
       { id: 'acct-contoso', name: 'Contoso', slug: 'contoso' },
     ];
-    const metactoSales = { id: 'p-m-sales', accountId: 'acct-metacto', slug: 'sales', name: 'Sales', agentCount: 2 };
+    const northwindSales = { id: 'p-m-sales', accountId: 'acct-northwind', slug: 'sales', name: 'Sales', agentCount: 2 };
     const contosoSales = { id: 'p-c-sales', accountId: 'acct-contoso', slug: 'sales', name: 'Sales', agentCount: 3 };
-    const metactoOps = { id: 'p-m-ops', accountId: 'acct-metacto', slug: 'ops', name: 'Ops', agentCount: 1 };
+    const northwindOps = { id: 'p-m-ops', accountId: 'acct-northwind', slug: 'ops', name: 'Ops', agentCount: 1 };
 
     it('names the target account only when the switch leaves the current one', () => {
-      expect(crossAccountSlug(contosoSales, 'acct-metacto', accounts)).toBe('contoso');
-      expect(crossAccountSlug(metactoOps, 'acct-metacto', accounts)).toBeNull();
+      expect(crossAccountSlug(contosoSales, 'acct-northwind', accounts)).toBe('contoso');
+      expect(crossAccountSlug(northwindOps, 'acct-northwind', accounts)).toBeNull();
     });
 
-    it('adds the account to the switch URL and keeps the rest of the query', () => {
+    it('adds the Org to the switch URL as ?org= and keeps the rest of the query', () => {
       expect(workspaceSwitchHref({ slug: 'sales', pathname: '/dashboard/inbox', search: '?tab=open', locale: 'en', defaultLocale: 'en', accountSlug: 'contoso' }))
-        .toBe('/w/sales/dashboard/inbox?tab=open&account=contoso');
+        .toBe('/w/sales/dashboard/inbox?tab=open&org=contoso');
     });
 
-    it('drops an account left over from an earlier switch, so the next one resolves where the person now is', () => {
+    it('drops an Org left over from an earlier switch, in either spelling, so the next one resolves where the person now is', () => {
       expect(workspaceSwitchHref({ slug: 'ops', pathname: '/dashboard', search: '?account=contoso&tab=open', locale: 'en', defaultLocale: 'en', accountSlug: null }))
         .toBe('/w/ops/dashboard?tab=open');
+      expect(workspaceSwitchHref({ slug: 'ops', pathname: '/dashboard', search: '?org=contoso&tab=open', locale: 'en', defaultLocale: 'en', accountSlug: 'northwind' }))
+        .toBe('/w/ops/dashboard?tab=open&org=northwind');
     });
 
     it('groups the list under each account in membership order and leaves out an account with nothing visible', () => {
-      const groups = groupByAccount([contosoSales, metactoSales, metactoOps], accounts);
+      const groups = groupByAccount([contosoSales, northwindSales, northwindOps], accounts);
 
       expect(groups.map(g => [g.account.name, g.projects.map(p => p.id)])).toEqual([
-        ['Metacto', ['p-m-sales', 'p-m-ops']],
+        ['Northwind', ['p-m-sales', 'p-m-ops']],
         ['Contoso', ['p-c-sales']],
       ]);
-      expect(groupByAccount([metactoOps], accounts).map(g => g.account.name)).toEqual(['Metacto']);
+      expect(groupByAccount([northwindOps], accounts).map(g => g.account.name)).toEqual(['Northwind']);
     });
   });
 });

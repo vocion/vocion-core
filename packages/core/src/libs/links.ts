@@ -53,17 +53,34 @@ export const WORKSPACE_HEADER = {
 } as const;
 
 /**
- * Query parameter naming the account a `/w/<slug>/…` link means, by
- * `tenant_account.slug`.
+ * Query parameter naming the Org a `/w/<slug>/…` link means, by
+ * `tenant_account.slug`. People call a tenant an **Org**; the table is still
+ * `tenant_account`, and in code `orgId` means the WORKSPACE (`project.id`),
+ * not the Org — so this file says "account" for the Org in identifiers.
  *
- * Workspace slugs are only unique inside an account, so for a person in two
- * accounts `/w/sales` can be two workspaces. The switcher adds
- * `?account=<slug>` when a switch crosses accounts, and the proxy resolves the
- * slug on that account only (vocion-core#128). Without it the slug resolves
- * on the account the person is already in, which is right for every link
- * rendered inside a workspace.
+ * Workspace slugs are only unique inside an Org, so for a person in two
+ * Orgs `/w/sales` can be two workspaces. The switchers add `?org=<slug>` when
+ * a switch crosses Orgs, and the proxy resolves the slug on that Org only
+ * (vocion-core#128). Without it the slug resolves on the Org the person is
+ * already in, which is right for every link rendered inside a workspace.
+ */
+export const WORKSPACE_ORG_PARAM = 'org';
+
+/**
+ * The older spelling of {@link WORKSPACE_ORG_PARAM}. Still read everywhere a
+ * link is resolved, so a mailed `?account=<slug>` keeps opening the right
+ * workspace; never written any more.
  */
 export const WORKSPACE_ACCOUNT_PARAM = 'account';
+
+/**
+ * The Org slug a link names: `?org=`, else the legacy `?account=`.
+ * @param params - The link's query.
+ * @returns The slug, or null when the link names no Org.
+ */
+export function orgSlugFromSearch(params: URLSearchParams): string | null {
+  return params.get(WORKSPACE_ORG_PARAM)?.trim() || params.get(WORKSPACE_ACCOUNT_PARAM)?.trim() || null;
+}
 
 /**
  * First path segments a workspace slug may never take, so a slug can never
@@ -192,14 +209,14 @@ function normalisePath(path: string): string {
  * unchanged for the same slug and re-points it for a different one, so the
  * `Link` wrapper can prefix blindly.
  * A link that leaves the app (an email, Slack, an API response) should pass
- * `accountSlug`: slugs are only unique inside an account, and a reader in two
- * accounts that both have a `sales` would otherwise open whichever `sales`
- * their browser was last in (vocion-core#128).
+ * `accountSlug` (the Org's slug): slugs are only unique inside an Org, and a
+ * reader in two Orgs that both have a `sales` would otherwise open whichever
+ * `sales` their browser was last in (vocion-core#128).
  * @param projectSlug - `project.slug` of the workspace the link is about.
  * @param path - App-relative path, e.g. `/dashboard/inbox` or `/dashboard/inbox/42`.
  * @param opts - How to write it.
  * @param opts.absolute - Prefix the public origin.
- * @param opts.accountSlug - Name the workspace's account with `?account=`.
+ * @param opts.accountSlug - Name the workspace's Org with `?org=`.
  */
 export function workspaceUrl(projectSlug: string, path: string, opts: { absolute?: boolean; accountSlug?: string } = {}): string {
   const slug = encodeURIComponent(projectSlug.trim().toLowerCase());
@@ -211,15 +228,15 @@ export function workspaceUrl(projectSlug: string, path: string, opts: { absolute
 }
 
 /**
- * Add `?account=<slug>` to an app path, keeping its query and fragment.
+ * Add `?org=<slug>` to an app path, keeping its query and fragment.
  * @param rel - An app-relative path, possibly with `?…` and `#…`.
- * @param accountSlug - The account to name.
+ * @param accountSlug - The Org to name.
  */
 function withAccountParam(rel: string, accountSlug: string): string {
   const hashAt = rel.indexOf('#');
   const beforeHash = hashAt === -1 ? rel : rel.slice(0, hashAt);
   const hash = hashAt === -1 ? '' : rel.slice(hashAt);
-  const param = `${WORKSPACE_ACCOUNT_PARAM}=${encodeURIComponent(accountSlug.trim().toLowerCase())}`;
+  const param = `${WORKSPACE_ORG_PARAM}=${encodeURIComponent(accountSlug.trim().toLowerCase())}`;
   return `${beforeHash}${beforeHash.includes('?') ? '&' : '?'}${param}${hash}`;
 }
 

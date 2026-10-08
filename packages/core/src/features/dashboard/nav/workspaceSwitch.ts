@@ -4,7 +4,7 @@
  * are unit-testable.
  */
 
-import { WORKSPACE_ACCOUNT_PARAM, workspaceUrl } from '@/libs/links';
+import { WORKSPACE_ACCOUNT_PARAM, WORKSPACE_ORG_PARAM, workspaceUrl } from '@/libs/links';
 
 export type SwitcherProject = {
   id: string;
@@ -27,25 +27,27 @@ export type AccountGroup<T extends SwitcherProject> = { account: SwitcherAccount
  * (`/w/<slug>/dashboard/inbox?x=1`), prefixed with the locale when it is not
  * the default — exactly what `WorkspaceMenu.switchTo` did, in one place.
  *
- * A switch into another account carries `?account=<slug>`, because a
- * workspace slug is only unique inside an account and the proxy would
- * otherwise resolve it on the account the person is leaving. Any `account`
- * already in the current query string is dropped first, so a hint from an
- * earlier switch never points the next one at the wrong account.
+ * A switch into another Org carries `?org=<slug>`, because a workspace slug
+ * is only unique inside an Org and the proxy would otherwise resolve it in
+ * the Org the person is leaving. Any `org` (or older `account`) already in the
+ * current query string is dropped first, so a hint from an earlier switch
+ * never points the next one at the wrong Org. ("Org" is what people call a
+ * `tenant_account`; identifiers here still say account.)
  * @param input.slug - Target project slug.
  * @param input.pathname - Locale-stripped current path.
  * @param input.search - Current query string (with or without `?`).
  * @param input.locale - Active locale.
  * @param input.defaultLocale - The routing default (no prefix).
- * @param input.accountSlug - The target's account slug, only when the switch crosses accounts.
+ * @param input.accountSlug - The target's Org slug, only when the switch crosses Orgs.
  * @param input
  */
 export function workspaceSwitchHref(input: { slug: string; pathname: string; search?: string; locale: string; defaultLocale: string; accountSlug?: string | null }): string {
   const prefix = input.locale !== input.defaultLocale ? `/${input.locale}` : '';
   const params = new URLSearchParams(input.search ?? '');
   params.delete(WORKSPACE_ACCOUNT_PARAM);
+  params.delete(WORKSPACE_ORG_PARAM);
   if (input.accountSlug) {
-    params.set(WORKSPACE_ACCOUNT_PARAM, input.accountSlug);
+    params.set(WORKSPACE_ORG_PARAM, input.accountSlug);
   }
   const query = params.toString();
   return `${prefix}${workspaceUrl(input.slug, `${input.pathname}${query ? `?${query}` : ''}`)}`;

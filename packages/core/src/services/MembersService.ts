@@ -95,7 +95,7 @@ export async function createInvite(opts: {
     .where(and(eq(accountMembershipSchema.accountId, opts.accountId), eq(userSchema.email, email)))
     .limit(1);
   if (existingUser) {
-    throw new Error(`${email} is already a member of this account.`);
+    throw new Error(`${email} is already a member of this Org.`);
   }
 
   // One open invite per email: re-inviting refreshes the token + expiry

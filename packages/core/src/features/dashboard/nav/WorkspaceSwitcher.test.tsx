@@ -12,10 +12,10 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 /**
- * The collapsed sidebar shows the switcher as a bare avatar, with no account
- * line under it, so its label is the only place the account can show
- * (vocion-core#128): two "Support" workspaces on two accounts must not read
- * the same.
+ * The collapsed sidebar shows the switcher as a bare avatar, with no Org
+ * line under it, so on a multi-Org deployment its label is the only place the
+ * Org can show (vocion-core#128): two "Support" workspaces in two Orgs must
+ * not read the same. A single-Org install (the default) never names an Org.
  */
 
 const ACCOUNTS: SwitcherAccount[] = [
@@ -30,8 +30,9 @@ const PROJECTS: SwitcherProject[] = [
 /**
  * The collapsed switcher on Contoso's "Support".
  * @param accounts - The accounts the person is in.
+ * @param orgsMode
  */
-function renderCollapsed(accounts: SwitcherAccount[]) {
+function renderCollapsed(accounts: SwitcherAccount[], orgsMode: 'single' | 'multi' = 'multi') {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider defaultOpen={false}>
@@ -41,6 +42,7 @@ function renderCollapsed(accounts: SwitcherAccount[]) {
           projects={PROJECTS}
           activeId="p-contoso-support"
           collapsed
+          orgsMode={orgsMode}
           navigate={() => {}}
         />
       </SidebarProvider>
@@ -60,14 +62,21 @@ describe('WorkspaceSwitcher, collapsed', () => {
 
     await expect.element(page.getByRole('button', { name: 'Support', exact: true })).toBeInTheDocument();
   });
+
+  it('never names an Org on a single-Org install', async () => {
+    await renderCollapsed(ACCOUNTS, 'single');
+
+    await expect.element(page.getByRole('button', { name: 'Support', exact: true })).toBeInTheDocument();
+  });
 });
 
 /**
  * The open switcher, expanded, on Contoso's "Support".
  * @param accounts - The accounts the person is in.
  * @param projects - The workspaces it lists.
+ * @param orgsMode
  */
-function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[]) {
+function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], orgsMode: 'single' | 'multi' = 'multi') {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider>
@@ -77,6 +86,7 @@ function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[]) {
           projects={projects}
           activeId="p-contoso-support"
           defaultOpen
+          orgsMode={orgsMode}
           navigate={() => {}}
         />
       </SidebarProvider>
@@ -93,6 +103,14 @@ describe('WorkspaceSwitcher, open', () => {
     await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
     expect(page.getByRole('group').elements()).toHaveLength(0);
     expect(page.getByText('Metacto').elements()).toHaveLength(0);
+  });
+
+  it('shows no Org eyebrow and no Org headings on a single-Org install', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps], 'single');
+
+    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
+    expect(page.getByRole('group').elements()).toHaveLength(0);
+    expect(page.getByText('Contoso', { exact: true }).elements()).toHaveLength(0);
   });
 
   it('groups a two-account person\'s workspaces under each account\'s name', async () => {

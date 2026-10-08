@@ -36,7 +36,7 @@ export function seedDocumentsWorkspace(): void {
     return;
   }
   try {
-    run(['src/scripts/create-local-user.ts', '--email', ADMIN.email, '--name', ADMIN.name, '--account', ADMIN.account, '--password', ADMIN.password, '--role', 'admin']);
+    run(['tests/support/create-e2e-user.ts', '--email', ADMIN.email, '--name', ADMIN.name, '--account', ADMIN.account, '--password', ADMIN.password, '--role', 'admin']);
   } catch (error) {
     tolerateExistingUser(error, '[documents spec]');
   }

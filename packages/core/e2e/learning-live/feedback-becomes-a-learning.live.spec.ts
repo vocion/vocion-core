@@ -91,7 +91,7 @@ function createBootstrapAdmin(): void {
       'npm',
       [
         'run',
-        'user:create',
+        'user:create:e2e',
         '--silent',
         '--',
         '--email',

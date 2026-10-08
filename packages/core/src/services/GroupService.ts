@@ -215,7 +215,7 @@ export async function setGroupMember(opts: { accountId: string; groupId: string;
     .where(and(eq(accountMembershipSchema.accountId, opts.accountId), eq(accountMembershipSchema.userId, opts.userId)))
     .limit(1);
   if (!onAccount) {
-    throw new GroupError('REFUSED', 'that person is not a member of this account');
+    throw new GroupError('REFUSED', 'that person is not a member of this Org');
   }
   if (opts.member) {
     await db.insert(userGroupMemberSchema)
