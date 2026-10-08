@@ -326,5 +326,27 @@
     "hire_failed": "Impossible de recruter cet agent. Actualisez et réessayez.",
     "installed_apps": "Applications installées",
     "more_apps": "Autres applications"
+  },
+  "Members": {
+    "people_count": "{count, plural, one {# personne} other {# personnes}}",
+    "invited_count": "{count, plural, one {# invitation} other {# invitations}}",
+    "status_label": "Statut",
+    "status_all": "Statut : tous",
+    "status_active": "Actifs",
+    "status_invited": "Invités",
+    "state_invited": "Invité",
+    "state_expired": "Expiré",
+    "invited_title": "En attente : la personne doit ouvrir le lien pour rejoindre",
+    "expired_title": "Ce lien ne fonctionne plus. Réinvitez pour en créer un nouveau.",
+    "invited_by": "Invité le {date} par {name}",
+    "invited_on": "Invité le {date}",
+    "expires_on": "expire le {date}",
+    "expired_on": "expiré le {date}",
+    "invite_actions": "Actions pour l'invitation de {email}",
+    "copy_link": "Copier le lien d'invitation",
+    "copied": "Copié",
+    "reinvite": "Réinviter",
+    "revoke": "Révoquer l'invitation",
+    "revoke_confirm": "Révoquer l'invitation de {email} ? Son lien cessera de fonctionner."
   }
 }

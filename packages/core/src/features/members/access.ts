@@ -1,14 +1,15 @@
 /**
- * What the members screen shows, assembled from the two reads it already had.
+ * What the members screen shows, assembled from the reads it already had.
  *
- * `groups.overview` answers "who reaches what" and `members.list` carries the
- * account role and the joining date. Neither is new, and neither grew a field
- * for this screen; this is the join between them, kept out of the components
- * so the filtering and the counts are testable without a browser.
+ * `groups.overview` answers "who reaches what", `members.list` carries the
+ * account role and the joining date, and `members.invites` (admins only) the
+ * invites nobody has accepted yet. This is the join between them, kept out of
+ * the components so the filtering and the counts are testable without a
+ * browser.
  */
 
 import type { AccessOverview, GroupSummary } from '@/services/GroupService';
-import type { TeamMember } from '@/services/MembersService';
+import type { PendingInvite, TeamMember } from '@/services/MembersService';
 
 /** A workspace this person reaches on their own, outside any group. */
 export type DirectReach = { projectId: string; name: string };
@@ -31,6 +32,34 @@ export type PersonRow = {
   direct: DirectReach[];
   joinedAt: Date | null;
 };
+
+/**
+ * Somebody invited and not yet in the Org. They sit on the People lane
+ * beside the people who have joined, because "who is in this Org" has to
+ * include who is about to be — the invite dialog was the only place they
+ * showed, and you had to open it to find out.
+ */
+export type InviteRow = {
+  inviteId: string;
+  email: string;
+  /** 'admin' | 'member' — the account role they join with. */
+  accountRole: string;
+  /** For the copy-link action. Admins only ever receive invites at all. */
+  token: string;
+  invitedAt: Date | null;
+  /** Who sent it, by name when they have one; null when nobody is named. */
+  invitedBy: string | null;
+  expiresAt: Date;
+  /** Past its expiry: the link no longer works, and the row offers Re-invite. */
+  expired: boolean;
+};
+
+/**
+ * The People lane's Status facet: everybody, only the people who have joined,
+ * or only the invites. An expired invite is still an invite — it shows under
+ * "invited", marked Expired.
+ */
+export const PEOPLE_STATUSES = ['active', 'invited'] as const;
 
 export type GroupRow = GroupSummary & {
   /** Workspace names this group opens, in display order. */
@@ -56,6 +85,31 @@ export function peopleRows(overview: AccessOverview, members: readonly TeamMembe
     direct: p.reaches.filter(r => r.via === 'direct').map(r => ({ projectId: r.projectId, name: r.name })),
     joinedAt: byId.get(p.userId)?.joinedAt ?? null,
   }));
+}
+
+/**
+ * One row per open invite. An invite whose email already belongs to somebody
+ * in the Org is dropped: that person has a row of their own, and a second
+ * one saying "Invited" would contradict it. Accepting an invite stamps it, so
+ * this only happens when somebody joined another way while their invite was
+ * still open.
+ * @param invites - `members.invites`, newest first.
+ * @param people - The Org's people, from `peopleRows`.
+ */
+export function inviteRows(invites: readonly PendingInvite[], people: readonly PersonRow[]): InviteRow[] {
+  const onAccount = new Set(people.map(p => p.email.toLowerCase()));
+  return invites
+    .filter(i => !onAccount.has(i.email.toLowerCase()))
+    .map(i => ({
+      inviteId: i.id,
+      email: i.email,
+      accountRole: i.role,
+      token: i.token,
+      invitedAt: i.createdAt,
+      invitedBy: i.invitedBy ? (i.invitedBy.name || i.invitedBy.email || null) : null,
+      expiresAt: i.expiresAt,
+      expired: i.expired,
+    }));
 }
 
 export function groupRows(overview: AccessOverview): GroupRow[] {
@@ -93,23 +147,52 @@ export function groupMatches(g: GroupRow, q: string): boolean {
 }
 
 /**
- * The people lane's three facets, applied together. Each is one value, empty
- * meaning "all", which is what `useListUrlState` keeps in the URL.
- * @param rows - Every person on the account.
- * @param filter - The search box and the three facets; empty means all.
- * @param filter.q - The search box.
- * @param filter.group - A group slug.
- * @param filter.workspace - A workspace name.
- * @param filter.role - An account role.
+ * The People lane's filters: the search box and four facets, each one value,
+ * empty meaning "all" — which is what `useListUrlState` keeps in the URL.
  */
-export function filterPeople(
-  rows: readonly PersonRow[],
-  filter: { q: string; group: string; workspace: string; role: string },
-): PersonRow[] {
+export type PeopleFilter = {
+  /** The search box. */
+  q: string;
+  /** A group slug. */
+  group: string;
+  /** A workspace name. */
+  workspace: string;
+  /** An account role. */
+  role: string;
+  /** '' | 'active' | 'invited'. Absent means all. */
+  status?: string;
+};
+
+/**
+ * The people lane's facets, applied together.
+ * @param rows - Every person on the account.
+ * @param filter - The search box and the facets; empty means all.
+ */
+export function filterPeople(rows: readonly PersonRow[], filter: PeopleFilter): PersonRow[] {
+  if (filter.status === 'invited') {
+    return [];
+  }
   return rows.filter(p => personMatches(p, filter.q)
     && (!filter.group || p.groups.includes(filter.group))
     && (!filter.workspace || p.reaches.includes(filter.workspace))
     && (!filter.role || p.accountRole === filter.role));
+}
+
+/**
+ * The same filters, applied to the invites. Somebody invited is in no group
+ * and reaches no workspace until they join, so a group or a workspace filter
+ * leaves no invite standing — that is the true answer to "who is in RevOps",
+ * not a gap. Search reads the email, and the role is the one they join with.
+ * @param rows - The open invites, from `inviteRows`.
+ * @param filter - The same filter the people rows take.
+ */
+export function filterInvites(rows: readonly InviteRow[], filter: PeopleFilter): InviteRow[] {
+  if (filter.status === 'active' || filter.group || filter.workspace) {
+    return [];
+  }
+  const needle = filter.q.trim().toLowerCase();
+  return rows.filter(i => (!needle || i.email.toLowerCase().includes(needle))
+    && (!filter.role || i.accountRole === filter.role));
 }
 
 /**

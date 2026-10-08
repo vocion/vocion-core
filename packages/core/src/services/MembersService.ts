@@ -32,6 +32,9 @@ export type TeamMember = {
   joinedAt: Date | null;
 };
 
+/** Who sent an invite, as the members list names them. */
+export type InviteSender = { userId: string; name: string | null; email: string };
+
 export type PendingInvite = {
   id: string;
   email: string;
@@ -40,6 +43,8 @@ export type PendingInvite = {
   expiresAt: Date;
   createdAt: Date | null;
   expired: boolean;
+  /** The admin who sent it; null for an invite that names nobody (a seeded one). */
+  invitedBy: InviteSender | null;
 };
 
 export async function listMembers(accountId: string): Promise<TeamMember[]> {
@@ -59,17 +64,29 @@ export async function listMembers(accountId: string): Promise<TeamMember[]> {
 }
 
 /**
- * Open (unaccepted) invites, newest first. Expired ones are flagged, not hidden.
- * @param accountId
+ * Open (unaccepted) invites, newest first, with who sent each one. Expired
+ * ones are flagged, not hidden: the members list shows them as Expired with a
+ * Re-invite, which is the one thing to do about them. A revoked invite is
+ * deleted (`revokeInvite`), so there is no revoked state to filter out.
+ *
+ * Scoped to one account by `accountId`, which the caller takes from the
+ * session and never from the request.
+ * @param accountId - The session's account.
  */
 export async function listPendingInvites(accountId: string): Promise<PendingInvite[]> {
   const rows = await db
-    .select()
+    .select({
+      invite: inviteSchema,
+      inviterId: userSchema.id,
+      inviterName: userSchema.name,
+      inviterEmail: userSchema.email,
+    })
     .from(inviteSchema)
+    .leftJoin(userSchema, eq(inviteSchema.invitedBy, userSchema.id))
     .where(and(eq(inviteSchema.accountId, accountId), isNull(inviteSchema.acceptedAt)))
     .orderBy(desc(inviteSchema.createdAt));
   const now = new Date();
-  return rows.map(r => ({
+  return rows.map(({ invite: r, inviterId, inviterName, inviterEmail }) => ({
     id: r.id,
     email: r.email,
     role: r.role,
@@ -77,6 +94,7 @@ export async function listPendingInvites(accountId: string): Promise<PendingInvi
     expiresAt: r.expiresAt,
     createdAt: r.createdAt,
     expired: r.expiresAt < now,
+    invitedBy: inviterId ? { userId: inviterId, name: inviterName, email: inviterEmail ?? '' } : null,
   }));
 }
 
@@ -122,6 +140,11 @@ export async function createInvite(opts: {
       expiresAt,
     })
     .returning();
+  const [sender] = await db
+    .select({ userId: userSchema.id, name: userSchema.name, email: userSchema.email })
+    .from(userSchema)
+    .where(eq(userSchema.id, opts.invitedBy))
+    .limit(1);
   return {
     id: row!.id,
     email: row!.email,
@@ -130,6 +153,7 @@ export async function createInvite(opts: {
     expiresAt: row!.expiresAt,
     createdAt: row!.createdAt,
     expired: false,
+    invitedBy: sender ? { ...sender, email: sender.email ?? '' } : null,
   };
 }
 
