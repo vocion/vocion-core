@@ -2,7 +2,9 @@ import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { clientIp } from '@/libs/http/clientIp';
 import { hashPassword } from '@/libs/identity/password';
+import { hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { userSchema } from '@/models/Schema';
 import { acceptInviteAsNewUser } from '@/services/InviteAcceptance';
 
@@ -40,6 +42,12 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request) {
+  // Ten accounts an hour from one address — the most a team onboarding from
+  // one office makes, and too few to sweep invite tokens with.
+  const limited = await hit(RATE_LIMITS.signUpPerIp, clientIp(req.headers));
+  if (!limited.allowed) {
+    return tooManyRequests(limited);
+  }
   const raw = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(raw);
   if (!parsed.success) {

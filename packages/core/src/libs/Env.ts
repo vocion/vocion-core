@@ -26,6 +26,24 @@ export const Env = createEnv({
     AUTH_GOOGLE_SECRET: z.string().optional(),
     AUTH_MICROSOFT_ENTRA_ID_ID: z.string().optional(),
     AUTH_MICROSOFT_ENTRA_ID_SECRET: z.string().optional(),
+    /**
+     * `1` requires two-step sign-in (TOTP) of everyone on this deployment: a
+     * person without it enrols at their next sign-in. One account can require
+     * it for its own members instead (`tenant_account.require_mfa`).
+     */
+    VOCION_REQUIRE_MFA: z.string().optional(),
+    /**
+     * `off` disables every rate limit and lockout (`libs/rateLimit`). For a
+     * test run that signs in many times from one machine — never a deployment.
+     */
+    VOCION_RATE_LIMIT: z.string().optional(),
+    /**
+     * How many reverse proxies sit in front of the app (default 1). The client
+     * address is read that many entries from the right of `X-Forwarded-For`,
+     * so a client cannot pick its own address for per-IP limits
+     * (`libs/http/clientIp.ts`).
+     */
+    VOCION_TRUSTED_PROXY_COUNT: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']).default('dev'),
@@ -90,6 +108,21 @@ export const Env = createEnv({
     VOCION_MAIL_ENABLED: z.string().optional(),
     RESEND_API_KEY: z.string().optional(),
     VOCION_MAIL_FROM: z.string().optional(),
+    /**
+     * The dev mail sink (`libs/mail/sink.ts`): a directory every outbound
+     * message is also written to as JSON. With mail on and no Resend settings
+     * it is the transport, so invites, password resets and sign-in links work
+     * on a laptop. For development and tests, never a shared directory.
+     */
+    VOCION_MAIL_SINK_DIR: z.string().optional(),
+    /**
+     * Email domains whose people may join this install without an invite
+     * (comma list, `northwind.example`): a verified Google or Microsoft
+     * address, or a clicked email link, in a listed domain gets a login as a
+     * member of the install's single Org. Off when unset; ignored on a
+     * multi-Org server (`services/auth/autoJoin.ts`).
+     */
+    VOCION_AUTO_JOIN_DOMAINS: z.string().optional(),
     /**
      * Email as a chat surface (`libs/surfaces/email.ts`). Ships dark:
      * `VOCION_EMAIL_SURFACE=1` turns the Resend inbound webhook on;
@@ -157,6 +190,9 @@ export const Env = createEnv({
     AUTH_GOOGLE_SECRET: process.env.AUTH_GOOGLE_SECRET,
     AUTH_MICROSOFT_ENTRA_ID_ID: process.env.AUTH_MICROSOFT_ENTRA_ID_ID,
     AUTH_MICROSOFT_ENTRA_ID_SECRET: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
+    VOCION_REQUIRE_MFA: process.env.VOCION_REQUIRE_MFA,
+    VOCION_RATE_LIMIT: process.env.VOCION_RATE_LIMIT,
+    VOCION_TRUSTED_PROXY_COUNT: process.env.VOCION_TRUSTED_PROXY_COUNT,
     DATABASE_URL: process.env.DATABASE_URL,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
@@ -173,6 +209,8 @@ export const Env = createEnv({
     VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,
+    VOCION_MAIL_SINK_DIR: process.env.VOCION_MAIL_SINK_DIR,
+    VOCION_AUTO_JOIN_DOMAINS: process.env.VOCION_AUTO_JOIN_DOMAINS,
     VOCION_EMAIL_SURFACE: process.env.VOCION_EMAIL_SURFACE,
     VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN,
     RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,

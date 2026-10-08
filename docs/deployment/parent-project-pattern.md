@@ -616,13 +616,14 @@ override slot today; they always render the Vocion mark.
 
 ## Gotchas
 
-Three defaults that are wrong for any client outside `us-east-1`:
+Three defaults that are wrong for any client outside `us-east-1`, and one that is wrong behind a load balancer:
 
 | What | Where | Effect |
 |---|---|---|
 | Region defaults to `us-east-1`, passed positionally | `agentcore-harness-role.sh` | Harness role lands in the wrong region, silently. |
 | `VOCION_AGENTCORE_REGION` defaults to `us-east-1` | `services/agents/providers/agentcore.ts` | Agents run their model loop in a region nobody chose. Set it in the parent's compose overlay, for the app *and* the worker. |
 | Agent with no `model` resolves to `gpt-4o` | workspace applier | Only bites the `local` provider — `agentcore` agents use `harness.model` — but it bites quietly. Pin every model explicitly. |
+| `VOCION_TRUSTED_PROXY_COUNT` defaults to `1` (Caddy alone in front) | `libs/http/clientIp.ts` | Behind a load balancer or CDN every person is counted as the proxy's address, so one office's sign-in attempts lock out another's. Set it to the number of proxies in front of the app, and Caddy's `trusted_proxies` with it — table in `infra/aws/README.md` ("Client addresses and rate limits"). |
 
 **One more, on secrets.** Both parent projects create the Secrets Manager entry
 out-of-band and reference it from Terraform as a data source, so API keys never

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { client } from '@/libs/Orpc';
 import { SignInMethodsSection } from './SignInMethodsSection';
+import { TwoStepSection } from './TwoStepSection';
 
 type Status = {
   ok: boolean;
@@ -203,6 +204,7 @@ export function ProfilePanel() {
       </DashboardSection>
 
       <SignInMethodsSection />
+      <TwoStepSection />
     </div>
   );
 }

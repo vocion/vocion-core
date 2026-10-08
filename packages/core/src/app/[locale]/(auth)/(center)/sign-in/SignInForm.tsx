@@ -1,16 +1,18 @@
 'use client';
 
-import type { SignInOutcome } from '@/features/auth/signInMessages';
+import type { SignInMessage, SignInOutcome } from '@/features/auth/signInMessages';
 import type { SignInProviderOption } from '@/libs/identity/signInProviders';
 import { signIn } from 'next-auth/react';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { AuthCard } from '@/features/auth/AuthCard';
 import { OrDivider, ProviderButtons } from '@/features/auth/ProviderButtons';
 import { signInMessage } from '@/features/auth/signInMessages';
+import { Link } from '@/libs/I18nNavigation';
 import { EMAIL_LINK_PROVIDER_ID } from '@/services/auth/emailLinkFragment';
-import { VocionLogo } from '@/templates/VocionLogo';
 
 type Props = {
   callbackUrl: string;
@@ -32,7 +34,9 @@ const LINK_MINUTES = 15;
  * Sign-in, every way this deployment offers: a button per provider, then the
  * email field — which mails a sign-in link when mail is set up, with the
  * password one click away ("Use a password"), and asks for the password
- * otherwise.
+ * otherwise. "Forgot password?" sits beside the password field and leads to
+ * a reset link by email (`/forgot-password`). A second factor, when one is
+ * owed, is asked for on this same page after the first step (`page.tsx`).
  * @param props - See {@link Props}.
  * @param props.callbackUrl - Where to land once signed in.
  * @param props.outcome - What the URL carried back.
@@ -42,13 +46,45 @@ const LINK_MINUTES = 15;
  * @param props.linkSent - Open on "check your email".
  */
 export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLink = false, linkSent = false }: Props) {
+  const t = useTranslations('SignIn');
+  // Spelled out key by key, so the translation check sees every sentence used.
+  const say = (message: SignInMessage | null): string | null => {
+    if (!message) {
+      return null;
+    }
+    const provider = String(message.values?.provider ?? '');
+    switch (message.key) {
+      case 'invalid':
+        return t('invalid');
+      case 'rate_limited':
+        return t('rate_limited');
+      case 'link_expired':
+        return t('link_expired');
+      case 'link_rate_limited':
+        return t('link_rate_limited', { minutes: Number(message.values?.minutes ?? 15) });
+      case 'account_not_linked':
+        return t('account_not_linked', { provider });
+      case 'unverified_email':
+        return t('unverified_email', { provider });
+      case 'personal_account':
+        return t('personal_account');
+      case 'untrusted_issuer':
+        return t('untrusted_issuer', { provider });
+      case 'invite_failed':
+        return t('invite_failed');
+      case 'no_invite':
+        return t('no_invite');
+      case 'failed':
+        return t('failed');
+    }
+  };
   const [email, setEmail] = useState(hint?.email ?? '');
   const [password, setPassword] = useState(hint?.password ?? '');
   const [showPassword, setShowPassword] = useState(false);
   // The demo login is a password; everywhere else the link comes first.
   const [mode, setMode] = useState<'link' | 'password'>(emailLink && !hint ? 'link' : 'password');
   const [sentTo, setSentTo] = useState<string | null>(linkSent ? '' : null);
-  const [error, setError] = useState<string | null>(() => (outcome ? signInMessage(outcome) : null));
+  const [error, setError] = useState<string | null>(() => (outcome ? say(signInMessage(outcome)) : null));
   const [submitting, setSubmitting] = useState(false);
 
   const autofillHint = () => {
@@ -67,8 +103,10 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
       callbackUrl,
     });
     if (res?.error) {
-      setError(signInMessage({ error: res.error }));
+      setError(say(signInMessage({ error: res.error, code: res.code })));
     } else if (res?.ok) {
+      // A second factor, when one is owed, is asked for on this same page:
+      // the reload finds the half-finished session and shows the code step.
       window.location.href = res.url ?? callbackUrl;
     }
   };
@@ -77,10 +115,10 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
     const res = await signIn(EMAIL_LINK_PROVIDER_ID, { email, redirect: false, callbackUrl });
     const params = res?.error && res.url ? new URL(res.url, window.location.origin).searchParams : null;
     if (res?.error) {
-      setError(signInMessage({
+      setError(say(signInMessage({
         error: res.error,
         retryAfterSeconds: Number(params?.get('retryAfter')) || null,
-      }));
+      })));
       return;
     }
     // The same answer whether or not the address has a login.
@@ -94,7 +132,7 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
     try {
       await (mode === 'link' ? onLinkSubmit() : onPasswordSubmit());
     } catch {
-      setError(signInMessage({ error: 'Unknown' }));
+      setError(say(signInMessage({ error: 'Unknown' })));
     }
     setSubmitting(false);
   };
@@ -105,105 +143,98 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
   };
 
   return (
-    <div className="w-full max-w-sm px-4">
-      <div className="rounded-2xl border border-border/60 bg-card/80 p-8 shadow-xl shadow-black/5 backdrop-blur-sm">
-        <div className="mb-8 flex flex-col items-center gap-4 text-center">
-          <VocionLogo size="lg" />
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
-            <p className="text-sm text-muted-foreground">Sign in to your workspace</p>
-          </div>
+    <AuthCard title={t('title')} subtitle={t('subtitle')}>
+      {hint && (
+        <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+          <strong>{t('demo_credentials')}</strong>
+          {' '}
+          {hint.email}
+          {' / '}
+          {hint.password}
+          {' · '}
+          <button type="button" className="font-medium underline" onClick={autofillHint}>{t('autofill')}</button>
         </div>
+      )}
 
-        {hint && (
-          <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
-            <strong>Demo credentials:</strong>
-            {' '}
-            {hint.email}
-            {' / '}
-            {hint.password}
-            {' · '}
-            <button type="button" className="font-medium underline" onClick={autofillHint}>autofill</button>
-          </div>
-        )}
+      {sentTo !== null
+        ? (
+            <div className="space-y-4 text-center" role="status">
+              <h2 className="text-lg font-semibold">{t('check_email_title')}</h2>
+              <p className="text-sm text-muted-foreground">
+                {sentTo ? t('check_email_to', { email: sentTo }) : t('check_email')}
+                {' '}
+                {t('link_works_for', { minutes: LINK_MINUTES })}
+              </p>
+              <Button type="button" variant="outline" className="w-full" onClick={() => setSentTo(null)}>
+                {t('different_email')}
+              </Button>
+            </div>
+          )
+        : (
+            <>
+              <ProviderButtons providers={providers} callbackUrl={callbackUrl} />
+              {providers.length > 0 && <OrDivider />}
 
-        {sentTo !== null
-          ? (
-              <div className="space-y-4 text-center" role="status">
-                <h2 className="text-lg font-semibold">Check your email</h2>
-                <p className="text-sm text-muted-foreground">
-                  {sentTo
-                    ? `If you have an account, we've sent a link to ${sentTo}.`
-                    : 'If you have an account, we\'ve sent you a link.'}
-                  {' '}
-                  {`It works once, for ${LINK_MINUTES} minutes.`}
-                </p>
-                <Button type="button" variant="outline" className="w-full" onClick={() => setSentTo(null)}>
-                  Use a different email
-                </Button>
-              </div>
-            )
-          : (
-              <>
-                <ProviderButtons providers={providers} callbackUrl={callbackUrl} />
-                {providers.length > 0 && <OrDivider />}
-
-                <form onSubmit={onSubmit} className="space-y-4">
+              <form onSubmit={onSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">{t('email')}</Label>
+                  <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+                </div>
+                {mode === 'password' && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
-                  </div>
-                  {mode === 'password' && (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="password">Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="password"
-                          type={showPassword ? 'text' : 'password'}
-                          value={password}
-                          onChange={e => setPassword(e.target.value)}
-                          required
-                          autoComplete="current-password"
-                          className="pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(v => !v)}
-                          aria-label={showPassword ? 'Hide password' : 'Show password'}
-                          aria-pressed={showPassword}
-                          tabIndex={-1}
-                          className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
-                        >
-                          {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                        </button>
-                      </div>
+                    <div className="flex items-baseline justify-between">
+                      <Label htmlFor="password">{t('password')}</Label>
+                      <Link href="/forgot-password" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                        {t('forgot_password')}
+                      </Link>
                     </div>
-                  )}
-                  {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-                  <Button type="submit" className="w-full" disabled={submitting}>
-                    {mode === 'link'
-                      ? (submitting ? 'Sending…' : 'Email me a sign-in link')
-                      : (submitting ? 'Signing in…' : 'Sign in')}
-                  </Button>
-                  {emailLink && (
-                    <button
-                      type="button"
-                      className="w-full text-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                      onClick={() => switchMode(mode === 'link' ? 'password' : 'link')}
-                    >
-                      {mode === 'link' ? 'Use a password' : 'Email me a sign-in link instead'}
-                    </button>
-                  )}
-                </form>
-              </>
-            )}
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        required
+                        autoComplete="current-password"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(v => !v)}
+                        aria-label={showPassword ? t('hide_password') : t('show_password')}
+                        aria-pressed={showPassword}
+                        tabIndex={-1}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+                <Button type="submit" className="w-full" disabled={submitting}>
+                  {mode === 'link'
+                    ? (submitting ? t('link_sending') : t('link_submit'))
+                    : (submitting ? t('submitting') : t('submit'))}
+                </Button>
+                {emailLink && (
+                  <button
+                    type="button"
+                    className="w-full text-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    onClick={() => switchMode(mode === 'link' ? 'password' : 'link')}
+                  >
+                    {mode === 'link' ? t('use_password') : t('use_link')}
+                  </button>
+                )}
+              </form>
+            </>
+          )}
 
-        {/* Accounts come from invites only, so there is no sign-up link to offer. */}
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          This instance is invite-only — ask an admin for an invite link to join.
-        </p>
-      </div>
-    </div>
+      {/* Accounts come from invites only, so there is no sign-up link to offer. */}
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        {t('invite_only')}
+      </p>
+    </AuthCard>
   );
 }
 

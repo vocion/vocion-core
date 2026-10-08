@@ -31,6 +31,7 @@ import { eq } from 'drizzle-orm';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { userSchema } from '@/models/Schema';
+import { endOtherSessions } from '@/services/auth/sessionVersion';
 import 'dotenv/config';
 
 /**
@@ -128,6 +129,8 @@ async function main() {
     .update(userSchema)
     .set({ passwordHash: await hashPassword(password) })
     .where(eq(userSchema.id, user.id));
+  // A new password ends the person's other sessions, as a reset by link does.
+  await endOtherSessions(user.id);
 
   // Echo the row's new updated_at: proof the write landed, so a no-op can
   // never be mistaken for success again.

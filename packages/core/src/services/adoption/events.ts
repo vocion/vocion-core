@@ -64,6 +64,12 @@ export const ADOPTION_EVENTS = {
   'auth.method_linked': { meta: z.object({ provider: z.string().max(60) }) },
   /** A person unlinked a sign-in provider from their profile page. */
   'auth.method_unlinked': { meta: z.object({ provider: z.string().max(60) }) },
+  /**
+   * An account admin removed a member's two-step sign-in so they can set it
+   * up again (`resetMemberSecondFactor`). The audit record: the actor is the
+   * admin, `resource` is `['user', <member id>]`.
+   */
+  'auth.second_factor_reset': {},
   /** First authenticated RPC in each 5-minute bucket per user — feeds session derivation. */
   'activity.heartbeat': {},
   'chat.conversation_created': { agent: true },
