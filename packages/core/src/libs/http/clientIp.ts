@@ -13,10 +13,34 @@
  * `X-Real-IP` is the fallback for a proxy that sets that instead. No header at
  * all answers null — and a null address skips per-IP limits rather than
  * pooling every caller into one bucket, because one shared bucket would let a
- * single noisy client lock everyone out (`libs/rateLimit`).
+ * single noisy client lock everyone out (`libs/rateLimit`). The first such
+ * request logs a warning, once per process, since it means the deployment is
+ * running without the per-address limits it thinks it has.
+ *
+ * Getting the count wrong fails quietly in one of two directions: too low on
+ * a deployment with a CDN and a load balancer, and every person is counted as
+ * the address of the CDN edge they came through (one office's sign-ins refuse
+ * another's); too high, and the client picks its own address again. The value
+ * for each topology, and Caddy's `trusted_proxies` setting it depends on, are
+ * in `infra/aws/README.md` ("Client addresses and rate limits").
  */
 
 import process from 'node:process';
+
+let warnedNoForwarding = false;
+
+function warnNoForwardingOnce(): void {
+  if (warnedNoForwarding) {
+    return;
+  }
+  warnedNoForwarding = true;
+  import('@/libs/Logger')
+    .then(({ logger }) => logger.warn(
+      'a request arrived with no X-Forwarded-For or X-Real-IP, so per-address rate limits are skipped for it; '
+      + 'run the app behind its proxy and set VOCION_TRUSTED_PROXY_COUNT for the chain in front of it (infra/aws/README.md)',
+    ))
+    .catch(() => {});
+}
 
 /** How many proxies this deployment runs in front of the app. */
 function trustedProxyCount(): number {
@@ -43,5 +67,9 @@ export function clientIp(headers: Headers): string | null {
     }
   }
   const real = headers.get('x-real-ip')?.trim();
-  return real || null;
+  if (real) {
+    return real;
+  }
+  warnNoForwardingOnce();
+  return null;
 }

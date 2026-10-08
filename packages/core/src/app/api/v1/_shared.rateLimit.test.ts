@@ -1,7 +1,7 @@
 /**
  * `/api/v1` limits ride on `authApi`, which every handler already calls: a
- * cap per address, a lockout on an address presenting bad tokens, and a cap
- * per caller. Each refusal is a 429 in the API's error shape with
+ * cap per address, a 429 for an address presenting bad tokens (which never
+ * refuses a valid one), and a cap per caller. Each refusal is a 429 in the API's error shape with
  * `Retry-After`. All three count in memory, so no database is involved.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 describe('authApi rate limits', () => {
-  it('locks an address out after thirty bad tokens, before it can try a thirty-first', async () => {
+  it('answers an address past thirty bad tokens with a 429 and Retry-After instead of a 401', async () => {
     mockBearer.mockResolvedValue(null);
     const from = { 'authorization': 'Bearer vcn_live_bad', 'x-forwarded-for': '198.51.100.4' };
     for (let i = 0; i < RATE_LIMITS.apiAuthFailuresPerIp.limit; i++) {
@@ -41,8 +41,22 @@ describe('authApi rate limits', () => {
 
     expect(isErrorResponse(locked) && locked.status).toBe(429);
     expect(isErrorResponse(locked) && locked.headers.get('Retry-After')).toMatch(/^\d+$/);
-    expect(mockBearer).toHaveBeenCalledTimes(RATE_LIMITS.apiAuthFailuresPerIp.limit);
     await expect((locked as Response).json()).resolves.toMatchObject({ error: { code: 'RATE_LIMITED' } });
+  });
+
+  it('still accepts a valid token from an address that sent thirty bad ones — one tenant cannot lock out another behind a shared egress', async () => {
+    const shared = '198.51.100.4';
+    mockBearer.mockImplementation(async header => header === 'Bearer vcn_live_good'
+      ? { orgId: 'proj-kestrel', tokenId: 7, principal: { kind: 'token', id: '7', role: 'member', scope: { orgId: 'proj-kestrel' } } } as never
+      : null);
+    for (let i = 0; i < RATE_LIMITS.apiAuthFailuresPerIp.limit + 5; i++) {
+      await authApi(request({ 'authorization': 'Bearer vcn_live_revoked', 'x-forwarded-for': shared }));
+    }
+
+    const caller = await authApi(request({ 'authorization': 'Bearer vcn_live_good', 'x-forwarded-for': shared }));
+
+    expect(isErrorResponse(caller)).toBe(false);
+    expect(caller).toMatchObject({ orgId: 'proj-kestrel', actorId: 'token:7', source: 'token' });
   });
 
   it('caps one caller per minute, whichever address they call from', async () => {

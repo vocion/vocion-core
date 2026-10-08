@@ -76,6 +76,14 @@ export const userSchema = pgTable('user', {
    * number is theirs: the SMS channel answers it and a reply decides a card as them.
    */
   phone: text('phone'),
+  /**
+   * Raised whenever the person's sign-in changes under them — a new password
+   * (reset or profile), two-step sign-in turned on or off — and stamped on
+   * every session token at sign-in (0176). A token carrying an older number is
+   * read as signed out, which is how those changes end the person's other
+   * sessions (`services/auth/sessionVersion.ts`).
+   */
+  sessionVersion: integer('session_version').default(0).notNull(),
   updatedAt: timestamp('updated_at', { mode: 'date' })
     .defaultNow()
     .$onUpdate(() => new Date())
@@ -208,7 +216,11 @@ export const userMfaSchema = pgTable('user_mfa', {
     .notNull(),
 });
 
-/** One-time recovery codes. SHA-256 of a 40-bit random code; `usedAt` spends it. */
+/**
+ * One-time recovery codes. Each holds 50 random bits and is stored as an
+ * HMAC-SHA256 keyed from `AUTH_SECRET` (`services/auth/mfa.ts`), so a read of
+ * this table alone cannot be cracked offline; `usedAt` spends it.
+ */
 export const userMfaRecoveryCodeSchema = pgTable(
   'user_mfa_recovery_code',
   {

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clientIp } from './clientIp';
 
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/Logger', () => ({ logger: { warn } }));
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
@@ -34,5 +37,14 @@ describe('clientIp', () => {
   it('answers null with no forwarding header, so per-IP limits skip rather than pool everyone', () => {
     expect(clientIp(new Headers())).toBeNull();
     expect(clientIp(new Headers({ 'x-forwarded-for': ' , ' }))).toBeNull();
+  });
+
+  it('says once per process that a request came with no forwarding header, since per-address limits are then off', async () => {
+    expect(clientIp(new Headers())).toBeNull();
+    expect(clientIp(new Headers())).toBeNull();
+
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+
+    expect(warn.mock.calls[0]![0]).toContain('no X-Forwarded-For');
   });
 });

@@ -1,7 +1,8 @@
 /**
- * The two forgot-password routes over real rows: the request answers the same
- * for every email, the confirm spends a link once, and both answer a flood
- * with a 429 and `Retry-After`.
+ * The forgot-password routes over real rows: the request answers the same for
+ * every email, the check says whether a link is live without spending it, the
+ * confirm spends a link once, and each answers a flood with a 429 and
+ * `Retry-After`.
  */
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +18,7 @@ const { resetMemoryRateLimits } = await import('@/libs/rateLimit');
 const { passwordResetTokenSchema, rateLimitHitSchema, userSchema } = await import('@/models/Schema');
 const { POST: requestReset } = await import('./route');
 const { POST: confirmReset } = await import('./confirm/route');
+const { POST: checkReset } = await import('./check/route');
 
 function json(url: string, body: unknown, ip = '198.51.100.4') {
   return new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) });
@@ -65,6 +67,32 @@ describe('POST /api/password-reset', () => {
     }
 
     const res = await requestReset(json('https://app.northwind.example/api/password-reset', { email: 'sam@northwind.example' }, '198.51.100.9'));
+
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);
+  });
+});
+
+describe('POST /api/password-reset/check', () => {
+  it('says a mailed link is live without spending it, and a made-up one is not', async () => {
+    await requestReset(json('https://app.northwind.example/api/password-reset', { email: 'sam@northwind.example' }));
+    await settle();
+    const token = decodeURIComponent(/#token=(\S+)/.exec(sendMail.mock.calls[0]![0].text ?? '')![1]!);
+
+    const live = await checkReset(json('https://app.northwind.example/api/password-reset/check', { token }));
+    const made = await checkReset(json('https://app.northwind.example/api/password-reset/check', { token: 'made-up' }));
+
+    await expect(live.json()).resolves.toEqual({ live: true });
+    await expect(made.json()).resolves.toEqual({ live: false });
+    expect((await confirmReset(json('https://app.northwind.example/api/password-reset/confirm', { token, password: 'a-new-password' }))).status).toBe(200);
+  });
+
+  it('shares the per-address budget with the confirm — both are a way to try a token', async () => {
+    for (let i = 0; i < 20; i++) {
+      await checkReset(json('https://app.northwind.example/api/password-reset/check', { token: `guess-${i}` }));
+    }
+
+    const res = await confirmReset(json('https://app.northwind.example/api/password-reset/confirm', { token: 'guess-21', password: 'a-new-password' }));
 
     expect(res.status).toBe(429);
     expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);

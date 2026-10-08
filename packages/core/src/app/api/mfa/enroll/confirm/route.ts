@@ -1,9 +1,9 @@
 import type { Session } from 'next-auth';
 import { NextResponse } from 'next/server';
-import { mfaCompletionProof, unstable_update } from '@/libs/Auth';
+import { keepThisSession, mfaCompletionProof, unstable_update } from '@/libs/Auth';
 import { clientIp } from '@/libs/http/clientIp';
-import { clear, firstRefusal, hit, peek, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
-import { confirmEnrollment } from '@/services/auth/mfa';
+import { tooManyRequests } from '@/libs/rateLimit';
+import { clearSecondFactorFailures, confirmEnrollment, countSecondFactorAttempt } from '@/services/auth/mfa';
 import { mfaCaller, readJson } from '../../_caller';
 
 /**
@@ -12,8 +12,10 @@ import { mfaCaller, readJson } from '../../_caller';
  * which are never shown again.
  *
  * At the sign-in gate (the account requires it) this also finishes signing
- * in, the same way `/api/mfa/verify` does. Wrong codes count against the same
- * lockout as sign-in codes.
+ * in, the same way `/api/mfa/verify` does. From the profile it keeps the
+ * session the person set it up from, while turning it on ends their others.
+ * Every attempt counts against the same lockout as sign-in codes, counted
+ * before the code is checked (`countSecondFactorAttempt`).
  * @param req - `{ code }` as JSON.
  */
 export async function POST(req: Request) {
@@ -29,26 +31,24 @@ export async function POST(req: Request) {
   if (!code.trim()) {
     return NextResponse.json({ error: 'Enter the code from your authenticator app.', code: 'CODE_REQUIRED' }, { status: 400 });
   }
-  const limited = firstRefusal(
-    await peek(RATE_LIMITS.secondFactorFailuresPerAccount, caller.userId),
-    await hit(RATE_LIMITS.secondFactorPerIp, clientIp(req.headers)),
-  );
-  if (!limited.allowed) {
-    return tooManyRequests(limited);
+  const counted = await countSecondFactorAttempt(caller.userId, clientIp(req.headers));
+  if (!counted.allowed) {
+    return tooManyRequests(counted);
   }
   const result = await confirmEnrollment(caller.userId, code);
   if (!result.ok) {
     if (result.reason === 'invalid') {
-      await hit(RATE_LIMITS.secondFactorFailuresPerAccount, caller.userId);
       return NextResponse.json({ error: 'That code did not work. Try the newest code your app shows.', code: 'INVALID_CODE' }, { status: 400 });
     }
     return result.reason === 'already-enabled'
       ? NextResponse.json({ error: 'Two-step sign-in is already on.', code: 'ALREADY_ENABLED' }, { status: 409 })
       : NextResponse.json({ error: 'Start setup again — the code you scanned has been replaced.', code: 'ENROLLMENT_REPLACED' }, { status: 409 });
   }
-  await clear(RATE_LIMITS.secondFactorFailuresPerAccount, caller.userId);
+  await clearSecondFactorFailures(caller.userId);
   if (caller.state === 'enroll') {
     await unstable_update({ mfaProof: mfaCompletionProof(caller.userId) } as Partial<Session>);
+  } else {
+    await keepThisSession(caller.userId);
   }
   return NextResponse.json({ ok: true, recoveryCodes: result.recoveryCodes }, { headers: { 'Cache-Control': 'no-store' } });
 }

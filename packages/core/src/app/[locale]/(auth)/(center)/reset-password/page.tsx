@@ -1,25 +1,21 @@
 import type { Metadata } from 'next';
 import { setRequestLocale } from 'next-intl/server';
-import { resetLinkIsLive } from '@/services/auth/passwordReset';
 import { ResetPasswordForm } from './ResetPasswordForm';
 
-/** The token is in this page's URL; no request from it may carry that URL away as a Referer. */
+/** Belt and braces: nothing on this page may carry its URL away as a Referer. */
 export const metadata: Metadata = { referrer: 'no-referrer' };
 
 /**
- * Where a reset link lands. Checks the link without spending it, so a spent
- * or expired one says so before the person types a new password.
+ * Where a reset link lands. The token is in the link's fragment
+ * (`/reset-password#token=…`), which never reaches this server, its logs or an
+ * error tracker's request record, so the page is the same for every link: the
+ * form reads the token in the browser and checks it with a POST
+ * (`services/auth/passwordReset.ts`).
  * @param props - The route's props.
  * @param props.params - The locale.
- * @param props.searchParams - `token`, from the mailed link.
  */
-export default async function ResetPasswordPage(props: {
-  params: Promise<{ locale: string }>;
-  searchParams: Promise<{ token?: string }>;
-}) {
+export default async function ResetPasswordPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
-  const { token } = await props.searchParams;
   setRequestLocale(locale);
-  const value = token ?? '';
-  return <ResetPasswordForm token={value} live={await resetLinkIsLive(value)} />;
+  return <ResetPasswordForm />;
 }

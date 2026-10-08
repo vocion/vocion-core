@@ -23,11 +23,12 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'This reset link is invalid or has expired.', code: 'INVALID_LINK' }, { status: 400 });
   }
-  const limited = await hit(RATE_LIMITS.passwordResetConfirmPerIp, clientIp(req.headers));
+  const ip = clientIp(req.headers);
+  const limited = await hit(RATE_LIMITS.passwordResetConfirmPerIp, ip);
   if (!limited.allowed) {
     return tooManyRequests(limited);
   }
-  const outcome = await resetPassword(parsed.data);
+  const outcome = await resetPassword({ ...parsed.data, ip });
   if (!outcome.ok) {
     return outcome.reason === 'weak-password'
       ? NextResponse.json({ error: `Use at least ${MIN_PASSWORD_LENGTH} characters.`, code: 'WEAK_PASSWORD' }, { status: 400 })

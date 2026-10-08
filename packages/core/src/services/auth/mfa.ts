@@ -10,10 +10,21 @@
  *   checkSecondFactor  → every sign-in after that (`/api/mfa/verify`), and
  *                        before turning it off or minting new recovery codes
  *   disableMfa / regenerateRecoveryCodes → the profile page
+ *   resetSecondFactor  → an account admin for a member who lost both their
+ *                        phone and their codes (`resetMemberSecondFactor`),
+ *                        or an operator (`npm run local:reset-mfa`)
  *
  * The secret is encrypted with the credential vault under the scope
  * `user:<id>`, so on KMS it is wrapped like every other credential the
- * deployment holds; recovery codes are 50 random bits and stored as SHA-256.
+ * deployment holds. Recovery codes are 50 random bits each, stored as an
+ * HMAC-SHA256 under a key derived from `AUTH_SECRET` and bound to the person:
+ * 50 bits are too few for a bare hash to survive an offline guess, and a read
+ * of the tables alone must not yield a second factor. Rotating `AUTH_SECRET`
+ * therefore voids unused recovery codes (people mint new ones on the profile
+ * page, with a code from their app).
+ *
+ * Turning two-step sign-in on or off, by any route, ends the person's other
+ * sessions (`services/auth/sessionVersion.ts`).
  *
  * Requiring it: `VOCION_REQUIRE_MFA=1` for the whole deployment, or
  * `tenant_account.require_mfa` for everyone in one account. A person who must
@@ -21,15 +32,16 @@
  * (`signInGateFor`, read by the JWT callback in `libs/Auth.ts`).
  */
 
+import type { RateLimitVerdict } from '@/libs/rateLimit';
 import { Buffer } from 'node:buffer';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import process from 'node:process';
-import { and, count, eq, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, count, eq, isNotNull, isNull, lt, ne, or } from 'drizzle-orm';
 import QRCode from 'qrcode';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { base32Encode, generateTotpSecret, matchTotp, otpauthUri } from '@/libs/identity/totp';
-import { clear, hit, peek, RATE_LIMITS } from '@/libs/rateLimit';
+import { clear, hit, RATE_LIMITS } from '@/libs/rateLimit';
 import {
   accountMembershipSchema,
   tenantAccountSchema,
@@ -38,6 +50,7 @@ import {
   userSchema,
 } from '@/models/Schema';
 import { AppConfig } from '@/utils/AppConfig';
+import { endOtherSessions } from './sessionVersion';
 
 /** How many recovery codes a person gets at a time. */
 export const RECOVERY_CODE_COUNT = 10;
@@ -75,8 +88,26 @@ function vaultScope(userId: string): string {
   return `user:${userId}`;
 }
 
-function hashCode(code: string): string {
-  return createHash('sha256').update(code).digest('hex');
+/**
+ * The key recovery codes are stored under, derived from `AUTH_SECRET` so it
+ * needs no new configuration and never sits in the database beside them.
+ */
+function recoveryCodeKey(): Buffer {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    throw new Error('AUTH_SECRET must be set to store or check recovery codes');
+  }
+  return createHmac('sha256', secret).update('vocion:mfa-recovery-code:v1').digest();
+}
+
+/**
+ * What is stored for one recovery code: an HMAC bound to the person, so the
+ * lookup stays an equality match while the table alone cannot be cracked.
+ * @param userId - Whose code it is.
+ * @param normalized - The code, from `normalizeRecoveryCode`.
+ */
+function hashCode(userId: string, normalized: string): string {
+  return createHmac('sha256', recoveryCodeKey()).update(`${userId}:${normalized}`).digest('hex');
 }
 
 /**
@@ -206,7 +237,7 @@ async function replaceRecoveryCodes(userId: string): Promise<string[]> {
   const codes = Array.from({ length: RECOVERY_CODE_COUNT }, () => newRecoveryCode());
   await db.transaction(async (tx) => {
     await tx.delete(userMfaRecoveryCodeSchema).where(eq(userMfaRecoveryCodeSchema.userId, userId));
-    await tx.insert(userMfaRecoveryCodeSchema).values(codes.map(code => ({ userId, codeHash: hashCode(normalizeRecoveryCode(code)) })));
+    await tx.insert(userMfaRecoveryCodeSchema).values(codes.map(code => ({ userId, codeHash: hashCode(userId, normalizeRecoveryCode(code)) })));
   });
   return codes;
 }
@@ -214,7 +245,8 @@ async function replaceRecoveryCodes(userId: string): Promise<string[]> {
 /**
  * Finish setting up: the first code from the person's app proves it reads the
  * secret, turns the authenticator on, and mints the recovery codes — the only
- * time they are ever shown.
+ * time they are ever shown. Ends the person's other sessions: one opened
+ * without the second factor should not outlive turning it on.
  * @param userId - The person enrolling.
  * @param typed - The code their app shows.
  * @param now - The current time; tests pass one.
@@ -243,7 +275,9 @@ export async function confirmEnrollment(
   if (turnedOn.length === 0) {
     return { ok: false, reason: 'already-enabled' };
   }
-  return { ok: true, recoveryCodes: await replaceRecoveryCodes(userId) };
+  const recoveryCodes = await replaceRecoveryCodes(userId);
+  await endOtherSessions(userId);
+  return { ok: true, recoveryCodes };
 }
 
 /**
@@ -296,7 +330,7 @@ export async function verifySecondFactor(userId: string, typed: string, now: Dat
     .set({ usedAt: now })
     .where(and(
       eq(userMfaRecoveryCodeSchema.userId, userId),
-      eq(userMfaRecoveryCodeSchema.codeHash, hashCode(normalized)),
+      eq(userMfaRecoveryCodeSchema.codeHash, hashCode(userId, normalized)),
       isNull(userMfaRecoveryCodeSchema.usedAt),
     ))
     .returning({ id: userMfaRecoveryCodeSchema.id });
@@ -304,10 +338,38 @@ export async function verifySecondFactor(userId: string, typed: string, now: Dat
 }
 
 /**
- * `verifySecondFactor` behind the lockout: five wrong codes for one person in
- * fifteen minutes lock their second factor for the rest of the window, from
- * any address, and each address gets thirty tries. A right code clears the
- * person's failures.
+ * Count one second-factor attempt against the lockout, BEFORE the code is
+ * checked: thirty per address and five per person in fifteen minutes. Counting
+ * first is what bounds a parallel burst — `hit` is one atomic upsert, so the
+ * sixth of twenty simultaneous guesses is refused whatever order they land in.
+ * A right code then calls `clearSecondFactorFailures`. Every place that checks
+ * a code (sign-in, enrolment, turning it off, new recovery codes) goes through
+ * this.
+ * @param userId - The person.
+ * @param ip - The caller's address, when known.
+ * @param now - The current time; tests pass one.
+ */
+export async function countSecondFactorAttempt(userId: string, ip: string | null, now: Date = new Date()): Promise<RateLimitVerdict> {
+  const fromIp = await hit(RATE_LIMITS.secondFactorPerIp, ip, now);
+  if (!fromIp.allowed) {
+    return fromIp;
+  }
+  return hit(RATE_LIMITS.secondFactorFailuresPerAccount, userId, now);
+}
+
+/**
+ * Forget a person's counted second-factor attempts — a right code does this.
+ * @param userId - The person.
+ */
+export async function clearSecondFactorFailures(userId: string): Promise<void> {
+  await clear(RATE_LIMITS.secondFactorFailuresPerAccount, userId);
+}
+
+/**
+ * `verifySecondFactor` behind the lockout (`countSecondFactorAttempt`): five
+ * tries for one person in fifteen minutes, from any address and however many
+ * arrive at once, and thirty per address. A right code clears the person's
+ * count.
  * @param userId - The person.
  * @param typed - What they typed.
  * @param opts - Request context.
@@ -316,21 +378,31 @@ export async function verifySecondFactor(userId: string, typed: string, now: Dat
  */
 export async function checkSecondFactor(userId: string, typed: string, opts: { ip: string | null; now?: Date }): Promise<SecondFactorCheck> {
   const now = opts.now ?? new Date();
-  const locked = await peek(RATE_LIMITS.secondFactorFailuresPerAccount, userId, now);
-  if (!locked.allowed) {
-    return { ok: false, reason: 'locked', retryAfterSeconds: locked.retryAfterSeconds };
-  }
-  const fromIp = await hit(RATE_LIMITS.secondFactorPerIp, opts.ip, now);
-  if (!fromIp.allowed) {
-    return { ok: false, reason: 'locked', retryAfterSeconds: fromIp.retryAfterSeconds };
+  const counted = await countSecondFactorAttempt(userId, opts.ip, now);
+  if (!counted.allowed) {
+    return { ok: false, reason: 'locked', retryAfterSeconds: counted.retryAfterSeconds };
   }
   const method = await verifySecondFactor(userId, typed, now);
   if (!method) {
-    await hit(RATE_LIMITS.secondFactorFailuresPerAccount, userId, now);
     return { ok: false, reason: 'invalid' };
   }
-  await clear(RATE_LIMITS.secondFactorFailuresPerAccount, userId);
+  await clearSecondFactorFailures(userId);
   return { ok: true, method };
+}
+
+/**
+ * Delete a person's authenticator and recovery codes and end their other
+ * sessions, whatever requires it. A person who must have one enrols again at
+ * their next sign-in.
+ * @param userId - The person.
+ */
+async function removeSecondFactor(userId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.delete(userMfaRecoveryCodeSchema).where(eq(userMfaRecoveryCodeSchema.userId, userId));
+    await tx.delete(userMfaSchema).where(eq(userMfaSchema.userId, userId));
+  });
+  await clearSecondFactorFailures(userId);
+  await endOtherSessions(userId);
 }
 
 /**
@@ -343,11 +415,65 @@ export async function disableMfa(userId: string): Promise<{ ok: true } | { ok: f
   if (requiredBy) {
     return { ok: false, reason: 'required', requiredBy };
   }
-  await db.transaction(async (tx) => {
-    await tx.delete(userMfaRecoveryCodeSchema).where(eq(userMfaRecoveryCodeSchema.userId, userId));
-    await tx.delete(userMfaSchema).where(eq(userMfaSchema.userId, userId));
-  });
+  await removeSecondFactor(userId);
   return { ok: true };
+}
+
+/**
+ * The way back in for a person who lost both their authenticator and their
+ * recovery codes: remove their second factor without a code and whatever
+ * requires it. If an account or the deployment requires one, they set up a
+ * new authenticator at their next sign-in, before any workspace. Used by the
+ * operator script; an account admin goes through `resetMemberSecondFactor`.
+ * @param userId - The person.
+ * @returns Whether they had one to remove.
+ */
+export async function resetSecondFactor(userId: string): Promise<boolean> {
+  const had = Boolean(await mfaRow(userId));
+  await removeSecondFactor(userId);
+  return had;
+}
+
+export type MemberResetRefusal = 'self' | 'not-a-member' | 'other-accounts';
+
+/**
+ * An account admin resets the second factor of a member of their own account
+ * (`resetSecondFactor`). Refused for the admin themself (the profile page
+ * turns it off, with a code), for anyone outside the account, and for a person
+ * who also belongs to another account: two-step sign-in is the person's, not
+ * one account's, so removing it would also weaken their sign-in to a client
+ * company this admin does not run. An operator resets that person
+ * (`npm run local:reset-mfa`).
+ * @param opts - The reset.
+ * @param opts.accountId - The admin's account.
+ * @param opts.actorUserId - The admin.
+ * @param opts.targetUserId - The member.
+ */
+export async function resetMemberSecondFactor(opts: {
+  accountId: string;
+  actorUserId: string;
+  targetUserId: string;
+}): Promise<{ ok: true; hadSecondFactor: boolean } | { ok: false; reason: MemberResetRefusal }> {
+  if (opts.actorUserId === opts.targetUserId) {
+    return { ok: false, reason: 'self' };
+  }
+  const [member] = await db
+    .select({ userId: accountMembershipSchema.userId })
+    .from(accountMembershipSchema)
+    .where(and(eq(accountMembershipSchema.accountId, opts.accountId), eq(accountMembershipSchema.userId, opts.targetUserId)))
+    .limit(1);
+  if (!member) {
+    return { ok: false, reason: 'not-a-member' };
+  }
+  const [elsewhere] = await db
+    .select({ accountId: accountMembershipSchema.accountId })
+    .from(accountMembershipSchema)
+    .where(and(eq(accountMembershipSchema.userId, opts.targetUserId), ne(accountMembershipSchema.accountId, opts.accountId)))
+    .limit(1);
+  if (elsewhere) {
+    return { ok: false, reason: 'other-accounts' };
+  }
+  return { ok: true, hadSecondFactor: await resetSecondFactor(opts.targetUserId) };
 }
 
 /**

@@ -53,6 +53,8 @@ export function PeopleTab(props: {
   onChangeRole: (userId: string, role: 'admin' | 'member') => void;
   onRemoveDirect: (userId: string, projectId: string, workspace: string) => void;
   onRemoveMember: (userId: string, email: string) => void;
+  /** Clear a member's two-step sign-in so they can set it up again (lost phone and codes). */
+  onResetTwoStep: (userId: string, email: string) => void;
 }) {
   if (props.rows.length === 0) {
     return props.anyPeople
@@ -146,6 +148,12 @@ export function PeopleTab(props: {
                       {!self && (
                         <>
                           <DropdownMenuSeparator />
+                          {/* The way back in for someone who lost both their
+                              phone and their recovery codes. Refused, with
+                              the reason, for a person in another account too. */}
+                          <DropdownMenuItem onSelect={() => props.onResetTwoStep(p.userId, p.email)}>
+                            Reset two-step sign-in
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             variant="destructive"
                             onSelect={() => props.onRemoveMember(p.userId, p.email)}

@@ -240,6 +240,12 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
                   run(() => client.members.remove({ userId }));
                 }
               }}
+              onResetTwoStep={(userId, email) => {
+                // eslint-disable-next-line no-alert
+                if (window.confirm(`Reset two-step sign-in for ${email}? They are signed out everywhere and set it up again at their next sign-in if this account requires it.`)) {
+                  run(() => client.members.resetSecondFactor({ userId }));
+                }
+              }}
             />
           )
         : (

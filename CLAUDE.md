@@ -425,14 +425,26 @@ credential stored under the previous one.
   only the sign-in page and `/api/mfa/*` read it. The JWT callback clears it
   only on an in-process proof from `/api/mfa/verify` (`mfaCompletionProof`),
   never on data a browser posts to `/api/auth/session`. Guard on
-  `session.user.id`, never on `session` alone.
+  `session.user.id`, never on `session` alone. A hold lasts ten minutes
+  (`HELD_SIGN_IN_TTL_MS`), then reads as fully signed out.
+- **Ending sessions.** A change to a person's sign-in (a new password by reset,
+  profile or script; two-step on, off or reset) calls `endOtherSessions`
+  (`services/auth/sessionVersion.ts`), which raises `user.session_version`; the
+  session callback reads a token stamped with an older number as signed out.
+  The route the change came from keeps its own session with `keepThisSession`
+  (`libs/Auth.ts`), never by trusting a browser's `/api/auth/session` update.
 - **Rate limits and lockouts** all go through `libs/rateLimit` with the
-  policies in one list (`policies.ts`): `hit` to count an attempt, `peek` +
-  `hit` + `clear` for a lockout, `tooManyRequests` for the 429 with
-  `Retry-After`. Limits guarding a secret count in Postgres (`rate_limit_hit`),
-  throughput limits in memory. Per-IP subjects come from `libs/http/clientIp.ts`
-  (right-most `X-Forwarded-For` hop, `VOCION_TRUSTED_PROXY_COUNT`). A missing
-  subject or a failing store allows; `VOCION_RATE_LIMIT=off` is for test runs.
+  policies in one list (`policies.ts`): `hit` to count an attempt,
+  `tooManyRequests` for the 429 with `Retry-After`. A lockout `hit`s BEFORE it
+  checks the secret and `clear`s on success — never check-then-count-failures,
+  which a parallel burst walks straight past; `peek` is only a cheap early
+  refusal. Password checks go through `services/auth/passwordCheck.ts`, code
+  checks through `countSecondFactorAttempt` (`services/auth/mfa.ts`). Limits
+  guarding a secret count in Postgres (`rate_limit_hit`), throughput limits in
+  memory. Per-IP subjects come from `libs/http/clientIp.ts` (right-most
+  `X-Forwarded-For` hop, `VOCION_TRUSTED_PROXY_COUNT`; the value per topology is
+  in `infra/aws/README.md`). A missing subject or a failing store allows;
+  `VOCION_RATE_LIMIT=off` is for test runs.
 
 ## Database Schema
 

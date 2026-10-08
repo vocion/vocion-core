@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { hashPassword, verifyPassword } from '@/libs/identity/password';
 import { userSchema } from '@/models/Schema';
+import { endOtherSessions } from '@/services/auth/sessionVersion';
 
 export type UserProfile = {
   name: string | null;
@@ -25,6 +26,19 @@ export async function getProfile(userId: string): Promise<UserProfile | null> {
     .where(eq(userSchema.id, userId))
     .limit(1);
   return user ?? null;
+}
+
+/**
+ * Whether the person can sign in with a password (a Google-only login cannot).
+ * @param userId - The person.
+ */
+export async function hasPassword(userId: string): Promise<boolean> {
+  const [user] = await db
+    .select({ passwordHash: userSchema.passwordHash })
+    .from(userSchema)
+    .where(eq(userSchema.id, userId))
+    .limit(1);
+  return Boolean(user?.passwordHash);
 }
 
 export async function updateProfile(opts: { userId: string; name: string }): Promise<void> {
@@ -91,8 +105,13 @@ export async function changePassword(opts: {
   }
 
   const passwordHash = await hashPassword(opts.newPassword);
-  await db
-    .update(userSchema)
-    .set({ passwordHash })
-    .where(eq(userSchema.id, opts.userId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(userSchema)
+      .set({ passwordHash })
+      .where(eq(userSchema.id, opts.userId));
+    // A new password ends every other session; the route keeps the one the
+    // change was made from (`keepThisSession`).
+    await endOtherSessions(opts.userId, tx);
+  });
 }

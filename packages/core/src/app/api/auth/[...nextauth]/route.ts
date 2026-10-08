@@ -8,10 +8,16 @@
 // "CredentialsSignin", which tells neither a script nor a person to wait.
 // The 429 body still carries the `url` the next-auth client reads, with
 // `code=rate_limited`, so the form says "try again in N minutes".
+//
+// The lockout check here is a read (`passwordLockout`), the cheap early
+// answer. The lockout itself counts each attempt before the password is
+// compared, inside the provider (`services/auth/passwordCheck.ts`), so a
+// parallel burst cannot slip past this read.
 import type { NextRequest } from 'next/server';
 import { handlers } from '@/libs/Auth';
 import { clientIp } from '@/libs/http/clientIp';
-import { firstRefusal, hit, peek, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
+import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
+import { passwordLockout } from '@/services/auth/passwordCheck';
 
 export const { GET } = handlers;
 
@@ -34,9 +40,10 @@ async function emailOf(req: Request): Promise<string | null> {
 
 export async function POST(req: NextRequest) {
   if (CREDENTIALS_CALLBACK.test(new URL(req.url).pathname)) {
+    const ip = clientIp(req.headers);
     const verdict = firstRefusal(
-      await hit(RATE_LIMITS.signInPerIp, clientIp(req.headers)),
-      await peek(RATE_LIMITS.signInFailuresPerAccount, await emailOf(req)),
+      await hit(RATE_LIMITS.signInPerIp, ip),
+      await passwordLockout(await emailOf(req), ip),
     );
     if (!verdict.allowed) {
       const back = new URL('/sign-in', req.url);

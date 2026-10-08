@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,20 +12,46 @@ import { Link } from '@/libs/I18nNavigation';
 const MIN_LENGTH = 8;
 
 /**
- * Choose a new password from a reset link. A link that is already spent or
- * expired says so before the person types anything (`live` from the page),
- * and again if it ran out while they were typing.
- * @param props - The link.
- * @param props.token - The token from `?token=`.
- * @param props.live - Whether the link was still good when the page loaded.
+ * The token from the link's fragment (`#token=…`), taken out of the address
+ * bar as it is read so it does not linger in history, a screenshot, or a URL
+ * the browser's error reporting records.
  */
-export function ResetPasswordForm(props: { token: string; live: boolean }) {
+function takeTokenFromFragment(): string {
+  const token = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token') ?? '';
+  if (window.location.hash) {
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+  }
+  return token;
+}
+
+/**
+ * Choose a new password from a reset link. The token comes from the link's
+ * fragment, never the query string, so no server log holds it. A link that is
+ * already spent or expired says so before the person types anything (checked
+ * with a POST), and again if it ran out while they were typing.
+ */
+export function ResetPasswordForm() {
   const t = useTranslations('ResetPassword');
+  const [token, setToken] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [state, setState] = useState<'form' | 'done' | 'invalid'>(props.live ? 'form' : 'invalid');
+  const [state, setState] = useState<'checking' | 'form' | 'done' | 'invalid'>('checking');
+
+  useEffect(() => {
+    const fromLink = takeTokenFromFragment();
+    const check = async () => {
+      const result = fromLink
+        ? await postJson<{ live: boolean }>('/api/password-reset/check', { token: fromLink })
+        : null;
+      setToken(fromLink);
+      // A check that could not run (offline, rate limited) shows the form;
+      // submitting it says what is wrong.
+      setState(result && result.ok && !result.data.live ? 'invalid' : fromLink ? 'form' : 'invalid');
+    };
+    void check();
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +65,7 @@ export function ResetPasswordForm(props: { token: string; live: boolean }) {
       return;
     }
     setSubmitting(true);
-    const result = await postJson<{ ok: true }>('/api/password-reset/confirm', { token: props.token, password });
+    const result = await postJson<{ ok: true }>('/api/password-reset/confirm', { token, password });
     setSubmitting(false);
     if (result.ok) {
       setState('done');
@@ -53,6 +79,10 @@ export function ResetPasswordForm(props: { token: string; live: boolean }) {
       setError(t('failed'));
     }
   };
+
+  if (state === 'checking') {
+    return <AuthCard title={t('title')} subtitle={t('checking')}>{null}</AuthCard>;
+  }
 
   if (state === 'done') {
     return (

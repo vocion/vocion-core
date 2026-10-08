@@ -9,6 +9,10 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-forwarded-for': '198.51.100.4' }) }));
 vi.mock('./AuthGuards', () => ({ guardAuth: vi.fn() }));
+// Auth.js itself cannot load outside Next; the routes only need to keep the
+// caller's session after a change that ends the others.
+const keepThisSession = vi.fn(async (_userId: string) => {});
+vi.mock('@/libs/Auth', () => ({ keepThisSession: (userId: string) => keepThisSession(userId) }));
 
 const { db } = await import('@/libs/DB');
 const { resetCredentialVault } = await import('@/libs/crypto/credentialVault');
@@ -16,7 +20,9 @@ const { resetMemoryRateLimits } = await import('@/libs/rateLimit');
 const schema = await import('@/models/Schema');
 const mfa = await import('@/services/auth/mfa');
 const { guardAuth } = await import('./AuthGuards');
-const { disableMfaRoute, mfaStatusRoute, regenerateRecoveryCodesRoute, setAccountMfaRequirementRoute } = await import('./Profile');
+const { changePasswordRoute, disableMfaRoute, mfaStatusRoute, regenerateRecoveryCodesRoute, setAccountMfaRequirementRoute } = await import('./Profile');
+const { hashPassword } = await import('@/libs/identity/password');
+const { eq } = await import('drizzle-orm');
 
 const SAM = 'usr-sam';
 
@@ -45,10 +51,13 @@ async function enrolSam(): Promise<string[]> {
 
 beforeAll(() => {
   vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', randomBytes(32).toString('base64'));
+  vi.stubEnv('AUTH_SECRET', 'profile-mfa-test-secret');
   resetCredentialVault();
 });
 
 beforeEach(async () => {
+  keepThisSession.mockClear();
+  vi.stubEnv('VOCION_DEMO_SEED_DIR', '');
   resetMemoryRateLimits();
   await db.delete(schema.rateLimitHitSchema);
   await db.delete(schema.userMfaRecoveryCodeSchema);
@@ -65,7 +74,16 @@ describe('profile.mfa', () => {
   it('reports the state and whether this person may flip the account switch', async () => {
     signedInAs('member');
 
-    expect(await call(mfaStatusRoute)).toMatchObject({ enabled: false, account: { required: false, canChange: false } });
+    expect(await call(mfaStatusRoute)).toMatchObject({ enabled: false, available: true, hasPassword: false, account: { required: false, canChange: false } });
+  });
+
+  it('is unavailable in the demo sandbox, and its account switch cannot be flipped there', async () => {
+    vi.stubEnv('VOCION_DEMO_SEED_DIR', 'demo-seed');
+    signedInAs('admin');
+
+    expect(await call(mfaStatusRoute)).toMatchObject({ available: false });
+    await expect(call(setAccountMfaRequirementRoute, { required: true })).rejects.toMatchObject({ status: 403 });
+    expect(await mfa.accountRequiresMfa('acct-northwind')).toBe(false);
   });
 
   it('turns two-step off only with a working code', async () => {
@@ -78,6 +96,8 @@ describe('profile.mfa', () => {
     await call(disableMfaRoute, { code: codes[0] });
 
     expect(await mfa.mfaEnabled(SAM)).toBe(false);
+    // Turning it off ended Sam's other sessions; this one is kept.
+    expect(keepThisSession).toHaveBeenCalledWith(SAM);
   });
 
   it('answers a run of wrong codes with a 429', async () => {
@@ -110,5 +130,17 @@ describe('profile.mfa', () => {
 
     expect(await mfa.accountRequiresMfa('acct-northwind')).toBe(true);
     expect(await mfa.signInGateFor(SAM)).toBe('enroll');
+  });
+
+  it('ends other sessions when the password changes, and keeps the one it was changed from', async () => {
+    signedInAs('member');
+    await db.update(schema.userSchema).set({ passwordHash: await hashPassword('old-password') });
+
+    await call(changePasswordRoute, { currentPassword: 'old-password', newPassword: 'a-new-password' });
+
+    const [row] = await db.select({ v: schema.userSchema.sessionVersion }).from(schema.userSchema).where(eq(schema.userSchema.id, SAM));
+
+    expect(row?.v).toBe(1);
+    expect(keepThisSession).toHaveBeenCalledWith(SAM);
   });
 });

@@ -395,7 +395,12 @@
     "account_require_label": "Exiger la connexion en deux étapes pour tout le compte",
     "account_require_hint": "Les membres qui ne l’ont pas configurée le feront à leur prochaine connexion, avant d’accéder à un espace de travail.",
     "account_require_on": "Tous les membres de ce compte se connectent désormais avec un code.",
-    "account_require_off": "La connexion en deux étapes est désormais au choix de chaque membre."
+    "account_require_off": "La connexion en deux étapes est désormais au choix de chaque membre.",
+    "setup_password_intro": "Saisissez votre mot de passe pour configurer la connexion en deux étapes.",
+    "setup_password_label": "Votre mot de passe",
+    "setup_password_continue": "Continuer",
+    "setup_wrong_password": "Ce mot de passe n’est pas le bon.",
+    "setup_reauth": "Par sécurité, déconnectez-vous puis reconnectez-vous, et configurez-la dans les dix minutes."
   },
   "ForgotPassword": {
     "title": "Réinitialiser votre mot de passe",
@@ -425,6 +430,7 @@
     "invalid_body": "Un lien de réinitialisation ne sert qu’une fois et expire au bout d’une heure. Demandez-en un nouveau.",
     "request_new": "Envoyer un nouveau lien",
     "rate_limited": "Trop de tentatives. Réessayez dans {minutes, plural, =1 {1 minute} other {# minutes}}.",
-    "failed": "Une erreur est survenue. Réessayez."
+    "failed": "Une erreur est survenue. Réessayez.",
+    "checking": "Vérification de votre lien…"
   }
 }

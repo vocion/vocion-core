@@ -2,7 +2,8 @@
  * Forgot-password against real rows in PGlite, with the mail transport
  * stubbed: the link is single-use, short-lived and hash-only; the answer never
  * says whether an email has a login; the link names the configured address,
- * never the request's.
+ * never the request's, and carries the token in its fragment, never its query;
+ * a reset ends every session the person had.
  */
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +14,8 @@ vi.mock('@/libs/mail', () => ({ sendMail: (message: { to: string; text?: string 
 
 const { db } = await import('@/libs/DB');
 const { hashPassword, verifyPassword } = await import('@/libs/identity/password');
-const { hit, peek, RATE_LIMITS, resetMemoryRateLimits } = await import('@/libs/rateLimit');
+const { hit, RATE_LIMITS, resetMemoryRateLimits } = await import('@/libs/rateLimit');
+const { passwordLockout } = await import('./passwordCheck');
 const { passwordResetTokenSchema, rateLimitHitSchema, userSchema } = await import('@/models/Schema');
 const { requestPasswordReset, resetLinkIsLive, resetPassword } = await import('./passwordReset');
 
@@ -23,7 +25,7 @@ const SAM = { id: 'usr-sam', email: 'sam@northwind.example' };
 /** The token in the last mailed link. */
 function mailedToken(): string {
   const text = sendMail.mock.calls.at(-1)?.[0]?.text ?? '';
-  const match = /reset-password\?token=(\S+)/.exec(text);
+  const match = /reset-password#token=(\S+)/.exec(text);
   if (!match) {
     throw new Error('no link mailed');
   }
@@ -58,7 +60,10 @@ describe('asking for a reset link', () => {
 
     expect(sendMail).toHaveBeenCalledTimes(1);
     expect(sendMail.mock.calls[0]![0].to).toBe('sam@northwind.example');
-    expect(sendMail.mock.calls[0]![0].text).toContain('https://app.northwind.example/reset-password?token=');
+    // In the fragment: a browser never sends it, so no access log or error
+    // tracker's request record holds a live link.
+    expect(sendMail.mock.calls[0]![0].text).toContain('https://app.northwind.example/reset-password#token=');
+    expect(sendMail.mock.calls[0]![0].text).not.toContain('?token=');
 
     const token = mailedToken();
     const rows = await db.select().from(passwordResetTokenSchema);
@@ -153,17 +158,27 @@ describe('using the link', () => {
     expect(await resetPassword({ token: 'not-a-token', password: 'new-password-1', now: NOW })).toEqual({ ok: false, reason: 'invalid' });
   });
 
-  it('lifts the sign-in lockout on that email', async () => {
+  it('lifts the sign-in lockout on that email, everywhere and from the address that reset it', async () => {
     for (let i = 0; i < RATE_LIMITS.signInFailuresPerAccount.limit; i++) {
       await hit(RATE_LIMITS.signInFailuresPerAccount, SAM.email);
     }
 
-    expect((await peek(RATE_LIMITS.signInFailuresPerAccount, SAM.email)).allowed).toBe(false);
+    expect((await passwordLockout(SAM.email, '198.51.100.4')).allowed).toBe(false);
 
+    await ask(SAM.email, { now: new Date() });
+
+    await resetPassword({ token: mailedToken(), password: 'new-password-1', ip: '198.51.100.4' });
+
+    expect((await passwordLockout(SAM.email, '198.51.100.4')).allowed).toBe(true);
+  });
+
+  it('ends every session the person had — someone else using the account is why people reset', async () => {
     await ask(SAM.email, { now: new Date() });
 
     await resetPassword({ token: mailedToken(), password: 'new-password-1' });
 
-    expect((await peek(RATE_LIMITS.signInFailuresPerAccount, SAM.email)).allowed).toBe(true);
+    const [user] = await db.select({ v: userSchema.sessionVersion }).from(userSchema).where(eq(userSchema.id, SAM.id));
+
+    expect(user?.v).toBe(1);
   });
 });

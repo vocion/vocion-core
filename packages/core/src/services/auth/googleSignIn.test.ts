@@ -10,7 +10,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, inviteSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
-const { acceptPendingInvitesForNewUser, googleSignInAllowed } = await import('./googleSignIn');
+const { acceptPendingInvitesIfUnplaced, googleSignInAllowed } = await import('./googleSignIn');
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -67,7 +67,7 @@ describe('a user Google just made', () => {
   it('joins every account a pending invite to their email names, at the invite\'s role', async () => {
     await db.insert(userSchema).values({ id: 'usr-lee', email: 'lee@northwind.example', name: 'Lee' });
 
-    expect(await acceptPendingInvitesForNewUser('usr-lee', 'lee@northwind.example')).toBe(2);
+    expect(await acceptPendingInvitesIfUnplaced('usr-lee', 'lee@northwind.example')).toBe(2);
 
     const memberships = await db.select().from(accountMembershipSchema).where(eq(accountMembershipSchema.userId, 'usr-lee'));
 
@@ -76,5 +76,27 @@ describe('a user Google just made', () => {
     const spent = await db.select().from(inviteSchema).where(eq(inviteSchema.email, 'lee@northwind.example'));
 
     expect(spent.every(invite => invite.acceptedAt)).toBe(true);
+  });
+});
+
+describe('a person Google signs in who is already in an account', () => {
+  it('is not joined to anything else — a further invite is theirs to take on its Join card', async () => {
+    await db.insert(userSchema).values({ id: 'usr-lee', email: 'lee@northwind.example', name: 'Lee' });
+    await db.insert(accountMembershipSchema).values({ accountId: 'acct-northwind', userId: 'usr-lee', role: 'member' });
+
+    expect(await acceptPendingInvitesIfUnplaced('usr-lee', 'lee@northwind.example')).toBe(0);
+
+    const memberships = await db.select().from(accountMembershipSchema).where(eq(accountMembershipSchema.userId, 'usr-lee'));
+
+    expect(memberships.map(m => m.accountId)).toEqual(['acct-northwind']);
+  });
+
+  it('joins on a later sign-in when the first one left them in no account', async () => {
+    await db.insert(userSchema).values({ id: 'usr-lee', email: 'lee@northwind.example', name: 'Lee' });
+
+    // The first sign-in's attempt did not land (nothing accepted); the next
+    // one finds them still unplaced and accepts.
+    expect(await acceptPendingInvitesIfUnplaced('usr-lee', 'lee@northwind.example')).toBe(2);
+    expect(await acceptPendingInvitesIfUnplaced('usr-lee', 'lee@northwind.example')).toBe(0);
   });
 });

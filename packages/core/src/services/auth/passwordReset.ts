@@ -15,7 +15,15 @@
  * by a conditional update (two tabs, one reset), and a link expires an hour
  * after it is issued. A reset also clears the sign-in lockout on that email,
  * because a person who just proved they own the mailbox should be able to use
- * the password they chose.
+ * the password they chose, and ends every session the person had
+ * (`services/auth/sessionVersion.ts`) — someone else using the account is the
+ * most common reason to reset it.
+ *
+ * The token rides in the link's FRAGMENT (`/reset-password#token=…`), which a
+ * browser never sends to a server: it stays out of reverse-proxy access logs
+ * and out of the request URL an error tracker records. The reset page reads it
+ * in the browser, drops it from the address bar, and POSTs it
+ * (`/api/password-reset/check`, then `/confirm`).
  *
  * The link's address comes from configuration (`NEXT_PUBLIC_APP_URL`, then
  * `AUTH_URL`), never from the request's Host header: a forged Host would
@@ -29,9 +37,11 @@ import { db } from '@/libs/DB';
 import { hashPassword } from '@/libs/identity/password';
 import { appBaseUrl } from '@/libs/links';
 import { sendMail } from '@/libs/mail';
-import { clear, firstRefusal, hit, RATE_LIMITS } from '@/libs/rateLimit';
+import { firstRefusal, hit, RATE_LIMITS } from '@/libs/rateLimit';
 import { passwordResetTokenSchema, userSchema } from '@/models/Schema';
 import { AppConfig } from '@/utils/AppConfig';
+import { clearPasswordLockout } from './passwordCheck';
+import { endOtherSessions } from './sessionVersion';
 
 export const RESET_LINK_TTL_MINUTES = 60;
 export const MIN_PASSWORD_LENGTH = 8;
@@ -153,7 +163,8 @@ async function issueAndSend(opts: { email: string; now: Date; requestOrigin: str
     log('error', 'password reset link not sent: set NEXT_PUBLIC_APP_URL (or AUTH_URL) so the link can name this deployment');
     return;
   }
-  const link = `${base}/reset-password?token=${encodeURIComponent(token)}`;
+  // In the fragment, never the query: see the module docstring.
+  const link = `${base}/reset-password#token=${encodeURIComponent(token)}`;
   const result = await sendMail({ to: email, ...resetMail(link), tags: { kind: 'password-reset' } });
   if (result.skipped) {
     log('warn', 'password reset requested but outbound mail is off (VOCION_MAIL_ENABLED is not 1)');
@@ -183,13 +194,15 @@ export async function resetLinkIsLive(token: string, now: Date = new Date()): Pr
 }
 
 /**
- * Spend a reset link and set the new password.
+ * Spend a reset link and set the new password. Ends every session the person
+ * had and lifts the sign-in lockout on their email.
  * @param opts - The reset.
  * @param opts.token - The token from the link.
  * @param opts.password - The new password.
+ * @param opts.ip - The address the reset came from, whose lockout it also lifts.
  * @param opts.now - The current time; tests pass one.
  */
-export async function resetPassword(opts: { token: string; password: string; now?: Date }): Promise<ResetOutcome> {
+export async function resetPassword(opts: { token: string; password: string; ip?: string | null; now?: Date }): Promise<ResetOutcome> {
   const now = opts.now ?? new Date();
   if (opts.password.length < MIN_PASSWORD_LENGTH) {
     return { ok: false, reason: 'weak-password' };
@@ -223,11 +236,12 @@ export async function resetPassword(opts: { token: string; password: string; now
       .update(passwordResetTokenSchema)
       .set({ usedAt: now })
       .where(and(eq(passwordResetTokenSchema.userId, spent.userId), isNull(passwordResetTokenSchema.usedAt)));
+    await endOtherSessions(spent.userId, tx);
     return user?.email ?? null;
   });
   if (!email) {
     return { ok: false, reason: 'invalid' };
   }
-  await clear(RATE_LIMITS.signInFailuresPerAccount, email);
+  await clearPasswordLockout(email, opts.ip ?? null);
   return { ok: true, email };
 }

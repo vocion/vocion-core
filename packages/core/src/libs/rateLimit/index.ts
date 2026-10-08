@@ -5,10 +5,14 @@
  *   if (!verdict.allowed) return tooManyRequests(verdict);
  *
  * `hit` counts an attempt and refuses once the window's count passes the
- * policy's limit. `peek` reads without counting and refuses once the count has
- * REACHED it, which is the lockout check made before an attempt whose failure
- * is then counted with `hit`; `clear` forgets a subject, so a successful
- * sign-in wipes its failures. Policies live in `./policies.ts`.
+ * policy's limit. It is one atomic upsert that returns the new count, which is
+ * what makes a lockout hold under concurrency: a lockout calls `hit` BEFORE it
+ * checks the secret, refuses when that says so, and `clear`s the subject when
+ * the secret was right. Checking first and counting only failures afterwards
+ * lets a burst of parallel requests all pass the check before any of them is
+ * counted. `peek` reads without counting and refuses once the count has
+ * REACHED the limit — a cheap early 429 at the edge, never the lockout itself.
+ * Policies live in `./policies.ts`.
  *
  * Three rules keep this from becoming the thing that stops people:
  *

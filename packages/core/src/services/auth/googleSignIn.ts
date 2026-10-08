@@ -9,11 +9,16 @@
  * - **An existing login** is linked by that verified email (Auth.js
  *   `allowDangerousEmailAccountLinking`, made safe by the verified check
  *   below): one person stays one user, with a password and Google both.
- * - **A pending invite** makes the user on first sign-in, and every pending
- *   invite addressed to that email is accepted on it straight away through
- *   the same path a signed-in person's "Join" takes
- *   (`acceptInviteAsExistingUser`), so the memberships and the personal
- *   workspace land exactly as they would by the invite link.
+ * - **A pending invite** makes the user on first sign-in. While that person
+ *   belongs to no account at all, every Google sign-in accepts the pending
+ *   invites addressed to their email through the same path a signed-in
+ *   person's "Join" takes (`acceptInviteAsExistingUser`), so the memberships
+ *   and the personal workspace land exactly as they would by the invite link.
+ *   "While unplaced" rather than "on the first sign-in only": a failure on the
+ *   first sign-in is retried on the next one instead of leaving a login with
+ *   nowhere to go. Once the person is in an account, a further invite is
+ *   theirs to take or leave on the Join card its link opens — Google never
+ *   joins someone who already has a way in to another company.
  *
  * Enabled by setting `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` (a Google OAuth
  * client whose redirect URI is `<app>/api/auth/callback/google`). Unset, the
@@ -22,7 +27,7 @@
 
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { inviteSchema, userSchema } from '@/models/Schema';
+import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
 import { acceptInviteAsExistingUser } from '@/services/InviteAcceptance';
 
 /** The parts of Google's OpenID profile the gate reads. */
@@ -61,21 +66,40 @@ export async function googleSignInAllowed(profile: GoogleProfileClaims | null | 
 }
 
 /**
- * Accept every pending invite addressed to a user Google sign-in just made.
- * Each goes through `acceptInviteAsExistingUser`, which re-checks the invite
- * and adds the membership; one that went stale in between is skipped.
- * @param userId - The new user.
+ * On a Google sign-in, accept the pending invites addressed to a person who
+ * belongs to no account yet. Each goes through `acceptInviteAsExistingUser`,
+ * which re-checks the invite and adds the membership; one that went stale in
+ * between is skipped, and one that throws does not stop the others. A person
+ * already in an account is left alone.
+ * @param userId - The person Google signed in.
  * @param email - Their verified email.
  * @param now - The current time; tests pass one.
  * @returns How many invites were accepted.
  */
-export async function acceptPendingInvitesForNewUser(userId: string, email: string, now: Date = new Date()): Promise<number> {
+export async function acceptPendingInvitesIfUnplaced(userId: string, email: string, now: Date = new Date()): Promise<number> {
+  const [placed] = await db
+    .select({ accountId: accountMembershipSchema.accountId })
+    .from(accountMembershipSchema)
+    .where(eq(accountMembershipSchema.userId, userId))
+    .limit(1);
+  if (placed) {
+    return 0;
+  }
   let accepted = 0;
+  let failure: unknown = null;
   for (const invite of await pendingInvitesFor(email.trim().toLowerCase(), now)) {
-    const result = await acceptInviteAsExistingUser(userId, invite.token);
-    if (result.ok) {
-      accepted += 1;
+    try {
+      const result = await acceptInviteAsExistingUser(userId, invite.token);
+      if (result.ok) {
+        accepted += 1;
+      }
+    } catch (error) {
+      failure ??= error;
     }
+  }
+  if (failure && accepted === 0) {
+    // Nothing landed, so the caller logs it and the next sign-in retries.
+    throw failure;
   }
   return accepted;
 }

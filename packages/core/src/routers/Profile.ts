@@ -50,6 +50,9 @@ export const changePasswordRoute = os
     } catch (e) {
       throw ApiError.badRequest(e instanceof Error ? e.message : 'Could not change password.');
     }
+    // The change ended every other session; this one stays signed in.
+    const { keepThisSession } = await import('@/libs/Auth');
+    await keepThisSession(userId);
     return { ok: true };
   });
 
@@ -86,10 +89,21 @@ async function requireSecondFactor(userId: string, code: string): Promise<void> 
 
 export const mfaStatusRoute = os.handler(async () => {
   const { userId, accountId, has } = await guardAuth();
-  const { accountRequiresMfa, mfaStatus } = await import('@/services/auth/mfa');
+  const [{ accountRequiresMfa, mfaStatus }, { isDemoSandbox }, { hasPassword }] = await Promise.all([
+    import('@/services/auth/mfa'),
+    import('@/libs/identity/demoSandbox'),
+    import('@/services/UserProfileService'),
+  ]);
   const status = await mfaStatus(userId);
   return {
     ...status,
+    /**
+     * Whether two-step sign-in can be set up here at all. Not in the demo
+     * sandbox, where every visitor shares one login (`libs/identity/demoSandbox.ts`).
+     */
+    available: !isDemoSandbox(),
+    /** Whether setting it up asks for the password (else a recent sign-in stands in). */
+    hasPassword: await hasPassword(userId),
     /** The active account's own switch, for an admin to see and flip. */
     account: accountId
       ? { required: await accountRequiresMfa(accountId), canChange: has({ role: ORG_ROLE.ADMIN }) }
@@ -109,6 +123,9 @@ export const disableMfaRoute = os
         ? 'This deployment requires two-step sign-in, so it cannot be turned off.'
         : 'An account you belong to requires two-step sign-in, so it cannot be turned off.');
     }
+    // Turning it off ended every other session; this one stays signed in.
+    const { keepThisSession } = await import('@/libs/Auth');
+    await keepThisSession(userId);
     return { ok: true };
   });
 
@@ -131,6 +148,12 @@ export const setAccountMfaRequirementRoute = os
     const { accountId, has } = await guardAuth();
     if (!accountId || !has({ role: ORG_ROLE.ADMIN })) {
       throw ApiError.forbidden();
+    }
+    const { isDemoSandbox } = await import('@/libs/identity/demoSandbox');
+    if (isDemoSandbox()) {
+      // Requiring it would send the next visitor of the shared login to set
+      // up an authenticator, then bounce them between sign-in and dashboard.
+      throw ApiError.forbidden('Two-step sign-in is not available in the demo.');
     }
     const { setAccountMfaRequirement } = await import('@/services/auth/mfa');
     await setAccountMfaRequirement(accountId, input.required);

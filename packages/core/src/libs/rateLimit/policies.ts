@@ -13,9 +13,12 @@
  *
  * - a **limit** counts every attempt and refuses once the count passes
  *   `limit` (`hit`);
- * - a **lockout** counts only failures, is checked before the attempt
- *   (`peek`), and is cleared by a success (`clear`). Ten wrong passwords for
- *   one email lock that email for the rest of the window, from any IP.
+ * - a **lockout** counts every attempt BEFORE the secret is checked (`hit`,
+ *   one atomic upsert, so a parallel burst cannot slip past it) and is cleared
+ *   by a success (`clear`), so what it ends up holding is the failures. Ten
+ *   wrong passwords for one email from one address lock that email from that
+ *   address; fifty from everywhere together lock it everywhere. `peek` is only
+ *   the cheap early refusal at the edge.
  *
  * The per-IP numbers are generous on purpose: a whole office can sit behind
  * one address, and the per-account lockouts are what stop guessing.
@@ -38,11 +41,25 @@ const HOUR = 60 * MINUTE;
 export const RATE_LIMITS = {
   /** Password sign-in attempts from one address. */
   signInPerIp: { name: 'sign-in:ip', limit: 100, windowSeconds: QUARTER_HOUR, shared: true },
-  /** Lockout: wrong passwords for one email. */
-  signInFailuresPerAccount: { name: 'sign-in:failures', limit: 10, windowSeconds: QUARTER_HOUR, shared: true },
+  /**
+   * Lockout: password attempts for one email from one address. The one a
+   * guesser meets, and the most a stranger can do to someone else's sign-in:
+   * it locks the email from the stranger's own address only.
+   */
+  signInFailuresPerEmailIp: { name: 'sign-in:failures:email-ip', limit: 10, windowSeconds: QUARTER_HOUR, shared: true },
+  /**
+   * Lockout ceiling: password attempts for one email from every address
+   * together — the wall against guessing spread over many addresses, set high
+   * enough that keeping a known person out takes at least five of them.
+   */
+  signInFailuresPerAccount: { name: 'sign-in:failures', limit: 50, windowSeconds: QUARTER_HOUR, shared: true },
   /** Second-factor attempts from one address. */
   secondFactorPerIp: { name: 'mfa:ip', limit: 30, windowSeconds: QUARTER_HOUR, shared: true },
-  /** Lockout: wrong second-factor codes for one person. A code is six digits, so this is the brute-force wall. */
+  /**
+   * Lockout: second-factor attempts for one person, counted before the code is
+   * checked and cleared by a right one. A code is six digits, so this is the
+   * brute-force wall: five tries a window, whatever the concurrency.
+   */
   secondFactorFailuresPerAccount: { name: 'mfa:failures', limit: 5, windowSeconds: QUARTER_HOUR, shared: true },
   /** Accounts created (invites accepted by a new user) from one address. */
   signUpPerIp: { name: 'sign-up:ip', limit: 10, windowSeconds: HOUR, shared: true },
@@ -61,9 +78,12 @@ export const RATE_LIMITS = {
   apiPerCaller: { name: 'api:caller', limit: 1200, windowSeconds: MINUTE, shared: false },
   apiPerIp: { name: 'api:ip', limit: 2400, windowSeconds: MINUTE, shared: false },
   /**
-   * Bad bearer tokens from one address — the API's lockout. In memory: a token
-   * carries far too much entropy to guess, so this only stops a script from
-   * hammering, which a per-container count does as well.
+   * Bad bearer tokens from one address. Counted only when a token fails and
+   * never consulted before one is checked: on Cloud many tenants' automations
+   * share an egress address, and one tenant's integration retrying a revoked
+   * token must not refuse another tenant's valid one. In memory: a token
+   * carries far too much entropy to guess, so this only slows a script that
+   * keeps presenting bad ones.
    */
   apiAuthFailuresPerIp: { name: 'api-auth-failures:ip', limit: 30, windowSeconds: QUARTER_HOUR, shared: false },
 } as const satisfies Record<string, RateLimitPolicy>;

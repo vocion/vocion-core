@@ -90,7 +90,9 @@ export function TwoStepSection() {
     setBusy(false);
   };
 
-  if (!status) {
+  // Not offered where it cannot be used: the demo sandbox, where every
+  // visitor shares one login (`libs/identity/demoSandbox.ts`).
+  if (!status || !status.available) {
     return null;
   }
 
@@ -110,6 +112,7 @@ export function TwoStepSection() {
 
         {step.kind === 'setup' && (
           <AuthenticatorSetup
+            askPassword={status.hasPassword}
             onCancel={() => setStep({ kind: 'idle' })}
             onDone={() => {
               setStep({ kind: 'idle' });

@@ -11,15 +11,26 @@
 -- cannot be replayed inside its own window.
 --
 -- `user_mfa_recovery_code` holds the one-time codes shown once at enrolment.
--- Each is 40 random bits, so its SHA-256 is stored rather than a slow hash; a
--- used code keeps its row with `used_at` set, which is how the profile page
--- counts what is left.
+-- Each is 50 random bits and is stored as an HMAC-SHA256 under a key derived
+-- from AUTH_SECRET, not a bare hash: 50 bits are too few for a fast unkeyed
+-- hash to survive an offline guess, and a read of this table alone must not
+-- yield a second factor (the TOTP secret is vault-encrypted for the same
+-- reason). A used code keeps its row with `used_at` set, which is how the
+-- profile page counts what is left.
 --
 -- `tenant_account.require_mfa` is the account-level switch: when it is on,
 -- everyone in that account enrols at their next sign-in before they reach a
 -- workspace. `VOCION_REQUIRE_MFA=1` is the same switch for a whole deployment.
--- A boolean with a constant default is a metadata-only change on Postgres 11+,
--- so it neither rewrites nor locks the table (CONVENTIONS.md rule 2).
+--
+-- `user.session_version` ends a person's other sessions. It is raised when
+-- their sign-in changes under them (a new password by reset or from the
+-- profile, two-step sign-in turned on or off, an admin resetting it) and
+-- stamped on each session token at sign-in; a token with an older number
+-- reads as signed out. JWT sessions have no server-side row to delete, so
+-- this number is the revocation.
+--
+-- Both new columns have a constant default, which is a metadata-only change on
+-- Postgres 11+, so neither rewrites nor locks its table (CONVENTIONS.md rule 2).
 
 CREATE TABLE IF NOT EXISTS "user_mfa" (
   "user_id" text PRIMARY KEY NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
@@ -42,4 +53,6 @@ CREATE TABLE IF NOT EXISTS "user_mfa_recovery_code" (
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "user_mfa_recovery_code_user_idx" ON "user_mfa_recovery_code" ("user_id");--> statement-breakpoint
 
-ALTER TABLE "tenant_account" ADD COLUMN IF NOT EXISTS "require_mfa" boolean DEFAULT false NOT NULL;
+ALTER TABLE "tenant_account" ADD COLUMN IF NOT EXISTS "require_mfa" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "session_version" integer DEFAULT 0 NOT NULL;

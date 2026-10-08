@@ -57,6 +57,16 @@ describe('POST /api/auth/[...nextauth]', () => {
     expect(authPost).not.toHaveBeenCalled();
   });
 
+  it('answers an email locked from one address with a 429 there, and hands the same email from another address to Auth.js', async () => {
+    const { checkPassword } = await import('@/services/auth/passwordCheck');
+    for (let i = 0; i < RATE_LIMITS.signInFailuresPerEmailIp.limit; i++) {
+      await checkPassword({ email: 'sam@northwind.example', password: 'wrong', ip: '203.0.113.7' });
+    }
+
+    expect((await POST(credentialsPost('sam@northwind.example', '203.0.113.7'))).status).toBe(429);
+    expect((await POST(credentialsPost('sam@northwind.example', '198.51.100.4'))).status).toBe(200);
+  });
+
   it('caps password attempts from one address', async () => {
     for (let i = 0; i < RATE_LIMITS.signInPerIp.limit; i++) {
       await hit(RATE_LIMITS.signInPerIp, '198.51.100.4');

@@ -15,34 +15,62 @@ type Enrollment = { secret: string; otpauthUri: string; qrSvg: string };
  * keep the recovery codes. The same component serves the profile page and
  * the sign-in gate an account that requires it puts in front of a workspace,
  * so there is one way to set it up.
+ *
+ * From the profile, a person with a password types it first
+ * (`askPassword`): a session alone must not be enough to put an authenticator
+ * in front of someone's next sign-in. A person without one (Google only) must
+ * have signed in in the last ten minutes, which the server checks.
  * @param props - Callbacks.
  * @param props.onDone - Called once the recovery codes are saved; two-step sign-in is on.
  * @param props.onCancel - Shown as a Cancel button when given (the profile page).
+ * @param props.askPassword - Ask for the current password before starting (the profile page, for a person who has one).
  */
-export function AuthenticatorSetup(props: { onDone: () => void; onCancel?: () => void }) {
+export function AuthenticatorSetup(props: { onDone: () => void; onCancel?: () => void; askPassword?: boolean }) {
   const t = useTranslations('TwoStep');
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(Boolean(props.askPassword));
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
-  const start = useCallback(async () => {
-    setLoadFailed(false);
-    const result = await postJson<Enrollment>('/api/mfa/enroll');
+  const start = useCallback(async (withPassword?: string) => {
+    setLoadFailed(null);
+    const result = await postJson<Enrollment>('/api/mfa/enroll', withPassword === undefined ? {} : { password: withPassword });
     if (result.ok) {
+      setNeedsPassword(false);
+      setPassword('');
       setEnrollment(result.data);
-    } else {
-      setLoadFailed(true);
+      return;
     }
-  }, []);
+    if (result.code === 'WRONG_PASSWORD' || result.code === 'PASSWORD_REQUIRED') {
+      setNeedsPassword(true);
+      setError(t('setup_wrong_password'));
+    } else if (result.status === 429) {
+      setError(t('rate_limited', { minutes: result.retryAfterMinutes ?? 15 }));
+    } else {
+      setLoadFailed(result.code === 'REAUTH_REQUIRED' ? t('setup_reauth') : t('setup_failed'));
+    }
+  }, [t]);
 
   useEffect(() => {
+    if (props.askPassword) {
+      return;
+    }
     // Every setState in start() runs after an await.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void start();
-  }, [start]);
+  }, [start, props.askPassword]);
+
+  const onPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    await start(password);
+    setSubmitting(false);
+  };
 
   const onConfirm = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,13 +82,21 @@ export function AuthenticatorSetup(props: { onDone: () => void; onCancel?: () =>
       setRecoveryCodes(result.data.recoveryCodes);
       return;
     }
-    if (result.status === 429) {
+    if (result.status === 401) {
+      // The sign-in this setup belonged to has ended (a hold lasts ten
+      // minutes); the page shows the step to take now, the password.
+      window.location.reload();
+    } else if (result.status === 429) {
       setError(t('rate_limited', { minutes: result.retryAfterMinutes ?? 15 }));
     } else if (result.code === 'INVALID_CODE') {
       setError(t('invalid_code'));
     } else if (result.code === 'ENROLLMENT_REPLACED') {
       setCode('');
-      void start();
+      setEnrollment(null);
+      setNeedsPassword(Boolean(props.askPassword));
+      if (!props.askPassword) {
+        void start();
+      }
       setError(t('setup_failed'));
     } else {
       setError(result.error ?? t('failed'));
@@ -74,12 +110,36 @@ export function AuthenticatorSetup(props: { onDone: () => void; onCancel?: () =>
   if (loadFailed) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-destructive" role="alert">{t('setup_failed')}</p>
+        <p className="text-sm text-destructive" role="alert">{loadFailed}</p>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" onClick={() => void start()}>{t('setup_retry')}</Button>
+          <Button type="button" variant="outline" onClick={() => (props.askPassword ? setLoadFailed(null) : void start())}>{t('setup_retry')}</Button>
           {props.onCancel && <Button type="button" variant="ghost" onClick={props.onCancel}>{t('cancel')}</Button>}
         </div>
       </div>
+    );
+  }
+
+  if (needsPassword) {
+    return (
+      <form onSubmit={onPassword} className="space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="mfa-setup-password">{t('setup_password_label')}</Label>
+          <p className="text-xs text-muted-foreground">{t('setup_password_intro')}</p>
+          <Input
+            id="mfa-setup-password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            required
+          />
+        </div>
+        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        <div className="flex gap-2">
+          <Button type="submit" className="flex-1" disabled={submitting}>{t('setup_password_continue')}</Button>
+          {props.onCancel && <Button type="button" variant="ghost" onClick={props.onCancel}>{t('cancel')}</Button>}
+        </div>
+      </form>
     );
   }
 

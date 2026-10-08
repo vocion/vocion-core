@@ -3,7 +3,7 @@
  * vault: enrolment, the first code turning it on, codes and recovery codes at
  * sign-in (each spendable once), the lockout, and who is required to have it.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { totpCode, totpStep } from '@/libs/identity/totp';
@@ -18,7 +18,13 @@ const mfa = await import('./mfa');
 
 const NOW = new Date('2026-10-07T10:00:15.000Z');
 const VAULT_KEY = randomBytes(32).toString('base64');
+const AUTH_SECRET = 'mfa-test-auth-secret-not-a-real-one';
 const SAM = 'usr-sam';
+
+async function sessionVersionOf(userId: string): Promise<number | undefined> {
+  const [row] = await db.select({ v: schema.userSchema.sessionVersion }).from(schema.userSchema).where(eq(schema.userSchema.id, userId));
+  return row?.v;
+}
 
 /**
  * Enrol Sam and turn it on, returning the secret and the recovery codes.
@@ -38,6 +44,7 @@ async function enrolSam(now = NOW) {
 
 beforeAll(() => {
   vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', VAULT_KEY);
+  vi.stubEnv('AUTH_SECRET', AUTH_SECRET);
   resetCredentialVault();
 });
 
@@ -55,6 +62,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', VAULT_KEY);
+  vi.stubEnv('AUTH_SECRET', AUTH_SECRET);
 });
 
 describe('setting up an authenticator', () => {
@@ -146,6 +154,20 @@ describe('the second factor at sign-in', () => {
     expect(locked).toMatchObject({ ok: false, reason: 'locked' });
   });
 
+  it('lets at most five of twenty simultaneous wrong codes reach the check, then refuses the right one', async () => {
+    const { secret } = await enrolSam(NOW);
+    const later = new Date(NOW.getTime() + 60_000);
+
+    const burst = await Promise.all(Array.from({ length: 20 }, () => mfa.checkSecondFactor(SAM, '000000', { ip: '198.51.100.4', now: later })));
+    const checked = burst.filter(r => !r.ok && r.reason === 'invalid');
+
+    // Counting before checking is what holds this: checking first let every
+    // request in the burst pass before any failure was recorded.
+    expect(checked.length).toBeLessThanOrEqual(5);
+    expect(burst.filter(r => !r.ok && r.reason === 'locked')).toHaveLength(20 - checked.length);
+    expect(await mfa.checkSecondFactor(SAM, totpCode(secret, totpStep(later)), { ip: '198.51.100.4', now: later })).toMatchObject({ ok: false, reason: 'locked' });
+  });
+
   it('clears the failures when a right code arrives before the lockout', async () => {
     const { secret } = await enrolSam(NOW);
     const later = new Date(NOW.getTime() + 60_000);
@@ -155,6 +177,79 @@ describe('the second factor at sign-in', () => {
 
     expect(await mfa.checkSecondFactor(SAM, totpCode(secret, totpStep(later)), { ip: null, now: later })).toEqual({ ok: true, method: 'totp' });
     expect(await mfa.checkSecondFactor(SAM, '000000', { ip: null, now: later })).toEqual({ ok: false, reason: 'invalid' });
+  });
+});
+
+describe('recovery codes at rest', () => {
+  it('stores a keyed hash bound to the person, never the bare SHA-256 of the code', async () => {
+    const { recoveryCodes } = await enrolSam();
+    const rows = await db.select().from(schema.userMfaRecoveryCodeSchema);
+    const bare = createHash('sha256').update(recoveryCodes[0]!.replace('-', '')).digest('hex');
+
+    expect(rows).toHaveLength(10);
+    expect(rows.map(r => r.codeHash)).not.toContain(bare);
+    expect(rows.every(r => /^[0-9a-f]{64}$/.test(r.codeHash))).toBe(true);
+  });
+
+  it('stops accepting the codes once AUTH_SECRET changes — the table alone is not enough', async () => {
+    const { recoveryCodes } = await enrolSam();
+    vi.stubEnv('AUTH_SECRET', 'a-different-auth-secret');
+
+    expect(await mfa.verifySecondFactor(SAM, recoveryCodes[0]!, NOW)).toBeNull();
+  });
+});
+
+describe('ending other sessions', () => {
+  it('ends the person\'s other sessions when two-step sign-in is turned on, and again when it is turned off', async () => {
+    expect(await sessionVersionOf(SAM)).toBe(0);
+
+    await enrolSam();
+
+    expect(await sessionVersionOf(SAM)).toBe(1);
+
+    await mfa.disableMfa(SAM);
+
+    expect(await sessionVersionOf(SAM)).toBe(2);
+  });
+});
+
+describe('an account admin resetting a member', () => {
+  beforeEach(async () => {
+    await db.insert(schema.userSchema).values([
+      { id: 'usr-ana', email: 'ana@northwind.example', name: 'Ana' },
+      { id: 'usr-kim', email: 'kim@kestrel.example', name: 'Kim' },
+    ]);
+    await db.insert(schema.tenantAccountSchema).values([
+      { id: 'acct-northwind', name: 'Northwind', slug: 'northwind' },
+      { id: 'acct-kestrel', name: 'Kestrel Capital', slug: 'kestrel' },
+    ]);
+    await db.insert(schema.accountMembershipSchema).values([
+      { accountId: 'acct-northwind', userId: 'usr-ana', role: 'admin' },
+      { accountId: 'acct-northwind', userId: SAM, role: 'member' },
+      { accountId: 'acct-kestrel', userId: 'usr-kim', role: 'member' },
+    ]);
+  });
+
+  it('removes a member\'s authenticator even while the account requires one, and ends their sessions', async () => {
+    await enrolSam();
+    await mfa.setAccountMfaRequirement('acct-northwind', true);
+    const before = await sessionVersionOf(SAM);
+
+    expect(await mfa.resetMemberSecondFactor({ accountId: 'acct-northwind', actorUserId: 'usr-ana', targetUserId: SAM })).toEqual({ ok: true, hadSecondFactor: true });
+    // Required by the account, so the member sets up a new one at sign-in.
+    expect(await mfa.signInGateFor(SAM)).toBe('enroll');
+    expect(await sessionVersionOf(SAM)).toBe((before ?? 0) + 1);
+  });
+
+  it('refuses someone outside the admin\'s account, the admin themself, and a member of another account too', async () => {
+    expect(await mfa.resetMemberSecondFactor({ accountId: 'acct-northwind', actorUserId: 'usr-ana', targetUserId: 'usr-kim' })).toEqual({ ok: false, reason: 'not-a-member' });
+    expect(await mfa.resetMemberSecondFactor({ accountId: 'acct-northwind', actorUserId: 'usr-ana', targetUserId: 'usr-ana' })).toEqual({ ok: false, reason: 'self' });
+
+    await db.insert(schema.accountMembershipSchema).values({ accountId: 'acct-kestrel', userId: SAM, role: 'member' });
+    await enrolSam();
+
+    expect(await mfa.resetMemberSecondFactor({ accountId: 'acct-northwind', actorUserId: 'usr-ana', targetUserId: SAM })).toEqual({ ok: false, reason: 'other-accounts' });
+    expect(await mfa.signInGateFor(SAM)).toBe('verify');
   });
 });
 

@@ -312,6 +312,16 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/scorecard',
       timeout: 60 * 1000,
     },
+    // Two-step sign-in through the real Auth.js cookie: set up from the
+    // profile, then password → code → dashboard. Self-seeding like
+    // `scorecard`; relies on the server's VOCION_RATE_LIMIT=off above.
+    // Run with: npx playwright test --project=two-step
+    {
+      name: 'two-step',
+      testDir: './e2e/two-step',
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
+      use: { ...devices['Desktop Chrome'] },
+    },
     // vocion-core#128 — a person in two accounts switches account by switching
     // workspace. Self-seeding like `scorecard`.
     // Run with: npx playwright test --project=account-switch

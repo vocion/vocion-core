@@ -248,6 +248,29 @@ The EC2 instance itself does NOT need an IAM role for the app to run
 - S3-based EBS snapshot lifecycle.
 - SSM Session Manager (avoid managing SSH keys).
 
+## Client addresses and rate limits
+
+Sign-in lockouts, the second-factor wall and the API caps count per client
+address (`libs/rateLimit`), and the app reads that address from
+`X-Forwarded-For`, counting `VOCION_TRUSTED_PROXY_COUNT` entries from the right
+(`libs/http/clientIp.ts`). Each proxy appends the address of whoever connected
+to it, so the number to set is **how many proxies sit between the person and the
+app**:
+
+| Topology | `VOCION_TRUSTED_PROXY_COUNT` | Also needed |
+|---|---|---|
+| This box: Caddy → app | `1` (the default) | nothing; Caddy replaces any client-sent header with the address it saw |
+| Load balancer (ALB/NLB) → Caddy → app | `2` | Caddy `trusted_proxies` set to the load balancer's subnets, or Caddy overwrites the header with the balancer's address |
+| CDN (CloudFront) → load balancer → Caddy → app | `3` | the same `trusted_proxies`, and the CDN configured to forward `X-Forwarded-For` |
+
+Too low, and everyone is counted as the CDN edge or the balancer they came
+through: one busy office's sign-ins start refusing another's. Too high, and a
+client can pick its own address again. With no forwarding header at all the
+app skips per-address limits and logs one warning per process saying so —
+search the app log for `no X-Forwarded-For` after a deploy that changed the
+topology. Vocion Cloud sits behind a load balancer, so it needs the second or
+third row, never the default.
+
 ## DNS + TLS
 
 - Caddy speaks ACME with Let's Encrypt out of the box.

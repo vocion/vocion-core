@@ -56,6 +56,12 @@ type EventSpec = {
 export const ADOPTION_EVENTS = {
   /** JWT issued on credentials sign-in. */
   'auth.login': {},
+  /**
+   * An account admin removed a member's two-step sign-in so they can set it
+   * up again (`resetMemberSecondFactor`). The audit record: the actor is the
+   * admin, `resource` is `['user', <member id>]`.
+   */
+  'auth.second_factor_reset': {},
   /** First authenticated RPC in each 5-minute bucket per user — feeds session derivation. */
   'activity.heartbeat': {},
   'chat.conversation_created': { agent: true },

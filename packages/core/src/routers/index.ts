@@ -104,6 +104,7 @@ import {
   listInvitesRoute,
   listMembersRoute,
   removeMemberRoute,
+  resetSecondFactorRoute,
   revokeInviteRoute,
 } from './Members';
 import {
@@ -291,6 +292,7 @@ export const router = {
     revokeInvite: revokeInviteRoute,
     changeRole: changeRoleRoute,
     remove: removeMemberRoute,
+    resetSecondFactor: resetSecondFactorRoute,
   },
   chat: {
     suggestions: chatSuggestions,

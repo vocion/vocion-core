@@ -23,7 +23,7 @@ async function guardAdmin() {
   if (!ctx.accountId) {
     throw ApiError.forbidden();
   }
-  return { accountId: ctx.accountId, userId: ctx.userId };
+  return { accountId: ctx.accountId, userId: ctx.userId, projectId: ctx.projectId };
 }
 
 export const listMembersRoute = os.handler(async () => {
@@ -83,4 +83,30 @@ export const removeMemberRoute = os
       throw ApiError.badRequest(e instanceof Error ? e.message : 'Could not remove member.');
     }
     return { ok: true };
+  });
+
+/**
+ * Reset a member's two-step sign-in, for someone who lost both their phone and
+ * their recovery codes (`resetMemberSecondFactor` in `services/auth/mfa.ts`).
+ * Admin-only, for a member of the admin's own account who belongs to no other
+ * account, never the admin themself. Ends the member's sessions, and is
+ * recorded on the adoption stream (`auth.second_factor_reset`) and in the log.
+ */
+export const resetSecondFactorRoute = os
+  .input(z.object({ userId: z.string().min(1) }))
+  .handler(async ({ input }) => {
+    const { accountId, userId: actorId, projectId } = await guardAdmin();
+    const { resetMemberSecondFactor } = await import('@/services/auth/mfa');
+    const result = await resetMemberSecondFactor({ accountId, actorUserId: actorId, targetUserId: input.userId });
+    if (!result.ok) {
+      throw ApiError.badRequest({
+        'self': 'Turn your own two-step sign-in off from your profile page.',
+        'not-a-member': 'That person is not a member of this account.',
+        'other-accounts': 'That person also belongs to another account, so an operator resets their two-step sign-in.',
+      }[result.reason]);
+    }
+    const [{ track }, { logger }] = await Promise.all([import('@/services/adoption/track'), import('@/libs/Logger')]);
+    await track({ orgId: projectId, projectId, accountId, userId: actorId }, 'auth.second_factor_reset', { resource: ['user', input.userId] });
+    logger.info('two-step sign-in reset by an account admin', { accountId, actorId, userId: input.userId, hadSecondFactor: result.hadSecondFactor });
+    return { ok: true, hadSecondFactor: result.hadSecondFactor };
   });

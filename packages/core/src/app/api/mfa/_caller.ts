@@ -10,15 +10,20 @@ import { auth } from '@/libs/Auth';
  * `mfa` and no user id). Every other route reads the second kind as signed
  * out.
  */
-export type MfaCaller = { userId: string; state: 'complete' | 'verify' | 'enroll' };
+export type MfaCaller = {
+  userId: string;
+  state: 'complete' | 'verify' | 'enroll';
+  /** When a complete session's sign-in finished (`Session.authTime`); null for a hold. */
+  authTime: number | null;
+};
 
 export async function mfaCaller(): Promise<MfaCaller | null> {
   const session = await auth();
   if (session?.user?.id) {
-    return { userId: session.user.id, state: 'complete' };
+    return { userId: session.user.id, state: 'complete', authTime: session.authTime ?? null };
   }
   if (session?.mfa?.userId) {
-    return { userId: session.mfa.userId, state: session.mfa.state };
+    return { userId: session.mfa.userId, state: session.mfa.state, authTime: null };
   }
   return null;
 }

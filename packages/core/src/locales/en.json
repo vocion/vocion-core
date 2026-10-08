@@ -395,7 +395,12 @@
     "account_require_label": "Require two-step sign-in for everyone in this account",
     "account_require_hint": "Members who have not set it up do so at their next sign-in, before they reach a workspace.",
     "account_require_on": "Everyone in this account now signs in with a code.",
-    "account_require_off": "Two-step sign-in is now each member’s choice."
+    "account_require_off": "Two-step sign-in is now each member’s choice.",
+    "setup_password_intro": "Enter your password to set up two-step sign-in.",
+    "setup_password_label": "Your password",
+    "setup_password_continue": "Continue",
+    "setup_wrong_password": "That password is not right.",
+    "setup_reauth": "For your security, sign out and sign in again, then set it up within ten minutes."
   },
   "ForgotPassword": {
     "title": "Reset your password",
@@ -425,6 +430,7 @@
     "invalid_body": "A reset link works once and expires after an hour. Ask for a new one.",
     "request_new": "Send a new link",
     "rate_limited": "Too many attempts. Try again in {minutes, plural, =1 {1 minute} other {# minutes}}.",
-    "failed": "Something went wrong. Try again."
+    "failed": "Something went wrong. Try again.",
+    "checking": "Checking your link…"
   }
 }
