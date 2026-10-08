@@ -257,7 +257,7 @@ function defaultSenders(): Senders {
       const { workspaceFrom } = await import('@/services/mail/workspaceFrom');
       const rendered = renderNotificationEmail(notifications.map(messageOf), ctx.workspaces.get(first.orgId)?.name ?? 'your workspace');
       const from = await workspaceFrom(first.orgId);
-      const sent = await sendMail({ to, subject: rendered.subject, text: rendered.text, html: rendered.html, ...(from ? { from } : {}), tags: { kind: 'notification' } });
+      const sent = await sendMail({ to, subject: rendered.subject, text: rendered.text, html: rendered.html, ...(from ? { from } : {}), tags: { kind: 'notification' }, brand: { orgId: first.orgId } });
       return sent.skipped ? { status: 'not_configured', error: 'outbound mail is off on this server' } : { status: 'sent' };
     },
   };

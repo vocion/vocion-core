@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { ThemeProvider } from 'next-themes';
-import { Inter, Outfit } from 'next/font/google';
+import { Barlow, Fraunces, IBM_Plex_Sans, Inter, Manrope, Outfit, Source_Serif_4, Space_Grotesk } from 'next/font/google';
 import { notFound } from 'next/navigation';
 import { titlePrefix } from '@/libs/envLabel';
 import { routing } from '@/libs/I18nRouting';
@@ -28,6 +28,19 @@ const inter = Inter({
   variable: '--font-inter',
   weight: ['400', '500', '600', '700'],
 });
+
+// The heading faces an Org's brand may pick (`libs/branding/fonts.ts`). Like
+// Inter and Outfit, next/font downloads each at BUILD time and serves it from
+// /_next/static/media — the app never fetches a font from Google at runtime.
+// `preload: false`: a face nobody picked is a few lines of @font-face and no
+// download, because a browser only fetches a face something uses.
+const barlow = Barlow({ subsets: ['latin'], display: 'swap', variable: '--font-barlow', weight: ['600', '700', '800'], preload: false });
+const manrope = Manrope({ subsets: ['latin'], display: 'swap', variable: '--font-manrope', preload: false });
+const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], display: 'swap', variable: '--font-space-grotesk', preload: false });
+const ibmPlexSans = IBM_Plex_Sans({ subsets: ['latin'], display: 'swap', variable: '--font-ibm-plex-sans', weight: ['500', '600', '700'], preload: false });
+const fraunces = Fraunces({ subsets: ['latin'], display: 'swap', variable: '--font-fraunces', preload: false });
+const sourceSerif4 = Source_Serif_4({ subsets: ['latin'], display: 'swap', variable: '--font-source-serif-4', preload: false });
+const HEADING_FACES = [barlow, manrope, spaceGrotesk, ibmPlexSans, fraunces, sourceSerif4].map(f => f.variable).join(' ');
 
 // Icons are wired via the auto-discovered `app/icon.tsx` +
 // `app/apple-icon.tsx` files — they render the Vocion mark
@@ -85,7 +98,7 @@ export default async function RootLayout(props: {
   setRequestLocale(locale);
 
   return (
-    <html lang={locale} suppressHydrationWarning className={`${outfit.variable} ${inter.variable}`}>
+    <html lang={locale} suppressHydrationWarning className={`${outfit.variable} ${inter.variable} ${HEADING_FACES}`}>
       <body>
         <ThemeProvider
           attribute="class"

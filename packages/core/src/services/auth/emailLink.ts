@@ -166,7 +166,7 @@ export async function deliverSignInLink(input: { email: string; link: string; no
       log('info', 'sign-in link not sent: no login, pending invite or auto-join domain for that address');
       return 'not-eligible';
     }
-    const result = await sendMail({ to: input.email, ...signInLinkMail(input.link), tags: { kind: 'sign-in-link' } });
+    const result = await sendMail({ to: input.email, ...signInLinkMail(input.link), tags: { kind: 'sign-in-link' }, brand: 'install' });
     return result.skipped ? 'mail-off' : 'sent';
   } catch (error) {
     log('error', 'sign-in link could not be sent', { error: error instanceof Error ? error.message : String(error) });

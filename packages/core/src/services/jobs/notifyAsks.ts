@@ -136,7 +136,7 @@ export async function runNotifyAsksJob(orgId: string, rawInput: Record<string, u
 
   const rendered = renderAskNotification(pending.map(a => ({ id: a.id, kind: a.kind, title: a.title, agentSlug: a.agentSlug, risk: a.risk, groupTitle: a.groupTitle })), project?.name ?? 'your workspace');
   const from = await workspaceFrom(orgId);
-  const sent = await sendMail({ to: recipients, subject: rendered.subject, text: rendered.text, html: rendered.html, ...(from ? { from } : {}), tags: { job: NOTIFY_ASKS_JOB } });
+  const sent = await sendMail({ to: recipients, subject: rendered.subject, text: rendered.text, html: rendered.html, ...(from ? { from } : {}), tags: { job: NOTIFY_ASKS_JOB }, brand: { orgId } });
   await markNotified(orgId, pending.map(a => a.id));
   return { pending: pending.length, recipients, mail: sent.skipped ? { sent: false, reason: 'disabled' } : { sent: true, id: sent.id, asks: pending.length } };
 }

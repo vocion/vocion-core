@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { AuthCard } from '@/features/auth/AuthCard';
 import { OrDivider, ProviderButtons } from '@/features/auth/ProviderButtons';
 import { signInMessage } from '@/features/auth/signInMessages';
+import { useAccentButtonClass, useSignInTarget } from '@/features/branding/AuthBrand';
 import { Link } from '@/libs/I18nNavigation';
 import { EMAIL_LINK_PROVIDER_ID } from '@/services/auth/emailLinkFragment';
 
@@ -86,6 +87,9 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
   const [sentTo, setSentTo] = useState<string | null>(linkSent ? '' : null);
   const [error, setError] = useState<string | null>(() => (outcome ? say(signInMessage(outcome)) : null));
   const [submitting, setSubmitting] = useState(false);
+  // An Org's own sign-in: its name in the subtitle, its accent on the button.
+  const accentButton = useAccentButtonClass();
+  const target = useSignInTarget();
 
   const autofillHint = () => {
     if (hint) {
@@ -143,7 +147,7 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
   };
 
   return (
-    <AuthCard title={t('title')} subtitle={t('subtitle')}>
+    <AuthCard title={t('title')} subtitle={target ? t('subtitle_org', { org: target }) : t('subtitle')}>
       {hint && (
         <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
           <strong>{t('demo_credentials')}</strong>
@@ -212,7 +216,7 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
                   </div>
                 )}
                 {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-                <Button type="submit" className="w-full" disabled={submitting}>
+                <Button type="submit" className={accentButton ? `w-full ${accentButton}` : 'w-full'} disabled={submitting}>
                   {mode === 'link'
                     ? (submitting ? t('link_sending') : t('link_submit'))
                     : (submitting ? t('submitting') : t('submit'))}

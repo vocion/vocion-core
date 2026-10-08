@@ -13,9 +13,11 @@ import { ArrowLeft, FileText, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LetterTile } from '@/components/ui/letter-tile';
-import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { useOrgBrand } from '@/features/branding/BrandContext';
+import { OrgLogo, PoweredByVocion } from '@/features/branding/OrgLogo';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/chat/cards/SetupCard';
 import { checklistApplies, GettingStartedChecklist } from '@/features/dashboard/GettingStartedChecklist';
@@ -86,7 +88,9 @@ const INVITE_CARD = 'invite-card';
 const GETTING_STARTED_CARD = 'getting-started';
 // The sidebar shows the MARK + wordmark as text (ElevenLabs pattern): never the
 // lockup SVG (its descriptor is unreadable at 24px) and never the tagline —
-// both stay on sign-in, where `VocionLogo` renders them.
+// both stay on sign-in, where `VocionLogo` renders them. An Org with a brand
+// (`services/branding`) wears its own logo instead, with a small "Powered by
+// Vocion" in the footer.
 const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || VOCION_PRIMARY_MARK;
 const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
 
@@ -135,6 +139,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   gettingStarted?: GettingStartedState | null;
 }) => {
   const t = useTranslations('DashboardLayout');
+  const orgBrand = useOrgBrand();
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
   const [view, setView] = useState<NavView>('work');
@@ -412,15 +417,23 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     <>
       {/* Every app's nav opens with the workspace picker. */}
       <SidebarHeader className="pt-4 pb-1 group-data-[collapsible=icon]:px-0">
-        {railApps.length === 0 && (
-          // No rail (a story, or a catalogue that failed to read): the brand
-          // sits here, as it did before the rail.
-          <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-            {/* eslint-disable-next-line next/no-img-element */}
-            <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
-            {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
-          </div>
-        )}
+        {orgBrand
+          ? (
+              // The Org's own logo, at the top of the nav (the rail carries
+              // its mark). Hidden in the icon rail, where the mark is enough.
+              <div data-testid="org-brand-row" className="flex min-w-0 items-center px-2 pb-2 group-data-[collapsible=icon]:hidden">
+                <OrgLogo brand={orgBrand} size="sm" />
+              </div>
+            )
+          : railApps.length === 0 && (
+            // No rail (a story, or a catalogue that failed to read): the brand
+            // sits here, as it did before the rail.
+            <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+              {/* eslint-disable-next-line next/no-img-element */}
+              <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
+              {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
+            </div>
+          )}
         {/* The app's own header: its mark on its tint and its name, so the
             nav says which app it is without a tooltip (front doors). */}
         {headerApp && (
@@ -545,7 +558,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                 apps={railApps}
                 activeId={view === 'manage' ? coreAppNav?.id : activeAppId}
                 onPick={pickApp}
-                brandMark={BRAND_MARK}
+                brandMark={orgBrand?.mark.light ?? BRAND_MARK}
+                brandMarkDark={orgBrand?.mark.dark}
                 label={t('apps')}
                 addLabel={t('add_app')}
                 addHref="/dashboard/apps"
@@ -556,7 +570,15 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
           )
         : nav}
 
-      {/* The © / attribution line lives in the account menu now (B-034b §3). */}
+      {/* The © / attribution line lives in the account menu now (B-034b §3).
+          Under an Org's own logo, the one attribution kept in the sidebar is
+          a small "Powered by Vocion" — removed only by an extension that
+          white-labels the app (`branding.whiteLabel`). */}
+      {orgBrand?.poweredBy && (
+        <SidebarFooter className="px-4 pt-1 pb-3 group-data-[collapsible=icon]:hidden">
+          <PoweredByVocion />
+        </SidebarFooter>
+      )}
       <SidebarRail />
     </Sidebar>
   );

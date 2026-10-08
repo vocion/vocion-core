@@ -34,7 +34,8 @@ const RAIL_BUTTON = 'grid size-10 place-items-center rounded-xl outline-hidden t
  * @param props.apps - The apps to show, in rail order.
  * @param props.activeId - The app the sidebar is showing.
  * @param props.onPick - Called with the app a person picked.
- * @param props.brandMark - The mark at the top of the rail.
+ * @param props.brandMark - The mark at the top of the rail: the Org's when it has a brand.
+ * @param props.brandMarkDark - Its version for dark pages, when it has one.
  * @param props.label - Accessible name of the rail.
  * @param props.addLabel - The "Add app" label.
  * @param props.addHref - Where "Add app" goes.
@@ -45,6 +46,7 @@ export function AppRail(props: {
   activeId: string | undefined;
   onPick: (app: RailApp) => void;
   brandMark: string;
+  brandMarkDark?: string;
   label: string;
   addLabel: string;
   addHref: string;
@@ -60,7 +62,11 @@ export function AppRail(props: {
   return (
     <nav aria-label={props.label} data-testid="app-rail" className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border py-5">
       {/* eslint-disable-next-line next/no-img-element */}
-      <img src={props.brandMark} alt="" className="mb-3 h-5 w-auto" aria-hidden />
+      <img src={props.brandMark} alt="" data-testid="rail-mark" className={cn('mb-3 h-5 max-w-8 w-auto object-contain', props.brandMarkDark && props.brandMarkDark !== props.brandMark && 'dark:hidden')} aria-hidden />
+      {props.brandMarkDark && props.brandMarkDark !== props.brandMark && (
+        // eslint-disable-next-line next/no-img-element
+        <img src={props.brandMarkDark} alt="" className="mb-3 hidden h-5 w-auto max-w-8 object-contain dark:block" aria-hidden />
+      )}
       {props.apps.map((app) => {
         const Icon = iconByName(app.icon);
         const active = app.id === props.activeId;

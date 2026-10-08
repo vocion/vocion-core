@@ -78,6 +78,13 @@
   --color-tint-butter: var(--tint-butter);
   --color-tint-rose: var(--tint-rose);
 
+  /* Org brand (services/branding, features/branding/OrgBrandStyle): the
+     Org's accent as a fill with its text, and as ink on a surface, layered
+     over the app's own tokens. Unbranded, each is the amber it replaces. */
+  --color-org-accent: var(--org-accent);
+  --color-org-accent-foreground: var(--org-accent-foreground);
+  --color-org-accent-ink: var(--org-accent-ink);
+
   /* Airy pass (B-034b, 2026-09-15). Colour stops doing structural work:
      surfaces are soft greys, the one primary action per page is ink, and
      amber is kept for brand marks, focus and links. */
@@ -133,6 +140,16 @@
   --action-foreground: oklch(1 0 0);
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 8%);
 
+  /* Org brand — overridden per Org by a <style data-org-brand> after this
+     sheet (features/branding/OrgBrandStyle.tsx). `--org-accent` is the brand
+     colour as a fill with `--org-accent-foreground` on it (AA); the ink is
+     the shade that reads on this theme's surfaces (AA), which links, the
+     focus ring and the primary token use. The tints above stay the apps'. */
+  --org-accent: var(--brand-amber);
+  --org-accent-foreground: oklch(1 0 0);
+  --org-accent-ink: var(--brand-amber);
+  --org-accent-ink-foreground: oklch(1 0 0);
+
   /* Shadcn surface tokens — light mode, neutral surfaces with warm accent */
   --background: #fcfaf6; /* warm white */
   --foreground: var(--ink);
@@ -140,8 +157,8 @@
   --card-foreground: var(--ink);
   --popover: oklch(1 0 0);
   --popover-foreground: var(--ink);
-  --primary: var(--brand-amber);
-  --primary-foreground: oklch(1 0 0);
+  --primary: var(--org-accent-ink);
+  --primary-foreground: var(--org-accent-ink-foreground);
   --secondary: #f4f1ec;
   --secondary-foreground: var(--ink-title);
   --muted: #f4f1ec;
@@ -151,7 +168,7 @@
   --destructive: var(--brand-fail);
   --border: var(--rule);
   --input: var(--rule);
-  --ring: var(--brand-amber);
+  --ring: var(--org-accent-ink);
   --chart-1: var(--brand-amber);
   --chart-2: var(--brand-teal);
   --chart-3: var(--brand-pass);
@@ -161,8 +178,8 @@
   /* Inactive labels are dark grey; the active pill is the darkest grey (8%)
      with ink text; hover is lighter (--surface-hover, 3%). Focus ring subtle. */
   --sidebar-foreground: var(--ink-muted);
-  --sidebar-primary: var(--brand-amber);
-  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-primary: var(--org-accent-ink);
+  --sidebar-primary-foreground: var(--org-accent-ink-foreground);
   --sidebar-accent: oklch(0 0 0 / 8%);
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--rule);
@@ -193,14 +210,19 @@
   --action-foreground: #141217;
   --shadow-pop: 0 8px 30px oklch(0 0 0 / 40%);
 
+  --org-accent: var(--brand-amber);
+  --org-accent-foreground: #141217;
+  --org-accent-ink: var(--brand-amber);
+  --org-accent-ink-foreground: #141217;
+
   --background: #141217;
   --foreground: var(--ink);
   --card: #1c1a20;
   --card-foreground: var(--ink);
   --popover: #1c1a20;
   --popover-foreground: var(--ink);
-  --primary: var(--brand-amber);
-  --primary-foreground: #141217;
+  --primary: var(--org-accent-ink);
+  --primary-foreground: var(--org-accent-ink-foreground);
   --secondary: #26232b;
   --secondary-foreground: var(--ink);
   --muted: #26232b;
@@ -210,11 +232,11 @@
   --destructive: var(--brand-fail);
   --border: var(--rule);
   --input: oklch(1 0 0 / 15%);
-  --ring: var(--brand-amber);
+  --ring: var(--org-accent-ink);
   --sidebar: #1a181e;
   --sidebar-foreground: var(--ink-title);
-  --sidebar-primary: var(--brand-amber);
-  --sidebar-primary-foreground: oklch(0.16 0 0);
+  --sidebar-primary: var(--org-accent-ink);
+  --sidebar-primary-foreground: var(--org-accent-ink-foreground);
   --sidebar-foreground: var(--ink-muted);
   --sidebar-accent: oklch(1 0 0 / 10%);
   --sidebar-accent-foreground: var(--foreground);
@@ -247,7 +269,9 @@
   h3,
   h4,
   .font-display {
-    font-family: var(--font-sans);
+    /* An Org's heading face when its brand names one the app serves
+       (libs/branding/fonts.ts); the body face otherwise. */
+    font-family: var(--org-font-heading, var(--font-sans));
     letter-spacing: -0.015em;
   }
   /* Outline icons read lighter at 1.5 (B-034b §2). */

@@ -435,6 +435,7 @@
   "SignIn": {
     "title": "Bon retour",
     "subtitle": "Connectez-vous à votre espace de travail",
+    "subtitle_org": "Connectez-vous à {org}",
     "demo_credentials": "Identifiants de démo :",
     "autofill": "remplir",
     "email": "E-mail",

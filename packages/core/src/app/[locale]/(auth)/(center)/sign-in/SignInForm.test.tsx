@@ -3,6 +3,8 @@ import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { OrgBrandProvider } from '@/features/branding/BrandContext';
+import { NORTHWIND_VIEW } from '@/features/branding/northwind.fixture';
 import messages from '@/locales/en.json';
 import { SignInForm } from './SignInForm';
 
@@ -115,5 +117,35 @@ describe('SignInForm ways in', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect.element(page.getByRole('alert')).toHaveTextContent('Too many sign-in attempts. Wait a few minutes, then try again.');
+  });
+});
+
+/**
+ * An Org's own sign-in: its logo and name where Vocion's were, its accent on
+ * the one button, and a small "Powered by Vocion" kept underneath.
+ */
+describe('SignInForm in an Org\'s brand', () => {
+  it('wears the Org\'s logo, name and accent, and keeps "Powered by Vocion"', async () => {
+    await render(<NextIntlClientProvider locale="en" messages={messages}><OrgBrandProvider value={NORTHWIND_VIEW}><SignInForm callbackUrl="/dashboard" hint={null} /></OrgBrandProvider></NextIntlClientProvider>);
+
+    await expect.element(page.getByRole('img', { name: 'Northwind' }).first()).toBeInTheDocument();
+    await expect.element(page.getByText('Sign in to Northwind')).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Sign in' })).toHaveClass(/bg-org-accent/);
+    await expect.element(page.getByTestId('powered-by-vocion')).toBeInTheDocument();
+  });
+
+  it('white-labelled, the Org\'s alone', async () => {
+    await render(<NextIntlClientProvider locale="en" messages={messages}><OrgBrandProvider value={{ ...NORTHWIND_VIEW, poweredBy: false }}><SignInForm callbackUrl="/dashboard" hint={null} /></OrgBrandProvider></NextIntlClientProvider>);
+
+    await expect.element(page.getByText('Sign in to Northwind')).toBeInTheDocument();
+    expect(page.getByTestId('powered-by-vocion').elements()).toHaveLength(0);
+  });
+
+  it('with no brand, it is Vocion\'s sign-in as it was', async () => {
+    await renderForm();
+
+    await expect.element(page.getByText('Sign in to your workspace')).toBeInTheDocument();
+    expect(page.getByTestId('powered-by-vocion').elements()).toHaveLength(0);
+    await expect.element(page.getByRole('button', { name: 'Sign in' })).not.toHaveClass(/bg-org-accent/);
   });
 });

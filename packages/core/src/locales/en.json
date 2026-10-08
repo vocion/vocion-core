@@ -435,6 +435,7 @@
   "SignIn": {
     "title": "Welcome back",
     "subtitle": "Sign in to your workspace",
+    "subtitle_org": "Sign in to {org}",
     "demo_credentials": "Demo credentials:",
     "autofill": "autofill",
     "email": "Email",
