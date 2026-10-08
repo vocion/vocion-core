@@ -1,0 +1,28 @@
+# The module's deploy document (<name_prefix>-deploy), run by SSM on the box.
+#
+#   action=install   write the module's current box files, nothing else
+#   action=deploy    write them, then run vocion-deploy [ref [image]]
+#
+# {{ action }}, {{ ref }} and {{ image }} are filled in by SSM; the document's
+# allowedValues and allowedPattern admit nothing a shell would read as more
+# than a word. The deploy's full log stays on the box; SSM keeps only the
+# first 24,000 characters of a command's output, so the output is its tail.
+set -eu
+
+${box_files}
+
+ACTION='{{ action }}'
+REF='{{ ref }}'
+IMAGE='{{ image }}'
+
+echo "[vocion] box files written from the module"
+if [ "$ACTION" = "install" ]; then
+  exit 0
+fi
+
+LOG=/var/log/vocion-deploy-last.log
+set +e
+/usr/local/sbin/vocion-deploy "$REF" "$IMAGE" >"$LOG" 2>&1
+rc=$?
+tail -n 120 "$LOG"
+exit "$rc"

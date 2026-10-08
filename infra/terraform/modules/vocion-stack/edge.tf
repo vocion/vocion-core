@@ -22,7 +22,7 @@ resource "aws_acm_certificate" "app" {
 }
 
 resource "aws_route53_record" "cert_validation" {
-  for_each = {
+  for_each = var.route53_zone_id == null ? {} : {
     for o in flatten(aws_acm_certificate.app[*].domain_validation_options) : o.domain_name => o
   }
 
@@ -37,8 +37,10 @@ resource "aws_route53_record" "cert_validation" {
 resource "aws_acm_certificate_validation" "app" {
   count = var.alb_enabled ? 1 : 0
 
-  certificate_arn         = aws_acm_certificate.app[0].arn
-  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
+  certificate_arn = aws_acm_certificate.app[0].arn
+  # With no zone here, the validation records go in by hand (the
+  # certificate_validation_records output) and this waits until ACM sees them.
+  validation_record_fqdns = var.route53_zone_id == null ? null : [for r in aws_route53_record.cert_validation : r.fqdn]
 }
 
 # ----- load balancer -----
@@ -87,7 +89,20 @@ resource "aws_lb" "app" {
   drop_invalid_header_fields = true
   enable_deletion_protection = var.db_deletion_protection
 
+  # logging.tf. The ALB writes a test object when logs are turned on, so the
+  # bucket policy has to exist first.
+  dynamic "access_logs" {
+    for_each = local.alb_access_logs_enabled ? [aws_s3_bucket.alb_logs[0].id] : []
+    content {
+      bucket  = access_logs.value
+      prefix  = local.alb_access_logs_prefix
+      enabled = true
+    }
+  }
+
   tags = { Name = "${var.name_prefix}-alb" }
+
+  depends_on = [aws_s3_bucket_policy.alb_logs]
 }
 
 resource "aws_lb_target_group" "app" {
@@ -174,6 +189,70 @@ resource "aws_lb_listener_rule" "app" {
   }
 }
 
+# ----- alias hostnames -----
+#
+# A hostname the installation used to serve, kept working after it moved here.
+# A person's browser is sent to `hostname` with a 301 that keeps the path and
+# query. `/api/*` is served in place instead: a webhook sender or API client
+# configured with the old name keeps reaching the app, and a 301 would turn its
+# POST into a GET. The alias's DNS lives wherever its zone is; point it at
+# `alb_dns_name`.
+
+resource "aws_lb_listener_certificate" "alias" {
+  for_each = var.alb_enabled ? { for a in var.alias_hostnames : a.hostname => a } : {}
+
+  listener_arn    = aws_lb_listener.https[0].arn
+  certificate_arn = each.value.certificate_arn
+}
+
+resource "aws_lb_listener_rule" "alias_api" {
+  count = var.alb_enabled && length(var.alias_hostnames) > 0 ? 1 : 0
+
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 20
+
+  condition {
+    host_header {
+      values = [for a in var.alias_hostnames : a.hostname]
+    }
+  }
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app[0].arn
+  }
+}
+
+resource "aws_lb_listener_rule" "alias_redirect" {
+  count = var.alb_enabled && length(var.alias_hostnames) > 0 ? 1 : 0
+
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 30
+
+  condition {
+    host_header {
+      values = [for a in var.alias_hostnames : a.hostname]
+    }
+  }
+
+  action {
+    type = "redirect"
+    redirect {
+      host        = var.hostname
+      protocol    = "HTTPS"
+      port        = "443"
+      path        = "/#{path}"
+      query       = "#{query}"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
 # ----- WAF -----
 
 resource "aws_wafv2_web_acl" "app" {
@@ -201,7 +280,7 @@ resource "aws_wafv2_web_acl" "app" {
         name        = "AWSManagedRulesCommonRuleSet"
 
         dynamic "rule_action_override" {
-          for_each = toset(var.waf_count_rules)
+          for_each = toset(local.waf_count_rules)
           content {
             name = rule_action_override.value
             action_to_use {
@@ -280,7 +359,7 @@ resource "aws_wafv2_web_acl_association" "app" {
 # ----- DNS -----
 
 resource "aws_route53_record" "app_alias" {
-  count = var.alb_enabled ? 1 : 0
+  count = var.alb_enabled && var.route53_zone_id != null ? 1 : 0
 
   zone_id = var.route53_zone_id
   name    = var.hostname
@@ -294,7 +373,7 @@ resource "aws_route53_record" "app_alias" {
 }
 
 resource "aws_route53_record" "app_direct" {
-  count = var.alb_enabled ? 0 : 1
+  count = !var.alb_enabled && var.route53_zone_id != null ? 1 : 0
 
   zone_id = var.route53_zone_id
   name    = var.hostname

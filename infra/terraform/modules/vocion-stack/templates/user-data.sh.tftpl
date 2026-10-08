@@ -1,49 +1,19 @@
 #!/bin/bash
 # First boot of a vocion-stack box (infra/terraform/modules/vocion-stack).
 #
-# Writes what the box needs to deploy itself, then runs the first deploy:
-#
-#   /etc/vocion/deploy.env         region, the module's SSM parameter, the core repo and release
-#   /usr/local/sbin/vocion-deploy  the deploy (templates/vocion-deploy.sh)
-#   /etc/vocion/Caddyfile.{alb,tls}  Caddy behind the ALB, or terminating TLS itself
-#   /etc/vocion/compose.cloud.yml  the module's overlay on core's compose files
-#
-# Every later deploy is `sudo vocion-deploy [<ref>]` from an SSM session.
-# The files are inlined verbatim (quoted heredocs: nothing in them expands).
-# Log: /var/log/cloud-init-output.log
+# Writes what the box needs to deploy itself and stops sshd unless
+# ssh_enabled (templates/box-files.sh.tftpl), then runs the first deploy. Every later deploy goes through the module's
+# deploy document (output deploy_document_name), which writes the same files
+# again first. Log: /var/log/cloud-init-output.log
 set -euo pipefail
 
-install -d -m 755 /etc/vocion /var/lib/vocion
-
-cat > /etc/vocion/deploy.env <<'EOF'
-REGION='${region}'
-CONFIG_PARAM='${config_param}'
-CORE_REPO='${core_repo}'
-CORE_REF='${core_ref}'
-EOF
-chmod 644 /etc/vocion/deploy.env
-
-cat > /usr/local/sbin/vocion-deploy <<'__VOCION_DEPLOY__'
-${deploy_script}
-__VOCION_DEPLOY__
-chmod 755 /usr/local/sbin/vocion-deploy
-
-cat > /etc/vocion/Caddyfile.alb <<'__VOCION_CADDYFILE_ALB__'
-${caddyfile_alb}
-__VOCION_CADDYFILE_ALB__
-cat > /etc/vocion/Caddyfile.tls <<'__VOCION_CADDYFILE_TLS__'
-${caddyfile_tls}
-__VOCION_CADDYFILE_TLS__
-cat > /etc/vocion/compose.cloud.yml <<'__VOCION_COMPOSE__'
-${compose_overlay}
-__VOCION_COMPOSE__
-chmod 644 /etc/vocion/Caddyfile.alb /etc/vocion/Caddyfile.tls /etc/vocion/compose.cloud.yml
+${box_files}
 
 if /usr/local/sbin/vocion-deploy; then
   echo "[user-data] first deploy complete"
 else
   # Not fatal to the boot: the usual cause is a secret that has no value yet.
-  # The box stays up and reachable over SSM; put the values and run the deploy.
+  # The box stays up and reachable over SSM; put the values and deploy.
   echo "[user-data] the first deploy did not finish (see above)."
-  echo "[user-data] put the secret values (README, First deploy), then from an SSM session: sudo vocion-deploy"
+  echo "[user-data] put the secret values (README, First deploy), then deploy through the module's deploy document"
 fi

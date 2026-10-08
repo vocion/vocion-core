@@ -50,9 +50,12 @@ resource "aws_db_parameter_group" "main" {
     value = join(",", var.db_allowed_extensions)
   }
 
+  # RDS reports this parameter as pending-reboot; without saying so here every
+  # plan shows it changing. (It is also PostgreSQL 15+'s default.)
   parameter {
-    name  = "rds.force_ssl"
-    value = "1"
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "pending-reboot"
   }
 
   # Slow-query visibility in the postgresql log (exported to CloudWatch).

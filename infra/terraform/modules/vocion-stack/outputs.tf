@@ -60,9 +60,35 @@ output "waf_web_acl_arn" {
   value       = local.waf_enabled ? aws_wafv2_web_acl.app[0].arn : null
 }
 
+output "alb_access_logs_bucket" {
+  description = "The bucket holding the ALB's access logs, under alb/AWSLogs/<account>/ (null when off)."
+  value       = local.alb_access_logs_enabled ? aws_s3_bucket.alb_logs[0].bucket : null
+}
+
+output "waf_log_group_name" {
+  description = "CloudWatch Logs group of the WAF's request log (null when off)."
+  value       = local.waf_logging_enabled ? aws_cloudwatch_log_group.waf[0].name : null
+}
+
+output "flow_log_group_name" {
+  description = "CloudWatch Logs group of the VPC flow logs (null when off)."
+  value       = var.flow_logs_enabled ? aws_cloudwatch_log_group.flow[0].name : null
+}
+
 output "certificate_arn" {
   description = "The ACM certificate for hostname (null with alb_enabled = false)."
   value       = var.alb_enabled ? aws_acm_certificate.app[0].arn : null
+}
+
+output "certificate_validation_records" {
+  description = "The ACM certificate's DNS validation records ({name, type, value}). Added by the module when route53_zone_id is set; otherwise add them wherever the hostname's DNS lives."
+  value = var.alb_enabled ? [
+    for o in aws_acm_certificate.app[0].domain_validation_options : {
+      name  = o.resource_record_name
+      type  = o.resource_record_type
+      value = o.resource_record_value
+    }
+  ] : []
 }
 
 output "app_env_secret_name" {
@@ -78,6 +104,11 @@ output "app_env_secret_arn" {
 output "rds_app_secret_name" {
   description = "Secret holding the app's database login ({\"username\",\"password\"}). Put its value out-of-band."
   value       = aws_secretsmanager_secret.rds_app.name
+}
+
+output "extension_deploy_key_secret_name" {
+  description = "Secret holding the private half of the extension's read-only deploy key. Put its value out-of-band (null without extension_repo)."
+  value       = local.extension_enabled ? aws_secretsmanager_secret.extension_deploy_key[0].name : null
 }
 
 output "deploy_config_parameter" {
@@ -145,7 +176,12 @@ output "session_command" {
   value       = "aws ssm start-session --region ${local.region} --target ${aws_instance.app.id}"
 }
 
+output "deploy_document_name" {
+  description = "The SSM document that writes the module's current box files and deploys. Every deploy goes through it, so a change to the module's templates reaches the box."
+  value       = aws_ssm_document.deploy.name
+}
+
 output "deploy_command" {
-  description = "Run on the box (from a session) to redeploy, or to move to another release."
-  value       = "sudo vocion-deploy [<tag or full sha>]"
+  description = "Deploy a release, from an operator machine. The output is the deploy's tail; the full log is /var/log/vocion-deploy-last.log on the box."
+  value       = "aws ssm send-command --region ${local.region} --instance-ids ${aws_instance.app.id} --document-name ${aws_ssm_document.deploy.name} --parameters ref=<tag or full sha>"
 }

@@ -3,7 +3,8 @@
 # Five are required: name_prefix, azs, hostname, route53_zone_id and core_ref.
 # Every other default describes the Cloud profile: an ALB with a WAF in front
 # of one EC2 box, RDS PostgreSQL with pgvector, a KMS-backed credential vault,
-# AWS Backup with a locked vault, no SSH, no runners.
+# AWS Backup with a locked vault, ALB access, WAF and VPC flow logs, Bedrock
+# for Anthropic's models, no SSH, no runners, no extension.
 
 # ----- identity -----
 
@@ -48,9 +49,29 @@ variable "hostname" {
   type        = string
 }
 
+variable "alias_hostnames" {
+  description = "Hostnames this installation used to serve elsewhere, each with an ISSUED ACM certificate in this account and region. Browsers are 301'd to `hostname`; `/api/*` (webhooks, API clients) is served in place. Their DNS is not managed here: point each at `alb_dns_name`. Needs alb_enabled."
+  type = list(object({
+    hostname        = string
+    certificate_arn = string
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for a in var.alias_hostnames : a.hostname != var.hostname])
+    error_message = "An alias hostname cannot be the installation's own hostname."
+  }
+}
+
 variable "route53_zone_id" {
-  description = "Route 53 hosted zone, in this account, that holds `hostname`. The module writes the app record and the certificate's validation records into it; it never creates or deletes the zone."
+  description = "Route 53 hosted zone, in this account, that holds `hostname`. The module writes the app record and the certificate's validation records into it; it never creates or deletes the zone. Null when the hostname's DNS lives elsewhere (another account or provider): add the certificate_validation_records output there, then point `hostname` at alb_dns_name (needs alb_enabled)."
   type        = string
+  default     = null
+
+  validation {
+    condition     = var.route53_zone_id != null || var.alb_enabled
+    error_message = "Without route53_zone_id the box is reached through the ALB: set alb_enabled = true."
+  }
 }
 
 variable "core_repo" {
@@ -82,6 +103,90 @@ variable "app_env" {
   validation {
     condition     = alltrue([for k in keys(var.app_env) : can(regex("^[A-Z_][A-Z0-9_]*$", k))])
     error_message = "app_env keys must be upper-case environment variable names."
+  }
+}
+
+# ----- an extension, built in beside core -----
+#
+# Core's build looks for one optional extension package beside packages/core
+# and, when it finds one, builds it in (docs/guides/extensions.md). With
+# extension_repo set, the box fetches that repository at extension_ref over
+# SSH with a deploy key and puts it where the build looks
+# (templates/vocion-deploy.sh, step 4).
+
+variable "extension_repo" {
+  description = "Git SSH URL of an extension package to build into the app image beside vocion-core (git@github.com:owner/repo.git, or ssh://...). Fetched with the deploy key in extension_deploy_key_secret_name. Empty: core alone."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.extension_repo == "" || can(regex("^(ssh://[A-Za-z0-9._~@:/-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+)$", var.extension_repo))
+    error_message = "extension_repo must be a git SSH URL (git@host:owner/repo.git or ssh://...) with no quotes or spaces."
+  }
+}
+
+variable "extension_ref" {
+  description = "The extension release the box builds in: a tag (v1.2.0) or a full 40-character commit sha. Never a branch. Required with extension_repo."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.extension_ref == "" || can(regex("^(v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?|[0-9a-f]{40})$", var.extension_ref))
+    error_message = "extension_ref must be a release tag like v1.2.0 or a full 40-character commit sha."
+  }
+}
+
+variable "extension_deploy_key_secret_name" {
+  description = "Name of the Secrets Manager secret holding the private half of a read-only SSH deploy key on extension_repo (OpenSSH format, the whole file as the secret string). The module creates the secret, never its value; only the box may read it. Empty: <name_prefix>/extension-deploy-key."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.extension_deploy_key_secret_name == "" || can(regex("^[A-Za-z0-9/_+=.@-]{1,512}$", var.extension_deploy_key_secret_name))
+    error_message = "extension_deploy_key_secret_name must be a Secrets Manager secret name (letters, digits and /_+=.@-)."
+  }
+}
+
+variable "extension_ssh_known_hosts" {
+  description = "known_hosts lines for extension_repo's SSH host. The box refuses any host key not listed. Default: github.com's published keys (https://api.github.com/meta)."
+  type        = list(string)
+  default = [
+    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+    "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
+    "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
+  ]
+
+  validation {
+    condition     = alltrue([for l in var.extension_ssh_known_hosts : can(regex("^[^\\s#][^\\n\\r]* [A-Za-z0-9-]+ [A-Za-z0-9+/=]+$", l))])
+    error_message = "Each extension_ssh_known_hosts entry is one known_hosts line: host, key type, base64 key."
+  }
+}
+
+# ----- a prebuilt app image -----
+#
+# The deploy document's `image` parameter (or `vocion-deploy <ref> <image>`)
+# pulls an image built elsewhere instead of building on the box, whose build
+# can need more memory than the box has to spare while it serves.
+
+variable "image_registry_secret_name" {
+  description = "Name of a Secrets Manager secret holding {\"username\",\"password\"} for the registry a prebuilt app image is pulled from (for GHCR, a token with read:packages). Put by hand; the module neither creates it nor holds its value, and only the box may read it. Empty: a pulled image needs no login (public, or ECR through the box's role)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.image_registry_secret_name == "" || can(regex("^[A-Za-z0-9/_+=.@-]{1,512}$", var.image_registry_secret_name))
+    error_message = "image_registry_secret_name must be a Secrets Manager secret name (letters, digits and /_+=.@-)."
+  }
+}
+
+variable "image_ecr_repository_arns" {
+  description = "ECR repositories a prebuilt app image may be pulled from. The box's role gets ecr:GetAuthorizationToken and pull on these (core's pull-app-image.sh logs in to ECR with the role). Empty: no ECR pull."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for a in var.image_ecr_repository_arns : can(regex("^arn:[a-z-]+:ecr:[a-z0-9-]+:[0-9]{12}:repository/[a-z0-9._/-]+$", a))])
+    error_message = "image_ecr_repository_arns must be ECR repository ARNs."
   }
 }
 
@@ -167,10 +272,97 @@ variable "waf_rate_limit" {
   default     = 2000
 }
 
+variable "waf_body_rules_action" {
+  description = "What the common rule set's two body rules, SizeRestrictions_BODY (a body over 8 KB) and CrossSiteScripting_BODY, do: \"count\" (log the match, let the request through) or \"block\". Count by default: chat turns and uploads run past 8 KB, and people paste code and HTML that reads as script. Test the app's large and rich bodies against the WAF log before blocking (README, \"WAF: the body rules\")."
+  type        = string
+  default     = "count"
+
+  validation {
+    condition     = contains(["count", "block"], var.waf_body_rules_action)
+    error_message = "waf_body_rules_action must be count or block."
+  }
+}
+
 variable "waf_count_rules" {
-  description = "Rules of AWSManagedRulesCommonRuleSet set to COUNT instead of BLOCK. The defaults would block ordinary use: chat turns and uploads are larger than the 8 KB body limit, and people paste code that reads as cross-site scripting."
+  description = "Further rules of AWSManagedRulesCommonRuleSet to COUNT instead of BLOCK, on top of the body rules when waf_body_rules_action is count. Naming a body rule here keeps that one counting when the other is switched to block."
   type        = list(string)
-  default     = ["SizeRestrictions_BODY", "CrossSiteScripting_BODY"]
+  default     = []
+}
+
+# ----- logging -----
+
+variable "alb_access_logs_enabled" {
+  description = "Write the ALB's access logs to a private S3 bucket (SSE-S3, the only encryption ALB log delivery accepts). Needs alb_enabled."
+  type        = bool
+  default     = true
+}
+
+variable "alb_access_logs_bucket_name" {
+  description = "Access log bucket name. Empty: <name_prefix>-alb-logs. Bucket names are global, so a taken name needs this."
+  type        = string
+  default     = ""
+}
+
+variable "alb_access_logs_retention_days" {
+  description = "Days an access log object is kept before the bucket's lifecycle deletes it."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.alb_access_logs_retention_days >= 1
+    error_message = "alb_access_logs_retention_days must be at least 1."
+  }
+}
+
+variable "waf_logging_enabled" {
+  description = "Log every request the WAF evaluates, with the rules it matched, to the CloudWatch Logs group aws-waf-logs-<name_prefix>. Needs waf_enabled."
+  type        = bool
+  default     = true
+}
+
+variable "waf_log_redacted_headers" {
+  description = "Request headers WAF writes to its log as REDACTED. Session cookies and bearer tokens never belong in a log."
+  type        = list(string)
+  default     = ["authorization", "cookie"]
+}
+
+variable "waf_log_retention_days" {
+  description = "Days the WAF log group keeps events (a value CloudWatch Logs accepts: 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, ...)."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.waf_log_retention_days)
+    error_message = "waf_log_retention_days must be a retention CloudWatch Logs accepts (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, ...)."
+  }
+}
+
+variable "flow_logs_enabled" {
+  description = "VPC flow logs to the CloudWatch Logs group <name_prefix>-vpc-flow-logs."
+  type        = bool
+  default     = true
+}
+
+variable "flow_logs_traffic_type" {
+  description = "What the flow logs record: REJECT (connections the VPC refused: probes, a security group doing its job), ACCEPT or ALL. ALL records every connection the box makes, at many times the volume."
+  type        = string
+  default     = "REJECT"
+
+  validation {
+    condition     = contains(["REJECT", "ACCEPT", "ALL"], var.flow_logs_traffic_type)
+    error_message = "flow_logs_traffic_type must be REJECT, ACCEPT or ALL."
+  }
+}
+
+variable "flow_logs_retention_days" {
+  description = "Days the flow log group keeps events (a value CloudWatch Logs accepts)."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.flow_logs_retention_days)
+    error_message = "flow_logs_retention_days must be a retention CloudWatch Logs accepts (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, ...)."
+  }
 }
 
 # ----- credential vault -----
@@ -407,6 +599,36 @@ variable "runner_poll_schedule" {
   description = "EventBridge Scheduler expression for the fallback poll that starts a runner. Empty: no poll (the app's push at dispatch is the only trigger)."
   type        = string
   default     = ""
+}
+
+# ----- Amazon Bedrock -----
+
+variable "bedrock_enabled" {
+  description = "Let the box's role invoke the models in bedrock_models on Amazon Bedrock, directly and through the account's cross-region inference profiles: bedrock:InvokeModel (also authorizes Converse) and bedrock:InvokeModelWithResponseStream (also ConverseStream). The app uses it when an agent or the installation picks Bedrock (VOCION_LLM_PROVIDER=bedrock). Model access itself is an account setting, outside this module."
+  type        = bool
+  default     = true
+}
+
+variable "bedrock_models" {
+  description = "Foundation model ids the box may invoke, as IAM patterns (a trailing * matches every version)."
+  type        = list(string)
+  default     = ["anthropic.*"]
+
+  validation {
+    condition     = length(var.bedrock_models) > 0 && alltrue([for m in var.bedrock_models : can(regex("^[a-z0-9][a-z0-9.:*-]*$", m))])
+    error_message = "bedrock_models needs at least one model id pattern, e.g. anthropic.*"
+  }
+}
+
+variable "bedrock_inference_profile_geography" {
+  description = "Geography of the cross-region inference profiles the box may call (us, eu or apac: profile ids us.anthropic.*, ...). The models behind them are allowed in that geography's regions only (us-*, eu-*, ap-*), where those profiles route. Empty: in-region model ids only."
+  type        = string
+  default     = "us"
+
+  validation {
+    condition     = contains(["", "us", "eu", "apac"], var.bedrock_inference_profile_geography)
+    error_message = "bedrock_inference_profile_geography must be us, eu, apac or empty."
+  }
 }
 
 # ----- AgentCore (off by default) -----

@@ -27,19 +27,23 @@ the application move together on one pin. A working root is in
 | | Default (the Cloud profile) | Switch |
 |---|---|---|
 | Network | VPC, public subnets in every AZ (ALB, box), private DB subnets (no route out) | `vpc_cidr`, `azs` |
-| Edge | ALB, ACM certificate (DNS-validated in your zone), HTTP → HTTPS, only `hostname` forwarded | `alb_enabled` |
-| WAF | AWS common + known-bad-inputs rule sets, per-IP rate limit | `waf_enabled`, `waf_rate_limit`, `waf_count_rules` |
+| Edge | ALB, ACM certificate (DNS-validated in your zone), HTTP → HTTPS, only `hostname` forwarded; old hostnames 301 to it, `/api/*` served in place | `alb_enabled`, `alias_hostnames` |
+| WAF | AWS common + known-bad-inputs rule sets, per-IP rate limit; the two body rules count rather than block ([below](#waf-the-body-rules)) | `waf_enabled`, `waf_rate_limit`, `waf_body_rules_action`, `waf_count_rules` |
 | Box | One EC2 (Amazon Linux 2023), encrypted root, IMDSv2, Elastic IP for egress; reachable only from the ALB | `instance_type`, `root_volume_gb`, `eip_enabled` |
-| Access | SSM Session Manager. No port 22 | `ssh_enabled`, `ssh_cidrs`, `key_name` |
+| Access | SSM Session Manager. No port 22, no key, and sshd stopped and masked on the box | `ssh_enabled`, `ssh_cidrs`, `key_name` |
 | Database | RDS PostgreSQL 16, pgvector allowed, TLS forced, CMK-encrypted, PITR, deletion protection | `db_*` |
 | Credential vault | A KMS key; the app runs `VOCION_CREDENTIAL_VAULT=kms` | `kms_vault_enabled` |
 | Media | Private S3 bucket, versioned, TLS-only, CORS for `hostname` | `media_bucket_name`, `media_cors_origins` |
-| Secrets | Two Secrets Manager entries, **names only** (values are put out-of-band) | `secret_recovery_window_days` |
+| Secrets | Two Secrets Manager entries, **names only** (values are put out-of-band); a third with an extension | `secret_recovery_window_days` |
 | Backup | AWS Backup: daily RDS backup into a vault locked in governance mode; optional cross-account copy | `backup_*` |
+| Logs | ALB access logs to a private S3 bucket (SSE-S3); the WAF's request log to CloudWatch Logs, `Authorization` and `Cookie` redacted; VPC flow logs of refused connections. 90 days each | `alb_access_logs_*`, `waf_logging_enabled`, `waf_log_*`, `flow_logs_*` |
 | Alarms | SNS topic; box CPU and status checks (system failures auto-recover), site down, 5xx, RDS CPU and free storage | `alarm_emails` |
 | Budget | none | `budget_monthly_usd` |
+| Bedrock | The box's role may invoke Anthropic models: in-region, and through this account's `us.` inference profiles in the US regions they route to (`InvokeModel`, `InvokeModelWithResponseStream`; they also authorize Converse and ConverseStream) | `bedrock_enabled`, `bedrock_models`, `bedrock_inference_profile_geography` |
 | Engineering runners | none | `runners_enabled`, `runner_*` |
 | AgentCore IAM | none | `agentcore_enabled` |
+| Extension | none: core alone | `extension_repo`, `extension_ref`, `extension_deploy_key_secret_name`, `extension_ssh_known_hosts` ([An extension](#an-extension)) |
+| Prebuilt image | built on the box; the deploy document's `image` pulls one instead, with no registry login | `image_registry_secret_name` ([Every deploy](#every-deploy-the-deploy-document), step 6) |
 
 With `alb_enabled = false` it is the classic single box: the record points at
 the box and Caddy terminates TLS with Let's Encrypt. Everything else is the
@@ -63,9 +67,9 @@ What it deliberately does **not** do:
 
 `tofu apply` creates a box that deploys itself. Nothing is built into the AMI.
 
-### First boot (user-data)
+### The box files
 
-User-data runs once and writes four things, then runs the first deploy:
+Four things on the box come from the module's [`templates/`](./templates):
 
 | On the box | What |
 |---|---|
@@ -74,20 +78,37 @@ User-data runs once and writes four things, then runs the first deploy:
 | `/etc/vocion/Caddyfile.alb`, `Caddyfile.tls` | Caddy behind the ALB (plain HTTP on :80), or terminating TLS |
 | `/etc/vocion/compose.cloud.yml` | the module's overlay on core's compose files |
 
-If the first deploy cannot finish (usually: the secrets have no values yet) the
-boot still succeeds; the box waits, reachable over SSM, for `sudo vocion-deploy`.
-Its log is `/var/log/cloud-init-output.log`.
+The same script also stops and masks sshd, unless `ssh_enabled`. It runs
+twice over: once from user-data at first boot, and again before every deploy
+from the module's deploy document. User-data is ignored after the
+first boot (a change to it never replaces a running box), so the document is
+how a change to the templates reaches a box that is already running.
 
-### Every deploy: `sudo vocion-deploy [<ref>]`
+### First boot (user-data)
 
-From a session (`tofu output -raw session_command`):
+User-data writes the box files, then runs the first deploy. If that cannot
+finish (usually: the secrets have no values yet) the boot still succeeds; the
+box waits, reachable over SSM, for a deploy. Its log is
+`/var/log/cloud-init-output.log`.
+
+### Every deploy: the deploy document
+
+`<name_prefix>-deploy` (`deploy_document_name`) is an SSM Command document the
+module keeps in step with its templates. Run on the box, it writes the box files,
+then runs `vocion-deploy`. From an operator machine (`tofu output -raw deploy_command`):
 
 ```bash
-sudo vocion-deploy            # redeploy the release in /etc/vocion/deploy.env
-sudo vocion-deploy v5.1.0     # move to another release: a tag, or a full 40-char sha
+aws ssm send-command --instance-ids "$(tofu output -raw instance_id)" \
+  --document-name "$(tofu output -raw deploy_document_name)" \
+  --parameters ref=v5.1.0       # a tag, or a full 40-char sha; empty: core_ref
 ```
 
-A branch name is refused: a branch is not a pin. In order:
+The command's output is the deploy's last 120 lines; the full log is
+`/var/log/vocion-deploy-last.log` on the box. `--parameters action=install`
+writes the box files without deploying, for a deploy run by hand from a session
+(`sudo vocion-deploy [<ref>]`), which uses whatever box files are on the box.
+
+`vocion-deploy` refuses a branch name: a branch is not a pin. In order:
 
 1. **Packages.** Docker, the compose plugin, git, jq (and core's buildx installer before a build).
 2. **Config.** Reads the SSM parameter `/<name_prefix>/deploy` (`deploy_config_parameter`):
@@ -95,7 +116,10 @@ A branch name is refused: a branch is not a pin. In order:
    deploy, so an apply that changes any of these reaches the box on its next deploy, with
    no rebuild.
 3. **Checkout.** `vocion-core` at the release into `/opt/vocion`, detached.
-4. **Env.** Builds `.env.production` (mode 0600), lowest precedence first:
+4. **Extension.** With `extension_repo`: the extension at `extension_ref`, fetched over SSH
+   with the deploy key, unpacked into the checkout where core's build looks for it
+   ([An extension](#an-extension)). Without it, that directory is removed.
+5. **Env.** Builds `.env.production` (mode 0600), lowest precedence first:
    1. the `<name_prefix>/app-env` secret (JSON object);
    2. the module's env, then `app_env` over it;
    3. `VOCION_RUNNERS` and `VOCION_RUNNER_TOKEN`, when runners are on;
@@ -105,22 +129,34 @@ A branch name is refused: a branch is not a pin. In order:
 
    Keep each key in one place. A value that would be misread by compose's dotenv
    parser (`$`, ` #`, surrounding whitespace) is written single-quoted.
-5. **Image.** Built on the box from the checkout, with `NEXT_PUBLIC_APP_URL` and the build
-   stamp (`/version.txt`). `sudo VOCION_APP_IMAGE=<ref> vocion-deploy` pulls a prebuilt
-   image instead, through core's `pull-app-image.sh`.
-6. **Migrate.** Core's `infra/aws/apply-migrations.sh`, unchanged, against RDS: it runs
+6. **Image.** Built on the box from the checkout, with `NEXT_PUBLIC_APP_URL` and the build
+   stamp (`/version.txt`). Or pulled: the deploy document's `image` parameter (`sudo
+   vocion-deploy <ref> <image>` by hand) pulls a prebuilt image through core's
+   `pull-app-image.sh`, after a `docker login` with `image_registry_secret_name`
+   (`{"username","password"}`, put by hand; the login lives in the deploy's temporary
+   directory only), or, for an ECR image, with the box's role on
+   `image_ecr_repository_arns`. The image must carry the labels its build sets:
+   `org.vocion.app-url` (this hostname's URL), `org.vocion.core-sha` (the ref's commit)
+   and, with an extension, `org.vocion.extension-sha` and `org.vocion.extension-ref`
+   (`extension_ref`). Anything else is refused before migrations run, and the
+   extension is not fetched (step 4). A box whose image build needs more memory than it
+   can spare while it serves deploys this way.
+7. **Migrate.** Core's `infra/aws/apply-migrations.sh`, unchanged, against RDS: it runs
    psql by `docker exec`, so the deploy points it at a throwaway client container whose
    libpq environment names RDS (TLS verified). Runs **before** the swap, so new code never
    serves an old schema; a failed migration stops the deploy with the old container up.
-7. **Swap.** `docker compose up` with core's four files and the overlay:
+8. **Swap.** `docker compose up` with core's four files and the overlay:
    `docker-compose.yml`, `infra/docker-compose.platform.yml`,
    `infra/aws/docker-compose.prod.yml`, `infra/docker-compose.langfuse.prod.yml`,
-   `/etc/vocion/compose.cloud.yml`.
-8. **Check.** The new container must report the commit that was built in its
+   `/etc/vocion/compose.cloud.yml`. The overlay switches off core's local postgres
+   (the database is RDS) and the platform stack, so what runs is `app` and `caddy`;
+   compose neither pulls nor starts the rest. The network core's prod overlay joins,
+   `vocion_default`, is created directly on a fresh box.
+9. **Check.** The new container must report the commit that was built in its
    `/version.txt` (`deploy-pin`), and, behind the ALB, Caddy must serve it on :80.
    Otherwise the deploy fails, loudly.
 
-Rolling back is `sudo vocion-deploy <previous tag>`. Migrations only move forward,
+Rolling back is a deploy of the previous tag. Migrations only move forward,
 so a rollback across a migration runs the old code on the new schema; core's
 migration conventions (expand, then contract) are what make that safe.
 
@@ -189,11 +225,65 @@ aws secretsmanager put-secret-value \
   --secret-string '{"username":"vocion_app","password":"<generated>"}'
 ```
 
-**3. Deploy.** From a session: `sudo vocion-deploy`. The first image build
+**3. Deploy.** Through the deploy document (`tofu output -raw deploy_command`). The first image build
 takes a while; the deploy ends by naming the commit the app serves.
 
 The installation is now up and **closed**: an empty database, no tenants and
 no users. Creating the first operator account is the next, separate step.
+
+---
+
+## An extension
+
+Core builds and runs complete on its own. A deployment can also build in one
+extension package from a private repository: core's build snapshots it from
+`packages/enterprise` beside `packages/core` when one is there
+([core's extensions guide](../../../../docs/guides/extensions.md)). With
+`extension_repo`, the box does this on every deploy (step 4):
+
+1. Reads the deploy key from `extension_deploy_key_secret_name` into the
+   deploy's 0700 work directory, removed when the deploy exits.
+2. Fetches `extension_repo` over SSH into a bare clone, `/opt/vocion-extension.git`,
+   checking the host against `extension_ssh_known_hosts` (default: github.com's
+   published keys; an unlisted host key is refused, never learned).
+3. Resolves `extension_ref` the way it resolves `core_ref`: a tag or a full
+   sha, never a branch.
+4. Unpacks that tree, with no `.git`, into `/opt/vocion/packages/enterprise`,
+   replacing whatever was there.
+
+The image is built with the checkout as its Docker build context, and
+`next build` runs inside it, so the package has to be in the checkout: a
+`VOCION_ENTERPRISE_DIR` set on the box, or a directory elsewhere, never
+reaches the build. Core's own default location is inside the context, so no
+variable is needed.
+
+The deploy stops, with the running container untouched, when the key cannot be
+read, the fetch fails, the ref is not a tag or sha of the repository, the tree
+has no `index.ts` at its root, or the core release predates core's extension
+loader (it would build without the extension and say nothing). A pulled image
+is not fetched for: it must say it carries `extension_ref` (step 6).
+`/var/lib/vocion/deployed` records the extension's ref and sha beside core's.
+
+The box builds the extension in; it runs nothing else of it. Anything the
+extension needs beyond the build (its own tables, database policies) is the
+extension's to install.
+
+**The deploy key.** A read-only deploy key on that one repository:
+
+```bash
+ssh-keygen -t ed25519 -N '' -C "<hostname> boxes" -f ./extension-key
+gh repo deploy-key add ./extension-key.pub -R <owner>/<repo> --title "<hostname> boxes (read-only)"
+aws secretsmanager put-secret-value \
+  --secret-id "$(tofu output -raw extension_deploy_key_secret_name)" \
+  --secret-string file://extension-key
+rm ./extension-key ./extension-key.pub
+```
+
+The module creates the secret (name only) and grants the box's role
+`GetSecretValue` on it and nothing more. The app container shares the
+instance role (IMDS hop limit 2), so it can read the key too: that is why it
+must be a read-only key on that repository alone, which the box already holds
+a copy of.
 
 ---
 
@@ -223,9 +313,97 @@ Until all three exist, leave `backup_copy_vault_arn` empty.
 
 ---
 
+## Logs
+
+| Log | Where | Kept |
+|---|---|---|
+| ALB access logs | S3 `<name_prefix>-alb-logs` (`alb_access_logs_bucket`), under `alb/AWSLogs/<account>/elasticloadbalancing/<region>/` | `alb_access_logs_retention_days` (90), then the bucket's lifecycle deletes them |
+| WAF request log | CloudWatch Logs `aws-waf-logs-<name_prefix>` (`waf_log_group_name`): each request the web ACL evaluated, its action, and the rules that matched or counted. `Authorization` and `Cookie` are written as `REDACTED` (`waf_log_redacted_headers`) | `waf_log_retention_days` (90) |
+| VPC flow logs | CloudWatch Logs `<name_prefix>-vpc-flow-logs` (`flow_log_group_name`): connections the VPC refused (`flow_logs_traffic_type = "REJECT"`) | `flow_logs_retention_days` (90) |
+
+The access log bucket uses S3-managed keys because ALB log delivery accepts no
+other encryption; it is otherwise as closed as the media bucket (owner-enforced,
+no public access, TLS only), and only load balancers in this account and region
+may write to it. The log groups are encrypted at rest by CloudWatch Logs. The
+box's role can write only log groups under `/<name_prefix>/`, so it can write
+none of these.
+
+What the WAF blocked, by web ACL rule and path (CloudWatch Logs Insights, on
+the `aws-waf-logs-<name_prefix>` group):
+
+```
+fields @timestamp, terminatingRuleId, httpRequest.uri
+| filter action = "BLOCK"
+| stats count(*) as requests by terminatingRuleId, httpRequest.uri
+| sort requests desc
+```
+
+A block by a managed rule shows the web ACL rule (`aws-common`) as
+`terminatingRuleId`; the managed rule that fired is in
+`ruleGroupList.*.terminatingRule.ruleId`. A managed rule set to COUNT never
+terminates: it appears in `ruleGroupList.*.nonTerminatingMatchingRules`.
+
+---
+
+## WAF: the body rules
+
+Two rules of the AWS common rule set read the request body, and both match
+ordinary use of the app:
+
+- **`SizeRestrictions_BODY`** matches any body over 8 KB. On an ALB, WAF
+  inspects only the first 8 KB of a body, and this rule flags whatever is
+  longer. A chat turn with a pasted document, a file upload, a large artifact
+  saved from the editor: all run past it.
+- **`CrossSiteScripting_BODY`** matches script-like content in the body. People
+  paste HTML, JavaScript and code into chat and artifacts as a matter of course.
+
+So both **count** by default (`waf_body_rules_action = "count"`): the WAF logs
+the match and lets the request through. `waf_body_rules_action = "block"` turns
+both into blocks. Under `block` a matching request gets a 403 from the ALB
+before it reaches the app, so the app logs nothing about it, and the symptom is
+a send or an upload that fails with no app error.
+
+Before switching an installation to `block`, test the app's large and rich
+bodies against it:
+
+1. Turn it on where nobody depends on it first (a dev installation), or leave
+   production on `count` and read its WAF log for a while: every COUNT match
+   there is a request that `block` would have refused.
+2. Exercise the bodies that matter, signed in, through the hostname (the WAF
+   only sees traffic through the ALB):
+   - a chat turn with more than 8 KB of pasted text, and one with pasted HTML
+     and JavaScript (`<script>`, `onerror=`, `javascript:` links);
+   - file uploads in chat: an image, a PDF, a recording;
+   - saving a large artifact or document, and one containing HTML or code;
+   - any integration that posts to the API (`/api/v1/...`) with a large or
+     HTML-bearing JSON body.
+3. Read the WAF log (`waf_log_group_name`) for each rule. In Logs Insights, once
+   per rule:
+
+   ```
+   fields @timestamp, httpRequest.httpMethod as method, httpRequest.uri as uri
+   | filter @message like /"ruleId":"CrossSiteScripting_BODY"/
+   | stats count(*) as requests by method, uri
+   | sort requests desc
+   ```
+
+   The rule's matches, by path. Under `count` they are in
+   `ruleGroupList.*.nonTerminatingMatchingRules`; under `block`,
+   `ruleGroupList.*.terminatingRule`.
+4. Any match on a legitimate request is a path `block` breaks. Either keep that
+   rule counting (`waf_count_rules = ["SizeRestrictions_BODY"]` keeps it
+   counting while the other blocks), or exempt the path with a scoped rule of
+   your own before blocking.
+
+Expect `SizeRestrictions_BODY` to match every upload and every long turn, so
+it normally stays on `count`. `CrossSiteScripting_BODY` is the one to block
+once its log shows no legitimate matches.
+
+---
+
 ## Inputs
 
-Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
+Required: `name_prefix`, `azs`, `hostname`, `core_ref`.
 
 | Name | Type | Default | Description |
 |---|---|---|---|
@@ -234,10 +412,15 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `vpc_cidr` | string | `"10.0.0.0/16"` | VPC CIDR |
 | `azs` | list(string) | | At least two AZs; the box runs in the first |
 | `hostname` | string | | Hostname served |
-| `route53_zone_id` | string | | In-account zone holding `hostname` |
+| `route53_zone_id` | string | `null` | In-account zone holding `hostname`. Null when its DNS is elsewhere: add the `certificate_validation_records` output there and point `hostname` at `alb_dns_name` (ALB only) |
+| `alias_hostnames` | list({hostname, certificate_arn}) | `[]` | Old hostnames: browsers 301 to `hostname`, `/api/*` served in place. Certificate issued in this account; DNS points at `alb_dns_name`, managed outside |
 | `core_repo` | string | `"https://github.com/vocion/vocion-core.git"` | Repo the box clones |
 | `core_ref` | string | | Release tag (`v5.0.0`) or full sha. Never a branch |
 | `app_env` | map(string) | `{}` | Non-secret app settings merged over the secret |
+| `extension_repo` | string | `""` | Git SSH URL of an extension built in beside core ([An extension](#an-extension)). Empty: core alone |
+| `extension_ref` | string | `""` | The extension's tag or full sha. Never a branch. Required with `extension_repo` |
+| `extension_deploy_key_secret_name` | string | `""` | Secret the module creates for the read-only deploy key. Empty: `<name_prefix>/extension-deploy-key` |
+| `extension_ssh_known_hosts` | list(string) | github.com's published keys | `known_hosts` lines the extension's SSH host must match |
 | `health_check_path` | string | `"/version.txt"` | ALB health check path |
 | `instance_type` | string | `"r6i.large"` | 16 GB is the floor: the box builds its image |
 | `ami_id` | string | `""` | Empty: newest Amazon Linux 2023 at first apply |
@@ -251,7 +434,17 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `alb_ssl_policy` | string | `"ELBSecurityPolicy-TLS13-1-2-2021-06"` | |
 | `waf_enabled` | bool | `true` | Needs `alb_enabled` |
 | `waf_rate_limit` | number | `2000` | Requests per IP per 5 minutes |
-| `waf_count_rules` | list(string) | `["SizeRestrictions_BODY", "CrossSiteScripting_BODY"]` | Common-rule-set rules counted, not blocked (chat bodies are large and contain code) |
+| `waf_body_rules_action` | string | `"count"` | `count` or `block`: `SizeRestrictions_BODY` and `CrossSiteScripting_BODY` ([WAF: the body rules](#waf-the-body-rules)) |
+| `waf_count_rules` | list(string) | `[]` | Further common-rule-set rules counted, not blocked; a body rule named here keeps counting under `block` |
+| `alb_access_logs_enabled` | bool | `true` | ALB access logs to S3. Needs `alb_enabled` |
+| `alb_access_logs_bucket_name` | string | `""` | Empty: `<name_prefix>-alb-logs` |
+| `alb_access_logs_retention_days` | number | `90` | |
+| `waf_logging_enabled` | bool | `true` | WAF request log to CloudWatch Logs. Needs `waf_enabled` |
+| `waf_log_redacted_headers` | list(string) | `["authorization", "cookie"]` | Written as `REDACTED` |
+| `waf_log_retention_days` | number | `90` | A CloudWatch Logs retention value |
+| `flow_logs_enabled` | bool | `true` | VPC flow logs to CloudWatch Logs |
+| `flow_logs_traffic_type` | string | `"REJECT"` | `REJECT`, `ACCEPT` or `ALL` |
+| `flow_logs_retention_days` | number | `90` | A CloudWatch Logs retention value |
 | `kms_vault_enabled` | bool | `true` | KMS credential vault |
 | `db_instance_class` | string | `"db.t4g.medium"` | |
 | `db_engine_version` | string | `"16"` | Major alone tracks the newest minor |
@@ -281,6 +474,8 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `alarm_emails` | list(string) | `[]` | Subscribed to the alarm topic |
 | `db_free_storage_alarm_gb` | number | `5` | |
 | `budget_monthly_usd` | number | `0` | 0: no budget |
+| `image_registry_secret_name` | string | `""` | `{"username","password"}` for pulling a prebuilt image; put by hand. Not used for ECR |
+| `image_ecr_repository_arns` | list(string) | `[]` | ECR repositories the box may pull a prebuilt image from, with its own role |
 | `runners_enabled` | bool | `false` | Fargate engineering runners |
 | `runner_image` | string | `"ghcr.io/vocion/vocion-runner:5.x"` | |
 | `runner_cpu` | number | `2048` | |
@@ -289,6 +484,9 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `runner_wall_clock_minutes` | number | `45` | Per run |
 | `runner_git_email` | string | `""` | Empty: `runner@<hostname>` |
 | `runner_poll_schedule` | string | `""` | Empty: no fallback poll |
+| `bedrock_enabled` | bool | `true` | Bedrock invoke for the box's role |
+| `bedrock_models` | list(string) | `["anthropic.*"]` | Model id patterns the box may invoke |
+| `bedrock_inference_profile_geography` | string | `"us"` | `us`, `eu`, `apac`: the cross-region profiles allowed, and the regions their models may run in. Empty: in-region only |
 | `agentcore_enabled` | bool | `false` | AgentCore harness/runtime/memory IAM for the box |
 | `agentcore_harness_role_name` | string | `"VocionAgentCoreHarnessRole"` | Role the box may pass |
 
@@ -298,12 +496,14 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 |---|---|
 | `url`, `hostname` | The installation |
 | `instance_id`, `session_command` | The box, and how to open a shell on it |
-| `deploy_command` | `sudo vocion-deploy [<tag or full sha>]` |
+| `deploy_document_name`, `deploy_command` | The deploy document, and the `send-command` that runs it |
 | `public_ip` | The box's egress address |
 | `vpc_id`, `public_subnet_ids`, `db_subnet_ids`, `app_security_group_id` | Network |
 | `instance_role_name` | Attach further policies from the calling root |
 | `alb_arn`, `alb_dns_name`, `waf_web_acl_arn`, `certificate_arn` | Edge (null without the ALB) |
+| `alb_access_logs_bucket`, `waf_log_group_name`, `flow_log_group_name` | Where the logs are (null when off) |
 | `app_env_secret_name`, `app_env_secret_arn`, `rds_app_secret_name` | Where the values go |
+| `extension_deploy_key_secret_name` | Where the extension's deploy key goes (null without an extension) |
 | `deploy_config_parameter` | The SSM parameter the box reads every deploy |
 | `db_endpoint`, `db_address`, `db_identifier`, `db_master_secret_arn` | Database |
 | `data_kms_key_arn`, `credential_vault_kms_key_arn` | Keys |
@@ -318,10 +518,12 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 
 | Change | How |
 |---|---|
-| A new core release | `sudo vocion-deploy <tag>` on the box. Then set `core_ref` to match, so a rebuilt box comes up on it |
-| A secret value | `put-secret-value`, then `sudo vocion-deploy` |
-| `app_env`, the ALB on or off, a new RDS endpoint | `tofu apply`, then `sudo vocion-deploy` |
-| A new AMI, or a change to `templates/` | Replace the box: `tofu apply -replace=module.vocion.aws_instance.app`. The database and media are not on it |
+| A new core release | Set `core_ref`, `tofu apply`, deploy (or deploy with `ref=<tag>` first and set `core_ref` after, so a rebuilt box comes up on it) |
+| A secret value | `put-secret-value`, then deploy |
+| A new extension release | Set `extension_ref`, `tofu apply`, deploy. Drop `extension_repo` (and `extension_ref`) to build core alone |
+| `app_env`, the ALB on or off, a new RDS endpoint | `tofu apply`, then deploy |
+| A change to `templates/` (the deploy, the overlay, Caddy) | `tofu apply` (it updates the deploy document), then deploy: the document writes the new files first |
+| A new AMI | Replace the box: `tofu apply -replace=module.vocion.aws_instance.app`. The database and media are not on it |
 | Instance size | `tofu apply` (a stop and start) |
 
 ## Testing the module
@@ -334,5 +536,8 @@ tofu init -backend=false && tofu validate && tofu test
 ```
 
 [`tests/profiles.tftest.hcl`](./tests/profiles.tftest.hcl) plans the module
-against a mocked provider in three profiles (Cloud defaults, single box with
-SSH, everything on) and checks that a branch is refused as `core_ref`.
+against a mocked provider in four profiles (Cloud defaults, single box with
+SSH, everything on, logging off) and with an extension, and checks that a
+branch is refused as `core_ref` or `extension_ref`, an https `extension_repo`
+and an `extension_repo` without a ref are refused, and a retention CloudWatch
+Logs would refuse is refused at plan.

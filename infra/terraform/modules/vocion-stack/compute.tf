@@ -122,6 +122,47 @@ data "aws_iam_policy_document" "deploy_read" {
       var.runners_enabled ? [aws_secretsmanager_secret.runner[0].arn] : [],
     )
   }
+  # The extension's deploy key: that one secret, read only.
+  dynamic "statement" {
+    for_each = local.extension_enabled ? [aws_secretsmanager_secret.extension_deploy_key[0].arn] : []
+    content {
+      sid       = "ReadExtensionDeployKey"
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [statement.value]
+    }
+  }
+  # The registry login for a prebuilt app image: that one secret, read only.
+  # By name (the module does not own it), so the ARN's random suffix is a
+  # wildcard.
+  dynamic "statement" {
+    for_each = var.image_registry_secret_name != "" ? [var.image_registry_secret_name] : []
+    content {
+      sid       = "ReadImageRegistryLogin"
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = ["arn:${local.partition}:secretsmanager:${local.region}:${local.account_id}:secret:${statement.value}-??????"]
+    }
+  }
+  # Pulling a prebuilt image from ECR with the box's own role.
+  dynamic "statement" {
+    for_each = length(var.image_ecr_repository_arns) > 0 ? [1] : []
+    content {
+      sid       = "EcrLogin"
+      effect    = "Allow"
+      actions   = ["ecr:GetAuthorizationToken"]
+      resources = ["*"]
+    }
+  }
+  dynamic "statement" {
+    for_each = length(var.image_ecr_repository_arns) > 0 ? [1] : []
+    content {
+      sid       = "EcrPullAppImage"
+      effect    = "Allow"
+      actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+      resources = var.image_ecr_repository_arns
+    }
+  }
   statement {
     sid     = "ReadDeployConfig"
     effect  = "Allow"
@@ -167,6 +208,62 @@ resource "aws_iam_role_policy" "vault" {
   name   = "${var.name_prefix}-credential-vault"
   role   = aws_iam_role.ec2.id
   policy = data.aws_iam_policy_document.vault[0].json
+}
+
+# Bedrock: the models in bedrock_models, called in this region or through
+# this geography's cross-region inference profiles (us.anthropic.*, ...). A
+# profile call is authorized twice, on the profile here and on the model in
+# whichever region the profile routes it to, so the model ARNs name the
+# geography's regions. There is no separate IAM action for Converse:
+# InvokeModel authorizes it, InvokeModelWithResponseStream ConverseStream.
+locals {
+  bedrock_geography_regions = {
+    us   = "us-*"
+    eu   = "eu-*"
+    apac = "ap-*"
+  }
+  bedrock_geography_region = lookup(local.bedrock_geography_regions, var.bedrock_inference_profile_geography, "")
+  # This region, unless the geography's pattern already covers it.
+  bedrock_model_regions = (
+    local.bedrock_geography_region != "" && startswith(local.region, trimsuffix(local.bedrock_geography_region, "*"))
+    ? [local.bedrock_geography_region]
+    : compact([local.region, local.bedrock_geography_region])
+  )
+}
+
+data "aws_iam_policy_document" "bedrock" {
+  count = var.bedrock_enabled ? 1 : 0
+
+  statement {
+    sid     = "InvokeFoundationModels"
+    effect  = "Allow"
+    actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = flatten([
+      for r in local.bedrock_model_regions : [
+        for m in var.bedrock_models : "arn:${local.partition}:bedrock:${r}::foundation-model/${m}"
+      ]
+    ])
+  }
+
+  dynamic "statement" {
+    for_each = var.bedrock_inference_profile_geography != "" ? [var.bedrock_inference_profile_geography] : []
+    content {
+      sid     = "InvokeInferenceProfiles"
+      effect  = "Allow"
+      actions = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+      resources = [
+        for m in var.bedrock_models : "arn:${local.partition}:bedrock:${local.region}:${local.account_id}:inference-profile/${statement.value}.${m}"
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "bedrock" {
+  count = var.bedrock_enabled ? 1 : 0
+
+  name   = "${var.name_prefix}-bedrock"
+  role   = aws_iam_role.ec2.id
+  policy = data.aws_iam_policy_document.bedrock[0].json
 }
 
 data "aws_iam_policy_document" "agentcore" {
@@ -261,21 +358,37 @@ locals {
     } : {},
   )
 
-  deploy_config = {
-    hostname         = var.hostname
-    behind_alb       = var.alb_enabled
-    app_secret_id    = aws_secretsmanager_secret.app_env.arn
-    db_secret_id     = aws_secretsmanager_secret.rds_app.arn
-    runners_param    = var.runners_enabled ? aws_ssm_parameter.runners[0].name : ""
-    runner_secret_id = var.runners_enabled ? aws_secretsmanager_secret.runner[0].arn : ""
-    db = {
-      host  = aws_db_instance.main.address
-      port  = tostring(aws_db_instance.main.port)
-      name  = var.db_name
-      major = local.db_major
-    }
-    env = merge(local.module_env, var.app_env)
-  }
+  deploy_config = merge(
+    {
+      hostname         = var.hostname
+      behind_alb       = var.alb_enabled
+      app_secret_id    = aws_secretsmanager_secret.app_env.arn
+      db_secret_id     = aws_secretsmanager_secret.rds_app.arn
+      runners_param    = var.runners_enabled ? aws_ssm_parameter.runners[0].name : ""
+      runner_secret_id = var.runners_enabled ? aws_secretsmanager_secret.runner[0].arn : ""
+      db = {
+        host  = aws_db_instance.main.address
+        port  = tostring(aws_db_instance.main.port)
+        name  = var.db_name
+        major = local.db_major
+      }
+      env = merge(local.module_env, var.app_env)
+    },
+    # Only with an extension, so an installation without one keeps the same
+    # parameter value.
+    local.extension_enabled ? {
+      extension = {
+        repo          = var.extension_repo
+        ref           = var.extension_ref
+        key_secret_id = aws_secretsmanager_secret.extension_deploy_key[0].arn
+        known_hosts   = var.extension_ssh_known_hosts
+      }
+    } : {},
+    # Only with a registry login, for the same reason.
+    var.image_registry_secret_name != "" ? {
+      image_registry = { secret_id = var.image_registry_secret_name }
+    } : {},
+  )
 }
 
 resource "aws_ssm_parameter" "deploy" {
@@ -284,6 +397,13 @@ resource "aws_ssm_parameter" "deploy" {
   type        = "String"
   tier        = "Intelligent-Tiering"
   value       = jsonencode(local.deploy_config)
+
+  lifecycle {
+    precondition {
+      condition     = (var.extension_repo == "") == (var.extension_ref == "")
+      error_message = "extension_repo and extension_ref go together: set both (an SSH URL and a tag or full sha) or neither."
+    }
+  }
 }
 
 # ----- the instance -----
@@ -312,17 +432,10 @@ resource "aws_instance" "app" {
     http_put_response_hop_limit = 2
   }
 
-  # First boot only: writes the deploy config and the deploy script, then runs
-  # it. Gzipped to stay under the 16 KB user-data limit.
+  # First boot only: writes the box files, then runs the first deploy.
+  # Gzipped to stay under the 16 KB user-data limit.
   user_data_base64 = base64gzip(templatefile("${path.module}/templates/user-data.sh.tftpl", {
-    region          = local.region
-    config_param    = aws_ssm_parameter.deploy.name
-    core_repo       = var.core_repo
-    core_ref        = var.core_ref
-    deploy_script   = chomp(file("${path.module}/templates/vocion-deploy.sh"))
-    caddyfile_alb   = chomp(file("${path.module}/templates/Caddyfile.alb"))
-    caddyfile_tls   = chomp(file("${path.module}/templates/Caddyfile.tls"))
-    compose_overlay = chomp(file("${path.module}/templates/compose.cloud.yml"))
+    box_files = local.box_files
   }))
   user_data_replace_on_change = false
 
@@ -330,7 +443,9 @@ resource "aws_instance" "app" {
 
   lifecycle {
     # A newer AMI, or a change to the first-boot script, never replaces a
-    # running box. Rebuild deliberately (tofu apply -replace=...).
+    # running box. A change to the box files reaches it through the deploy
+    # document (deploy.tf); a new AMI is a deliberate rebuild
+    # (tofu apply -replace=...).
     ignore_changes = [ami, user_data, user_data_base64]
   }
 }

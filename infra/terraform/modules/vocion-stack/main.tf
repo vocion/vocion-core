@@ -20,7 +20,12 @@ locals {
 
   app_url = "https://${var.hostname}"
 
-  waf_enabled    = var.alb_enabled && var.waf_enabled
+  waf_enabled = var.alb_enabled && var.waf_enabled
+  # Common-rule-set rules overridden to COUNT (edge.tf).
+  waf_count_rules = distinct(concat(
+    var.waf_body_rules_action == "count" ? ["SizeRestrictions_BODY", "CrossSiteScripting_BODY"] : [],
+    var.waf_count_rules,
+  ))
   create_db_key  = var.db_kms_key_arn == ""
   db_kms_key_arn = local.create_db_key ? aws_kms_key.data[0].arn : var.db_kms_key_arn
 
@@ -33,6 +38,10 @@ locals {
   # SSM parameter names the box reads on every deploy (templates/vocion-deploy.sh).
   deploy_param  = "/${var.name_prefix}/deploy"
   runners_param = "/${var.name_prefix}/runners"
+
+  # An extension built in beside core (variables.tf, "an extension").
+  extension_enabled                = var.extension_repo != ""
+  extension_deploy_key_secret_name = var.extension_deploy_key_secret_name != "" ? var.extension_deploy_key_secret_name : "${var.name_prefix}/extension-deploy-key"
 }
 
 # ----- VPC -----

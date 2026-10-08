@@ -67,6 +67,12 @@ mock_provider "aws" {
   mock_resource "aws_backup_vault" {
     defaults = { arn = "arn:aws:backup:us-east-1:111111111111:backup-vault:mock" }
   }
+  mock_resource "aws_cloudwatch_log_group" {
+    defaults = { arn = "arn:aws:logs:us-east-1:111111111111:log-group:aws-waf-logs-mock" }
+  }
+  mock_resource "aws_s3_bucket" {
+    defaults = { arn = "arn:aws:s3:::mock" }
+  }
 }
 
 variables {
@@ -83,6 +89,10 @@ run "cloud_profile_defaults" {
   assert {
     condition     = length(aws_lb.app) == 1 && length(aws_wafv2_web_acl.app) == 1
     error_message = "the Cloud profile puts an ALB with a WAF in front of the box"
+  }
+  assert {
+    condition     = toset(flatten([for r in aws_wafv2_web_acl.app[0].rule : [for st in r.statement : [for g in st.managed_rule_group_statement : [for o in g.rule_action_override : o.name]]] if r.name == "aws-common"])) == toset(["CrossSiteScripting_BODY", "SizeRestrictions_BODY"])
+    error_message = "the WAF's two body rules count, not block, by default"
   }
   assert {
     condition     = length(aws_vpc_security_group_ingress_rule.app_public) == 0 && length(aws_vpc_security_group_ingress_rule.app_ssh) == 0
@@ -108,6 +118,71 @@ run "cloud_profile_defaults" {
     condition     = aws_s3_bucket.media.bucket == "vocion-test-media"
     error_message = "the media bucket is named from the prefix"
   }
+  assert {
+    condition = (
+      length(aws_iam_role_policy.bedrock) == 1
+      && toset(data.aws_iam_policy_document.bedrock[0].statement[0].actions) == toset(["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"])
+      && toset(data.aws_iam_policy_document.bedrock[0].statement[0].resources) == toset(["arn:aws:bedrock:us-*::foundation-model/anthropic.*"])
+      && toset(data.aws_iam_policy_document.bedrock[0].statement[1].resources) == toset(["arn:aws:bedrock:us-east-1:111111111111:inference-profile/us.anthropic.*"])
+    )
+    error_message = "the box may invoke Anthropic models on Bedrock: in-region, and through this account's us.* profiles to the US regions they route to"
+  }
+  assert {
+    condition     = aws_s3_bucket.alb_logs[0].bucket == "vocion-test-alb-logs"
+    error_message = "the access log bucket is named from the prefix"
+  }
+  assert {
+    condition     = aws_lb.app[0].access_logs[0].enabled && aws_lb.app[0].access_logs[0].prefix == "alb"
+    error_message = "the ALB writes its access logs under alb/"
+  }
+  assert {
+    condition     = one([for r in aws_s3_bucket_server_side_encryption_configuration.alb_logs[0].rule : one(r.apply_server_side_encryption_by_default).sse_algorithm]) == "AES256"
+    error_message = "the access log bucket is SSE-S3, the only encryption ALB log delivery accepts"
+  }
+  assert {
+    condition     = one([for r in aws_s3_bucket_lifecycle_configuration.alb_logs[0].rule : one(r.expiration).days]) == 90
+    error_message = "access logs expire after 90 days"
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_log_group.waf[0].name == "aws-waf-logs-vocion-test"
+      && toset([for f in aws_wafv2_web_acl_logging_configuration.app[0].redacted_fields : f.single_header[0].name]) == toset(["authorization", "cookie"])
+    )
+    error_message = "the WAF logs to aws-waf-logs-<prefix> with Authorization and Cookie redacted"
+  }
+  assert {
+    condition = (
+      aws_ssm_document.deploy.name == "vocion-test-deploy"
+      && strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "vocion_put /etc/vocion/compose.cloud.yml")
+      && strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "/usr/local/sbin/vocion-deploy \"$REF\"")
+    )
+    error_message = "the deploy document writes the box files, then deploys"
+  }
+  assert {
+    condition     = strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "systemctl mask sshd.service sshd.socket")
+    error_message = "with no SSH, the box stops and masks sshd"
+  }
+  assert {
+    condition     = length(aws_instance.app.user_data_base64) <= 16384
+    error_message = "user-data stays under EC2's 16 KB limit"
+  }
+  assert {
+    condition     = aws_flow_log.vpc[0].traffic_type == "REJECT" && aws_cloudwatch_log_group.flow[0].retention_in_days == 90
+    error_message = "the VPC's rejected connections are logged for 90 days"
+  }
+  assert {
+    condition = (
+      length(aws_secretsmanager_secret.extension_deploy_key) == 0
+      && !contains(keys(jsondecode(aws_ssm_parameter.deploy.value)), "extension")
+      && length([for st in data.aws_iam_policy_document.deploy_read.statement : st if st.sid == "ReadExtensionDeployKey"]) == 0
+      && output.extension_deploy_key_secret_name == null
+    )
+    error_message = "no extension by default: no deploy key secret, nothing in the deploy config, no read on it"
+  }
+  assert {
+    condition     = strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "rm -rf \"$${EXT_BUILD_DIR}\"")
+    error_message = "every deploy clears the extension directory, so a box that no longer names one builds core alone"
+  }
 }
 
 run "single_box_with_ssh" {
@@ -121,6 +196,7 @@ run "single_box_with_ssh" {
     kms_vault_enabled = false
     backup_enabled    = false
     eip_enabled       = false
+    bedrock_enabled   = false
   }
 
   assert {
@@ -134,6 +210,21 @@ run "single_box_with_ssh" {
   assert {
     condition     = !contains(keys(jsondecode(aws_ssm_parameter.deploy.value).env), "VOCION_KMS_KEY_ARN")
     error_message = "no KMS key, no VOCION_KMS_KEY_ARN"
+  }
+  assert {
+    condition     = length(aws_iam_role_policy.bedrock) == 0
+    error_message = "bedrock_enabled = false grants no Bedrock access"
+  }
+  assert {
+    condition = (
+      strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "systemctl enable --now sshd.service")
+      && !strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "systemctl mask sshd")
+    )
+    error_message = "with ssh_enabled, sshd runs"
+  }
+  assert {
+    condition     = length(aws_s3_bucket.alb_logs) == 0 && length(aws_wafv2_web_acl_logging_configuration.app) == 0 && length(aws_flow_log.vpc) == 1
+    error_message = "without the ALB there are no ALB or WAF logs; the flow logs stay"
   }
 }
 
@@ -171,6 +262,62 @@ run "everything_on" {
   }
 }
 
+run "logging_off" {
+  command = plan
+
+  variables {
+    alb_access_logs_enabled = false
+    waf_logging_enabled     = false
+    flow_logs_enabled       = false
+  }
+
+  assert {
+    condition = (
+      length(aws_s3_bucket.alb_logs) == 0 && length(aws_lb.app[0].access_logs) == 0
+      && length(aws_wafv2_web_acl_logging_configuration.app) == 0 && length(aws_cloudwatch_log_group.waf) == 0
+      && length(aws_flow_log.vpc) == 0 && length(aws_iam_role.flow_logs) == 0
+    )
+    error_message = "each log turns off on its own variable"
+  }
+}
+
+run "waf_body_rules_block" {
+  command = plan
+
+  variables {
+    waf_body_rules_action = "block"
+  }
+
+  assert {
+    condition     = length(toset(flatten([for r in aws_wafv2_web_acl.app[0].rule : [for st in r.statement : [for g in st.managed_rule_group_statement : [for o in g.rule_action_override : o.name]]] if r.name == "aws-common"]))) == 0
+    error_message = "waf_body_rules_action = block leaves no rule counting"
+  }
+}
+
+run "waf_one_body_rule_counts" {
+  command = plan
+
+  variables {
+    waf_body_rules_action = "block"
+    waf_count_rules       = ["SizeRestrictions_BODY"]
+  }
+
+  assert {
+    condition     = toset(flatten([for r in aws_wafv2_web_acl.app[0].rule : [for st in r.statement : [for g in st.managed_rule_group_statement : [for o in g.rule_action_override : o.name]]] if r.name == "aws-common"])) == toset(["SizeRestrictions_BODY"])
+    error_message = "a body rule named in waf_count_rules keeps counting when the other blocks"
+  }
+}
+
+run "rejects_a_retention_cloudwatch_does_not_accept" {
+  command = plan
+
+  variables {
+    waf_log_retention_days = 10
+  }
+
+  expect_failures = [var.waf_log_retention_days]
+}
+
 run "rejects_a_branch_as_core_ref" {
   command = plan
 
@@ -179,4 +326,133 @@ run "rejects_a_branch_as_core_ref" {
   }
 
   expect_failures = [var.core_ref]
+}
+
+run "with_an_extension" {
+  command = plan
+
+  variables {
+    extension_repo = "git@github.com:example/extension.git"
+    extension_ref  = "v1.2.0"
+  }
+
+  assert {
+    condition = (
+      aws_secretsmanager_secret.extension_deploy_key[0].name == "vocion-test/extension-deploy-key"
+      && output.extension_deploy_key_secret_name == "vocion-test/extension-deploy-key"
+    )
+    error_message = "the deploy key secret is created, by name only, under the prefix"
+  }
+  assert {
+    condition = (
+      jsondecode(aws_ssm_parameter.deploy.value).extension.repo == "git@github.com:example/extension.git"
+      && jsondecode(aws_ssm_parameter.deploy.value).extension.ref == "v1.2.0"
+      && jsondecode(aws_ssm_parameter.deploy.value).extension.key_secret_id == aws_secretsmanager_secret.extension_deploy_key[0].arn
+      && length(jsondecode(aws_ssm_parameter.deploy.value).extension.known_hosts) == 3
+      && alltrue([for l in jsondecode(aws_ssm_parameter.deploy.value).extension.known_hosts : startswith(l, "github.com ")])
+    )
+    error_message = "the deploy config names the extension, its release, its key secret and github.com's host keys"
+  }
+  assert {
+    condition = (
+      one([for st in data.aws_iam_policy_document.deploy_read.statement : st.actions if st.sid == "ReadExtensionDeployKey"]) == toset(["secretsmanager:GetSecretValue"])
+      && one([for st in data.aws_iam_policy_document.deploy_read.statement : st.resources if st.sid == "ReadExtensionDeployKey"]) == toset([aws_secretsmanager_secret.extension_deploy_key[0].arn])
+    )
+    error_message = "the box may read the deploy key secret, and nothing else by that grant"
+  }
+  assert {
+    condition     = !strcontains(aws_ssm_parameter.deploy.value, "PRIVATE KEY")
+    error_message = "no key material in the deploy config"
+  }
+}
+
+run "with_an_extension_key_secret_named" {
+  command = plan
+
+  variables {
+    extension_repo                   = "ssh://git@git.example.com:2222/team/extension.git"
+    extension_ref                    = "0123456789abcdef0123456789abcdef01234567"
+    extension_deploy_key_secret_name = "shared/extension-key"
+    extension_ssh_known_hosts        = ["[git.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample"]
+  }
+
+  assert {
+    condition = (
+      aws_secretsmanager_secret.extension_deploy_key[0].name == "shared/extension-key"
+      && jsondecode(aws_ssm_parameter.deploy.value).extension.known_hosts == ["[git.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample"]
+    )
+    error_message = "the secret name and the host keys follow the inputs"
+  }
+}
+
+run "rejects_a_branch_as_extension_ref" {
+  command = plan
+
+  variables {
+    extension_repo = "git@github.com:example/extension.git"
+    extension_ref  = "main"
+  }
+
+  expect_failures = [var.extension_ref]
+}
+
+run "rejects_an_https_extension_repo" {
+  command = plan
+
+  variables {
+    extension_repo = "https://github.com/example/extension.git"
+    extension_ref  = "v1.2.0"
+  }
+
+  expect_failures = [var.extension_repo]
+}
+
+run "rejects_an_extension_without_a_ref" {
+  command = plan
+
+  variables {
+    extension_repo = "git@github.com:example/extension.git"
+  }
+
+  expect_failures = [aws_ssm_parameter.deploy]
+}
+
+run "with_an_image_registry_login" {
+  command = plan
+
+  variables {
+    image_registry_secret_name = "vocion-test/image-registry"
+  }
+
+  assert {
+    condition     = jsondecode(aws_ssm_parameter.deploy.value).image_registry.secret_id == "vocion-test/image-registry"
+    error_message = "the deploy config names the registry login secret"
+  }
+  assert {
+    condition = (
+      one([for st in data.aws_iam_policy_document.deploy_read.statement : st.actions if st.sid == "ReadImageRegistryLogin"]) == toset(["secretsmanager:GetSecretValue"])
+      && one([for st in data.aws_iam_policy_document.deploy_read.statement : st.resources if st.sid == "ReadImageRegistryLogin"]) == toset(["arn:aws:secretsmanager:us-east-1:111111111111:secret:vocion-test/image-registry-??????"])
+    )
+    error_message = "the box may read the registry login secret, and nothing else by that grant"
+  }
+  assert {
+    condition     = strcontains(aws_ssm_document.deploy.content, "\"image\"")
+    error_message = "the deploy document takes an image to pull"
+  }
+}
+
+run "with_an_ecr_image_repository" {
+  command = plan
+
+  variables {
+    image_ecr_repository_arns = ["arn:aws:ecr:us-east-1:111111111111:repository/vocion-test/app"]
+  }
+
+  assert {
+    condition = (
+      one([for st in data.aws_iam_policy_document.deploy_read.statement : st.resources if st.sid == "EcrPullAppImage"]) == toset(["arn:aws:ecr:us-east-1:111111111111:repository/vocion-test/app"])
+      && one([for st in data.aws_iam_policy_document.deploy_read.statement : st.actions if st.sid == "EcrPullAppImage"]) == toset(["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"])
+    )
+    error_message = "the box may pull from the named ECR repositories, and only pull"
+  }
 }
