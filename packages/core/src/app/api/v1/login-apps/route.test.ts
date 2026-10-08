@@ -248,7 +248,7 @@ describe('saving a login app through the API', () => {
       const res = await PUT(apiRequest('PUT', provider, { clientId: 'x', clientSecret: SECRET }), paramsFor(provider));
 
       expect(res.status).toBe(404);
-      expect((await res.json()).error.message).toContain('google, slack, atlassian, hubspot, notion, zoom, apollo, quickbooks, xero and gusto');
+      expect((await res.json()).error.message).toContain('google, slack, atlassian, hubspot, notion, zoom, apollo, quickbooks, xero, gusto and linkedin');
     }
 
     expect(await listTokens(ORG)).toEqual([]);
@@ -333,7 +333,7 @@ describe('listing and revoking login apps', () => {
     const text = await res.text();
     const { loginApps } = JSON.parse(text) as { loginApps: Array<{ provider: string; saved: boolean }> };
 
-    expect(loginApps.map(app => app.provider)).toEqual(['google', 'slack', 'atlassian', 'hubspot', 'notion', 'zoom', 'apollo', 'quickbooks', 'xero', 'gusto']);
+    expect(loginApps.map(app => app.provider)).toEqual(['google', 'slack', 'atlassian', 'hubspot', 'notion', 'zoom', 'apollo', 'quickbooks', 'xero', 'gusto', 'linkedin']);
     expect(loginApps.filter(app => app.saved)).toEqual([{ provider: 'google', vendor: 'Google', saved: true, name: 'Acme Google app', keyHint: expect.any(String), savedAt: expect.any(String), redirectUrl: 'https://vocion.test/api/connect/google/callback' }]);
     expect(loginApps.find(app => app.provider === 'slack')).toEqual({ provider: 'slack', vendor: 'Slack', saved: false, name: null, keyHint: null, savedAt: null, redirectUrl: 'https://vocion.test/api/connect/slack/callback' });
     expect(text).not.toContain(SECRET);

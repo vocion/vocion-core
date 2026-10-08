@@ -17,6 +17,7 @@
  * a crawl toggle that hides its own depth control, a live instance inspection.
  */
 
+import { warehouseConfigFields } from '@/libs/warehouse/config';
 import { withArticle } from '@/utils/withArticle';
 
 /** How one setting is typed in, which decides both the input and the parsing. */
@@ -721,6 +722,185 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       type: 'text',
       placeholder: 'ISU_Vocion/Vocion_Time_Off',
       help: 'Optional. A custom report of time off, the same way.',
+    },
+  ],
+
+  // The warehouses are queried live and sync nothing. Each asks where its
+  // queries run, then the shared allowlist and limits (`libs/warehouse/config.ts`).
+  'snowflake': [
+    {
+      key: 'warehouse',
+      label: 'Virtual warehouse',
+      type: 'text',
+      required: true,
+      placeholder: 'ANALYST_XS',
+      help: 'The Snowflake warehouse that runs the queries. A small one is plenty for an agent.',
+    },
+    {
+      key: 'database',
+      label: 'Database',
+      type: 'text',
+      required: true,
+      placeholder: 'ANALYTICS',
+      help: 'The database an allowed schema is in when you write it without one.',
+    },
+    {
+      key: 'role',
+      label: 'Role',
+      type: 'text',
+      placeholder: 'VOCION_READER',
+      help: 'The role to query as. Leave blank for the user\'s default role — either way, one that can only read.',
+    },
+    ...warehouseConfigFields('schema', 'MARTS, FINANCE.REPORTING'),
+  ],
+  'bigquery': [
+    {
+      key: 'location',
+      label: 'Location',
+      type: 'text',
+      placeholder: 'US',
+      help: 'Where the datasets live (US, EU, us-central1). Leave blank and BigQuery works it out.',
+    },
+    {
+      key: 'maxGbBilled',
+      label: 'Most gigabytes billed per query',
+      type: 'number',
+      defaultValue: 10,
+      min: 1,
+      max: 100_000,
+      help: 'BigQuery refuses, before running, a query that would bill more than this.',
+    },
+    ...warehouseConfigFields('dataset', 'marts, other-project.finance'),
+  ],
+  'databricks': [
+    {
+      key: 'warehouseId',
+      label: 'SQL warehouse ID',
+      type: 'text',
+      required: true,
+      placeholder: '1a2b3c4d5e6f7a8b',
+      help: 'From the SQL warehouse\'s Connection details: the last part of its HTTP path.',
+    },
+    {
+      key: 'catalog',
+      label: 'Catalog',
+      type: 'text',
+      required: true,
+      placeholder: 'main',
+      help: 'The catalog an allowed schema is in when you write it without one.',
+    },
+    ...warehouseConfigFields('schema', 'marts, finance.reporting'),
+  ],
+  'redshift': [
+    {
+      key: 'region',
+      label: 'AWS region',
+      type: 'text',
+      required: true,
+      placeholder: 'us-east-1',
+    },
+    {
+      key: 'database',
+      label: 'Database',
+      type: 'text',
+      required: true,
+      placeholder: 'dev',
+    },
+    {
+      key: 'workgroupName',
+      label: 'Serverless workgroup',
+      type: 'text',
+      placeholder: 'analytics',
+      help: 'For Redshift Serverless. Give this or a cluster.',
+    },
+    {
+      key: 'clusterIdentifier',
+      label: 'Provisioned cluster',
+      type: 'text',
+      placeholder: 'northwind-dw',
+      help: 'For a provisioned cluster. Give this or a workgroup.',
+    },
+    {
+      key: 'dbUser',
+      label: 'Database user',
+      type: 'text',
+      advanced: true,
+      help: 'On a provisioned cluster, the database user to sign in as. Leave blank to sign in as the IAM identity.',
+    },
+    {
+      key: 'secretArn',
+      label: 'Secrets Manager secret ARN',
+      type: 'text',
+      advanced: true,
+      help: 'A secret holding a database user and password, used in place of temporary credentials.',
+    },
+    ...warehouseConfigFields('schema', 'marts, finance'),
+  ],
+
+  // Product analytics is read live and syncs nothing.
+  'mixpanel': [
+    {
+      key: 'projectId',
+      label: 'Project ID',
+      type: 'number',
+      required: true,
+      min: 1,
+      placeholder: '2195193',
+      help: 'The number in the project\'s URL, after /project/.',
+    },
+    {
+      key: 'region',
+      label: 'Data residency',
+      type: 'select',
+      defaultValue: 'us',
+      options: [
+        { value: 'us', label: 'US (mixpanel.com)' },
+        { value: 'eu', label: 'EU (eu.mixpanel.com)' },
+        { value: 'in', label: 'India (in.mixpanel.com)' },
+      ],
+    },
+  ],
+  'amplitude': [
+    {
+      key: 'region',
+      label: 'Data residency',
+      type: 'select',
+      defaultValue: 'us',
+      options: [
+        { value: 'us', label: 'US (amplitude.com)' },
+        { value: 'eu', label: 'EU (analytics.eu.amplitude.com)' },
+      ],
+    },
+  ],
+
+  // Ad platforms are read live and sync nothing; the source names the account.
+  'linkedin-ads': [
+    {
+      key: 'accountId',
+      label: 'Ad account ID',
+      type: 'number',
+      required: true,
+      min: 1,
+      placeholder: '508123456',
+      help: 'The number in Campaign Manager\'s URL, after /accounts/.',
+    },
+  ],
+  'meta-ads': [
+    {
+      key: 'accountId',
+      label: 'Ad account ID',
+      type: 'text',
+      required: true,
+      placeholder: 'act_1234567890',
+      help: 'From Ads Manager\'s account menu, with or without the act_ prefix.',
+    },
+    {
+      key: 'apiVersion',
+      label: 'Graph API version',
+      type: 'text',
+      advanced: true,
+      defaultValue: 'v23.0',
+      help: 'Moved forward as Meta retires old versions.',
     },
   ],
 };

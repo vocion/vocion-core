@@ -155,6 +155,9 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   // reads, so a confident agent does not get to restate a person's own
   // priorities for them. Medium, beside the other two.
   'workspace.write_operating_intent': 'medium',
+  // Pausing or resuming ad delivery moves real spend, and Undo puts it back.
+  // Medium: a person's call until a workspace's trust.yaml promotes it.
+  'ads.set_status': 'medium',
 };
 
 /**

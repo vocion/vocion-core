@@ -17,6 +17,8 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { z } from 'zod';
 import { withToolCallRecord } from '../toolCallRecord';
+import { adsTools } from './adsTools';
+import { analyticsTools } from './analyticsTools';
 import { apolloAccountTools } from './apolloAccount';
 import { apolloCompanyTools } from './apolloCompanies';
 import { apolloInScope } from './apolloDirect';
@@ -97,6 +99,7 @@ import { openTeamThreadTool } from './teamThread';
 import { trackerTools } from './trackerTools';
 import { updateObjectTools } from './updateObject';
 import { waitForAnswersTools } from './waitForAnswers';
+import { warehouseTools } from './warehouseTools';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
@@ -331,6 +334,13 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // the workspace stands and what it could add (setup_options), and the plan
     // as one-click cards (propose_setup).
     ...setupWorkspaceTools(ctx),
+    // Source-gated — a business's numbers, one shape per family whatever the
+    // vendor: the warehouse (one read-only SQL tool and a schema browser), product
+    // analytics (events, counts, funnels, cohorts) and the ad platform
+    // (campaigns and their spend; pausing is the `ads.set_status` action).
+    ...warehouseTools(ctx),
+    ...analyticsTools(ctx),
+    ...adsTools(ctx),
   ] as StructuredToolInterface[];
 }
 

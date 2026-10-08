@@ -13,6 +13,11 @@
  * are `repo_read_pull`, `tracker_read_issue`, `chat_read_thread`, and the
  * source a workspace connected decides which provider answers.
  *
+ * Three more families read a business's numbers the same way: a `warehouse`
+ * (Snowflake, BigQuery, Databricks, Redshift) answers one read-only SQL tool,
+ * `analytics` (Mixpanel, Amplitude) answers events, funnels and cohorts, and
+ * `ads` (LinkedIn Ads, Meta Ads) answers campaigns and what they spent.
+ *
  * The family of a source is read off its connector kind
  * (`knowledge_source.kind`, or `config._connector` for a source cloned from a
  * connector pack). An agent reaches a family when one of its
@@ -26,7 +31,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
-export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people';
+export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people' | 'warehouse' | 'analytics' | 'ads';
 
 /**
  * The connector kinds that belong to each family, first provider first.
@@ -44,6 +49,13 @@ export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
   chat: ['slack'],
   finance: ['stripe', 'quickbooks', 'xero', 'netsuite', 'ramp', 'bill'],
   people: ['gusto', 'rippling', 'workday'],
+  // A SQL warehouse, read with one query tool and one schema browser whatever
+  // the vendor (`services/warehouse/provider.ts`).
+  warehouse: ['snowflake', 'bigquery', 'databricks', 'redshift'],
+  // Product analytics — events, funnels, cohorts (`services/productAnalytics/provider.ts`).
+  analytics: ['mixpanel', 'amplitude'],
+  // An ad platform: campaigns, ad sets and what they spent (`services/ads/provider.ts`).
+  ads: ['linkedin-ads', 'meta-ads'],
 };
 
 /** How each family and its constructs are named to a person. */
@@ -53,6 +65,9 @@ export const FAMILY_LABEL: Record<ConnectorFamily, string> = {
   chat: 'chat',
   finance: 'finance system',
   people: 'HR system',
+  warehouse: 'data warehouse',
+  analytics: 'product analytics',
+  ads: 'ad platform',
 };
 
 /**

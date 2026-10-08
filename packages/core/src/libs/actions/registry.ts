@@ -5,6 +5,7 @@
  */
 
 import type { Action } from './types';
+import { adsSetStatusAction } from './ads-set-status';
 import { agentRevisePromptAction } from './agent-revise-prompt';
 import { appInstallAction } from './app-install';
 import { appTemplateInstallAction } from './app-template-install';
@@ -210,6 +211,9 @@ registerAction(agentRevisePromptAction);
 registerAction(workspaceWriteMissionAction);
 registerAction(workspaceWritePlaybookAction);
 registerAction(workspaceWriteOperatingIntentAction);
+// Pause or resume a campaign or ad set on the connected ad platform — the ads
+// family's one write; Undo puts it back (`libs/actions/ads-set-status.ts`).
+registerAction(adsSetStatusAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);
