@@ -11,6 +11,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { ConnectSystemsCard, isConnectSystemsCard } from '../connect-systems/ConnectSystemsCard';
 import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
 import { isSetupCard, SetupCard } from './cards/SetupCard';
@@ -74,6 +75,9 @@ type CardProps = {
 export function RecommendedActionCard(props: CardProps) {
   if (isSetupCard(props.rec)) {
     return <SetupCard rec={props.rec} />;
+  }
+  if (isConnectSystemsCard(props.rec)) {
+    return <ConnectSystemsCard rec={props.rec} />;
   }
   return isConnectLinkCard(props.rec) ? <ConnectLinkCard rec={props.rec} replyInProgress={props.replyInProgress} /> : <ActionCard {...props} />;
 }

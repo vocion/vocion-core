@@ -4,6 +4,7 @@ import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { parseConversationParam } from '@/features/dashboard/chat/resumeRule';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { connectReturnPrompt } from '@/libs/connect/returnTo';
+import { connectSystemsInputOf } from '@/libs/connect/systemsLink';
 import { listArtifactsByIds } from '@/services/ArtifactService';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
 import { listPendingDecisions } from '@/services/chat/pendingDecisions';
@@ -20,6 +21,7 @@ import { parseAttachParam } from '@/services/share/intake';
  *
  * Deep-linkable: `?prompt=<text>` pre-fills the composer without sending,
  * `?attach=<ids>` starts uploaded files in it (Share to Vocion),
+ * `?objective=connect-systems` docks "Connect your systems" above the composer,
  * `?connect=ok|error` (a login just finished) sends its prepared message once
  * on its own and then drops those params, and `?conversation=<id>` resumes a thread — otherwise the page opens a NEW
  * conversation with the one workspace agent (agent-chat-surface.md §9, §9.10).
@@ -35,10 +37,13 @@ import { parseAttachParam } from '@/services/share/intake';
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string; attach?: string; connect?: string; reason?: string; source?: string; connector?: string }>;
+  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string; attach?: string; connect?: string; reason?: string; source?: string; connector?: string; objective?: string; app?: string; named?: string }>;
 }) {
   const { locale } = await props.params;
-  const { prompt: seededPrompt, conversation, new: startNew, attach, connect, reason, source, connector } = await props.searchParams;
+  const searchParams = await props.searchParams;
+  const { prompt: seededPrompt, conversation, new: startNew, attach, connect, reason, source, connector } = searchParams;
+  // `?objective=connect-systems[&app=<id>][&named=a,b]` — dock "Connect your systems" above the composer.
+  const connectSystems = connectSystemsInputOf(searchParams);
   setRequestLocale(locale);
   const { orgId } = await auth();
 
@@ -88,6 +93,7 @@ export default async function ChatPage(props: {
         // `?new=1` — ⌘⇧O or the palette from a page with no chat surface: start
         // a fresh thread instead of resuming this browser session's.
         startNew={startNew === '1'}
+        connectSystems={connectSystems}
       />
     </div>
   );

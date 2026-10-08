@@ -2,12 +2,15 @@
 
 import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption, ChatAttachment, RecommendedAction } from './types';
+import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { InlineTitle } from '@/components/ui/inline-title';
+import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/ConnectSystemsFlow';
+import { useConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { ShellBarActionsPortal, ShellBarTitlePortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
@@ -89,6 +92,12 @@ export type ChatShellProps = {
    * decide them. `more` is how many the queue holds past the cards.
    */
   pendingDecisions?: { cards: RecommendedAction[]; more: number };
+  /**
+   * `?objective=connect-systems` — start "Connect your systems" docked above
+   * the composer (the checklist, an app's page and the Connectors page link
+   * here), planned for this input.
+   */
+  connectSystems?: ConnectPlanInput | null;
 };
 
 /**
@@ -117,6 +126,7 @@ export type ChatShellProps = {
  * @param props.startNew
  * @param props.connectReturnPrompt - Sent once automatically after a connect.
  * @param props.pendingDecisions - The review queue's open proposals, drawn as cards here.
+ * @param props.connectSystems
  */
 export function ChatShell({
   agents,
@@ -128,6 +138,7 @@ export function ChatShell({
   startNew = false,
   connectReturnPrompt,
   pendingDecisions,
+  connectSystems = null,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -144,6 +155,7 @@ export function ChatShell({
       startNew={startNew}
       connectReturnPrompt={connectReturnPrompt}
       pendingDecisions={pendingDecisions}
+      connectSystems={connectSystems}
     />
   );
 }
@@ -177,6 +189,7 @@ function ChatShellInner({
   startNew = false,
   connectReturnPrompt,
   pendingDecisions,
+  connectSystems = null,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
   const router = useRouter();
@@ -328,6 +341,21 @@ function ChatShellInner({
   }, [startNew, session.booted, router, pathname]);
   // Back from a login: the agent carries on by itself, once, and the URL is cleaned so a reload never repeats it.
   useSendOnConnectReturn({ prompt: connectReturnPrompt, ready: session.booted, send: session.sendMessage, pathname, replaceUrl: router.replace });
+  // "Connect your systems", docked above the composer: started by a link that
+  // named it, or by a card in the thread. The link's params leave the URL once
+  // it has started, so a reload does not start it twice.
+  const connectWalk = useConnectSystems(connectSystems ? { input: connectSystems } : null);
+  useEffect(() => {
+    if (!connectSystems) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    for (const key of ['objective', 'app', 'named']) {
+      params.delete(key);
+    }
+    const qs = params.toString();
+    router.replace(`${pathname}${qs ? `?${qs}` : ''}`);
+  }, [connectSystems, router, pathname]);
   const queueProps = useComposerQueueProps(session);
   // `@` and `(+)` offer the same list: the artifact contract, then the records
   // this surface knows. The full page is not on a record, so there is no page
@@ -469,11 +497,20 @@ function ChatShellInner({
                 )}
 
           <ChatComposer
-            above={intent?.context?.selection || intent?.context?.record
+            above={intent?.context?.selection || intent?.context?.record || connectWalk.active
               ? (
                   <>
-                    {intent.context.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
-                    {intent.context.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
+                    {connectWalk.active && (
+                      <ConnectSystemsFlow
+                        key={connectWalk.active.key}
+                        input={connectWalk.active.input}
+                        card={connectWalk.active.cardId && session.conversationId !== null ? { conversationId: session.conversationId, cardId: connectWalk.active.cardId } : null}
+                        onClose={connectWalk.close}
+                        onSomethingElse={text => void session.sendMessage(text)}
+                      />
+                    )}
+                    {intent?.context?.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
+                    {intent?.context?.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
                   </>
                 )
               : undefined}

@@ -15,6 +15,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useViewportBelow } from '@/components/ui/useMobile';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
+import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/ConnectSystemsFlow';
+import { useConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
 import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
@@ -286,6 +288,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  // "Connect your systems", started by its card in this thread, docked above this composer.
+  const connectWalk = useConnectSystems();
   // The record the page beside the rail is about — it refreshes itself, so
   // the turn's follow chips leave it out (Chris, 2026-09-29).
   const pageRecord = useMemo(() => followExcludeOf(effectiveContext?.record ?? (effectiveContext?.path ? recordFromPath(effectiveContext.path) : null) ?? (scopeRef ? scopeRefToRecord(scopeRef) : null)), [effectiveContext, scopeRef]);
@@ -787,6 +791,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         <ChatComposer
           above={(
             <>
+              {connectWalk.active && (
+                <ConnectSystemsFlow
+                  key={connectWalk.active.key}
+                  input={connectWalk.active.input}
+                  card={connectWalk.active.cardId && session.conversationId !== null ? { conversationId: session.conversationId, cardId: connectWalk.active.cardId } : null}
+                  onClose={connectWalk.close}
+                  onSomethingElse={text => void session.sendMessage(text)}
+                />
+              )}
               {comments && (
                 <CommentChips
                   comments={comments.open}
