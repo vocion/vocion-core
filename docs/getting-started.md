@@ -1,5 +1,9 @@
 # Getting started — build an agent workforce from zero
 
+> Setting a workspace up from the app rather than from files? A new workspace
+> opens on its lead, which sets it up with you in chat — see
+> [Getting started in a new workspace](./guides/getting-started-in-a-workspace.md).
+
 This is the front door. Read it top to bottom once and you will know what every
 file in a Vocion workspace does, why it exists, and the order to write them in.
 No prior Vocion knowledge assumed.

@@ -61,7 +61,11 @@ active agent's slug, name, `description` and `handles`, the record types it
 answers for (`x-owner`) and files (`objectTypes`), its `harness.grantTools` and
 its skills. It returns `{ chosen, confidence, reason }`, checked against the
 roster, and code routes on it; below a confidence of 0.5 the workspace lead
-answers — `lead:` in `workspace.yaml`, else the first active agent. Meaning is
+answers — `lead:` in `workspace.yaml`, else the first active agent. A new
+shared workspace starts with a generic workspace lead core seeds into it
+(`templates/workspace/agents/workspace-lead.yaml`), which stays the lead until
+the workspace names its own — see
+[Getting started in a new workspace](../guides/getting-started-in-a-workspace.md). Meaning is
 read by a model, never matched: "file it and build it" belongs to the agent
 that owns requests, whatever words the message shares with a researcher's
 description (conversation 397).

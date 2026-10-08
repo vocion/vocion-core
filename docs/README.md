@@ -3,6 +3,7 @@
 ## Start here
 
 - [**Product Design Manifesto**](./DESIGN-PRINCIPLES.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
+- [**Getting started in a new workspace**](./guides/getting-started-in-a-workspace.md) — what a person meets first: the workspace lead core seeds into every new shared workspace, its one-sentence introduction and three starters, the short interview, the setup plan as one-click cards that run as the person's own action with Undo, and the sidebar's Getting started · N of 4 checklist read from what is really there.
 - [**Getting started — build an agent workforce from zero**](./getting-started.md) — the tutorial. Explains the configuration-driven model, then builds a complete workforce file by file, with a worked example of every entity type. Read this first.
 - [**Workspaces (workspace-as-code)**](./workspace.md) — what a workspace is, how to create one, how to author and apply changes, and how base packs layer underneath.
 - [**Plugins — capability you turn on**](./plugins.md) — `plugins: [wiki, data-rooms, proposals]`: a directory of agents, skills, pages, missions, automations, teams and trust rules that composes under the workspace like the base pack; the Plugins page and the chat both switch one on; how the three shipped plugins are built and how to write one.
@@ -66,6 +67,7 @@ about them.
 
 ## Guides
 
+- [Getting started in a new workspace](./guides/getting-started-in-a-workspace.md) — the seeded workspace lead, the setup interview, `setup_options` / `propose_setup` and the `setup` card, `app.install` and `members.invite`, and the Getting started checklist.
 - [Sign in with Google or Microsoft](./guides/sign-in-with-google-or-microsoft.md) — "Continue with Google", "Continue with Microsoft" (work or school accounts) and emailed sign-in links, all still invite-only: the settings, the redirect URIs to register (`/api/auth/callback/google`, `/api/auth/callback/microsoft-entra-id`), setup in the Google Cloud console and an Entra app registration, exactly which address each provider is trusted for, and linking or unlinking from the profile.
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
 - [Extensions](./guides/extensions.md) — how a deployment builds in `@vocion/enterprise`, and the neutral seams it adds through (budget guard and observer, `ext` routes and pages, slots, the Org policy hook).
