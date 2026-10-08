@@ -224,19 +224,28 @@ test.describe('the API reference page', () => {
     // "Try it out" is read-only here: an Execute runs against this deployment
     // with the reader's own session, so a POST offering that button would be
     // a real write started by someone who opened the page to read.
-    const firstGet = page.locator('.opblock-get').first();
-    await firstGet.locator('.opblock-summary').click();
+    //
+    // The operation is picked by its path, never by its position: the order
+    // is the spec's, and a new GET sorted ahead of this one (the access log,
+    // admin-only, 2026-10-07) would otherwise be the one executed — with a
+    // token that is not an admin's. Swagger UI keeps the exact path in
+    // `data-path`; the visible text is split with <wbr> breaks.
+    const agentsGet = page.locator('.opblock-get').filter({ has: page.locator('.opblock-summary-path[data-path="/api/v1/agents"]') });
+
+    await expect(agentsGet).toHaveCount(1);
+
+    await agentsGet.locator('.opblock-summary').click();
 
     // An expanded operation must actually resolve. Swagger UI renders a
     // spinner while it resolves the document and shows no error if the resolve
     // throws — which is exactly what a 3.1 document did here, leaving every
     // operation spinning forever. The Responses table is the proof it finished.
-    await expect(firstGet.locator('.responses-table')).toBeVisible();
-    await expect(firstGet.locator('.opblock-loading-animation')).toHaveCount(0);
+    await expect(agentsGet.locator('.responses-table')).toBeVisible();
+    await expect(agentsGet.locator('.opblock-loading-animation')).toHaveCount(0);
 
     // `tryItOutEnabled` puts an expanded operation straight into try-out mode,
     // so the control to look for is Execute itself.
-    await expect(firstGet.getByRole('button', { name: 'Execute' })).toBeVisible();
+    await expect(agentsGet.getByRole('button', { name: 'Execute' })).toBeVisible();
 
     // Authorize with a real tenant token and run a read-only call, which is
     // the whole point of the page: a reader who cannot try an endpoint from
@@ -248,19 +257,17 @@ test.describe('the API reference page', () => {
     await page.locator('.modal-ux .auth-btn-wrapper button.authorize').click();
     await page.locator('.modal-ux .btn-done').click();
 
-    // `firstGet` is `GET /api/v1/agents` and is already open, so run it there
-    // rather than expanding a second operation.
-    await expect(firstGet.locator('.opblock-summary-path')).toContainText('/api/v1/agents');
+    // `agentsGet` is already open, so run it there rather than expanding a
+    // second operation.
+    await agentsGet.getByRole('button', { name: 'Execute' }).click();
 
-    await firstGet.getByRole('button', { name: 'Execute' }).click();
-
-    const liveResponse = firstGet.locator('.live-responses-table');
+    const liveResponse = agentsGet.locator('.live-responses-table');
 
     await expect(liveResponse).toBeVisible();
     // The table's first `.response-col_status` is its "Code" header, so read
     // the body row instead.
     await expect(liveResponse.locator('tbody .response-col_status').first()).toHaveText('200');
-    await expect(firstGet.locator('.curl')).toContainText(`Bearer ${fixtures.token}`);
+    await expect(agentsGet.locator('.curl')).toContainText(`Bearer ${fixtures.token}`);
     // The body the API really returned, not the documented example: the token
     // belongs to a workspace seeded with no agents, so `agents` is the key the
     // list endpoint answers with.

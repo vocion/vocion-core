@@ -15,6 +15,7 @@ import type { RuntimeContext } from '../types';
 import type { HubspotPage } from '@/libs/hubspot/client';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { declareReads } from '../toolReads';
 import { asJson, clampLimit, hubspotClientForCtx } from './hubspotDirect';
 
 const LIST_DEAL_PROPS = [
@@ -166,5 +167,5 @@ export function hubspotListDealsTool(ctx: RuntimeContext) {
 }
 
 export function hubspotDealTools(ctx: RuntimeContext) {
-  return [hubspotListDealsTool(ctx)];
+  return [declareReads(hubspotListDealsTool(ctx), { kind: 'hubspot_deal' })];
 }

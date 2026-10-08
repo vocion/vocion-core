@@ -8,14 +8,16 @@ import { AccessLogView } from '@/features/access/AccessLogView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { describeRef } from '@/libs/preview/describeRef';
 import { ACCESS_ACTIONS } from '@/services/access/accessLog';
-import { ACCESS_ACTOR_KINDS, accessLogRetentionDays, listAccessEvents, namesForAccessEvents } from '@/services/access/AccessLogService';
+import { ACCESS_ACTOR_KINDS, accessLogRetentionDays, listAccessEvents, namesForAccessEvents, parseAccessLogCursor } from '@/services/access/AccessLogService';
 import { normalizeWorkspaceRole } from '@/services/authz';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
 
 export const dynamic = 'force-dynamic';
 
 const PAGE = 50;
-const MAX = 200;
+
+/** The windows the When facet offers, in days; anything else in the URL is the default 30. */
+const WINDOW_DAYS: ReadonlyMap<string, number | null> = new Map([['7', 7], ['90', 90], ['all', null]]);
 const DEFAULT_DAYS = 30;
 
 const RECORD_TYPE_SET: ReadonlySet<string> = new Set(RECORD_TYPES);
@@ -118,7 +120,7 @@ function one(raw: string | string[] | undefined): string {
  * through it. The same rows are `GET /api/v1/access-log`.
  * @param props - Route props.
  * @param props.params - `{ locale }`.
- * @param props.searchParams - The filters: `action`, `who`, `days`, `actor`, `kind`, `record`, `n`.
+ * @param props.searchParams - The filters: `action`, `who`, `days`, `actor`, `kind`, `record`, and `before` (the page's keyset cursor).
  */
 export default async function AccessLogPage(props: {
   params: Promise<{ locale: string }>;
@@ -149,9 +151,10 @@ export default async function AccessLogPage(props: {
   const actor = one(sp.actor);
   const kind = one(sp.kind);
   const record = one(sp.record);
-  const requested = Number.parseInt(one(sp.n), 10);
-  const limit = Math.min(Number.isFinite(requested) && requested > 0 ? requested : PAGE, MAX);
-  const windowDays = days === 'all' ? null : (Number.parseInt(days, 10) || DEFAULT_DAYS);
+  // Only the windows the facet offers: a hand-edited `?days=` is the default,
+  // never a date the database cannot represent.
+  const windowDays = WINDOW_DAYS.has(days) ? WINDOW_DAYS.get(days) ?? null : DEFAULT_DAYS;
+  const before = parseAccessLogCursor(one(sp.before)) ?? undefined;
 
   const now = new Date();
   const filters: AccessLogFilters = {
@@ -167,7 +170,8 @@ export default async function AccessLogPage(props: {
     recordKind: kind || undefined,
     recordId: record || undefined,
     since: windowDays === null ? undefined : new Date(now.getTime() - windowDays * 86_400_000),
-    limit,
+    limit: PAGE,
+    before,
   });
   const names = await namesForAccessEvents(orgId, page.events);
 
@@ -191,13 +195,20 @@ export default async function AccessLogPage(props: {
       ? { label: `reads of ${recordOf({ recordKind: kind, recordId: record } as AccessEventRow, names).record}`, clearHref: '/dashboard/access-log' }
       : null;
 
-  const more = new URLSearchParams();
+  const kept = new URLSearchParams();
   for (const [k, v] of Object.entries({ action: filters.action, who: filters.who, days: filters.days, actor, kind, record })) {
     if (v) {
-      more.set(k, v);
+      kept.set(k, v);
     }
   }
-  more.set('n', String(Math.min(limit + PAGE, MAX)));
+  const hrefWith = (cursor: string | null) => {
+    const q = new URLSearchParams(kept);
+    if (cursor) {
+      q.set('before', cursor);
+    }
+    const s = q.toString();
+    return `/dashboard/access-log${s ? `?${s}` : ''}`;
+  };
 
   return (
     <ListPage title="Access log" description={description}>
@@ -205,8 +216,8 @@ export default async function AccessLogPage(props: {
         rows={rows}
         filters={filters}
         scope={scope}
-        hasMore={page.hasMore}
-        moreHref={page.hasMore && limit < MAX ? `/dashboard/access-log?${more.toString()}` : null}
+        olderHref={page.next ? hrefWith(page.next) : null}
+        newestHref={before ? hrefWith(null) : null}
       />
     </ListPage>
   );

@@ -7,6 +7,7 @@ import { listBusinessObjects } from '@/services/BusinessObjectService';
 import { typeCodesForOrg } from '@/services/codes';
 import { objectKnowledge } from '@/services/MemoryService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { declareReads } from '../toolReads';
 import { liveStatusOf } from './readObject';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 
@@ -51,7 +52,8 @@ function idOrValue(v: string | number | boolean): string {
  */
 export function lookupObjectsTool(ctx: RuntimeContext) {
   const available = ctx.objectTypeSlugs.join(', ');
-  return tool(
+  // It notes what it read itself: the ids it found, or the hits of a search.
+  return declareReads(tool(
     async (args) => {
       // One record by its code (FE-294) or id, checked against its type's code.
       const byId = args.id === undefined ? null : await recordIdOf(ctx.orgId, args.id);
@@ -181,5 +183,5 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         limit: z.number().int().min(1).max(100).optional().describe('At most this many records (default 25). The reply says how many more matched.'),
       }),
     },
-  );
+  ), 'noted');
 }

@@ -24,6 +24,7 @@ import { renderedSections } from '@/services/briefings/document';
 import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/briefings/instructions';
 import { newestBriefing, publishBriefingDocument } from '@/services/briefings/store';
 import { BriefingContractError } from '@/services/briefings/validate';
+import { declareReads } from '../toolReads';
 import { isFromToday, renderBriefingForAgent } from './briefingCitation';
 
 async function callerTeam(ctx: RuntimeContext): Promise<{ teamSlug: string | null; leadSlug: string | null }> {
@@ -107,7 +108,8 @@ export function publishBriefingTool(ctx: RuntimeContext) {
 }
 
 export function getBriefingTool(ctx: RuntimeContext) {
-  return tool(
+  // A team's briefing (the asking agent's own team when none is named).
+  return declareReads(tool(
     async (args) => {
       const requested = (args as { team?: string }).team?.trim();
       let scope: string | null;
@@ -144,7 +146,7 @@ export function getBriefingTool(ctx: RuntimeContext) {
       description: 'Read the latest briefing for YOUR team (default), another team (team:"revops"), or the workspace rollup (team:"rollup"). Tells you if it is stale. Use it to ground "what should I do" answers in the team\'s emergent priorities.',
       schema: z.object({ team: z.string().optional().describe('Team slug, "rollup", or omit for your own team.') }),
     },
-  );
+  ), { kind: 'briefing', idArg: 'team' });
 }
 
 export function refreshBriefingTool(ctx: RuntimeContext) {

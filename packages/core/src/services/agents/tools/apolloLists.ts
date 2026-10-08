@@ -23,6 +23,7 @@ import type { RuntimeContext } from '../types';
 import type { ApolloClient, ApolloResult } from '@/libs/apollo/client';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { declareReads } from '../toolReads';
 import { APOLLO_ABSENCE, APOLLO_ROUTING, apolloClientForCtx, apolloWriteGranted } from './apolloDirect';
 import { asJson, clampLimit } from './hubspotDirect';
 
@@ -372,7 +373,8 @@ export function apolloListTools(ctx: RuntimeContext) {
     .filter(t => apolloWriteGranted(ctx, t.name));
   return [
     apolloListLabelsTool(ctx),
-    apolloListContactsTool(ctx),
+    // The people saved on one of the team's own lists.
+    declareReads(apolloListContactsTool(ctx), { kind: 'apollo_list', idArg: 'label_id' }),
     ...writes,
   ];
 }

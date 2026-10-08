@@ -132,6 +132,19 @@ describe('GET /api/v1/objects — the access log', () => {
     const rows = await db.select().from(accessEventSchema);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ orgId: ORG, actorKind: 'token', actorId: 'token:t1', action: 'search', recordKind: 'object', recordId: null, via: 'api', detail: { hits: 2 } });
+    expect(rows[0]).toMatchObject({ orgId: ORG, actorKind: 'token', actorId: 'token:t1', action: 'search', recordKind: 'object', recordId: null, via: 'api', detail: { hits: 2, offset: 0 } });
+  });
+
+  it('a token paging through the list is a row per page, each saying which page — never one small search', async () => {
+    resetAccessLogForTests();
+    await db.delete(accessEventSchema);
+    await POST(post(release()));
+    await POST(post(release({ title: 'northwind-web v1.4.3', externalKey: { system: 'deploy', id: 'northwind-web@v1.4.3' } })));
+    for (const offset of [0, 1]) {
+      await GET(new Request(`https://vocion.test/api/v1/objects?type=release&limit=1&offset=${offset}`, { headers: { authorization: 'Bearer vcn_live_fake_token' } }));
+    }
+    await flushAccessLog();
+
+    expect((await db.select().from(accessEventSchema)).map(r => r.detail).sort((a, b) => Number(a?.offset) - Number(b?.offset))).toEqual([{ hits: 1, offset: 0 }, { hits: 1, offset: 1 }]);
   });
 });

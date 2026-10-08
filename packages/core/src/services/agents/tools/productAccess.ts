@@ -11,12 +11,14 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { productAccess } from '@/services/factory/productAccess';
+import { declareReads } from '../toolReads';
 
 export function productAccessTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!(ctx.harnessConfig.grantTools ?? []).includes('product_access')) {
     return [];
   }
-  return [tool(
+  // A product's environments and the QA sign-in stored for them.
+  return [declareReads(tool(
     async (args) => {
       const access = await productAccess(ctx.orgId, args.product, { stage: args.stage });
       if (access.environments.length === 0) {
@@ -32,5 +34,5 @@ export function productAccessTools(ctx: RuntimeContext): StructuredToolInterface
         stage: z.string().optional().describe('production (default), staging, or another stage an environment records.'),
       }),
     },
-  )];
+  ), { kind: 'product', idArg: 'product' })];
 }

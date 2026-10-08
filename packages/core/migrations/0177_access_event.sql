@@ -23,7 +23,9 @@
 --                object, artifact, document, ...); record_id null for a search
 --   via          the surface: page, preview, app, api, share, tool:<name>,
 --                mcp:<name>
---   ip_hash/ua_hash  keyed hashes (HMAC under AUTH_SECRET), never the address
+--   ip_hash/ua_hash  keyed hashes (HMAC under AUTH_SECRET, with the workspace
+--                in the input), never the address; the same machine hashes
+--                differently in every workspace
 --   detail       a small envelope (a hit count, a format), never content
 --
 -- `org_id` is the workspace, as on every business table; `account_id` is the
@@ -36,9 +38,13 @@
 --
 -- Partition-friendly: the primary key carries `at`, so the table can become
 -- range-partitioned by month without changing its keys, and the prune then
--- becomes a DROP of the oldest partition. Every btree leads with `org_id` and
--- ends with `at`, the shape a workspace's newest-first page reads; the BRIN on
--- `at` is what the prune's range delete walks, at a few pages for any size.
+-- becomes a DROP of the oldest partition. Every workspace btree leads with
+-- `org_id` and ends with `at`, the shape a workspace's newest-first page reads
+-- (keyset-paged on `(at, id)`, never by offset): by record, by actor, and by
+-- whom an agent read for (`on_behalf_of`, which the actor filter also
+-- matches). `(account_id, at)` is for an account-wide export or deletion. The
+-- BRIN on `at` is what the prune's range delete walks, at a few pages for any
+-- size.
 --
 -- A new table, so its indexes are declared inline (CONVENTIONS.md rule 1
 -- applies to tables that already exist).
@@ -66,6 +72,8 @@ CREATE TABLE IF NOT EXISTS "access_event" (
 CREATE INDEX IF NOT EXISTS "access_event_org_at_idx" ON "access_event" USING btree ("org_id", "at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "access_event_org_record_idx" ON "access_event" USING btree ("org_id", "record_kind", "record_id", "at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "access_event_org_actor_idx" ON "access_event" USING btree ("org_id", "actor_id", "at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "access_event_org_on_behalf_idx" ON "access_event" USING btree ("org_id", "on_behalf_of", "at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "access_event_account_at_idx" ON "access_event" USING btree ("account_id", "at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "access_event_at_brin_idx" ON "access_event" USING brin ("at");--> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION access_event_reject_update()

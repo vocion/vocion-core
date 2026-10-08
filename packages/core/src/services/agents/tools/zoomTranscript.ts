@@ -27,8 +27,10 @@ import {
   knowledgeDocumentSchema,
   knowledgeSourceSchema,
 } from '@/models/Schema';
+import { noteRead } from '@/services/access/accessLog';
 import { ensureSource, ingestDocument } from '@/services/IngestionService';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
+import { declareReads } from '../toolReads';
 
 /** A source slug that belongs to the Zoom connector family. */
 const ZOOM_SLUG = /^zoom(?:$|-)/;
@@ -126,6 +128,8 @@ export function zoomTools(ctx: RuntimeContext) {
 
       if (cached && cached.metadata?.hasTranscript === true && !force_refresh) {
         const transcript = await reassembleDocument(ctx.orgId, cached.id);
+        // The transcript is a document in the index: its read is a view of it.
+        noteRead({ action: 'view', record: { kind: 'document', id: cached.id } });
         return JSON.stringify({
           source: 'cache',
           title: cached.title,
@@ -155,6 +159,7 @@ export function zoomTools(ctx: RuntimeContext) {
 
       const ref = await ensureSource({ orgId: ctx.orgId, slug: credentialed.source.slug });
       const result = await ingestDocument(ref, fetched.doc);
+      noteRead({ action: 'view', record: { kind: 'document', id: result.documentId } });
       return JSON.stringify({
         source: 'live',
         upserted: result.status,
@@ -226,5 +231,10 @@ export function zoomTools(ctx: RuntimeContext) {
     },
   );
 
-  return [getZoomTranscript, findZoomRecordings];
+  return [
+    // Notes the transcript document it read (known only once found or indexed).
+    declareReads(getZoomTranscript, 'noted'),
+    // A listing of the account's recordings — titles, hosts, times.
+    declareReads(findZoomRecordings, { kind: 'zoom_recording' }),
+  ];
 }

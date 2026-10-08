@@ -6,7 +6,8 @@ import { cache } from 'react';
 import { PublicFeatureView } from '@/features/share/PublicFeatureView';
 import { sharedFeatureMetadata } from '@/features/share/shareMetadata';
 import { requestOrigin } from '@/libs/http/publicOrigin';
-import { loadSharedFeature } from '@/services/factory/featureShareData';
+import { noteLinkRead } from '@/services/access/accessLog';
+import { loadSharedFeature, sharedFeatureRef } from '@/services/factory/featureShareData';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,12 @@ export default async function SharedFeaturePage(props: { params: Promise<{ local
   const page = await load(token);
   if (!page) {
     notFound();
+  }
+  // Whoever holds the link read the feature's request; the pictures and the
+  // recording on the page are noted by the media route that serves them.
+  const ref = await sharedFeatureRef(token);
+  if (ref) {
+    await noteLinkRead(ref.orgId, { action: 'view', record: { kind: 'object', id: ref.requestId }, via: 'share' });
   }
   return <PublicFeatureView page={page} />;
 }

@@ -28,6 +28,7 @@ import {
   matchWindow,
   reconcileWindow,
 } from '@/services/DiscoveryDetectionService';
+import { declareReads } from '../toolReads';
 
 /** Tool names that exist only for agents granted them via `harness.grantTools`. */
 export const DISCOVERY_TOOL_NAMES = [
@@ -261,11 +262,13 @@ export function discoveryTools(ctx: RuntimeContext) {
   // gated on having a HubSpot source in scope. A workspace still granting
   // the old names simply grants nothing here; the tools arrive anyway.
   const all = [
-    matchMeetingsTool(ctx),
-    classifyCallTool(ctx),
-    getDiscoveryLedgerTool(ctx),
+    // The window's meetings — recordings and notes — matched to CRM parties.
+    declareReads(matchMeetingsTool(ctx), { kind: 'meeting' }),
+    // Classifying a call reads its transcript.
+    declareReads(classifyCallTool(ctx), { kind: 'discovery_candidate', idArg: 'candidate_id' }),
+    declareReads(getDiscoveryLedgerTool(ctx), { kind: 'discovery_candidate' }),
     reconcileDiscoveryWindowTool(ctx),
-    readDiscoveryTranscriptTool(ctx),
+    declareReads(readDiscoveryTranscriptTool(ctx), { kind: 'discovery_candidate', idArg: 'candidate_id' }),
   ];
   return all.filter(t => grants.has(t.name));
 }

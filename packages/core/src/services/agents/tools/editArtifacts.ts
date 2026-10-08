@@ -23,6 +23,7 @@ import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
 import { noteRead } from '@/services/access/accessLog';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
 import { isRecordBodyArtifact as isRecordBody } from '@/services/objects/recordBody';
+import { declareReads } from '../toolReads';
 import { pageRecordIds, reviseRecordBody } from './recordWrite';
 import { authorOf } from './renderArtifacts';
 
@@ -224,5 +225,5 @@ export function updateArtifactTool(ctx: RuntimeContext) {
 }
 
 export function editArtifactTools(ctx: RuntimeContext) {
-  return [readArtifactTool(ctx), updateArtifactTool(ctx)];
+  return [declareReads(readArtifactTool(ctx), 'noted'), updateArtifactTool(ctx)];
 }

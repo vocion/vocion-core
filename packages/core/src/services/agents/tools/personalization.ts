@@ -52,6 +52,7 @@ import {
   saveLeadBrief,
   UnknownStageError,
 } from '@/services/PersonalizationQueueService';
+import { declareReads } from '../toolReads';
 import { hubspotClientForCtx } from './hubspotDirect';
 
 /** Tool names that exist only for agents granted them via `harness.grantTools`. */
@@ -439,14 +440,15 @@ export function personalizationTools(ctx: RuntimeContext) {
   const grants = new Set(ctx.harnessConfig.grantTools ?? []);
   const all = [
     queueLeadTool(ctx),
-    getLeadLedgerTool(ctx),
+    declareReads(getLeadLedgerTool(ctx), { kind: 'lead' }),
     reconcileMqlWindowTool(ctx),
-    nextLeadToBriefTool(ctx),
+    // Each hands out one lead's record — the one named, else the oldest queued.
+    declareReads(nextLeadToBriefTool(ctx), { kind: 'lead', idArg: 'contact_ref', action: 'view' }),
     saveLeadBriefTool(ctx),
-    getLeadBriefTool(ctx),
+    declareReads(getLeadBriefTool(ctx), { kind: 'lead', idArg: 'contact_ref' }),
     saveHandoffBriefTool(ctx),
     recordBriefFailureTool(ctx),
-    nextBriefToDraftTool(ctx),
+    declareReads(nextBriefToDraftTool(ctx), { kind: 'lead', idArg: 'contact_ref', action: 'view' }),
     saveDraftSequenceTool(ctx),
     recordDraftFailureTool(ctx),
     hubspotListSequencesTool(ctx),

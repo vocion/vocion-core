@@ -276,11 +276,13 @@ export const versions = os
 export const version = os
   .input(z.object({ id: z.number().int().positive(), version: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId, accountId } = await guardAuth();
     const row = await getArtifactVersion({ orgId, artifactId: input.id, version: input.version });
     if (!row) {
       throw ApiError.notFound({ id: input.id, version: input.version });
     }
+    // An old body is still the artifact's content: a view of it, saying which version.
+    await notePersonRead({ orgId, userId, accountId }, { action: 'view', record: { kind: 'artifact', id: input.id }, via: 'app', detail: { version: input.version } });
     return toVersionPayload(row);
   });
 

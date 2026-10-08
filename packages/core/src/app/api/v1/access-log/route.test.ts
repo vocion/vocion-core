@@ -51,7 +51,20 @@ describe('GET /api/v1/access-log', () => {
     expect(body.events[1]).toMatchObject({ actorId: 'revenue-lead', onBehalfOf: 'usr-rowan', runKind: 'conversation', runId: '8', via: 'tool:read_object' });
     expect(body.events[0]).not.toHaveProperty('orgId');
     expect(body.events[0]).not.toHaveProperty('accountId');
-    expect(body).toMatchObject({ hasMore: false, retentionDays: 365 });
+    expect(body).toMatchObject({ hasMore: false, next: null, retentionDays: 365 });
+  });
+
+  it('pages by the cursor it hands back, never by offset', async () => {
+    sessionAs('admin');
+    const first = await (await GET(get('?limit=2'))).json() as { events: Array<{ id: number }>; hasMore: boolean; next: string };
+
+    expect(first).toMatchObject({ hasMore: true });
+
+    const second = await (await GET(get(`?limit=2&before=${encodeURIComponent(first.next)}`))).json() as { events: Array<{ id: number }>; hasMore: boolean; next: string | null };
+
+    expect(second).toMatchObject({ hasMore: false, next: null });
+    expect([...first.events, ...second.events].map(e => e.id)).toHaveLength(3);
+    expect(new Set([...first.events, ...second.events].map(e => e.id)).size).toBe(3);
   });
 
   it('answers who read one record, and what one reader read', async () => {
@@ -80,6 +93,7 @@ describe('GET /api/v1/access-log', () => {
     expect((await GET(get('?action=peek'))).status).toBe(400);
     expect((await GET(get('?actorKind=robot'))).status).toBe(400);
     expect((await GET(get('?since=yesterday'))).status).toBe(400);
+    expect((await GET(get('?before=page-two'))).status).toBe(400);
   });
 
   it('is for workspace admins only', async () => {

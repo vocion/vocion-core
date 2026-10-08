@@ -17,7 +17,7 @@ import type { AccessAction } from './accessLog';
 import { and, desc, eq, gte, inArray, lt, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accessEventSchema, agentSchema, artifactSchema, businessObjectSchema, knowledgeDocumentSchema, userSchema } from '@/models/Schema';
-import { accessLogRetentionDays } from './retention';
+import { accessLogRetentionDays, MAX_ACCESS_LOG_RETENTION_DAYS } from './retention';
 
 export const ACCESS_ACTOR_KINDS = ['user', 'agent', 'token', 'link'] as const;
 export type AccessActorKind = typeof ACCESS_ACTOR_KINDS[number];
@@ -32,6 +32,13 @@ const PRUNE_BATCHES_PER_RUN = 100;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
+/**
+ * Where a page starts: strictly older than this row in the log's order
+ * (`at` desc, then `id` desc). A keyset, not an offset, so the thousandth
+ * page of a year of reads costs what the first does.
+ */
+export type AccessLogCursor = { at: Date; id: number };
+
 export type AccessLogFilter = {
   action?: AccessAction;
   actorKind?: AccessActorKind;
@@ -42,10 +49,37 @@ export type AccessLogFilter = {
   since?: Date;
   until?: Date;
   limit?: number;
-  offset?: number;
+  /** The page after this row; the first page without it. */
+  before?: AccessLogCursor;
 };
 
 export type AccessEventRow = typeof accessEventSchema.$inferSelect;
+
+/**
+ * The cursor for the page after `row`: `<ISO time>,<id>`. A row's `at` is the
+ * millisecond the read happened (`accessRow`), so the ISO form round-trips it
+ * exactly.
+ * @param row - The last row of a page.
+ * @param row.at - When it was read.
+ * @param row.id - Its id.
+ */
+export function accessLogCursorOf(row: { at: Date; id: number }): string {
+  return `${row.at.toISOString()},${row.id}`;
+}
+
+/**
+ * A cursor read back from a query string; null when it is not one.
+ * @param raw - `<ISO time>,<id>`.
+ */
+export function parseAccessLogCursor(raw: string | null | undefined): AccessLogCursor | null {
+  const [time, id, ...rest] = (raw ?? '').split(',');
+  if (!time || !id || rest.length > 0 || !/^\d+$/.test(id)) {
+    return null;
+  }
+  const at = new Date(time);
+  const n = Number(id);
+  return Number.isNaN(at.getTime()) || !Number.isSafeInteger(n) ? null : { at, id: n };
+}
 
 function conditions(orgId: string, filter: AccessLogFilter): SQL[] {
   const where: SQL[] = [eq(accessEventSchema.orgId, orgId)];
@@ -72,26 +106,32 @@ function conditions(orgId: string, filter: AccessLogFilter): SQL[] {
   if (filter.until) {
     where.push(lt(accessEventSchema.at, filter.until));
   }
+  if (filter.before) {
+    where.push(or(
+      lt(accessEventSchema.at, filter.before.at),
+      and(eq(accessEventSchema.at, filter.before.at), lt(accessEventSchema.id, filter.before.id)),
+    )!);
+  }
   return where;
 }
 
 /**
  * One page of a workspace's reads, newest first.
  * @param orgId - The workspace. Never more than one.
- * @param filter - Narrowing, and the page window.
- * @returns The page, and whether another follows it.
+ * @param filter - Narrowing, and where the page starts.
+ * @returns The page, whether another follows it, and the cursor that opens it.
  */
-export async function listAccessEvents(orgId: string, filter: AccessLogFilter = {}): Promise<{ events: AccessEventRow[]; hasMore: boolean }> {
+export async function listAccessEvents(orgId: string, filter: AccessLogFilter = {}): Promise<{ events: AccessEventRow[]; hasMore: boolean; next: string | null }> {
   const limit = Math.min(Math.max(filter.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const offset = Math.max(filter.offset ?? 0, 0);
   const rows = await db
     .select()
     .from(accessEventSchema)
     .where(and(...conditions(orgId, filter)))
     .orderBy(desc(accessEventSchema.at), desc(accessEventSchema.id))
-    .limit(limit + 1)
-    .offset(offset);
-  return { events: rows.slice(0, limit), hasMore: rows.length > limit };
+    .limit(limit + 1);
+  const events = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  return { events, hasMore, next: hasMore ? accessLogCursorOf(events[events.length - 1]!) : null };
 }
 
 /** Who and what a page of events names, in words: people, agents, and the records' own titles. */
@@ -173,7 +213,9 @@ export async function pruneAccessEvents(now: Date = new Date(), retentionDays: n
   if (retentionDays === null) {
     return null;
   }
-  const cutoff = new Date(now.getTime() - retentionDays * 86_400_000);
+  // Bounded here too, so no caller can hand the prune a date that does not exist.
+  const days = Math.min(Math.max(retentionDays, 1), MAX_ACCESS_LOG_RETENTION_DAYS);
+  const cutoff = new Date(now.getTime() - days * 86_400_000);
   let deleted = 0;
   for (let batch = 0; batch < PRUNE_BATCHES_PER_RUN; batch++) {
     const doomed = db

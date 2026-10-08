@@ -11,13 +11,20 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { noteRead } from '@/services/access/accessLog';
+import { declareReads } from '../toolReads';
 
 export function pageContextTool(ctx: RuntimeContext) {
-  return tool(
+  // The record the page is about — and the passage highlighted on it — is
+  // what this hands the agent: a view of that record, noted when there is one.
+  return declareReads(tool(
     async () => {
       const pc = ctx.pageContext;
       if (!pc) {
         return JSON.stringify({ present: false, note: 'No page context for this turn — the person asked from a context-free surface (API, schedule, or the full-page chat with nothing selected).' });
+      }
+      if (pc.record?.id) {
+        noteRead({ action: 'view', record: { kind: pc.record.type, id: pc.record.id } });
       }
       return JSON.stringify({ present: true, ...pc });
     },
@@ -26,5 +33,5 @@ export function pageContextTool(ctx: RuntimeContext) {
       description: 'Return where the person is in the app for THIS turn as JSON: page path and title, the record the page is about ({type, id, label, href}), any records they @-mentioned, and the passage they highlighted. Call it before acting on "this"/"here"/"it" so you work from the exact record instead of guessing.',
       schema: z.object({}),
     },
-  );
+  ), 'noted');
 }

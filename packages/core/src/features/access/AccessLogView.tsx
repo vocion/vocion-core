@@ -86,8 +86,10 @@ export function AccessLogView(props: {
   filters: AccessLogFilters;
   /** A narrowing set by a row link (`?actor=` / `?record=`), said in words, with the URL that clears it. */
   scope: { label: string; clearHref: string } | null;
-  hasMore: boolean;
-  moreHref: string | null;
+  /** The next page, older than this one (keyset `before`); null on the last page. */
+  olderHref: string | null;
+  /** Back to the newest reads, when this page is not the first; null on the first. */
+  newestHref: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -103,7 +105,8 @@ export function AccessLogView(props: {
         params.delete(k);
       }
     }
-    params.delete('n');
+    // A new narrowing starts from the newest reads again.
+    params.delete('before');
     const s = params.toString();
     router.push(`${pathname}${s ? `?${s}` : ''}`);
   }, [filters, router, pathname]);
@@ -185,9 +188,14 @@ export function AccessLogView(props: {
               })}
             </ListRows>
           )}
-      {props.hasMore && props.moreHref && (
-        <div className="flex justify-center py-4">
-          <Link href={props.moreHref} className="text-sm text-muted-foreground underline hover:text-foreground">Show more</Link>
+      {(props.olderHref || props.newestHref) && (
+        <div className="flex justify-center gap-6 py-4">
+          {props.newestHref && (
+            <Link href={props.newestHref} className="text-sm text-muted-foreground underline hover:text-foreground">Newest reads</Link>
+          )}
+          {props.olderHref && (
+            <Link href={props.olderHref} className="text-sm text-muted-foreground underline hover:text-foreground">Older reads</Link>
+          )}
         </div>
       )}
     </>

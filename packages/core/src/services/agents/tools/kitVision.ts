@@ -39,6 +39,7 @@ import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema }
 import { createBusinessObject, updateBusinessObject } from '@/services/BusinessObjectService';
 import { getNamespace, listNamespaces } from '@/services/MemoryService';
 import { recordHref } from '@/services/objects/recordHref';
+import { declareReads } from '../toolReads';
 
 export const KIT_VISION_TOOL_NAMES = ['vision_compare_reference', 'vision_detect_labels'] as const;
 
@@ -627,5 +628,6 @@ export function kitVisionTools(ctx: RuntimeContext) {
     ));
   }
 
-  return tools;
+  // Both read one stored photo by its key.
+  return tools.map(t => declareReads(t, { kind: 'file', idArg: 'image_key' }));
 }

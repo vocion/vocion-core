@@ -43,8 +43,9 @@ export async function GET(req: Request) {
     offset,
   });
   // A page of records handed to a caller is a search of them: the access log
-  // says who listed what, and how many came back (`services/access/accessLog.ts`).
-  noteCallerRead(caller, { action: 'search', record: { kind: 'object' }, via: 'api', detail: { hits: page.items.length } }, req.headers);
+  // says who listed what, how many came back and which page (every page is
+  // its own row — a token paging through the list is never one small search).
+  noteCallerRead(caller, { action: 'search', record: { kind: 'object' }, via: 'api', detail: { hits: page.items.length, offset } }, req.headers);
 
   return NextResponse.json(page);
 }

@@ -19,12 +19,14 @@
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from './types';
+import type { AccessScope } from '@/services/access/accessLog';
 import { db } from '@/libs/DB';
 import { stopReasonOfMessage } from '@/libs/llm/stopReason';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { toolCallSchema } from '@/models/Schema';
-import { withAccessScope } from '@/services/access/accessLog';
+import { noteRead, withAccessScope } from '@/services/access/accessLog';
 import { noteTurnRead } from '@/services/gates/turnReads';
+import { declaredRead, readsOf } from './toolReads';
 import { taskIdOf } from './traceEmitter';
 
 /** Output rows stay readable, not exhaustive — full payloads live in the trace. */
@@ -252,15 +254,21 @@ export function withToolCallRecord(
     try {
       // The reader in scope for whatever this tool reads (`noteRead`): this
       // agent, on this run, for whoever the run is for. The tool says what it
-      // read; nothing here knows any tool by name.
-      const result = await withAccessScope(
-        {
-          orgId: ctx.orgId,
-          actor: { kind: 'agent', agentSlug: actingAgentOf(ctx, ns).agentSlug, onBehalfOf: ctx.userId ?? null, run: runOf(ctx) },
-          via: `tool:${toolObj.name}`,
-        },
-        () => originalInvoke(callInput as never, config as never),
-      );
+      // read — by noting it, or by the declaration beside it
+      // (`./toolReads.ts`); nothing here knows any tool by name.
+      const scope: AccessScope = {
+        orgId: ctx.orgId,
+        actor: { kind: 'agent', agentSlug: actingAgentOf(ctx, ns).agentSlug, onBehalfOf: ctx.userId ?? null, run: runOf(ctx) },
+        via: `tool:${toolObj.name}`,
+      };
+      const result = await withAccessScope(scope, () => originalInvoke(callInput as never, config as never));
+      const reads = readsOf(toolObj);
+      if (reads && !scope.noted) {
+        const read = declaredRead(reads, normalizeInput(callInput));
+        if (read) {
+          withAccessScope(scope, () => noteRead(read));
+        }
+      }
       // A read is evidence the moment it returns: a filing later in this
       // turn may be refused without it (`services/gates/turnReads.ts`).
       noteTurnRead(ctx, toolObj.name, normalizeInput(callInput), normalizeOutput(result));

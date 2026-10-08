@@ -34,6 +34,7 @@ import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload } f
 import { createDocument, documentReceipt, exportDocumentPdf, redTeamDocumentArtifact, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
 import { exportGate } from '@/services/documents/exportGate';
 import { redTeamReceipt } from '@/services/documents/redTeam';
+import { declareReads } from '../toolReads';
 import { openArtifactId } from './editArtifacts';
 import { authorOf } from './renderArtifacts';
 
@@ -416,5 +417,12 @@ export function exportDocumentPdfTool(ctx: RuntimeContext) {
 }
 
 export function documentTools(ctx: RuntimeContext) {
-  return [renderDocumentTool(ctx), readDocumentTool(ctx), editDocumentTool(ctx), verifyDocumentTool(ctx), redTeamDocumentTool(ctx), exportDocumentPdfTool(ctx)];
+  return [
+    renderDocumentTool(ctx),
+    declareReads(readDocumentTool(ctx), 'noted'),
+    editDocumentTool(ctx),
+    verifyDocumentTool(ctx),
+    redTeamDocumentTool(ctx),
+    declareReads(exportDocumentPdfTool(ctx), 'noted'),
+  ];
 }

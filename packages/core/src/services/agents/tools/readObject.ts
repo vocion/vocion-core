@@ -30,6 +30,7 @@ import { getBusinessObject } from '@/services/BusinessObjectService';
 import { codeForRecord } from '@/services/codes';
 import { readRecovery } from '@/services/factory/recovery';
 import { loadRecordStatus } from '@/services/objects/recordStatus';
+import { declareReads } from '../toolReads';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 
 /**
@@ -191,5 +192,5 @@ export function readObjectTools(ctx: RuntimeContext): StructuredToolInterface[] 
   if (ctx.objectTypeSlugs.length === 0) {
     return [];
   }
-  return [readObjectTool(ctx)];
+  return [declareReads(readObjectTool(ctx), 'noted')];
 }

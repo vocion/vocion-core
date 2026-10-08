@@ -2,8 +2,8 @@ import type { AccessAction } from '@/services/access/accessLog';
 import type { AccessActorKind } from '@/services/access/AccessLogService';
 import { NextResponse } from 'next/server';
 import { ACCESS_ACTIONS } from '@/services/access/accessLog';
-import { ACCESS_ACTOR_KINDS, accessLogRetentionDays, listAccessEvents } from '@/services/access/AccessLogService';
-import { authApi, isErrorResponse, jsonError, readPagination, requireWorkspaceAdmin } from '../_shared';
+import { ACCESS_ACTOR_KINDS, accessLogRetentionDays, listAccessEvents, parseAccessLogCursor } from '@/services/access/AccessLogService';
+import { authApi, isErrorResponse, jsonError, requireWorkspaceAdmin } from '../_shared';
 
 /**
  * Parse an ISO date query value; undefined when absent, null when unreadable.
@@ -23,9 +23,10 @@ function readDate(raw: string | null): Date | undefined | null {
  * Who read which record in this workspace, and when — newest first. One entry
  * per view, download, export or search, by a person, an agent on a run, an API
  * token or a public share link:
- * `{ events: [{ id, at, action, actorKind, actorId, onBehalfOf, runKind, runId, recordKind, recordId, via, ipHash, uaHash, detail }], hasMore, retentionDays }`.
- * Addresses and user agents are keyed hashes, never the values. Only this
- * workspace's reads; there is no account-wide view.
+ * `{ events: [{ id, at, action, actorKind, actorId, onBehalfOf, runKind, runId, recordKind, recordId, via, ipHash, uaHash, detail }], hasMore, next, retentionDays }`.
+ * Addresses and user agents are keyed hashes, never the values, and the same
+ * machine hashes differently in every workspace. Only this workspace's reads;
+ * there is no account-wide view.
  *
  * Query parameters:
  * - `action` — `view`, `download`, `export` or `search`.
@@ -34,6 +35,9 @@ function readDate(raw: string | null): Date | undefined | null {
  * - `recordKind` — `object`, `artifact`, `document`, `file`, …
  * - `recordId` — the record's id; with `recordKind`, everyone who read that one record.
  * - `since`, `until` — ISO 8601 bounds on when.
+ * - `limit` — rows per page (default 50, max 200).
+ * - `before` — the `next` cursor of the previous page (`<ISO time>,<id>`); the
+ *   log is paged by keyset, so a deep page costs what the first does.
  *
  * Requires a workspace admin.
  * Auth: tenant API token or dashboard session.
@@ -49,7 +53,9 @@ export async function GET(req: Request) {
     return notAdmin;
   }
   const url = new URL(req.url);
-  const { limit, offset } = readPagination(url);
+  // Keyset-paged, so no offset: `limit` alone, clamped by the service.
+  const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : undefined;
   const action = url.searchParams.get('action') || undefined;
   if (action && !(ACCESS_ACTIONS as readonly string[]).includes(action)) {
     return jsonError('VALIDATION_FAILED', `action must be one of ${ACCESS_ACTIONS.join(', ')}`, 400);
@@ -63,6 +69,11 @@ export async function GET(req: Request) {
   if (since === null || until === null) {
     return jsonError('VALIDATION_FAILED', 'since and until must be ISO 8601 dates', 400);
   }
+  const rawBefore = url.searchParams.get('before');
+  const before = rawBefore ? parseAccessLogCursor(rawBefore) : undefined;
+  if (before === null) {
+    return jsonError('VALIDATION_FAILED', 'before must be the next cursor of a previous page', 400);
+  }
   const page = await listAccessEvents(caller.orgId, {
     action: action as AccessAction | undefined,
     actorKind: actorKind as AccessActorKind | undefined,
@@ -72,11 +83,12 @@ export async function GET(req: Request) {
     since,
     until,
     limit,
-    offset,
+    before,
   });
   return NextResponse.json({
     events: page.events.map(({ orgId: _org, accountId: _account, ...event }) => event),
     hasMore: page.hasMore,
+    next: page.next,
     retentionDays: accessLogRetentionDays(),
   });
 }

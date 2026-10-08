@@ -18,6 +18,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { familyInScope } from '@/libs/connectors/families';
+import { declareReads } from '../toolReads';
 
 export const CHAT_READ_THREAD_TOOL = 'chat_read_thread';
 export const CHAT_READ_FILE_TOOL = 'chat_read_file';
@@ -31,7 +32,10 @@ export function chatTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!familyInScope(ctx, 'chat')) {
     return [];
   }
-  return [readThreadTool(ctx), readFileTool(ctx)];
+  return [
+    declareReads(readThreadTool(ctx), { kind: 'chat_thread', idArg: ['permalink', 'channel_id', 'ts'] }),
+    declareReads(readFileTool(ctx), { kind: 'chat_file', idArg: ['file_id', 'permalink'] }),
+  ];
 }
 
 function readThreadTool(ctx: RuntimeContext): StructuredToolInterface {

@@ -102,7 +102,7 @@ export async function serveArtifact(req: NextRequest, id: string, filename?: str
     action: attachment ? 'download' : 'view',
     record: /^\d+$/.test(id) ? { kind: 'artifact', id } : { kind: 'file', id },
     via: caller.actor.kind === 'link' ? 'share' : 'api',
-    client: clientOf(req.headers),
+    client: clientOf(req.headers, caller.orgId),
   });
   if ('json' in result) {
     // Card artifacts have no file: the spec IS the content.

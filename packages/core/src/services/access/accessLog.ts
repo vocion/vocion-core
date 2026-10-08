@@ -5,38 +5,54 @@
  * Every read surface reports through here, and nothing else writes the table:
  *
  *   - a person's read: the record and artifact pages, the preview panel, the
- *     artifact and media file routes, exports, the Search page — through
- *     {@link notePersonRead} / {@link noteCallerRead} / {@link noteLinkRead};
+ *     artifact and media file routes, exports, the Search page, the share
+ *     pages — through {@link notePersonRead} / {@link noteCallerRead} /
+ *     {@link noteLinkRead};
  *   - an agent's read: the tool-call recorder opens an access scope around
  *     every domain tool (`services/agents/toolCallRecord.ts`, the one seam all
  *     three harnesses share), and a tool says what it read with
- *     {@link noteRead}. The scope knows who and on which run; the tool knows
- *     what. The MCP server opens the same scope around its tools.
+ *     {@link noteRead} — or declares it beside its schema and the recorder
+ *     writes the row (`services/agents/toolReads.ts`). The scope knows who and
+ *     on which run; the tool knows what. The MCP server opens the same scope
+ *     around its tools.
  *
  * Cheap by construction:
  *
  *   - A read never waits for its log row. {@link recordAccess} appends to an
  *     in-process buffer and returns; a timer writes the buffer as one
- *     multi-row insert a second later, or sooner when it fills.
- *   - The same actor reading the same record the same way inside a minute is
- *     one row, not one per re-render, refetch or retry.
- *   - A failed write never fails the read. The batch is retried on the next
- *     flush, twice, and only then dropped — and a drop is logged at error
- *     level with its count, never silent (Accelerate, never block §3).
+ *     multi-row insert a second later, or sooner when it fills. The row keeps
+ *     the moment of the read, not of the write.
+ *   - The same reader VIEWING the same record from the same client inside a
+ *     minute is one row, not one per re-render, refetch or a player's range
+ *     request. A search, an export and a download are never folded: each one
+ *     is what an audit is for (a token paging through a list is N searches).
+ *
+ * Never silently lost:
+ *
+ *   - What a row carries is cleaned before it is buffered: NUL and lone
+ *     surrogates (which Postgres text and jsonb refuse) are stripped and every
+ *     field is capped, so a reader cannot hand us a value that fails a batch.
+ *   - A batch the database refuses while it is answering is written row by
+ *     row: only a row the database refuses on its own is dropped, with an
+ *     error line, so one bad read never costs another tenant's reads.
+ *   - A batch that fails because the database is not answering waits and is
+ *     retried with backoff for {@link KEEP_FAILED_MS} — longer than a managed
+ *     database's failover — before it is dropped, counted and logged.
+ *   - On the way out (`beforeExit`, `SIGTERM`) the buffer is flushed, and a
+ *     process that exits with reads still unwritten says how many.
  *
  * The buffer lives on `globalThis`, like the database handle (`libs/DB.ts`):
  * `next build` puts a module in more than one server chunk, and two buffers
- * would coalesce separately. A process killed hard loses at most the last
- * second of reads; that is the price of never holding a read up.
+ * would coalesce separately.
  *
- * Under Vitest the timer is off: a test writes by awaiting
- * {@link flushAccessLog}, which returns what it wrote, retried and dropped,
- * so a success path is asserted rather than assumed.
+ * Under Vitest the timer and the exit hooks are off: a test writes by
+ * awaiting {@link flushAccessLog}, which returns what it wrote, kept and
+ * dropped, so a success path is asserted rather than assumed.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import process from 'node:process';
-import { inArray } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accessEventSchema, projectSchema } from '@/models/Schema';
 import { clientOf, currentRequestClient } from './client';
@@ -78,19 +94,20 @@ export type AccessEvent = AccessRead & {
   /** The surface: `page`, `preview`, `app`, `api`, `share`, `tool:<name>`, `mcp:<name>`. */
   via: string;
   client?: AccessClient | null;
-  /** Override for tests; the row defaults to now. */
+  /** When the read happened; now by default. */
   at?: Date;
 };
 
 type Row = typeof accessEventSchema.$inferInsert;
-type Pending = { row: Row; attempts: number };
+/** A buffered row, and when its first failed write was (it is dropped {@link KEEP_FAILED_MS} after). */
+type Pending = { row: Row; firstFailedAt: number | null };
 
 export type AccessLogStats = {
   /** Rows written since the process started (or the last test reset). */
   written: number;
-  /** Rows given up on after their last retry. Each drop was logged. */
+  /** Rows given up on. Each drop was logged with its reason. */
   dropped: number;
-  /** Events folded into an identical one inside the coalescing window. */
+  /** View events folded into an identical one inside the coalescing window. */
   coalesced: number;
   /** Rows waiting for the next flush. */
   pending: number;
@@ -98,16 +115,37 @@ export type AccessLogStats = {
 
 /** Wait this long after the first buffered event before writing. */
 const FLUSH_DELAY_MS = 1_000;
+/** The longest wait between retries while the database is not answering. */
+const MAX_RETRY_DELAY_MS = 30_000;
 /** One insert writes at most this many rows; a fuller buffer flushes at once. */
 const MAX_BATCH = 500;
-/** Beyond this many waiting rows the oldest are dropped, loudly — the database is down. */
-const MAX_PENDING = 10_000;
-/** Tries per row before it is dropped. */
-const MAX_ATTEMPTS = 3;
-/** The same actor reading the same record the same way inside this window is one row. */
+/** Beyond this many waiting rows the oldest are dropped, loudly — the database has been down a while. */
+const MAX_PENDING = 25_000;
+/**
+ * How long a row whose write failed is kept and retried: well past a managed
+ * database's failover (30-60 s), so routine maintenance loses nothing.
+ */
+export const KEEP_FAILED_MS = 10 * 60_000;
+/** The same reader viewing the same record from the same client inside this window is one row. */
 const COALESCE_MS = 60_000;
 /** Recent coalescing keys kept before the oldest are swept. */
 const MAX_RECENT = 20_000;
+/** How long a SIGTERM waits for the last flush before letting the process go. */
+const SHUTDOWN_FLUSH_MS = 5_000;
+
+/** Caps per column, in characters: generous for a real value, small enough that no reader can bloat a row. */
+const CAP = {
+  id: 256,
+  runKind: 64,
+  runId: 128,
+  recordKind: 64,
+  recordId: 512,
+  via: 128,
+  hash: 64,
+  detailKey: 64,
+  detailValue: 256,
+  detailKeys: 16,
+} as const;
 
 type State = {
   pending: Pending[];
@@ -115,8 +153,12 @@ type State = {
   accounts: Map<string, string | null>;
   timer: ReturnType<typeof setTimeout> | null;
   flushing: Promise<void> | null;
+  /** Consecutive flushes that found the database not answering; sets the retry backoff. */
+  failStreak: number;
   stats: { written: number; dropped: number; coalesced: number };
   autoFlush: boolean;
+  /** Whether the exit hooks are registered (once per process). */
+  hooked: boolean;
 };
 
 const globalForAccessLog = globalThis as unknown as { vocionAccessLog?: State };
@@ -128,8 +170,10 @@ function freshState(): State {
     accounts: new Map(),
     timer: null,
     flushing: null,
+    failStreak: 0,
     stats: { written: 0, dropped: 0, coalesced: 0 },
     autoFlush: !process.env.VITEST,
+    hooked: false,
   };
 }
 
@@ -155,20 +199,82 @@ function log(level: 'warn' | 'error', message: string, properties: Record<string
   }
 }
 
+/**
+ * A value the database will take: no NUL (Postgres text and jsonb refuse
+ * `\u0000`), no lone surrogate (jsonb refuses an unpaired `\uD800`), capped.
+ * This is encoding hygiene on an identifier, not a reading of anyone's words.
+ * @param value - The raw value.
+ * @param cap - The most characters kept.
+ */
+function clean(value: string, cap: number): string {
+  const text = value.replaceAll('\u0000', '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+  if (text.length <= cap) {
+    return text;
+  }
+  // Never cut between the two halves of a pair.
+  const cut = text.slice(0, cap);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+function cleanOrNull(value: string | null | undefined, cap: number): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const v = clean(String(value), cap);
+  return v === '' ? null : v;
+}
+
+/**
+ * The envelope as stored: string keys and values cleaned and capped, numbers
+ * only when finite, at most {@link CAP.detailKeys} entries. Null when nothing
+ * is left.
+ * @param detail - The raw envelope.
+ */
+function cleanDetail(detail: AccessRead['detail']): Record<string, string | number | boolean> | null {
+  if (!detail) {
+    return null;
+  }
+  const out: Record<string, string | number | boolean> = {};
+  let n = 0;
+  for (const [rawKey, value] of Object.entries(detail)) {
+    if (n >= CAP.detailKeys) {
+      break;
+    }
+    const key = clean(rawKey, CAP.detailKey);
+    if (!key) {
+      continue;
+    }
+    if (typeof value === 'string') {
+      out[key] = clean(value, CAP.detailValue);
+    } else if (typeof value === 'number') {
+      if (!Number.isFinite(value)) {
+        continue;
+      }
+      out[key] = value;
+    } else if (typeof value === 'boolean') {
+      out[key] = value;
+    } else {
+      continue;
+    }
+    n++;
+  }
+  return n > 0 ? out : null;
+}
+
 function actorColumns(actor: AccessActor): Pick<Row, 'actorKind' | 'actorId' | 'onBehalfOf' | 'runKind' | 'runId'> {
   switch (actor.kind) {
     case 'user':
-      return { actorKind: 'user', actorId: actor.userId, onBehalfOf: null, runKind: null, runId: null };
+      return { actorKind: 'user', actorId: cleanOrNull(actor.userId, CAP.id), onBehalfOf: null, runKind: null, runId: null };
     case 'agent':
       return {
         actorKind: 'agent',
-        actorId: actor.agentSlug,
-        onBehalfOf: actor.onBehalfOf ?? null,
-        runKind: actor.run ? actor.run.kind : null,
-        runId: actor.run ? String(actor.run.id) : null,
+        actorId: cleanOrNull(actor.agentSlug, CAP.id),
+        onBehalfOf: cleanOrNull(actor.onBehalfOf, CAP.id),
+        runKind: actor.run ? cleanOrNull(actor.run.kind, CAP.runKind) : null,
+        runId: actor.run ? cleanOrNull(String(actor.run.id), CAP.runId) : null,
       };
     case 'token':
-      return { actorKind: 'token', actorId: actor.tokenId.startsWith('token:') ? actor.tokenId : `token:${actor.tokenId}`, onBehalfOf: null, runKind: null, runId: null };
+      return { actorKind: 'token', actorId: cleanOrNull(actor.tokenId.startsWith('token:') ? actor.tokenId : `token:${actor.tokenId}`, CAP.id), onBehalfOf: null, runKind: null, runId: null };
     case 'link':
       return { actorKind: 'link', actorId: null, onBehalfOf: null, runKind: null, runId: null };
   }
@@ -177,33 +283,47 @@ function actorColumns(actor: AccessActor): Pick<Row, 'actorKind' | 'actorId' | '
 /**
  * The row an event becomes, or null for one that names no workspace, no
  * action we know or no kind of record — said once in the log, never written
- * half-formed.
+ * half-formed. Every value is cleaned and capped here, so nothing a reader
+ * sends can make the database refuse the batch it rides in.
  * @param event - The read.
  */
 export function accessRow(event: AccessEvent): Row | null {
-  const recordKind = event.record.kind?.trim();
-  if (!event.orgId || !recordKind || !(ACCESS_ACTIONS as readonly string[]).includes(event.action)) {
-    log('warn', 'event refused as malformed', { orgId: event.orgId || null, action: event.action, recordKind: recordKind || null, via: event.via });
+  const orgId = event.orgId ? clean(event.orgId, CAP.id) : '';
+  const recordKind = event.record.kind ? clean(event.record.kind, CAP.recordKind).trim() : '';
+  if (!orgId || !recordKind || !(ACCESS_ACTIONS as readonly string[]).includes(event.action)) {
+    log('warn', 'event refused as malformed', { orgId: orgId || null, action: event.action, recordKind: recordKind || null, via: event.via });
     return null;
   }
   const id = event.record.id;
   return {
-    orgId: event.orgId,
-    accountId: event.accountId ?? null,
+    orgId,
+    accountId: cleanOrNull(event.accountId, CAP.id),
     ...actorColumns(event.actor),
     action: event.action,
     recordKind,
-    recordId: id === null || id === undefined || id === '' ? null : String(id),
-    via: event.via,
-    ipHash: event.client?.ipHash ?? null,
-    uaHash: event.client?.uaHash ?? null,
-    detail: event.detail && Object.keys(event.detail).length > 0 ? event.detail : null,
-    ...(event.at ? { at: event.at } : {}),
+    recordId: id === null || id === undefined ? null : cleanOrNull(String(id), CAP.recordId),
+    via: clean(event.via ?? '', CAP.via) || 'unknown',
+    ipHash: cleanOrNull(event.client?.ipHash, CAP.hash),
+    uaHash: cleanOrNull(event.client?.uaHash, CAP.hash),
+    detail: cleanDetail(event.detail),
+    // The moment of the read: a row written after a retry still says when it happened.
+    at: event.at ?? new Date(),
   };
 }
 
-function coalesceKey(row: Row): string {
-  return [row.orgId, row.actorKind, row.actorId, row.onBehalfOf, row.runKind, row.runId, row.action, row.recordKind, row.recordId].map(v => v ?? '').join('\u0001');
+/**
+ * The coalescing key of a view: who (with the client they read from, so two
+ * readers of one share link stay two), what, and the workspace. Null for any
+ * other action — a search, an export and a download are each kept.
+ * @param row - The row.
+ */
+function coalesceKey(row: Row): string | null {
+  if (row.action !== 'view') {
+    return null;
+  }
+  return [row.orgId, row.actorKind, row.actorId, row.onBehalfOf, row.runKind, row.runId, row.ipHash, row.uaHash, row.recordKind, row.recordId]
+    .map(v => v ?? '')
+    .join('\u0001');
 }
 
 function seenRecently(s: State, key: string, now: number): boolean {
@@ -244,6 +364,42 @@ function schedule(s: State, delay = FLUSH_DELAY_MS): void {
 }
 
 /**
+ * Flush on the way out. `beforeExit` covers a script or CLI run that simply
+ * finishes (the timer is unref'd, so the loop would otherwise end with rows
+ * waiting). `SIGTERM` covers a container being stopped: the flush gets
+ * {@link SHUTDOWN_FLUSH_MS}, and when nothing else listens for the signal it
+ * is raised again afterwards so the process still stops. `exit` cannot wait
+ * on I/O, so it only says how many reads never made it.
+ * @param s - The log's state.
+ */
+function hookExit(s: State): void {
+  if (s.hooked || !s.autoFlush) {
+    return;
+  }
+  s.hooked = true;
+  process.once('beforeExit', () => {
+    if (state().pending.length > 0) {
+      void flushAccessLog();
+    }
+  });
+  process.once('SIGTERM', () => {
+    const letGo = () => {
+      if (process.listenerCount('SIGTERM') === 0) {
+        process.kill(process.pid, 'SIGTERM');
+      }
+    };
+    const timeout = new Promise<void>(resolve => setTimeout(resolve, SHUTDOWN_FLUSH_MS).unref?.());
+    void Promise.race([flushAccessLog().then(() => undefined, () => undefined), timeout]).finally(letGo);
+  });
+  process.once('exit', () => {
+    const left = state().pending.length;
+    if (left > 0) {
+      log('error', 'process exiting with reads unwritten', { pending: left });
+    }
+  });
+}
+
+/**
  * Record one read. Returns at once; the row is written with the next batch.
  * Never throws, and never waits on the database.
  * @param event - Who read what, where.
@@ -255,17 +411,19 @@ export function recordAccess(event: AccessEvent): void {
       return;
     }
     const s = state();
-    if (seenRecently(s, coalesceKey(row), event.at?.getTime() ?? Date.now())) {
+    const key = coalesceKey(row);
+    if (key && seenRecently(s, key, (row.at as Date).getTime())) {
       s.stats.coalesced += 1;
       return;
     }
-    s.pending.push({ row, attempts: 0 });
+    s.pending.push({ row, firstFailedAt: null });
     if (s.pending.length > MAX_PENDING) {
       const over = s.pending.splice(0, s.pending.length - MAX_PENDING);
       s.stats.dropped += over.length;
       log('error', 'buffer full, oldest reads dropped unwritten', { dropped: over.length, pending: s.pending.length });
     }
-    if (s.pending.length >= MAX_BATCH && s.autoFlush) {
+    hookExit(s);
+    if (s.pending.length >= MAX_BATCH && s.autoFlush && s.failStreak === 0) {
       void flushAccessLog();
     } else {
       schedule(s);
@@ -303,42 +461,107 @@ async function withAccounts(s: State, rows: Row[]): Promise<void> {
   }
 }
 
+/** Whether the database answers at all — what tells a refused row from an outage. */
+async function databaseAnswers(): Promise<boolean> {
+  try {
+    await db.execute(sql`select 1`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Write one batch. On failure the batch goes back to the front of the queue
- * for another try, and a row out of tries is dropped with an error line.
+ * Put rows back for a later flush after the database did not answer. A row
+ * that has been failing for longer than {@link KEEP_FAILED_MS} is dropped,
+ * counted and logged instead.
  * @param s - The log's state.
- * @returns Whether the write succeeded.
+ * @param rows - The rows that were not written.
+ * @param error - Why.
+ */
+function keepForRetry(s: State, rows: Pending[], error: unknown): void {
+  const now = Date.now();
+  const keep: Pending[] = [];
+  let dropped = 0;
+  for (const p of rows) {
+    p.firstFailedAt ??= now;
+    if (now - p.firstFailedAt < KEEP_FAILED_MS) {
+      keep.push(p);
+    } else {
+      dropped++;
+    }
+  }
+  s.pending.unshift(...keep);
+  s.stats.dropped += dropped;
+  log('error', dropped > 0 ? 'database not answering; reads dropped after the retry window' : 'database not answering; will retry', {
+    batch: rows.length,
+    retrying: keep.length,
+    dropped,
+    retryWindowMinutes: KEEP_FAILED_MS / 60_000,
+    error: String(error),
+  });
+}
+
+/**
+ * The database is answering but refused the batch: one of its rows is bad.
+ * Write them one at a time, so only a row the database refuses on its own is
+ * dropped — with an error line saying where it came from — and every other
+ * workspace's reads still land. Should the database stop answering partway,
+ * the rest go back for a retry rather than being blamed for it.
+ * @param s - The log's state.
+ * @param batch - The refused batch.
+ */
+async function writeOneByOne(s: State, batch: Pending[]): Promise<void> {
+  const refused: Array<{ via: string; recordKind: string; error: string }> = [];
+  for (let i = 0; i < batch.length; i++) {
+    const p = batch[i]!;
+    try {
+      await db.insert(accessEventSchema).values([p.row]);
+      s.stats.written += 1;
+    } catch (error) {
+      if (!(await databaseAnswers())) {
+        keepForRetry(s, batch.slice(i), error);
+        break;
+      }
+      s.stats.dropped += 1;
+      refused.push({ via: p.row.via, recordKind: p.row.recordKind, error: String(error).slice(0, 200) });
+    }
+  }
+  if (refused.length > 0) {
+    log('error', 'the database refused reads on their own; dropped, the rest of the batch written', { dropped: refused.length, batch: batch.length, refused });
+  }
+}
+
+/**
+ * Write one batch.
+ * @param s - The log's state.
+ * @returns False when the database is not answering (the batch is kept for a retry).
  */
 async function writeBatch(s: State): Promise<boolean> {
   const batch = s.pending.splice(0, MAX_BATCH);
   if (batch.length === 0) {
     return true;
   }
+  const rows = batch.map(p => p.row);
   try {
-    const rows = batch.map(p => p.row);
     await withAccounts(s, rows);
     await db.insert(accessEventSchema).values(rows);
     s.stats.written += batch.length;
     return true;
   } catch (error) {
-    const retry = batch.filter(p => ++p.attempts < MAX_ATTEMPTS);
-    const dropped = batch.length - retry.length;
-    s.pending.unshift(...retry);
-    s.stats.dropped += dropped;
-    log('error', dropped > 0 ? 'write failed; reads dropped after their last retry' : 'write failed; will retry', {
-      batch: batch.length,
-      retrying: retry.length,
-      dropped,
-      error: String(error),
-    });
+    if (await databaseAnswers()) {
+      await writeOneByOne(s, batch);
+      return true;
+    }
+    keepForRetry(s, batch, error);
     return false;
   }
 }
 
 /**
- * Write everything buffered now. Stops at the first failed batch (the rest
- * waits for the next flush rather than hammering a database that is down),
- * and schedules that next flush itself.
+ * Write everything buffered now. Stops at a batch the database did not answer
+ * for (the rest waits rather than hammering a database that is down) and
+ * schedules the retry itself, backing off up to {@link MAX_RETRY_DELAY_MS}.
  * @returns The running totals, including what is still pending.
  */
 export async function flushAccessLog(): Promise<AccessLogStats> {
@@ -353,9 +576,11 @@ export async function flushAccessLog(): Promise<AccessLogStats> {
   s.flushing = (async () => {
     while (s.pending.length > 0) {
       if (!(await writeBatch(s))) {
-        schedule(s, FLUSH_DELAY_MS * 5);
+        s.failStreak += 1;
+        schedule(s, Math.min(FLUSH_DELAY_MS * 2 ** s.failStreak, MAX_RETRY_DELAY_MS));
         return;
       }
+      s.failStreak = 0;
     }
   })();
   try {
@@ -374,15 +599,16 @@ export function accessLogStats(): AccessLogStats {
 
 /**
  * Forget everything buffered, counted and cached. Tests only.
- * @param opts - `autoFlush` turns the timer on for a test that wants it.
+ * @param opts - What a test wants switched on.
  * @param opts.autoFlush - Write on the timer, as production does.
+ * @param opts.hooks - Register the exit hooks on the next read, as production does.
  */
-export function resetAccessLogForTests(opts: { autoFlush?: boolean } = {}): void {
+export function resetAccessLogForTests(opts: { autoFlush?: boolean; hooks?: boolean } = {}): void {
   const s = state();
   if (s.timer) {
     clearTimeout(s.timer);
   }
-  globalForAccessLog.vocionAccessLog = { ...freshState(), autoFlush: opts.autoFlush ?? false };
+  globalForAccessLog.vocionAccessLog = { ...freshState(), autoFlush: opts.autoFlush ?? false, hooked: !opts.hooks };
 }
 
 /* ------------------------------------------------------------------ */
@@ -396,6 +622,12 @@ export type AccessScope = {
   actor: AccessActor;
   via: string;
   client?: AccessClient | null;
+  /**
+   * How many reads were noted under this scope, counted by {@link noteRead}.
+   * The tool-call recorder reads it to know whether a tool already said what
+   * it read before writing the tool's declared read itself.
+   */
+  noted?: number;
 };
 
 const scopes = new AsyncLocalStorage<AccessScope>();
@@ -403,7 +635,7 @@ const scopes = new AsyncLocalStorage<AccessScope>();
 /**
  * Run `fn` with a reader in scope, so a {@link noteRead} anywhere beneath it —
  * however deep, across awaits — is recorded as that reader's.
- * @param scope - Who is reading, and where.
+ * @param scope - Who is reading, and where. Its `noted` count is kept on this object.
  * @param fn - The work.
  */
 export function withAccessScope<T>(scope: AccessScope, fn: () => T): T {
@@ -422,7 +654,9 @@ export function noteRead(read: AccessRead): boolean {
   if (!scope) {
     return false;
   }
-  recordAccess({ ...scope, ...read });
+  scope.noted = (scope.noted ?? 0) + 1;
+  const { noted: _noted, ...who } = scope;
+  recordAccess({ ...who, ...read });
   return true;
 }
 
@@ -450,7 +684,7 @@ export async function notePersonRead(
     if (!viewer.orgId || !viewer.userId) {
       return;
     }
-    const client = headers ? clientOf(headers) : await currentRequestClient();
+    const client = headers ? clientOf(headers, viewer.orgId) : await currentRequestClient(viewer.orgId);
     recordAccess({ ...read, orgId: viewer.orgId, accountId: viewer.accountId ?? null, actor: { kind: 'user', userId: viewer.userId }, client });
   } catch (error) {
     log('error', 'could not note a person\'s read', { via: read.via, error: String(error) });
@@ -475,19 +709,20 @@ export function noteCallerRead(
   const actor: AccessActor = caller.source === 'token'
     ? { kind: 'token', tokenId: caller.actorId }
     : { kind: 'user', userId: caller.actorId };
-  recordAccess({ ...read, orgId: caller.orgId, actor, client: clientOf(headers) });
+  recordAccess({ ...read, orgId: caller.orgId, actor, client: clientOf(headers, caller.orgId) });
 }
 
 /**
  * A read through a public share link: nobody signed in, the link is the
- * credential. The fingerprint is all there is to tell two readers apart.
+ * credential. The fingerprint is all there is to tell two readers apart, so
+ * it is part of what keeps their views separate rows.
  * @param orgId - The workspace the shared thing belongs to.
  * @param read - What was read, and through which surface.
  * @param headers - The request's headers, when the caller holds them.
  */
 export async function noteLinkRead(orgId: string, read: AccessRead & { via: string }, headers?: Pick<Headers, 'get'> | null): Promise<void> {
   try {
-    const client = headers ? clientOf(headers) : await currentRequestClient();
+    const client = headers ? clientOf(headers, orgId) : await currentRequestClient(orgId);
     recordAccess({ ...read, orgId, actor: { kind: 'link' }, client });
   } catch (error) {
     log('error', 'could not note a share-link read', { via: read.via, error: String(error) });

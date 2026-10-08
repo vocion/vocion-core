@@ -3959,7 +3959,7 @@ export const accessEventSchema = pgTable(
     recordId: text('record_id'),
     /** The surface: page, preview, app, api, share, tool:<name>, mcp:<name>. */
     via: text('via').notNull(),
-    /** Keyed hashes, never the address or the agent string itself. */
+    /** Keyed hashes scoped to the workspace, never the address or the agent string itself. */
     ipHash: text('ip_hash'),
     uaHash: text('ua_hash'),
     /** A small envelope — a hit count, a format — never content. */
@@ -3971,6 +3971,10 @@ export const accessEventSchema = pgTable(
     index('access_event_org_at_idx').on(table.orgId, table.at),
     index('access_event_org_record_idx').on(table.orgId, table.recordKind, table.recordId, table.at),
     index('access_event_org_actor_idx').on(table.orgId, table.actorId, table.at),
+    // "What did this person read" also matches what an agent read for them.
+    index('access_event_org_on_behalf_idx').on(table.orgId, table.onBehalfOf, table.at),
+    // An account-wide export or deletion finds its rows without a project join.
+    index('access_event_account_at_idx').on(table.accountId, table.at),
     index('access_event_at_brin_idx').using('brin', table.at),
     check('access_event_action_ck', sql`${table.action} IN ('view', 'export', 'download', 'search')`),
     check('access_event_actor_kind_ck', sql`${table.actorKind} IN ('user', 'agent', 'token', 'link')`),

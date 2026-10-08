@@ -22,6 +22,7 @@ import type { RuntimeContext } from '../types';
 import type { SentryCredentials } from '@/libs/sentry/client';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { declareReads } from '../toolReads';
 
 export const SENTRY_ISSUES_TOOL = 'sentry_issues';
 export const SENTRY_ISSUE_TOOL = 'sentry_issue';
@@ -29,8 +30,8 @@ export const SENTRY_ISSUE_TOOL = 'sentry_issue';
 export function sentryTools(ctx: RuntimeContext): StructuredToolInterface[] {
   const granted = new Set(ctx.harnessConfig.grantTools ?? []);
   return [
-    ...(granted.has(SENTRY_ISSUES_TOOL) ? [issuesTool(ctx)] : []),
-    ...(granted.has(SENTRY_ISSUE_TOOL) ? [issueTool(ctx)] : []),
+    ...(granted.has(SENTRY_ISSUES_TOOL) ? [declareReads(issuesTool(ctx), { kind: 'sentry_issue' })] : []),
+    ...(granted.has(SENTRY_ISSUE_TOOL) ? [declareReads(issueTool(ctx), { kind: 'sentry_issue', idArg: 'id' })] : []),
   ];
 }
 

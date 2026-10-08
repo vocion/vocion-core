@@ -32,8 +32,11 @@ function objectsListTool(config: McpConfig): ToolModule {
     },
     handler: async (input) => {
       const { type_slug, limit } = input as { type_slug?: string; limit: number };
-      const rows = await listBusinessObjects(config.orgId, type_slug);
-      return rows.slice(0, limit);
+      const rows = (await listBusinessObjects(config.orgId, type_slug)).slice(0, limit);
+      // Whole records handed to the bearer: a search of them, with how many
+      // came back — as GET /api/v1/objects records the same listing.
+      noteRead({ action: 'search', record: { kind: 'object' }, detail: { hits: rows.length, ...(type_slug ? { type: type_slug } : {}) } });
+      return rows;
     },
   };
 }

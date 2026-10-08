@@ -18,11 +18,13 @@ import { z } from 'zod';
 import { noteRead } from '@/services/access/accessLog';
 import { search } from '@/services/RetrievalService';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
+import { declareReads } from '../toolReads';
 
 export function searchKnowledgeTool(ctx: RuntimeContext) {
   const availableSources = ctx.connectorSources.join(', ');
 
-  return tool(
+  // It notes what it read itself: the ids it found, or the hits of a search.
+  return declareReads(tool(
     async (args) => {
       const { query, source_types, metadata_filters } = args;
       const sourceFilter = source_types as string[] | undefined;
@@ -145,5 +147,5 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
         metadata_filters: z.record(z.string(), z.string()).optional().describe('Optional: filter by document metadata key-value pairs. Example: {"call_type": "discovery"} to find only discovery calls.'),
       }),
     },
-  );
+  ), 'noted');
 }

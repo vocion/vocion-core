@@ -10,7 +10,7 @@ vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { accessEventSchema, agentSchema, artifactSchema, businessObjectSchema, businessObjectTypeSchema, userSchema } = await import('@/models/Schema');
 const { flushAccessLog, recordAccess, resetAccessLogForTests } = await import('./accessLog');
-const { accessLogRetentionDays, listAccessEvents, namesForAccessEvents, pruneAccessEvents } = await import('./AccessLogService');
+const { accessLogCursorOf, accessLogRetentionDays, listAccessEvents, namesForAccessEvents, parseAccessLogCursor, pruneAccessEvents } = await import('./AccessLogService');
 
 const ORG = 'proj_accesslist_northwind';
 const OTHER = 'proj_accesslist_kestrel';
@@ -78,14 +78,51 @@ describe('listAccessEvents', () => {
     expect((await listAccessEvents(ORG, { until: ago(30) })).events.map(e => e.actorKind)).toEqual(['token', 'link']);
   });
 
-  it('pages, and says when there is more', async () => {
+  it('pages by keyset: each page starts strictly after the last row of the one before, and says when it is the last', async () => {
     const first = await listAccessEvents(ORG, { limit: 4 });
-    const second = await listAccessEvents(ORG, { limit: 4, offset: 4 });
 
     expect(first).toMatchObject({ hasMore: true });
     expect(first.events).toHaveLength(4);
-    expect(second).toMatchObject({ hasMore: false });
+    expect(first.next).toBe(accessLogCursorOf(first.events[3]!));
+
+    const second = await listAccessEvents(ORG, { limit: 4, before: parseAccessLogCursor(first.next)! });
+
+    expect(second).toMatchObject({ hasMore: false, next: null });
     expect(second.events).toHaveLength(2);
+    // Every row once, in order, across the pages.
+    expect([...first.events, ...second.events].map(e => e.id)).toEqual((await listAccessEvents(ORG)).events.map(e => e.id));
+  });
+
+  it('breaks a tie on the moment by id, so reads in the same millisecond are neither repeated nor skipped', async () => {
+    await db.delete(accessEventSchema);
+    const at = ago(1);
+    for (let id = 1; id <= 5; id++) {
+      recordAccess({ orgId: ORG, actor: { kind: 'user', userId: 'usr-dana' }, action: 'search', record: { kind: 'object' }, via: 'api', at });
+    }
+    await flushAccessLog();
+    const seen: number[] = [];
+    let before: ReturnType<typeof parseAccessLogCursor> | undefined;
+    for (let page = 0; page < 5; page++) {
+      const p = await listAccessEvents(ORG, { limit: 2, before: before ?? undefined });
+      seen.push(...p.events.map(e => e.id));
+      if (!p.next) {
+        break;
+      }
+      before = parseAccessLogCursor(p.next);
+    }
+
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen).size).toBe(5);
+  });
+
+  it('reads a cursor back, and refuses anything that is not one', () => {
+    const at = new Date('2026-10-07T12:00:00.123Z');
+
+    expect(parseAccessLogCursor(accessLogCursorOf({ at, id: 42 }))).toEqual({ at, id: 42 });
+    expect(parseAccessLogCursor('')).toBeNull();
+    expect(parseAccessLogCursor('yesterday,4')).toBeNull();
+    expect(parseAccessLogCursor('2026-10-07T12:00:00Z,abc')).toBeNull();
+    expect(parseAccessLogCursor('2026-10-07T12:00:00Z,4,5')).toBeNull();
   });
 });
 
@@ -128,7 +165,10 @@ describe('retention', () => {
     expect(accessLogRetentionDays('90')).toBe(90);
     expect(accessLogRetentionDays('0')).toBeNull();
     expect(accessLogRetentionDays('ninety')).toBe(365);
-    expect(warn).toHaveBeenCalledTimes(1);
+    // A number no date can hold is a typo too: the default, never an Invalid Date at prune time.
+    expect(accessLogRetentionDays('99999999999')).toBe(365);
+    expect(accessLogRetentionDays('36500')).toBe(36_500);
+    expect(warn).toHaveBeenCalledTimes(2);
 
     warn.mockRestore();
   });
@@ -142,6 +182,10 @@ describe('retention', () => {
     expect(await pruneAccessEvents(NOW, 30)).toMatchObject({ deleted: 1 });
     expect((await listAccessEvents(ORG)).events).toHaveLength(4);
     expect((await listAccessEvents(OTHER)).events).toHaveLength(1);
+  });
+
+  it('never builds a date it cannot represent, whatever it is handed', async () => {
+    await expect(pruneAccessEvents(NOW, 99_999_999_999)).resolves.toMatchObject({ deleted: 0 });
   });
 
   it('does nothing when retention is off', async () => {

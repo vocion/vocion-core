@@ -45,6 +45,7 @@ import {
   unfileFromDataRoom,
   updateDataRoom,
 } from '@/services/DataRoomService';
+import { declareReads } from '../toolReads';
 import { authorOf } from './renderArtifacts';
 
 /**
@@ -436,5 +437,14 @@ export function unfileFromDataRoomTool(ctx: RuntimeContext) {
 }
 
 export function dataRoomTools(ctx: RuntimeContext) {
-  return [listDataRoomsTool(ctx), readDataRoomTool(ctx), createDataRoomTool(ctx), updateDataRoomTool(ctx), fileToDataRoomTool(ctx), unfileFromDataRoomTool(ctx), addOpenItemTool(ctx)];
+  return [
+    // The workspace's rooms — each a record — listed by title and status.
+    declareReads(listDataRoomsTool(ctx), { kind: 'object' }),
+    declareReads(readDataRoomTool(ctx), 'noted'),
+    createDataRoomTool(ctx),
+    updateDataRoomTool(ctx),
+    fileToDataRoomTool(ctx),
+    unfileFromDataRoomTool(ctx),
+    addOpenItemTool(ctx),
+  ];
 }

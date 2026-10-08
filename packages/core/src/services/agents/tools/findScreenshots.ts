@@ -17,9 +17,11 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { findScreenshots } from '@/services/ScreenshotService';
+import { declareReads } from '../toolReads';
 
 export function findScreenshotsTool(ctx: RuntimeContext) {
-  return tool(
+  // A search of the workspace's images: release posts, artifacts, the library.
+  return declareReads(tool(
     async (args) => {
       const { screenshots, searched } = await findScreenshots({ orgId: ctx.orgId, query: args.query ?? '', limit: args.limit });
       if (screenshots.length === 0) {
@@ -43,5 +45,5 @@ export function findScreenshotsTool(ctx: RuntimeContext) {
         limit: z.number().int().min(1).max(20).optional().describe('How many to return (default 6).'),
       }),
     },
-  );
+  ), { kind: 'artifact' });
 }
