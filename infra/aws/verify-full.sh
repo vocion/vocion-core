@@ -33,7 +33,11 @@
 #                         `commit`;
 #                       - a release name (v5.1.0): matches version.txt's
 #                         `release`, and the build must be that release, not a
-#                         commit past it (`version 5.1.0+2` fails).
+#                         commit past it (`version 5.1.0+2` fails). The build
+#                         must know its tag: a Docker build has no .git, so
+#                         pass --build-arg VOCION_BUILD_DESCRIBE="$(git -C
+#                         vocion-core describe --tags --long)" with tags
+#                         fetched, or pin by commit.
 #   QA_EMAIL          The QA account's sign-in. Keep both in the deploy's
 #   QA_PASSWORD       secrets; the account is an ordinary member of the
 #                     workspace the page below belongs to.
@@ -88,7 +92,7 @@ case "$PIN" in
   v[0-9]*)
     release=$(field release)
     built=$(field version)
-    [ -n "$release" ] && [ "$release" != "unknown" ] || fail "version.txt names no release, so it cannot be ${PIN}"
+    [ -n "$release" ] && [ "$release" != "unknown" ] || fail "version.txt names no release, so it cannot be ${PIN}. A Docker build knows its release only when given --build-arg VOCION_BUILD_DESCRIBE=\"\$(git -C vocion-core describe --tags --long)\" (tags fetched); or pin by commit"
     [ "$release" = "$PIN" ] || fail "version.txt serves release ${release} but this deploy pins ${PIN}"
     case "$built" in
       *+*) fail "version.txt serves ${built}: ${built##*+} commit(s) past ${PIN}, not ${PIN} itself" ;;

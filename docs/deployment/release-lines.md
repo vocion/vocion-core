@@ -31,10 +31,22 @@ A release is **the commit CI passed**, on the line it passed on, and nothing els
   branch. A failed run, and a pull request's run, release nothing;
 - checks out that run's own commit and releases it for that run's own branch. A green `4.x` run
   releases `4.x`, never `main`;
-- publishes only while that commit is still the branch's tip. If more commits landed while CI ran,
-  the run says so and stops, and the newest commit's own green CI releases them all. A tag never
-  lands on a commit whose CI has not passed;
+- releases only while that commit is exactly the branch's tip, which the workflow reads from the
+  remote just before semantic-release runs. If more commits landed while CI ran, or the branch was
+  force-pushed back past it, the run says so and stops, and the tip's own green CI releases it. A
+  tag never lands on a commit whose CI has not passed. (semantic-release's own check is not enough:
+  it runs only when a dry-run push of the commit fails, so it stops a commit behind the tip but
+  tags one ahead of it.);
+- reports as released only the tags its own run added to the commit, so a commit that already
+  carried a tag (an `N.x` line cut from a release, a re-run) reports nothing new, and an rc and a
+  final on one commit are never confused;
 - runs one release per line at a time.
+
+**One limit: a tip can be released late.** While a release runs, the next one for that line waits,
+and a later one replaces it. That is whichever CI *finishes* next, not the newest commit's. If CI
+for commits W then X (the tip) finish out of order, X's waiting release is replaced by W's, which
+finds W is not the tip and stops, so X waits for the line's next green push. Late, never wrong. To
+release it sooner, re-run X's **Release** run from the Actions tab.
 
 Before 5.1 the job released whatever the default branch's HEAD was when it started, so a tag
 could land on a commit still in CI, a failed CI run still released, and a green `next` or `4.x`
@@ -44,20 +56,39 @@ that its commit passed CI: look at that commit's CI run before pinning it.
 ## The runner image of a release
 
 After a release, the same workflow tags the runner image with the release's name:
-`ghcr.io/vocion/vocion-runner:v5.1.0`. It is not a new build. It points at the newest published
-`sha-<commit>` image at or before the release whose `packages/runner` is identical to the
-release's, so `:v5.1.0` and that `:sha-` tag are the same digest
-(`scripts/tag-runner-image.sh`). It waits for a runner build of the release (or an ancestor) that is
-still running, since a release often lands while its own runner change is still building.
+`ghcr.io/vocion/vocion-runner:v5.1.0` (`scripts/tag-runner-image.sh`). Usually it is not a new
+build. It points at the newest published `sha-<commit>` image at or before the release whose
+`packages/runner` **and** `.github/workflows/runner-image.yml` are identical to the release's
+(those two are everything the image is built from), so `:v5.1.0` and that `:sha-` tag are the same
+digest. It waits for a runner build of the release (or an ancestor) that is still running, since a
+release often lands while its own runner change is still building.
 
-When no published image has the release's runner source (its build failed or was cancelled), an
-older image would be the wrong runner, so none is tagged. The workflow dispatches the Runner image
-build on the release tag instead, which builds that exact commit and pushes `:sha-<commit>` and
-`:v5.1.0` itself. The run's summary says which of the two happened.
+When no published image is the release's runner (its build failed or was cancelled), an older
+image would be the wrong runner, so none is tagged. The Release workflow builds the release's
+`packages/runner` itself, in the same job, and pushes `:sha-<commit>` and `:v5.1.0`; the job fails
+red if that build does. A build is a new digest, and the runner's Dockerfile installs the newest
+Claude Code, so it can differ from what the release's commit would have got the day it landed. The
+run's summary says which of the two happened.
 
-Releases from before 5.1 have no runner release tag. To give one its tag, run the **Release**
-workflow by hand (Actions → Release → Run workflow) with that release, for example `v5.0.0`. That
-releases nothing; it only does the tagging above.
+**A release's runner tag never moves.** If `:v5.1.0` already exists (a re-run, a second backfill),
+the job leaves it and says so. Still, pin production by digest as well as by name, so not even a
+forced re-point (`FORCE=1`, for a tag known to be wrong) changes what it runs:
+
+```bash
+docker buildx imagetools inspect ghcr.io/vocion/vocion-runner:v5.1.0 --format '{{json .Manifest.Digest}}'
+# VOCION_RUNNER_IMAGE=ghcr.io/vocion/vocion-runner:v5.1.0@sha256:<that digest>
+```
+
+The runner reports `worker_version`: the commit its image was **built from**, which is often older
+than the release, because the image is shared by every release with the same runner source. Match
+it against the `sha-` tag the release points at, not against the release's own commit.
+
+Releases from before 5.1 have no runner release tag. **v5.0.0** and **v4.33.0**, the releases
+installations are told to pin, can be given one: run the **Release** workflow by hand (Actions →
+Release → Run workflow) with that release. That releases nothing; it only does the tagging above.
+For an older release, pin its commit's runner (`sha-<commit>`, below). Do not run the **Runner
+image** workflow by hand on a release tag: it runs the tag's own copy of that workflow, which before
+5.1 could move `:main` or replace `:vX.Y.Z`.
 
 ## Staying on 4.x
 
@@ -79,12 +110,13 @@ fixes, and moves to 5.x when it chooses.
    runner:
 
    ```bash
-   # VOCION_RUNNER_IMAGE=ghcr.io/vocion/vocion-runner:v4.y.z
-   docker buildx imagetools inspect ghcr.io/vocion/vocion-runner:v4.y.z   # exists once the release's tagging ran
+   # exists once the release's tagging ran; pin the digest it prints with the name
+   docker buildx imagetools inspect ghcr.io/vocion/vocion-runner:v4.y.z --format '{{json .Manifest.Digest}}'
+   # VOCION_RUNNER_IMAGE=ghcr.io/vocion/vocion-runner:v4.y.z@sha256:<that digest>
    ```
 
-   A release from before 5.1 may not have that tag yet (see [the runner image of a
-   release](#the-runner-image-of-a-release)); until it does, pin the commit's runner instead:
+   A release from before 5.1 has that tag only once it was backfilled (v4.33.0, see [the runner
+   image of a release](#the-runner-image-of-a-release)); otherwise pin the commit's runner:
 
    ```bash
    git -C vocion-core log -1 --format=%H v4.y.z -- packages/runner .github/workflows/runner-image.yml
@@ -102,8 +134,8 @@ first and is cherry-picked to `4.x`.
 
 ## Moving to 5.x
 
-Pin a `v5.y.z` commit from `main` (and its runner image `:v5.y.z`), apply the workspace, and read
-the 5.0 release notes. The database migrations are additive, so returning to the 4.x pin works
+Pin a `v5.y.z` commit from `main` (and its runner image `:v5.y.z@sha256:…`), apply the workspace,
+and read the 5.0 release notes. The database migrations are additive, so returning to the 4.x pin works
 without a restore.
 
 ## After the deploy: prove it from outside
@@ -122,7 +154,10 @@ VERIFY_PAGE_PATH=/w/<workspace>/dashboard \
 
 1. **version**: `/version.txt` is the build this deploy pinned. `PIN` is a release name (the build
    must be exactly that release, not a commit past it), or a commit (the build's `deploy-pin` or its
-   core `commit`).
+   core `commit`). A release name needs the build to know its tag. A Docker build has no `.git`
+   (`.dockerignore`), so hand it in, with the tags fetched first:
+   `--build-arg VOCION_BUILD_DESCRIBE=$(git -C vocion-core describe --tags --long)`. Without it
+   `version.txt` says `release unknown` and the check fails; pin by commit instead.
 2. **signed in**: the QA account signs in through the same form a person uses, its session names
    it, and `VERIFY_PAGE_PATH` (default `/dashboard`) loads without bouncing to sign-in.
 3. **chat**: one chat turn, sent from that page and routed the way the chat routes it, ends with a

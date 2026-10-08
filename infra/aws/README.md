@@ -207,6 +207,10 @@ QA_EMAIL=... QA_PASSWORD=... VERIFY_PAGE_PATH=/w/<workspace>/dashboard \
 
 The parameters are documented at the top of the script and in
 [release lines](../../docs/deployment/release-lines.md#after-the-deploy-prove-it-from-outside).
+`PIN` as a release name needs a build that knows its tag: a Docker build has
+no `.git`, so build it with
+`--build-arg VOCION_BUILD_DESCRIBE=$(git -C vocion-core describe --tags --long)`
+(tags fetched), or pin by commit.
 It runs from anywhere with `curl` and `jq` (a CI runner, an operator's
 machine), not on the box.
 

@@ -5,13 +5,15 @@
  * standing in for the Actions API and the registry. The fakes log every call,
  * so the tests assert what the script would have done to the registry.
  *
- * The history, oldest first:
+ * The history, oldest first. The runner workflow at c1..c5 is the shape every
+ * release up to v4.32.0 carried: it knows nothing of release tags.
  *
- *   c1  packages/runner = "one"     built, published
+ *   c1  packages/runner = "one", runner-image.yml = "old"   built, published
  *   c2  docs only                   ← v1.0.0
  *   c3  packages/runner = "two"     built (or not, per test)
  *   c4  docs only                   ← v1.1.0
  *   c5  packages/runner = "one"     a revert of c3, never built  ← v1.2.0
+ *   c6  runner-image.yml = "new"    the build definition changed, never built  ← v1.3.0
  */
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -29,41 +31,49 @@ const hasTools = ['bash', 'git', 'jq'].every(tool => spawnSync('sh', ['-c', `com
 const IMAGE = 'ghcr.io/northwind/vocion-runner';
 const HERMETIC_GIT = ['-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'core.hooksPath=', '-c', 'init.defaultBranch=main', '-c', 'user.email=test@example.com', '-c', 'user.name=Test'];
 
+// Like the API, --event filters before --limit counts.
 const FAKE_GH = `#!/usr/bin/env bash
 echo "gh $*" >> "$FAKE_LOG"
 case "$1 $2" in
   "run list")
-    expr=""
+    event=""
+    limit=1000
     while [ $# -gt 0 ]; do
-      if [ "$1" = "--jq" ]; then expr="$2"; shift; fi
+      case "$1" in
+        --event) event="$2"; shift ;;
+        --limit) limit="$2"; shift ;;
+      esac
       shift
     done
-    jq -r "$expr" "$FAKE_RUNS"
+    jq --arg e "$event" --argjson n "$limit" '[.[] | select($e == "" or .event == $e)][:$n]' "$FAKE_RUNS"
     ;;
   "run watch")
     # The build finishes while it is watched.
     if [ -f "$FAKE_RUNS_AFTER_WATCH" ]; then cp "$FAKE_RUNS_AFTER_WATCH" "$FAKE_RUNS"; fi
     ;;
-  "workflow run") exit "\${FAKE_DISPATCH_EXIT:-0}" ;;
   *) echo "fake gh: unexpected $*" >&2; exit 2 ;;
 esac
 `;
 
+// The registry is a file of refs; a tag the script creates is added to it.
 const FAKE_DOCKER = `#!/usr/bin/env bash
 echo "docker $*" >> "$FAKE_LOG"
 case "$1 $2 $3" in
-  "buildx imagetools inspect") grep -qxF "$4" "$FAKE_REGISTRY" ;;
-  "buildx imagetools create") exit 0 ;;
+  "buildx imagetools inspect")
+    grep -qxF "$4" "$FAKE_REGISTRY" || exit 1
+    echo '"sha256:feedface"'
+    ;;
+  "buildx imagetools create") echo "$5" >> "$FAKE_REGISTRY" ;;
   *) echo "fake docker: unexpected $*" >&2; exit 2 ;;
 esac
 `;
 
-type Run = { databaseId: number; status: string; conclusion: string | null; event: string; headSha: string };
+type Run = { databaseId: number; status: string; conclusion: string | null; event: string; headSha: string; createdAt?: string };
 
 let dir: string;
 let repo: string;
 let bin: string;
-const sha: Record<'c1' | 'c2' | 'c3' | 'c4' | 'c5', string> = { c1: '', c2: '', c3: '', c4: '', c5: '' };
+const sha: Record<'c1' | 'c2' | 'c3' | 'c4' | 'c5' | 'c6', string> = { c1: '', c2: '', c3: '', c4: '', c5: '', c6: '' };
 
 function git(...args: string[]): string {
   return execFileSync('git', [...HERMETIC_GIT, ...args], { cwd: repo }).toString().trim();
@@ -93,7 +103,7 @@ beforeAll(() => {
   chmodSync(join(bin, 'gh'), 0o755);
   chmodSync(join(bin, 'docker'), 0o755);
   git('init', '-q');
-  commit('c1', { 'packages/runner/Dockerfile': 'one\n' });
+  commit('c1', { 'packages/runner/Dockerfile': 'one\n', '.github/workflows/runner-image.yml': 'tags: sha-<commit>, main\n' });
   commit('c2', { 'docs/a.md': 'a\n' });
   git('tag', 'v1.0.0');
   commit('c3', { 'packages/runner/Dockerfile': 'two\n' });
@@ -101,6 +111,8 @@ beforeAll(() => {
   git('tag', 'v1.1.0');
   commit('c5', { 'packages/runner/Dockerfile': 'one\n' });
   git('tag', 'v1.2.0');
+  commit('c6', { '.github/workflows/runner-image.yml': 'tags: sha-<commit>; on refs/tags/v*, the release\n' });
+  git('tag', 'v1.3.0');
 });
 
 let id = 0;
@@ -113,11 +125,12 @@ beforeEach(() => {
   if (!hasTools) {
     return;
   }
-  for (const f of ['runs.json', 'runs-after-watch.json', 'registry', 'calls.log', 'summary.md']) {
+  for (const f of ['runs.json', 'runs-after-watch.json', 'registry', 'calls.log', 'summary.md', 'output.txt']) {
     rmSync(join(dir, f), { force: true });
   }
   writeFileSync(join(dir, 'calls.log'), '');
   writeFileSync(join(dir, 'summary.md'), '');
+  writeFileSync(join(dir, 'output.txt'), '');
 });
 
 afterAll(() => {
@@ -127,20 +140,28 @@ afterAll(() => {
 });
 
 /**
+ * Date runs in the order given, newest first, the way the API lists them.
+ * @param runs - The runs, newest first.
+ */
+function dated(runs: Run[]): Run[] {
+  return runs.map((r, i) => ({ ...r, createdAt: new Date(Date.UTC(2026, 9, 7, 12, runs.length - i)).toISOString() }));
+}
+
+/**
  * What gh lists and the registry holds for one test.
  * @param runs - The Runner image runs, newest first.
- * @param registry - The commits whose `sha-` image is in the registry.
+ * @param registry - The commits whose `sha-` image is in the registry, or a whole image ref.
  * @param afterWatch - The runs once a watched build has finished.
  */
 function given(runs: Run[], registry: string[], afterWatch?: Run[]): void {
-  writeFileSync(join(dir, 'runs.json'), JSON.stringify(runs));
-  writeFileSync(join(dir, 'registry'), `${registry.map(s => `${IMAGE}:sha-${s}`).join('\n')}\n`);
+  writeFileSync(join(dir, 'runs.json'), JSON.stringify(dated(runs)));
+  writeFileSync(join(dir, 'registry'), `${registry.map(s => (s.includes(':') ? s : `${IMAGE}:sha-${s}`)).join('\n')}\n`);
   if (afterWatch) {
-    writeFileSync(join(dir, 'runs-after-watch.json'), JSON.stringify(afterWatch));
+    writeFileSync(join(dir, 'runs-after-watch.json'), JSON.stringify(dated(afterWatch)));
   }
 }
 
-async function tag(release: string, env: Record<string, string> = {}): Promise<{ code: number; out: string; calls: string[]; summary: string }> {
+async function tag(release: string, env: Record<string, string> = {}): Promise<{ code: number; out: string; calls: string[]; summary: string; output: string }> {
   const merged: NodeJS.ProcessEnv = {
     NODE_ENV: 'test',
     PATH: `${bin}:${process.env.PATH ?? ''}`,
@@ -150,6 +171,7 @@ async function tag(release: string, env: Record<string, string> = {}): Promise<{
     FAKE_RUNS_AFTER_WATCH: join(dir, 'runs-after-watch.json'),
     FAKE_REGISTRY: join(dir, 'registry'),
     GITHUB_STEP_SUMMARY: join(dir, 'summary.md'),
+    GITHUB_OUTPUT: join(dir, 'output.txt'),
     TAG: release,
     IMAGE,
     REPO: 'northwind/vocion-core',
@@ -167,11 +189,11 @@ async function tag(release: string, env: Record<string, string> = {}): Promise<{
   }
   const log = join(dir, 'calls.log');
   const calls = existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
-  return { code, out, calls, summary: readFileSync(join(dir, 'summary.md'), 'utf8') };
+  return { code, out, calls, summary: readFileSync(join(dir, 'summary.md'), 'utf8'), output: readFileSync(join(dir, 'output.txt'), 'utf8') };
 }
 
 const created = (calls: string[]) => calls.filter(c => c.startsWith('docker buildx imagetools create'));
-const dispatched = (calls: string[]) => calls.filter(c => c.startsWith('gh workflow run'));
+const dispatched = (calls: string[]) => calls.filter(c => c.startsWith('gh workflow'));
 
 describe.skipIf(!hasTools)('tag-runner-image.sh', () => {
   it('points the release at the newest published image of its runner source', async () => {
@@ -224,55 +246,137 @@ describe.skipIf(!hasTools)('tag-runner-image.sh', () => {
     expect(calls.some(c => c.startsWith('gh run watch '))).toBe(false);
   });
 
-  it('builds the release from its tag when its runner source was never published, rather than naming an older runner', async () => {
+  it('asks this job to build the release when its runner was never published, rather than naming an older runner', async () => {
     // c3's build failed: c1's image exists but is not v1.1.0's runner.
     given([build(sha.c3, 'completed', 'failure'), build(sha.c1)], [sha.c1]);
 
-    const { code, out, calls, summary } = await tag('v1.1.0');
+    const { code, out, calls, summary, output } = await tag('v1.1.0');
 
     expect(code).toBe(0);
     expect(created(calls)).toEqual([]);
-    expect(dispatched(calls)).toEqual(['gh workflow run runner-image.yml --repo northwind/vocion-core --ref v1.1.0']);
-    expect(out).toContain('::warning::tag-runner-image: no published runner image has v1.1.0\'s packages/runner');
-    expect(summary).toContain('dispatched `runner-image.yml` on `v1.1.0`');
+    expect(output).toContain('result=build');
+    expect(output).toContain(`commit=${sha.c4}`);
+    expect(out).toContain('::warning::tag-runner-image: no published runner image is v1.1.0\'s runner');
+    expect(summary).toContain(`so this job builds ${sha.c4.slice(0, 12)}'s \`packages/runner\``);
+  });
+
+  it('never dispatches the tag\'s own runner workflow, which knows nothing of release tags', async () => {
+    // v1.1.0's runner-image.yml is the pre-5.1 shape: dispatched on the tag it would push
+    // `:main` and no `:v1.1.0`. The build happens in the Release job instead.
+    given([build(sha.c3, 'completed', 'cancelled'), build(sha.c1)], [sha.c1]);
+
+    const { code, calls, output } = await tag('v1.1.0');
+
+    expect(code).toBe(0);
+    expect(dispatched(calls)).toEqual([]);
+    expect(output).toContain('result=build');
+  });
+
+  it('takes no image whose build definition differs, even with the same runner source', async () => {
+    // c6 changed only runner-image.yml: c1's image has v1.3.0's packages/runner but was built
+    // by another workflow.
+    given([build(sha.c3), build(sha.c1)], [sha.c1, sha.c3]);
+
+    const { code, calls, output } = await tag('v1.3.0');
+
+    expect(code).toBe(0);
+    expect(created(calls)).toEqual([]);
+    expect(output).toContain('result=build');
   });
 
   it('counts only builds that pushed: a pull request\'s build of the same commit is not published', async () => {
     given([build(sha.c3, 'completed', 'success', 'pull_request'), build(sha.c1)], [sha.c1]);
 
-    const { calls } = await tag('v1.1.0');
+    const { calls, output } = await tag('v1.1.0');
 
     expect(created(calls)).toEqual([]);
-    expect(dispatched(calls)).toHaveLength(1);
+    expect(output).toContain('result=build');
+  });
+
+  it('does not let pull request builds crowd the release\'s image out of the run limit', async () => {
+    given([
+      build(sha.c3, 'completed', 'success', 'pull_request'),
+      build(sha.c3, 'completed', 'success', 'pull_request'),
+      build(sha.c3, 'completed', 'success', 'pull_request'),
+      build(sha.c1),
+    ], [sha.c1]);
+
+    const { code, calls } = await tag('v1.0.0', { RUN_LIMIT: '1' });
+
+    expect(code).toBe(0);
+    expect(created(calls)).toEqual([`docker buildx imagetools create --tag ${IMAGE}:v1.0.0 ${IMAGE}:sha-${sha.c1}`]);
+  });
+
+  it('takes dispatched builds as well as pushes, newest first across both', async () => {
+    given([build(sha.c3, 'completed', 'success', 'workflow_dispatch'), build(sha.c1)], [sha.c1, sha.c3]);
+
+    const { calls } = await tag('v1.1.0');
+
+    expect(created(calls)).toEqual([`docker buildx imagetools create --tag ${IMAGE}:v1.1.0 ${IMAGE}:sha-${sha.c3}`]);
   });
 
   it('looks past a successful build whose image is no longer in the registry', async () => {
     given([build(sha.c3), build(sha.c1)], [sha.c1]);
 
-    const { out, calls } = await tag('v1.1.0');
+    const { out, calls, output } = await tag('v1.1.0');
 
     expect(out).toContain(`${IMAGE}:sha-${sha.c3} is not in the registry`);
     expect(created(calls)).toEqual([]);
-    expect(dispatched(calls)).toHaveLength(1);
+    expect(output).toContain('result=build');
+  });
+
+  it('names the release\'s own image when its run has aged out of the list', async () => {
+    given([], [sha.c5]);
+
+    const { code, calls, output } = await tag('v1.2.0');
+
+    expect(code).toBe(0);
+    expect(created(calls)).toEqual([`docker buildx imagetools create --tag ${IMAGE}:v1.2.0 ${IMAGE}:sha-${sha.c5}`]);
+    expect(output).toContain('result=tagged');
+  });
+
+  it('never moves a release tag that already exists', async () => {
+    given([build(sha.c3), build(sha.c1)], [sha.c1, sha.c3, `${IMAGE}:v1.1.0`]);
+
+    const { code, out, calls, summary, output } = await tag('v1.1.0');
+
+    expect(code).toBe(0);
+    expect(out).toContain(`${IMAGE}:v1.1.0 already exists (sha256:feedface)`);
+    expect(created(calls)).toEqual([]);
+    expect(calls.some(c => c.startsWith('gh '))).toBe(false);
+    expect(output).toContain('result=exists');
+    expect(summary).toContain('was left as it is');
+  });
+
+  it('leaves the tag it made alone when the release is tagged again', async () => {
+    given([build(sha.c3), build(sha.c1)], [sha.c1, sha.c3]);
+
+    const first = await tag('v1.1.0');
+    const again = await tag('v1.1.0');
+
+    // The call log runs on across both: the second run created nothing more.
+    expect(created(first.calls)).toHaveLength(1);
+    expect(created(again.calls)).toHaveLength(1);
+    expect(again.output).toContain('result=exists');
+  });
+
+  it('re-points an existing release tag only when forced', async () => {
+    given([build(sha.c3), build(sha.c1)], [sha.c1, sha.c3, `${IMAGE}:v1.1.0`]);
+
+    const { code, calls } = await tag('v1.1.0', { FORCE: '1' });
+
+    expect(code).toBe(0);
+    expect(created(calls)).toEqual([`docker buildx imagetools create --tag ${IMAGE}:v1.1.0 ${IMAGE}:sha-${sha.c3}`]);
   });
 
   it('fails, saying how to fix it, when told not to build', async () => {
     given([build(sha.c1)], [sha.c1]);
 
-    const { code, out, calls } = await tag('v1.1.0', { DISPATCH: '0' });
+    const { code, out, output } = await tag('v1.1.0', { BUILD: '0' });
 
     expect(code).toBe(1);
-    expect(out).toContain('Dispatch runner-image.yml on v1.1.0 to build it.');
-    expect(dispatched(calls)).toEqual([]);
-  });
-
-  it('fails when the build cannot be dispatched either', async () => {
-    given([build(sha.c1)], [sha.c1]);
-
-    const { code, out } = await tag('v1.1.0', { FAKE_DISPATCH_EXIT: '1' });
-
-    expect(code).toBe(1);
-    expect(out).toContain('and dispatching runner-image.yml on v1.1.0 failed');
+    expect(out).toContain('Run the Release workflow by hand with release v1.1.0 to build it.');
+    expect(output).not.toContain('result=build');
   });
 
   it('refuses anything that is not a release tag before touching gh or the registry', async () => {

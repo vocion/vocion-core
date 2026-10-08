@@ -216,6 +216,18 @@ describe.skipIf(!hasTools)('verify-full.sh', () => {
       expect(out).toContain('::error::verify-full: version.txt serves 5.1.0+2: 2 commit(s) past v5.1.0, not v5.1.0 itself');
     });
 
+    it('fails a build that does not know its release, saying how to give it one', async () => {
+      // A Docker build with no .git and no VOCION_BUILD_DESCRIBE.
+      app.versionTxt = versionTxt({ version: '5.1.0', release: 'unknown', commit: CORE_COMMIT });
+
+      const { code, out } = await verify({ PIN: 'v5.1.0' });
+
+      expect(code).toBe(1);
+      expect(out).toContain('::error::verify-full: version.txt names no release, so it cannot be v5.1.0.');
+      expect(out).toContain('--build-arg VOCION_BUILD_DESCRIBE="$(git -C vocion-core describe --tags --long)"');
+      expect(app.turn).toBeNull();
+    });
+
     it('fails a build of another release', async () => {
       const { code, out } = await verify({ PIN: 'v5.2.0' });
 
