@@ -439,7 +439,13 @@ name: Software factory
 #   an admin's Reset setup, which disconnects the setup connectors, deletes
 #   the setup records with their artifacts and rejects pending proposals for
 #   them. The setup skill reports in two lines and stops.
-version: 3.31.3
+# 3.32.0 — the Eng seat runs on Opus 5.5 (Jamie, 2026-10-07: "the software
+#   factory engineer model should be opus 5.5", an upgrade to the plugin, not a
+#   workspace's). `harness.model` on `task-engineer` reaches the worker as
+#   `model_policy` on every task contract; before this the seat named no model
+#   and the runner used its own default. A workspace that pins its own seat
+#   still wins.
+version: 3.32.0
 description: A request — bug, review, email, incident, an ask in chat — becomes work a person approves from a card, a mockup when it changes what people see, a task contract a headless worker executes in isolation, evidence QA checks against the contract, and a release the asker hears about. Three pages — Products, Work, Releases — and five seats — PM, Design, Eng, QA, Release.
 depends: []
 surfaces: []

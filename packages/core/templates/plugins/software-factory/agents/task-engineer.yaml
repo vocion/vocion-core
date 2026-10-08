@@ -32,6 +32,14 @@ playbooks:
   - designing-a-surface
 harness:
   runsOn: external-worker
+  # THE SEAT'S MODEL IS THE RUN'S MODEL: the worker reads it as `model_policy`
+  # on each task contract (core `seatModelPolicy`), so every factory runs its
+  # engineering tasks on Opus 5.5 unless a workspace pins its own seat
+  # (Jamie, 2026-10-07: "the software factory engineer model should be
+  # opus 5.5 … an upgrade to the plugin, not per workspace"). Without this the
+  # runner fell back to its own default, Sonnet.
+  modelProvider: anthropic
+  model: claude-opus-5-5
   # The failing step's log on its own pull request, read from the code host
   # before the report is written (plugin 2.43.0).
   grantTools:
