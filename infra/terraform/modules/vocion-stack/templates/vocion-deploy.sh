@@ -8,6 +8,9 @@
 #
 #   sudo vocion-deploy            # the release in /etc/vocion/deploy.env
 #   sudo vocion-deploy v5.1.0     # move to another release (a tag or a full sha)
+#   sudo vocion-deploy v5.1.0 ghcr.io/owner/app:tag
+#                                 # the same, pulling an image built elsewhere
+#                                 # from that release instead of building here
 #
 # In order, and why the order:
 #   1. packages   docker, the compose plugin, git, jq
@@ -18,9 +21,13 @@
 #                 a branch is not a pin.
 #   4. extension  when the module names one: its release, fetched with the
 #                 deploy key, into the checkout where core's build looks
+#                 (a pulled image must carry it instead: checked at 6)
 #   5. env        the app-env secret, the module's env over it, DATABASE_URL
 #                 built from the rds-app secret → .env.production (0600)
-#   6. image      built here from the checkout (or pulled: VOCION_APP_IMAGE)
+#   6. image      built here from the checkout, or pulled (the second
+#                 argument, or VOCION_APP_IMAGE) after logging in with the
+#                 module's image_registry secret; a pulled image must say it
+#                 was built from this commit, for this URL, with this extension
 #   7. migrate    core's applier, against RDS, BEFORE the new container
 #                 starts, so new code never serves an old schema
 #   8. swap       compose up: core's files plus the module's overlay
@@ -60,6 +67,7 @@ die() {
 . "${CONF}"
 : "${REGION:?REGION missing from ${CONF}}" "${CONFIG_PARAM:?}" "${CORE_REPO:?}" "${CORE_REF:?}"
 REF="${1:-${CORE_REF}}"
+IMAGE="${2:-${VOCION_APP_IMAGE:-}}"
 # cloud-init runs this with no HOME; git and the docker CLI both want one.
 export HOME="${HOME:-/root}"
 
@@ -110,6 +118,7 @@ RUNNER_SECRET_ID="$(cfg .runner_secret_id)"
 EXT_REPO="$(cfg .extension.repo)"
 EXT_REF="$(cfg .extension.ref)"
 EXT_KEY_SECRET_ID="$(cfg .extension.key_secret_id)"
+REGISTRY_SECRET_ID="$(cfg .image_registry.secret_id)"
 log "deploying ${PUBLIC_HOST} (behind ALB: ${BEHIND_ALB})"
 
 # ----- 3. checkout -----
@@ -147,7 +156,9 @@ log "core ${REF} = ${SHA:0:12} (${DESCRIBE:-no tag})"
 # when the module names no extension, so a stale copy is never built.
 rm -rf "${EXT_BUILD_DIR}"
 EXT_SHA=""
-if [ -n "${EXT_REPO}" ]; then
+if [ -n "${EXT_REPO}" ] && [ -n "${IMAGE}" ]; then
+  log "extension ${EXT_REF}: not fetched, the pulled image must carry it (checked at the pull)"
+elif [ -n "${EXT_REPO}" ]; then
   [ -n "${EXT_REF}" ] && [ -n "${EXT_KEY_SECRET_ID}" ] ||
     die "${CONFIG_PARAM} names an extension without its ref or deploy key secret"
   # Without core's loader the build would leave the extension out and say nothing.
@@ -288,11 +299,50 @@ install -d -m 750 -o "${APP_UID}" -g "${APP_UID}" "${ARTIFACTS_DIR}"
 
 # ----- 6. image -----
 
-if [ -n "${VOCION_APP_IMAGE:-}" ]; then
-  log "pulling ${VOCION_APP_IMAGE}"
-  [ -z "${EXT_SHA}" ] ||
-    log "WARN: a pulled image is not built here; it has the extension only if the build that made it did"
-  EXPECTED_APP_URL="${APP_URL}" bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
+if [ -n "${IMAGE}" ]; then
+  [ -f "${REPO_DIR}/infra/aws/pull-app-image.sh" ] ||
+    die "core ${REF} has no infra/aws/pull-app-image.sh; deploy without an image to build here"
+  # A login only for this pull: the registry credential lives in the 0700 work
+  # directory's docker config, removed on exit, never in root's.
+  export DOCKER_CONFIG="${WORK}/docker"
+  install -d -m 700 "${DOCKER_CONFIG}"
+  if [ -n "${REGISTRY_SECRET_ID}" ]; then
+    (
+      umask 077
+      aws secretsmanager get-secret-value --region "${REGION}" --secret-id "${REGISTRY_SECRET_ID}" \
+        --query SecretString --output text >"${WORK}/registry.json"
+    ) || die "could not read the image registry login ${REGISTRY_SECRET_ID}; put its value first"
+    jq -e '(.username // "" | length > 0) and (.password // "" | length > 0)' "${WORK}/registry.json" >/dev/null ||
+      die "the image registry secret ${REGISTRY_SECRET_ID} needs {\"username\", \"password\"}"
+    jq -j .password "${WORK}/registry.json" |
+      docker login "${IMAGE%%/*}" --username "$(jq -r .username "${WORK}/registry.json")" --password-stdin >/dev/null ||
+      die "the registry ${IMAGE%%/*} refused the login in ${REGISTRY_SECRET_ID}"
+  fi
+  # pull-app-image.sh tags what it pulls vocion-app:latest; an image refused
+  # below gets the tag taken back, so nothing that restarts runs it.
+  PREV_IMAGE_ID="$(docker image ls -q vocion-app:latest 2>/dev/null | head -1 || true)"
+  refuse() {
+    if [ -n "${PREV_IMAGE_ID}" ]; then docker tag "${PREV_IMAGE_ID}" vocion-app:latest; else docker rmi vocion-app:latest >/dev/null 2>&1 || true; fi
+    die "$*"
+  }
+  log "pulling ${IMAGE}"
+  EXPECTED_APP_URL="${APP_URL}" bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${IMAGE}"
+  docker logout "${IMAGE%%/*}" >/dev/null 2>&1 || true
+  # What the image says it is (labels set by the build that made it). It runs
+  # this checkout's migrations and compose files, so it must be this commit;
+  # and it must carry the extension this module names, at its release.
+  docker image inspect "${IMAGE}" | jq '.[0].Config.Labels // {}' >"${WORK}/labels.json"
+  label() { jq -r --arg k "$1" '.[$k] // empty' "${WORK}/labels.json"; }
+  [ "$(label org.vocion.core-sha)" = "${SHA}" ] ||
+    refuse "${IMAGE} was built from core '$(label org.vocion.core-sha)', not ${REF} (${SHA}); pull the image built from ${REF}"
+  if [ -n "${EXT_REPO}" ]; then
+    EXT_SHA="$(label org.vocion.extension-sha)"
+    [ -n "${EXT_SHA}" ] || refuse "${IMAGE} has no extension in it, and this module builds in ${EXT_REPO}"
+    [ "$(label org.vocion.extension-ref)" = "${EXT_REF}" ] || [ "${EXT_SHA}" = "${EXT_REF}" ] ||
+      refuse "${IMAGE} has extension $(label org.vocion.extension-ref) (${EXT_SHA:0:12}), not ${EXT_REF}"
+    log "extension ${EXT_REF} = ${EXT_SHA:0:12}, built into ${IMAGE}"
+  fi
+  unset DOCKER_CONFIG
 else
   if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
     bash "${REPO_DIR}/infra/aws/install-buildx.sh"

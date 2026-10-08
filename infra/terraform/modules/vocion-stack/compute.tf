@@ -132,6 +132,18 @@ data "aws_iam_policy_document" "deploy_read" {
       resources = [statement.value]
     }
   }
+  # The registry login for a prebuilt app image: that one secret, read only.
+  # By name (the module does not own it), so the ARN's random suffix is a
+  # wildcard.
+  dynamic "statement" {
+    for_each = var.image_registry_secret_name != "" ? [var.image_registry_secret_name] : []
+    content {
+      sid       = "ReadImageRegistryLogin"
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = ["arn:${local.partition}:secretsmanager:${local.region}:${local.account_id}:secret:${statement.value}-??????"]
+    }
+  }
   statement {
     sid     = "ReadDeployConfig"
     effect  = "Allow"
@@ -352,6 +364,10 @@ locals {
         key_secret_id = aws_secretsmanager_secret.extension_deploy_key[0].arn
         known_hosts   = var.extension_ssh_known_hosts
       }
+    } : {},
+    # Only with a registry login, for the same reason.
+    var.image_registry_secret_name != "" ? {
+      image_registry = { secret_id = var.image_registry_secret_name }
     } : {},
   )
 }

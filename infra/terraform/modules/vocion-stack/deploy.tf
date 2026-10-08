@@ -11,6 +11,9 @@
 #   aws ssm send-command --instance-ids <instance_id> \
 #     --document-name <deploy_document_name> --parameters ref=v5.1.0
 #
+# With image=<registry>/<repository>:<tag>, the box pulls that image (built
+# elsewhere from the same ref) instead of building one.
+#
 # action=install writes the files without deploying (before an interactive
 # `sudo vocion-deploy` in a session, say).
 
@@ -49,6 +52,12 @@ resource "aws_ssm_document" "deploy" {
         description    = "The core release to deploy: a tag (v5.1.0) or a full 40-character sha. Empty: the module's core_ref."
         default        = ""
         allowedPattern = "^(|v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?|[0-9a-f]{40})$"
+      }
+      image = {
+        type           = "String"
+        description    = "A prebuilt app image to pull instead of building on the box (registry/repository:tag or @sha256:digest), built from this ref. Empty: build on the box."
+        default        = ""
+        allowedPattern = "^(|[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+(:[A-Za-z0-9._-]{1,128})?(@sha256:[0-9a-f]{64})?)$"
       }
     }
     mainSteps = [{

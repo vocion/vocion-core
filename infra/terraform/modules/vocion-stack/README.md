@@ -43,6 +43,7 @@ the application move together on one pin. A working root is in
 | Engineering runners | none | `runners_enabled`, `runner_*` |
 | AgentCore IAM | none | `agentcore_enabled` |
 | Extension | none: core alone | `extension_repo`, `extension_ref`, `extension_deploy_key_secret_name`, `extension_ssh_known_hosts` ([An extension](#an-extension)) |
+| Prebuilt image | built on the box; the deploy document's `image` pulls one instead, with no registry login | `image_registry_secret_name` ([Every deploy](#every-deploy-the-deploy-document), step 6) |
 
 With `alb_enabled = false` it is the classic single box: the record points at
 the box and Caddy terminates TLS with Let's Encrypt. Everything else is the
@@ -129,8 +130,16 @@ writes the box files without deploying, for a deploy run by hand from a session
    Keep each key in one place. A value that would be misread by compose's dotenv
    parser (`$`, ` #`, surrounding whitespace) is written single-quoted.
 6. **Image.** Built on the box from the checkout, with `NEXT_PUBLIC_APP_URL` and the build
-   stamp (`/version.txt`). `sudo VOCION_APP_IMAGE=<ref> vocion-deploy` pulls a prebuilt
-   image instead, through core's `pull-app-image.sh`.
+   stamp (`/version.txt`). Or pulled: the deploy document's `image` parameter (`sudo
+   vocion-deploy <ref> <image>` by hand) pulls a prebuilt image through core's
+   `pull-app-image.sh`, after a `docker login` with `image_registry_secret_name`
+   (`{"username","password"}`, put by hand; the login lives in the deploy's temporary
+   directory only). The image must carry the labels its build sets:
+   `org.vocion.app-url` (this hostname's URL), `org.vocion.core-sha` (the ref's commit)
+   and, with an extension, `org.vocion.extension-sha` and `org.vocion.extension-ref`
+   (`extension_ref`). Anything else is refused before migrations run, and the
+   extension is not fetched (step 4). A box whose image build needs more memory than it
+   can spare while it serves deploys this way.
 7. **Migrate.** Core's `infra/aws/apply-migrations.sh`, unchanged, against RDS: it runs
    psql by `docker exec`, so the deploy points it at a throwaway client container whose
    libpq environment names RDS (TLS verified). Runs **before** the swap, so new code never
@@ -251,7 +260,7 @@ The deploy stops, with the running container untouched, when the key cannot be
 read, the fetch fails, the ref is not a tag or sha of the repository, the tree
 has no `index.ts` at its root, or the core release predates core's extension
 loader (it would build without the extension and say nothing). A pulled image
-(`VOCION_APP_IMAGE`) has the extension only if the build that made it did.
+is not fetched for: it must say it carries `extension_ref` (step 6).
 `/var/lib/vocion/deployed` records the extension's ref and sha beside core's.
 
 The box builds the extension in; it runs nothing else of it. Anything the
@@ -464,6 +473,7 @@ Required: `name_prefix`, `azs`, `hostname`, `core_ref`.
 | `alarm_emails` | list(string) | `[]` | Subscribed to the alarm topic |
 | `db_free_storage_alarm_gb` | number | `5` | |
 | `budget_monthly_usd` | number | `0` | 0: no budget |
+| `image_registry_secret_name` | string | `""` | `{"username","password"}` for pulling a prebuilt image; put by hand |
 | `runners_enabled` | bool | `false` | Fargate engineering runners |
 | `runner_image` | string | `"ghcr.io/vocion/vocion-runner:5.x"` | |
 | `runner_cpu` | number | `2048` | |

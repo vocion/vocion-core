@@ -416,3 +416,27 @@ run "rejects_an_extension_without_a_ref" {
 
   expect_failures = [aws_ssm_parameter.deploy]
 }
+
+run "with_an_image_registry_login" {
+  command = plan
+
+  variables {
+    image_registry_secret_name = "vocion-test/image-registry"
+  }
+
+  assert {
+    condition     = jsondecode(aws_ssm_parameter.deploy.value).image_registry.secret_id == "vocion-test/image-registry"
+    error_message = "the deploy config names the registry login secret"
+  }
+  assert {
+    condition = (
+      one([for st in data.aws_iam_policy_document.deploy_read.statement : st.actions if st.sid == "ReadImageRegistryLogin"]) == toset(["secretsmanager:GetSecretValue"])
+      && one([for st in data.aws_iam_policy_document.deploy_read.statement : st.resources if st.sid == "ReadImageRegistryLogin"]) == toset(["arn:aws:secretsmanager:us-east-1:111111111111:secret:vocion-test/image-registry-??????"])
+    )
+    error_message = "the box may read the registry login secret, and nothing else by that grant"
+  }
+  assert {
+    condition     = strcontains(aws_ssm_document.deploy.content, "\"image\"")
+    error_message = "the deploy document takes an image to pull"
+  }
+}

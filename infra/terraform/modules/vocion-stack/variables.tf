@@ -162,6 +162,23 @@ variable "extension_ssh_known_hosts" {
   }
 }
 
+# ----- a prebuilt app image -----
+#
+# The deploy document's `image` parameter (or `vocion-deploy <ref> <image>`)
+# pulls an image built elsewhere instead of building on the box, whose build
+# can need more memory than the box has to spare while it serves.
+
+variable "image_registry_secret_name" {
+  description = "Name of a Secrets Manager secret holding {\"username\",\"password\"} for the registry a prebuilt app image is pulled from (for GHCR, a token with read:packages). Put by hand; the module neither creates it nor holds its value, and only the box may read it. Empty: a pulled image needs no login (public, or ECR through the box's role)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.image_registry_secret_name == "" || can(regex("^[A-Za-z0-9/_+=.@-]{1,512}$", var.image_registry_secret_name))
+    error_message = "image_registry_secret_name must be a Secrets Manager secret name (letters, digits and /_+=.@-)."
+  }
+}
+
 variable "health_check_path" {
   description = "Path the ALB health check requests. /version.txt is a static file every core image serves."
   type        = string
