@@ -33,6 +33,7 @@ import { endpointDescription, REST_LIST_ACTIONS_TOOL, restToolName, toolPrefixFo
 import { renderPath, renderQuery } from '@/libs/rest/template';
 import { resolveTimeZone } from '@/libs/time/zone';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
+import { declareReads } from '../toolReads';
 import { asJson } from './hubspotDirect';
 
 export { loadRestSources } from '@/libs/rest/sources';
@@ -140,7 +141,9 @@ export function restTools(ctx: RuntimeContext): StructuredToolInterface[] {
   for (const spec of restSourcesInScope(ctx)) {
     const prefix = toolPrefixFor(spec.slug, spec.config);
     for (const endpoint of spec.config.tools) {
-      tools.push(restReadTool(ctx, spec, prefix, endpoint) as StructuredToolInterface);
+      // A declared read of the source: its records, by the source's own name
+      // (the tool name, kept as `via`, says which endpoint).
+      tools.push(declareReads(restReadTool(ctx, spec, prefix, endpoint), { kind: spec.slug }) as StructuredToolInterface);
     }
     tools.push(restListActionsTool(spec, prefix) as StructuredToolInterface);
   }

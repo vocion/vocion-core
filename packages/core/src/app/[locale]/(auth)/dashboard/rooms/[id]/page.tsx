@@ -12,6 +12,7 @@ import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { artifactHref } from '@/libs/tools/artifacts/url';
+import { notePageView } from '@/services/access/pageView';
 import { getDataRoomDetail, roomAnchor, roomDeliverables, roomHref } from '@/services/DataRoomService';
 
 /**
@@ -49,6 +50,8 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
   if (!room) {
     return notFound();
   }
+  // A room is a record (`business_object`).
+  await notePageView({ kind: 'object', id: roomId });
   const m = room.meta;
   const anchor = roomAnchor(m);
   const record = { type: 'object' as const, id: String(room.id), label: room.title, href: roomHref(room.id) };

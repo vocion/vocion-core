@@ -2,6 +2,7 @@ import { os } from '@orpc/server';
 import { z } from 'zod';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { logger } from '@/libs/Logger';
+import { notePersonRead } from '@/services/access/accessLog';
 import {
   addDocumentLink,
   createBusinessObject,
@@ -56,11 +57,12 @@ export const list = os
 export const get = os
   .input(GetBusinessObjectValidation)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId, accountId } = await guardAuth();
     const obj = await getBusinessObject(input.id, orgId);
     if (!obj) {
       throw ApiError.notFound();
     }
+    await notePersonRead({ orgId, userId, accountId }, { action: 'view', record: { kind: 'object', id: obj.id }, via: 'app' });
     return obj;
   });
 

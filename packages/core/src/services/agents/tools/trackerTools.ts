@@ -18,6 +18,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { familyInScope } from '@/libs/connectors/families';
+import { declareReads } from '../toolReads';
 
 export const READ_ISSUE_TOOL = 'tracker_read_issue';
 export const SEARCH_ISSUES_TOOL = 'tracker_search_issues';
@@ -31,7 +32,11 @@ export function trackerTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!familyInScope(ctx, 'tracker')) {
     return [];
   }
-  return [readIssueTool(ctx), searchIssuesTool(ctx), readAttachmentTool(ctx)];
+  return [
+    declareReads(readIssueTool(ctx), { kind: 'tracker_issue', idArg: 'key' }),
+    declareReads(searchIssuesTool(ctx), { kind: 'tracker_issue' }),
+    declareReads(readAttachmentTool(ctx), { kind: 'tracker_attachment', idArg: ['issue_key', 'attachment_id'] }),
+  ];
 }
 
 function readIssueTool(ctx: RuntimeContext): StructuredToolInterface {

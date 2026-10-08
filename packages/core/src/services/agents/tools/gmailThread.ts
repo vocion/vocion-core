@@ -23,7 +23,9 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { fetchGmailThreadDoc, resolveThreadIdForMessage } from '@/libs/sources/gmail';
 import { knowledgeDocumentSchema } from '@/models/Schema';
+import { noteRead } from '@/services/access/accessLog';
 import { ensureSource, ingestDocument } from '@/services/IngestionService';
+import { declareReads } from '../toolReads';
 import { firstCredentialed, reassembleDocument, sourcesForConnector } from './zoomTranscript';
 
 /** A source slug that belongs to the Gmail connector family. */
@@ -111,6 +113,8 @@ export function gmailTools(ctx: RuntimeContext) {
 
       if (cached && fresh && !force_refresh) {
         const content = await reassembleDocument(ctx.orgId, cached.id);
+        // The thread is a document in the index: its read is a view of it.
+        noteRead({ action: 'view', record: { kind: 'document', id: cached.id } });
         return JSON.stringify({
           source: 'cache',
           title: cached.title,
@@ -124,6 +128,7 @@ export function gmailTools(ctx: RuntimeContext) {
       if (!credentialed) {
         if (cached) {
           const content = await reassembleDocument(ctx.orgId, cached.id);
+          noteRead({ action: 'view', record: { kind: 'document', id: cached.id } });
           return JSON.stringify({
             source: 'cache',
             stale: true,
@@ -148,6 +153,7 @@ export function gmailTools(ctx: RuntimeContext) {
 
       const ref = await ensureSource({ orgId: ctx.orgId, slug: credentialed.source.slug });
       const result = await ingestDocument(ref, doc);
+      noteRead({ action: 'view', record: { kind: 'document', id: result.documentId } });
       const meta = doc.metadata as Record<string, unknown>;
       return JSON.stringify({
         source: 'live',
@@ -170,5 +176,7 @@ export function gmailTools(ctx: RuntimeContext) {
     },
   );
 
-  return [getGmailThread];
+  // It notes the document it read itself: the id is known only once the
+  // thread is found in the mirror or fetched and indexed.
+  return [declareReads(getGmailThread, 'noted')];
 }

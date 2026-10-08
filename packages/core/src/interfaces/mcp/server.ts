@@ -1,6 +1,7 @@
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { McpConfig } from './config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { withAccessScope } from '@/services/access/accessLog';
 import { agentTools } from './tools/agent-tools';
 import { automationTools } from './tools/automation-tools';
 import { capabilityTools } from './tools/capability-tools';
@@ -64,6 +65,12 @@ export async function buildServer(
     ...(await agentTools(config, identity)),
   ];
 
+  // Whoever holds this server's credential is the reader of anything a tool
+  // notes (`noteRead`): the bearer token over HTTP, the stdio process's own
+  // `mcp` credential otherwise. A bridged domain tool opens its own, narrower
+  // scope — the agent, reading for this token.
+  const reader = { kind: 'token' as const, tokenId: identity?.userId ?? 'mcp' };
+
   for (const tool of tools) {
     server.registerTool(
       tool.name,
@@ -74,7 +81,10 @@ export async function buildServer(
       },
       async (input: unknown) => {
         try {
-          const result = await tool.handler((input ?? {}) as Record<string, unknown>);
+          const result = await withAccessScope(
+            { orgId: config.orgId, actor: reader, via: `mcp:${tool.name}` },
+            () => tool.handler((input ?? {}) as Record<string, unknown>),
+          );
           return {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           };

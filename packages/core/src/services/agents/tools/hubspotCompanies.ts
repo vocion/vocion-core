@@ -16,6 +16,7 @@ import type { RuntimeContext } from '../types';
 import type { HubspotClient, HubspotPage, HubspotRecord, StageInfo } from '@/libs/hubspot/client';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { declareReads } from '../toolReads';
 import { asJson, clampLimit, distinctiveTokens, emailDirection, hubspotClientForCtx, isAutoReply, isMeetingBoilerplate, stripHtml } from './hubspotDirect';
 
 /** Firmographics read off a company object — what grounds an account brief. */
@@ -424,10 +425,11 @@ export function hubspotCompanyActivityTool(ctx: RuntimeContext) {
 }
 
 export function hubspotCompanyTools(ctx: RuntimeContext) {
+  const company = { kind: 'hubspot_company', idArg: 'company_id' } as const;
   return [
-    hubspotSearchCompaniesTool(ctx),
-    hubspotGetCompanyTool(ctx),
-    hubspotCompanyDealsTool(ctx),
-    hubspotCompanyActivityTool(ctx),
+    declareReads(hubspotSearchCompaniesTool(ctx), { kind: 'hubspot_company' }),
+    declareReads(hubspotGetCompanyTool(ctx), company),
+    declareReads(hubspotCompanyDealsTool(ctx), company),
+    declareReads(hubspotCompanyActivityTool(ctx), company),
   ];
 }

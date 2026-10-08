@@ -28,6 +28,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { noteRead } from '@/services/access/accessLog';
 import { createArtifact } from '@/services/ArtifactService';
 import {
   addOpenItem,
@@ -44,6 +45,7 @@ import {
   unfileFromDataRoom,
   updateDataRoom,
 } from '@/services/DataRoomService';
+import { declareReads } from '../toolReads';
 import { authorOf } from './renderArtifacts';
 
 /**
@@ -144,6 +146,10 @@ export function readDataRoomTool(ctx: RuntimeContext) {
         return found.error;
       }
       const md = await exportDataRoom(ctx.orgId, found.id);
+      if (md !== null) {
+        // A room is a record; reading its bundle reads the room.
+        noteRead({ action: 'view', record: { kind: 'object', id: found.id } });
+      }
       return md ?? `No data room #${found.id}.`;
     },
     {
@@ -431,5 +437,14 @@ export function unfileFromDataRoomTool(ctx: RuntimeContext) {
 }
 
 export function dataRoomTools(ctx: RuntimeContext) {
-  return [listDataRoomsTool(ctx), readDataRoomTool(ctx), createDataRoomTool(ctx), updateDataRoomTool(ctx), fileToDataRoomTool(ctx), unfileFromDataRoomTool(ctx), addOpenItemTool(ctx)];
+  return [
+    // The workspace's rooms — each a record — listed by title and status.
+    declareReads(listDataRoomsTool(ctx), { kind: 'object' }),
+    declareReads(readDataRoomTool(ctx), 'noted'),
+    createDataRoomTool(ctx),
+    updateDataRoomTool(ctx),
+    fileToDataRoomTool(ctx),
+    unfileFromDataRoomTool(ctx),
+    addOpenItemTool(ctx),
+  ];
 }

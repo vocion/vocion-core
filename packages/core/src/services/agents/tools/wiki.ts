@@ -17,9 +17,11 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { noteRead } from '@/services/access/accessLog';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { getWikiPage, listWikiPages, renderWikiPageBody, wikiSlug } from '@/services/wiki/WikiService';
 import { emitSelfUpdate } from '../selfUpdateEvent';
+import { declareReads } from '../toolReads';
 
 export const WIKI_PLUGIN = 'wiki';
 
@@ -28,7 +30,8 @@ export function wikiPluginOn(ctx: RuntimeContext): boolean {
 }
 
 export function listWikiPagesTool(ctx: RuntimeContext) {
-  return tool(
+  // The index of pages — titles and summaries — is a listing of the wiki's artifacts.
+  return declareReads(tool(
     async () => {
       const pages = await listWikiPages(ctx.orgId);
       if (pages.length === 0) {
@@ -41,17 +44,19 @@ export function listWikiPagesTool(ctx: RuntimeContext) {
       description: 'List the workspace wiki\'s pages: title, slug, version, last update and one-line summary. The same list is mounted at /wiki/index.md; call this when you need it fresh mid-turn.',
       schema: z.object({}),
     },
-  );
+  ), { kind: 'artifact' });
 }
 
 export function readWikiPageTool(ctx: RuntimeContext) {
-  return tool(
+  // A wiki page is an artifact: the read is noted by its id once it is found.
+  return declareReads(tool(
     async ({ slug }) => {
       const page = await getWikiPage(ctx.orgId, slug);
       if (!page) {
         const pages = await listWikiPages(ctx.orgId);
         return `No wiki page "${wikiSlug(slug)}". Pages: ${pages.map(p => p.slug).join(', ') || '(none)'}.`;
       }
+      noteRead({ action: 'view', record: { kind: 'artifact', id: page.id } });
       return renderWikiPageBody(page);
     },
     {
@@ -61,7 +66,7 @@ export function readWikiPageTool(ctx: RuntimeContext) {
         slug: z.string().min(1).describe('The page slug, e.g. "founder-voice"; a title is normalised the same way.'),
       }),
     },
-  );
+  ), 'noted');
 }
 
 export function writeWikiPageTool(ctx: RuntimeContext) {

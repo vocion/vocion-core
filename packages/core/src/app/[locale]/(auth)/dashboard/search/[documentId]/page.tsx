@@ -2,6 +2,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { DocumentDetail } from '@/features/search/DocumentDetail';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { notePageView } from '@/services/access/pageView';
 import { getDocument } from '@/services/SourceSyncService';
 
 /**
@@ -27,6 +28,7 @@ export default async function DocumentPage(props: {
   if (!doc) {
     notFound();
   }
+  await notePageView({ kind: 'document', id: doc.id });
 
   return (
     <DocumentDetail

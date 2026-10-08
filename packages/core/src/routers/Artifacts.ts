@@ -14,6 +14,7 @@ import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
 import { artifactSharePath, signArtifactShare } from '@/libs/share/artifactShareToken';
 import { SHARE_AUDIENCES } from '@/libs/share/audience';
 import { SOURCE_ARTIFACT_KINDS, sourceContentOf, sourceKindOf } from '@/libs/workspace/source';
+import { notePersonRead } from '@/services/access/accessLog';
 import { track } from '@/services/adoption/track';
 import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, setArtifactShare, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
@@ -60,11 +61,12 @@ export const listForConversation = os
 export const get = os
   .input(z.object({ id: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId, accountId } = await guardAuth();
     const row = await getArtifact({ orgId, id: input.id });
     if (!row) {
       throw ApiError.notFound({ id: input.id });
     }
+    await notePersonRead({ orgId, userId, accountId }, { action: 'view', record: { kind: 'artifact', id: row.id }, via: 'app' });
     return toPayload(row);
   });
 
@@ -274,11 +276,13 @@ export const versions = os
 export const version = os
   .input(z.object({ id: z.number().int().positive(), version: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId, accountId } = await guardAuth();
     const row = await getArtifactVersion({ orgId, artifactId: input.id, version: input.version });
     if (!row) {
       throw ApiError.notFound({ id: input.id, version: input.version });
     }
+    // An old body is still the artifact's content: a view of it, saying which version.
+    await notePersonRead({ orgId, userId, accountId }, { action: 'view', record: { kind: 'artifact', id: input.id }, via: 'app', detail: { version: input.version } });
     return toVersionPayload(row);
   });
 
@@ -329,10 +333,11 @@ export const remove = os
 export const exportPage = os
   .input(z.object({ id: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId, accountId } = await guardAuth();
     const row = await getArtifact({ orgId, id: input.id });
     if (!row) {
       throw ApiError.notFound({ id: input.id });
     }
+    await notePersonRead({ orgId, userId, accountId }, { action: 'export', record: { kind: 'artifact', id: row.id }, via: 'app', detail: { format: 'workspace-page' } });
     return exportArtifactAsPage(row);
   });

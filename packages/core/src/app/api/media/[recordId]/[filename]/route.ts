@@ -7,6 +7,7 @@ import { canOpenArtifact } from '@/libs/share/audience';
 import { locateMedia, mediaUrl } from '@/libs/tools/artifacts/media';
 import { mediaResponse } from '@/libs/tools/artifacts/mediaResponse';
 import { artifactSchema } from '@/models/Schema';
+import { noteCallerRead } from '@/services/access/accessLog';
 
 const notFound = () => NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Recording not found' } }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ recordId: s
     return caller;
   }
   const [claim] = await db
-    .select({ shareAudience: artifactSchema.shareAudience, shareOwnerId: artifactSchema.shareOwnerId })
+    .select({ id: artifactSchema.id, shareAudience: artifactSchema.shareAudience, shareOwnerId: artifactSchema.shareOwnerId })
     .from(artifactSchema)
     .where(and(eq(artifactSchema.orgId, caller.orgId), eq(artifactSchema.url, mediaUrl(recordId, filename))))
     .limit(1);
@@ -40,5 +41,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ recordId: s
   if (!found) {
     return notFound();
   }
+  // A recording played or saved: the artifact that claims it when there is
+  // one, else the stored file under its record. A player's byte-range
+  // requests coalesce into one row (`services/access/accessLog.ts`).
+  noteCallerRead(caller, { action: 'view', record: claim ? { kind: 'artifact', id: claim.id } : { kind: 'file', id: `${recordId}/${filename}` }, via: 'api' }, req.headers);
   return mediaResponse(req, found, filename);
 }

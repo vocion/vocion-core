@@ -1,12 +1,14 @@
 import type { ScheduleSpec } from '@/libs/durable/jobs';
 import { scheduleJob, unscheduleJob } from '@/libs/durable/jobs';
 import {
+  ACCESS_LOG_PRUNE_SCHEDULE_ID,
   ARTIFACT_IMAGE_SWEEP_SCHEDULE_ID,
   LANGFUSE_RETENTION_SCHEDULE_ID,
   MISSION_RUN_REAPER_SCHEDULE_ID,
   WORKER_RUN_REAPER_SCHEDULE_ID,
 } from '@/libs/durable/scheduleIds';
 import { langfuseConfig } from '@/libs/Langfuse';
+import { accessLogRetentionDays } from '@/services/access/retention';
 import { externalWorkersEnabled } from '@/services/WorkerRunService';
 import { JOB } from './catalog';
 
@@ -27,6 +29,9 @@ import { JOB } from './catalog';
  *     set: prunes expired traces outside working hours in US time zones.
  *   - Durable prune, 04:10 UTC daily: deletes finished job runs older than a
  *     week so the durable tables do not grow with every tick.
+ *   - Access-log prune, 04:40 UTC daily, unless retention is off
+ *     (`VOCION_ACCESS_LOG_RETENTION_DAYS=0`): deletes reads older than the
+ *     retention period (`services/access/AccessLogService.ts`).
  */
 
 export const DURABLE_PRUNE_SCHEDULE_ID = 'durable-prune';
@@ -43,6 +48,11 @@ export function deploymentSchedules(): { wanted: ScheduleSpec[]; unwanted: strin
     wanted.push({ name: WORKER_RUN_REAPER_SCHEDULE_ID, cron: '*/5 * * * *', job: JOB.workerRunReaper });
   } else {
     unwanted.push(WORKER_RUN_REAPER_SCHEDULE_ID);
+  }
+  if (accessLogRetentionDays() !== null) {
+    wanted.push({ name: ACCESS_LOG_PRUNE_SCHEDULE_ID, cron: '40 4 * * *', job: JOB.accessLogPrune });
+  } else {
+    unwanted.push(ACCESS_LOG_PRUNE_SCHEDULE_ID);
   }
   const langfuse = langfuseConfig();
   if (langfuse.enabled && langfuse.retentionDays !== null) {

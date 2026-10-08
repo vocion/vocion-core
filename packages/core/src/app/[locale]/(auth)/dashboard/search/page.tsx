@@ -4,6 +4,7 @@ import { ListPage } from '@/components/patterns';
 import { SearchResults } from '@/features/search/SearchResults';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
+import { notePersonRead } from '@/services/access/accessLog';
 import { documentCountsForOrg, listRecentDocuments, listSources } from '@/services/SourceSyncService';
 
 type SearchDoc = {
@@ -84,6 +85,7 @@ export default async function SearchPage(props: {
         // Only a numeric `knowledge_document.id` has a page to open.
         openable: /^\d+$/.test(d.document_id ?? ''),
       }));
+      await notePersonRead({ orgId, userId }, { action: 'search', record: { kind: 'document' }, via: 'page', detail: { hits: results.length } });
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }

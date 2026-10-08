@@ -9,6 +9,9 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/ApiTokenService', () => ({ authenticateBearer: vi.fn() }));
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 
+const { db } = await import('@/libs/DB');
+const { accessEventSchema } = await import('@/models/Schema');
+const { flushAccessLog, resetAccessLogForTests } = await import('@/services/access/accessLog');
 const { authenticateBearer } = await import('@/services/ApiTokenService');
 const { clerkAuth } = await import('@/libs/Auth');
 const { createArtifact } = await import('@/services/ArtifactService');
@@ -128,5 +131,37 @@ describe('GET /api/artifacts', () => {
     const no = await getById(req(`/api/artifacts/${row.id}`), { params: Promise.resolve({ id: String(row.id) }) });
 
     expect(no.status).toBe(404);
+  });
+});
+
+describe('GET /api/artifacts — the access log', () => {
+  beforeEach(async () => {
+    resetAccessLogForTests();
+    await db.delete(accessEventSchema);
+  });
+
+  it('every artifact read through the route is one row for its reader; a refused one is none', async () => {
+    const { artifact: row } = await createArtifact({ orgId: ORG, kind: 'markdown', title: 'Plan', spec: { md: '- call Acme' }, author: { kind: 'agent', id: 'agent:revenue-lead' } });
+    session(ORG);
+
+    expect((await getById(req(`/api/artifacts/${row.id}`), { params: Promise.resolve({ id: String(row.id) }) })).status).toBe(200);
+
+    session(OTHER);
+
+    expect((await getById(req(`/api/artifacts/${row.id}`), { params: Promise.resolve({ id: String(row.id) }) })).status).toBe(404);
+
+    mockSession.mockReset();
+    mockBearer.mockResolvedValue({ orgId: ORG, tokenId: 't7', principal: { kind: 'user', id: 'token:t7', role: 'member', scope: { orgId: ORG } } } as never);
+
+    expect((await getByName(req(saved.url, 'vcn_live_fake_token'), { params: Promise.resolve({ id: saved.id, filename: saved.filename }) })).status).toBe(200);
+    expect(await flushAccessLog()).toMatchObject({ written: 2, dropped: 0, pending: 0 });
+
+    const rows = await db.select().from(accessEventSchema);
+
+    expect(rows.map(r => [r.orgId, r.actorKind, r.actorId, r.recordKind, r.recordId, r.via]).sort()).toEqual([
+      [ORG, 'token', 'token:t7', 'file', saved.id, 'api'],
+      [ORG, 'user', 'usr-1', 'artifact', String(row.id), 'api'],
+    ]);
+    expect(rows.find(r => r.actorKind === 'user')?.action).toBe('view');
   });
 });

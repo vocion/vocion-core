@@ -12,6 +12,7 @@ import { WikiView } from '@/features/dashboard/wiki/WikiView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { pagePlugin } from '@/libs/workspace/pages';
+import { notePageView } from '@/services/access/pageView';
 import { codeForRecord, resolveCode } from '@/services/codes';
 import { featureStatusOf } from '@/services/factory/featureReport';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
@@ -120,6 +121,7 @@ export default async function WorkspaceReportPage(props: {
     if (!overview) {
       return notFound();
     }
+    await notePageView({ kind: 'object', id: Number(id) });
     const [related, writes, statuses, slides, types] = await Promise.all([
       relatedOf(orgId, Number(id)).catch(() => []),
       relatedWrites(orgId, Number(id)).catch(() => []),
@@ -166,6 +168,7 @@ export default async function WorkspaceReportPage(props: {
     if (!row) {
       return notFound();
     }
+    await notePageView({ kind: 'object', id: releaseId });
     const { assembleReleaseReport } = await import('@/services/factory/releaseReport');
     const { ReleaseDetailView } = await import('@/features/dashboard/factory/ReleaseDetailView');
     const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
@@ -193,6 +196,9 @@ export default async function WorkspaceReportPage(props: {
 
   const now = new Date();
   const report = await loadFeatureReport(orgId, recordId, now);
+  if (report) {
+    await notePageView({ kind: 'object', id: report.requestId });
+  }
   // The three lines, with the record's own page as their base — the same
   // read the API, the pane and the chat draw (`services/objects/recordStatus.ts`).
   // What a person reads this work by — FE-294 — leads the context line, so

@@ -13,6 +13,7 @@ import { getAction } from '@/libs/actions/registry';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { actionRunSchema, knowledgeSourceSchema, leadBriefSchema, reviewAssignmentSchema } from '@/models/Schema';
+import { notePageView } from '@/services/access/pageView';
 
 /**
  * The lead page — one URL per lead, `/gtm/lead/{hubspot_id}`. The review
@@ -71,6 +72,7 @@ export default async function LeadPage(props: {
       />
     );
   }
+  await notePageView({ kind: 'lead', id: row.id });
 
   // The back-linked run, resolved under the SAME predicate the review queue's
   // feed applies: pending or failed and not snoozed shows the card (deciding

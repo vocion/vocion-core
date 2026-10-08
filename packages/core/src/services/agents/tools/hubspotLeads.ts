@@ -14,6 +14,8 @@ import type { RuntimeContext } from '../types';
 import type { HubspotClient, HubspotPage, HubspotRecord } from '@/libs/hubspot/client';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { noteRead } from '@/services/access/accessLog';
+import { declareReads } from '../toolReads';
 import { asJson, clampLimit, distinctiveTokens, emailDirection, emailSnippet, hubspotClientForCtx, isAutoReply } from './hubspotDirect';
 
 /**
@@ -199,6 +201,8 @@ export function hubspotGetContactTool(ctx: RuntimeContext) {
       const props = row.properties ?? {};
       const contact = normalizeContact(props, row.id);
       const fields = buildFieldList(contact, props, labels);
+      // The contact HubSpot answered with — by its id, whichever way it was asked for.
+      noteRead({ action: 'view', record: { kind: 'hubspot_contact', id: row.id } });
       return asJson({
         ok: true,
         source: 'hubspot_live',
@@ -391,6 +395,7 @@ export function hubspotContactEmailsTool(ctx: RuntimeContext) {
       }
       // hs_timestamp is ISO 8601 — lexical sort is chronological.
       rows.sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
+      noteRead({ action: 'view', record: { kind: 'hubspot_contact', id: contact.id }, detail: { emails: Math.min(rows.length, cap) } });
       return asJson({
         ok: true,
         source: 'hubspot_live',
@@ -413,5 +418,10 @@ export function hubspotContactEmailsTool(ctx: RuntimeContext) {
 }
 
 export function hubspotLeadsTools(ctx: RuntimeContext) {
-  return [hubspotGetContactTool(ctx), hubspotSearchContactsTool(ctx), hubspotContactEmailsTool(ctx)];
+  return [
+    // Both note the contact they resolved — an email in the arguments is not its id.
+    declareReads(hubspotGetContactTool(ctx), 'noted'),
+    declareReads(hubspotSearchContactsTool(ctx), { kind: 'hubspot_contact' }),
+    declareReads(hubspotContactEmailsTool(ctx), 'noted'),
+  ];
 }

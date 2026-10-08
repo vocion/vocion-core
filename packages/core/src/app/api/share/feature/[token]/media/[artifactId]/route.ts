@@ -6,6 +6,7 @@ import { locateMedia } from '@/libs/tools/artifacts/media';
 import { mediaResponse } from '@/libs/tools/artifacts/mediaResponse';
 import { resolveArtifactFile } from '@/libs/tools/artifacts/serve';
 import { API_ARTIFACTS_BASE } from '@/libs/tools/artifacts/url';
+import { noteLinkRead } from '@/services/access/accessLog';
 import { serveVia } from '@/services/factory/featureShare';
 import { sharedFeatureMedia } from '@/services/factory/featureShareData';
 
@@ -65,6 +66,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     return notFound();
   }
   const { orgId, artifact } = found;
+  // A picture or the recording, to whoever holds the link: a view of that
+  // artifact. A player's byte-range requests from one client fold into one row.
+  await noteLinkRead(orgId, { action: 'view', record: { kind: 'artifact', id: artifact.id }, via: 'share' }, req.headers);
   const via = serveVia({ kind: artifact.kind, url: artifact.url ?? null, spec: (artifact.spec ?? {}) as Record<string, unknown> });
   if (via === 'media') {
     const [recordId, filename] = (artifact.url ?? String(artifact.spec.url)).replace(/^\/api\/media\//, '').split('?')[0]!.split('/');

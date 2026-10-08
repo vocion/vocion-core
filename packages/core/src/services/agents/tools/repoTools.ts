@@ -36,6 +36,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { familyInScope, granted } from '@/libs/connectors/families';
+import { declareReads } from '../toolReads';
 
 export const READ_PULL_TOOL = 'repo_read_pull';
 export const READ_DIFF_TOOL = 'repo_read_diff';
@@ -58,13 +59,19 @@ const REPO = z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'the repository as owner/nam
 export function repoTools(ctx: RuntimeContext): StructuredToolInterface[] {
   const inScope = familyInScope(ctx, 'repo');
   return [
-    ...(inScope ? [readPullTool(ctx), readDiffTool(ctx), readFileTool(ctx)] : []),
+    ...(inScope
+      ? [
+          declareReads(readPullTool(ctx), { kind: 'pull_request', idArg: ['url', 'number'] }),
+          declareReads(readDiffTool(ctx), { kind: 'repo_diff', idArg: ['url', 'base', 'head'] }),
+          declareReads(readFileTool(ctx), { kind: 'repo_file', idArg: ['path', 'ref'] }),
+        ]
+      : []),
     // The tree read is also GRANTED, like the pipeline reads: the plugin's
     // Release seat maps the code without declaring a source of its own
     // (the token still comes from the workspace's github source).
-    ...(inScope || granted(ctx, READ_TREE_TOOL) ? [readTreeTool(ctx)] : []),
-    ...(granted(ctx, READ_CHECK_LOGS_TOOL, FORMER_CHECK_LOGS_TOOL) ? [checkLogsTool(ctx)] : []),
-    ...(granted(ctx, READ_PIPELINE_RUNS_TOOL, FORMER_PIPELINE_RUNS_TOOL) ? [pipelineRunsTool(ctx)] : []),
+    ...(inScope || granted(ctx, READ_TREE_TOOL) ? [declareReads(readTreeTool(ctx), { kind: 'repo_tree', idArg: 'ref' })] : []),
+    ...(granted(ctx, READ_CHECK_LOGS_TOOL, FORMER_CHECK_LOGS_TOOL) ? [declareReads(checkLogsTool(ctx), { kind: 'repo_check_logs', idArg: ['url', 'head_sha'] })] : []),
+    ...(granted(ctx, READ_PIPELINE_RUNS_TOOL, FORMER_PIPELINE_RUNS_TOOL) ? [declareReads(pipelineRunsTool(ctx), { kind: 'repo_pipeline_run' })] : []),
   ];
 }
 

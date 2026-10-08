@@ -30,6 +30,8 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { resolveGoogleAccessToken } from '@/libs/sources/googleAuth';
 import { dayKey, DEFAULT_TIME_ZONE, formatDate, formatDateTime, startOfDay } from '@/libs/time/zone';
+import { noteRead } from '@/services/access/accessLog';
+import { declareReads } from '../toolReads';
 import { firstCredentialed, sourcesForConnector } from './zoomTranscript';
 
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -213,6 +215,8 @@ export function calendarTools(ctx: RuntimeContext) {
           return `Calendar read failed (${res.status}). Say the calendar could not be read; do not substitute a schedule from another document.`;
         }
         const list = (await res.json()) as { items?: CalEvent[] };
+        // A window of the calendar, read live: a search of its events, with how many came back.
+        noteRead({ action: 'search', record: { kind: 'calendar_event' }, detail: { hits: list.items?.length ?? 0 } });
         return renderCalendar(list.items ?? [], now, windowLabel, tz);
       } catch (err) {
         return `Calendar read failed: ${(err as Error).message ?? 'unknown'}. Say the calendar could not be read; do not substitute a schedule from another document.`;
@@ -233,5 +237,5 @@ export function calendarTools(ctx: RuntimeContext) {
     },
   );
 
-  return [calendarEvents];
+  return [declareReads(calendarEvents, 'noted')];
 }

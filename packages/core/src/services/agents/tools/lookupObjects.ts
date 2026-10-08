@@ -2,10 +2,12 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { parseCode, recordCode } from '@/libs/codes';
+import { noteRead } from '@/services/access/accessLog';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 import { typeCodesForOrg } from '@/services/codes';
 import { objectKnowledge } from '@/services/MemoryService';
 import { recordLinkerForOrg } from '@/services/objects/recordHref';
+import { declareReads } from '../toolReads';
 import { liveStatusOf } from './readObject';
 import { recordIdArg, recordIdOf } from './recordIdArg';
 
@@ -50,7 +52,8 @@ function idOrValue(v: string | number | boolean): string {
  */
 export function lookupObjectsTool(ctx: RuntimeContext) {
   const available = ctx.objectTypeSlugs.join(', ');
-  return tool(
+  // It notes what it read itself: the ids it found, or the hits of a search.
+  return declareReads(tool(
     async (args) => {
       // One record by its code (FE-294) or id, checked against its type's code.
       const byId = args.id === undefined ? null : await recordIdOf(ctx.orgId, args.id);
@@ -159,6 +162,11 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
           blurb: [obj.status, typeof obj.summary === 'string' ? obj.summary : ''].filter(Boolean).join(' — ').slice(0, 200),
         })),
       });
+      // A record named by id was read; a filtered list was searched, and
+      // says how many it returned (`services/access/accessLog.ts`).
+      noteRead(byId
+        ? { action: 'view', record: { kind: 'object', id: byId.id } }
+        : { action: 'search', record: { kind: 'object' }, detail: { hits: objects.length } });
       const held = matched.length - objects.length;
       return held > 0
         ? JSON.stringify({ records: rows, showing: rows.length, of: matched.length, note: `${held} more matched; narrow with where, query or id to see them.` })
@@ -175,5 +183,5 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         limit: z.number().int().min(1).max(100).optional().describe('At most this many records (default 25). The reply says how many more matched.'),
       }),
     },
-  );
+  ), 'noted');
 }

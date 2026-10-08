@@ -15,13 +15,16 @@ import type { RawDoc } from '../search';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { noteRead } from '@/services/access/accessLog';
 import { search } from '@/services/RetrievalService';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
+import { declareReads } from '../toolReads';
 
 export function searchKnowledgeTool(ctx: RuntimeContext) {
   const availableSources = ctx.connectorSources.join(', ');
 
-  return tool(
+  // It notes what it read itself: the ids it found, or the hits of a search.
+  return declareReads(tool(
     async (args) => {
       const { query, source_types, metadata_filters } = args;
       const sourceFilter = source_types as string[] | undefined;
@@ -131,6 +134,7 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       ctx.citationSeq.current += shown.length;
 
       ctx.emit({ type: 'documents', documents: shown.map((d, i) => toSearchDocument(d, base + i + 1)) });
+      noteRead({ action: 'search', record: { kind: 'document' }, detail: { hits: shown.length } });
 
       return shown.map((d, i) => renderDocLine(d, base + i, new Date(), ctx.timeZone)).join('\n\n');
     },
@@ -143,5 +147,5 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
         metadata_filters: z.record(z.string(), z.string()).optional().describe('Optional: filter by document metadata key-value pairs. Example: {"call_type": "discovery"} to find only discovery calls.'),
       }),
     },
-  );
+  ), 'noted');
 }

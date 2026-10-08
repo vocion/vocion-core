@@ -5,6 +5,7 @@ import { ArtifactHeader } from '@/features/dashboard/artifacts/ArtifactHeader';
 import { actionsFor } from '@/features/dashboard/artifacts/headerRules';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { canOpenArtifact } from '@/libs/share/audience';
+import { notePageView } from '@/services/access/pageView';
 import { getArtifact } from '@/services/ArtifactService';
 
 /**
@@ -42,6 +43,7 @@ export default async function OpenDocumentPage(props: { params: Promise<{ locale
   if (!canOpenArtifact({ audience: row.shareAudience, ownerId: row.shareOwnerId ?? null }, { userId: userId ?? null, isMember: true, hasToken: false })) {
     notFound();
   }
+  await notePageView({ kind: 'artifact', id: row.id });
   const verification = (row.spec as { verification?: DocumentVerification }).verification;
   const pages = verification?.pdfPages;
 

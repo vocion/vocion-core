@@ -11,8 +11,10 @@ import { z } from 'zod';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { toolCallSchema } = await import('@/models/Schema');
+const { accessEventSchema, toolCallSchema } = await import('@/models/Schema');
 const { persistToolCall, withToolCallRecord } = await import('./toolCallRecord');
+const { flushAccessLog, noteRead, resetAccessLogForTests } = await import('@/services/access/accessLog');
+const { declareReads } = await import('./toolReads');
 
 const ORG_A = 'org_toolcall_a';
 const ORG_B = 'org_toolcall_b';
@@ -178,5 +180,135 @@ describe('failure isolation', () => {
     );
 
     await expect(t.invoke({})).resolves.toBe('still fine');
+  });
+});
+
+describe('the access log — every tool reads as its agent, on its run', () => {
+  async function reads(orgId: string) {
+    await flushAccessLog();
+    return db.select().from(accessEventSchema).where(eq(accessEventSchema.orgId, orgId));
+  }
+
+  beforeEach(async () => {
+    resetAccessLogForTests();
+    await db.delete(accessEventSchema);
+  });
+
+  it('a tool says what it read; the wrapper says who, for whom, on which run and through which tool', async () => {
+    const t = withToolCallRecord(
+      tool(async (input: { id: number }) => {
+        noteRead({ action: 'view', record: { kind: 'object', id: input.id } });
+        return 'the record';
+      }, { name: 'read_object', schema: z.object({ id: z.number() }) }),
+      ctxFor(ORG_A, { userId: 'usr-dana' }),
+    );
+
+    await expect(t.invoke({ id: 12 })).resolves.toBe('the record');
+
+    const [row, ...rest] = await reads(ORG_A);
+
+    expect(rest).toHaveLength(0);
+    expect(row).toMatchObject({
+      actorKind: 'agent',
+      actorId: 'revenue-lead',
+      onBehalfOf: 'usr-dana',
+      runKind: 'conversation',
+      runId: '42',
+      action: 'view',
+      recordKind: 'object',
+      recordId: '12',
+      via: 'tool:read_object',
+    });
+  });
+
+  it('a delegated read is the specialist\'s, and a mission\'s read is on its mission run', async () => {
+    const ctx = ctxFor(ORG_A, { missionRunId: 5974, userId: 'scheduled' });
+    ctx.delegations!.set('task_abc', 'qa-analyst');
+    const t = withToolCallRecord(
+      tool(async () => {
+        noteRead({ action: 'search', record: { kind: 'document' }, detail: { hits: 3 } });
+        return 'hits';
+      }, { name: 'search_knowledge', schema: z.object({}) }),
+      ctx,
+    );
+
+    await t.invoke({}, { metadata: { checkpoint_ns: 'tools:task_abc|tools:sub_1' } } as never);
+
+    expect((await reads(ORG_A))[0]).toMatchObject({ actorId: 'qa-analyst', onBehalfOf: 'scheduled', runKind: 'mission_run', runId: '5974', detail: { hits: 3 } });
+  });
+
+  it('a declared read is written for the tool: one view of the record its arguments name', async () => {
+    const t = withToolCallRecord(
+      declareReads(tool(async () => 'the company', { name: 'hubspot_get_company', schema: z.object({ company_id: z.string() }) }), { kind: 'hubspot_company', idArg: 'company_id' }),
+      ctxFor(ORG_A, { userId: 'usr-dana' }),
+    );
+    await t.invoke({ company_id: '8812' });
+
+    expect(await reads(ORG_A)).toEqual([expect.objectContaining({
+      actorKind: 'agent',
+      actorId: 'revenue-lead',
+      onBehalfOf: 'usr-dana',
+      action: 'view',
+      recordKind: 'hubspot_company',
+      recordId: '8812',
+      via: 'tool:hubspot_get_company',
+    })]);
+  });
+
+  it('a declaration with no id argument is a search, and several id arguments name one thing together', async () => {
+    const search = withToolCallRecord(
+      declareReads(tool(async () => 'issues', { name: 'tracker_search_issues', schema: z.object({ query: z.string() }) }), { kind: 'tracker_issue' }),
+      ctxFor(ORG_A),
+    );
+    const pull = withToolCallRecord(
+      declareReads(tool(async () => 'the pull', { name: 'repo_read_pull', schema: z.object({ url: z.string().optional(), number: z.number().optional() }) }), { kind: 'pull_request', idArg: ['url', 'number'] }),
+      ctxFor(ORG_A),
+    );
+    await search.invoke({ query: 'checkout' });
+    await pull.invoke({ url: 'northwind/api', number: 12 });
+
+    expect((await reads(ORG_A)).map(r => [r.action, r.recordKind, r.recordId]).sort()).toEqual([
+      ['search', 'tracker_issue', null],
+      ['view', 'pull_request', 'northwind/api:12'],
+    ]);
+  });
+
+  it('a tool that notes its own read is not written twice, and one that declares \'noted\' and finds nothing writes nothing', async () => {
+    const t = withToolCallRecord(
+      declareReads(tool(async (input: { id: number }) => {
+        if (input.id > 0) {
+          noteRead({ action: 'view', record: { kind: 'document', id: input.id } });
+          return 'found';
+        }
+        return 'no such document';
+      }, { name: 'get_zoom_transcript', schema: z.object({ id: z.number() }) }), 'noted'),
+      ctxFor(ORG_A),
+    );
+    await t.invoke({ id: 77 });
+    await t.invoke({ id: 0 });
+
+    expect((await reads(ORG_A)).map(r => [r.recordKind, r.recordId])).toEqual([['document', '77']]);
+  });
+
+  it('a declared read that throws writes no row: nothing was handed over', async () => {
+    const t = withToolCallRecord(
+      declareReads(tool(async () => {
+        throw new Error('HubSpot said 500');
+      }, { name: 'hubspot_get_company', schema: z.object({ company_id: z.string() }) }), { kind: 'hubspot_company', idArg: 'company_id' }),
+      ctxFor(ORG_A),
+    );
+
+    await expect(t.invoke({ company_id: '8812' })).rejects.toThrow('HubSpot said 500');
+
+    expect(await reads(ORG_A)).toHaveLength(0);
+  });
+
+  it('a tool that reads no record writes nothing, and the scope ends with the call', async () => {
+    const t = withToolCallRecord(tool(async () => 'ok', { name: 'web_search', schema: z.object({}) }), ctxFor(ORG_A));
+    await t.invoke({});
+
+    expect(await reads(ORG_A)).toHaveLength(0);
+    // After the call, nobody is in scope.
+    expect(noteRead({ action: 'view', record: { kind: 'object', id: 1 } })).toBe(false);
   });
 });

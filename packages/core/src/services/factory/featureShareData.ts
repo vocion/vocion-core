@@ -212,6 +212,17 @@ function visualIds(meta: Record<string, unknown>): number[] {
 }
 
 /**
+ * Which workspace and request a live link opens, or null — what the public
+ * page's read is recorded against in the access log (the feature IS its
+ * request record, so "who else read this" on the record includes the link).
+ * @param token - From the URL.
+ */
+export async function sharedFeatureRef(token: string): Promise<{ orgId: string; requestId: number } | null> {
+  const found = await linkFor(token);
+  return found ? { orgId: found.orgId, requestId: found.requestId } : null;
+}
+
+/**
  * The public page for a token, or null for a bad, tampered or revoked one.
  * @param token - From the URL.
  * @param now - The clock.

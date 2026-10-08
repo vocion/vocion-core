@@ -22,6 +22,7 @@ import {
   Network,
   Newspaper,
   Plug,
+  ScrollText,
   ShieldCheck,
   Sparkles,
   Store,
@@ -195,6 +196,9 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // its own route rather than inside the sidebar layout.
   { url: '/api-docs', title: 'Swagger Docs', group: 'Organization', icon: BookOpen, keywords: ['api', 'openapi', 'swagger', 'reference', 'endpoints', 'docs'] },
   { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, i18nKey: 'system', keywords: ['status', 'admin', 'settings', 'health'] },
+  // Who read which record, and when — people, agents, API tokens and share
+  // links (`services/access/accessLog.ts`). This workspace's admins only.
+  { url: '/dashboard/access-log', title: 'Access log', group: 'Organization', icon: ScrollText, i18nKey: 'access_log', adminOnly: true, keywords: ['audit', 'access', 'who viewed', 'who opened', 'downloads', 'exports', 'compliance', 'security', 'settings'] },
 
   // ── YOU — personal, not the workspace's ─────────────────────────────────
   { url: '/dashboard/profile', title: 'Profile', group: 'You', icon: Users, i18nKey: 'profile', keywords: ['account', 'password', 'name'] },

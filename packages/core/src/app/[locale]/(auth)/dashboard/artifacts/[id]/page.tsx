@@ -4,6 +4,7 @@ import { StandaloneArtifactView } from '@/features/dashboard/artifacts/Standalon
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { canOpenArtifact } from '@/libs/share/audience';
+import { notePageView } from '@/services/access/pageView';
 import { getArtifact, toPayload } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 
@@ -49,6 +50,7 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
       </div>
     );
   }
+  await notePageView({ kind: 'artifact', id: row.id });
   const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId, viewerId: userId ?? undefined }) : null;
 
   // One scroll: the shell gives this page exactly the window's height, the

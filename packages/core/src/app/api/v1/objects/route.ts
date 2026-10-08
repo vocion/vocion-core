@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { noteCallerRead } from '@/services/access/accessLog';
 import { getObjectTypeBySlug, listBusinessObjectPage, upsertBusinessObjectByExternalKey } from '@/services/BusinessObjectService';
 import { UpsertBusinessObjectValidation } from '@/validations/BusinessObjectValidation';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination, requireCapability } from '../_shared';
@@ -41,6 +42,10 @@ export async function GET(req: Request) {
     limit,
     offset,
   });
+  // A page of records handed to a caller is a search of them: the access log
+  // says who listed what, how many came back and which page (every page is
+  // its own row — a token paging through the list is never one small search).
+  noteCallerRead(caller, { action: 'search', record: { kind: 'object' }, via: 'api', detail: { hits: page.items.length, offset } }, req.headers);
 
   return NextResponse.json(page);
 }

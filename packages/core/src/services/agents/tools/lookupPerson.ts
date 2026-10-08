@@ -20,6 +20,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { familyInScope, familySourcesForOrg, familySourceSlugs } from '@/libs/connectors/families';
+import { declareReads } from '../toolReads';
 
 export const LOOKUP_PERSON_TOOL = 'lookup_person';
 
@@ -103,7 +104,8 @@ export function lookupPersonTools(ctx: RuntimeContext): StructuredToolInterface[
   if (!familyInScope(ctx, 'chat') && !familyInScope(ctx, 'tracker') && !familyInScope(ctx, 'repo')) {
     return [];
   }
-  return [tool(
+  // A person's accounts across the directories, found by email: a view of that person.
+  return [declareReads(tool(
     async (args) => {
       const chatUserId = args.chat_user_id?.trim() || null;
       let email = args.email?.trim().toLowerCase() || null;
@@ -137,5 +139,5 @@ export function lookupPersonTools(ctx: RuntimeContext): StructuredToolInterface[
         chat_user_id: z.string().min(1).optional().describe('Their user id on the connected chat (a Slack user id from a thread), when the email is not known.'),
       }),
     },
-  )];
+  ), { kind: 'person', idArg: ['email', 'chat_user_id'] })];
 }

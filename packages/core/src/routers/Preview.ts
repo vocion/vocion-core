@@ -1,5 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { notePersonRead } from '@/services/access/accessLog';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
 import { resolvePreview } from '@/services/preview/registry';
 import { guardAuth } from './AuthGuards';
@@ -23,9 +24,15 @@ export const getRoute = os
     href: z.string().max(400).optional(),
   }))
   .handler(async ({ input }) => {
-    const { orgId, userId } = await guardAuth();
+    const { orgId, userId, accountId } = await guardAuth();
     const href = input.href?.startsWith('/') && !input.href.startsWith('//') ? input.href : undefined;
-    return resolvePreview({ type: input.type, id: input.id, label: input.label, href }, { orgId, userId: userId ?? null });
+    const doc = await resolvePreview({ type: input.type, id: input.id, label: input.label, href }, { orgId, userId: userId ?? null });
+    // Every kind of record the panel opens, one line: a peek that found
+    // something is a view of it. A reference we hold nothing for read nothing.
+    if (!doc.unresolved) {
+      await notePersonRead({ orgId, userId, accountId }, { action: 'view', record: { kind: input.type, id: input.id }, via: 'preview' });
+    }
+    return doc;
   });
 
 /**

@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authApi } from '@/app/api/v1/_shared';
+import { noteCallerRead } from '@/services/access/accessLog';
 import { getDataRoom, updateDataRoom } from '@/services/DataRoomService';
 
 /**
@@ -25,6 +26,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!room) {
     return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Data room not found' } }, { status: 404 });
   }
+  // A room is a record (`business_object`).
+  noteCallerRead(caller, { action: 'view', record: { kind: 'object', id: room.id }, via: 'api' }, req.headers);
   return NextResponse.json(room);
 }
 

@@ -11,10 +11,11 @@ vi.mock('@/services/ApiTokenService', () => ({ authenticateBearer: vi.fn() }));
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 
 const { db } = await import('@/libs/DB');
-const { businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+const { accessEventSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
 const { authenticateBearer } = await import('@/services/ApiTokenService');
 const { clerkAuth } = await import('@/libs/Auth');
 const { createObjectType } = await import('@/services/BusinessObjectService');
+const { flushAccessLog, resetAccessLogForTests } = await import('@/services/access/accessLog');
 const { GET, POST } = await import('./route');
 
 const mockBearer = vi.mocked(authenticateBearer);
@@ -113,5 +114,37 @@ describe('POST /api/v1/objects', () => {
     mockBearer.mockResolvedValue({ ...tokenPrincipal(ORG, ['manage_sources']), principal: { ...tokenPrincipal(ORG, ['manage_sources']).principal, role: 'viewer' } } as never);
 
     expect((await POST(post(release()))).status).toBe(403);
+  });
+});
+
+describe('GET /api/v1/objects — the access log', () => {
+  it('a page of records handed to a token is one search row: who, how many, never which', async () => {
+    resetAccessLogForTests();
+    await db.delete(accessEventSchema);
+    await POST(post(release()));
+    await POST(post(release({ title: 'northwind-web v1.4.3', externalKey: { system: 'deploy', id: 'northwind-web@v1.4.3' } })));
+
+    const list = await GET(new Request('https://vocion.test/api/v1/objects?type=release', { headers: { authorization: 'Bearer vcn_live_fake_token' } }));
+
+    expect(list.status).toBe(200);
+    expect(await flushAccessLog()).toMatchObject({ written: 1, dropped: 0, pending: 0 });
+
+    const rows = await db.select().from(accessEventSchema);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ orgId: ORG, actorKind: 'token', actorId: 'token:t1', action: 'search', recordKind: 'object', recordId: null, via: 'api', detail: { hits: 2, offset: 0 } });
+  });
+
+  it('a token paging through the list is a row per page, each saying which page — never one small search', async () => {
+    resetAccessLogForTests();
+    await db.delete(accessEventSchema);
+    await POST(post(release()));
+    await POST(post(release({ title: 'northwind-web v1.4.3', externalKey: { system: 'deploy', id: 'northwind-web@v1.4.3' } })));
+    for (const offset of [0, 1]) {
+      await GET(new Request(`https://vocion.test/api/v1/objects?type=release&limit=1&offset=${offset}`, { headers: { authorization: 'Bearer vcn_live_fake_token' } }));
+    }
+    await flushAccessLog();
+
+    expect((await db.select().from(accessEventSchema)).map(r => r.detail).sort((a, b) => Number(a?.offset) - Number(b?.offset))).toEqual([{ hits: 1, offset: 0 }, { hits: 1, offset: 1 }]);
   });
 });
