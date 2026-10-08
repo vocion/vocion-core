@@ -20,6 +20,7 @@ https://github.com/vocion/vocion-core.
 - [README](https://github.com/vocion/vocion-core/blob/main/README.md): what Vocion is, the layered architecture, the full list of authored entity types, and the getting-started commands.
 - [AGENTS.md](https://github.com/vocion/vocion-core/blob/main/AGENTS.md): setup written for a coding agent — exact verified commands, where entities live, how to add an agent, a skill, and an approval gate, how to run lint, types, and tests, and an explicit do-not-touch list.
 - [Getting started](https://github.com/vocion/vocion-core/blob/main/docs/getting-started.md): tutorial from an empty directory to a working workforce, with a worked example of every entity type.
+- [Getting started in a new workspace](https://github.com/vocion/vocion-core/blob/main/docs/guides/getting-started-in-a-workspace.md): the workspace lead core seeds into every new shared workspace, its setup interview, the plan as one-click cards that run as the person's own action with Undo, and the Getting started checklist.
 - [Docs index](https://github.com/vocion/vocion-core/blob/main/docs/README.md): the map of everything below.
 
 ## Core concepts

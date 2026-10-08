@@ -55,14 +55,16 @@ function pasteBody(paste: { credential: string; access: readonly string[]; getIt
 }
 
 /**
- * Check the connector, then put its link card in chat.
+ * Check the connector, then put its link card in chat. Exported for the
+ * workspace lead's setup plan (`propose_setup`), which offers connections with
+ * this same card rather than a second one.
  * @param ctx - The turn's runtime context.
  * @param input - The connector slug and one sentence on why.
  * @param input.connector - Connector slug.
  * @param input.why - The agent's reason, for its own words above the card; not drawn on it.
  * @returns The text the model reads.
  */
-async function offerConnection(ctx: RuntimeContext, input: { connector: string; why: string }): Promise<string> {
+export async function offerConnection(ctx: RuntimeContext, input: { connector: string; why: string }): Promise<string> {
   const connector = getConnector(input.connector);
   if (!connector) {
     return `Refused: there is no connector "${input.connector}". Call list_capabilities for the connector slugs.`;

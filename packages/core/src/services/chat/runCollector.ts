@@ -34,6 +34,7 @@ function cardRunOf(card: CardRunInput): ConversationRun {
     ...(card.kind ? { kind: card.kind } : {}),
     label: card.label,
     actionId: card.actionId,
+    ...(card.actionLabel ? { actionLabel: card.actionLabel } : {}),
     input: card.input,
     runId: card.runId,
     ...(card.state ? { state: card.state } : {}),

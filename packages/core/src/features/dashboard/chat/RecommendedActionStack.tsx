@@ -4,6 +4,7 @@ import type { RecommendedAction } from './types';
 import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { SetupPlan, setupPlanOf } from './cards/SetupPlan';
 import { RecommendedActionCard } from './RecommendedActionCard';
 
 /**
@@ -27,6 +28,28 @@ import { RecommendedActionCard } from './RecommendedActionCard';
  * @param root0.replyInProgress - True while the reply holding the cards is still streaming.
  */
 export function RecommendedActionStack({ recs, replyInProgress = false }: { recs: RecommendedAction[]; replyInProgress?: boolean }) {
+  // A setup plan is read whole, as a column, not slid through one card at a
+  // time (`cards/SetupPlan.tsx`); whatever else the reply carries keeps its strip.
+  const plan = setupPlanOf(recs);
+  if (plan.length === 0) {
+    return <ActionStrip recs={recs} replyInProgress={replyInProgress} />;
+  }
+  const rest = recs.filter(r => !plan.includes(r));
+  return (
+    <>
+      <SetupPlan recs={plan} replyInProgress={replyInProgress} />
+      {rest.length > 0 && <ActionStrip recs={rest} replyInProgress={replyInProgress} />}
+    </>
+  );
+}
+
+/**
+ * The strip itself.
+ * @param root0 - The strip's props.
+ * @param root0.recs - The cards, in order.
+ * @param root0.replyInProgress - True while the reply holding the cards is still streaming.
+ */
+function ActionStrip({ recs, replyInProgress = false }: { recs: RecommendedAction[]; replyInProgress?: boolean }) {
   const [idx, setIdx] = useState(0);
 
   // The strip is a native scroll-snap row: the card follows the finger and

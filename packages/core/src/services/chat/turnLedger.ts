@@ -118,7 +118,8 @@ export async function beginTurn(input: { orgId: string; conversationId: number; 
  */
 export async function recordTurnProgress(id: number, runs: ConversationRun[]): Promise<void> {
   try {
-    await db.update(conversationMessageSchema).set({ runsJson: runs }).where(eq(conversationMessageSchema.id, id));
+    const [stored] = await db.select({ runs: conversationMessageSchema.runsJson }).from(conversationMessageSchema).where(eq(conversationMessageSchema.id, id)).limit(1);
+    await db.update(conversationMessageSchema).set({ runsJson: keepCardDecisions(runs, stored?.runs ?? null) }).where(eq(conversationMessageSchema.id, id));
   } catch (err) {
     logger.warn('turn ledger: progress not recorded', { id, error: (err as Error).message });
   }
@@ -150,11 +151,19 @@ export async function finishTurn(input: {
   agentSlug?: string | null;
   cost?: { tokens: number; microCents: number } | null;
 }): Promise<{ id: number }> {
+  // A card the person decided while the turn was still being written down
+  // keeps what it became: the runs written here are the collector's, which
+  // never saw the press (`keepCardDecisions`).
+  const [stored] = await db
+    .select({ runs: conversationMessageSchema.runsJson })
+    .from(conversationMessageSchema)
+    .where(eq(conversationMessageSchema.id, input.id))
+    .limit(1);
   const [row] = await db
     .update(conversationMessageSchema)
     .set({
       content: input.content,
-      runsJson: input.runs ?? null,
+      runsJson: keepCardDecisions(input.runs ?? null, stored?.runs ?? null),
       documentsJson: (input.documents && input.documents.length > 0 ? input.documents : null) as never,
       traceJson: input.trace && input.trace.length > 0 ? input.trace : null,
       status: input.status,
@@ -175,6 +184,47 @@ export async function finishTurn(input: {
       .where(eq(conversationSchema.id, input.conversationId));
   }
   return { id: row?.id ?? input.id };
+}
+
+/**
+ * The runs a finished turn writes, with every card the person already decided
+ * kept as decided.
+ *
+ * A card is on screen the moment it is surfaced, and its row is written while
+ * the turn is still running; the person can press it then. The press is
+ * written onto the stored card (`markCardRun`), and the turn's own copy of its
+ * runs — written when the turn finishes — has never heard of it. Writing that
+ * copy over the row put the button back on a step that had already run (a
+ * setup card pressed before a slow turn finished, 2026-10-08).
+ * @param next - The runs the finishing turn holds.
+ * @param stored - The runs on the row now.
+ */
+export function keepCardDecisions(next: ConversationRun[] | null, stored: ConversationRun[] | null): ConversationRun[] | null {
+  if (!next || !stored) {
+    return next;
+  }
+  const decided = new Map<string, Extract<ConversationRun, { type: 'card' }>>();
+  for (const run of stored) {
+    if (run.type === 'card' && run.id && (run.runId !== undefined || run.decision || (run.state && run.state !== 'proposed'))) {
+      decided.set(run.id, run);
+    }
+  }
+  if (decided.size === 0) {
+    return next;
+  }
+  return next.map((run) => {
+    const was = run.type === 'card' && run.id ? decided.get(run.id) : undefined;
+    if (!was || run.type !== 'card' || (run.runId !== undefined && run.state && run.state !== 'proposed')) {
+      return run;
+    }
+    return {
+      ...run,
+      ...(was.runId !== undefined ? { runId: was.runId } : {}),
+      ...(was.state ? { state: was.state } : {}),
+      ...(was.decision ? { decision: was.decision } : {}),
+      ...(was.lastAttempt ? { lastAttempt: was.lastAttempt } : {}),
+    };
+  });
 }
 
 /**

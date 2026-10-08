@@ -13,6 +13,7 @@ import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
+import { isSetupCard, SetupCard } from './cards/SetupCard';
 import { ConnectLinkCard, isConnectLinkCard } from './ConnectLinkCard';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
 import { describeActionEffect, describeCardState } from './recommendedAction';
@@ -64,12 +65,16 @@ type CardProps = {
 };
 
 /**
- * One card in the answer. The connect card (`offer_connection`, #1080) has its
- * own component; every other card is the action card below. The split is here,
+ * One card in the answer. The connect card (`offer_connection`, #1080) and a
+ * setup step (`propose_setup`, `cards/SetupCard.tsx`) have their own
+ * components; every other card is the action card below. The split is here,
  * above every hook, so neither card ever calls a different set of hooks.
  * @param props - The card and how it behaves.
  */
 export function RecommendedActionCard(props: CardProps) {
+  if (isSetupCard(props.rec)) {
+    return <SetupCard rec={props.rec} />;
+  }
   return isConnectLinkCard(props.rec) ? <ConnectLinkCard rec={props.rec} replyInProgress={props.replyInProgress} /> : <ActionCard {...props} />;
 }
 

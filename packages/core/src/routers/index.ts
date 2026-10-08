@@ -120,13 +120,14 @@ import {
   start as startMissionRoute,
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
-import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
+import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
 import { changePasswordRoute, getProfileRoute, signInMethodsRoute, unlinkSignInMethodRoute, updateNameRoute, updatePhoneRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
+  actAsPersonRoute,
   actionStatusRoute,
   approveContentRoute,
   cancel,
@@ -251,6 +252,7 @@ export const router = {
   },
   nav: {
     getPrefs: getNavPrefs,
+    gettingStarted: navGettingStarted,
     setPins: setNavPins,
     dismiss: dismissNavPrompt,
   },
@@ -398,6 +400,7 @@ export const router = {
     approveContent: approveContentRoute,
     unapproveContent: unapproveContentRoute,
     propose: proposeFromRecommendationRoute,
+    actAsPerson: actAsPersonRoute,
     recordSignal: recordSignalRoute,
     rewriteDraft: rewriteDraftRoute,
     actionStatus: actionStatusRoute,

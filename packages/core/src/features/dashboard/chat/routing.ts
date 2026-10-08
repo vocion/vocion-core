@@ -45,6 +45,15 @@ export function defaultAgentSlug(agents: AgentOption[]): string {
 }
 
 /**
+ * The name of the agent a fresh conversation opens with — {@link defaultAgentSlug}'s row.
+ * @param agents - The agents this surface knows.
+ */
+export function defaultAgentName(agents: AgentOption[]): string {
+  const slug = defaultAgentSlug(agents);
+  return agents.find(a => a.slug === slug)?.name ?? slug;
+}
+
+/**
  * Who answers THIS turn, given the composer's tags: the first `@agent`, or
  * the lead of the first `@team` that names one. Null = the conversation's
  * own agent.

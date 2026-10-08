@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { RailApp } from './nav/AppRail';
 import type { PinnableItem } from './nav/navPins';
 import type { WorkspaceSwitcherTargetPath } from './nav/workspaceSwitch';
+import type { GettingStartedState } from '@/features/dashboard/GettingStartedChecklist';
 import type { AppNav } from '@/features/navigation/apps';
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { PluginNav } from '@/features/navigation/pluginNav';
@@ -16,6 +17,8 @@ import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/component
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
+import { SETUP_CHANGED_EVENT } from '@/features/dashboard/chat/cards/SetupCard';
+import { checklistApplies, GettingStartedChecklist } from '@/features/dashboard/GettingStartedChecklist';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
 import { AppRail } from '@/features/dashboard/nav/AppRail';
@@ -30,7 +33,7 @@ import { appOwningPath, resolveActiveApp, workspaceSwitchPath } from '@/features
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
 import { groupEnabledSurfaces } from '@/features/navigation/surfaces';
-import { usePathname } from '@/libs/I18nNavigation';
+import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 
 /**
@@ -80,6 +83,7 @@ import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 type NavView = 'work' | 'manage';
 const PAGES_MAX = 7;
 const INVITE_CARD = 'invite-card';
+const GETTING_STARTED_CARD = 'getting-started';
 // The sidebar shows the MARK + wordmark as text (ElevenLabs pattern): never the
 // lockup SVG (its descriptor is unreadable at 24px) and never the tagline —
 // both stay on sign-in, where `VocionLogo` renders them.
@@ -105,7 +109,7 @@ function pluginIcon(url: string, name: string): LucideIcon {
   return DASHBOARD_ROUTES.find(r => r.url === url)?.icon ?? iconByName(name);
 }
 
-export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, apps = [], ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, apps = [], gettingStarted = null, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
   /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
@@ -123,12 +127,26 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
    * other props hold only the core app's rows. Empty: no rail, the nav as it was.
    */
   apps?: AppNav[];
+  /**
+   * Where a shared workspace stands on its first four steps
+   * (`services/workspace/gettingStarted.ts`); null for a personal one. While
+   * a step is left, the Getting started checklist takes the invite card's place.
+   */
+  gettingStarted?: GettingStartedState | null;
 }) => {
   const t = useTranslations('DashboardLayout');
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
   const [view, setView] = useState<NavView>('work');
   const prefs = useNavPrefs();
+  // A setup step that ran or was undone in chat (`cards/SetupCard.tsx`) can
+  // add an app or a page: re-read the shell so the rail shows it now.
+  const router = useRouter();
+  useEffect(() => {
+    const onSetupChanged = () => router.refresh();
+    window.addEventListener(SETUP_CHANGED_EVENT, onSetupChanged);
+    return () => window.removeEventListener(SETUP_CHANGED_EVENT, onSetupChanged);
+  }, [router]);
 
   // The header's avatar menu asks for the manage view by event — it is a
   // sidebar mode, not a route, so there is nothing to navigate to.
@@ -469,10 +487,15 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                     <AppSidebarNav key={`app:${section.label}`} label={section.label} items={section.items} moreLabel={t('more')} />
                   ))}
 
-                  {/* Bottom cluster: invite card (dismissible, remembered) and
-                      the door to the workspace's configuration. */}
+                  {/* Bottom cluster: the Getting started checklist while a
+                      shared workspace has a first step left — it replaces the
+                      invite card, which is one of its steps — otherwise the
+                      invite card (both dismissible, remembered), and the door
+                      to the workspace's configuration. */}
                   <div className="mt-auto">
-                    {!prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
+                    {checklistApplies(gettingStarted)
+                      ? !prefs.dismissed.includes(GETTING_STARTED_CARD) && <GettingStartedChecklist initial={gettingStarted} onDismiss={() => prefs.dismiss(GETTING_STARTED_CARD)} />
+                      : !gettingStarted && !prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
                     {/* The visible door to MANAGE — everything configurational is
                         behind it, so it is a row in the nav, not only a line in a
                         popover. Icon rail: the gear alone, with a tooltip. */}

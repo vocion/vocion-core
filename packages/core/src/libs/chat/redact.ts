@@ -75,12 +75,17 @@ export function hasInternalIds(text: string): boolean {
   return redactInternalIds(text) !== text.replace(/ {2,}/g, ' ').trim();
 }
 
-/** The one sentence an empty workspace is allowed to produce, everywhere. */
+/**
+ * The one sentence an empty workspace is allowed to produce, everywhere —
+ * written for the person in it, not for whoever deploys the product. A shared
+ * workspace is seeded with its lead (`services/workspace/workspaceLead.ts`),
+ * so this is the rare case: no agent could be seeded, or every one retired.
+ */
 export const NO_AGENTS_MESSAGE
-  = 'This workspace has no agents yet. Apply a workspace or add one under Manage → Teams & agents.';
+  = 'This workspace has no agents yet. Hire one from the agent catalog to get started.';
 
-/** Where that sentence sends the person. */
-export const NO_AGENTS_HREF = '/dashboard/agents';
+/** Where that sentence sends the person: the agents they can hire. */
+export const NO_AGENTS_HREF = '/dashboard/hire';
 
 /**
  * Is this failure really "the workspace is empty"?

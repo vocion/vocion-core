@@ -56,6 +56,7 @@ function withSafeHref(field: CardField): CardField {
  * neither can leave the product. Absent keys stay absent.
  * @param card - A stored card run or the card from the wire.
  * @param card.kind
+ * @param card.actionLabel
  * @param card.body
  * @param card.fields
  * @param card.secondaryHref
@@ -63,10 +64,11 @@ function withSafeHref(field: CardField): CardField {
  * @param card.lastAttempt
  * @param card.decision
  */
-export function cardShown(card: { kind?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision }): Partial<RecommendedAction> {
+export function cardShown(card: { kind?: string; actionLabel?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision }): Partial<RecommendedAction> {
   const second = cardLink(card.secondaryHref, card.secondaryHrefLabel);
   return {
     ...(card.kind ? { kind: card.kind } : {}),
+    ...(card.actionLabel ? { actionLabel: card.actionLabel } : {}),
     ...(card.body ? { body: card.body } : {}),
     ...(card.fields ? { fields: card.fields.map(withSafeHref) } : {}),
     ...('href' in second ? { secondaryHref: second.href, ...(second.hrefLabel ? { secondaryHrefLabel: second.hrefLabel } : {}) } : {}),

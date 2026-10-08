@@ -251,6 +251,21 @@ export default defineConfig<ChromaticConfig>({
     // Defined only when the server is the scripted model
     // (`VOCION_LLM_PROVIDER=scripted`), so a plain `npx playwright test` — locally
     // or in CI — never drives the chat at a stub key.
+    // A new workspace set up by chat: the lead's introduction, its interview,
+    // the plan as one-click cards, each run with Undo, and the Getting
+    // started checklist counting them. Needs the scripted model, like
+    // `documents`. Run with: npm run e2e:onboarding
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted'
+      ? [
+          {
+            name: 'onboarding',
+            testDir: './e2e/onboarding',
+            timeout: projectTimeout(240 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+          },
+        ]
+      : []),
     ...(process.env.VOCION_LLM_PROVIDER === 'scripted'
       ? [
           {

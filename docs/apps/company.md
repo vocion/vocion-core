@@ -72,6 +72,14 @@ edit a team, a prompt or a bar like anything a person wrote.
 - **Admins set it up.** A member sees what each template stands up and who can
   set it up.
 
+## From chat
+
+A new workspace's lead can offer a template as a setup card ("Start from
+Support Org"). The card's interview answers come from what the person said
+while it set the workspace up. Pressing the card runs the same install as the
+person (`app.install_template`), and Undo takes it back. See
+[Getting started in a new workspace](../guides/getting-started-in-a-workspace.md).
+
 ## Adding a template
 
 A template is a directory under an app's `templates/`:

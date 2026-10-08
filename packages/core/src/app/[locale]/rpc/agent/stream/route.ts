@@ -127,9 +127,13 @@ export async function POST(request: Request): Promise<Response> {
   // A personal workspace with no agent yet gets its assistant now
   // (`services/workspace/personalAssistant.ts`): one made before the assistant
   // existed heals on its first turn rather than answering "no agents".
+  // A shared one gets its workspace lead the same way (`workspaceLead.ts`).
   if (roster.length === 0) {
-    const { ensurePersonalAssistant } = await import('@/services/workspace/personalAssistant');
-    if (await ensurePersonalAssistant(orgId).catch(() => false)) {
+    const [{ ensurePersonalAssistant }, { ensureWorkspaceLead }] = await Promise.all([
+      import('@/services/workspace/personalAssistant'),
+      import('@/services/workspace/workspaceLead'),
+    ]);
+    if (await ensurePersonalAssistant(orgId).catch(() => false) || await ensureWorkspaceLead(orgId).catch(() => false)) {
       roster = await listAgents(orgId);
       leadNow = import('@/services/TeamService').then(m => m.getWorkspaceLead(orgId));
     }
@@ -601,8 +605,13 @@ export async function POST(request: Request): Promise<Response> {
           // too, which is the side-effect replay the catch above refuses for
           // exactly the same reason. Continuing from the results already in
           // context has to happen inside the loop, not here.
+          //
+          // A turn that put a card up did answer: the card is the next move it
+          // handed the person (`agents/handOff.ts` ends the turn there), so a
+          // setup plan of cards with no words around it is complete, not stalled.
           const toolCalls = runs.filter(r => r.type === 'tool').length;
-          if (ending === 'complete' && stoppedShort({ text, toolCalls })) {
+          const cardsShown = runs.some(r => r.type === 'card');
+          if (ending === 'complete' && !cardsShown && stoppedShort({ text, toolCalls })) {
             ending = 'stalled';
             endingReason = `the turn ran ${toolCalls} step${toolCalls === 1 ? '' : 's'} and ended without answering`;
           }

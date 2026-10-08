@@ -42,7 +42,17 @@ export type ChatAgentContext = {
  * @param orgId - Organization (project) ID whose agents to load.
  */
 export async function loadChatAgentContext(orgId: string): Promise<ChatAgentContext> {
-  const dbAgents = await listAgents(orgId);
+  let dbAgents = await listAgents(orgId);
+  // A shared workspace with nobody in it gets its workspace lead now
+  // (`services/workspace/workspaceLead.ts`): one made before the lead existed
+  // heals the first time anyone opens chat, instead of opening on a blank page.
+  // A failure leaves the roster as it was, and the empty state says so.
+  if (dbAgents.length === 0) {
+    const { ensureWorkspaceLead } = await import('@/services/workspace/workspaceLead');
+    if (await ensureWorkspaceLead(orgId).catch(() => false)) {
+      dbAgents = await listAgents(orgId);
+    }
+  }
 
   // Workspace identity — account + project rows power the greeting AND name
   // the workspace lead. Both chat surfaces mount under the app shell, which
