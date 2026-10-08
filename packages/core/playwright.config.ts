@@ -249,6 +249,22 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // "Connect your systems": the docked walk-through, keyboard only, with a
+    // scripted login, a scripted API-key connector and scripted verification
+    // (`verify` in the connect script), plus the chat path through
+    // `connect_system` on the scripted model. Defined only when the server runs
+    // both, like `connect`. Run with: npm run e2e:connect-systems
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted' && process.env.VOCION_CONNECT_SCRIPT?.includes('connect-systems')
+      ? [
+          {
+            name: 'connect-systems',
+            testDir: './e2e/connect-systems',
+            timeout: projectTimeout(180 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh database,
     // so no `setup` project dependency.

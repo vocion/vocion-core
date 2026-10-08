@@ -132,6 +132,13 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    */
   inspectNote?: string;
   /**
+   * What one synced document is, in the words a person counts it in, for the
+   * first-sync preview ("Found 1,284 deals"). Optional: a connector without
+   * one is counted in documents. Read from the source's config when the noun
+   * depends on what it was set to sync.
+   */
+  recordNoun?: (config: Record<string, unknown>) => { one: string; other: string };
+  /**
    * The OAuth scopes the third party must grant for `sync` to work, when the
    * connector knows them. The Connectors page lists them on the connected row
    * and marks the ones a failed run's error named as missing, so "scope

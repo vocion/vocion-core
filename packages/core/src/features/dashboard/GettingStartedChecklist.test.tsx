@@ -35,7 +35,8 @@ describe('GettingStartedChecklist', () => {
     // The mount read lands: one step done.
     await expect.element(page.getByTestId('getting-started-count')).toHaveTextContent('Getting started · 1 of 4');
     await expect.element(page.getByTestId('getting-started-app')).toHaveAttribute('href', '/dashboard/apps');
-    await expect.element(page.getByTestId('getting-started-connect')).toHaveAttribute('href', `/dashboard/chat?prompt=${encodeURIComponent('I want to connect a system.')}`);
+    // Connecting opens "Connect your systems" docked above the composer.
+    await expect.element(page.getByTestId('getting-started-connect')).toHaveAttribute('href', '/dashboard/chat?objective=connect-systems');
 
     gettingStarted.mockResolvedValueOnce({ steps: [{ id: 'connect', done: false }, { id: 'app', done: true }, { id: 'hire', done: true }, { id: 'invite', done: false }], done: 2, total: 4 });
     window.dispatchEvent(new Event(SETUP_CHANGED_EVENT));

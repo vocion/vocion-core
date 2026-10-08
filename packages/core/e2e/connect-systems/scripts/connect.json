@@ -1,0 +1,32 @@
+{
+  "providers": {
+    "hubspot": {
+      "outcome": "ok",
+      "displayName": "HubSpot — ops@northwind.example",
+      "credentials": {
+        "accessToken": "scripted-hubspot-access-not-real",
+        "refreshToken": "scripted-hubspot-refresh-not-real",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "hubId": 1,
+        "account": "ops@northwind.example"
+      }
+    },
+    "slack": {
+      "outcome": "ok",
+      "displayName": "Slack — Northwind",
+      "credentials": {
+        "token": "scripted-bot-token-not-real",
+        "teamId": "T0NORTHWIND",
+        "teamName": "Northwind",
+        "botUserId": "U0SCRIPTED",
+        "appId": "A0SCRIPTED",
+        "scope": "channels:read,channels:history"
+      }
+    }
+  },
+  "verify": {
+    "hubspot": { "ok": true, "count": 1284, "checks": ["Login accepted"] },
+    "granola": { "ok": true, "count": 37, "checks": ["Key accepted"] },
+    "notion": { "ok": false, "reason": "Notion refused the key: it is not valid." }
+  }
+}

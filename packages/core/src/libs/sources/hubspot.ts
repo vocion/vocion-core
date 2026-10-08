@@ -258,6 +258,11 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   brand: 'hubspot',
   authKind: 'apikey',
   configSchema: hubspotConfigSchema,
+  // Counted in what the source syncs: "Found 1,284 deals".
+  recordNoun: (config) => {
+    const objectType = typeof config.objectType === 'string' ? config.objectType : 'contacts';
+    return { one: objectType.replace(/s$/, ''), other: objectType };
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = hubspotConfigSchema.parse(ctx.config);
     const token = await resolveHubspotToken(ctx.credentials, {

@@ -10,15 +10,18 @@ import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { announceVersionWritten } from '@/features/dashboard/versions/versionEvents';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
+import { CONNECT_SYSTEMS_CARD_KIND } from '@/libs/cards/card';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { linkRecordMentions } from '@/libs/chat/recordMentions';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
 import { nounCode } from '@/libs/codes';
+import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
@@ -810,6 +813,14 @@ export function useChatSession({
           return;
         }
         appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []).filter(r => r.id !== c.id), rec] }));
+        // "Connect your systems" arriving live docks its walk-through at once:
+        // the person asked for it. A reload draws the card and starts nothing.
+        if (rec.kind === CONNECT_SYSTEMS_CARD_KIND && rec.state !== 'decided') {
+          const input = connectSystemsInputOfHref(rec.href);
+          if (input) {
+            startConnectSystems({ input, cardId: c.id });
+          }
+        }
         return;
       }
       case 'card_update': {

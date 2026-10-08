@@ -13,6 +13,7 @@ import { iconByName } from '@/features/dashboard/iconByName';
 import { FeatureSwitch } from '@/features/dashboard/plugins/FeatureSwitch';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { userSchema } from '@/models/Schema';
@@ -141,7 +142,19 @@ export default async function AppPage(props: Props) {
         />
       </Section>
 
-      <Section eyebrow={t('connects_to')}>
+      <Section
+        eyebrow={t('connects_to')}
+        // One move to connect every system it reads, walked one at a time in
+        // chat and verified as it goes ("Connect your systems").
+        action={isAdmin && app.connectors.some(c => !c.connected)
+          ? (
+              <Link href={connectSystemsHref({ app: app.id })} data-testid="app-connect-all" className="inline-flex min-h-11 items-center gap-1 text-[13px] font-medium text-foreground underline-offset-4 hover:underline sm:min-h-0">
+                {t('connect_all', { count: app.connectors.filter(c => !c.connected).length, name: app.name })}
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            )
+          : undefined}
+      >
         {app.connectors.length === 0
           ? <p className="text-[13px] text-muted-foreground">{t('connects_none')}</p>
           : (

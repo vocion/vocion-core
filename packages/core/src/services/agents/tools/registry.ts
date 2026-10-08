@@ -28,6 +28,7 @@ import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './bri
 import { calendarTools } from './calendarEvents';
 import { listCapabilitiesTool } from './capabilities';
 import { chatTools } from './chatTools';
+import { connectSystemTool } from './connectSystems';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -184,6 +185,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // so a gap becomes a recommendation instead of a workaround. Read-only.
     listCapabilitiesTool(ctx),
     offerConnectionTool(ctx),
+    // Several systems at once, walked one at a time above the composer and
+    // verified as they go ("Connect your systems"). Generic over the registries.
+    connectSystemTool(ctx),
     // What the agent's connected sources actually reach — the repositories,
     // project keys and channels in scope, checked live against the grant
     // where the vendor can be asked (a GitHub App installation). "Which

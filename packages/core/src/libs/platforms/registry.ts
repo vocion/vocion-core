@@ -262,6 +262,20 @@ export type CredentialPlatform = {
    */
   loginAppFor?: ConnectProviderId;
   /**
+   * What says a workspace probably uses this platform, before anyone names it
+   * ("Connect your systems", `services/connect/recommendations.ts`). Today one
+   * kind of evidence: the mail hosts a domain's MX records point at. A
+   * workspace whose people's mail is hosted here gets `connectors` recommended,
+   * so a new mail platform is recommended by adding its hosts here, with
+   * nothing in the recommender naming it.
+   */
+  discovery?: {
+    /** MX host suffixes, lower case, no trailing dot: a record ending in one of these counts. */
+    mailHosts: readonly string[];
+    /** The connectors that evidence recommends, in the order they are offered. */
+    connectors: readonly string[];
+  };
+  /**
    * How a person connects this platform (#1080). The Connectors form and the
    * chat card read this instead of special-casing providers. Declared on every
    * platform that backs a connector. It stays free of runtime imports so client
@@ -1202,6 +1216,8 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
+    // Mail hosted here says the workspace lives in this suite: offer its mail, calendar and files.
+    discovery: { mailHosts: ['google.com', 'googlemail.com'], connectors: ['gmail', 'google-calendar', 'drive'] },
     howToConnect: {
       // Each connector asks Google for its own read scope. A login also
       // carries the scopes the person granted this app before
@@ -1795,4 +1811,13 @@ export function afterLoginText(settings: readonly { label: string }[]): string {
   return settings.length === 0
     ? 'Logging in is all it takes; the source is added for you.'
     : `After logging in you choose: ${settings.map(setting => setting.label).join(', ')}.`;
+}
+
+/**
+ * Every platform that declares discovery evidence, for the recommender.
+ * Derived from the descriptors, so a platform added with `discovery` is read
+ * with no change anywhere else.
+ */
+export function discoverablePlatforms(): readonly CredentialPlatform[] {
+  return PLATFORMS.filter(platform => platform.discovery !== undefined);
 }

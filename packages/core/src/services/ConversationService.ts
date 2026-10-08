@@ -791,6 +791,8 @@ export type CardRunPatch = {
   runId: number;
   decision: { action: string; at: string; by?: string };
   lastAttempt: { at: string; reason: string; summary: string };
+  /** The line under the title, rewritten when a card's own walk-through finishes ("Connect your systems" writes its summary here). */
+  body: string;
 };
 
 type CardRunEntry = Extract<ConversationRun, { type: 'card' }>;

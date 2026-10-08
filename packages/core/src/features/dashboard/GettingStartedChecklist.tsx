@@ -4,6 +4,7 @@ import { Check, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from 'react';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/chat/cards/SetupCard';
+import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -19,7 +20,8 @@ import { client } from '@/libs/Orpc';
  * window comes back into focus.
  *
  * A step not done yet opens the chat with the ask for the workspace lead
- * already written (`?prompt=`), because setting up happens in the
+ * already written (`?prompt=`) — except connecting, which opens "Connect your
+ * systems" docked above the composer (`connectSystemsHref`) — because setting up happens in the
  * conversation; a step done opens the place it lives. Dismissible, remembered
  * per person per workspace (nav prefs), and gone by itself once all four are
  * done.
@@ -119,7 +121,7 @@ export function GettingStartedChecklist({ initial, onDismiss, live = true }: Get
         {state.steps.map(step => (
           <li key={step.id}>
             <Link
-              href={step.done ? DONE_HREF[step.id] : `/dashboard/chat?prompt=${encodeURIComponent(t(`step_${step.id}_prompt`))}`}
+              href={step.done ? DONE_HREF[step.id] : step.id === 'connect' ? connectSystemsHref() : `/dashboard/chat?prompt=${encodeURIComponent(t(`step_${step.id}_prompt`))}`}
               className="-mx-1 flex h-7 items-center gap-2 rounded-md px-1 text-[12px] transition-colors hover:bg-surface-hover"
               data-testid={`getting-started-${step.id}`}
               data-done={step.done ? 'true' : 'false'}
