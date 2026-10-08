@@ -187,6 +187,70 @@ resource "aws_lb_listener_rule" "app" {
   }
 }
 
+# ----- alias hostnames -----
+#
+# A hostname the installation used to serve, kept working after it moved here.
+# A person's browser is sent to `hostname` with a 301 that keeps the path and
+# query. `/api/*` is served in place instead: a webhook sender or API client
+# configured with the old name keeps reaching the app, and a 301 would turn its
+# POST into a GET. The alias's DNS lives wherever its zone is; point it at
+# `alb_dns_name`.
+
+resource "aws_lb_listener_certificate" "alias" {
+  for_each = var.alb_enabled ? { for a in var.alias_hostnames : a.hostname => a } : {}
+
+  listener_arn    = aws_lb_listener.https[0].arn
+  certificate_arn = each.value.certificate_arn
+}
+
+resource "aws_lb_listener_rule" "alias_api" {
+  count = var.alb_enabled && length(var.alias_hostnames) > 0 ? 1 : 0
+
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 20
+
+  condition {
+    host_header {
+      values = [for a in var.alias_hostnames : a.hostname]
+    }
+  }
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app[0].arn
+  }
+}
+
+resource "aws_lb_listener_rule" "alias_redirect" {
+  count = var.alb_enabled && length(var.alias_hostnames) > 0 ? 1 : 0
+
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 30
+
+  condition {
+    host_header {
+      values = [for a in var.alias_hostnames : a.hostname]
+    }
+  }
+
+  action {
+    type = "redirect"
+    redirect {
+      host        = var.hostname
+      protocol    = "HTTPS"
+      port        = "443"
+      path        = "/#{path}"
+      query       = "#{query}"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
 # ----- WAF -----
 
 resource "aws_wafv2_web_acl" "app" {

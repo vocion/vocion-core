@@ -27,7 +27,7 @@ the application move together on one pin. A working root is in
 | | Default (the Cloud profile) | Switch |
 |---|---|---|
 | Network | VPC, public subnets in every AZ (ALB, box), private DB subnets (no route out) | `vpc_cidr`, `azs` |
-| Edge | ALB, ACM certificate (DNS-validated in your zone), HTTP → HTTPS, only `hostname` forwarded | `alb_enabled` |
+| Edge | ALB, ACM certificate (DNS-validated in your zone), HTTP → HTTPS, only `hostname` forwarded; old hostnames 301 to it, `/api/*` served in place | `alb_enabled`, `alias_hostnames` |
 | WAF | AWS common + known-bad-inputs rule sets, per-IP rate limit; the two body rules count rather than block ([below](#waf-the-body-rules)) | `waf_enabled`, `waf_rate_limit`, `waf_body_rules_action`, `waf_count_rules` |
 | Box | One EC2 (Amazon Linux 2023), encrypted root, IMDSv2, Elastic IP for egress; reachable only from the ALB | `instance_type`, `root_volume_gb`, `eip_enabled` |
 | Access | SSM Session Manager. No port 22, no key, and sshd stopped and masked on the box | `ssh_enabled`, `ssh_cidrs`, `key_name` |
@@ -345,6 +345,7 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `azs` | list(string) | | At least two AZs; the box runs in the first |
 | `hostname` | string | | Hostname served |
 | `route53_zone_id` | string | | In-account zone holding `hostname` |
+| `alias_hostnames` | list({hostname, certificate_arn}) | `[]` | Old hostnames: browsers 301 to `hostname`, `/api/*` served in place. Certificate issued in this account; DNS points at `alb_dns_name`, managed outside |
 | `core_repo` | string | `"https://github.com/vocion/vocion-core.git"` | Repo the box clones |
 | `core_ref` | string | | Release tag (`v5.0.0`) or full sha. Never a branch |
 | `app_env` | map(string) | `{}` | Non-secret app settings merged over the secret |

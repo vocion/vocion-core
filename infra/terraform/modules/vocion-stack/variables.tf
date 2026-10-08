@@ -49,6 +49,20 @@ variable "hostname" {
   type        = string
 }
 
+variable "alias_hostnames" {
+  description = "Hostnames this installation used to serve elsewhere, each with an ISSUED ACM certificate in this account and region. Browsers are 301'd to `hostname`; `/api/*` (webhooks, API clients) is served in place. Their DNS is not managed here: point each at `alb_dns_name`. Needs alb_enabled."
+  type = list(object({
+    hostname        = string
+    certificate_arn = string
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for a in var.alias_hostnames : a.hostname != var.hostname])
+    error_message = "An alias hostname cannot be the installation's own hostname."
+  }
+}
+
 variable "route53_zone_id" {
   description = "Route 53 hosted zone, in this account, that holds `hostname`. The module writes the app record and the certificate's validation records into it; it never creates or deletes the zone."
   type        = string
