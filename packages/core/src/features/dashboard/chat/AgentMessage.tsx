@@ -27,7 +27,7 @@ import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
 import { turnFailure } from './turnFailure';
 import { useElapsed } from './useElapsed';
-import { LiveStatus, WorkTimeline } from './WorkTimeline';
+import { hasLiveDetail, LiveLine, WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
 /** The abstract levels' words for the turn footer — the same words the composer's control shows; never a vendor or a model id. */
@@ -293,6 +293,18 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // Only the trailing group is still running; a group the agent has written
   // past is finished, and folds to its one line like Claude Code's tool blocks.
   const liveIndex = streaming ? liveWorkIndex(segments) : null;
+  // ONE live line per turn (Chris, 2026-10-08: "while thinking we see double
+  // status update lines … Can we combine that into 1 line?"). It rides the
+  // newest group while that group is the last thing in the turn and has
+  // something to open; otherwise — prose has started after it, or nothing
+  // has happened yet — it sits at the bottom of the turn. Either way it is
+  // there for the whole turn and carries the turn's clock.
+  const liveSeg = segments.find(seg => seg.kind === 'work' && seg.index === liveIndex);
+  const lineOnGroup = liveSeg?.kind === 'work'
+    && hasLiveDetail({ runs: liveSeg.runs, trace: liveSeg.trace, thinkingText: liveSeg.index === firstWork ? message.thinkingText : undefined });
+  // What the bottom line says when no step is running: the agent is writing
+  // once its words are the newest thing in the turn, thinking before that.
+  const bottomLine = activity ?? (segments[segments.length - 1]?.kind === 'text' ? 'Writing…' : 'Thinking…');
 
   // A small brand mark carries the speaker (2026-09-18) — the uppercase name
   // on every turn was the same two words a hundred times; the surface's
@@ -388,21 +400,27 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
         <div className="mt-2 text-sm leading-relaxed">
           {segments.map(seg => (seg.kind === 'work'
             ? (
-                <WorkTimeline
-                  key={`work-${seg.index}`}
-                  runs={seg.runs}
-                  trace={seg.trace}
-                  streaming={liveIndex === seg.index}
-                  // The live indicator at the bottom of the turn names the
-                  // activity; the group shows its rows, not a second headline.
-                  liveHeadline={false}
-                  activity={activity}
-                  thinkingText={seg.index === firstWork ? message.thinkingText : undefined}
-                  documents={seg.index === lastWork ? message.documents : undefined}
-                  // The badge opens the group that holds the failure, not every group.
-                  inspect={seg.trace.some(n => n.status === 'error') || seg.runs.some(r => r.state === 'error') ? inspect : 0}
-                  failureContext={{ turnId: message.id ?? null, conversationId: conversationId ?? null, at: timestamp ?? null }}
-                />
+                // The newest group with nothing to open yet draws nothing: the
+                // bottom line is the turn's one line until it has.
+                liveIndex === seg.index && !lineOnGroup
+                  ? null
+                  : (
+                      <WorkTimeline
+                        key={`work-${seg.index}`}
+                        runs={seg.runs}
+                        trace={seg.trace}
+                        // The live group IS the turn's live line; every other
+                        // group is folded to the quiet line of finished work.
+                        streaming={liveIndex === seg.index}
+                        activity={activity}
+                        elapsed={elapsed}
+                        thinkingText={seg.index === firstWork ? message.thinkingText : undefined}
+                        documents={seg.index === lastWork ? message.documents : undefined}
+                        // The badge opens the group that holds the failure, not every group.
+                        inspect={seg.trace.some(n => n.status === 'error') || seg.runs.some(r => r.state === 'error') ? inspect : 0}
+                        failureContext={{ turnId: message.id ?? null, conversationId: conversationId ?? null, at: timestamp ?? null }}
+                      />
+                    )
               )
             // A `<scratch>` block inside a stored text run is the model
             // thinking, folded (`ScratchFold`); the prose around it renders
@@ -487,32 +505,35 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                     </div>
                   )))))}
           {/*
-            The live indicator sits right under the prose while the turn runs
-            — the shape OpenClaw and Claude Code both use. It used to be the
-            LAST thing in the turn, under the suggested-action cards, which put
-            it a screen away from the sentence that was still being written
-            (Chris, 2026-09-17: *"put 'working' indicator above the action
-            cards, closer to the text that's pending"*).
+            The live line sits right under the newest thing in the turn while
+            it runs — the shape OpenClaw and Claude Code both use. It used to
+            be the LAST thing in the turn, under the suggested-action cards,
+            which put it a screen away from the sentence that was still being
+            written (Chris, 2026-09-17: *"put 'working' indicator above the
+            action cards, closer to the text that's pending"*).
 
-            Three things make it work, and the first version here had only one
-            of them:
+            Four things make it work:
 
             1. It is ALWAYS present while streaming, not only once prose has
                started. During the tool phase the bottom of the transcript was
                still silent, which is the case Chris hit: the answer looked
                finished while five tool calls were still running.
             2. It carries the elapsed time, so a long pause reads as progress
-               rather than as a hang. Same timer as the header, shared, so the
-               two can never disagree.
-            3. It names the current activity rather than only pulsing.
+               rather than as a hang — the turn's clock, wherever the line is.
+            3. It names the current step rather than only pulsing.
+            4. There is ONE. While the newest group of steps is the last thing
+               in the turn, that group's line is it (`lineOnGroup`); this one
+               only draws when prose came after the group, or before any step
+               has anything to show. Two lines naming the same moment — the
+               group's summary over a status line — was the bulk Chris saw.
 
-            The tool blocks interleave with the prose chronologically too now
+            The tool blocks interleave with the prose chronologically too
             (`interleave.ts`) — each group of steps sits where it happened,
-            and a group the agent has written past folds to one line.
+            and a group the agent has written past folds to one quiet line.
           */}
-          {streaming && (
-            <div className="mt-3 min-w-0" data-testid="streaming-indicator">
-              <LiveStatus text={activity ?? 'Working…'} elapsed={elapsed} />
+          {streaming && !lineOnGroup && (
+            <div className="mt-2 min-w-0">
+              <LiveLine text={bottomLine} elapsed={elapsed} />
             </div>
           )}
           {/* One card renders directly; several become the in-chat triage

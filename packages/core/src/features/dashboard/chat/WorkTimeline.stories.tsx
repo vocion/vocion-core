@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import type { TraceNode } from './types';
+import { AgentMessage } from './AgentMessage';
 import { WorkTimeline } from './WorkTimeline';
 
 /**
  * The rail's transparency layer (agent-chat-surface.md §9): what the person
- * sees while the agent works — rows appearing as tool calls start, reasoning
- * folded to one line — and the single headline line the turn folds to
- * afterwards.
+ * sees while the agent works — ONE live line per turn naming the step that is
+ * running, with the count and the clock after it and the rows behind its
+ * chevron — and the single headline line the turn folds to afterwards.
  */
 const meta: Meta<typeof WorkTimeline> = {
   title: 'Chat/WorkTimeline',
@@ -63,33 +64,61 @@ const childSearch: TraceNode = {
   detail: '“Northwind Devon governance”',
 };
 
-/** Mid-turn: reasoning folded with its first sentence, one done row, a delegate in flight with its specialist's row indented. */
-export const Live: Story = {
-  args: {
-    runs: [],
-    streaming: true,
-    activity: 'Handing off to Pipeline Analyst…',
-    trace: [reasoning, lookup, delegate, childSearch],
-  },
-};
-
-/** The first seconds: only reasoning so far — "Thinking…" with the first sentence. */
-export const LiveThinking: Story = {
-  args: {
-    runs: [],
-    streaming: true,
-    activity: 'Reasoning…',
-    trace: [reasoning],
-  },
-};
-
-/** A tool threw mid-turn: its row closes as an error with the message. */
-export const LiveToolError: Story = {
+/** Live, one line — thinking only: nothing has run yet, so the line says so and opens onto the reasoning. */
+export const LiveThinkingOnly: Story = {
   args: {
     runs: [],
     streaming: true,
     activity: null,
-    trace: [reasoning, { ...lookup, id: 't2', status: 'error', label: 'Looked up records', result: 'HubSpot 429 — rate limited' }],
+    elapsed: 4,
+    trace: [reasoning],
+  },
+};
+
+/** Live, one line — mid-steps: the running step names the line, "· 3 steps · 12s" after it, the rows behind the chevron. */
+export const LiveMidSteps: Story = {
+  args: {
+    runs: [],
+    streaming: true,
+    activity: 'Handing off to Pipeline Analyst…',
+    elapsed: 12,
+    trace: [{ ...reasoning, status: 'done' }, lookup, delegate, childSearch],
+  },
+};
+
+/**
+ * Live, one line — prose after steps: the agent has written past its first
+ * group, so that group is a quiet finished line and the live line sits under
+ * the words being written.
+ */
+export const LiveProseAfterSteps: Story = {
+  render: () => (
+    <AgentMessage
+      agentName="Revenue Director"
+      streaming
+      message={{
+        role: 'assistant',
+        content: 'Northwind is still at Proposal Sent, and Devon has not replied since the governance call.',
+        runs: [{ type: 'text', text: 'Northwind is still at Proposal Sent, and Devon has not replied since the governance call.' }],
+        trace: [
+          { ...reasoning, status: 'done', anchor: 0 },
+          { ...lookup, anchor: 0 },
+          { ...delegate, status: 'done', label: 'Delegated to Pipeline Analyst', result: 'stage confirmed', anchor: 0 },
+          { ...childSearch, status: 'done', label: 'Searched sources', result: '4 hits' },
+        ],
+      }}
+    />
+  ),
+};
+
+/** Live, one line — error: a failed step is never folded away; the group opens itself onto it. */
+export const LiveError: Story = {
+  args: {
+    runs: [],
+    streaming: true,
+    activity: null,
+    elapsed: 9,
+    trace: [{ ...reasoning, status: 'done' }, { ...lookup, id: 't2', status: 'error', label: 'Looked up records', result: 'HubSpot 429 — rate limited' }],
   },
 };
 

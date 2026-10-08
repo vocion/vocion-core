@@ -27,15 +27,19 @@ import { failureReport, redactInternalIds } from '@/libs/chat/redact';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
 import { sourceLabels } from './helpers';
 import { liveStepLabel } from './traceReducer';
-import { useElapsed } from './useElapsed';
+import { formatElapsed, useElapsed } from './useElapsed';
 
 /**
  * WorkTimeline — the agent Activity trace.
  *
- * LIVE (agent-chat-surface.md §9): the rows appear as the agent works — a
+ * LIVE (agent-chat-surface.md §9): a live group is ONE line — the step that
+ * is running, shimmering, then a quiet "· 3 steps · 12s" and a chevron that
+ * opens the rows ({@link LiveLine}). It used to be two: the group's folded
+ * summary, and under it the turn's status line naming the current step
+ * (Chris, 2026-10-08: "while thinking we see double status update lines …
+ * Can we combine that into 1 line?"). The rows appear as the agent works — a
  * tool row the moment its start event arrives, flipping to done/error when it
- * lands; delegates indent their specialist's rows; reasoning folds to one
- * line ("Thinking…" → "Thought for 6s") with its first sentence showing.
+ * lands; delegates indent their specialist's rows.
  * AFTER the turn: one collapsed line that says what the work WAS —
  * "Researched 30 sources and wrote the brief" (`libs/chat/stepHeadline.ts`) —
  * and opens into the curated, typed trace — reasoning, meaningful tool steps
@@ -70,11 +74,12 @@ export type WorkTimelineProps = {
   /** Who this turn was, so a failed step can be copied as a report. */
   failureContext?: FailureReport;
   /**
-   * Whether a streaming group shows its own "Working…" bar above the rows.
-   * The transcript turns this off: the live indicator at the bottom of the
-   * turn already names the activity, and the group's job is its rows.
+   * Seconds since the TURN started — the live line's clock. The transcript
+   * passes its own, so the count does not restart when the line moves
+   * between a group and the bottom of the turn; standalone, the group keeps
+   * one of its own.
    */
-  liveHeadline?: boolean;
+  elapsed?: number;
 };
 
 // Plumbing the operator shouldn't have to see — hidden from the curated trace.
@@ -411,14 +416,32 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
   );
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, inspect = 0, failureContext, liveHeadline = true }: WorkTimelineProps) {
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, inspect = 0, failureContext, elapsed }: WorkTimelineProps) {
   if (trace && trace.length > 0) {
-    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} inspect={inspect} failureContext={failureContext} liveHeadline={liveHeadline} />;
+    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} inspect={inspect} failureContext={failureContext} elapsed={elapsed} />;
   }
-  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} inspect={inspect} />;
+  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} inspect={inspect} elapsed={elapsed} />;
 }
 
-function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext, liveHeadline = true }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport; liveHeadline?: boolean }) {
+/**
+ * Whether a live group has anything behind its line — a step, or reasoning
+ * with words in it. The transcript asks this to decide where the turn's ONE
+ * live line goes: on the group when it has something to open, at the bottom
+ * of the turn when it does not (a group that is only "thinking" with nothing
+ * to show yet would otherwise be a chevron that opens onto nothing).
+ * @param group - The group's runs, trace and legacy reasoning text.
+ * @param group.runs - Flat tool runs (legacy turns).
+ * @param group.trace - The typed trace, when the turn has one.
+ * @param group.thinkingText - Legacy reasoning text.
+ */
+export function hasLiveDetail({ runs, trace, thinkingText }: { runs: Extract<AgentRun, { type: 'tool' }>[]; trace?: TraceNode[]; thinkingText?: string }): boolean {
+  if (trace && trace.length > 0) {
+    return trace.some(n => !n.parentId && (n.kind !== 'reason' || Boolean(n.text?.trim())));
+  }
+  return runs.some(r => !PLUMBING.has(r.name)) || Boolean(thinkingText?.trim());
+}
+
+function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext, elapsed: turnElapsed }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport; elapsed?: number }) {
   // Level-1 lines expand independently; one control recollapses everything
   // (agent-chat-surface.md §2.1 rule 1).
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
@@ -485,37 +508,27 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
     setOpenDrill(null);
   };
 
-  // LIVE, the group is FOLDED like a finished one: one line naming the work
-  // so far, the rows behind a tap. What is happening right now is said once,
-  // by the shimmering status line at the bottom of the turn (Chris,
-  // 2026-09-25: "We can probably stay collapsed by default while thinking.
-  // As long as the text is updating to show what is happening"). A surface
-  // with no status line of its own (`liveHeadline`) gets it here instead.
+  // LIVE, the group is ONE line: what is happening now, shimmering, with the
+  // count and the clock after it, the rows behind a tap. It stays folded while
+  // the text is updating (Chris, 2026-09-25: "We can probably stay collapsed
+  // by default while thinking. As long as the text is updating to show what
+  // is happening") — and it is the only status line the turn draws while this
+  // group is the newest thing in it (2026-10-08: the folded summary and a
+  // second status line under it said the same thing twice).
   if (streaming) {
     const live = [...trace].reverse().find(n => n.kind !== 'reason' && (n.status === 'start' || n.status === 'progress'));
     // "Working…" on its own for a minute told the person nothing (Chris,
     // twice). The step that is running says what it is on, and — when the
     // call reports — where it has got to: `Building the document… sheet 7 of 12`.
-    const headline = activity ?? (live ? liveStepLabel(live) : null) ?? (actions.length === 0 && reasons.length > 0 ? 'Thinking…' : 'Working…');
-    // A failure is never folded away: a group with a failed step opens itself.
-    const liveOpen = expanded || actions.some(n => n.status === 'error');
-    if (liveHeadline) {
-      return (
-        <div className="my-2" data-testid="work-timeline-live">
-          <LiveStatus text={headline} elapsed={elapsed} />
-          {actions.length > 0 && <StepGroupLine actions={actions} sources={sources} expanded={liveOpen} onToggle={() => setExpanded(v => !v)} />}
-          {liveOpen && <StepList reasons={reasons} actions={actions} childrenOf={childrenOf} thoughtLabel={thoughtLabel} openIds={openIds} toggle={toggle} failureContext={failureContext} testId="work-steps-live" />}
-        </div>
-      );
-    }
-    // Only thinking so far: the status line says so; there is no step to fold.
-    if (actions.length === 0) {
-      return null;
-    }
+    const text = activity ?? (live ? liveStepLabel(live) : null) ?? 'Thinking…';
+    // A failure is never folded away: a group with a failed step — its own or
+    // a specialist's under it — opens itself.
+    const liveOpen = expanded || trace.some(n => n.status === 'error');
+    const canOpen = actions.length > 0 || reasons.some(r => r.text?.trim());
     return (
       <div className="my-1.5" data-testid="work-timeline-live">
-        <StepGroupLine actions={actions} sources={sources} expanded={liveOpen} onToggle={() => setExpanded(v => !v)} />
-        {liveOpen && <StepList reasons={reasons} actions={actions} childrenOf={childrenOf} thoughtLabel={thoughtLabel} openIds={openIds} toggle={toggle} failureContext={failureContext} testId="work-steps-live" />}
+        <LiveLine text={text} steps={steps} elapsed={turnElapsed ?? elapsed} expanded={liveOpen} onToggle={canOpen ? () => setExpanded(v => !v) : undefined} />
+        {liveOpen && canOpen && <StepList reasons={reasons} actions={actions} childrenOf={childrenOf} thoughtLabel={thoughtLabel} openIds={openIds} toggle={toggle} failureContext={failureContext} testId="work-steps-live" />}
       </div>
     );
   }
@@ -634,51 +647,58 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
 }
 
 /**
- * The live status line: what is happening now, shimmering, with a seconds
- * count from the start of the turn. Plain text and one CSS animation — no
- * spinner, no ping.
+ * The turn's ONE live line: what is happening now, shimmering, then a quiet
+ * "· 3 steps · 12s", and — when there is something behind it — a chevron
+ * that opens the rows. The same line on a live group and at the bottom of a
+ * turn whose newest thing is prose, so it never changes shape as it moves.
+ *
+ * The clock is what makes a long pause read as progress rather than as a
+ * hang; the step's own words, with its progress note, are what make it read
+ * as information rather than as "Working…". A screen reader hears the words
+ * once each time they change (a polite live region holding only them), never
+ * the seconds ticking.
  * @param root0 - Component props.
- * @param root0.text - What the turn is on.
+ * @param root0.text - What the turn is on: the running step's label, or what it said it is doing.
+ * @param root0.steps - Steps so far in this group; 0 leaves the count off.
  * @param root0.elapsed - Seconds since the turn started.
- */
-export function LiveStatus({ text, elapsed }: { text: string; elapsed: number }) {
-  return (
-    <div className="flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs text-muted-foreground" role="status" aria-live="polite">
-      <span className="work-shimmer min-w-0 flex-1 truncate font-medium">{text}</span>
-      {elapsed >= 1 && (
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70 tabular-nums">
-          {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/**
- * A live group, folded: what the steps so far add up to, one line, a tap
- * away from the rows.
- * @param root0 - Component props.
- * @param root0.actions - The group's steps so far.
- * @param root0.sources - Sources grounded so far.
  * @param root0.expanded - Whether the rows show.
- * @param root0.onToggle - Show or hide the rows.
+ * @param root0.onToggle - Show or hide the rows; absent when there is nothing behind the line.
  */
-function StepGroupLine({ actions, sources, expanded, onToggle }: { actions: TraceNode[]; sources: number; expanded: boolean; onToggle: () => void }) {
-  const text = actions.length === 1
-    ? liveStepLabel(actions[0]!)
-    : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool })), sources);
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={expanded}
-      aria-label={`${text} · ${actions.length} step${actions.length === 1 ? '' : 's'}`}
-      className="group/work flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs text-muted-foreground/75 transition hover:text-foreground"
-    >
+export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle }: { text: string; steps?: number; elapsed: number; expanded?: boolean; onToggle?: () => void }) {
+  const count = steps > 0 ? `${steps} step${steps === 1 ? '' : 's'}` : null;
+  const meta = [count, elapsed >= 1 ? formatElapsed(elapsed) : null].filter(Boolean).join(' · ');
+  const line = (
+    <>
       <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
-      <span className="min-w-0 flex-1 truncate">{text}</span>
-      <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground/50 transition ${expanded ? 'rotate-90' : ''}`} aria-hidden />
-    </button>
+      <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <span className="work-shimmer min-w-0 truncate font-medium">{text}</span>
+        {meta && (
+          <span className="shrink-0 text-muted-foreground/55 tabular-nums">
+            {'· '}
+            {meta}
+          </span>
+        )}
+      </span>
+      {onToggle && <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground/50 transition group-hover/work:text-muted-foreground ${expanded ? 'rotate-90' : ''}`} aria-hidden />}
+    </>
+  );
+  return (
+    <div className="min-w-0" data-testid="streaming-indicator">
+      <span className="sr-only" role="status" aria-live="polite">{text}</span>
+      {onToggle
+        ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={expanded}
+              aria-label={count ? `${text} · ${count}` : text}
+              className="group/work flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs text-muted-foreground transition hover:text-foreground"
+            >
+              {line}
+            </button>
+          )
+        : <div aria-hidden className="flex w-full min-w-0 items-center gap-2 py-1 text-xs text-muted-foreground">{line}</div>}
+    </div>
   );
 }
 
@@ -795,11 +815,11 @@ function ClaimLine({ id, icon, label, detail, radius, error, nested, open, onTog
   );
 }
 
-function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], inspect = 0 }: Omit<WorkTimelineProps, 'trace'>) {
+function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], inspect = 0, elapsed: turnElapsed }: Omit<WorkTimelineProps, 'trace'>) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState<number | null>(null);
-  const elapsed = useElapsed(streaming);
+  const ownElapsed = useElapsed(streaming);
   useEffect(() => {
     if (inspect > 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
@@ -833,29 +853,27 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
     : null;
   const legacyKind = (k: Kind): 'tool' | 'search' | 'delegate' | 'draft' => (k === 'delegation' ? 'delegate' : k === 'search' ? 'search' : k === 'draft' || k === 'proposal' ? 'draft' : 'tool');
   const headline = stepHeadline(nodes.map(n => ({ kind: legacyKind(n.kind), status: n.state === 'pending' ? 'progress' : n.state, label: n.label })), sources);
-  const headerText = streaming ? (activity ?? livePending ?? 'Working…') : headline;
 
   return (
-    <div className="my-2">
-      <button
-        type="button"
-        onClick={() => hasDetail && setOpen(v => !v)}
-        aria-expanded={open}
-        aria-label={streaming ? headerText : `${headline} · ${summary}`}
-        disabled={!hasDetail}
-        className="flex w-full items-center gap-2 py-1 text-left text-xs text-muted-foreground/75 transition enabled:hover:text-foreground"
-      >
-        {streaming
-          ? <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-          : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
-        <span className={`min-w-0 flex-1 truncate ${streaming ? 'work-shimmer font-medium' : ''}`}>{headerText}</span>
-        {streaming && elapsed >= 3 && (
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-            {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
-          </span>
-        )}
-        {hasDetail && <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />}
-      </button>
+    <div className="my-1.5">
+      {/* Live, the header IS the turn's one live line — the same line a typed
+          trace draws, so a legacy turn does not grow a second shape. */}
+      {streaming
+        ? <LiveLine text={activity ?? livePending ?? 'Thinking…'} steps={nodes.length} elapsed={turnElapsed ?? ownElapsed} expanded={open} onToggle={hasDetail ? () => setOpen(v => !v) : undefined} />
+        : (
+            <button
+              type="button"
+              onClick={() => hasDetail && setOpen(v => !v)}
+              aria-expanded={open}
+              aria-label={`${headline} · ${summary}`}
+              disabled={!hasDetail}
+              className="flex w-full items-center gap-2 py-1 text-left text-xs text-muted-foreground/75 transition enabled:hover:text-foreground"
+            >
+              <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{headline}</span>
+              {hasDetail && <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />}
+            </button>
+          )}
 
       {open && hasDetail && (
         <>

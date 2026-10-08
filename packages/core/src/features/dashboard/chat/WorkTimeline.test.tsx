@@ -103,6 +103,49 @@ describe('WorkTimeline three-level transcript', () => {
     await expect.element(page.getByText('Found the precedent table')).not.toBeInTheDocument();
   });
 
+  it('is ONE line while live: the running step, the count and the clock, not a summary over a status line (Chris, 2026-10-08)', async () => {
+    const live: TraceNode[] = [
+      { ...TRACE[0]!, status: 'done' },
+      { ...TRACE[1]!, status: 'done' },
+      { ...TRACE[3]!, status: 'start', label: 'Editing proposal.md…' },
+    ];
+    const { container } = await render(<WorkTimeline runs={[]} streaming trace={live} activity={null} elapsed={12} />);
+
+    const line = page.getByTestId('streaming-indicator');
+
+    // The running step names the line; the finished ones are counted, not composed into a second headline.
+    await expect.element(line).toHaveTextContent('Editing proposal.md…');
+    await expect.element(line).toHaveTextContent('· 2 steps · 12s');
+    expect(container.querySelectorAll('.work-shimmer')).toHaveLength(1);
+    expect(container.textContent).not.toContain('Searched the data room and');
+    // One polite live region, holding the words only — never the ticking seconds.
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('Editing proposal.md…');
+  });
+
+  it('thinking only: the line says so, and opens onto the reasoning', async () => {
+    const thinking: TraceNode[] = [{ ...TRACE[0]!, status: 'progress' }];
+    await render(<WorkTimeline runs={[]} streaming trace={thinking} activity={null} />);
+
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Thinking…');
+
+    await userEvent.click(page.getByRole('button', { name: 'Thinking…' }));
+    await userEvent.click(page.getByRole('button', { name: /Thought it through/ }));
+
+    await expect.element(page.getByText('The angle rests on two sourced facts.')).toBeInTheDocument();
+  });
+
+  it('a failure inside a specialist\'s steps opens the live group by itself', async () => {
+    const failed: TraceNode[] = [
+      { ...TRACE[1]!, status: 'start' },
+      { ...TRACE[2]!, status: 'error', resultDetail: 'precedents.md is locked' },
+    ];
+    await render(<WorkTimeline runs={[]} streaming trace={failed} activity={null} />);
+
+    await expect.element(page.getByTestId('work-steps-live')).toBeInTheDocument();
+    await expect.element(page.getByTestId('failed-step')).toHaveTextContent('precedents.md is locked');
+  });
+
   it('a tool error closes its row as an error with the message', async () => {
     const errored: TraceNode[] = [{ ...TRACE[3]!, status: 'error', result: 'HubSpot 429' }];
     await render(<WorkTimeline runs={[]} streaming trace={errored} activity={null} />);
@@ -124,7 +167,7 @@ describe('the running step says where the call has got to', () => {
     const { container } = await render(<WorkTimeline runs={[]} streaming trace={building} activity={null} />);
     await userEvent.click(page.getByRole('button', { name: /1 step/ }));
 
-    const headline = container.querySelector('[data-testid="work-timeline-live"] > div > .work-shimmer');
+    const headline = container.querySelector('[data-testid="work-timeline-live"] [data-testid="streaming-indicator"] .work-shimmer');
     const step = container.querySelector('[data-testid="work-steps-live"] li');
 
     expect(headline?.textContent).toBe('Rendering the document… sheet 7 of 12');
@@ -137,6 +180,8 @@ describe('the running step says where the call has got to', () => {
   it('reads plainly again the moment the step lands', async () => {
     const landed: TraceNode[] = [{ ...building[0]!, status: 'done', label: 'Rendered the document', progress: undefined }];
     const { container } = await render(<WorkTimeline runs={[]} streaming trace={landed} activity={null} />);
+    // Nothing is running now, so the live line says the agent is thinking; the step itself reads plainly.
+    await userEvent.click(page.getByRole('button', { name: /1 step/ }));
 
     expect(container.textContent).toContain('Rendered the document');
     expect(container.textContent).not.toContain('sheet 7 of 12');
