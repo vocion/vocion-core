@@ -85,6 +85,8 @@ export type Card = z.infer<typeof CardSchema>;
 /** What a kind declares: how its payload is checked and what draws it. */
 /** The kind a step of a workspace's setup plan is drawn as (`propose_setup`, `SetupCard.tsx`). */
 export const SETUP_CARD_KIND = 'setup';
+/** The kind "Connect your systems" is offered as (`connect_system`, `ConnectSystemsCard.tsx`): its link starts the walk-through. */
+export const CONNECT_SYSTEMS_CARD_KIND = 'connect-systems';
 
 export type CardKindDescriptor = {
   kind: string;
@@ -127,6 +129,9 @@ registerCardKind({ kind: 'link', renderer: 'link', refine: c => (c.href ? null :
 // One step of a workspace's setup plan (`propose_setup`): one action the
 // person runs with one press, and Undo once it has run.
 registerCardKind({ kind: SETUP_CARD_KIND, renderer: 'setup', refine: c => (c.actions.length === 1 ? null : 'a setup card offers exactly one action') });
+// "Connect your systems" (`connect_system`): no action of its own — its link
+// opens the docked walk-through, which runs on its own RPCs.
+registerCardKind({ kind: CONNECT_SYSTEMS_CARD_KIND, renderer: 'connect-systems', refine: c => (c.href && c.actions.length === 0 ? null : 'a connect-systems card names its walk-through (href) and runs no action itself') });
 
 export type CardCheck = { ok: true; card: Card } | { ok: false; reason: string };
 

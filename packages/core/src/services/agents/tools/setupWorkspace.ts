@@ -281,7 +281,21 @@ export async function proposeSetup(ctx: RuntimeContext, input: { steps: SetupSte
   const shown: string[] = [];
   const skipped: string[] = [];
   const seen = new Set<string>();
-  for (const step of input.steps) {
+  // Two or more systems to connect are one step: "Connect your systems", the
+  // walk-through that connects and verifies them one at a time
+  // (`connect_system`), in the place of the first of them in the plan.
+  const connects = [...new Set(input.steps.filter(s => s.kind === 'connect' && s.id).map(s => s.id!))];
+  let steps = input.steps;
+  if (connects.length >= 2) {
+    const first = input.steps.findIndex(s => s.kind === 'connect');
+    steps = input.steps.filter((s, i) => s.kind !== 'connect' || i === first);
+  }
+  for (const step of steps) {
+    if (connects.length >= 2 && step.kind === 'connect') {
+      const { connectSystem } = await import('./connectSystems');
+      shown.push(`connect:${connects.join(',')} — ${await connectSystem(ctx, { named: connects })}`);
+      continue;
+    }
     const key = `${step.kind}:${step.id ?? (step.emails ?? []).join(',')}`;
     if (seen.has(key)) {
       continue;
