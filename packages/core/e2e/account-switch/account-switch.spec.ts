@@ -20,9 +20,10 @@ import { expect, test } from '@playwright/test';
  *
  * Accounts are Orgs, and a person in several Orgs exists only on a multi-Org
  * deployment: a single-Org install (the default) refuses the second
- * membership. So this spec needs the server under test started with
- * `VOCION_ORGS=multi` (`VOCION_ORGS=multi npx playwright test
- * --project=account-switch`) and skips itself otherwise.
+ * membership, and only an extension lifts that rule (`services/OrgPolicy.ts`).
+ * So this spec needs a server under test built with such an extension and
+ * started with `VOCION_ORGS=multi` (`VOCION_ORGS=multi npx playwright test
+ * --project=account-switch`), and skips itself otherwise.
  */
 
 test.skip(process.env.VOCION_ORGS !== 'multi', 'a person in several Orgs needs VOCION_ORGS=multi on the server under test');

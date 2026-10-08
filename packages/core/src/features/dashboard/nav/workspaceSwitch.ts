@@ -16,8 +16,18 @@ export type SwitcherProject = {
   agentCount?: number;
 };
 
-/** An account the person belongs to, as the switcher labels it. */
+/** An Org (`tenant_account`) the person belongs to, as the switcher labels it. */
 export type SwitcherAccount = { id: string; name: string; slug: string };
+
+/** The page a switch to `p` lands on, given the page the person is on. */
+export type WorkspaceSwitcherTargetPath = (p: SwitcherProject, pathname: string) => string;
+
+/**
+ * Which workspaces the switcher lists: every one the person can open (`all`,
+ * core's own behaviour), or only the current Org's (`org`, when an extension
+ * asks — `orgs.scopeWorkspaceSwitcher` in `libs/extensions.ts`).
+ */
+export type SwitcherScope = 'all' | 'org';
 
 /** One heading's worth of the switcher list. */
 export type AccountGroup<T extends SwitcherProject> = { account: SwitcherAccount; projects: T[] };
@@ -173,4 +183,14 @@ export function projectAccent(slug: string): string {
     h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   }
   return ACCENTS[h % ACCENTS.length]!;
+}
+
+/**
+ * The workspaces in one Org (`tenant_account`), in the order given. A
+ * workspace with no Org on it (a story) stays.
+ * @param projects - Every workspace the person can open.
+ * @param orgId - The Org's `tenant_account.id` (NOT a code `orgId`, which is a workspace).
+ */
+export function projectsInOrg<T extends SwitcherProject>(projects: readonly T[], orgId: string): T[] {
+  return projects.filter(p => !p.accountId || p.accountId === orgId);
 }

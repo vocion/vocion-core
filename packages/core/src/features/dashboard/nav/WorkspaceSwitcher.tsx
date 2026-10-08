@@ -1,7 +1,7 @@
 'use client';
 
 import type { WorkspaceDirectory } from './useWorkspaceDirectory';
-import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
+import type { SwitcherAccount, SwitcherProject, SwitcherScope, WorkspaceSwitcherTargetPath } from './workspaceSwitch';
 import type { OrgsMode } from '@/services/OrgPolicy';
 import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
@@ -13,7 +13,7 @@ import { useSidebar } from '@/components/ui/useSidebar';
 import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
 import { cn } from '@/utils/Helpers';
-import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
+import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
  * Workspace context, at the head of the selected app's nav (Vocion 5.0 —
@@ -26,11 +26,14 @@ import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, pro
  * `/w/<slug>/<same page>` — the one switch mechanism (#336).
  *
  * Orgs (what people call a `tenant_account`) show only on a multi-Org
- * deployment (`VOCION_ORGS=multi`, Vocion Cloud): there the Org's name sits
- * under the workspace's, a person in more than one Org sees the list grouped
- * under each Org's name, and a switch into another Org is also how they
- * switch Org: tenancy follows the picked workspace (vocion-core#128). A
- * single-Org install (the default) never names an Org. The header's
+ * deployment, which an extension turns on (`services/OrgPolicy.ts`): there
+ * the Org's name sits under the workspace's, a person in more than one Org
+ * sees the list grouped under each Org's name, and a switch into another Org
+ * is also how they switch Org: tenancy follows the picked workspace
+ * (vocion-core#128). An extension can instead ask for the current Org's
+ * workspaces only (`scope="org"`) and move between Orgs from its own
+ * component above this one. A single-Org install (the default) never names
+ * an Org. The header's
  * avatar menu opens this same popover via {@link OPEN_WORKSPACE_SWITCHER}.
  * Collapsed to the icon rail, the avatar alone is the button.
  *
@@ -56,6 +59,8 @@ export type WorkspaceSwitcherProps = {
   accounts?: SwitcherAccount[];
   /** The deployment's `VOCION_ORGS`. Default `single`: no Org eyebrow, no grouping. */
   orgsMode?: OrgsMode;
+  /** `org`: list only the current Org's workspaces, as an extension asked. Default `all`. */
+  scope?: SwitcherScope;
   projects: SwitcherProject[] | null;
   activeId: string | null;
   onManage?: () => void;
@@ -71,34 +76,41 @@ export type WorkspaceSwitcherProps = {
    */
   placeholder?: string;
   /** The page a switch to `p` lands on. Default: the page the person is on. */
-  targetPath?: (p: SwitcherProject, pathname: string) => string;
+  targetPath?: WorkspaceSwitcherTargetPath;
   /** Which way the list opens. Default: up, as it did from the bottom of the sidebar. */
   side?: 'top' | 'bottom';
 };
 
 /**
- * One row in the switcher list.
+ * One row in a switcher list: an initial in its accent, a name, a mono
+ * sub-line, a check on the current one. Exported so a list an extension adds
+ * beside this one (`nav.aboveWorkspaceSwitcher`) has the same shape
+ * (principle 6).
  * @param props - The row's inputs.
- * @param props.project - The workspace this row switches to.
- * @param props.selected - Whether it is the active workspace.
- * @param props.onPick - Called with the workspace when the row is clicked.
+ * @param props.name - What the row is called.
+ * @param props.sub - The line under it (a slug, or why it is unavailable).
+ * @param props.accentKey - What the accent is derived from (a slug).
+ * @param props.selected - Whether it is the current one.
+ * @param props.disabled - Whether it can be picked.
+ * @param props.onPick - Called when the row is clicked.
  */
-function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void }) {
-  const p = props.project;
+export function SwitcherRow(props: { name: string; sub?: string | null; accentKey: string; selected: boolean; disabled?: boolean; onPick: () => void }) {
   return (
     <button
       type="button"
       role="option"
       aria-selected={props.selected}
-      onClick={() => props.onPick(p)}
-      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover"
+      aria-disabled={props.disabled || undefined}
+      disabled={props.disabled}
+      onClick={props.onPick}
+      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
     >
-      <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(p.slug) }} aria-hidden>
-        {p.name.charAt(0).toUpperCase()}
+      <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(props.accentKey) }} aria-hidden>
+        {props.name.charAt(0).toUpperCase()}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-foreground">{p.name}</span>
-        <span className="block truncate font-mono text-[11px] text-muted-foreground">{p.slug}</span>
+        <span className="block truncate text-[13px] font-medium text-foreground">{props.name}</span>
+        {props.sub && <span className="block truncate font-mono text-[11px] text-muted-foreground">{props.sub}</span>}
       </span>
       {props.selected && <Check className="size-4 shrink-0 text-foreground" aria-hidden />}
     </button>
@@ -106,10 +118,22 @@ function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; o
 }
 
 /**
+ * One workspace row.
+ * @param props - The row's inputs.
+ * @param props.project - The workspace this row switches to.
+ * @param props.selected - Whether it is the active workspace.
+ * @param props.onPick - Called with the workspace when the row is clicked.
+ */
+function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void }) {
+  const p = props.project;
+  return <SwitcherRow name={p.name} sub={p.slug} accentKey={p.slug} selected={props.selected} onPick={() => props.onPick(p)} />;
+}
+
+/**
  * Radix's open-autofocus handler: let it focus on a pointer device, refuse on touch.
  * @param e
  */
-function keepKeyboardDownOnTouch(e: Event): void {
+export function keepKeyboardDownOnTouch(e: Event): void {
   if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
     e.preventDefault();
   }
@@ -130,13 +154,20 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   }, []);
 
   const loading = props.projects === null;
-  const projects = props.projects ?? [];
+  // Scoped to the current Org when an extension asked (`scope`); another Org's
+  // workspaces are then reached through whatever the extension puts above.
+  const scopeOrgId = props.scope === 'org' ? props.account?.id ?? null : null;
+  const orgScoped = scopeOrgId !== null;
+  const projects = useMemo(() => {
+    const all = props.projects ?? [];
+    return scopeOrgId ? projectsInOrg(all, scopeOrgId) : all;
+  }, [props.projects, scopeOrgId]);
   const active = projects.find(p => p.id === props.activeId) ?? (props.placeholder === undefined ? projects[0] ?? null : null);
   const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null }), [projects, query, showEmpty, active]);
   const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null);
   const accounts = props.accounts ?? [];
   const multiOrg = props.orgsMode === 'multi';
-  const groups = multiOrg && accounts.length > 1 ? groupByAccount(visible, accounts) : null;
+  const groups = multiOrg && !orgScoped && accounts.length > 1 ? groupByAccount(visible, accounts) : null;
   const orgName = multiOrg ? props.account?.name : undefined;
   const headingIdPrefix = useId();
 
@@ -279,7 +310,7 @@ export function WorkspaceSwitcherLive(props: {
   only?: readonly string[];
   onManage?: () => void;
   placeholder?: string;
-  targetPath?: WorkspaceSwitcherProps['targetPath'];
+  targetPath?: WorkspaceSwitcherTargetPath;
 }) {
   const { data: session } = useSession();
   const { state } = useSidebar();
@@ -297,6 +328,7 @@ export function WorkspaceSwitcherLive(props: {
       account={data?.account ?? null}
       accounts={data?.accounts ?? []}
       orgsMode={data?.orgsMode}
+      scope={data?.switcherScope}
       projects={projects}
       activeId={session?.user?.projectId ?? null}
       onManage={props.onManage}

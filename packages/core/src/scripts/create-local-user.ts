@@ -5,9 +5,8 @@ import { createLocalUser } from './support/createLocalUser';
 /**
  * Creates a user directly against the database, and — on an empty instance —
  * the Org (a `tenant_account` row) and default project that user belongs to.
- * On a single-Org server (`VOCION_ORGS=single`, the default) it refuses to
- * create a second Org: name the existing one with `--org`, or set
- * `VOCION_ORGS=multi`.
+ * On a single-Org server (the default, `services/OrgPolicy.ts`) it refuses to
+ * create a second Org: name the existing one with `--org`.
  *
  * This is how the FIRST admin of a deployment is created. The web
  * `/api/signup` route only accepts invites: it used to mint an admin for

@@ -60,11 +60,12 @@ export const Env = createEnv({
      */
     VOCION_ENFORCE_WORKSPACE_ACCESS: z.string().optional(),
     /**
-     * How many Orgs (tenants — `tenant_account` rows) this deployment holds.
-     * `single` (default): a one-tenant install — no Org switcher, and creating
-     * a second Org or accepting an invite into a second Org is refused.
-     * `multi`: Vocion Cloud. Read through `orgsMode()` in
-     * `services/OrgPolicy.ts`, not directly.
+     * How many Orgs (tenants — `tenant_account` rows) this deployment holds:
+     * `single` (default) or `multi`. Core on its own is always single — no
+     * Org switcher, and a second Org or a person in a second Org is refused
+     * (`services/OrgPolicy.ts`). `multi` takes effect only through an
+     * extension that lifts that rule (`orgs.multiOrg`, `libs/extensions.ts`),
+     * which reads this variable; it is declared here so the value is checked.
      */
     VOCION_ORGS: z.enum(['single', 'multi']).default('single'),
     /**

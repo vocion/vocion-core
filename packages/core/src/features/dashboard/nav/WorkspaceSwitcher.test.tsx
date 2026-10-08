@@ -74,9 +74,10 @@ describe('WorkspaceSwitcher, collapsed', () => {
  * The open switcher, expanded, on Contoso's "Support".
  * @param accounts - The accounts the person is in.
  * @param projects - The workspaces it lists.
- * @param orgsMode
+ * @param orgsMode - The deployment's Org mode.
+ * @param scope - Which workspaces to list (`org` when an extension asks).
  */
-function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], orgsMode: 'single' | 'multi' = 'multi') {
+function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], orgsMode: 'single' | 'multi' = 'multi', scope: 'all' | 'org' = 'all') {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider>
@@ -87,6 +88,7 @@ function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], or
           activeId="p-contoso-support"
           defaultOpen
           orgsMode={orgsMode}
+          scope={scope}
           navigate={() => {}}
         />
       </SidebarProvider>
@@ -111,6 +113,15 @@ describe('WorkspaceSwitcher, open', () => {
     await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
     expect(page.getByRole('group').elements()).toHaveLength(0);
     expect(page.getByText('Contoso', { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it('lists only the current Org\'s workspaces, ungrouped, when an extension scopes it to the Org', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps], 'multi', 'org');
+
+    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
+    // Contoso's Support and Ops; the other Org's Support is not offered.
+    expect(page.getByRole('option').elements()).toHaveLength(2);
+    expect(page.getByRole('group').elements()).toHaveLength(0);
   });
 
   it('groups a two-account person\'s workspaces under each account\'s name', async () => {
