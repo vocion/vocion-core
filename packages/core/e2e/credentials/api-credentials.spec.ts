@@ -176,6 +176,15 @@ test.describe('the platform selector decides which controls exist', () => {
       'ElevenLabs',
       'Strapi',
       'REST API (bearer token)',
+      // The finance and people families. QuickBooks and Gusto log in and
+      // have nothing to paste, so the selector leaves them out.
+      'Stripe',
+      'Xero',
+      'NetSuite',
+      'Ramp',
+      'BILL',
+      'Rippling',
+      'Workday',
       'Google',
       'Slack',
       'Zoom',
@@ -198,6 +207,9 @@ test.describe('the platform selector decides which controls exist', () => {
       'Notion login app',
       'Zoom login app',
       'Apollo login app',
+      'QuickBooks login app',
+      'Xero login app',
+      'Gusto login app',
       'Other platform',
     ]);
   });
