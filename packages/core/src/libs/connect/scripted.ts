@@ -37,9 +37,21 @@ const RefuseSchema = z.object({
   outcome: z.literal('refuse'),
   reason: z.string().min(1),
 });
+/**
+ * What verifying a connector answers, by connector slug ("Connect your
+ * systems", `services/connect/verifyConnection.ts`): the test call's outcome
+ * and the first sync's count, so the walk-through's "Found 1,284 deals" is
+ * proved end to end without a vendor.
+ */
+const VerifySchema = z.union([
+  z.object({ ok: z.literal(true), count: z.number().int().min(0), checks: z.array(z.string()).default([]) }),
+  z.object({ ok: z.literal(false), reason: z.string().min(1) }),
+]);
 const ConnectScriptSchema = z.object({
   providers: z.record(z.string(), z.discriminatedUnion('outcome', [OkSchema, RefuseSchema])),
+  verify: z.record(z.string(), VerifySchema).default({}),
 });
+export type ScriptedVerification = z.infer<typeof VerifySchema>;
 type ConnectScript = z.infer<typeof ConnectScriptSchema>;
 
 let cachedScript: { file: string; script: ConnectScript } | null = null;
@@ -82,6 +94,22 @@ function scriptedProvider(real: ConnectProvider, script: ConnectScript): Connect
       ? { ok: true, credentials: { ...part.credentials }, displayName: part.displayName }
       : { ok: false, reason: part.reason }),
   };
+}
+
+/**
+ * The scripted verification for one connector, or null when the script names
+ * none (or no script is running): the real verification runs then.
+ * @param connector - Connector slug.
+ */
+export function scriptedVerification(connector: string): ScriptedVerification | null {
+  const file = process.env.VOCION_CONNECT_SCRIPT;
+  if (!file) {
+    return null;
+  }
+  if (process.env.NODE_ENV === 'production' && process.env.VOCION_ALLOW_SCRIPTED_CONNECT !== '1') {
+    return null;
+  }
+  return loadConnectScript(file).verify[connector] ?? null;
 }
 
 /**

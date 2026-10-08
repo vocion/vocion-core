@@ -55,6 +55,7 @@ import {
 import { suggestions as chatSuggestions } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
 import { addConnectorRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute } from './Connect';
+import { finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } from './ConnectSystems';
 import {
   append as appendConvMessage,
   intake as conversationIntake,
@@ -285,6 +286,12 @@ export const router = {
     saveSource: saveConnectedSourceRoute,
     addConnector: addConnectorRoute,
     revealStoredCredential: revealStoredCredentialRoute,
+  },
+  connectSystems: {
+    plan: planConnectionsRoute,
+    saveKey: saveConnectionKeyRoute,
+    verify: verifyConnectionRoute,
+    finish: finishConnectionsRoute,
   },
   apiTokens: {
     list: listTokensRoute,
