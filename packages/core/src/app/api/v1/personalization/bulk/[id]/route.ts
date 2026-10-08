@@ -3,7 +3,12 @@ import { clerkAuth } from '@/libs/Auth';
 import { getBulkJob } from '@/services/personalization/bulkRegenerate';
 import { jsonError } from '../../../_shared';
 
-/** One bulk job, with its per-lead outcomes: what the job page polls. */
+/**
+ * One bulk job, with its per-lead outcomes: what the job page polls.
+ * @param _req
+ * @param ctx
+ * @param ctx.params
+ */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { userId, orgId } = await clerkAuth();
   if (!userId || !orgId) {

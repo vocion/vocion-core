@@ -837,7 +837,8 @@ export function ApiTokensPanel() {
                     onChange={e => setPlatformId(e.target.value)}
                     className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                   >
-                    {platforms.map(platform => (
+                    {/* A supplied platform with no fields has nothing to paste (QuickBooks logs in on the Connectors page). */}
+                    {platforms.filter(platform => platform.keySource === 'minted' || platform.fields.length > 0).map(platform => (
                       <option key={platform.id} value={platform.id}>{platform.label}</option>
                     ))}
                   </select>

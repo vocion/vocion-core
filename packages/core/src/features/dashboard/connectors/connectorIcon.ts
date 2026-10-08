@@ -6,12 +6,14 @@ import {
   Bug,
   Calendar,
   Contact,
+  CreditCard,
   Database,
   FileJson,
   FileText,
   FolderOpen,
   GitPullRequest,
   Globe,
+  Landmark,
   Mail,
   Megaphone,
   MessageSquare,
@@ -20,8 +22,11 @@ import {
   Pencil,
   Plug,
   Radar,
+  Receipt,
   SquareKanban,
+  Users,
   Video,
+  Wallet,
 } from 'lucide-react';
 
 /**
@@ -38,11 +43,13 @@ const ICONS: Record<string, LucideIcon> = {
   Bug,
   Calendar,
   Contact,
+  CreditCard,
   Database,
   FileJson,
   FileText,
   FolderOpen,
   GitPullRequest,
+  Landmark,
   Globe,
   Mail,
   Megaphone,
@@ -52,8 +59,11 @@ const ICONS: Record<string, LucideIcon> = {
   Pencil,
   Plug,
   Radar,
+  Receipt,
   SquareKanban,
+  Users,
   Video,
+  Wallet,
 };
 
 /**

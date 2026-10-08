@@ -28,6 +28,9 @@ a different client with its own settings:
 | `notion` | `notion` | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | [Notion](#notion) |
 | `zoom` | `zoom` | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` | [Zoom](#zoom) |
 | `apollo` | `apollo` | `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET` | [Apollo](#apollo) |
+| `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | [QuickBooks](#quickbooks) |
+| `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | [Xero](#xero) |
+| `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | [Gusto](#gusto) |
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | [slack.md](slack.md#connecting-the-slack-source-with-a-click) |
 | `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | [jira.md](jira.md#connect-with-atlassian) |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | [github.md](github.md#connect-with-github--the-app-instead-of-a-token) |
@@ -38,7 +41,7 @@ a different client with its own settings:
 A workspace admin can save the vendor's app for this workspace alone:
 
 1. Open **Developers**, add a credential, and pick **&lt;Vendor&gt; login app**
-   (Google, Slack, Atlassian, HubSpot, Notion, Zoom or Apollo).
+   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero or Gusto).
 2. The form shows the exact **redirect URL to register** at the vendor, with a
    copy button. Register it on the vendor's app.
 3. Paste the **Client ID** and **Client secret**, and save.
@@ -70,8 +73,8 @@ keep other secrets. Send it as `Authorization: Bearer vcn_live_…`. A signed-in
 admin session works too. A member's session is refused with 403, as on the
 Developers page.
 
-`:provider` is `google`, `slack`, `atlassian`, `hubspot`, `notion`, `zoom` or
-`apollo`. Any other name answers 404.
+`:provider` is `google`, `slack`, `atlassian`, `hubspot`, `notion`, `zoom`,
+`apollo`, `quickbooks`, `xero` or `gusto`. Any other name answers 404.
 
 | Call | What it does |
 |---|---|
@@ -282,6 +285,48 @@ Vocion saves the new one each time.
 
 Access tokens last 30 days. Apollo replaces both tokens on refresh, and Vocion
 saves the new pair.
+
+## QuickBooks
+
+- **App.** An app at the [Intuit Developer portal](https://developer.intuit.com/app/developer/dashboard)
+  with the Accounting scope. Its Development keys connect sandbox companies;
+  its Production keys connect real ones, after Intuit reviews the app.
+- **Redirect URI.** `<NEXT_PUBLIC_APP_URL>/api/connect/quickbooks/callback`,
+  on whichever keys you use (Production keys accept `https` only).
+- **Scope.** `com.intuit.quickbooks.accounting`, read through the connector
+  only: Vocion never writes to the books.
+- **Save it.** A **QuickBooks login app** on Developers, or the env as
+  `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET`.
+
+Access tokens last an hour. Intuit may replace the refresh token on a refresh,
+and the old one then stops working; Vocion saves the new one each time. One
+login is one company. More in [quickbooks.md](quickbooks.md).
+
+## Xero
+
+- **App.** A **Web app** at [developer.xero.com](https://developer.xero.com/app/manage).
+- **Redirect URI.** `<NEXT_PUBLIC_APP_URL>/api/connect/xero/callback`.
+- **Scopes.** `openid profile email offline_access accounting.transactions.read
+  accounting.contacts.read accounting.reports.read accounting.settings.read` —
+  read-only; Vocion never writes to the books.
+- **Save it.** A **Xero login app** on Developers, or the env as
+  `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`.
+
+Access tokens last 30 minutes and Xero replaces the refresh token on each
+refresh; Vocion saves the new one. Without an app, a Xero **custom connection**
+(client ID and secret) can be pasted instead. More in [xero.md](xero.md).
+
+## Gusto
+
+- **App.** An application in the [Gusto developer portal](https://dev.gusto.com/),
+  approved for read access to companies, employees, departments, payrolls and
+  time off.
+- **Redirect URI.** `<NEXT_PUBLIC_APP_URL>/api/connect/gusto/callback`.
+- **Save it.** A **Gusto login app** on Developers, or the env as
+  `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET`.
+
+Access tokens last two hours and each refresh token works once; Vocion saves
+the next one every time. Gusto is login-only. More in [gusto.md](gusto.md).
 
 ## Where it lives in the code
 

@@ -7,6 +7,7 @@ import { jsonError } from '../../_shared';
  * Start a bulk action on the personalization queue (Metacto ticket 071).
  * Body: `{ kind: 'regenerate_brief', leadIds: number[], note: string }`.
  * Answers with the job id; the job page polls `GET /bulk/{id}`.
+ * @param req
  */
 export async function POST(req: Request) {
   const { userId, orgId } = await clerkAuth();

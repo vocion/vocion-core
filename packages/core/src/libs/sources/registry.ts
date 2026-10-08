@@ -9,6 +9,7 @@
 
 import type { SourceConnector } from './types';
 import { apolloConnector } from './apollo';
+import { billConnector } from './bill';
 import { driveConnector } from './drive';
 import { elevenLabsConnector } from './elevenlabs';
 import { fileImportConnector } from './fileImport';
@@ -18,18 +19,26 @@ import { gmailConnector } from './gmail';
 import { googleAdsConnector } from './googleAds';
 import { googleCalendarConnector } from './googleCalendar';
 import { granolaConnector } from './granola';
+import { gustoConnector } from './gusto';
 import { hubspotConnector } from './hubspot';
 import { jiraConnector } from './jira';
 import { localFilesConnector } from './localFiles';
+import { netsuiteConnector } from './netsuite';
 import { notionConnector } from './notion';
 import { posthogConnector } from './posthog';
+import { quickbooksConnector } from './quickbooks';
+import { rampConnector } from './ramp';
 import { restConnector } from './rest';
+import { ripplingConnector } from './rippling';
 import { s3Connector } from './s3';
 import { sentryConnector } from './sentry';
 import { slackConnector } from './slack';
 import { slateConnector } from './slate';
 import { strapiConnector } from './strapi';
+import { stripeConnector } from './stripe';
 import { webConnector } from './web';
+import { workdayConnector } from './workday';
+import { xeroConnector } from './xero';
 import { zoomConnector } from './zoom';
 
 const registry = new Map<string, SourceConnector>();
@@ -71,3 +80,13 @@ registerConnector(restConnector);
 registerConnector(sentryConnector);
 registerConnector(slateConnector);
 registerConnector(elevenLabsConnector);
+registerConnector(quickbooksConnector);
+// The finance and people families (`services/finance`, `services/people`).
+registerConnector(stripeConnector);
+registerConnector(xeroConnector);
+registerConnector(netsuiteConnector);
+registerConnector(rampConnector);
+registerConnector(billConnector);
+registerConnector(gustoConnector);
+registerConnector(ripplingConnector);
+registerConnector(workdayConnector);

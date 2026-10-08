@@ -679,6 +679,9 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
   // The vendor this connector can be authorized at with a click, when the
   // server says it has the app configured. Null means paste a key.
   const [connect, setConnect] = useState<ConnectOption | null>(null);
+  // False for a platform with nothing to paste (QuickBooks logs in only):
+  // the dialog then shows no inputs and no Save, never a form that can only fail.
+  const [pasteable, setPasteable] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -692,6 +695,7 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
         setStored(data.available ?? []);
         setPlatformFields(Array.isArray(data.fields) && data.fields.length > 0 ? data.fields : null);
         setPlatformHelp(data.helpText ?? null);
+        setPasteable(!(typeof data.platform === 'string' && Array.isArray(data.fields) && data.fields.length === 0));
         setConnect(isConnectOption(data.connect) ? data.connect : null);
         setPickedCredentialId(initialCredentialChoice(
           typeof data.linkedCredentialId === 'string' ? data.linkedCredentialId : null,
@@ -793,7 +797,7 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                     {' '}
                     on the server
                     {connect.bringYourOwnApp ? `, or ${withArticle(`${connect.label} login app`)} an admin saves on the Developers page` : ''}
-                    . Until then, paste a token below.
+                    {pasteable ? '. Until then, paste a token below.' : `. ${connect.label} has no key to paste instead.`}
                   </p>
                 )
               : null}
@@ -830,7 +834,7 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                   </fieldset>
                 )
               : null}
-            {connect?.configured
+            {connect?.configured || !pasteable
               ? null
               : usingStored
                 ? (
@@ -915,7 +919,7 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
             <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
               Cancel
             </button>
-            {connect?.configured
+            {connect?.configured || (!pasteable && !usingStored)
               ? null
               : (
                   <button

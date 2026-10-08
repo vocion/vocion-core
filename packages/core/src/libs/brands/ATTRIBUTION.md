@@ -37,12 +37,16 @@ about a mark is altered.
 | `googlecalendar` | Google Calendar | simple-icons, from Google's product logo set | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
 | `googlecloud` | Google Cloud | simple-icons, from https://cloud.google.com | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
 | `googledrive` | Google Drive | simple-icons, from https://developers.google.com/drive/web/branding | CC0-1.0 (drawing) | https://developers.google.com/drive/web/branding |
+| `gusto` | Gusto | simple-icons, from https://gusto.com | CC0-1.0 (drawing) | — |
 | `hubspot` | HubSpot | simple-icons, from https://www.hubspot.com/style-guide | CC0-1.0 (drawing) | https://www.hubspot.com/style-guide |
 | `jira` | Jira | simple-icons, from https://atlassian.design/resources/logo-library | CC0-1.0 (drawing) | https://atlassian.design/foundations/logos/ |
 | `notion` | Notion | simple-icons, from https://www.notion.so | CC0-1.0 (drawing) | — |
 | `posthog` | PostHog | simple-icons, from https://posthog.com/handbook/company/brand-assets | CC0-1.0 (drawing) | https://posthog.com/handbook/company/brand-assets |
+| `quickbooks` | QuickBooks | simple-icons, from https://design.intuit.com/quickbooks/brand | CC0-1.0 (drawing) | https://design.intuit.com/quickbooks/brand |
 | `sentry` | Sentry | simple-icons, from https://sentry.io/branding/ | CC0-1.0 (drawing) | https://sentry.io/branding/ |
 | `strapi` | Strapi | simple-icons, from https://handbook.strapi.io/strapi-brand-book-2022/strapi-logo | CC0-1.0 (drawing) | https://handbook.strapi.io/strapi-brand-book-2022 |
+| `stripe` | Stripe | simple-icons, from https://stripe.com/newsroom/information | CC0-1.0 (drawing) | — |
+| `xero` | Xero | simple-icons, from https://www.xero.com/uk/about/media/downloads | CC0-1.0 (drawing) | — |
 | `zoom` | Zoom | simple-icons, from https://brand.zoom.us/media-library/ | CC0-1.0 (drawing) | https://brand.zoom.us/usage-legal/ |
 
 ## Brands drawn without a logo
@@ -59,10 +63,15 @@ entry a mark.
 | `amazons3` | Amazon S3 | No logo | AWS's trademark guidelines allow a plain-text reference only, no logos: https://aws.amazon.com/trademark-guidelines/. simple-icons dropped AWS marks in v15. |
 | `amazonwebservices` | Amazon Web Services | No logo | As above. Covers Amazon Bedrock and the AWS credential. |
 | `apolloio` | Apollo.io | No logo | Apollo.io's terms forbid using its logos without prior written permission: https://www.apollo.io/terms. Not to be confused with simple-icons' `apollographql`, a different company. |
+| `bill` | BILL | No logo | BILL publishes no terms for third-party use of its logo. |
 | `firecrawl` | Firecrawl | No logo | Firecrawl's brand page covers how to treat the marks, not third-party or integration use: https://www.firecrawl.dev/brand. |
 | `granola` | Granola | No logo | Granola publishes a press kit but no terms for third-party use of its logo: https://grano.la/press. |
 | `microsoftazure` | Microsoft Azure | No logo | Microsoft requires an express licence for its logos and product icons (Azure icons are for architecture diagrams and documentation only): https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks. simple-icons removed Microsoft marks in v13 at Microsoft's request. |
+| `netsuite` | NetSuite | No logo | Oracle's trademark guidelines do not permit third parties to use its logos: https://www.oracle.com/legal/trademarks.html. |
 | `openai` | OpenAI | No logo | OpenAI's brand guidelines ask products built on its API to be free of its logos and to ask permission first: https://openai.com/brand/. simple-icons dropped the mark in v16. |
+| `ramp` | Ramp | No logo | Ramp publishes no terms for third-party use of its logo. |
+| `rippling` | Rippling | No logo | Rippling publishes no terms for third-party use of its logo. |
 | `slack` | Slack | No logo | Slack's brand terms require a written licence for most logo use and allow an integration to be stated in text only: https://slack.com/terms-of-service/slack-brand. simple-icons dropped Salesforce marks in v16. The "Sign in with Slack" button is Slack's own sign-in asset and is a separate matter. |
 | `slate` | Slate | No logo | Slate publishes no brand guidelines. |
 | `tavily` | Tavily | No logo | Tavily's brand page allows its marks in a compatibility statement but not alongside other companies' without formal permission, which a catalog of tools is: https://www.tavily.com/brand. Ask Tavily before adding it. |
+| `workday` | Workday | No logo | Workday's trademark guidelines require permission to use its logos: https://www.workday.com/en-us/legal/trademarks.html. |

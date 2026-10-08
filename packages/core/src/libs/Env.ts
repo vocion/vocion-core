@@ -162,6 +162,14 @@ export const Env = createEnv({
     ZOOM_CLIENT_SECRET: z.string().optional(),
     APOLLO_CLIENT_ID: z.string().optional(),
     APOLLO_CLIENT_SECRET: z.string().optional(),
+    QUICKBOOKS_CLIENT_ID: z.string().optional(),
+    QUICKBOOKS_CLIENT_SECRET: z.string().optional(),
+    XERO_CLIENT_ID: z.string().optional(),
+    XERO_CLIENT_SECRET: z.string().optional(),
+    GUSTO_CLIENT_ID: z.string().optional(),
+    GUSTO_CLIENT_SECRET: z.string().optional(),
+    // BILL's developer key: the server's, used when a workspace's BILL credential carries none of its own.
+    BILL_DEV_KEY: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -234,6 +242,13 @@ export const Env = createEnv({
     ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
     APOLLO_CLIENT_ID: process.env.APOLLO_CLIENT_ID,
     APOLLO_CLIENT_SECRET: process.env.APOLLO_CLIENT_SECRET,
+    QUICKBOOKS_CLIENT_ID: process.env.QUICKBOOKS_CLIENT_ID,
+    QUICKBOOKS_CLIENT_SECRET: process.env.QUICKBOOKS_CLIENT_SECRET,
+    XERO_CLIENT_ID: process.env.XERO_CLIENT_ID,
+    XERO_CLIENT_SECRET: process.env.XERO_CLIENT_SECRET,
+    GUSTO_CLIENT_ID: process.env.GUSTO_CLIENT_ID,
+    GUSTO_CLIENT_SECRET: process.env.GUSTO_CLIENT_SECRET,
+    BILL_DEV_KEY: process.env.BILL_DEV_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

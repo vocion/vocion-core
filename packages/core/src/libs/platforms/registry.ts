@@ -60,10 +60,22 @@ export type CredentialPlatformId
     | 'sentry'
     | 'slate'
     | 'strapi'
-  // Any bearer-token REST API the workspace declares endpoints for
-  // (`libs/sources/rest.ts`). One-live for the same reason as `apollo` — see
-  // the descriptor — so a workspace holds one REST credential today.
+  // Any token-authenticated REST API the workspace declares endpoints for
+  // (`libs/sources/rest.ts`). Several per org: one per API.
     | 'rest'
+  // A QuickBooks Online login, one per company (`libs/sources/quickbooks.ts`).
+    | 'quickbooks'
+  // The finance family (`services/finance`): billing, books, spend and
+  // payables. One account per workspace each (`one-live`, no migration).
+    | 'stripe'
+    | 'xero'
+    | 'netsuite'
+    | 'ramp'
+    | 'bill'
+  // The people family (`services/people`): the HR system of record.
+    | 'gusto'
+    | 'rippling'
+    | 'workday'
   // One credential, several connectors. A Google OAuth client is consented
   // once and its refresh token then serves Gmail, Drive, Calendar, Analytics
   // and Ads together; a Slack bot token reads every channel the workspace
@@ -90,7 +102,10 @@ export type CredentialPlatformId
     | 'hubspot-login-app'
     | 'notion-login-app'
     | 'zoom-login-app'
-    | 'apollo-login-app';
+    | 'apollo-login-app'
+    | 'quickbooks-login-app'
+    | 'xero-login-app'
+    | 'gusto-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -264,8 +279,13 @@ export type CredentialPlatform = {
      * the connector's entry into `login`, so callers never read this.
      */
     loginByConnector?: Readonly<Record<string, LoginDeclaration>>;
-    /** Pasting is always possible. What to paste, and where to get one by hand. */
-    paste: {
+    /**
+     * What to paste, and where to get one by hand. Absent for a vendor that
+     * issues no credential a person could paste and keep working (QuickBooks:
+     * Intuit has no API keys, and rotates the refresh token a login holds), so
+     * the form offers the login alone and never an input that cannot work.
+     */
+    paste?: {
       /** The kind of credential, named the way the vendor names it: "Personal access token", "API token", "Bot token". */
       credential: string;
       /** The access the pasted credential needs, one line each. */
@@ -334,6 +354,9 @@ const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
   loginAppPlatform('notion-login-app', 'notion', 'Notion', 'notion'),
   loginAppPlatform('zoom-login-app', 'zoom', 'Zoom', 'zoom'),
   loginAppPlatform('apollo-login-app', 'apollo', 'Apollo', 'apolloio'),
+  loginAppPlatform('quickbooks-login-app', 'quickbooks', 'QuickBooks', 'quickbooks'),
+  loginAppPlatform('xero-login-app', 'xero', 'Xero', 'xero'),
+  loginAppPlatform('gusto-login-app', 'gusto', 'Gusto', 'gusto'),
 ];
 
 /**
@@ -941,6 +964,238 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     ],
   },
   {
+    id: 'quickbooks',
+    label: 'QuickBooks',
+    brand: 'quickbooks',
+    keySource: 'supplied',
+    // `one-live` for now: a login is one QuickBooks company, so a workspace
+    // reads one company's books. A firm with several companies (one per legal
+    // entity) needs `many`, which means carving `quickbooks` out of
+    // `api_token_org_platform_live_idx` in a migration (PR #1224 carries it);
+    // until then a second login replaces the first.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['quickbooks'],
+    howToConnect: {
+      // Login only: Intuit issues no API key, and the refresh token a login
+      // holds is rotated by Intuit, so a pasted one would stop working within
+      // a day. A source can read the sample company with no login at all.
+      login: { provider: 'quickbooks', access: ['com.intuit.quickbooks.accounting'], settingsAfterLogin: [] },
+    },
+    // One login reads one company, and a source reads all of it, so a second
+    // source on the same company may share the login.
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a QuickBooks login',
+    helpText: 'A QuickBooks Online login, one per company. Log in with QuickBooks on the Connectors page; there is no key to paste.',
+    fields: [],
+  },
+  /* ---------------------------------------------------------------- */
+  /* The finance and people families. Each is `one-live` — one account   */
+  /* per workspace — because widening the cap means a migration on       */
+  /* `api_token_org_platform_live_idx`, and nothing needs two yet. One   */
+  /* credential reads the whole account, so sources may share it.        */
+  /* ---------------------------------------------------------------- */
+  {
+    id: 'stripe',
+    label: 'Stripe',
+    brand: 'stripe',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['stripe'],
+    howToConnect: {
+      paste: {
+        credential: 'Restricted API key',
+        access: ['Customers: Read', 'Invoices: Read', 'Subscriptions: Read', 'Payouts: Read', 'Charges and PaymentIntents: Read', 'Invoices: Write only if agents may draft invoices'],
+        getItAt: { url: 'https://dashboard.stripe.com/apikeys', steps: ['Create restricted key', 'Give it Read on the resources listed above and nothing else', 'Copy the rk_live_… key'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: /^[rs]k_(?:live|test)_\w{10,}$/,
+    keyShapeHint: 'a restricted key starting rk_live_ or rk_test_',
+    helpText: 'A Stripe restricted key (Developers → API keys → Create restricted key) with Read on customers, invoices, subscriptions, payouts, charges and payment intents. Nothing it reads moves money. Add Invoices: Write only if agents may prepare draft invoices, which are never sent or charged. A publishable key (pk_…) cannot read anything.',
+    fields: singleKeyField('Restricted API key', /^[rs]k_(?:live|test)_\w{10,}$/, 'starts with rk_live_ or rk_test_ (a restricted key; a secret key sk_… works but reads more than Vocion needs)'),
+  },
+  {
+    id: 'xero',
+    label: 'Xero',
+    brand: 'xero',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['xero'],
+    howToConnect: {
+      login: {
+        provider: 'xero',
+        access: ['openid', 'profile', 'email', 'offline_access', 'accounting.transactions.read', 'accounting.contacts.read', 'accounting.reports.read', 'accounting.settings.read'],
+        settingsAfterLogin: [],
+      },
+      paste: {
+        credential: 'Custom connection client ID and secret',
+        access: ['accounting.transactions.read', 'accounting.contacts.read', 'accounting.settings.read'],
+        getItAt: { url: 'https://developer.xero.com/app/manage', steps: ['New app → Custom connection', 'Select the read scopes listed above', 'Have the organisation\'s admin authorise it', 'Copy the client ID and secret'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Xero custom connection\'s client ID and secret, or a Xero login',
+    helpText: 'Log in with Xero and pick the organisation, or paste a Xero custom connection (developer.xero.com → New app → Custom connection) with read-only accounting scopes. Either reads one organisation, read-only.',
+    fields: [
+      { name: 'clientId', label: 'Client ID', pattern: /^\w{16,}$/, shapeHint: 'is the custom connection\'s client ID (32 letters and digits)', secret: false },
+      { name: 'clientSecret', label: 'Client secret', pattern: /^\S{16,}$/, shapeHint: 'is the custom connection\'s client secret', secret: true },
+    ],
+  },
+  {
+    id: 'netsuite',
+    label: 'NetSuite',
+    brand: 'netsuite',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['netsuite'],
+    howToConnect: {
+      paste: {
+        credential: 'Token-based authentication (integration + access token)',
+        access: ['REST Web Services', 'SuiteAnalytics Workbook', 'View on Customers, Vendors, Transactions and Accounts', 'Log in using Access Tokens'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an account ID, an integration\'s consumer key and secret, and an access token\'s ID and secret',
+    helpText: 'NetSuite token-based authentication: an integration record (Setup → Integration → Manage Integrations, Token-Based Authentication on) gives the consumer key and secret; an access token for a role with read-only permissions gives the token ID and secret. The account ID is on Setup → Company → Company Information (e.g. 1234567 or 1234567_SB1 for a sandbox).',
+    fields: [
+      { name: 'accountId', label: 'Account ID', pattern: /^[\w-]{3,}$/, shapeHint: 'is the account ID, e.g. 1234567 or 1234567_SB1', secret: false },
+      { name: 'consumerKey', label: 'Consumer key', pattern: /^\S{16,}$/, shapeHint: 'is the integration record\'s consumer key', secret: true },
+      { name: 'consumerSecret', label: 'Consumer secret', pattern: /^\S{16,}$/, shapeHint: 'is the integration record\'s consumer secret', secret: true },
+      { name: 'tokenId', label: 'Token ID', pattern: /^\S{16,}$/, shapeHint: 'is the access token\'s ID', secret: true },
+      { name: 'tokenSecret', label: 'Token secret', pattern: /^\S{16,}$/, shapeHint: 'is the access token\'s secret', secret: true },
+    ],
+  },
+  {
+    id: 'ramp',
+    label: 'Ramp',
+    brand: 'ramp',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['ramp'],
+    howToConnect: {
+      paste: {
+        credential: 'API client ID and secret',
+        access: ['transactions:read', 'reimbursements:read', 'bills:read', 'vendors:read', 'users:read', 'business:read'],
+        getItAt: { url: 'https://app.ramp.com/settings/ramp-developer', steps: ['Create a new app', 'Grant it the read scopes listed above and the client credentials grant', 'Copy the client ID and secret'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Ramp developer app\'s client ID and secret',
+    helpText: 'A Ramp developer app (Settings → Ramp Developer → Create new app) with the client credentials grant and read-only scopes: transactions, reimbursements, bills, vendors, users, business. Read-only: Vocion never issues a card, approves or pays.',
+    fields: [
+      { name: 'clientId', label: 'Client ID', pattern: /^\S{8,}$/, shapeHint: 'is the app\'s client ID (ramp_id_…)', secret: false },
+      { name: 'clientSecret', label: 'Client secret', pattern: /^\S{8,}$/, shapeHint: 'is the app\'s client secret (ramp_sec_…)', secret: true },
+    ],
+  },
+  {
+    id: 'bill',
+    label: 'BILL',
+    brand: 'bill',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['bill'],
+    howToConnect: {
+      paste: {
+        credential: 'API user sign-in and organization ID',
+        access: ['A BILL user whose role can see bills, vendors, invoices and customers — read-only is enough', 'The developer key, unless this server has BILL_DEV_KEY'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a BILL user\'s email and password, the organization ID, and a developer key when the server has none',
+    helpText: 'A BILL (bill.com) user for the API — use a dedicated user with a read-only role — its organization ID (Settings → Sync & Integrations → Manage Developer Keys), and the developer key from the same page unless this server sets BILL_DEV_KEY. Vocion signs in per call and only reads: it never pays, approves or sends.',
+    fields: [
+      { name: 'username', label: 'User email', pattern: /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/, shapeHint: 'is the BILL user\'s email address', secret: false },
+      { name: 'organizationId', label: 'Organization ID', pattern: /^\S{6,}$/, shapeHint: 'is the organization ID (starts 008…)', secret: false },
+      { name: 'password', label: 'Password', pattern: null, shapeHint: 'is the user\'s password', secret: true },
+      { name: 'devKey', label: 'Developer key', pattern: /^\S{8,}$/, shapeHint: 'is the developer key from Manage Developer Keys', secret: true, optional: true },
+    ],
+  },
+  {
+    id: 'gusto',
+    label: 'Gusto',
+    brand: 'gusto',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['gusto'],
+    howToConnect: {
+      // Login only: Gusto issues no API key, and its refresh token is single
+      // use (each refresh returns the next), so only a saved login can keep it.
+      login: { provider: 'gusto', access: ['The read scopes your Gusto app was approved for: companies, employees, departments, payrolls, time off'], settingsAfterLogin: [] },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Gusto login',
+    helpText: 'A Gusto login, one company. Log in with Gusto on the Connectors page; there is no key to paste. Read-only, and work information only: personal details and individual pay never reach an agent.',
+    fields: [],
+  },
+  {
+    id: 'rippling',
+    label: 'Rippling',
+    brand: 'rippling',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['rippling'],
+    howToConnect: {
+      paste: {
+        credential: 'API token',
+        access: ['Company (read)', 'Employees: name, title, department, manager, work email, start and end dates, employment type, work location (read)', 'Departments (read)', 'Leave requests (read)'],
+        getItAt: { url: 'https://app.rippling.com/developer', steps: ['Create an API token', 'Grant only the read fields listed above — leave SSN, date of birth, home address, compensation and bank details unticked'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Rippling API token',
+    helpText: 'A Rippling API token (Settings → Company settings → API Access) granted only work fields: name, title, department, manager, work email, dates, employment type, work location, and leave requests. Leave personal fields unticked; Vocion drops any it is sent.',
+    fields: singleKeyField('API token', /^\S{16,}$/, 'is the API token, at least 16 characters with no spaces'),
+  },
+  {
+    id: 'workday',
+    label: 'Workday',
+    brand: 'workday',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['workday'],
+    howToConnect: {
+      paste: {
+        credential: 'Integration system user (ISU) sign-in',
+        access: ['Get access to the custom reports the source names (Report-as-a-Service, web service enabled)', 'Only work fields in those reports'],
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'the Workday services host, the tenant, and an integration system user\'s name and password',
+    helpText: 'A Workday integration system user with access to the custom reports the source reads (Report-as-a-Service, "Enable as Web Service" on). The host is your services address (https://wd2-impl-services1.workday.com), the tenant the name in your Workday URL. Put only work fields in the reports; Vocion drops any personal field it is sent.',
+    fields: [
+      { name: 'host', label: 'Services host', pattern: /^https:\/\/[^\s/]+\/?$/i, shapeHint: 'is the https:// services host, e.g. https://wd2-impl-services1.workday.com', secret: false },
+      { name: 'tenant', label: 'Tenant', pattern: /^[\w-]+$/, shapeHint: 'is the tenant name in your Workday URL', secret: false },
+      { name: 'username', label: 'Integration user', pattern: /^\S+$/, shapeHint: 'is the integration system user\'s name', secret: false },
+      { name: 'password', label: 'Password', pattern: null, shapeHint: 'is the integration system user\'s password', secret: true },
+    ],
+  },
+  {
     id: 'google',
     label: 'Google',
     brand: 'google',
@@ -1358,6 +1613,11 @@ export function validatePlatformCredential(
   if (platform.keySource === 'minted') {
     throw new CredentialValidationError(`${platform.label} keys are generated by Vocion, not supplied.`);
   }
+  if (platform.fields.length === 0) {
+    // Nothing to paste (QuickBooks): an empty credential would save and then
+    // fail every sync, so the only way in is the login.
+    throw new CredentialValidationError(`${platform.label} has no key to paste. Log in with ${platform.label} on the Connectors page instead.`);
+  }
   const values: CredentialValues = {};
   for (const field of platform.fields) {
     const value = (rawValues[field.name] ?? '').trim();
@@ -1500,7 +1760,7 @@ export function howToConnectFor(connectorSlug: string): Omit<NonNullable<Credent
     return declaration;
   }
   const login = Object.hasOwn(loginByConnector, connectorSlug) ? loginByConnector[connectorSlug] : undefined;
-  return { paste: declaration.paste, ...(login ? { login } : {}) };
+  return { ...(declaration.paste ? { paste: declaration.paste } : {}), ...(login ? { login } : {}) };
 }
 
 /** Google writes its scopes as URLs; people know them by the part after this. */

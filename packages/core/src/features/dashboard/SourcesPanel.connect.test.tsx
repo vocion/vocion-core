@@ -30,6 +30,7 @@ const TILES = [
   { slug: 'hubspot', name: 'HubSpot', description: 'CRM records.', icon: 'Contact', authKind: 'apikey', credentialPlatform: 'hubspot', syncless: false, inspectable: false },
   { slug: 'jira', name: 'Jira', description: 'Issues.', icon: 'SquareKanban', authKind: 'apikey', credentialPlatform: 'jira', syncless: false, inspectable: false },
   { slug: 'slack', name: 'Slack', description: 'Channels.', icon: 'MessageSquare', authKind: 'oauth', credentialPlatform: null, syncless: false, inspectable: false },
+  { slug: 'quickbooks', name: 'QuickBooks Online', description: 'Books.', icon: 'Landmark', authKind: 'oauth', credentialPlatform: 'quickbooks', syncless: false, inspectable: false },
 ];
 
 /**
@@ -152,6 +153,16 @@ describe('the add form puts the credential inside it', () => {
     await expect.element(page.getByText('CRM object read access')).toBeVisible();
     await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
     await expect.element(page.getByText(/^or paste a/)).not.toBeInTheDocument();
+  });
+
+  it('a connector with nothing to paste (QuickBooks) shows its login alone: no "or paste", no input, no paste guidance', async () => {
+    await render(<SourcesPanel connectInfo={{ quickbooks: { providerLabel: 'QuickBooks', loggedInAs: null, stored: null, lastAttempt: null } }} />);
+    await page.getByRole('button', { name: 'Connect QuickBooks Online' }).click();
+
+    await expect.element(page.getByRole('link', { name: 'Log in with QuickBooks' })).toBeVisible();
+    await expect.element(page.getByText(/^or paste/)).not.toBeInTheDocument();
+    await expect.element(page.getByTestId('connect-paste-guide')).not.toBeInTheDocument();
+    await expect.element(page.getByTestId('connect-after-login')).toHaveTextContent('Logging in is all it takes; the source is added for you.');
   });
 
   it('a connector made of several inputs (Jira) asks for each one by name, with no "needs" line when the access list is empty', async () => {

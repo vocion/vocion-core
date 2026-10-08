@@ -651,6 +651,78 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'Counts only — never an issue\'s name, message or stack trace. Skipped, and said so, on a PostHog that does not expose the API.',
     },
   ],
+
+  // The login is the company: nothing to pick after it. Sample data reads a
+  // fictional company with no login, to try the connector first.
+  'quickbooks': [
+    {
+      key: 'sample',
+      label: 'Use sample data',
+      type: 'boolean',
+      defaultValue: false,
+      help: 'Reads a fictional company instead of yours, with no login. Every document it makes says it is sample data.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      help: 'Leave blank: the login knows whether its company is in production or the sandbox.',
+    },
+  ],
+
+  // The finance and people families. Most are read live and need nothing
+  // beyond the credential, which Connect takes.
+  'stripe': [],
+  'xero': [
+    {
+      key: 'tenantId',
+      label: 'Organisation ID',
+      type: 'text',
+      advanced: true,
+      help: 'Leave blank: the login\'s organisation. Only needed when one login covers several Xero organisations.',
+    },
+  ],
+  'netsuite': [],
+  'ramp': [
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://api.ramp.com',
+      help: 'https://demo-api.ramp.com for a Ramp sandbox.',
+    },
+  ],
+  'bill': [
+    {
+      key: 'sandbox',
+      label: 'BILL sandbox',
+      type: 'boolean',
+      defaultValue: false,
+      advanced: true,
+      help: 'On for a BILL sandbox (developer) organization.',
+    },
+  ],
+  'gusto': [],
+  'rippling': [],
+  'workday': [
+    {
+      key: 'workersReport',
+      label: 'Report of workers',
+      type: 'text',
+      required: true,
+      placeholder: 'ISU_Vocion/Vocion_Workers',
+      help: 'The custom report of workers, as <owner>/<report name> from its web service URL, or the whole URL. Work fields only.',
+    },
+    {
+      key: 'timeOffReport',
+      label: 'Time off report',
+      type: 'text',
+      placeholder: 'ISU_Vocion/Vocion_Time_Off',
+      help: 'Optional. A custom report of time off, the same way.',
+    },
+  ],
 };
 
 /**

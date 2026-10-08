@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectOrigin } from '@/libs/connect/routes';
 import { logger } from '@/libs/Logger';
-import { CredentialValidationError } from '@/libs/platforms/registry';
+import { CredentialValidationError, loginAppPlatforms } from '@/libs/platforms/registry';
 import { loginAppPlatformForProvider, LoginAppSaveConflictError, revokeLoginApp, saveLoginApp } from '@/services/connect/loginApps';
 import { authApi, isErrorResponse, jsonError, readJsonBody, requireWorkspaceAdmin } from '../../_shared';
 
@@ -129,7 +129,10 @@ export async function DELETE(req: Request, context: { params: Promise<{ provider
  * @param provider - The path segment the caller sent.
  */
 function noLoginAppFor(provider: string): string {
-  return `No login app for "${provider}". Login apps exist for google, slack, atlassian, hubspot, notion, zoom and apollo; GitHub and PostHog take none.`;
+  // From the registry, so a vendor added there is named here without an edit.
+  const providers = loginAppPlatforms().map(platform => platform.loginAppFor).filter((id): id is NonNullable<typeof id> => Boolean(id));
+  const named = providers.length > 1 ? `${providers.slice(0, -1).join(', ')} and ${providers.at(-1)}` : providers.join('');
+  return `No login app for "${provider}". Login apps exist for ${named}; GitHub and PostHog take none.`;
 }
 
 /**
