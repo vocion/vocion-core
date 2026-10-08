@@ -127,6 +127,7 @@
  * same transaction; {@link spendSince} reads it.
  */
 
+import type { SQL } from 'drizzle-orm';
 import type { FeatureName } from '@/libs/Langfuse/features';
 import type { TokenUsage } from '@/libs/pricing';
 import { and, eq, gte, inArray, min, notLike, or, sql } from 'drizzle-orm';
@@ -282,7 +283,7 @@ function shouldReset(period: BudgetPeriod, periodStartedAt: Date, now: Date): bo
  *
  * Used when a read rolls a row, so a rollover is decided by the database at
  * the moment of the write (the charge statement decides it per row, with
- * `ROW_PERIOD_START`). `period` is a closed union, never caller text, so
+ * `rowPeriodStart`). `period` is a closed union, never caller text, so
  * interpolating it into the fragment is safe.
  * @param period - daily or monthly.
  */
@@ -803,8 +804,14 @@ function logUnrecordedSpend(properties: Record<string, unknown>): void {
  * monthly row in the same statement. Inside `ON CONFLICT DO UPDATE` the bare
  * column is the stored row, whose period is part of the conflict key and so
  * the incoming row's too.
+ *
+ * A function rather than a module constant, so importing this module never
+ * reads the schema — a test that mocks `@/models/Schema` without this table
+ * can still import a module that imports this one.
  */
-const ROW_PERIOD_START = sql`date_trunc(CASE WHEN ${agentBudgetSchema.period} = 'monthly' THEN 'month' ELSE 'day' END, now() AT TIME ZONE 'utc')`;
+function rowPeriodStart(): SQL {
+  return sql`date_trunc(CASE WHEN ${agentBudgetSchema.period} = 'monthly' THEN 'month' ELSE 'day' END, now() AT TIME ZONE 'utc')`;
+}
 
 /**
  * The charge itself: one transaction, so the rows move together and a
@@ -828,7 +835,8 @@ async function writeCharge(
   tokens: number,
   microCents: number,
 ): Promise<void> {
-  const stale = sql`${agentBudgetSchema.periodStartedAt} < ${ROW_PERIOD_START}`;
+  const periodStart = rowPeriodStart();
+  const stale = sql`${agentBudgetSchema.periodStartedAt} < ${periodStart}`;
   const nextMicroCents = sql`CASE WHEN ${stale} THEN ${microCents} ELSE ${agentBudgetSchema.currentMicroCents} + ${microCents} END`;
   await db.transaction(async (tx) => {
     const [workspace] = await tx
@@ -853,7 +861,7 @@ async function writeCharge(
           feature: sql`coalesce(${agentBudgetSchema.feature}, excluded.feature)`,
           currentTokens: sql`CASE WHEN ${stale} THEN ${tokens} ELSE ${agentBudgetSchema.currentTokens} + ${tokens} END`,
           currentMicroCents: nextMicroCents,
-          periodStartedAt: sql`CASE WHEN ${stale} THEN ${ROW_PERIOD_START} ELSE ${agentBudgetSchema.periodStartedAt} END`,
+          periodStartedAt: sql`CASE WHEN ${stale} THEN ${periodStart} ELSE ${agentBudgetSchema.periodStartedAt} END`,
           updatedAt: new Date(),
         },
       });
