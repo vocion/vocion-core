@@ -3,7 +3,8 @@
 # Five are required: name_prefix, azs, hostname, route53_zone_id and core_ref.
 # Every other default describes the Cloud profile: an ALB with a WAF in front
 # of one EC2 box, RDS PostgreSQL with pgvector, a KMS-backed credential vault,
-# AWS Backup with a locked vault, no SSH, no runners.
+# AWS Backup with a locked vault, ALB access, WAF and VPC flow logs, Bedrock
+# for Anthropic's models, no SSH, no runners.
 
 # ----- identity -----
 
@@ -171,6 +172,82 @@ variable "waf_count_rules" {
   description = "Rules of AWSManagedRulesCommonRuleSet set to COUNT instead of BLOCK. The defaults would block ordinary use: chat turns and uploads are larger than the 8 KB body limit, and people paste code that reads as cross-site scripting."
   type        = list(string)
   default     = ["SizeRestrictions_BODY", "CrossSiteScripting_BODY"]
+}
+
+# ----- logging -----
+
+variable "alb_access_logs_enabled" {
+  description = "Write the ALB's access logs to a private S3 bucket (SSE-S3, the only encryption ALB log delivery accepts). Needs alb_enabled."
+  type        = bool
+  default     = true
+}
+
+variable "alb_access_logs_bucket_name" {
+  description = "Access log bucket name. Empty: <name_prefix>-alb-logs. Bucket names are global, so a taken name needs this."
+  type        = string
+  default     = ""
+}
+
+variable "alb_access_logs_retention_days" {
+  description = "Days an access log object is kept before the bucket's lifecycle deletes it."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.alb_access_logs_retention_days >= 1
+    error_message = "alb_access_logs_retention_days must be at least 1."
+  }
+}
+
+variable "waf_logging_enabled" {
+  description = "Log every request the WAF evaluates, with the rules it matched, to the CloudWatch Logs group aws-waf-logs-<name_prefix>. Needs waf_enabled."
+  type        = bool
+  default     = true
+}
+
+variable "waf_log_redacted_headers" {
+  description = "Request headers WAF writes to its log as REDACTED. Session cookies and bearer tokens never belong in a log."
+  type        = list(string)
+  default     = ["authorization", "cookie"]
+}
+
+variable "waf_log_retention_days" {
+  description = "Days the WAF log group keeps events (a value CloudWatch Logs accepts: 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, ...)."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.waf_log_retention_days)
+    error_message = "waf_log_retention_days must be a retention CloudWatch Logs accepts (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, ...)."
+  }
+}
+
+variable "flow_logs_enabled" {
+  description = "VPC flow logs to the CloudWatch Logs group <name_prefix>-vpc-flow-logs."
+  type        = bool
+  default     = true
+}
+
+variable "flow_logs_traffic_type" {
+  description = "What the flow logs record: REJECT (connections the VPC refused: probes, a security group doing its job), ACCEPT or ALL. ALL records every connection the box makes, at many times the volume."
+  type        = string
+  default     = "REJECT"
+
+  validation {
+    condition     = contains(["REJECT", "ACCEPT", "ALL"], var.flow_logs_traffic_type)
+    error_message = "flow_logs_traffic_type must be REJECT, ACCEPT or ALL."
+  }
+}
+
+variable "flow_logs_retention_days" {
+  description = "Days the flow log group keeps events (a value CloudWatch Logs accepts)."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.flow_logs_retention_days)
+    error_message = "flow_logs_retention_days must be a retention CloudWatch Logs accepts (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, ...)."
+  }
 }
 
 # ----- credential vault -----

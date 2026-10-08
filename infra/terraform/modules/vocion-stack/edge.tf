@@ -87,7 +87,20 @@ resource "aws_lb" "app" {
   drop_invalid_header_fields = true
   enable_deletion_protection = var.db_deletion_protection
 
+  # logging.tf. The ALB writes a test object when logs are turned on, so the
+  # bucket policy has to exist first.
+  dynamic "access_logs" {
+    for_each = local.alb_access_logs_enabled ? [aws_s3_bucket.alb_logs[0].id] : []
+    content {
+      bucket  = access_logs.value
+      prefix  = local.alb_access_logs_prefix
+      enabled = true
+    }
+  }
+
   tags = { Name = "${var.name_prefix}-alb" }
+
+  depends_on = [aws_s3_bucket_policy.alb_logs]
 }
 
 resource "aws_lb_target_group" "app" {

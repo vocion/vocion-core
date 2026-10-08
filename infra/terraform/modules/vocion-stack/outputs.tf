@@ -60,6 +60,21 @@ output "waf_web_acl_arn" {
   value       = local.waf_enabled ? aws_wafv2_web_acl.app[0].arn : null
 }
 
+output "alb_access_logs_bucket" {
+  description = "The bucket holding the ALB's access logs, under alb/AWSLogs/<account>/ (null when off)."
+  value       = local.alb_access_logs_enabled ? aws_s3_bucket.alb_logs[0].bucket : null
+}
+
+output "waf_log_group_name" {
+  description = "CloudWatch Logs group of the WAF's request log (null when off)."
+  value       = local.waf_logging_enabled ? aws_cloudwatch_log_group.waf[0].name : null
+}
+
+output "flow_log_group_name" {
+  description = "CloudWatch Logs group of the VPC flow logs (null when off)."
+  value       = var.flow_logs_enabled ? aws_cloudwatch_log_group.flow[0].name : null
+}
+
 output "certificate_arn" {
   description = "The ACM certificate for hostname (null with alb_enabled = false)."
   value       = var.alb_enabled ? aws_acm_certificate.app[0].arn : null

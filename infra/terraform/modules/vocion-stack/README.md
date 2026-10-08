@@ -36,6 +36,7 @@ the application move together on one pin. A working root is in
 | Media | Private S3 bucket, versioned, TLS-only, CORS for `hostname` | `media_bucket_name`, `media_cors_origins` |
 | Secrets | Two Secrets Manager entries, **names only** (values are put out-of-band) | `secret_recovery_window_days` |
 | Backup | AWS Backup: daily RDS backup into a vault locked in governance mode; optional cross-account copy | `backup_*` |
+| Logs | ALB access logs to a private S3 bucket (SSE-S3); the WAF's request log to CloudWatch Logs, `Authorization` and `Cookie` redacted; VPC flow logs of refused connections. 90 days each | `alb_access_logs_*`, `waf_logging_enabled`, `waf_log_*`, `flow_logs_*` |
 | Alarms | SNS topic; box CPU and status checks (system failures auto-recover), site down, 5xx, RDS CPU and free storage | `alarm_emails` |
 | Budget | none | `budget_monthly_usd` |
 | Bedrock | The box's role may invoke Anthropic models: in-region, and through this account's `us.` inference profiles in the US regions they route to (`InvokeModel`, `InvokeModelWithResponseStream`; they also authorize Converse and ConverseStream) | `bedrock_enabled`, `bedrock_models`, `bedrock_inference_profile_geography` |
@@ -227,6 +228,38 @@ Until all three exist, leave `backup_copy_vault_arn` empty.
 
 ---
 
+## Logs
+
+| Log | Where | Kept |
+|---|---|---|
+| ALB access logs | S3 `<name_prefix>-alb-logs` (`alb_access_logs_bucket`), under `alb/AWSLogs/<account>/elasticloadbalancing/<region>/` | `alb_access_logs_retention_days` (90), then the bucket's lifecycle deletes them |
+| WAF request log | CloudWatch Logs `aws-waf-logs-<name_prefix>` (`waf_log_group_name`): each request the web ACL evaluated, its action, and the rules that matched or counted. `Authorization` and `Cookie` are written as `REDACTED` (`waf_log_redacted_headers`) | `waf_log_retention_days` (90) |
+| VPC flow logs | CloudWatch Logs `<name_prefix>-vpc-flow-logs` (`flow_log_group_name`): connections the VPC refused (`flow_logs_traffic_type = "REJECT"`) | `flow_logs_retention_days` (90) |
+
+The access log bucket uses S3-managed keys because ALB log delivery accepts no
+other encryption; it is otherwise as closed as the media bucket (owner-enforced,
+no public access, TLS only), and only load balancers in this account and region
+may write to it. The log groups are encrypted at rest by CloudWatch Logs. The
+box's role can write only log groups under `/<name_prefix>/`, so it can write
+none of these.
+
+What the WAF blocked, by web ACL rule and path (CloudWatch Logs Insights, on
+the `aws-waf-logs-<name_prefix>` group):
+
+```
+fields @timestamp, terminatingRuleId, httpRequest.uri
+| filter action = "BLOCK"
+| stats count(*) as requests by terminatingRuleId, httpRequest.uri
+| sort requests desc
+```
+
+A block by a managed rule shows the web ACL rule (`aws-common`) as
+`terminatingRuleId`; the managed rule that fired is in
+`ruleGroupList.*.terminatingRule.ruleId`. A managed rule set to COUNT never
+terminates: it appears in `ruleGroupList.*.nonTerminatingMatchingRules`.
+
+---
+
 ## Inputs
 
 Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
@@ -256,6 +289,15 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `waf_enabled` | bool | `true` | Needs `alb_enabled` |
 | `waf_rate_limit` | number | `2000` | Requests per IP per 5 minutes |
 | `waf_count_rules` | list(string) | `["SizeRestrictions_BODY", "CrossSiteScripting_BODY"]` | Common-rule-set rules counted, not blocked (chat bodies are large and contain code) |
+| `alb_access_logs_enabled` | bool | `true` | ALB access logs to S3. Needs `alb_enabled` |
+| `alb_access_logs_bucket_name` | string | `""` | Empty: `<name_prefix>-alb-logs` |
+| `alb_access_logs_retention_days` | number | `90` | |
+| `waf_logging_enabled` | bool | `true` | WAF request log to CloudWatch Logs. Needs `waf_enabled` |
+| `waf_log_redacted_headers` | list(string) | `["authorization", "cookie"]` | Written as `REDACTED` |
+| `waf_log_retention_days` | number | `90` | A CloudWatch Logs retention value |
+| `flow_logs_enabled` | bool | `true` | VPC flow logs to CloudWatch Logs |
+| `flow_logs_traffic_type` | string | `"REJECT"` | `REJECT`, `ACCEPT` or `ALL` |
+| `flow_logs_retention_days` | number | `90` | A CloudWatch Logs retention value |
 | `kms_vault_enabled` | bool | `true` | KMS credential vault |
 | `db_instance_class` | string | `"db.t4g.medium"` | |
 | `db_engine_version` | string | `"16"` | Major alone tracks the newest minor |
@@ -310,6 +352,7 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `vpc_id`, `public_subnet_ids`, `db_subnet_ids`, `app_security_group_id` | Network |
 | `instance_role_name` | Attach further policies from the calling root |
 | `alb_arn`, `alb_dns_name`, `waf_web_acl_arn`, `certificate_arn` | Edge (null without the ALB) |
+| `alb_access_logs_bucket`, `waf_log_group_name`, `flow_log_group_name` | Where the logs are (null when off) |
 | `app_env_secret_name`, `app_env_secret_arn`, `rds_app_secret_name` | Where the values go |
 | `deploy_config_parameter` | The SSM parameter the box reads every deploy |
 | `db_endpoint`, `db_address`, `db_identifier`, `db_master_secret_arn` | Database |
@@ -341,5 +384,6 @@ tofu init -backend=false && tofu validate && tofu test
 ```
 
 [`tests/profiles.tftest.hcl`](./tests/profiles.tftest.hcl) plans the module
-against a mocked provider in three profiles (Cloud defaults, single box with
-SSH, everything on) and checks that a branch is refused as `core_ref`.
+against a mocked provider in four profiles (Cloud defaults, single box with
+SSH, everything on, logging off) and checks that a branch is refused as
+`core_ref` and a retention CloudWatch Logs would refuse is refused at plan.

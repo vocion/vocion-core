@@ -67,6 +67,12 @@ mock_provider "aws" {
   mock_resource "aws_backup_vault" {
     defaults = { arn = "arn:aws:backup:us-east-1:111111111111:backup-vault:mock" }
   }
+  mock_resource "aws_cloudwatch_log_group" {
+    defaults = { arn = "arn:aws:logs:us-east-1:111111111111:log-group:aws-waf-logs-mock" }
+  }
+  mock_resource "aws_s3_bucket" {
+    defaults = { arn = "arn:aws:s3:::mock" }
+  }
 }
 
 variables {
@@ -117,6 +123,33 @@ run "cloud_profile_defaults" {
     )
     error_message = "the box may invoke Anthropic models on Bedrock: in-region, and through this account's us.* profiles to the US regions they route to"
   }
+  assert {
+    condition     = aws_s3_bucket.alb_logs[0].bucket == "vocion-test-alb-logs"
+    error_message = "the access log bucket is named from the prefix"
+  }
+  assert {
+    condition     = aws_lb.app[0].access_logs[0].enabled && aws_lb.app[0].access_logs[0].prefix == "alb"
+    error_message = "the ALB writes its access logs under alb/"
+  }
+  assert {
+    condition     = one([for r in aws_s3_bucket_server_side_encryption_configuration.alb_logs[0].rule : one(r.apply_server_side_encryption_by_default).sse_algorithm]) == "AES256"
+    error_message = "the access log bucket is SSE-S3, the only encryption ALB log delivery accepts"
+  }
+  assert {
+    condition     = one([for r in aws_s3_bucket_lifecycle_configuration.alb_logs[0].rule : one(r.expiration).days]) == 90
+    error_message = "access logs expire after 90 days"
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_log_group.waf[0].name == "aws-waf-logs-vocion-test"
+      && toset([for f in aws_wafv2_web_acl_logging_configuration.app[0].redacted_fields : f.single_header[0].name]) == toset(["authorization", "cookie"])
+    )
+    error_message = "the WAF logs to aws-waf-logs-<prefix> with Authorization and Cookie redacted"
+  }
+  assert {
+    condition     = aws_flow_log.vpc[0].traffic_type == "REJECT" && aws_cloudwatch_log_group.flow[0].retention_in_days == 90
+    error_message = "the VPC's rejected connections are logged for 90 days"
+  }
 }
 
 run "single_box_with_ssh" {
@@ -148,6 +181,10 @@ run "single_box_with_ssh" {
   assert {
     condition     = length(aws_iam_role_policy.bedrock) == 0
     error_message = "bedrock_enabled = false grants no Bedrock access"
+  }
+  assert {
+    condition     = length(aws_s3_bucket.alb_logs) == 0 && length(aws_wafv2_web_acl_logging_configuration.app) == 0 && length(aws_flow_log.vpc) == 1
+    error_message = "without the ALB there are no ALB or WAF logs; the flow logs stay"
   }
 }
 
@@ -183,6 +220,35 @@ run "everything_on" {
     condition     = length(aws_backup_vault_policy.main) == 1
     error_message = "the vault accepts copies from the named accounts"
   }
+}
+
+run "logging_off" {
+  command = plan
+
+  variables {
+    alb_access_logs_enabled = false
+    waf_logging_enabled     = false
+    flow_logs_enabled       = false
+  }
+
+  assert {
+    condition = (
+      length(aws_s3_bucket.alb_logs) == 0 && length(aws_lb.app[0].access_logs) == 0
+      && length(aws_wafv2_web_acl_logging_configuration.app) == 0 && length(aws_cloudwatch_log_group.waf) == 0
+      && length(aws_flow_log.vpc) == 0 && length(aws_iam_role.flow_logs) == 0
+    )
+    error_message = "each log turns off on its own variable"
+  }
+}
+
+run "rejects_a_retention_cloudwatch_does_not_accept" {
+  command = plan
+
+  variables {
+    waf_log_retention_days = 10
+  }
+
+  expect_failures = [var.waf_log_retention_days]
 }
 
 run "rejects_a_branch_as_core_ref" {
