@@ -23,9 +23,21 @@ function resolvesOrFallsBack(brand: string): 'mark' | 'fallback' | 'unknown' {
 describe('brand catalog', () => {
   it('gives every brand either a drawable mark or a reason it has none', () => {
     for (const brand of listBrands()) {
-      if (brand.mark) {
+      if (brand.mark?.kind === 'path') {
         expect(brand.mark.path, brand.key).toMatch(/^M/);
         expect(brand.mark.hex, brand.key).toMatch(/^#[0-9a-f]{6}$/i);
+        expect(brand.fallback, brand.key).toBeNull();
+      } else if (brand.mark?.kind === 'file') {
+        // A vendored file is on disk, under public/, and is plain vector art.
+        for (const file of [brand.mark.light, brand.mark.dark].filter((f): f is string => Boolean(f))) {
+          expect(file, brand.key).toMatch(/^\/brand\/integrations\/[\w.-]+\/[\w.-]+\.svg$/);
+
+          const svg = readFileSync(join(import.meta.dirname, '../../../public', file), 'utf8');
+
+          expect(svg, file).toMatch(/<svg[\s>]/);
+          expect(svg, file).not.toMatch(/<script|javascript:|<foreignObject|xlink:href="http|href="http/i);
+        }
+
         expect(brand.fallback, brand.key).toBeNull();
       } else {
         expect(brand.fallback, brand.key).toBeTruthy();
@@ -49,9 +61,13 @@ describe('brand catalog', () => {
 
       expect(row, `ATTRIBUTION.md has no row for ${brand.key}`).toBeDefined();
 
-      if (brand.mark) {
+      if (brand.mark?.kind === 'path') {
         expect(row, brand.key).toContain('simple-icons');
         expect(row, brand.key).toContain('CC0-1.0');
+      } else if (brand.mark?.kind === 'file') {
+        // Its source and the terms page the use rests on.
+        expect(row, brand.key).toContain('Vendored');
+        expect(row, brand.key).toContain(brand.mark.terms);
       } else {
         expect(row, brand.key).toContain('No logo');
       }

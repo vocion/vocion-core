@@ -367,7 +367,9 @@ test('Slack from the Connectors page: the login makes the source itself and the 
   await page.goto('/dashboard/connectors');
   await page.getByRole('button', { name: 'Connect Slack' }).click();
 
-  await expect(page.getByRole('link', { name: 'Log in with Slack' })).toHaveAttribute('data-brand', 'slack');
+  // Slack's terms do not let a third party show its logo, so its login is the
+  // product button, Slack named in the label (libs/brands/ATTRIBUTION.md).
+  await expect(page.getByRole('link', { name: 'Log in with Slack' })).not.toHaveAttribute('data-brand');
 
   await page.getByRole('link', { name: 'Log in with Slack' }).click();
 

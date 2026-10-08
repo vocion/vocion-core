@@ -13,13 +13,15 @@
  *   - **A mark** (`{ icon }`), from simple-icons (CC0-1.0,
  *     https://simpleicons.org). Each is a named import, so the bundle carries
  *     only the marks listed here.
- *   - **No mark** (`{ title, fallback }`), for a brand simple-icons does not
- *     carry. A vendor's own file is vendored only when its guidelines let a
- *     third party show the logo to say "this connects to us"; none of these
- *     did when checked (2026-10-08), so each says why, here and in
- *     `ATTRIBUTION.md`, and the tile falls back. The brand stays a key anyway,
- *     so a descriptor names it today and the mark lands here, once, the day it
- *     is allowed.
+ *   - **A vendored file** (`{ title, vendored }`), the vendor's own SVG from
+ *     its brand or press kit, committed unmodified under
+ *     `public/brand/integrations/` and drawn as is on a neutral tile — used
+ *     only where the vendor's terms allow it (quoted in `ATTRIBUTION.md`).
+ *   - **No mark** (`{ title, fallback }`), for a brand whose owner's terms do
+ *     not let a third party show its logo to say "this connects to us". Each
+ *     says why, here and in `ATTRIBUTION.md`, and the tile falls back to its
+ *     icon or monogram. The brand stays a key anyway, so a descriptor names it
+ *     today and the logo lands here, once, the day it is allowed.
  *
  * Logos are trademarks of their owners and are shown only to identify the
  * service an integration connects to. `ATTRIBUTION.md` lists every entry's
@@ -66,7 +68,25 @@ type SimpleIconMark = { title: string; hex: string; path: string; source: string
  */
 type BrandEntry
   = | { icon: SimpleIconMark }
+    | { title: string; vendored: VendoredMark }
     | { title: string; fallback: string };
+
+/**
+ * The vendor's own logo file, served unmodified from `public/brand/integrations/`
+ * on a neutral tile — never recoloured, so the tile's contrast rule does not
+ * apply to it. `dark` is the kit's variant for dark backgrounds; without one the
+ * tile stays white in both themes, the background the file was drawn for.
+ */
+type VendoredMark = {
+  /** Public path of the file for light backgrounds. */
+  light: string;
+  /** Public path of the kit's variant for dark backgrounds, when it has one. */
+  dark?: string;
+  /** Where the file was downloaded from. */
+  source: string;
+  /** The page whose terms allow this use (quoted in `ATTRIBUTION.md`). */
+  terms: string;
+};
 
 /**
  * Every brand a descriptor may name. Keys are simple-icons slugs where
@@ -98,21 +118,21 @@ const BRANDS = {
   xero: { icon: siXero },
   zoom: { icon: siZoom },
 
-  amazons3: { title: 'Amazon S3', fallback: 'AWS\'s trademark guidelines allow a plain-text reference only, no logos (aws.amazon.com/trademark-guidelines); simple-icons dropped AWS marks in v15.' },
-  amazonwebservices: { title: 'Amazon Web Services', fallback: 'AWS\'s trademark guidelines allow a plain-text reference only, no logos (aws.amazon.com/trademark-guidelines); simple-icons dropped AWS marks in v15.' },
+  amazons3: { title: 'Amazon S3', fallback: 'AWS allows a plain-text reference (no logos), its "Powered by AWS" badge for a customer\'s own software, and architecture icons in diagrams (aws.amazon.com/trademark-guidelines).' },
+  amazonwebservices: { title: 'Amazon Web Services', fallback: 'AWS allows a plain-text reference (no logos), its "Powered by AWS" badge for a customer\'s own software, and architecture icons in diagrams (aws.amazon.com/trademark-guidelines).' },
+  apolloio: { title: 'Apollo.io', fallback: 'Apollo.io\'s terms forbid using its logos without prior written permission, and it publishes no brand kit (apollo.io/terms).' },
   bill: { title: 'BILL', fallback: 'BILL publishes no terms for third-party use of its logo; not in simple-icons.' },
-  apolloio: { title: 'Apollo.io', fallback: 'Apollo.io\'s terms forbid using its logos without prior written permission (apollo.io/terms); not in simple-icons.' },
-  firecrawl: { title: 'Firecrawl', fallback: 'Firecrawl\'s brand page covers how to treat the marks, not third-party or integration use (firecrawl.dev/brand); not in simple-icons.' },
-  granola: { title: 'Granola', fallback: 'Granola publishes no terms for third-party use of its logo (grano.la/press); not in simple-icons.' },
+  firecrawl: { title: 'Firecrawl', vendored: { light: '/brand/integrations/firecrawl/firecrawl-logo.svg', dark: '/brand/integrations/firecrawl/firecrawl-logo.svg', source: 'https://www.firecrawl.dev/brand/brand-assets.zip', terms: 'https://www.firecrawl.dev/press-brand' } },
+  granola: { title: 'Granola', vendored: { light: '/brand/integrations/granola/logo-square.svg', dark: '/brand/integrations/granola/logo-square.svg', source: 'https://grano.la/press', terms: 'https://grano.la/press' } },
+  microsoftazure: { title: 'Microsoft Azure', fallback: 'Microsoft allows Azure icons only in architecture diagrams, training and documentation, and never to represent another product (learn.microsoft.com/azure/architecture/icons).' },
   netsuite: { title: 'NetSuite', fallback: 'Oracle\'s trademark guidelines do not permit third parties to use its logos (oracle.com/legal/trademarks); not in simple-icons.' },
-  microsoftazure: { title: 'Microsoft Azure', fallback: 'Microsoft requires an express licence for its logos and product icons (microsoft.com/legal/intellectualproperty/trademarks); simple-icons removed Microsoft marks in v13 at Microsoft\'s request.' },
-  openai: { title: 'OpenAI', fallback: 'OpenAI\'s brand guidelines ask products built on its API to be free of its logos (openai.com/brand); simple-icons dropped the mark in v16.' },
+  openai: { title: 'OpenAI', fallback: 'OpenAI\'s brand page lets API developers name the OpenAI technology they use but asks for permission before using the logo (openai.com/brand); simple-icons dropped the mark in v16.' },
   ramp: { title: 'Ramp', fallback: 'Ramp publishes no terms for third-party use of its logo; not in simple-icons.' },
   rippling: { title: 'Rippling', fallback: 'Rippling publishes no terms for third-party use of its logo; not in simple-icons.' },
-  slack: { title: 'Slack', fallback: 'Slack\'s brand terms require a written licence for most logo use and allow an integration to be stated in text only (slack.com/terms-of-service/slack-brand); simple-icons dropped Salesforce marks in v16.' },
-  slate: { title: 'Slate', fallback: 'Slate publishes no brand guidelines; not in simple-icons.' },
+  slack: { title: 'Slack', fallback: 'Slack\'s brand terms need a written licence for logo use and forbid redistributing its logos; an app may say in text that it integrates with Slack (slack.com/terms-of-service/slack-brand).' },
+  slate: { title: 'Slate', vendored: { light: '/brand/integrations/slate/slate-icon.svg', dark: '/brand/integrations/slate/slate-icon.svg', source: 'https://slatevideo.com/favicon.svg', terms: 'https://slatevideo.com/terms' } },
+  tavily: { title: 'Tavily', vendored: { light: '/brand/integrations/tavily/tavily-mark-black.svg', dark: '/brand/integrations/tavily/tavily-mark-offwhite.svg', source: 'https://www.tavily.com/logos/', terms: 'https://www.tavily.com/brand' } },
   workday: { title: 'Workday', fallback: 'Workday\'s trademark guidelines require permission to use its logos (workday.com/en-us/legal/trademarks); not in simple-icons.' },
-  tavily: { title: 'Tavily', fallback: 'Tavily\'s brand page allows its marks in a compatibility statement but not alongside other companies\' without formal permission, which a catalog of tools is (tavily.com/brand); not in simple-icons.' },
 } as const satisfies Record<string, BrandEntry>;
 
 /** A brand a descriptor may name. */
@@ -130,7 +150,10 @@ export function isBrandKey(value: unknown): value is BrandKey {
 export type BrandInfo = {
   key: BrandKey;
   title: string;
-  mark: { path: string; hex: string; source: string; guidelines: string | null } | null;
+  mark:
+    | { kind: 'path'; path: string; hex: string; source: string; guidelines: string | null }
+    | { kind: 'file'; light: string; dark: string | null; source: string; terms: string }
+    | null;
   fallback: string | null;
 };
 
@@ -142,7 +165,11 @@ function brandInfo(key: BrandKey): BrandInfo {
   const entry: BrandEntry = BRANDS[key];
   if ('icon' in entry) {
     const { icon } = entry;
-    return { key, title: icon.title, mark: { path: icon.path, hex: `#${icon.hex}`, source: icon.source, guidelines: icon.guidelines ?? null }, fallback: null };
+    return { key, title: icon.title, mark: { kind: 'path', path: icon.path, hex: `#${icon.hex}`, source: icon.source, guidelines: icon.guidelines ?? null }, fallback: null };
+  }
+  if ('vendored' in entry) {
+    const { vendored } = entry;
+    return { key, title: entry.title, mark: { kind: 'file', light: vendored.light, dark: vendored.dark ?? null, source: vendored.source, terms: vendored.terms }, fallback: null };
   }
   return { key, title: entry.title, mark: null, fallback: entry.fallback };
 }
@@ -152,8 +179,13 @@ export function listBrands(): BrandInfo[] {
   return (Object.keys(BRANDS) as BrandKey[]).sort().map(brandInfo);
 }
 
-/** A mark ready to draw: its path and how to fill it in each theme. */
-export type ResolvedMark = { title: string; path: string; fills: MarkFills };
+/**
+ * A mark ready to draw: a simple-icons path and how to fill it in each theme,
+ * or the vendor's own file (and its dark variant, when the kit has one).
+ */
+export type ResolvedMark
+  = | { kind: 'path'; title: string; path: string; fills: MarkFills }
+    | { kind: 'file'; title: string; light: string; dark: string | null };
 
 /**
  * The mark to draw for a brand, or null when there is none — an unknown key,
@@ -165,7 +197,12 @@ export function resolveBrandMark(brand: string | null | undefined): ResolvedMark
     return null;
   }
   const { title, mark } = brandInfo(brand);
-  return mark ? { title, path: mark.path, fills: markFills(mark.hex) } : null;
+  if (!mark) {
+    return null;
+  }
+  return mark.kind === 'path'
+    ? { kind: 'path', title, path: mark.path, fills: markFills(mark.hex) }
+    : { kind: 'file', title, light: mark.light, dark: mark.dark };
 }
 
 /**
