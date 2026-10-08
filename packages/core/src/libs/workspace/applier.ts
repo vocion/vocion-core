@@ -1037,8 +1037,8 @@ async function upsertTeam(orgId: string, team: LoadedTeam, mode: ApplyMode, erro
  * @param defaults.embeddingModel
  */
 function embeddingConfigFrom(
-  defaults: { embeddingProvider?: 'openai' | 'bedrock'; embeddingModel?: string },
-): { provider?: 'openai' | 'bedrock'; model?: string } | null {
+  defaults: { embeddingProvider?: import('@/libs/llm/providers').EmbeddingProviderName; embeddingModel?: string },
+): { provider?: import('@/libs/llm/providers').EmbeddingProviderName; model?: string } | null {
   if (!defaults.embeddingProvider && !defaults.embeddingModel) {
     return null;
   }

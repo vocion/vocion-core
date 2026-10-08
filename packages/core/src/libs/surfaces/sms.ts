@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import process from 'node:process';
 import { absoluteAppLinks, appBaseUrl } from '@/libs/links';
 import { toE164 } from '@/libs/phone';
+import { envTwilioCredentials, sendTwilioMessage, twilioCredentialsForChannel } from '@/libs/twilio/client';
 
 /**
  * TEXT MESSAGES AS A CHAT SURFACE (Chris, 2026-10-07: "Extendable to SMS"), through Twilio.
@@ -17,6 +18,9 @@ import { toE164 } from '@/libs/phone';
  * Twilio signs each webhook: base64 HMAC-SHA1, keyed with the auth token, over the URL Twilio
  * called followed by every form field sorted by name, each name then its value
  * (`X-Twilio-Signature`).
+ *
+ * Whose Twilio account: the bound workspace's own (`twilio` platform) when it stored one, else the
+ * server's `TWILIO_*` (`libs/twilio/client.ts`). A webhook is accepted when either token signed it.
  */
 
 /** The longest text sent as one; Twilio joins segments up to 1600 characters. */
@@ -97,33 +101,46 @@ export function smsText(message: string | ChatMessage): string {
 }
 
 /**
- * Send a text from the workspace's number.
+ * Send a text from the workspace's number, on the Twilio account behind that number.
  * @param from - The workspace's number.
  * @param to - The person's number.
  * @param body - The words.
  * @param fetchImpl - Injectable for tests.
  */
 export async function sendSms(from: string, to: string, body: string, fetchImpl: typeof fetch = fetch): Promise<{ sid: string } | null> {
-  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!sid || !token) {
-    throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are not set; cannot text');
+  const creds = await twilioCredentialsForChannel('sms', from);
+  if (!creds) {
+    throw new Error('No Twilio account: connect Twilio for this workspace, or set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN; cannot text');
   }
-  const res = await fetchImpl(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: 'POST',
-    headers: { 'authorization': `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ From: from, To: to, Body: body }).toString(),
-  });
-  const out = await res.json().catch(() => ({})) as { sid?: string; message?: string };
-  if (!res.ok) {
-    throw new Error(`Twilio did not take the text: ${out.message ?? res.status}`);
+  return sendTwilioMessage(creds, { from, to, body }, fetchImpl);
+}
+
+/**
+ * Check a Twilio webhook against the server's token, then the bound workspace's: a workspace on
+ * its own Twilio account signs with its own token.
+ * @param surface - `sms` or `whatsapp`.
+ * @param rawBody - The form body.
+ * @param headers - The request headers.
+ * @param url - The URL Twilio called.
+ * @param channelOf - The workspace's number, read from the form.
+ */
+export async function verifyTwilioForChannel(surface: string, rawBody: string, headers: Headers, url: string, channelOf: (form: Record<string, string>) => string | null): Promise<ChatVerification> {
+  const env = verifyTwilio(rawBody, headers, envTwilioCredentials()?.authToken, url);
+  if (env.ok || env.reason === 'missing_headers') {
+    return env;
   }
-  return out.sid ? { sid: out.sid } : null;
+  const channel = channelOf(Object.fromEntries(new URLSearchParams(rawBody)));
+  const creds = channel ? await twilioCredentialsForChannel(surface, channel) : null;
+  if (!creds) {
+    return env;
+  }
+  return verifyTwilio(rawBody, headers, creds.authToken, url);
 }
 
 export const smsSurface: ChatSurfaceAdapter = {
   id: 'sms',
   verify: (rawBody, headers) => verifyTwilio(rawBody, headers, process.env.TWILIO_AUTH_TOKEN?.trim(), smsWebhookUrl()),
+  verifyAsync: (rawBody, headers) => verifyTwilioForChannel('sms', rawBody, headers, smsWebhookUrl(), form => toE164(form.To)),
   parse: parseSms,
   answerStyle: 'This arrived as a text message. Answer as a text: a few short plain sentences, no markdown, no tables, links written out in full, and point to Vocion for anything long.',
   reply: async (target: ChatReplyTarget, message): Promise<ChatPostRef | null> => {

@@ -357,7 +357,8 @@ Anthropic already have. Anything touching KMS, AgentCore or a deploy role still
 goes through `resolveAwsCredentials` with the fallback off.
 
 **Per-agent vendor, per-workspace embeddings.** `harness.modelProvider` in agent
-YAML (`anthropic` | `openai` | `bedrock`) picks the vendor for one agent's chat
+YAML (`anthropic` | `openai` | `bedrock` | `azure-openai` | `mistral` | `vertex` |
+`openai-compatible`, one list in `libs/llm/providers.ts`) picks the vendor for one agent's chat
 model — a different axis from `harness.runsOn`, which picks where the loop
 executes. Embeddings are **not** per-agent: `defaults.embeddingProvider` /
 `defaults.embeddingModel` in `workspace.yaml` land on `project.embeddingConfig`

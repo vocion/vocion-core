@@ -12,6 +12,8 @@
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { OpenAIConnection } from './openaiCompatible';
+import type { ModelProviderName } from './providers';
 import type { AwsCredentials } from '@/services/ApiTokenService';
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
@@ -20,8 +22,10 @@ import { ChatOpenAI } from '@langchain/openai';
 import { bedrockTakesCachePoint } from './bedrock';
 import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 import { thinkingBudgetFor } from './modelPrefs';
+import { envConnectionSync, isOpenAICompatibleProvider, resolveOpenAIConnection } from './openaiCompatible';
 import { resolveOrgProviderKey } from './orgKey';
 import { CachingChatAnthropic, CachingChatBedrockConverse, promptCacheAllowed } from './promptCache';
+import { MODEL_PROVIDERS } from './providers';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
 import { buildScriptedChatModel } from './scripted';
@@ -122,14 +126,15 @@ export function defaultAnthropicMaxTokens(model: string): number {
   return /claude-(?:sonnet-5|opus-5|fable-5|mythos-5)/.test(model) ? 32_000 : 16_384;
 }
 
-export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock' | 'scripted';
+/** A vendor (`./providers.ts`), or the written-part model for reproducible chat. */
+export type LangChainProvider = ModelProviderName | 'scripted';
 
 /** Every value `VOCION_LLM_PROVIDER` may be set to, for validation + error text. */
-const PROVIDERS: readonly LangChainProvider[] = ['anthropic', 'openai', 'bedrock', 'scripted'];
+const PROVIDERS: readonly LangChainProvider[] = [...MODEL_PROVIDERS, 'scripted'];
 
 /** Defaults if the per-role / per-provider env vars are not set. */
 const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
-  anthropic: {
+  'anthropic': {
     // Sonnet 5.5 since 2026-10-05 (Chris: "Go."): on a real chat turn's final
     // step it wrote in 17 s what Sonnet 4.6 took 34 s for, and the answer was
     // the shorter and the more honest one. $2/$10 against $3/$15.
@@ -150,7 +155,7 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     // whatever `main` happens to be.
     extractor: 'claude-sonnet-4-6',
   },
-  openai: {
+  'openai': {
     main: 'gpt-4o',
     classifier: 'gpt-4o-mini',
     embedder: 'text-embedding-3-small',
@@ -166,7 +171,7 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
   // Verified against the Bedrock model cards on 2026-09-03: Claude Sonnet 4.6
   // is offered in us-east-1/us-west-2 only as a cross-region profile — there is
   // no in-region id to fall back to — and both Claude models support Converse.
-  bedrock: {
+  'bedrock': {
     main: 'us.anthropic.claude-sonnet-4-6',
     classifier: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
     // Titan Text Embeddings G1. Named here for completeness, but the embedder
@@ -177,7 +182,45 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     skillTurn: 'us.anthropic.claude-sonnet-4-6',
     extractor: 'us.anthropic.claude-sonnet-4-6',
   },
-  scripted: {
+  // Deployment names, not model names: Azure routes on the deployment a
+  // resource created. These match the common practice of naming a deployment
+  // after its model; an agent names its own with `harness.model`.
+  'azure-openai': {
+    main: 'gpt-4o',
+    classifier: 'gpt-4o-mini',
+    embedder: 'text-embedding-3-small',
+    skillTurn: 'gpt-4o',
+    extractor: 'gpt-4o',
+  },
+  // Mistral's `-latest` aliases, so a deployment follows Mistral's own
+  // upgrades; pin a dated id with `harness.model` to hold one still.
+  'mistral': {
+    main: 'mistral-large-latest',
+    classifier: 'mistral-small-latest',
+    embedder: 'mistral-embed',
+    skillTurn: 'mistral-large-latest',
+    extractor: 'mistral-medium-latest',
+  },
+  // Gemini through Vertex's OpenAI-compatible endpoint, which names models
+  // `<publisher>/<model>`.
+  'vertex': {
+    main: 'google/gemini-2.5-pro',
+    classifier: 'google/gemini-2.5-flash',
+    embedder: 'gemini-embedding-001',
+    skillTurn: 'google/gemini-2.5-flash',
+    extractor: 'google/gemini-2.5-flash',
+  },
+  // A self-hosted server serves whatever it loaded; this is Ollama's name for
+  // the common default. Set `VOCION_LLM_MODEL_MAIN` or an agent's
+  // `harness.model` to the model your server actually runs.
+  'openai-compatible': {
+    main: 'llama3.1',
+    classifier: 'llama3.1',
+    embedder: 'nomic-embed-text',
+    skillTurn: 'llama3.1',
+    extractor: 'llama3.1',
+  },
+  'scripted': {
     main: 'scripted',
     classifier: 'scripted',
     embedder: 'scripted',
@@ -244,6 +287,12 @@ export function inferProviderForModel(modelId: string): LangChainProvider | null
   }
   if (id.startsWith('gpt-') || id.startsWith('text-') || /^o\d/.test(id) || id.startsWith('chat-')) {
     return 'openai';
+  }
+  if (/^(?:mistral|magistral|ministral|codestral|pixtral|devstral)-/.test(id)) {
+    return 'mistral';
+  }
+  if (id.startsWith('google/') || id.startsWith('gemini-')) {
+    return 'vertex';
   }
   return null;
 }
@@ -353,6 +402,12 @@ export type BuildChatModelOptions = {
    * `us-west-2`.
    */
   region?: string;
+  /**
+   * Azure OpenAI, Mistral, Vertex AI and a self-hosted server only: where to
+   * call and with which key (`./openaiCompatible.ts`), resolved from the org's
+   * stored credential by `buildChatModelForOrg`. Unset reads the env.
+   */
+  connection?: OpenAIConnection;
   /**
    * Ask the vendor to cache the prompt prefix on every call this model makes.
    *
@@ -476,6 +531,23 @@ export function buildChatModel(
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
       }));
     }
+    case 'azure-openai':
+    case 'mistral':
+    case 'vertex':
+    case 'openai-compatible': {
+      const connection = opts.connection ?? (mode === 'replay'
+        ? { provider, baseURL: 'http://replay.invalid/v1', apiKey: 'replay-mode-no-key', streamUsage: false, from: 'environment' as const }
+        : envConnectionSync(provider));
+      return withReplay(new ChatOpenAI({
+        model,
+        temperature,
+        streaming,
+        streamUsage: connection.streamUsage,
+        apiKey: connection.apiKey,
+        configuration: { baseURL: connection.baseURL, ...(connection.defaultHeaders ? { defaultHeaders: connection.defaultHeaders } : {}) },
+        ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+      }));
+    }
     case 'bedrock': {
       // No key check and no throw for a missing credential, unlike the two
       // branches above. Bedrock's identity comes from the AWS SDK's credential
@@ -545,6 +617,14 @@ export async function buildChatModelForOrg(
     // fall through to the AWS credential chain, not override it with an empty
     // value.
     return buildChatModel(role, { ...opts, provider, awsCredentials: keyPair ?? undefined });
+  }
+  if (isOpenAICompatibleProvider(provider)) {
+    // The whole credential, not one key: Azure's endpoint, Vertex's project,
+    // a self-hosted server's base URL. An explicit `opts.connection` wins.
+    if (opts.connection || llmMode() === 'replay') {
+      return buildChatModel(role, { ...opts, provider });
+    }
+    return buildChatModel(role, { ...opts, provider, connection: await resolveOpenAIConnection(provider, orgId) });
   }
   const apiKey = await resolveOrgProviderKey(provider, orgId);
   // `?? undefined` rather than passing null: an org with no stored key must

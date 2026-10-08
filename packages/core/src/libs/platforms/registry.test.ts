@@ -132,13 +132,16 @@ describe('validatePlatformKey', () => {
     expect(validatePlatformKey('custom', 'whatever-my-vendor-issued')).toBe('whatever-my-vendor-issued');
   });
 
-  it('accepts any non-empty credential for Vertex, whose format we do not model', () => {
-    expect(validatePlatformKey('vertex', '{"type":"service_account"}')).toBe('{"type":"service_account"}');
+  it('accepts any non-empty credential for Vertex, with the project and region optional', () => {
+    expect(validatePlatformCredential('vertex', { apiKey: '{"type":"service_account"}' })).toEqual({ apiKey: '{"type":"service_account"}' });
+    expect(validatePlatformCredential('vertex', { apiKey: 'ya29.x', projectId: 'northwind-ai', location: 'europe-west4' })).toMatchObject({ projectId: 'northwind-ai', location: 'europe-west4' });
+    expect(() => validatePlatformCredential('vertex', { apiKey: 'ya29.x', location: 'Mars' })).toThrow(/Region/);
   });
 
-  it('enforces the Azure shape', () => {
-    expect(validatePlatformKey('azure-openai', 'a'.repeat(32))).toBe('a'.repeat(32));
-    expect(() => validatePlatformKey('azure-openai', 'a'.repeat(31))).toThrow(/Azure OpenAI key/);
+  it('enforces the Azure shape: an https endpoint and a 32-character key', () => {
+    expect(validatePlatformCredential('azure-openai', { endpoint: 'https://northwind.openai.azure.com', apiKey: 'a'.repeat(32) })).toMatchObject({ apiKey: 'a'.repeat(32) });
+    expect(() => validatePlatformCredential('azure-openai', { endpoint: 'https://northwind.openai.azure.com', apiKey: 'a'.repeat(31) })).toThrow(/Azure OpenAI key/);
+    expect(() => validatePlatformCredential('azure-openai', { endpoint: 'northwind.openai.azure.com', apiKey: 'a'.repeat(32) })).toThrow(/Endpoint/);
   });
 
   it('refuses to accept a supplied key for a minted platform', () => {
@@ -148,7 +151,7 @@ describe('validatePlatformKey', () => {
   it('never echoes the key back in the error message', () => {
     const secret = 'sk-ant-super-secret-value-here';
     try {
-      validatePlatformKey('azure-openai', secret);
+      validatePlatformCredential('azure-openai', { endpoint: 'https://northwind.openai.azure.com', apiKey: secret });
       throw new Error('expected a rejection');
     } catch (error) {
       expect((error as Error).message).not.toContain(secret);

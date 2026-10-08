@@ -151,7 +151,7 @@ export async function listAgentHierarchy(orgId: string): Promise<AgentHierarchyV
  * @param modelProvider - The agent's `harness.modelProvider`, if it set one.
  */
 function defaultHarnessTargetFor(
-  modelProvider: 'anthropic' | 'openai' | 'bedrock' | undefined,
+  modelProvider: import('@/libs/llm/providers').ModelProviderName | undefined,
 ): HarnessTarget | undefined {
   if (modelProvider === 'bedrock') {
     return 'agentcore-container';

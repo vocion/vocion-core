@@ -41,6 +41,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
+import { MODEL_PROVIDERS } from '@/libs/llm/providers';
 import { logger } from '@/libs/Logger';
 import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
@@ -106,7 +107,7 @@ function lruSet<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
 /** The subset of `agent.harnessConfig` that decides which chat model is built. */
 export type HarnessModelConfig = {
   model?: string;
-  modelProvider?: 'anthropic' | 'openai' | 'bedrock';
+  modelProvider?: import('@/libs/llm/providers').ModelProviderName;
   maxTokens?: number;
   promptCache?: boolean;
 };
@@ -194,7 +195,7 @@ export function chatModelOptionsWithOverride(
   const provider = override.provider ?? inferProviderForModel(override.model);
   if (!provider) {
     throw new Error(
-      `cannot tell which provider serves model "${override.model}"; pass provider explicitly (anthropic | openai | bedrock)`,
+      `cannot tell which provider serves model "${override.model}"; pass provider explicitly (${MODEL_PROVIDERS.join(' | ')})`,
     );
   }
   return { ...base, provider, model: override.model, ...(override.thinking ? { thinking: override.thinking } : {}) };

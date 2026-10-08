@@ -15,8 +15,13 @@
  * a single pasted API key: the credential is an AWS access key pair (or, on a
  * deployed host, the instance's own IAM role), which is why the `aws` platform
  * in `libs/platforms/registry.ts` carries two fields rather than one.
+ *
+ * `mistral` is Mistral's own API. `openai-compatible` is any server that speaks
+ * OpenAI's chat-completions API at a base URL of the workspace's choosing — a
+ * self-hosted model on vLLM, Ollama or LM Studio. Both, like `azure-openai` and
+ * `vertex`, are reached through the OpenAI wire format in core.
  */
-export type LLMProviderName = 'openai' | 'anthropic' | 'bedrock' | 'vertex' | 'azure-openai';
+export type LLMProviderName = 'openai' | 'anthropic' | 'bedrock' | 'vertex' | 'azure-openai' | 'mistral' | 'openai-compatible';
 
 export type LLMMessage
   = | { role: 'system'; content: string }

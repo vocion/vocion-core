@@ -11,8 +11,9 @@
  */
 
 import type { Action } from './types';
+import type { ChatKind } from '@/services/chat/provider';
 import { z } from 'zod';
-import { parseSlackPermalink } from '@/services/chat/providers/slack';
+import { parseAnyChatPermalink } from '@/services/chat/permalinks';
 
 export const ADD_REACTION_ACTION_ID = 'chat.add_reaction';
 
@@ -30,15 +31,15 @@ type Input = z.infer<typeof reactionInput>;
  * The message an input names, without a token.
  * @param input - The proposal's input.
  */
-function messageOf(input: Pick<Input, 'permalink' | 'channelId' | 'ts'>): { channelId: string; ts: string } | null {
+function messageOf(input: Pick<Input, 'permalink' | 'channelId' | 'ts'>): { channelId: string; ts: string; kind?: ChatKind } | null {
   if (input.channelId && input.ts) {
     return { channelId: input.channelId, ts: input.ts };
   }
   if (!input.permalink) {
     return null;
   }
-  const ref = parseSlackPermalink(input.permalink);
-  return ref ? { channelId: ref.channelId, ts: ref.ts } : null;
+  const ref = parseAnyChatPermalink(input.permalink);
+  return ref ? { channelId: ref.channelId, ts: ref.ts, ...(ref.kind ? { kind: ref.kind } : {}) } : null;
 }
 
 export const chatAddReactionAction: Action<typeof reactionInput> = {
@@ -58,8 +59,8 @@ export const chatAddReactionAction: Action<typeof reactionInput> = {
       return `${input.permalink} is not a link to a chat message; give the message's permalink, or its channelId and ts.`;
     }
     const { chatTokenFor } = await import('@/services/chat/provider');
-    if (!(await chatTokenFor(ctx.orgId))) {
-      return 'This workspace has no chat connected, so there is no message to react to. Connect Slack at /dashboard/connectors and propose again.';
+    if (!(await chatTokenFor(ctx.orgId, messageOf(input)?.kind))) {
+      return 'This workspace has no chat connected, so there is no message to react to. Connect Slack or Discord at /dashboard/connectors and propose again.';
     }
     return undefined;
   },
@@ -85,21 +86,21 @@ export const chatAddReactionAction: Action<typeof reactionInput> = {
       throw new Error('The reaction names no message.');
     }
     const { chatProviderFor } = await import('@/services/chat/provider');
-    const provider = await chatProviderFor(ctx.orgId);
-    const out = await provider.addReaction({ ...message, name: input.name });
+    const provider = await chatProviderFor(ctx.orgId, message.kind);
+    const out = await provider.addReaction({ channelId: message.channelId, ts: message.ts, name: input.name });
     if (!out.ok) {
       throw new Error(`The chat would not add the reaction: ${out.error}`);
     }
     return { reacted: true, already: out.already, message, name: input.name, line: `${out.already ? 'Already had' : 'Added'} :${input.name}: on the message in channel ${message.channelId}.` };
   },
   async undo(ctx, input, result) {
-    const message = (result?.message ?? messageOf(input)) as { channelId: string; ts: string } | null;
+    const message = (result?.message ?? messageOf(input)) as { channelId: string; ts: string; kind?: ChatKind } | null;
     if (!message) {
       throw new Error('This run recorded no message, so there is nothing to take back.');
     }
     const { chatProviderFor } = await import('@/services/chat/provider');
-    const provider = await chatProviderFor(ctx.orgId);
-    const out = await provider.removeReaction({ ...message, name: input.name });
+    const provider = await chatProviderFor(ctx.orgId, message.kind);
+    const out = await provider.removeReaction({ channelId: message.channelId, ts: message.ts, name: input.name });
     if (!out.ok) {
       throw new Error(`The chat would not remove the reaction: ${out.error}`);
     }

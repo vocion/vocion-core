@@ -348,7 +348,7 @@ export const projectSchema = pgTable(
      * them; a width change means a schema migration too.
      */
     embeddingConfig: jsonb('embedding_config').$type<{
-      provider?: 'openai' | 'bedrock';
+      provider?: import('@/libs/llm/providers').EmbeddingProviderName;
       model?: string;
     }>(),
     /**
@@ -992,7 +992,7 @@ export const agentSchema = pgTable(
        * Unset inherits `VOCION_LLM_PROVIDER`, so this exists to point one
        * agent at one vendor without moving the whole deployment.
        */
-      modelProvider?: 'anthropic' | 'openai' | 'bedrock';
+      modelProvider?: import('@/libs/llm/providers').ModelProviderName;
       /**
        * Cache this agent's prompt prefix at the vendor. Unset means the
        * process default (on), so this exists to turn caching OFF for one

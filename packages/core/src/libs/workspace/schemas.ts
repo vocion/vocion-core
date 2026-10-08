@@ -2,6 +2,7 @@ import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
 import { VoiceSchema } from '@/libs/agents/voice';
 import { TYPE_CODE_PATTERN } from '@/libs/codes';
+import { EMBEDDING_PROVIDERS, MODEL_PROVIDERS } from '@/libs/llm/providers';
 import { OrgReviewConfigSchema } from '@/libs/orgReview/config';
 import { agentSkillsNameError } from '@/libs/skills/name';
 import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
@@ -159,7 +160,7 @@ export const WorkspaceManifestSchema = z.object({
      * Changing this on a workspace that already holds chunks means re-embedding
      * them; a model of a different vector width means a schema migration too.
      */
-    embeddingProvider: z.enum(['openai', 'bedrock']).optional(),
+    embeddingProvider: z.enum(EMBEDDING_PROVIDERS).optional(),
     embeddingModel: z.string().optional(),
     /**
      * Which workspace skill regenerates each review-item type's card, keyed
@@ -1132,7 +1133,7 @@ export const AgentManifestSchema = z.object({
      * `model_policy`); without this key the applier dropped it silently.
      */
     effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
-    modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
+    modelProvider: z.enum(MODEL_PROVIDERS).optional(),
     /**
      * Ask the vendor to cache this agent's prompt prefix, or forbid it.
      *

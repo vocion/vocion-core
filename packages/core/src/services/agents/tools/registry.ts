@@ -79,6 +79,7 @@ import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
 import { peopleTools } from './peopleTools';
 import { personalizationTools } from './personalization';
+import { phoneCallTools } from './phoneCalls';
 import { posthogCountTools } from './posthogCounts';
 import { productAccessTools } from './productAccess';
 import { proposeActionTool } from './proposeAction';
@@ -247,6 +248,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // agent whose sources include one (`services/finance`, `services/people`).
     ...financeTools(ctx),
     ...peopleTools(ctx),
+    // Source-gated — the call log of the connected phone account (Twilio Voice,
+    // Vonage), live; placing a call is the `phone.place_call` action.
+    ...phoneCallTools(ctx),
     // One person across the three families — chat user, tracker account,
     // code-host login — by email. Present with any of the three in scope.
     ...lookupPersonTools(ctx),

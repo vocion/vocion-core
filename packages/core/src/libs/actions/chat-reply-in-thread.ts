@@ -18,8 +18,9 @@
  */
 
 import type { Action, ReviewCard } from './types';
+import type { ChatKind } from '@/services/chat/provider';
 import { z } from 'zod';
-import { parseSlackPermalink } from '@/services/chat/providers/slack';
+import { parseAnyChatPermalink } from '@/services/chat/permalinks';
 
 export const REPLY_IN_THREAD_ACTION_ID = 'chat.reply_in_thread';
 
@@ -40,19 +41,19 @@ type Input = z.infer<typeof replyInput>;
  * The thread an input names, without a token: for the dedup key and the card.
  * @param input - The proposal's input.
  */
-function threadOf(input: Pick<Input, 'permalink' | 'channelId' | 'threadTs'>): { channelId: string; threadTs: string } | null {
+function threadOf(input: Pick<Input, 'permalink' | 'channelId' | 'threadTs'>): { channelId: string; threadTs: string; kind?: ChatKind } | null {
   if (input.channelId && input.threadTs) {
     return { channelId: input.channelId, threadTs: input.threadTs };
   }
   if (!input.permalink) {
     return null;
   }
-  // Pure: the Slack permalink parser needs no token.
-  const ref = parseSlackPermalink(input.permalink);
-  return ref ? { channelId: ref.channelId, threadTs: ref.threadTs ?? ref.ts } : null;
+  // Pure: the permalink parsers need no token.
+  const ref = parseAnyChatPermalink(input.permalink);
+  return ref ? { channelId: ref.channelId, threadTs: ref.threadTs ?? ref.ts, ...(ref.kind ? { kind: ref.kind } : {}) } : null;
 }
 
-type Posted = { channelId: string; threadTs: string; ts: string };
+type Posted = { channelId: string; threadTs: string; ts: string; kind?: ChatKind };
 
 export const chatReplyInThreadAction: Action<typeof replyInput> = {
   id: REPLY_IN_THREAD_ACTION_ID,
@@ -75,8 +76,8 @@ export const chatReplyInThreadAction: Action<typeof replyInput> = {
       return `${input.permalink} is not a link to a chat message; give the message's permalink, or its channelId and threadTs.`;
     }
     const { chatTokenFor } = await import('@/services/chat/provider');
-    if (!(await chatTokenFor(ctx.orgId))) {
-      return 'This workspace has no chat connected, so there is no thread to reply in. Connect Slack at /dashboard/connectors and propose again.';
+    if (!(await chatTokenFor(ctx.orgId, threadOf(input)?.kind))) {
+      return 'This workspace has no chat connected, so there is no thread to reply in. Connect Slack or Discord at /dashboard/connectors and propose again.';
     }
     return undefined;
   },
@@ -109,12 +110,12 @@ export const chatReplyInThreadAction: Action<typeof replyInput> = {
       throw new Error('The reply names no thread.');
     }
     const [{ chatProviderFor }, { recordSlackPost }] = await Promise.all([import('@/services/chat/provider'), import('@/services/chat/slackPosts')]);
-    const provider = await chatProviderFor(ctx.orgId);
+    const provider = await chatProviderFor(ctx.orgId, thread.kind);
     const { ts } = await provider.postInThread({ channelId: thread.channelId, threadTs: thread.threadTs, text: input.text });
-    if (ts) {
+    if (ts && provider.kind !== 'discord') {
       await recordSlackPost({ orgId: ctx.orgId, projectId: ctx.orgId, channelId: thread.channelId, ts, threadTs: thread.threadTs, kind: 'reply', agentSlug: ctx.invokedBy?.startsWith('agent:') ? ctx.invokedBy.slice('agent:'.length) : null, text: input.text, createdBy: ctx.reviewedBy ?? ctx.invokedBy ?? null }).catch(() => null);
     }
-    const post: Posted = { channelId: thread.channelId, threadTs: thread.threadTs, ts };
+    const post: Posted = { channelId: thread.channelId, threadTs: thread.threadTs, ts, kind: provider.kind };
     return { replied: true, post, line: `Replied in the thread in channel ${thread.channelId}.` };
   },
   async undo(ctx, _input, result) {
@@ -123,7 +124,7 @@ export const chatReplyInThreadAction: Action<typeof replyInput> = {
       throw new Error('This run recorded no reply, so there is nothing to take back.');
     }
     const { chatProviderFor } = await import('@/services/chat/provider');
-    const provider = await chatProviderFor(ctx.orgId);
+    const provider = await chatProviderFor(ctx.orgId, post.kind);
     const out = await provider.deleteMessage({ channelId: post.channelId, ts: post.ts });
     if (!out.ok) {
       throw new Error(`The chat would not delete the reply: ${out.error}`);

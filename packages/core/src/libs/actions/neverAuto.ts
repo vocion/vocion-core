@@ -23,6 +23,8 @@
  *     vendor's data into the workspace at once, then every hour. Undo removes
  *     the source, but not the reads and embeddings already paid for, so a
  *     person confirms which repositories or projects it reads (#1080).
+ *   - `phone.place_call` — approving it rings a real person's phone at once,
+ *     and a placed call cannot be taken back.
  *
  * Deliberately not configurable. Fails safe — it can only keep an item in the
  * review queue, never release it.
@@ -33,6 +35,7 @@ export const NEVER_AUTO_ACTION_IDS: ReadonlySet<string> = new Set([
   'personalization.enroll',
   'objects.propose_candidate',
   'source.connect',
+  'phone.place_call',
 ]);
 
 /** Grants that put an action on the never-auto list whatever its id. */
