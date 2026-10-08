@@ -1,0 +1,12 @@
+{
+  "turns": [
+    {
+      "match": "connect my tools",
+      "steps": [
+        { "tool": "connect_system", "args": { "named": ["jira", "notion"] } }
+      ],
+      "reply": "Here is what to connect, one at a time."
+    }
+  ],
+  "fallback": "This scripted model has no line for that message."
+}
