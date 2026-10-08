@@ -20,20 +20,19 @@ vi.mock('@/libs/Logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info:
 vi.mock('next-auth/jwt', () => ({ getToken: vi.fn() }));
 vi.mock('@/routers', async () => {
   const { os, ORPCError } = await import('@orpc/server');
-  return {
-    router: {
-      boom: os.handler(() => {
-        throw new Error('column "scope_ref" does not exist');
-      }),
-      unauthorized: os.handler(() => {
-        throw new ORPCError('UNAUTHORIZED', { status: 401 });
-      }),
-      rejectsWithAnObject: os.handler(() => {
-        // eslint-disable-next-line no-throw-literal -- an SDK rejecting with a plain object is the case under test
-        throw { pgCode: '42703', detail: 'column does not exist' };
-      }),
-    },
+  const router = {
+    boom: os.handler(() => {
+      throw new Error('column "scope_ref" does not exist');
+    }),
+    unauthorized: os.handler(() => {
+      throw new ORPCError('UNAUTHORIZED', { status: 401 });
+    }),
+    rejectsWithAnObject: os.handler(() => {
+      // eslint-disable-next-line no-throw-literal -- an SDK rejecting with a plain object is the case under test
+      throw { pgCode: '42703', detail: 'column does not exist' };
+    }),
   };
+  return { router, servedRouter: () => router };
 });
 
 const { logger } = await import('@/libs/Logger');

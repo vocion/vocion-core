@@ -12,6 +12,7 @@ import { fetchSlackFile } from '@/libs/surfaces/slack';
 import { chatPermalink, conversationReplies } from '@/libs/surfaces/slackRead';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { agentSchema, chatChannelBindingSchema, projectSchema } from '@/models/Schema';
+import { budgetRefusalMessage } from '@/services/agents/budgetStop';
 import { TurnStopped } from '@/services/agents/turnGate';
 import { runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, createArtifact } from '@/services/ArtifactService';
@@ -443,7 +444,10 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {
     await doneWorking();
-    await adapter.reply(target, `This agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`).catch(() => {});
+    const words = budget.scope === 'extension'
+      ? budgetRefusalMessage(budget)
+      : `This agent is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget for the period. A workspace admin can raise the cap in Vocion.`;
+    await adapter.reply(target, words).catch(() => {});
     return { outcome: 'over_budget', agentSlug };
   }
 

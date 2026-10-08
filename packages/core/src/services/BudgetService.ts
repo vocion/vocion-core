@@ -94,18 +94,23 @@
  * dropped a release later than this code, per `migrations/CONVENTIONS.md`.
  */
 
+import type { ChargeEvent } from '@/libs/extensions';
 import type { FeatureName } from '@/libs/Langfuse/features';
 import type { TokenUsage } from '@/libs/pricing';
 import { and, eq, inArray, notLike, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { budgetGuards, chargeObservers } from '@/libs/extensions';
 import { tokenCostMicroCents, totalTokens } from '@/libs/pricing';
 import { agentBudgetSchema, agentSchema } from '@/models/Schema';
 import { noteRunCost } from '@/services/budget/runCost';
 
 export type BudgetPeriod = 'daily' | 'monthly';
 
-/** Which of an org's budget rows refused the call. */
-export type BudgetScope = 'agent' | 'feature' | 'org';
+/**
+ * Which cap refused the call: one of the org's budget rows, or an extension's
+ * guard (`libs/extensions.ts`), checked only after every row has passed.
+ */
+export type BudgetScope = 'agent' | 'feature' | 'org' | 'extension';
 
 export type BudgetCheck
   = | { ok: true }
@@ -126,6 +131,12 @@ export type BudgetCheck
        * built-in one. Tells the person which setting to change.
        */
       limitFrom: BudgetLimitSource;
+      /**
+       * The sentence to show, when the cap's owner wrote one. Only an
+       * extension's refusal carries it; core's own words come from
+       * `budgetRefusalMessage`.
+       */
+      message?: string;
     };
 
 /** Whose setting a refusing cap is. See the module docstring, #272. */
@@ -497,6 +508,42 @@ export async function preflightCheck(opts: {
       return breach;
     }
   }
+  // Extensions' caps come last, so a workspace's own cap is the one named
+  // when both refuse: it is the one the people reading can change.
+  return extensionCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug, feature: opts.feature });
+}
+
+/**
+ * Each extension's budget guard in turn; the first refusal stops the call. A
+ * guard that throws refuses nothing — it is logged and skipped — because a
+ * broken extension must not stop every agent on the installation.
+ * @param input - The call being checked.
+ * @param input.orgId - Tenant.
+ * @param input.agentSlug - The agent, when this is an agent turn.
+ * @param input.feature - The surface, when it is not.
+ */
+async function extensionCheck(input: { orgId: string; agentSlug?: string; feature?: string }): Promise<BudgetCheck> {
+  for (const guard of budgetGuards()) {
+    let refusal: Awaited<ReturnType<typeof guard>>;
+    try {
+      refusal = await guard(input);
+    } catch (error) {
+      logBudgetWarning('an extension budget guard failed and was skipped', { orgId: input.orgId, error: error instanceof Error ? error.message : String(error) });
+      continue;
+    }
+    if (refusal) {
+      return {
+        ok: false,
+        scope: 'extension',
+        agentSlug: refusal.source,
+        reason: refusal.reason,
+        limit: refusal.limit,
+        current: refusal.current,
+        limitFrom: 'own',
+        message: refusal.message,
+      };
+    }
+  }
   return { ok: true };
 }
 
@@ -632,6 +679,34 @@ export async function chargeUsage(opts: {
   // (`services/budget/runCost.ts`).
   await noteRunCost(tokens, microCents);
   await writeChargeWithRetry(rows, period, tokens, microCents);
+  await notifyChargeObservers({ orgId: opts.orgId, agentSlug: opts.agentSlug, feature: opts.feature, tokens, microCents, at: new Date() });
+}
+
+/**
+ * Tell every extension about a charge that has committed. Never throws: the
+ * charge is recorded, and an observer's failure is the observer's to log.
+ * @param event - The charge.
+ */
+async function notifyChargeObservers(event: ChargeEvent): Promise<void> {
+  for (const observe of chargeObservers()) {
+    try {
+      await observe(event);
+    } catch (error) {
+      logBudgetWarning('an extension charge observer failed', { orgId: event.orgId, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+}
+
+/**
+ * Log a warning, loading the logger only when there is something to say (see
+ * {@link logUnrecordedSpend} for why).
+ * @param message - What happened.
+ * @param properties - Enough to find it again.
+ */
+function logBudgetWarning(message: string, properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger.warn(message, properties))
+    .catch(() => console.warn(message, properties));
 }
 
 /** Attempts a charge gets before the spend is given up on. */

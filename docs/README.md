@@ -66,6 +66,7 @@ about them.
 ## Guides
 
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
+- [Extensions](./guides/extensions.md) — how a deployment builds in `@vocion/enterprise`, and the neutral seams it adds through (budget guard and observer, `ext` routes and pages, slots, the Org policy hook).
 - [GitHub as an event source](./guides/github.md) — pull requests, checks, reviews, merges and failed deploy runs on the repositories a workspace lists become `pr.*` and `run.failed` events automations act on; the read-only token and its permissions, the payload shapes, dedupe keys that make a re-poll idempotent, the optional webhook at `/api/webhooks/github`, and an example `when: { event: pr.checks_completed, filter: { conclusion: failure } }`.
 - [Team threads](./guides/team-threads.md) — a lead puts one question to its specialists together: they post in rounds and answer each other, it ends on a settle rule (the lead's word, every member complete, the round or budget cap), the lead writes the outcome, and the whole thread is one run with its cost. Opened by `open_team_thread` or the `team-thread` job; works on both loops.
 - [Team performance](./guides/team-performance.md) — the measurement model behind `/dashboard/team-report`: measures with provenance (verified · observed · human-confirmed · agent-reported), what Vocion derives (attainment, trend, cost per outcome, human load), the setup state, evidence chains and outcome lineage.

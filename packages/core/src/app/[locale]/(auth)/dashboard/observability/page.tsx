@@ -2,6 +2,7 @@ import { ExternalLink, LineChart } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Button } from '@/components/ui/button';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { ExtensionSlot } from '@/features/extensions/ExtensionSlot';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { langfuseConfig } from '@/libs/Langfuse';
@@ -142,8 +143,10 @@ export default async function ObservabilityPage(props: {
               </div>
             )}
 
-        {/* Airy pass (B-034b §4): three numbers in a row between hairlines, no fills. */}
-        <div className="grid gap-6 border-y border-border/70 py-5 sm:grid-cols-3">
+        {/* Airy pass (B-034b §4): numbers in a row between hairlines, no fills.
+            The columns auto-fit, so a figure an extension adds (`spend.stats`)
+            takes a column and an empty slot leaves no gap. */}
+        <div className="grid gap-6 border-y border-border/70 py-5 sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]">
           <StatCard
             label="Spend this period"
             value={`$${(totalCents / 100).toFixed(2)}`}
@@ -159,6 +162,7 @@ export default async function ObservabilityPage(props: {
             value={String(topAgents.filter(a => (a.currentCents ?? 0) > 0).length)}
             hint={topAgents.length === 0 ? 'No usage in this period.' : 'Agents with non-zero spend.'}
           />
+          <ExtensionSlot name="spend.stats" locale={locale} />
         </div>
 
         {platformSurfaces.length > 0 && (

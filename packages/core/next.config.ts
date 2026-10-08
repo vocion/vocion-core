@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import { withSentryConfig } from '@sentry/nextjs';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { linkEnterprise } from './src/libs/enterpriseCheckout';
 import './src/libs/Env';
 
 // Workspace component registry (workspace pages, docs/workspace-pages.md):
@@ -27,11 +28,18 @@ if (wsxCandidate && existsSync(join(wsxCandidate, 'registry.tsx'))) {
   wsxRegistry = './src/wsx-ext/registry.tsx';
 }
 
+// Vocion Enterprise, when the deploy provides it: snapshotted into the
+// gitignored src/enterprise-ext/ for the same Turbopack reason as above, and
+// an empty stub otherwise (src/libs/enterpriseCheckout.ts, src/libs/extensions.ts).
+const enterprise = linkEnterprise(__dirname);
+
 // Define the base Next.js configuration
 const baseConfig: NextConfig = {
   turbopack: {
     resolveAlias: {
       '@wsx/registry': wsxRegistry,
+      '@vocion/enterprise/index': enterprise.server,
+      '@vocion/enterprise/client': enterprise.client,
     },
   },
   // `build:next` and `next dev` both run on Turbopack, which reads the alias
@@ -43,6 +51,8 @@ const baseConfig: NextConfig = {
   // exists; that no longer costs anything.
   webpack: (config) => {
     config.resolve.alias['@wsx/registry'] = join(__dirname, wsxRegistry);
+    config.resolve.alias['@vocion/enterprise/index$'] = join(__dirname, enterprise.server);
+    config.resolve.alias['@vocion/enterprise/client$'] = join(__dirname, enterprise.client);
     return config;
   },
   // Standalone output for Docker — produces .next/standalone/ with only

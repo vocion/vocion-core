@@ -20,3 +20,5 @@ playwright-report/
 # resolves. The build overwrites it, so a working copy can show as dirty after
 # a local build — that is the cost of the import working everywhere.
 /public/version.txt
+# Vocion Enterprise's snapshot, made at config load (src/libs/enterpriseCheckout.ts).
+src/enterprise-ext

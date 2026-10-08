@@ -24,11 +24,22 @@ import { Label } from '@/components/ui/label';
  * No email is sent: the invite is a link to copy and share.
  */
 
-function inviteUrl(token: string): string {
+/**
+ * The link an invite is shared as. Exported so every place that shows an
+ * invite shares the same link (an extension's page among them).
+ * @param token - The invite's token.
+ */
+export function inviteUrl(token: string): string {
   return `${window.location.origin}/sign-up?invite=${token}`;
 }
 
-function CopyLink({ token, label }: { token: string; label?: string }) {
+/**
+ * Copies an invite's link, and says so for two seconds.
+ * @param props - The invite.
+ * @param props.token - The invite's token.
+ * @param props.label - The button's words (default "Copy link").
+ */
+export function CopyLink({ token, label }: { token: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <Button

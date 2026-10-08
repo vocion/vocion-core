@@ -357,6 +357,16 @@ describe('handleInbound', () => {
     expect(adapter.replies[0]!.text).toMatch(/over its cents budget/);
   });
 
+  it('refuses with the extension\'s own words when an extension\'s cap refused', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const message = 'This Org has reached the monthly cap its provider set.';
+    const out = await svc.handleInbound(adapter, inbound, { runAgent: vi.fn() as never, preflight: vi.fn(async () => ({ ok: false as const, reason: 'hard_cents_exceeded' as const, scope: 'extension' as const, agentSlug: 'test:cap', limit: 100, current: 150, limitFrom: 'own' as const, message })) });
+
+    expect(out).toEqual({ outcome: 'over_budget', agentSlug: 'revenue-lead' });
+    expect(adapter.replies[0]!.text).toBe(message);
+  });
+
   it('turns an agent failure into a polite reply and a failed outcome', async () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();

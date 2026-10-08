@@ -231,6 +231,17 @@ describe('handleInboundEmail', () => {
     expect(d.sent[0]!.text).toContain('over its cents budget');
   });
 
+  it('an extension\'s cap refuses in that extension\'s words, escaped in the HTML part', async () => {
+    await seed();
+    const message = 'This Org has reached the monthly cap <its provider> set.';
+    const d = deps({ preflight: vi.fn(async () => ({ ok: false, reason: 'hard_cents_exceeded', scope: 'extension', agentSlug: 'test:cap', limit: 100, current: 150, limitFrom: 'own', message })) as never });
+    const out = await svc.handleInboundEmail(meta({ receivedEmailId: 'rcv-ext' }), d);
+
+    expect(out.outcome).toBe('over_budget');
+    expect(d.sent[0]!.text).toBe(message);
+    expect(d.sent[0]!.html).toContain('&lt;its provider&gt;');
+  });
+
   it('a reply that decides a card waiting on the thread is decided and said back by mail, with no turn (Chris, 2026-10-06)', async () => {
     await seed();
     const approval = vi.fn(async () => ({ decided: true as const, verb: 'approve' as const, runId: 7542, reply: 'Approved by Chris: "Approve PL-484". It ran; Undo is in Vocion.' }));
