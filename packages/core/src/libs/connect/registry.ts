@@ -14,6 +14,7 @@ import { googleProvider } from './providers/google';
 import { hubspotProvider } from './providers/hubspot';
 import { notionProvider } from './providers/notion';
 import { posthogProvider } from './providers/posthog';
+import { quickbooksProvider } from './providers/quickbooks';
 import { slackProvider } from './providers/slack';
 import { zoomProvider } from './providers/zoom';
 import { connectScriptEnabled, scriptedProviders } from './scripted';
@@ -28,6 +29,7 @@ const realProviders: readonly ConnectProvider[] = [
   zoomProvider,
   posthogProvider,
   apolloProvider,
+  quickbooksProvider,
 ];
 
 /**

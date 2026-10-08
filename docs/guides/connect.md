@@ -93,8 +93,8 @@ person clicks Connect with Slack
   only when there is an app to run it on: the server's (its client ID in the
   env) or the workspace's own login app, saved on Developers. Otherwise they
   offer paste alone, rather than a button that can only fail.
-- **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom
-  and Apollo, a workspace admin can save the vendor's client ID and secret as
+- **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom,
+  Apollo and QuickBooks, a workspace admin can save the vendor's client ID and secret as
   a `<provider>-login-app` credential (`libs/connect/loginClient.ts`). A new
   login runs on it in preference to the server's. Each login records the
   client ID it ran on (`loginClientId`), and every refresh finds that same app
@@ -139,6 +139,7 @@ forwarded host of the request.
 | `zoom` | `zoom` | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (a user-managed app; the server-to-server paste keeps working) | `/api/connect/zoom/callback` |
 | `posthog` | `posthog` | None. `NEXT_PUBLIC_APP_URL` must be public `https`, because PostHog reads our client from `/api/connect-client/posthog` (CIMD). | `/api/connect/posthog/callback` |
 | `apollo` | `apollo` | `APOLLO_CLIENT_ID`, `APOLLO_CLIENT_SECRET` | `/api/connect/apollo/callback` |
+| `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | `/api/connect/quickbooks/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in
@@ -162,6 +163,10 @@ Before going live with each vendor:
 - **PostHog.** Local dev needs a public `https` tunnel set as
   `NEXT_PUBLIC_APP_URL`.
 - **Notion.** Register a public integration with read content only.
+- **QuickBooks.** Intuit reviews a production app before real companies can
+  connect; a development app connects sandbox companies only. QuickBooks is
+  login-only: Intuit has no API key and rotates the refresh token, so there
+  is no paste form. Setup is in [quickbooks.md](quickbooks.md).
 
 Sentry has no login: its install redirect does not carry our signed `state`,
 so the callback cannot tell which workspace and admin started it. Paste a

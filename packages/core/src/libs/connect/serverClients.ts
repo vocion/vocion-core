@@ -43,6 +43,8 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.ZOOM_CLIENT_ID, clientSecret: Env.ZOOM_CLIENT_SECRET };
     case 'apollo':
       return { clientId: Env.APOLLO_CLIENT_ID, clientSecret: Env.APOLLO_CLIENT_SECRET };
+    case 'quickbooks':
+      return { clientId: Env.QUICKBOOKS_CLIENT_ID, clientSecret: Env.QUICKBOOKS_CLIENT_SECRET };
     default:
       return {};
   }

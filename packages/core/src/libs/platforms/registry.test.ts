@@ -437,6 +437,15 @@ describe('connector platforms', () => {
     expect(validatePlatformCredential('rest', { baseUrl: ' https://api.example ', token: ' tok ' })).toEqual({ baseUrl: 'https://api.example', token: 'tok' });
   });
 
+  it('holds one QuickBooks login per workspace, and refuses a paste, since QuickBooks has no key to paste', () => {
+    const quickbooks = getPlatform('quickbooks');
+
+    expect(quickbooks.credentialsPerOrg).toBe('one-live');
+    expect(quickbooks.fields).toEqual([]);
+    expect(platformForConnectorSlug('quickbooks')?.id).toBe('quickbooks');
+    expect(() => validatePlatformCredential('quickbooks', {})).toThrow(/QuickBooks has no key to paste\. Log in with QuickBooks on the Connectors page instead\./);
+  });
+
   it('pairs the Jira token with the email it was issued to', () => {
     const jira = getPlatform('jira');
 

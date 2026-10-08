@@ -120,6 +120,32 @@ describe('offer_connection', () => {
     }
   });
 
+  it('a connector with nothing to paste (QuickBooks) offers its login alone, with no paste button', async () => {
+    const emit = vi.fn();
+    await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'quickbooks', why: 'So the finance agent can read the books.' });
+
+    const card = emit.mock.calls[0]![0].card;
+
+    expect(card.href.startsWith('/api/connect/quickbooks/start?connector=quickbooks')).toBe(true);
+    expect(card.secondaryHref).toBeUndefined();
+    expect(card.secondaryHrefLabel).toBeUndefined();
+  });
+
+  it('a connector with nothing to paste and no app on this server links to the Connectors page, not to a token form', async () => {
+    providerSetup.unconfigured.add('quickbooks');
+    try {
+      const emit = vi.fn();
+      await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'quickbooks', why: 'x' });
+
+      const card = emit.mock.calls[0]![0].card;
+
+      expect(card.href).toBe(connectHref('quickbooks', 7));
+      expect(card.body).toBeUndefined();
+    } finally {
+      providerSetup.unconfigured.delete('quickbooks');
+    }
+  });
+
   it('a workspace that saved its own login app gets a login card even though the server has none, since the login runs on that app', async () => {
     providerSetup.unconfigured.add('google');
     const app = await storePlatformKey({ orgId: ORG, name: 'Our Google app', platform: 'google-login-app', values: { clientId: 'ws_google', clientSecret: 'ws_google_secret' } });
