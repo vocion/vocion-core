@@ -130,6 +130,7 @@ only allowed alongside `checkMission`.
 
 | Job | What it does | Input |
 |---|---|---|
+| `team-thread` | Opens a [team thread](../guides/team-threads.md): the team's lead puts `question` to its specialists, they post in rounds until a settle rule holds, and the lead writes the outcome. One run with its cost; the job waits for it and returns `{ runId, status, settledBy, rounds, cents, outcome }`. | `team` (slug) or `lead` (agent slug), `question`, optional `members`, `maxRounds` (1–6, default 3), `capCents` (default 300), `turnOrder` (`parallel` \| `sequential`) |
 | `daily-team-report` | Trailing-window team activity report — runs, spend and token weight per team and member, board/red-team runs, what needs a person, the latest workspace briefing. Stored as a workspace briefing; mailed when `VOCION_MAIL_ENABLED=1`. See [Email](../guides/email.md). | `to` (list, default: workspace `accountableUser`), `hours` (default 24), `mail`, `publish` |
 
 ```yaml
