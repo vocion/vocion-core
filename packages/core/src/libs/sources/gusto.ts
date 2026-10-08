@@ -23,6 +23,7 @@ const gustoConfigSchema = z.object({});
 export const gustoConnector: SourceConnector<typeof gustoConfigSchema> = {
   slug: 'gusto',
   name: 'Gusto',
+  brand: 'gusto',
   description: 'Payroll and HR, read live: who works here, in which department, who is out, and what each pay run cost in total. Work information only; read-only.',
   icon: 'Users',
   authKind: 'oauth',

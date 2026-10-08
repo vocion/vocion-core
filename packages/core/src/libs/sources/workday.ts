@@ -24,6 +24,7 @@ const workdayConfigSchema = z.object({
 export const workdayConnector: SourceConnector<typeof workdayConfigSchema> = {
   slug: 'workday',
   name: 'Workday',
+  brand: 'workday',
   description: 'HR, read live from the custom reports you name: who works here, their title, organization and manager, and who is out. Work information only; read-only.',
   icon: 'Users',
   authKind: 'apikey',

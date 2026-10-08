@@ -20,6 +20,7 @@ const ripplingConfigSchema = z.object({});
 export const ripplingConnector: SourceConnector<typeof ripplingConfigSchema> = {
   slug: 'rippling',
   name: 'Rippling',
+  brand: 'rippling',
   description: 'HR, read live: who works here, their title, department and manager, and who is on leave. Work information only; read-only.',
   icon: 'Users',
   authKind: 'apikey',

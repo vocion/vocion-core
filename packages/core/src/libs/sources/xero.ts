@@ -28,6 +28,7 @@ const xeroConfigSchema = z.object({
 export const xeroConnector: SourceConnector<typeof xeroConfigSchema> = {
   slug: 'xero',
   name: 'Xero',
+  brand: 'xero',
   description: 'Read a Xero organisation\'s books — invoices, bills and payments as searchable documents; customers, vendors and accounts live. Read-only.',
   icon: 'Landmark',
   authKind: 'oauth',

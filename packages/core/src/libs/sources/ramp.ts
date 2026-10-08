@@ -24,6 +24,7 @@ const rampConfigSchema = z.object({
 export const rampConnector: SourceConnector<typeof rampConfigSchema> = {
   slug: 'ramp',
   name: 'Ramp',
+  brand: 'ramp',
   description: 'Company spend, read live: card transactions, reimbursements, bills and vendors. Read-only — Vocion never issues a card, approves or pays.',
   icon: 'Wallet',
   authKind: 'apikey',

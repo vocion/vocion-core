@@ -24,6 +24,7 @@ const netsuiteConfigSchema = z.object({});
 export const netsuiteConnector: SourceConnector<typeof netsuiteConfigSchema> = {
   slug: 'netsuite',
   name: 'NetSuite',
+  brand: 'netsuite',
   description: 'Read a NetSuite account\'s books — invoices, bills and customer payments as searchable documents; customers, vendors and accounts live. Read-only, token-based authentication.',
   icon: 'Landmark',
   authKind: 'apikey',

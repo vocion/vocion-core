@@ -966,6 +966,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'quickbooks',
     label: 'QuickBooks',
+    brand: 'quickbooks',
     keySource: 'supplied',
     // `one-live` for now: a login is one QuickBooks company, so a workspace
     // reads one company's books. A firm with several companies (one per legal
@@ -999,6 +1000,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'stripe',
     label: 'Stripe',
+    brand: 'stripe',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['stripe'],
@@ -1020,6 +1022,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'xero',
     label: 'Xero',
+    brand: 'xero',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['xero'],
@@ -1049,6 +1052,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'netsuite',
     label: 'NetSuite',
+    brand: 'netsuite',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['netsuite'],
@@ -1075,6 +1079,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'ramp',
     label: 'Ramp',
+    brand: 'ramp',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['ramp'],
@@ -1099,6 +1104,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'bill',
     label: 'BILL',
+    brand: 'bill',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['bill'],
@@ -1124,6 +1130,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'gusto',
     label: 'Gusto',
+    brand: 'gusto',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['gusto'],
@@ -1143,6 +1150,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'rippling',
     label: 'Rippling',
+    brand: 'rippling',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['rippling'],
@@ -1164,6 +1172,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'workday',
     label: 'Workday',
+    brand: 'workday',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: ['workday'],

@@ -273,7 +273,7 @@ describe('platform key routes', () => {
     const options = await call<Array<{ id: string; loginApp: boolean }>>(listPlatformsRoute, undefined);
 
     expect(options.filter(option => option.loginApp).map(option => option.id).sort()).toEqual(
-      ['apollo-login-app', 'atlassian-login-app', 'google-login-app', 'hubspot-login-app', 'notion-login-app', 'quickbooks-login-app', 'slack-login-app', 'zoom-login-app'],
+      ['apollo-login-app', 'atlassian-login-app', 'google-login-app', 'gusto-login-app', 'hubspot-login-app', 'notion-login-app', 'quickbooks-login-app', 'slack-login-app', 'xero-login-app', 'zoom-login-app'],
     );
   });
 

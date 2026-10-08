@@ -401,6 +401,7 @@ async function liveReaderFor(ctx: SourceContext, baseUrl: string | undefined): P
 export const quickbooksConnector: SourceConnector<typeof quickbooksConfigSchema> = {
   slug: 'quickbooks',
   name: 'QuickBooks Online',
+  brand: 'quickbooks',
   description: 'Read a QuickBooks Online company — accounts, invoices, bills, payments and journal entries — read-only, incremental by last update. Turn on sample data to try it without a login.',
   icon: 'Landmark',
   authKind: 'oauth',
