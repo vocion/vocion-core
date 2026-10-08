@@ -126,6 +126,8 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # release.yml's runner-image job repeats this build (and the boot check above) for a
+      # release no published image is the runner of. Change the two together.
       - name: Build for amd64 and arm64 and push, tagged by the commit and the line
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
