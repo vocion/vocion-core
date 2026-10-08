@@ -25,6 +25,14 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 
+// Registered here so the panel's links never depend on a mock another file in
+// the same browser worker left behind ("Mock … wasn't registered" in CI).
+vi.mock('@/libs/I18nNavigation', () => ({
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => <a href={href} {...rest}>{children}</a>,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => '/dashboard/developers',
+}));
+
 const { ApiTokensPanel } = await import('./ApiTokensPanel');
 
 beforeEach(() => {
