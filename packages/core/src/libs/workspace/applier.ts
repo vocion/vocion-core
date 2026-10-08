@@ -6,9 +6,10 @@ import { TYPE_CODE_SCHEMA_KEY, typeCodeOf } from '@/libs/codes';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow, validateSourceSpec } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, autonomyPolicySchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, notificationRuleSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceFileSchema, workspaceVersionSchema } from '@/models/Schema';
 import { AGENT_DEFAULT_SCOPE_SLUG, setCentsLimits } from '@/services/BudgetService';
 import { deriveRole } from './hierarchy';
+import { collectWorkspaceFiles, MANIFEST_FILES } from './snapshot';
 import { effectiveTeamSlug } from './teams';
 
 export type ApplyOptions = {
@@ -16,6 +17,20 @@ export type ApplyOptions = {
   appliedBy?: string;
   /** Override orgId from manifest (useful for applying MetaCTO context to a different tenant for testing) */
   orgId?: string;
+  /**
+   * What the `workspace_version` row names as where the files came from,
+   * when that is not the folder they were loaded from — an import is staged
+   * in a folder that is deleted once the apply returns, and a row pointing
+   * at it would point at nothing. Defaults to the loaded folder.
+   */
+  source?: string;
+  /**
+   * Connectors whose sync schedules this apply leaves as they are. An import
+   * passes the ones the app added and the upload names no cadence for
+   * (`WorkspaceImportService`): their schedule was set on the Connect page and
+   * is in no file, so a file's silence about it is not "no schedule".
+   */
+  keepSourceSchedules?: ReadonlySet<string>;
 };
 
 export type ResourceCounts = {
@@ -35,7 +50,18 @@ export type ResourceCounts = {
    * how to reconcile. Only wiki pages report this today.
    */
   kept?: number;
+  /**
+   * Rows of this kind the workspace no longer ships, so the apply retires
+   * them (an agent deactivated, a mission or automation disabled, a workflow
+   * retired, a notification kind turned off). Counted on a dry run too, so a
+   * diff says what an apply would switch off and not only what it would add.
+   * Absent when nothing is retired.
+   */
+  retired?: number;
 };
+
+/** What one apply did, or would do, to one resource. */
+export type ResourceOutcome = 'created' | 'updated' | 'unchanged' | 'unknown' | 'kept' | 'retired';
 
 export type ApplyResult = {
   sha: string;
@@ -58,7 +84,30 @@ export type ApplyResult = {
     teams: ResourceCounts;
     /** Pages seeded from `wiki/<slug>.md`, plus the generated index (`services/wiki/WikiSeedService.ts`). */
     wikiPages: ResourceCounts;
+    /**
+     * The settings an apply writes on the project row, one per manifest key
+     * (`lead`, `plugins`, `mailbox`, `defaults.timezone` …) and per file
+     * (`voice.yaml`, `operating-intent.yaml`). Only what would change is
+     * listed.
+     */
+    settings: ResourceCounts;
+    /** Trust rules and the autonomy policy behind each, by action (`trust.yaml`). */
+    trustRules: ResourceCounts;
+    /**
+     * The stored files no row says — pages, the brand and its logos, a
+     * skill's resources — by path. A resource's own file (an agent's YAML, a
+     * SKILL.md) is compared as its row instead. Only what would change is
+     * listed.
+     */
+    files: ResourceCounts;
   };
+  /**
+   * The same outcomes, one per resource, by name — what a diff lists under
+   * its counts, and how a caller tells which agent an "updated" was. Every
+   * resource the workspace ships is here, unchanged ones included — except
+   * settings and stored files, which list only what would change.
+   */
+  changes: Array<{ resource: keyof ApplyResult['counts']; slug: string; outcome: ResourceOutcome }>;
   errors: Array<{ resource: string; slug: string; message: string }>;
   /**
    * Non-fatal problems worth a human's attention but not worth failing the
@@ -164,13 +213,21 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     sources: blank(),
     teams: blank(),
     wikiPages: blank(),
+    settings: blank(),
+    trustRules: blank(),
+    files: blank(),
+  };
+  const changes: ApplyResult['changes'] = [];
+  const record = (resource: keyof ApplyResult['counts'], slug: string, outcome: ResourceOutcome): void => {
+    bump(counts[resource], outcome);
+    changes.push({ resource, slug, outcome });
   };
 
   // Object types first — agents and skills may reference them
   for (const ot of loaded.objectTypes) {
     try {
       const outcome = await upsertObjectType(orgId, ot, mode, loaded.manifest.defaults?.gates);
-      bump(counts.objectTypes, outcome);
+      record('objectTypes', ot.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'objectType', slug: ot.slug, message: (err as Error).message });
     }
@@ -180,7 +237,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const skill of loaded.skills) {
     try {
       const outcome = await upsertPlaybook(orgId, skill, mode);
-      bump(counts.skills, outcome);
+      record('skills', skill.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'skill', slug: skill.slug, message: (err as Error).message });
     }
@@ -190,7 +247,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const team of loaded.teams) {
     try {
       const outcome = await upsertTeam(orgId, team, mode, errors);
-      bump(counts.teams, outcome);
+      record('teams', team.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'team', slug: team.slug, message: (err as Error).message });
     }
@@ -198,12 +255,14 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   // Workspace lead + workspace-default accountable human are project
   // config (workspace.yaml `lead:` / `accountableUser:`), not a team row.
-  await applyWorkspaceLeadConfig(orgId, loaded, mode, errors);
+  for (const setting of await applyWorkspaceLeadConfig(orgId, loaded, mode, errors)) {
+    record('settings', setting, 'updated');
+  }
 
   for (const agent of loaded.agents) {
     try {
       const outcome = await upsertAgent(orgId, agent, defaults, mode, loaded.teams, warnings);
-      bump(counts.agents, outcome);
+      record('agents', agent.slug, outcome);
       if (!dryRun) {
         await reconcileManagedHarness(orgId, agent, errors);
       }
@@ -218,7 +277,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const workflow of loaded.workflows) {
     try {
       const outcome = await upsertWorkflow(orgId, workflow, mode);
-      bump(counts.workflows, outcome);
+      record('workflows', workflow.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'workflow', slug: workflow.slug, message: (err as Error).message });
     }
@@ -226,18 +285,23 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   // A workflow the workspace no longer ships is retired, not left active:
   // an unauthored definition must not keep starting runs. Run history stays.
-  if (!dryRun) {
+  // A dry run asks the same question and writes nothing, so a diff can say
+  // what an apply would retire.
+  if (!mode.offline) {
     try {
       const { ne, notInArray } = await import('drizzle-orm');
       const authored = loaded.workflows.map(w => w.slug);
-      await db
-        .update(workflowSchema)
-        .set({ status: 'retired' })
-        .where(and(
-          eq(workflowSchema.orgId, orgId),
-          ne(workflowSchema.status, 'retired'),
-          authored.length > 0 ? notInArray(workflowSchema.slug, authored) : undefined,
-        ));
+      const where = and(
+        eq(workflowSchema.orgId, orgId),
+        ne(workflowSchema.status, 'retired'),
+        authored.length > 0 ? notInArray(workflowSchema.slug, authored) : undefined,
+      );
+      const retired = dryRun
+        ? await db.select({ slug: workflowSchema.slug }).from(workflowSchema).where(where)
+        : await db.update(workflowSchema).set({ status: 'retired' }).where(where).returning({ slug: workflowSchema.slug });
+      for (const row of retired) {
+        record('workflows', row.slug, 'retired');
+      }
     } catch (err) {
       errors.push({ resource: 'workflow', slug: '(retire sweep)', message: (err as Error).message });
     }
@@ -246,7 +310,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const mission of loaded.missions) {
     try {
       const outcome = await upsertMission(orgId, mission, mode);
-      bump(counts.missions, outcome);
+      record('missions', mission.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'mission', slug: mission.slug, message: (err as Error).message });
     }
@@ -255,7 +319,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const automation of loaded.automations) {
     try {
       const outcome = await upsertAutomation(orgId, automation, mode);
-      bump(counts.automations, outcome);
+      record('automations', automation.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'automation', slug: automation.slug, message: (err as Error).message });
     }
@@ -266,7 +330,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // disabled below with the other retired rows, never left notifying.
   for (const rule of loaded.notifications ?? []) {
     try {
-      bump(counts.notifications, await upsertNotificationRule(orgId, rule, mode));
+      record('notifications', rule.kind, await upsertNotificationRule(orgId, rule, mode));
     } catch (err) {
       errors.push({ resource: 'notification', slug: rule.kind, message: (err as Error).message });
     }
@@ -285,72 +349,84 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // Scoped to this org, and to rows the applier itself wrote: an agent a
   // person hired from chat is committed to the workspace too (auto-commit),
   // so an unauthored active row is a leftover, not somebody's work.
-  if (!dryRun) {
+  //
+  // On a dry run the same rows are counted and nothing is written, so the
+  // diff a person reviews before an apply (or an import) names what would be
+  // switched off, not only what would be added.
+  if (!mode.offline) {
     const { ne, notInArray } = await import('drizzle-orm');
     const authoredAgents = loaded.agents.map(a => a.slug);
     const authoredMissions = loaded.missions.map(m => m.slug);
     const authoredAutomations = loaded.automations.map(a => a.slug);
     try {
-      const retired = await db
-        .update(agentSchema)
-        .set({ active: 'false' })
-        .where(and(
-          eq(agentSchema.orgId, orgId),
-          ne(agentSchema.active, 'false'),
-          authoredAgents.length > 0 ? notInArray(agentSchema.slug, authoredAgents) : undefined,
-        ))
-        .returning({ slug: agentSchema.slug });
+      const where = and(
+        eq(agentSchema.orgId, orgId),
+        ne(agentSchema.active, 'false'),
+        authoredAgents.length > 0 ? notInArray(agentSchema.slug, authoredAgents) : undefined,
+      );
+      const retired = dryRun
+        ? await db.select({ slug: agentSchema.slug }).from(agentSchema).where(where)
+        : await db.update(agentSchema).set({ active: 'false' }).where(where).returning({ slug: agentSchema.slug });
       for (const row of retired) {
-        warnings.push({ resource: 'agent', slug: row.slug, message: 'not in the workspace any more — deactivated (row kept; runs and tool calls still point at it)' });
+        record('agents', row.slug, 'retired');
+        if (!dryRun) {
+          warnings.push({ resource: 'agent', slug: row.slug, message: 'not in the workspace any more — deactivated (row kept; runs and tool calls still point at it)' });
+        }
       }
     } catch (err) {
       errors.push({ resource: 'agent', slug: '(retire sweep)', message: (err as Error).message });
     }
     try {
-      const retired = await db
-        .update(missionSchema)
-        .set({ status: 'disabled', updatedAt: new Date() })
-        .where(and(
-          eq(missionSchema.orgId, orgId),
-          ne(missionSchema.status, 'disabled'),
-          authoredMissions.length > 0 ? notInArray(missionSchema.slug, authoredMissions) : undefined,
-        ))
-        .returning({ slug: missionSchema.slug });
+      const where = and(
+        eq(missionSchema.orgId, orgId),
+        ne(missionSchema.status, 'disabled'),
+        authoredMissions.length > 0 ? notInArray(missionSchema.slug, authoredMissions) : undefined,
+      );
+      const retired = dryRun
+        ? await db.select({ slug: missionSchema.slug }).from(missionSchema).where(where)
+        : await db.update(missionSchema).set({ status: 'disabled', updatedAt: new Date() }).where(where).returning({ slug: missionSchema.slug });
       for (const row of retired) {
-        warnings.push({ resource: 'mission', slug: row.slug, message: 'not in the workspace any more — disabled' });
+        record('missions', row.slug, 'retired');
+        if (!dryRun) {
+          warnings.push({ resource: 'mission', slug: row.slug, message: 'not in the workspace any more — disabled' });
+        }
       }
     } catch (err) {
       errors.push({ resource: 'mission', slug: '(retire sweep)', message: (err as Error).message });
     }
     try {
-      const retired = await db
-        .update(automationSchema)
-        .set({ status: 'disabled', updatedAt: new Date() })
-        .where(and(
-          eq(automationSchema.orgId, orgId),
-          ne(automationSchema.status, 'disabled'),
-          authoredAutomations.length > 0 ? notInArray(automationSchema.slug, authoredAutomations) : undefined,
-        ))
-        .returning({ slug: automationSchema.slug });
+      const where = and(
+        eq(automationSchema.orgId, orgId),
+        ne(automationSchema.status, 'disabled'),
+        authoredAutomations.length > 0 ? notInArray(automationSchema.slug, authoredAutomations) : undefined,
+      );
+      const retired = dryRun
+        ? await db.select({ slug: automationSchema.slug }).from(automationSchema).where(where)
+        : await db.update(automationSchema).set({ status: 'disabled', updatedAt: new Date() }).where(where).returning({ slug: automationSchema.slug });
       for (const row of retired) {
-        warnings.push({ resource: 'automation', slug: row.slug, message: 'not in the workspace any more — disabled' });
+        record('automations', row.slug, 'retired');
+        if (!dryRun) {
+          warnings.push({ resource: 'automation', slug: row.slug, message: 'not in the workspace any more — disabled' });
+        }
       }
     } catch (err) {
       errors.push({ resource: 'automation', slug: '(retire sweep)', message: (err as Error).message });
     }
     try {
       const declared = (loaded.notifications ?? []).map(n => n.kind);
-      const retired = await db
-        .update(notificationRuleSchema)
-        .set({ status: 'disabled', updatedAt: new Date() })
-        .where(and(
-          eq(notificationRuleSchema.orgId, orgId),
-          ne(notificationRuleSchema.status, 'disabled'),
-          declared.length > 0 ? notInArray(notificationRuleSchema.kind, declared) : undefined,
-        ))
-        .returning({ kind: notificationRuleSchema.kind });
+      const where = and(
+        eq(notificationRuleSchema.orgId, orgId),
+        ne(notificationRuleSchema.status, 'disabled'),
+        declared.length > 0 ? notInArray(notificationRuleSchema.kind, declared) : undefined,
+      );
+      const retired = dryRun
+        ? await db.select({ kind: notificationRuleSchema.kind }).from(notificationRuleSchema).where(where)
+        : await db.update(notificationRuleSchema).set({ status: 'disabled', updatedAt: new Date() }).where(where).returning({ kind: notificationRuleSchema.kind });
       for (const row of retired) {
-        warnings.push({ resource: 'notification', slug: row.kind, message: 'no longer declared — this kind notifies nobody now' });
+        record('notifications', row.kind, 'retired');
+        if (!dryRun) {
+          warnings.push({ resource: 'notification', slug: row.kind, message: 'no longer declared — this kind notifies nobody now' });
+        }
       }
     } catch (err) {
       errors.push({ resource: 'notification', slug: '(retire sweep)', message: (err as Error).message });
@@ -363,7 +439,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const pb of loaded.playbooks) {
     try {
       const outcome = await upsertPlaybook(orgId, pb, mode);
-      bump(counts.playbooks, outcome);
+      record('playbooks', pb.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'playbook', slug: pb.slug, message: (err as Error).message });
     }
@@ -381,6 +457,29 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     await mirrorSources(orgId, loaded, warnings);
   }
 
+  // THE FILES THE RUNTIME READS, stored with the project: skill and playbook
+  // bodies and their resources, pages, the brand and its logos, and the files
+  // the source panels show (`services/workspace/WorkspaceFileService.ts`).
+  // Every reader asks the database first, so this project reads its own
+  // workspace on a host with no folder for it — Vocion Cloud, a shared host
+  // whose WORKSPACE_PATH is another project's, a sample applied from
+  // templates/. Replaced whole, like the rows: a file deleted from the
+  // workspace leaves the store too.
+  // What that store would change, named — the files no row says (pages, the
+  // brand, a skill's resources), so a review lists them as it lists agents.
+  if (!mode.offline) {
+    try {
+      for (const change of await storedFileChanges(orgId, loaded)) {
+        record('files', change.path, change.outcome);
+      }
+    } catch (err) {
+      errors.push({ resource: 'workspaceFile', slug: '(compare)', message: (err as Error).message });
+    }
+  }
+  if (!dryRun) {
+    await storeWorkspaceFiles(orgId, loaded, errors, warnings);
+  }
+
   // Wiki pages seeded from `wiki/<slug>.md` (`libs/workspace/wiki-pages.ts`):
   // each becomes or refreshes the markdown artifact with the same slug in the
   // `wiki` folder through the normal artifact save, so versions, undo and
@@ -391,7 +490,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     const { seedWikiPages } = await import('@/services/wiki/WikiSeedService');
     const seeded = await seedWikiPages(orgId, loaded.wikiPages, { dryRun, offline: mode.offline, workspaceSha: loaded.sha });
     for (const o of seeded.outcomes) {
-      bump(counts.wikiPages, o.outcome);
+      record('wikiPages', o.slug, o.outcome);
     }
     warnings.push(...seeded.warnings);
   } catch (err) {
@@ -401,7 +500,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const step of loaded.learningSteps) {
     try {
       const outcome = await upsertLearningStep(orgId, step, mode);
-      bump(counts.learningSteps, outcome);
+      record('learningSteps', step.name, outcome);
     } catch (err) {
       errors.push({ resource: 'learningStep', slug: step.name, message: (err as Error).message });
     }
@@ -410,7 +509,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const ds of loaded.evalDatasets) {
     try {
       const outcome = await upsertEvalDataset(orgId, ds, mode);
-      bump(counts.evalDatasets, outcome);
+      record('evalDatasets', ds.slug, outcome);
     } catch (err) {
       errors.push({ resource: 'evalDataset', slug: ds.slug, message: (err as Error).message });
     }
@@ -432,7 +531,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   for (const src of loaded.sources) {
     try {
       const outcome = await upsertSource(orgId, src, mode, processorNames);
-      bump(counts.sources, outcome);
+      record('sources', src.slug, outcome);
       if (outcome === 'updated' && src.enabled) {
         configChangedSourceSlugs.add(src.slug);
       }
@@ -442,7 +541,17 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   }
 
   // Trust rules: full replace per org from workspace/<org>/trust.yaml.
-  // Absent file (or empty rules) = no auto-execution anywhere.
+  // Absent file (or empty rules) = no auto-execution anywhere. What the
+  // replace would change is named first, on a dry run as on an apply.
+  if (!mode.offline) {
+    try {
+      for (const change of await trustChanges(orgId, loaded.trust)) {
+        record('trustRules', change.action, change.outcome);
+      }
+    } catch (err) {
+      errors.push({ resource: 'trustRule', slug: '(compare)', message: (err as Error).message });
+    }
+  }
   if (!dryRun) {
     try {
       await db.delete(trustRuleSchema).where(eq(trustRuleSchema.orgId, orgId));
@@ -472,7 +581,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // `schedule`, source `schedule`. A schedule that cannot be written is an
   // error on the result by name; the rest of the apply still lands.
   if (!dryRun) {
-    await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs);
+    await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs, opts.keepSourceSchedules);
   }
 
   // Compiled chat graphs bake in subagents — including the F1 team-lead
@@ -492,7 +601,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     const [row] = await db.insert(workspaceVersionSchema).values({
       orgId,
       sha: loaded.sha,
-      sourcePath: loaded.sourcePath,
+      sourcePath: opts.source ?? loaded.sourcePath,
       status: errors.length > 0 ? 'partial' : 'applied',
       summary: counts as unknown as Record<string, Record<string, number>>,
       errors,
@@ -507,6 +616,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     sourcePath: loaded.sourcePath,
     dryRun,
     counts,
+    changes,
     errors,
     warnings,
     versionId,
@@ -528,12 +638,14 @@ type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'unknown' | 'kept';
  * @param loaded
  * @param errors
  * @param configChangedSourceSlugs
+ * @param keepSourceSchedules - Connectors whose schedules are left as they are.
  */
 async function reconcileSchedules(
   orgId: string,
   loaded: LoadedWorkspace,
   errors: ApplyResult['errors'],
   configChangedSourceSlugs: Set<string> = new Set(),
+  keepSourceSchedules: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   // Schedule-ownership guard. Reconciling schedules makes THIS
   // process the scheduler-of-record. Local dev commonly runs against the
@@ -640,8 +752,11 @@ async function reconcileSchedules(
         .where(and(eq(srcSchema.orgId, orgId), eq(srcSchema.slug, src.slug)));
 
       // Both cadences (incremental + reconcile), shared with the sources API so
-      // a source written either way ends up on the same schedules.
-      await reconcileSourceSchedules(orgId, specForSource(src), row?.id ?? null);
+      // a source written either way ends up on the same schedules — unless
+      // the caller says the app owns this one's (an import's in-app connector).
+      if (!keepSourceSchedules.has(src.slug)) {
+        await reconcileSourceSchedules(orgId, specForSource(src), row?.id ?? null);
+      }
 
       // This apply changed the source's stored row — start a one-off full sync
       // so scope changes take effect now rather than at the next reconcile.
@@ -822,18 +937,30 @@ function warnEmptiedAgentLists(
 }
 
 /**
- * Resolve an authored `accountableUser:` email to a user id. Unresolved
- * emails record a non-fatal error and store NULL — deploy boxes may not
- * have that user seeded yet; a later apply (after the user signs up)
- * heals the row. Offline (no database) there is no user table to ask, so
- * the email is neither resolved nor reported; `ApplyResult.database` says so.
- * @param email
- * @param resource
- * @param slug
- * @param mode
- * @param errors
+ * Resolve an authored `accountableUser:` email to a user id — among the people
+ * who can open this workspace, never the whole host. On a deployment hosting
+ * several companies the user table is everyone's, so a lookup across it would
+ * let a manifest make another company's person this workspace's owner (and
+ * send them its asks), and would tell whoever wrote the manifest whether an
+ * email has an account anywhere. Who can open the workspace is
+ * `WorkspaceAccessService`'s one answer (`memberWorkspace` and the role it
+ * resolves to).
+ *
+ * Unresolved emails record a non-fatal error and store NULL — deploy boxes may
+ * not have that user seeded yet; a later apply (after the user joins the
+ * workspace) heals the row. The message is the same whether no such user
+ * exists or one exists outside this workspace, so it discloses neither.
+ * Offline (no database) there is no user table to ask, so the email is neither
+ * resolved nor reported; `ApplyResult.database` says so.
+ * @param orgId - The workspace being applied.
+ * @param email - The authored email.
+ * @param resource - What named it, for the error.
+ * @param slug - Which one, for the error.
+ * @param mode - Dry run or not; offline or not.
+ * @param errors - The apply's errors.
  */
 async function resolveAccountableUser(
+  orgId: string,
   email: string | undefined,
   resource: string,
   slug: string,
@@ -848,8 +975,10 @@ async function resolveAccountableUser(
     .from(userSchema)
     .where(eq(userSchema.email, email.toLowerCase()))
     .limit(1);
-  if (!row) {
-    errors.push({ resource, slug, message: `accountableUser "${email}" does not match any user — storing no owner; re-apply after that user signs up` });
+  const { memberWorkspace, roleInMemberWorkspace } = await import('@/services/WorkspaceAccessService');
+  const workspace = row ? await memberWorkspace(row.id, orgId) : null;
+  if (!row || !workspace || !(await roleInMemberWorkspace(row.id, workspace))) {
+    errors.push({ resource, slug, message: `accountableUser "${email}" is not a member of this workspace — storing no owner; add them to the workspace and apply again` });
     return null;
   }
   return row.id;
@@ -944,7 +1073,7 @@ async function upsertTeam(orgId: string, team: LoadedTeam, mode: ApplyMode, erro
     leadAgentSlug: team.lead ?? null,
     // Explicit owner only — an omitted accountableUser stays NULL so the
     // workspace default is inherited at read time, never baked in here.
-    accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, mode, errors),
+    accountableUserId: await resolveAccountableUser(orgId, team.accountableUser, 'team', team.slug, mode, errors),
     goal: team.goal ?? null,
     // Declarative like the rest: authored measures land wholesale (a legacy
     // `kpis:` block is already folded in by the schema), an omitted block
@@ -973,7 +1102,9 @@ async function upsertTeam(orgId: string, team: LoadedTeam, mode: ApplyMode, erro
     && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
     && (existing.accountableUserId ?? null) === payload.accountableUserId
     && (existing.goal ?? null) === payload.goal
-    && JSON.stringify(existing.measures ?? []) === JSON.stringify(payload.measures)
+    // Key-order blind: jsonb hands the stored measures back with its own key
+    // order, so a byte comparison read every team with measures as changed.
+    && canonical(existing.measures ?? []) === canonical(payload.measures)
   ) {
     return 'unchanged';
   }
@@ -1082,49 +1213,76 @@ async function applyBudgets(
   }
 }
 
+/**
+ * The project settings a loaded workspace declares — what an apply writes on
+ * the project row besides its owner and mailbox (which need the database and
+ * the mail domain to resolve). Declarative: an omitted key is a cleared
+ * column. One definition, read by the applier and by the export, which
+ * compares it with the row to tell whether `workspace.yaml` still says what
+ * is running (`services/workspace/WorkspaceExportService.ts`).
+ * @param loaded - The loaded workspace.
+ */
+export function projectSettingsFrom(loaded: Pick<LoadedWorkspace, 'manifest' | 'effectiveSurfaces' | 'enabledPlugins' | 'voice' | 'operatingIntent'>) {
+  const defaults = loaded.manifest.defaults ?? {};
+  return {
+    leadAgentSlug: loaded.manifest.lead ?? null,
+    // Ids are validated against the core registry at load, so anything reaching
+    // here names a real route. Replaced wholesale: dropping a surface from the
+    // YAML turns it off, same declarative rule as `lead:`.
+    enabledSurfaces: loaded.effectiveSurfaces,
+    // Plugins the same way: the resolved, dependency-closed list lands wholesale;
+    // dropping one from `plugins:` turns it off everywhere that reads the column.
+    enabledPlugins: loaded.enabledPlugins,
+    enabledDurable: loaded.manifest.durable ?? [],
+    embeddingConfig: embeddingConfigFrom(defaults),
+    // Declarative like the rest: authored entries land wholesale, an omitted
+    // block clears the column (no fast path for any action type).
+    regenerateSkills: defaults.regenerateSkills && Object.keys(defaults.regenerateSkills).length > 0
+      ? defaults.regenerateSkills
+      : null,
+    // The export gate's gated playbook tags. NOT collapsed to null when empty,
+    // unlike the mapping above: an authored empty list is a workspace saying it
+    // gates nothing, and null is a workspace that said nothing at all and gets
+    // core's defaults. Collapsing them would make the gate impossible to turn off.
+    clientFacingPlaybooks: defaults.clientFacingPlaybooks ?? null,
+    // How eager this workspace is to improve itself (0–10). Null is "authored
+    // nothing", which reads as the shipped default of 7 — a stored 7 is a
+    // workspace that chose it, and the two must stay tellable apart.
+    learningEagerness: defaults.learningEagerness ?? null,
+    goal: loaded.manifest.goal ?? null,
+    // The workspace's zone, declarative like the rest: omitted clears the column
+    // and the runs fall back to the server default (`workspaceTimeZone`).
+    timeZone: defaults.timezone ?? null,
+    // voice.yaml, declarative like the rest: the whole file lands on the column
+    // and deleting the file clears it, dropping the workspace back to core's
+    // platform floor.
+    voiceRules: loaded.voice ?? null,
+    // operating-intent.yaml, declarative like the rest: the whole file lands on
+    // the column and deleting the file clears it, which is a person telling the
+    // factory nothing rather than telling it everything is allowed.
+    operatingIntent: loaded.operatingIntent ?? null,
+  };
+}
+
+/**
+ * Write the project settings the manifest declares, and say which changed —
+ * by the manifest key that says each (`lead`, `plugins`, `mailbox`,
+ * `defaults.timezone` …, and `voice.yaml` / `operating-intent.yaml` for the
+ * two that are files). A dry run writes nothing and names the same ones.
+ * @param orgId - The project.
+ * @param loaded - The loaded workspace.
+ * @param mode - Dry run or not; offline or not.
+ * @param errors - The apply's errors.
+ * @returns The settings that differ from the row, empty when none do.
+ */
 async function applyWorkspaceLeadConfig(
   orgId: string,
   loaded: LoadedWorkspace,
   mode: ApplyMode,
   errors: ApplyResult['errors'],
-): Promise<void> {
-  const lead = loaded.manifest.lead ?? null;
-  const accountableUserId = await resolveAccountableUser(loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', mode, errors);
-  // Ids are validated against the core registry at load, so anything reaching
-  // here names a real route. Replaced wholesale: dropping a surface from the
-  // YAML turns it off, same declarative rule as `lead:`.
-  const enabledSurfaces = loaded.effectiveSurfaces;
-  // Plugins the same way: the resolved, dependency-closed list lands wholesale;
-  // dropping one from `plugins:` turns it off everywhere that reads the column.
-  const enabledPlugins = loaded.enabledPlugins;
-  const enabledDurable = loaded.manifest.durable ?? [];
-  const embeddingConfig = embeddingConfigFrom(loaded.manifest.defaults ?? {});
-  // Declarative like the rest: authored entries land wholesale, an omitted
-  // block clears the column (no fast path for any action type).
-  const regenerateSkills = loaded.manifest.defaults?.regenerateSkills && Object.keys(loaded.manifest.defaults.regenerateSkills).length > 0
-    ? loaded.manifest.defaults.regenerateSkills
-    : null;
-  // The export gate's gated playbook tags. NOT collapsed to null when empty,
-  // unlike the mapping above: an authored empty list is a workspace saying it
-  // gates nothing, and null is a workspace that said nothing at all and gets
-  // core's defaults. Collapsing them would make the gate impossible to turn off.
-  const clientFacingPlaybooks = loaded.manifest.defaults?.clientFacingPlaybooks ?? null;
-  // How eager this workspace is to improve itself (0–10). Null is "authored
-  // nothing", which reads as the shipped default of 7 — a stored 7 is a
-  // workspace that chose it, and the two must stay tellable apart.
-  const learningEagerness = loaded.manifest.defaults?.learningEagerness ?? null;
-  const goal = loaded.manifest.goal ?? null;
-  // The workspace's zone, declarative like the rest: omitted clears the column
-  // and the runs fall back to the server default (`workspaceTimeZone`).
-  const timeZone = loaded.manifest.defaults?.timezone ?? null;
-  // voice.yaml, declarative like the rest: the whole file lands on the column
-  // and deleting the file clears it, dropping the workspace back to core's
-  // platform floor.
-  const voiceRules = loaded.voice ?? null;
-  // operating-intent.yaml, declarative like the rest: the whole file lands on
-  // the column and deleting the file clears it, which is a person telling the
-  // factory nothing rather than telling it everything is allowed.
-  const operatingIntent = loaded.operatingIntent ?? null;
+): Promise<string[]> {
+  const accountableUserId = await resolveAccountableUser(orgId, loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', mode, errors);
+  const { leadAgentSlug: lead, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, goal, timeZone, voiceRules, operatingIntent } = projectSettingsFrom(loaded);
 
   const [project] = mode.offline
     ? [undefined]
@@ -1175,12 +1333,12 @@ async function applyWorkspaceLeadConfig(
 
   if (!project) {
     if (mode.offline) {
-      return;
+      return [];
     }
     if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
-    return;
+    return [];
   }
 
   const surfacesUnchanged
@@ -1189,40 +1347,28 @@ async function applyWorkspaceLeadConfig(
   const pluginsUnchanged
     = (project.enabledPlugins ?? []).length === enabledPlugins.length
       && (project.enabledPlugins ?? []).every((s, i) => s === enabledPlugins[i]);
-  const durableUnchanged = JSON.stringify(project.enabledDurable ?? []) === JSON.stringify(enabledDurable);
-  // Compared as JSON rather than field by field: the object has two optional
-  // keys, so a shallow equality check would have to enumerate both and would
-  // silently stop covering a third. Same reasoning for the skill mapping,
-  // whose keys are open-ended action ids.
-  const embeddingUnchanged
-    = JSON.stringify(project.embeddingConfig ?? null) === JSON.stringify(embeddingConfig);
-  const regenerateUnchanged
-    = JSON.stringify(project.regenerateSkills ?? null) === JSON.stringify(regenerateSkills);
-  const clientFacingUnchanged
-    = JSON.stringify(project.clientFacingPlaybooks ?? null) === JSON.stringify(clientFacingPlaybooks);
-  const voiceUnchanged
-    = JSON.stringify(project.voiceRules ?? null) === JSON.stringify(voiceRules);
-  const operatingIntentUnchanged
-    = JSON.stringify(project.operatingIntent ?? null) === JSON.stringify(operatingIntent);
-
-  if (
-    (project.leadAgentSlug ?? null) === lead
-    && (project.accountableUserId ?? null) === accountableUserId
-    && surfacesUnchanged
-    && pluginsUnchanged
-    && durableUnchanged
-    && embeddingUnchanged
-    && regenerateUnchanged
-    && clientFacingUnchanged
-    && (project.learningEagerness ?? null) === learningEagerness
-    && voiceUnchanged
-    && operatingIntentUnchanged
-    && (project.goal ?? null) === goal
-    && (project.timeZone ?? null) === timeZone
-    && project.mailboxEnabled === mailboxEnabled
-    && (project.mailboxAddress ?? null) === mailboxAddress
-  ) {
-    return;
+  // Compared key-order blind (`canonical`): jsonb hands an object back with
+  // its own key order, and a byte comparison would read every apply as a
+  // change — which a review then lists.
+  const same = (a: unknown, b: unknown) => canonical(a ?? null) === canonical(b ?? null);
+  const changed = ([
+    ['lead', (project.leadAgentSlug ?? null) !== lead],
+    ['accountableUser', (project.accountableUserId ?? null) !== accountableUserId],
+    ['surfaces', !surfacesUnchanged],
+    ['plugins', !pluginsUnchanged],
+    ['durable', !same(project.enabledDurable ?? [], enabledDurable)],
+    ['defaults.embeddingProvider', !same(project.embeddingConfig, embeddingConfig)],
+    ['defaults.regenerateSkills', !same(project.regenerateSkills, regenerateSkills)],
+    ['defaults.clientFacingPlaybooks', !same(project.clientFacingPlaybooks, clientFacingPlaybooks)],
+    ['defaults.learningEagerness', (project.learningEagerness ?? null) !== learningEagerness],
+    ['voice.yaml', !same(project.voiceRules, voiceRules)],
+    ['operating-intent.yaml', !same(project.operatingIntent, operatingIntent)],
+    ['goal', (project.goal ?? null) !== goal],
+    ['defaults.timezone', (project.timeZone ?? null) !== timeZone],
+    ['mailbox', project.mailboxEnabled !== mailboxEnabled || (project.mailboxAddress ?? null) !== mailboxAddress],
+  ] as const).filter(([, differs]) => differs).map(([key]) => key);
+  if (changed.length === 0) {
+    return [];
   }
   if (!mode.dryRun) {
     await db
@@ -1230,6 +1376,7 @@ async function applyWorkspaceLeadConfig(
       .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, enabledDurable, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
+  return changed;
 }
 
 async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, mode: ApplyMode): Promise<UpsertOutcome> {
@@ -1303,6 +1450,139 @@ async function mirrorSources(orgId: string, loaded: LoadedWorkspace, warnings: A
   } catch (err) {
     warnings.push({ resource: 'source', slug: '(prune)', message: `orphan mirrors not removed: ${(err as Error).message}` });
   }
+}
+
+/**
+ * Collect the folder's runtime files and make them the project's stored set.
+ * The SKILL.md folders are collected from the catalog this apply wrote, so a
+ * resource it lists is either stored or named. A file that could not be
+ * collected, or that the database refused, is a WARNING naming it — the rest
+ * of the workspace still serves. A store that could not be written at all is
+ * an ERROR: the readers would go on serving the previous apply's files, and
+ * an apply that says `applied` over that would be lying.
+ * @param orgId - The project being applied.
+ * @param loaded - The loaded workspace; its folder is what is stored.
+ * @param errors - The apply's errors.
+ * @param warnings - The apply's warnings.
+ */
+async function storeWorkspaceFiles(orgId: string, loaded: LoadedWorkspace, errors: ApplyResult['errors'], warnings: ApplyResult['warnings']): Promise<void> {
+  try {
+    const collected = collectWorkspaceFiles(loaded.sourcePath, [...loaded.skills, ...loaded.playbooks]);
+    for (const skipped of collected.skipped) {
+      warnings.push({ resource: 'workspaceFile', slug: skipped.path, message: `not stored: it ${skipped.reason}, so a host without this folder does not have it` });
+    }
+    const { replaceStoredFiles } = await import('@/services/workspace/WorkspaceFileService');
+    const { failed } = await replaceStoredFiles(orgId, collected.files, loaded.sha);
+    for (const refused of failed) {
+      warnings.push({ resource: 'workspaceFile', slug: refused.path, message: `not stored: the database refused it (${refused.reason}), so a host without this folder does not have it` });
+    }
+  } catch (err) {
+    errors.push({ resource: 'workspaceFile', slug: '(store)', message: `the workspace's files were not stored, so this project still reads the previous apply's: ${(err as Error).message}` });
+  }
+}
+
+/**
+ * The top-level folders whose files are a resource each, made a row by the
+ * apply (an agent's YAML and its prompt, an object type's) — the row is what
+ * a review compares, so the stored file is not listed beside it.
+ */
+const ROW_FOLDERS = new Set(['agents', 'teams', 'objects', 'sources', 'missions', 'automations', 'workflows', 'evals', 'learnings']);
+
+/**
+ * What storing this workspace's files would change, by path: the files no
+ * row stands for — pages, the brand and its logos, a skill's or playbook's
+ * resources. A file a resource is made of (anything under a
+ * {@link ROW_FOLDERS} folder, a SKILL.md, the manifest) is left out: its row
+ * is compared, and listing it twice would say one change is two. By sha, as
+ * {@link storeWorkspaceFiles} writes them.
+ * @param orgId - The project.
+ * @param loaded - The loaded workspace; its folder is what would be stored.
+ */
+async function storedFileChanges(orgId: string, loaded: LoadedWorkspace): Promise<Array<{ path: string; outcome: 'created' | 'updated' | 'retired' }>> {
+  const collected = collectWorkspaceFiles(loaded.sourcePath, [...loaded.skills, ...loaded.playbooks]).files;
+  const stored = await db
+    .select({ path: workspaceFileSchema.path, sha: workspaceFileSchema.sha, encoding: workspaceFileSchema.encoding })
+    .from(workspaceFileSchema)
+    .where(eq(workspaceFileSchema.orgId, orgId));
+  const had = new Map(stored.map(r => [r.path, r]));
+  const rowStandsFor = (path: string) => (MANIFEST_FILES as readonly string[]).includes(path)
+    || path.endsWith('/SKILL.md')
+    || ROW_FOLDERS.has(path.split('/')[0] ?? '');
+  const out: Array<{ path: string; outcome: 'created' | 'updated' | 'retired' }> = [];
+  for (const file of collected) {
+    const prior = had.get(file.path);
+    if (rowStandsFor(file.path)) {
+      continue;
+    }
+    if (!prior) {
+      out.push({ path: file.path, outcome: 'created' });
+    } else if (prior.sha !== file.sha || prior.encoding !== file.encoding) {
+      out.push({ path: file.path, outcome: 'updated' });
+    }
+  }
+  const kept = new Set(collected.map(f => f.path));
+  for (const row of stored) {
+    if (!kept.has(row.path) && !rowStandsFor(row.path)) {
+      out.push({ path: row.path, outcome: 'retired' });
+    }
+  }
+  return out;
+}
+
+/**
+ * What replacing the trust rules from `trust.yaml` would change, by action:
+ * a rule it adds, one whose threshold, switch, rung or risk moves, a risk tier
+ * it sets for a kind with no rule, and a rule it drops (retired — the apply
+ * deletes every rule the file does not name). Compared the way the apply
+ * writes them (`manifestPolicy`).
+ * @param orgId - The project.
+ * @param trust - The loaded trust manifest, plugins' included; null for none.
+ */
+async function trustChanges(orgId: string, trust: LoadedWorkspace['trust']): Promise<Array<{ action: string; outcome: 'created' | 'updated' | 'retired' }>> {
+  const { manifestPolicy } = await import('@/services/autonomy/AutonomyService');
+  const [rules, policies] = await Promise.all([
+    db.select({ actionId: trustRuleSchema.actionId, threshold: trustRuleSchema.threshold, enabled: trustRuleSchema.enabled }).from(trustRuleSchema).where(eq(trustRuleSchema.orgId, orgId)),
+    db.select({ actionId: autonomyPolicySchema.actionId, rung: autonomyPolicySchema.rung, riskTier: autonomyPolicySchema.riskTier, minConfidence: autonomyPolicySchema.minConfidence }).from(autonomyPolicySchema).where(eq(autonomyPolicySchema.orgId, orgId)),
+  ]);
+  const ruleBy = new Map(rules.map(r => [r.actionId, r]));
+  const policyBy = new Map(policies.map(p => [p.actionId, p]));
+  // Stored as `real`: compared at the precision the column keeps.
+  const sameNumber = (a: number | null | undefined, b: number | null | undefined) => (a ?? null) === null || (b ?? null) === null ? (a ?? null) === (b ?? null) : Math.fround(a!) === Math.fround(b!);
+  const riskMap = trust?.risk ?? {};
+  const named = new Set<string>();
+  const out: Array<{ action: string; outcome: 'created' | 'updated' | 'retired' }> = [];
+  for (const rule of trust?.rules ?? []) {
+    named.add(rule.action);
+    const row = ruleBy.get(rule.action);
+    if (!row) {
+      out.push({ action: rule.action, outcome: 'created' });
+      continue;
+    }
+    const { rung, riskTier } = manifestPolicy(rule, riskMap);
+    // No policy row reads as the one its rule implies (what the autonomy
+    // page shows for it), so writing exactly that changes nothing that runs.
+    const policy = policyBy.get(rule.action)
+      ?? { ...manifestPolicy({ action: row.actionId, autoApproveAbove: row.threshold, enabled: row.enabled === 'true' }, {}), minConfidence: row.threshold };
+    const same = sameNumber(row.threshold, rule.autoApproveAbove)
+      && row.enabled === String(rule.enabled)
+      && policy.rung === rung
+      && policy.riskTier === riskTier
+      && sameNumber(policy.minConfidence, rule.autoApproveAbove);
+    if (!same) {
+      out.push({ action: rule.action, outcome: 'updated' });
+    }
+  }
+  for (const [action, riskTier] of Object.entries(riskMap)) {
+    if (!named.has(action) && policyBy.get(action)?.riskTier !== riskTier) {
+      out.push({ action, outcome: policyBy.has(action) ? 'updated' : 'created' });
+    }
+  }
+  for (const row of rules) {
+    if (!named.has(row.actionId)) {
+      out.push({ action: row.actionId, outcome: 'retired' });
+    }
+  }
+  return out;
 }
 
 async function upsertMission(orgId: string, mission: LoadedMission, mode: ApplyMode): Promise<UpsertOutcome> {
@@ -1760,6 +2040,7 @@ async function upsertSource(orgId: string, src: LoadedSource, mode: ApplyMode, k
 function specForSource(src: LoadedSource): SourceUpsertSpec {
   return {
     slug: src.slug,
+    ...(src.storedName ? { name: src.storedName } : {}),
     kind: src.kind,
     config: src.config,
     enabled: src.enabled,
@@ -1880,8 +2161,8 @@ function blank(): ResourceCounts {
   return { created: 0, updated: 0, unchanged: 0 };
 }
 
-function bump(counts: ResourceCounts, outcome: UpsertOutcome): void {
-  if (outcome === 'unknown' || outcome === 'kept') {
+function bump(counts: ResourceCounts, outcome: ResourceOutcome): void {
+  if (outcome === 'unknown' || outcome === 'kept' || outcome === 'retired') {
     counts[outcome] = (counts[outcome] ?? 0) + 1;
     return;
   }

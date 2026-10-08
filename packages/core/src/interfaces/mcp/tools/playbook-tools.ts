@@ -70,9 +70,9 @@ function playbookGetTool(config: McpConfig): ToolModule {
       if (!row) {
         throw new Error(`playbook ${slug} not found`);
       }
-      const content = readByOrigin(row, resource ?? 'SKILL.md');
+      const content = await readByOrigin(row, resource ?? 'SKILL.md');
       if (content === null) {
-        throw new Error(`file ${resource ?? 'SKILL.md'} for ${row.kind} ${slug} not found on disk`);
+        throw new Error(`file ${resource ?? 'SKILL.md'} for ${row.kind} ${slug} not found`);
       }
       return {
         slug: row.slug,

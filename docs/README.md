@@ -59,9 +59,9 @@ default, and effect, plus a worked example and the rules the loader enforces.
 | [Ask](./entities/ask.md) | runtime — `POST /api/v1/asks` | One question waiting on a person, answered on the Needs-you page or over the API |
 | [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` | A tenant-defined dashboard page, derived from a core page archetype |
 
-Workspace pages keep their own page because they are file-only: nothing is
-written to the database and `workspace:check` / `workspace:apply` do not know
-about them.
+Workspace pages keep their own page because they are not a resource the
+loader validates: `workspace:apply` stores the files with the project, and
+`workspace:check` does not check them.
 
 ## Guides
 

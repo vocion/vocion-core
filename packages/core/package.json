@@ -137,6 +137,7 @@
     "deepagents": "^1.14.1",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.1",
+    "fflate": "^0.8.3",
     "gray-matter": "^4.0.3",
     "js-tiktoken": "^1.0.21",
     "langchain": "^1.5.15",

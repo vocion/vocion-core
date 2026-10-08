@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { relative, resolve, sep } from 'node:path';
 
 /**
  * Compute a stable SHA for a workspace directory.
@@ -10,8 +10,16 @@ import { resolve } from 'node:path';
  * and has no uncommitted changes. Otherwise falls back to a content hash
  * of every file (sorted by path), prefixed with `dirty-` so it's distinguishable
  * from a git SHA.
- * @param contextPath
- * @param fileList
+ *
+ * The content hash covers each file's path INSIDE the folder and its bytes.
+ * It used to cover the absolute paths alone, which made it two wrong things
+ * at once: an edit that kept every file name kept the sha (so a run was
+ * stamped with a sha that named a different prompt), and the same files in
+ * another folder — an import staged in a temporary folder, a working copy —
+ * got a different sha every time, so the sha a person reviewed could never
+ * match the one an apply then wrote.
+ * @param contextPath - The workspace folder.
+ * @param fileList - The files the loader read from it, absolute.
  */
 export function computeWorkspaceSha(contextPath: string, fileList: string[]): string {
   const abs = resolve(contextPath);
@@ -32,13 +40,13 @@ export function computeWorkspaceSha(contextPath: string, fileList: string[]): st
         return head;
       }
 
-      return `${head}-dirty-${contentHash(fileList)}`;
+      return `${head}-dirty-${contentHash(abs, fileList)}`;
     } catch {
       // fall through to content hash
     }
   }
 
-  return `local-${contentHash(fileList)}`;
+  return `local-${contentHash(abs, fileList)}`;
 }
 
 function isInsideGitRepo(path: string): boolean {
@@ -50,10 +58,28 @@ function isInsideGitRepo(path: string): boolean {
   }
 }
 
-function contentHash(fileList: string[]): string {
+/**
+ * A hash of every file's path inside `root` and its bytes, in path order.
+ * @param root - The workspace folder, absolute.
+ * @param fileList - The files the loader read, absolute.
+ */
+function contentHash(root: string, fileList: string[]): string {
   const hash = createHash('sha256');
-  for (const path of [...fileList].sort()) {
-    hash.update(path);
+  // The loader does not list the manifest it read first; its settings are
+  // part of what an apply writes, so they are part of the hash.
+  const manifests = ['workspace.yaml', 'workspace.yml'].map(name => resolve(root, name)).filter(f => existsSync(f));
+  const entries = [...new Set([...manifests, ...fileList])]
+    .map(abs => ({ abs, rel: relative(root, abs).split(sep).join('/') }))
+    .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+  for (const { abs, rel } of entries) {
+    hash.update(rel);
+    hash.update('\0');
+    try {
+      hash.update(readFileSync(abs));
+    } catch {
+      // Read a moment ago by the loader; gone now is a different folder.
+      hash.update('\u0000missing');
+    }
     hash.update('\0');
   }
   return hash.digest('hex').slice(0, 12);

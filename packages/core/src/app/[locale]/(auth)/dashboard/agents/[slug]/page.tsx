@@ -15,7 +15,6 @@ import { resolveVoice } from '@/libs/agents/voice';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
-import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
 import { recordRef } from '@/services/chat/recordContext';
@@ -24,6 +23,7 @@ import { listMissions } from '@/services/MissionService';
 import { listSkillFolders } from '@/services/playbooks/catalog';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 import { listWorkflows } from '@/services/WorkflowService';
+import { readPrimitiveFilesForOrg } from '@/services/workspace/WorkspaceFileService';
 
 /**
  * Agent profile — one readable page per teammate. A clean hero, then a
@@ -101,7 +101,7 @@ export default async function AgentDetailPage(props: {
   const memoryStats = await agentMemoryStats(orgId, slug, agent.learningSteps ?? []);
   const hasWork = ownedMissions.length + ownedAutomations.length + ownedWorkflows.length > 0;
 
-  const sourceFiles = readPrimitiveFiles('agent', slug);
+  const sourceFiles = await readPrimitiveFilesForOrg(orgId, 'agent', slug);
   const dirtyState = getWorkspaceDirtyState();
   const a = accent(agent.accent);
 

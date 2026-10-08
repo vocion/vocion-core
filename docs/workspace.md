@@ -61,7 +61,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 ├── sources/                      # YAML — connector definitions (no credentials!)
 ├── learnings/                    # whitelisted rule-step buckets
 ├── evals/                        # YAML — per-agent test cases (npm run eval:run)
-├── pages/                        # optional tenant dashboard pages (file-only, see below)
+├── pages/                        # optional tenant dashboard pages (stored with the project on apply)
 └── wiki/                         # markdown + frontmatter — pages that seed the wiki on apply (wiki plugin; docs/entities/workspace-manifest.md)
     └── <slug>.md                 # title: required; summary, order, tags, managed: true|false
 ```
@@ -317,14 +317,145 @@ All run from the vocion-core checkout and take the workspace path as an argument
 |---|---|
 | `npm run workspace:scaffold -- <name>` | Creates a new minimal-but-valid workspace at `../workspace/<name>`. |
 | `npm run workspace:check -- <path>` | Validates every YAML + MD file. Shows what would change. No DB writes — and no DB needed: with none reachable, counts are `unknown`. |
-| `npm run workspace:apply -- <path> --project <id\|slug>` | Writes changes to DB. Records a `workspace_version` row with the git SHA + diff summary. |
-| `npm run workspace:export` | Reads current DB rows into a directory. Use to bootstrap a new tenant from existing DB state. |
+| `npm run workspace:apply -- <path> --project <id\|slug>` | Writes changes to DB, and stores the files the app reads at run time with the project (see below). Records a `workspace_version` row with the git SHA + diff summary. |
+| `npm run workspace:export -- --project <id\|slug> [--out <folder>] [--zip <file>]` | Writes the workspace as it is running into a folder (or a zip) that applies anywhere — the same export Settings downloads (see below). |
 
 Check/apply/export honor `WORKSPACE_PATH` and `SEED_ORG_ID` env vars. Flags:
 - `--dry-run` — validate + diff only
 - `--project <id|slug>` — apply under this project's id (recommended — no re-key)
 - `--org <orgId>` — override the `orgId` in the manifest (advanced / back-compat)
 - `--applied-by <name>` — who triggered this apply (default: `$USER`)
+
+## Where the app reads your files
+
+Each apply stores the files the app reads while it runs — every SKILL.md
+folder's body and resources, `pages/`, `brand.yaml` and the logos it names,
+the files the source panels show, and `workspace.yaml` — with the project, in
+`workspace_file`, at the path each has in the folder. Agents mount skills from
+there, pages render from there, `get_brand` reads from there, and the agent,
+mission, workflow, object, connector and team pages show their source files
+from there. So a project runs the same on a host with no folder for it, or one
+whose `WORKSPACE_PATH` is another project's, as on the box it was authored on.
+
+A stored project reads its stored files and nothing else: a file you edit in
+the folder reaches the app on the next apply, and a file missing from the store
+is missing — never borrowed from whatever folder the host has mounted. The
+in-app editors apply for you, with one exception: an MCP `workspace_write_*`
+call with `autoApply: false` only writes the folder, so for a stored project
+the change is invisible to the app until the next apply. A project that has
+not been applied since the store existed reads its own folder, as before — the
+one on `WORKSPACE_PATH` when the last apply recorded it as this project's, or
+the folder beside it named for the project — and no folder at all otherwise,
+so a project that was never applied (a personal workspace, one created by
+script) never reads another project's mounted files. Each row carries the
+`workspace_sha` of the apply that wrote it, so the body an agent read is the
+one its run is stamped with. A file the apply could not store (a link out of
+the folder, one over 5 MB, or one the database refused) is named in the
+apply's warnings; the rest of the workspace is stored regardless.
+
+Which SKILL.md files are stored is decided by the catalog: each skill or
+playbook's `SKILL.md` plus every resource the loader listed for it, at
+`skills/<slug>/` or `playbooks/<slug>/` — exactly what an agent mounts. Text
+is stored as authored: `{{env.NAME}}` tokens stay tokens and are resolved when
+read, below. A file that is not text (a PNG, a PDF, a font, a compiled cache)
+is stored base64 and reads back as it did off the folder.
+
+Still read off the folder (step 2 of this work): the workspace router's
+`readPrimitive`/`writeFile`. The tour (`pages/tour.yaml`) is stored and read
+with the pages.
+
+## Export and import
+
+An admin downloads a workspace from **Workforce › Settings › Context**
+(*Export*), and puts one into another workspace from the same page
+(*Import*). Both are also `GET /api/v1/workspace/export` and
+`POST /api/v1/workspace/import`, and the export is
+`npm run workspace:export` on a host with the database.
+
+**What an export holds.** Every kind the loader reads, in the layout
+`workspace:apply` takes: agents and their prompts, teams, skills and
+playbooks with their bodies and resources, missions, automations, workflows,
+object types, connectors, eval datasets, learning steps with the rules the
+workspace seeded them with, trust rules, voice, operating intent, pages,
+brand and logos, plugins and settings. The rule for each file:
+
+- **The authored file wherever it still says what runs** — the project's
+  stored files, as written: comments, layout and `{{env.NAME}}` tokens kept.
+- **Written from what is running wherever it does not**: a resource the app
+  added (an agent hired from the catalog, a connector added on the Connect
+  page, a trust rule a promotion raised) or changed since its file, and what a
+  git workspace never stored (trust rules, learning steps, eval datasets,
+  voice). `workspace.yaml` keeps its text, with only the settings the app
+  changed rewritten in place.
+
+A plugin's or the base pack's resources are not written out — `plugins:` and
+`extends:` bring them back. `EXPORT.md` at the root of the zip lists what was
+written from what is running and what an export never carries: credentials,
+connector logins and tokens (reconnect them), the sync schedule of a
+connector added in the app, records, documents and wiki pages,
+conversations, runs, learned rules and spend caps set in the app.
+
+**Import: review, then apply.** Upload the zip (or pick a folder, which the
+browser zips, leaving out `.git/`, `node_modules/` and dotted files). The
+import is staged in a temporary folder, loaded exactly as a folder is, and
+dry-run: the review lists, per kind and by name, what would be created,
+updated and retired — the settings it changes (by manifest key), the trust
+rules (by action), and the pages, brand, logos and skill resources it stores
+(by path) included — and nothing is written. The review has its own sha, of
+every staged file and every change it lists. *Apply* stages the same upload
+again, dry-runs it again, and applies it only when that sha still matches —
+the same files, doing the same things to this workspace as it is now;
+otherwise it asks for a new review. The staging folder is removed either way.
+
+- **Merge** (the default): the upload is laid over the workspace as it runs
+  now. What it names is created or updated by slug; nothing it does not
+  mention changes — no agent is retired, no trust rule removed, no plugin
+  turned off. `workspace.yaml` and `trust.yaml` merge key by key: the
+  upload's values win and lists gain what it adds.
+- **Replace**: the upload is the whole workspace, applied the way a folder
+  is. An agent, mission, automation or workflow it does not ship is retired
+  (rows kept, history intact), and its trust rules and settings become the
+  workspace's. The review names everything that would be retired first.
+
+The imported `workspace.yaml` is made the workspace's own: its `orgId` is
+this workspace's, and a mailbox address belonging to the workspace it came
+from is replaced by this workspace's own, read the way the loader reads it
+(anchors and aliases expanded). An upload that still names another address
+after that is refused. A connector keeps the name and folder its row already
+has, and a new one takes its file's name. A connector added in the app keeps
+the sync schedule it has, unless the upload gives it one.
+
+**What an import may not set.** A few fields reach past the workspace into the
+deployment, and no admin sets them in the app, so an import may not change
+them either (`services/workspace/importPolicy.ts`): an agent's
+`harness.runsOn` on AgentCore (`agentcore-container`, `aws-managed-harness`),
+or a `harness.modelProvider: bedrock` that implies it — `in-process` and
+`external-worker` are fine; and a connector that reads the server's disk
+(`local-files`' `directory`, `file-import`'s `path`) pointed at an absolute
+path or one that climbs out with `..`. The review names each, and nothing is
+applied while any is there; an operator applies such a workspace from its
+folder with `workspace:apply`. Only a change is judged: an agent already on
+AgentCore stays there through a merge. A connector pointed at a relative
+folder is imported, and the review warns that it reads nothing until that
+folder is on the server.
+
+Two rules hold for every apply, not only an import. A prompt file
+(`systemPromptFile`, a subagent's, `classificationPromptFile`) must be a
+relative path to a file inside the workspace folder, links included. And an
+`accountableUser:` resolves only to someone who can open the workspace; any
+other email — unknown, or a person outside it — gets the same message and no
+owner.
+
+Import lands in the database, so it is for a workspace whose files live
+there. One this host applies from its own folder, or one a deploy applies from
+git, would have the import undone by its next apply: the review says so and
+the import is not offered — change the folder, or commit to the repository,
+instead.
+
+The round trip is the test (`services/workspace/WorkspaceTransfer.test.ts`):
+a workspace changed in the app, exported, and imported into a fresh one
+exports the same files (but for whose workspace it is), and applied back onto
+the first changes nothing.
 
 ## Per-deployment values (`{{env.NAME}}`)
 

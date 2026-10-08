@@ -987,8 +987,14 @@ export const PageManifestSchema = z.object({
 export type PageManifest = z.infer<typeof PageManifestSchema>;
 /** A validated page plus where it came from, so its prose resolves beside it. */
 export type LoadedPage = PageManifest & {
-  /** Absolute directory the YAML was read from. */
+  /** Absolute directory the YAML was read from; `pages` for a page read from a project's stored workspace. */
   sourceDir: string;
+  /**
+   * The project whose stored workspace (`workspace_file`) this page was read
+   * from, so its prose is read from there too. Absent for a page read off a
+   * folder — a plugin's, or a project's not yet stored.
+   */
+  storedIn?: string;
   /** `workspace`, or the slug of the plugin that ships it. */
   origin: 'workspace' | `plugin:${string}`;
   /** A workspace page that replaces a plugin's page of the same slug keeps that plugin's place in the nav. */

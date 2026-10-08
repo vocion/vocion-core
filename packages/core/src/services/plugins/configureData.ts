@@ -330,7 +330,7 @@ export async function loadConfigure(orgId: string, pluginSlug: string, now: Date
     }
   }
   for (const a of applies) {
-    const changed = Object.values(a.summary ?? {}).reduce((n, counts) => n + (counts.created ?? 0) + (counts.updated ?? 0), 0);
+    const changed = Object.values(a.summary ?? {}).reduce((n, counts) => n + (counts.created ?? 0) + (counts.updated ?? 0) + (counts.retired ?? 0), 0);
     if (changed > 0) {
       changes.push({ id: `apply:${a.id}`, what: `Workspace applied · ${changed} ${changed === 1 ? 'change' : 'changes'}`, who: who(a.appliedBy), at: a.appliedAt, href: '/dashboard/workspace' });
     }

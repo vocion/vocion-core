@@ -45,9 +45,9 @@ export async function readVoicePlaybook(orgId: string, slug: string): Promise<st
     logger.warn('voice playbook named in voice.yaml is not in the catalog', { orgId, slug });
     return null;
   }
-  const body = readByOrigin(row, 'SKILL.md');
+  const body = await readByOrigin(row, 'SKILL.md');
   if (body === null) {
-    logger.warn('voice playbook row exists but its SKILL.md is not on disk', { orgId, slug });
+    logger.warn('voice playbook row exists but its SKILL.md was not found', { orgId, slug });
   }
   return body;
 }

@@ -105,6 +105,15 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    */
   syncless?: boolean;
   /**
+   * The config keys that name a file or folder on this server's disk, which
+   * the connector reads (`local-files`' `directory`, `file-import`'s `path`).
+   * Whoever sets one decides what of the server's disk the workspace can
+   * search, so an import may not point one outside the folder it resolves
+   * against (`services/workspace/importPolicy.ts`). Absent for a connector
+   * that reads nothing off the disk.
+   */
+  hostPathConfig?: readonly string[];
+  /**
    * Look at the third party with candidate connection details, before any
    * source row or credential exists — what `POST /rpc/connectors/[slug]/inspect`
    * dispatches to. Persists nothing.

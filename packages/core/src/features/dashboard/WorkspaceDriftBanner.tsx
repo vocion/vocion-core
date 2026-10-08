@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { ApplyDiff } from './ApplyDiff';
 
 /**
  * Workspace drift banner — on dashboard load, ask the server what the mounted
@@ -158,18 +159,7 @@ export const WorkspaceDriftBanner = ({ onApplied = () => window.location.reload(
                 would make these changes to this project. Nothing is written until you confirm.
               </DialogDescription>
             </DialogHeader>
-            <ul className="divide-y divide-border rounded-md border border-border text-sm">
-              {Object.entries(view.diff.counts)
-                .filter(([, c]) => c.created + c.updated > 0)
-                .map(([kind, c]) => (
-                  <li key={kind} className="flex items-center justify-between px-3 py-2">
-                    <span className="font-medium">{kind}</span>
-                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                      {[c.created > 0 && `${c.created} new`, c.updated > 0 && `${c.updated} updated`].filter(Boolean).join(' · ')}
-                    </span>
-                  </li>
-                ))}
-            </ul>
+            <ApplyDiff counts={view.diff.counts} changes={view.diff.changed} />
             {error && <p className="text-xs text-destructive">{error}</p>}
             <DialogFooter>
               <Button variant="ghost" onClick={() => setReviewing(false)} disabled={busy}>Cancel</Button>

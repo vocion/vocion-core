@@ -5,8 +5,8 @@ import type { LoadedPlugin } from './plugins';
 import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, NotificationRuleManifest, ObjectTypeManifest, OperatingIntentManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import type { LoadedWikiPage } from './wiki-pages';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { isSurfaceId, SURFACE_IDS } from '@/features/navigation/surfaces';
 import { assignTypeCodes } from '@/libs/codes';
@@ -35,6 +35,7 @@ import {
   WorkspaceManifestSchema,
 } from './schemas';
 import { computeWorkspaceSha } from './sha';
+import { inside } from './snapshot';
 import { assertTeams } from './teams';
 import { readWorkspaceTextFile } from './template-vars';
 import { loadWikiPages } from './wiki-pages';
@@ -98,7 +99,17 @@ export type LoadedEvalDataset = EvalDatasetManifest & { sourceFile: string };
  * it, so a template's bundled sample data works from any path rather
  * than only from the workspace root.
  */
-export type LoadedSource = SourceManifest & { sourceFile: string; manifestDir: string };
+export type LoadedSource = SourceManifest & {
+  sourceFile: string;
+  manifestDir: string;
+  /**
+   * The display name to store with the connector (`_name`), when the apply
+   * should write one. A folder's apply leaves it unset, as it always has; an
+   * import sets it so a connector keeps the name its row has, and a new one
+   * takes its file's (`services/workspace/staging.ts`).
+   */
+  storedName?: string;
+};
 /** A team — slug derived from the filename (teams/<slug>.yaml). */
 export type LoadedTeam = TeamManifest & { slug: string; sourceFile: string };
 
@@ -226,12 +237,12 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   const agents = composeEntries('agent', join(abs, 'agents'), isYamlFile, layer?.full.agents, layer?.active.agents, files)
     .map((entry) => {
       const parsed = validateOrThrow(AgentManifestSchema, entry.raw, entry.sourceFile, 'agent');
-      const resolvedSystemPrompt = resolvePromptField(entry.sourceFile, parsed.systemPromptFile, parsed.systemPrompt, files);
+      const resolvedSystemPrompt = resolvePromptField(abs, entry.sourceFile, 'agent', 'systemPromptFile', parsed.systemPromptFile, parsed.systemPrompt, files);
       // Resolve each subagent's systemPrompt — either inline or from a sibling file.
-      const resolvedSubagents = parsed.subagents.map(s => ({
+      const resolvedSubagents = parsed.subagents.map((s, i) => ({
         name: s.name,
         description: s.description,
-        systemPrompt: resolvePromptField(entry.sourceFile, s.systemPromptFile, s.systemPrompt, files),
+        systemPrompt: resolvePromptField(abs, entry.sourceFile, 'agent', `subagents.${i}.systemPromptFile`, s.systemPromptFile, s.systemPrompt, files),
         tools: s.tools,
         model: s.model,
       }));
@@ -253,7 +264,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     .map((entry) => {
       const parsed = validateOrThrow(ObjectTypeManifestSchema, entry.raw, entry.sourceFile, 'objectType');
       const resolvedClassificationPrompt = parsed.classificationPromptFile || parsed.classificationPrompt
-        ? resolvePromptField(entry.sourceFile, parsed.classificationPromptFile, parsed.classificationPrompt, files)
+        ? resolvePromptField(abs, entry.sourceFile, 'objectType', 'classificationPromptFile', parsed.classificationPromptFile, parsed.classificationPrompt, files)
         : null;
       return { ...parsed, resolvedClassificationPrompt, sourceFile: entry.sourceFile, origin: entry.origin };
     });
@@ -1109,9 +1120,37 @@ function parseFrontmatter(raw: string, file: string): { data: unknown; body: str
   return { data, body: (body ?? '').trim() };
 }
 
-function resolvePromptField(sourceFile: string, promptFile: string | undefined, inline: string | undefined, filesTracked: string[]): string {
+/**
+ * A prompt that is either inline or in a file beside the resource that names
+ * it. The file must be inside the workspace folder — by its path and, through
+ * any link, by its real path. A workspace is not only authored by whoever runs
+ * the host: an import is a stranger's zip, and a prompt file reaching outside
+ * the folder would read whatever this process can read (its environment, its
+ * keys, another workspace's folder) into an agent's prompt, where an admin
+ * reads it back. The refusal names the field and never the path it reached.
+ * @param root - The workspace folder, absolute.
+ * @param sourceFile - The file naming the prompt file.
+ * @param kind - What that file declares, for the error.
+ * @param field - The field naming the prompt file, for the error.
+ * @param promptFile - The prompt file, relative to `sourceFile`.
+ * @param inline - The inline prompt, when there is no file.
+ * @param filesTracked - The files the load read, for the sha.
+ */
+function resolvePromptField(root: string, sourceFile: string, kind: string, field: string, promptFile: string | undefined, inline: string | undefined, filesTracked: string[]): string {
   if (promptFile) {
+    const outside = () => new WorkspaceValidationError(sourceFile, kind, [`${field}: must name a file inside the workspace folder`]);
+    if (isAbsolute(promptFile)) {
+      throw outside();
+    }
     const abs = resolve(dirname(sourceFile), promptFile);
+    if (!inside(resolve(root), abs)) {
+      throw outside();
+    }
+    // Lexically inside; a link inside the folder may still point out of it.
+    // A file that is not there is the read's error to report, as before.
+    if (existsSync(abs) && !inside(realpathSync(root), realpathSync(abs))) {
+      throw outside();
+    }
     const content = readWorkspaceTextFile(abs);
     filesTracked.push(abs);
     return content.trim();

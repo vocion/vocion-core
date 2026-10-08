@@ -8529,6 +8529,120 @@
         "description": "what this workspace is, and whether it is running.\n\n`paused` is the whole reason this endpoint exists: the off switch has to be\nreadable by whatever is about to ask the workspace to do something, so a\nworker or an outside caller can say \"the factory is stopped\" instead of\ndiscovering it one refusal at a time. It is `null` when the workspace is\nrunning, and `{ by, at, note }` when someone has pulled the switch.\n\n`refuses` names what a pause holds and `allows` what it does not, so the\nlist a client shows never drifts from the list the guard enforces.\n\nAuth: tenant API token or dashboard session. Any authenticated caller may\nread this — it is a fact about the workspace they are already in."
       }
     },
+    "/api/v1/workspace/export": {
+      "get": {
+        "operationId": "get_workspace_export",
+        "summary": "this workspace as a zip of its files.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. The body is `application/zip`, not JSON.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "this workspace as a zip of its files.\n\nEvery kind the loader reads, in the layout `workspace:apply` takes: agents,\nteams, skills and playbooks with their bodies, missions, automations,\nworkflows, object types, connectors, eval datasets, learning steps, trust\nrules, voice, operating intent, pages, brand, plugins and settings. Each\nfile is the authored one wherever it still says what runs, and is written\nfrom what is running wherever it does not (a resource changed or added in\nthe app). `EXPORT.md` at the root says which, and what an export never\ncarries: credentials, connector logins, records, conversations and history.\n\nImport it into another workspace with `POST /api/v1/workspace/import`, or\napply the unzipped folder with `workspace:apply`.\n\nWorkspace admins only: the export is the whole workspace's configuration."
+      }
+    },
+    "/api/v1/workspace/import": {
+      "post": {
+        "operationId": "post_workspace_import",
+        "summary": "review an exported workspace against this one, then apply it.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Error. Codes: `PAYLOAD_TOO_LARGE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "review an exported workspace against this\none, then apply it.\n\nA `multipart/form-data` body:\n\n- `file` — the zip: an export from `GET /api/v1/workspace/export`, or a\n  workspace folder zipped (the folder holding `workspace.yaml`, or that\n  folder's contents).\n- `replace` — `true` makes the upload the whole workspace: an agent,\n  mission, automation or workflow it does not ship is retired, and its\n  trust rules and settings replace these. Omitted, the upload is merged:\n  what it names is created or updated and nothing it leaves out changes.\n- `apply` — omitted, nothing is written and the answer is the diff: per\n  kind, and per resource by name, what would be created, updated or\n  retired — settings, trust rules and stored files included — with the\n  review's `sha`. `true` applies it.\n- `sha` — required with `apply`: the sha the review answered, which covers\n  every file uploaded and every change listed. When either moved since —\n  another upload, or this workspace changed — the answer is 409 and nothing\n  is applied.\n\nA workspace applied from a folder on this host, or from git by a deploy,\nwould have an import undone by its next apply: the review says so in\n`blockedBy`, and an apply answers 409. A field no admin can set in the app —\nan agent placed on AgentCore, a connector pointed at the server's disk — is\nnamed in `refused`, and an apply answers 422.\n\nThe body may be up to 25 MB and the form around it; a larger one is refused\nas it streams in, whether or not it says its length.\n\nWorkspace admins only.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way."
+      }
+    },
     "/api/v1/workspace/pause": {
       "post": {
         "operationId": "post_workspace_pause",

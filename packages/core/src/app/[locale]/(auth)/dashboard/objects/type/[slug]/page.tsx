@@ -9,8 +9,8 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
-import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
+import { readPrimitiveFilesForOrg } from '@/services/workspace/WorkspaceFileService';
 
 export default async function ObjectTypeDetailPage(props: {
   params: Promise<{ locale: string; slug: string }>;
@@ -35,7 +35,7 @@ export default async function ObjectTypeDetailPage(props: {
   });
 
   const sourceRelevance = (objType.sourceRelevance ?? {}) as Record<string, number>;
-  const sourceFiles = readPrimitiveFiles('object', slug);
+  const sourceFiles = await readPrimitiveFilesForOrg(orgId, 'object', slug);
   const dirtyState = getWorkspaceDirtyState();
 
   return (

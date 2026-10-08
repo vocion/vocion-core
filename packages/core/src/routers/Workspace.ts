@@ -456,8 +456,9 @@ export const driftDiff = os.handler(async () => {
     throw new ORPCError('FORBIDDEN', { message: `The workspace mounted on this host is not this project's — ${reading.verdict.reason}.` });
   }
   const result = await applyWorkspace(reading.loaded, { orgId: orgId!, dryRun: true });
-  const changes = Object.values(result.counts).reduce((n, c) => n + c.created + c.updated, 0);
-  return { sha: reading.loaded.sha, counts: result.counts, changes, errors: result.errors };
+  // A retirement is a change too: an apply that switches an agent off is not "nothing to apply".
+  const changes = Object.values(result.counts).reduce((n, c) => n + c.created + c.updated + (c.retired ?? 0), 0);
+  return { sha: reading.loaded.sha, counts: result.counts, changes, changed: result.changes.filter(c => c.outcome !== 'unchanged'), errors: result.errors };
 });
 
 /**

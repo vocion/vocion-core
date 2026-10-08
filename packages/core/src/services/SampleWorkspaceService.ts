@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { applyWorkspace, loadWorkspace } from '@/libs/workspace';
-import { teamSchema, userSchema } from '@/models/Schema';
+import { accountMembershipSchema, projectMemberSchema, projectSchema, teamSchema, userSchema } from '@/models/Schema';
 import { resolveSampleWorkspace } from './sampleWorkspaces';
 
 /**
@@ -38,7 +38,9 @@ export {
 /**
  * Sample humans the bundle references by email (display-only owners; no
  * password, so they can never sign in). Created idempotently before the
- * apply so `accountableUser:` resolution finds them.
+ * apply, and made members of the workspace being seeded, so
+ * `accountableUser:` resolution — which looks only among the people who can
+ * open the workspace — finds them.
  */
 export const SAMPLE_USERS = [
   { name: 'Lili Chen', email: 'lili.chen@meridianoutdoor.example' },
@@ -97,7 +99,7 @@ export async function seedSampleWorkspace(opts: {
     throw new SampleSeedBlockedError();
   }
 
-  await ensureSampleUsers();
+  await ensureSampleUsers(opts.orgId);
 
   const loaded = loadWorkspace(opts.bundlePath ?? sample.path);
   if (opts.workspaceOwnerEmail) {
@@ -121,22 +123,26 @@ export async function seedSampleWorkspace(opts: {
 }
 
 /**
- * Idempotently create the bundle's sample humans (by email). No
- * passwordHash — they exist as FK targets + display names only.
+ * Idempotently create the bundle's sample humans (by email), each a member of
+ * the workspace being seeded and of its account. No passwordHash — they exist
+ * as owners to show, never as people who sign in.
+ * @param orgId - The workspace being seeded.
  */
-async function ensureSampleUsers(): Promise<void> {
+async function ensureSampleUsers(orgId: string): Promise<void> {
+  const [project] = await db.select({ accountId: projectSchema.accountId }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
   for (const sample of SAMPLE_USERS) {
     const [existing] = await db
       .select({ id: userSchema.id })
       .from(userSchema)
       .where(eq(userSchema.email, sample.email))
       .limit(1);
+    const id = existing?.id ?? `usr-sample-${randomUUID()}`;
     if (!existing) {
-      await db.insert(userSchema).values({
-        id: `usr-sample-${randomUUID()}`,
-        name: sample.name,
-        email: sample.email,
-      });
+      await db.insert(userSchema).values({ id, name: sample.name, email: sample.email });
+    }
+    if (project) {
+      await db.insert(accountMembershipSchema).values({ accountId: project.accountId, userId: id, role: 'member' }).onConflictDoNothing();
+      await db.insert(projectMemberSchema).values({ projectId: orgId, userId: id, role: 'member' }).onConflictDoNothing();
     }
   }
 }

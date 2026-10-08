@@ -12,11 +12,11 @@ import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
-import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { agentSchema, missionSchema } from '@/models/Schema';
 import { toPayload } from '@/services/ArtifactService';
 import { listAutomations } from '@/services/AutomationService';
 import { recordRef } from '@/services/chat/recordContext';
+import { readPrimitiveFilesForOrg } from '@/services/workspace/WorkspaceFileService';
 import { ensureSourceArtifact } from '@/services/workspace/WorkspaceSourceService';
 import { isEntityStatus } from '@/types/Status';
 
@@ -63,7 +63,7 @@ export default async function MissionDetailPage(props: {
   // applier has not mirrored it yet. Null only when this host has no
   // workspace, in which case the raw file viewer stands in.
   const source = await ensureSourceArtifact(orgId, 'mission', slug).catch(() => null);
-  const sourceFiles = source ? null : readPrimitiveFiles('mission', slug);
+  const sourceFiles = source ? null : await readPrimitiveFilesForOrg(orgId, 'mission', slug);
   const isLead = ownerAgent?.role === 'lead';
   const record = recordRef('mission', slug, mission.name);
 
