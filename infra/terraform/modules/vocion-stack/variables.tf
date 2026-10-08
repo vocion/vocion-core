@@ -64,8 +64,14 @@ variable "alias_hostnames" {
 }
 
 variable "route53_zone_id" {
-  description = "Route 53 hosted zone, in this account, that holds `hostname`. The module writes the app record and the certificate's validation records into it; it never creates or deletes the zone."
+  description = "Route 53 hosted zone, in this account, that holds `hostname`. The module writes the app record and the certificate's validation records into it; it never creates or deletes the zone. Null when the hostname's DNS lives elsewhere (another account or provider): add the certificate_validation_records output there, then point `hostname` at alb_dns_name (needs alb_enabled)."
   type        = string
+  default     = null
+
+  validation {
+    condition     = var.route53_zone_id != null || var.alb_enabled
+    error_message = "Without route53_zone_id the box is reached through the ALB: set alb_enabled = true."
+  }
 }
 
 variable "core_repo" {

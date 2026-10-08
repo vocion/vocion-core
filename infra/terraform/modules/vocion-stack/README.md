@@ -335,7 +335,7 @@ once its log shows no legitimate matches.
 
 ## Inputs
 
-Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
+Required: `name_prefix`, `azs`, `hostname`, `core_ref`.
 
 | Name | Type | Default | Description |
 |---|---|---|---|
@@ -344,7 +344,7 @@ Required: `name_prefix`, `azs`, `hostname`, `route53_zone_id`, `core_ref`.
 | `vpc_cidr` | string | `"10.0.0.0/16"` | VPC CIDR |
 | `azs` | list(string) | | At least two AZs; the box runs in the first |
 | `hostname` | string | | Hostname served |
-| `route53_zone_id` | string | | In-account zone holding `hostname` |
+| `route53_zone_id` | string | `null` | In-account zone holding `hostname`. Null when its DNS is elsewhere: add the `certificate_validation_records` output there and point `hostname` at `alb_dns_name` (ALB only) |
 | `alias_hostnames` | list({hostname, certificate_arn}) | `[]` | Old hostnames: browsers 301 to `hostname`, `/api/*` served in place. Certificate issued in this account; DNS points at `alb_dns_name`, managed outside |
 | `core_repo` | string | `"https://github.com/vocion/vocion-core.git"` | Repo the box clones |
 | `core_ref` | string | | Release tag (`v5.0.0`) or full sha. Never a branch |

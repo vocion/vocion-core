@@ -80,6 +80,17 @@ output "certificate_arn" {
   value       = var.alb_enabled ? aws_acm_certificate.app[0].arn : null
 }
 
+output "certificate_validation_records" {
+  description = "The ACM certificate's DNS validation records ({name, type, value}). Added by the module when route53_zone_id is set; otherwise add them wherever the hostname's DNS lives."
+  value = var.alb_enabled ? [
+    for o in aws_acm_certificate.app[0].domain_validation_options : {
+      name  = o.resource_record_name
+      type  = o.resource_record_type
+      value = o.resource_record_value
+    }
+  ] : []
+}
+
 output "app_env_secret_name" {
   description = "Secret holding the app's secret env (JSON). Put its value out-of-band."
   value       = aws_secretsmanager_secret.app_env.name

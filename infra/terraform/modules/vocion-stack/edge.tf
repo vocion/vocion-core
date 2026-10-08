@@ -22,7 +22,7 @@ resource "aws_acm_certificate" "app" {
 }
 
 resource "aws_route53_record" "cert_validation" {
-  for_each = {
+  for_each = var.route53_zone_id == null ? {} : {
     for o in flatten(aws_acm_certificate.app[*].domain_validation_options) : o.domain_name => o
   }
 
@@ -37,8 +37,10 @@ resource "aws_route53_record" "cert_validation" {
 resource "aws_acm_certificate_validation" "app" {
   count = var.alb_enabled ? 1 : 0
 
-  certificate_arn         = aws_acm_certificate.app[0].arn
-  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
+  certificate_arn = aws_acm_certificate.app[0].arn
+  # With no zone here, the validation records go in by hand (the
+  # certificate_validation_records output) and this waits until ACM sees them.
+  validation_record_fqdns = var.route53_zone_id == null ? null : [for r in aws_route53_record.cert_validation : r.fqdn]
 }
 
 # ----- load balancer -----
@@ -357,7 +359,7 @@ resource "aws_wafv2_web_acl_association" "app" {
 # ----- DNS -----
 
 resource "aws_route53_record" "app_alias" {
-  count = var.alb_enabled ? 1 : 0
+  count = var.alb_enabled && var.route53_zone_id != null ? 1 : 0
 
   zone_id = var.route53_zone_id
   name    = var.hostname
@@ -371,7 +373,7 @@ resource "aws_route53_record" "app_alias" {
 }
 
 resource "aws_route53_record" "app_direct" {
-  count = var.alb_enabled ? 0 : 1
+  count = !var.alb_enabled && var.route53_zone_id != null ? 1 : 0
 
   zone_id = var.route53_zone_id
   name    = var.hostname
