@@ -106,7 +106,7 @@ parsed back out of prose.
 
 | Step `kind` | `id` | The card | What a press runs |
 |---|---|---|---|
-| `app` | app id (`templates/apps/<id>`) | "Add …" | `app.install` turns on the plugins the app is made of, in one write and one apply. Undo puts the earlier list back. |
+| `app` | app id (`templates/apps/<id>`) | "Add …" | `app.install` turns on the plugins the app is made of, in one write and one apply — the same write the Apps page's Add makes (`plugins.addApp`). Undo puts the earlier list back. |
 | `template` | `<app>/<template>`, with `answers` | "Start from …" | `app.install_template` runs the install an app's start page makes (`AppTemplateService`, e.g. the Company app's Software Company, Marketing Agency and Support Org). The template's teams, agents, missions, automations and trust rules are written into the workspace's own folder. The interview is filled from what the person said, with defaults for the rest. The person who decided is named accountable. Undo removes what the install created, puts `workspace.yaml` and the trust file back, and applies. A workspace applied from git has nowhere to write one here, and `setup_options` says so. |
 | `plugin` | plugin slug | "Turn on …" | `plugin.enable`. Undo restores the list. |
 | `connect` | connector slug | the ordinary connect card | The connect flow (`offer_connection`), returning to the conversation. |

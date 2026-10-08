@@ -85,7 +85,7 @@ export const NO_AGENTS_MESSAGE
   = 'This workspace has no agents yet. Hire one from the agent catalog to get started.';
 
 /** Where that sentence sends the person: the agents they can hire. */
-export const NO_AGENTS_HREF = '/dashboard/marketplace';
+export const NO_AGENTS_HREF = '/dashboard/hire';
 
 /**
  * Is this failure really "the workspace is empty"?

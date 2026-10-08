@@ -404,7 +404,7 @@ describe('ChatDock', () => {
 
       await expect.element(page.getByTestId('no-agents-state')).toBeVisible();
       // The next step is for the person in the workspace, not whoever deploys it.
-      await expect.element(page.getByRole('link', { name: /Hire one from the agent catalog/ })).toHaveAttribute('href', '/dashboard/marketplace');
+      await expect.element(page.getByRole('link', { name: /Hire one from the agent catalog/ })).toHaveAttribute('href', '/dashboard/hire');
       await expect.element(page.getByTestId('no-agents-state')).not.toHaveTextContent(/Apply a workspace/);
 
       // The composer stays live, and the answer is the same sentence.

@@ -66,9 +66,10 @@ export const appInstallAction: Action<typeof appInstallInput> = {
     if (app.plugins.length === 0) {
       return `${app.name} has nothing to turn on here`;
     }
-    const { enabledPluginsForOrg } = await import('@/services/PluginService');
+    const [{ enabledPluginsForOrg }, { listPluginSlugs }] = await Promise.all([import('@/services/PluginService'), import('@/libs/workspace/plugins')]);
+    const shipped = new Set(listPluginSlugs());
     const on = new Set(await enabledPluginsForOrg(ctx.orgId));
-    if (app.plugins.every(p => on.has(p))) {
+    if (app.plugins.filter(p => shipped.has(p)).every(p => on.has(p))) {
       return `${app.name} is already in this workspace`;
     }
     return undefined;
@@ -94,9 +95,12 @@ export const appInstallAction: Action<typeof appInstallInput> = {
     if (!app) {
       return { added: false, app: input.app };
     }
-    const { addPluginsForProject } = await import('@/services/PluginService');
+    const [{ addPluginsForProject }, { listPluginSlugs }] = await Promise.all([import('@/services/PluginService'), import('@/libs/workspace/plugins')]);
+    const shipped = new Set(listPluginSlugs());
     const target = await targetFor(ctx);
-    const res = await addPluginsForProject({ orgId: ctx.orgId, ...target, slugs: app.plugins, appliedBy: ctx.invokedBy ?? 'app.install' });
+    // The same write the Apps page's Add makes (`plugins.addApp`): an app's
+    // plugins this core does not ship are skipped, never a failure.
+    const res = await addPluginsForProject({ orgId: ctx.orgId, ...target, slugs: app.plugins.filter(p => shipped.has(p)), appliedBy: ctx.invokedBy ?? 'app.install' });
     // `before` is what undo restores; the entry is where the app opens.
     return { added: true, app: app.id, name: app.name, entry: app.entry, before: res.before, after: res.after, mode: res.mode };
   },

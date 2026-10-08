@@ -34,7 +34,7 @@ export type GettingStartedState = {
 /** Where a done step lives. */
 const DONE_HREF: Record<GettingStartedState['steps'][number]['id'], string> = {
   connect: '/dashboard/connectors',
-  app: '/dashboard/marketplace/plugins',
+  app: '/dashboard/apps',
   hire: '/dashboard/agents',
   invite: '/dashboard/members',
 };

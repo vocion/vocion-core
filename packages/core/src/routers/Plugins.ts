@@ -2,7 +2,7 @@ import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
 import { safeListApps } from '@/libs/workspace/apps';
 import { listPlugins, listPluginSlugs } from '@/libs/workspace/plugins';
-import { enabledPluginsForOrg, pluginWriteTarget, restorePluginsForProject, togglePluginForProject } from '@/services/PluginService';
+import { addPluginsForProject, enabledPluginsForOrg, pluginWriteTarget, togglePluginForProject } from '@/services/PluginService';
 import { guardAuth, guardRole, loadProject } from './AuthGuards';
 import { workspaceFolderForProject } from './Workspace';
 
@@ -72,8 +72,8 @@ export const set = os
 
 /**
  * Add an app to the active project: turn on every feature (plugin) the app's
- * manifest lists, in one write and one apply — the same path the switch and
- * its undo take (`restorePluginsForProject`), so the app arrives in the rail
+ * manifest lists, in one write and one apply (`addPluginsForProject`, which
+ * the `app.install` action a setup card runs shares), so the app arrives in the rail
  * exactly as if each feature had been switched on. A feature can be switched
  * off afterwards on the app's page.
  */
@@ -87,12 +87,11 @@ export const addApp = os
       throw new ORPCError('NOT_FOUND', { message: `unknown app "${input.id}"` });
     }
     const catalogue = new Set(listPluginSlugs());
-    const before = await enabledPluginsForOrg(orgId!);
-    const next = [...new Set([...before, ...app.plugins.filter(s => catalogue.has(s))])];
     const [project, folder] = await Promise.all([loadProject(projectId!), workspaceFolderForProject(projectId!)]);
     try {
-      const res = await restorePluginsForProject({ orgId: orgId!, projectSlug: project?.slug ?? projectId!, workspaceDir: folder?.path ?? null, explicit: folder?.explicit ?? false, plugins: next, appliedBy: userId ? `user:${userId}` : 'ui-apps' });
-      return { id: app.id, before, after: next, ...res };
+      // The same write the `app.install` action makes from a setup card in chat — one path for adding an app.
+      const res = await addPluginsForProject({ orgId: orgId!, projectSlug: project?.slug ?? projectId!, workspaceDir: folder?.path ?? null, explicit: folder?.explicit ?? false, slugs: app.plugins.filter(s => catalogue.has(s)), appliedBy: userId ? `user:${userId}` : 'ui-apps' });
+      return { id: app.id, ...res };
     } catch (err) {
       throw new ORPCError('APPLY_FAILED', { message: err instanceof Error ? err.message : String(err) });
     }
