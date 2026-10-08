@@ -188,6 +188,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'Google',
       'Slack',
       'Zoom',
+      'Microsoft 365',
       // The measure sources a workspace verifies its own numbers against.
       'Google Analytics',
       // The tool providers, which an org supplies its own key for so the
@@ -210,6 +211,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'QuickBooks login app',
       'Xero login app',
       'Gusto login app',
+      'Microsoft login app',
       'Other platform',
     ]);
   });
