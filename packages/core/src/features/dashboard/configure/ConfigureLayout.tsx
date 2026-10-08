@@ -1,4 +1,5 @@
 import type { ConfigureAside, ConfigureTone, ConfigureView } from './configurePlan';
+import { SetupResetButton } from './SetupResetButton';
 import type { ColumnKind } from '@/components/patterns';
 import type { ConfigureTabKind } from '@/libs/workspace/pageFields';
 import { DetailColumns, RightColumn, Section } from '@/components/patterns';
@@ -103,9 +104,17 @@ function AsideBlock({ block, testId }: { block: ConfigureAside; testId?: string 
       data-testid={testId ?? `configure-aside-${block.kind}`}
       action={block.kind === 'health'
         ? <Link href={block.href} className="text-muted-foreground hover:text-foreground hover:underline">Team report</Link>
-        : undefined}
+        : block.kind === 'setup'
+          ? <SetupResetButton plugin={block.plugin} anythingToReset={block.items.some(i => i.done)} />
+          : undefined}
     >
       <ul className="-my-1.5 divide-y divide-rule">
+        {block.kind === 'setup' && block.items.map(item => (
+          <li key={item.id} className="flex items-baseline justify-between gap-3 py-2" data-testid={`configure-setup-${item.id}`}>
+            <span className="min-w-0 truncate">{item.label}</span>
+            <span className={cn('shrink-0 text-xs', item.done ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')}>{item.done ? 'Done' : 'To do'}</span>
+          </li>
+        ))}
         {block.kind === 'health' && block.items.map(m => (
           <li key={m.id} className="py-2">
             <div className="flex items-baseline justify-between gap-3">

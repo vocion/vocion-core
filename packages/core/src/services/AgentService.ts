@@ -656,9 +656,10 @@ export async function runAgentDeep(opts: {
       emittedCards.push(event.recommendation.label);
       handOffGuard.handOff(event.recommendation.label);
     }
-    // A card that waits on a person (a connection to make, state `proposed`)
-    // hands them the next move: the turn ends before the model speaks again.
-    if (event.type === 'card' && event.card.state === 'proposed') {
+    // A card that waits on a person — a connection to make (`proposed`), a
+    // proposal to approve (`filed`) — hands them the next move: the turn ends
+    // before the model speaks again.
+    if (event.type === 'card' && (event.card.state === 'proposed' || event.card.state === 'filed')) {
       handOffGuard.handOff(event.card.title);
     }
     if (event.type === 'record_created') {

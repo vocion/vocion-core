@@ -20,6 +20,7 @@ import { actionForPolicyKey } from '@/libs/actions/policyKey';
 import { db } from '@/libs/DB';
 import { skillBodySha } from '@/libs/workspace/loader';
 import { loadPlugin, pluginContents, readPluginTeams } from '@/libs/workspace/plugins';
+import { setupStateForOrg } from '@/services/plugins/setupState';
 import { TrustManifestSchema } from '@/libs/workspace/schemas';
 import { effectiveMeasures } from '@/libs/workspace/team-export';
 import {
@@ -346,7 +347,8 @@ export async function loadConfigure(orgId: string, pluginSlug: string, now: Date
 
   const learned: ConfigureLearningInput[] = learnings.map(l => ({ id: l.id, text: l.text, status: l.status, at: l.at, step: l.step, origin: l.origin ?? null }));
 
-  return { pluginName: plugin.manifest.name, seats, skills, automations, trust, learnings: learned, measures, changes };
+  const setup = (await setupStateForOrg(orgId).catch(() => [])).find(p => p.plugin === pluginSlug) ?? null;
+  return { pluginName: plugin.manifest.name, pluginSlug, setup: setup ? { complete: setup.complete, steps: setup.steps } : null, seats, skills, automations, trust, learnings: learned, measures, changes };
 }
 
 /**

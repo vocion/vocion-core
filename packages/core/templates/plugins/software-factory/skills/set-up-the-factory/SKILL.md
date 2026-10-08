@@ -79,10 +79,16 @@ ask which repos I want to include, not assume all").
      workspace files; the grant on GitHub).
    - A record that already exists is left alone.
 
+   A record that waits on the person's approval is a card in this
+   conversation, with Approve on it; the platform puts it there. Never send
+   them to the review queue page.
+4. Report in two lines, then stop: what was filed (with links), and what
+   waits on a tap (the cards are below). Add that the Release seat maps the
+   chosen repositories next and writes the product page. No offers of other
+   work, no summary of what you read.
+
 Mapping is not yours: once a repository record lands, the Release seat reads
-it and files the product's architecture on its own (`map-the-codebase`). Say
-that it will, in one line, so the person knows what happens next without
-doing anything.
+it and files the product's architecture on its own (`map-the-codebase`).
 
 ## When every step is done
 

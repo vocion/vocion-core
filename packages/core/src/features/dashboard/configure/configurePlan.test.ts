@@ -220,3 +220,25 @@ describe('the sidebar', () => {
     expect(view.aside).toEqual([]);
   });
 });
+
+describe('the Setup block', () => {
+  it('lists each setup step with whether it is done, for a plugin that declares setup', () => {
+    const input = fixture({ pluginSlug: 'software-factory', setup: { complete: false, steps: [
+      { key: 'connector:github', kind: 'connector', slug: 'github', label: 'Connect github', done: true },
+      { key: 'records:product', kind: 'records', slug: 'product', label: 'Create the first product record', done: false },
+    ] } });
+
+    const view = planConfigure(input, { tabs: [{ kind: 'seats' }], aside: [{ kind: 'setup' }] }, { now: NOW });
+
+    expect(view.aside).toEqual([{ kind: 'setup', label: 'Setup', plugin: 'software-factory', complete: false, items: [
+      { id: 'connector:github', label: 'Connect github', done: true },
+      { id: 'records:product', label: 'Create the first product record', done: false },
+    ] }]);
+  });
+
+  it('is absent for a plugin that declares no setup, even when the page asks for it', () => {
+    const view = planConfigure(fixture({ pluginSlug: 'wiki', setup: null }), { tabs: [{ kind: 'seats' }], aside: [{ kind: 'setup' }] }, { now: NOW });
+
+    expect(view.aside).toEqual([]);
+  });
+});

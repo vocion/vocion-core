@@ -607,9 +607,10 @@ export type ConfigureTabKind = typeof CONFIGURE_TAB_KINDS[number];
 /**
  * The `configure` archetype's sidebar blocks: how it is doing (the measures,
  * each with its direction), what needs attention (links only, absent when
- * nothing does) and what changed recently.
+ * nothing does), what changed recently, and — for a plugin that declares
+ * `setup:` — where its setup stands, with the admin's reset.
  */
-export const CONFIGURE_ASIDE_KINDS = ['health', 'attention', 'changes'] as const;
+export const CONFIGURE_ASIDE_KINDS = ['setup', 'health', 'attention', 'changes'] as const;
 export type ConfigureAsideKind = typeof CONFIGURE_ASIDE_KINDS[number];
 
 /**
@@ -628,7 +629,7 @@ export const ConfigureBlocksSchema = z.object({
   aside: z.array(z.object({
     kind: z.enum(CONFIGURE_ASIDE_KINDS),
     label: z.string().min(1).max(40).optional(),
-  })).default(CONFIGURE_ASIDE_KINDS.map(kind => ({ kind }))),
+  })).default(CONFIGURE_ASIDE_KINDS.filter(k => k !== 'setup').map(kind => ({ kind }))),
 });
 export type ConfigureBlocks = z.infer<typeof ConfigureBlocksSchema>;
 

@@ -121,6 +121,7 @@ import {
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { list as listPluginsRoute, set as setPluginRoute } from './Plugins';
+import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
 import { changePasswordRoute, getProfileRoute, updateNameRoute, updatePhoneRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
@@ -188,6 +189,10 @@ export const router = {
     pauseState: workspacePauseState,
     pause: pauseWorkspaceRoute,
     resume: resumeWorkspaceRoute,
+  },
+  setup: {
+    state: setupStateRoute,
+    reset: resetSetupRoute,
   },
   plugins: {
     list: listPluginsRoute,

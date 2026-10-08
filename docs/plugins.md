@@ -345,6 +345,13 @@ deployment has one (the login is the approval) and takes a pasted key
 otherwise. The chip goes away on its own when the last step is done. Core names no connector and no type here: a plugin that declares
 no `setup:` has no setup state.
 
+The plugin's Configure page can show the steps as a sidebar block
+(`aside: [{kind: setup}]`), with **Reset setup** for a workspace admin: it
+disconnects the connectors the declaration names, deletes the records of the
+types it names with their artifacts, and rejects proposals still waiting to
+create one — so onboarding can be run again from nothing
+(`services/plugins/setupReset.ts`, `rpc setup.reset`).
+
 When a credential is stored, core emits `source.connected` (connector,
 install id, credential id, who, when), so a plugin automation can carry setup
 on from the login. The software factory does not file anything on it: which

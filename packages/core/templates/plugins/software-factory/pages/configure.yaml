@@ -28,6 +28,8 @@ configure:
     - {kind: learned}
     - {kind: measures}
   aside:
+    # Where setup stands, and the admin's reset to run onboarding again (3.31.3).
+    - {kind: setup}
     - {kind: health}
     - {kind: attention}
     - {kind: changes}

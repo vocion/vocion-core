@@ -168,7 +168,7 @@ describe('plugin pages', () => {
     }
   });
 
-  it('Configure is declared as blocks: six tabs and three sidebar blocks, drawn by core', () => {
+  it('Configure is declared as blocks: six tabs and four sidebar blocks, drawn by core', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const configure = pages.find(p => p.slug === 'configure');
@@ -179,7 +179,7 @@ describe('plugin pages', () => {
     // them for whichever plugin ships it (features/dashboard/configure).
     expect(configure?.archetype).toBe('configure');
     expect(configure?.configure?.tabs.map(t => t.kind)).toEqual(['seats', 'skills', 'automations', 'trust', 'learned', 'measures']);
-    expect(configure?.configure?.aside.map(a => a.kind)).toEqual(['health', 'attention', 'changes']);
+    expect(configure?.configure?.aside.map(a => a.kind)).toEqual(['setup', 'health', 'attention', 'changes']);
     // The collapsed "How … is doing" disclosure is what this page replaced.
     expect(configure?.pluginPanel).toBe(false);
   });
