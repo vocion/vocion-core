@@ -78,6 +78,8 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [emailsInvites, setEmailsInvites] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -91,14 +93,16 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
 
   const refresh = useCallback(async () => {
     try {
-      const [o, m, i] = await Promise.all([
+      const [o, m, i, d] = await Promise.all([
         client.groups.overview(),
         client.members.list(),
         isAdmin ? client.members.invites() : Promise.resolve([] as PendingInvite[]),
+        isAdmin ? client.members.inviteDelivery() : Promise.resolve({ emails: false }),
       ]);
       setOverview(o);
       setMembers(m);
       setInvites(i);
+      setEmailsInvites(d.emails);
       setError(null);
     } catch {
       setError('Could not load this Org.');
@@ -112,12 +116,14 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
     void refresh();
   }, [refresh]);
 
-  const run = (fn: () => Promise<unknown>) => {
+  const run = (fn: () => Promise<unknown>, done?: string) => {
+    setNotice(null);
     startTransition(async () => {
       try {
         await fn();
         await refresh();
         setError(null);
+        setNotice(done ?? null);
       } catch (err) {
         setError(err instanceof Error && err.message ? err.message : 'That did not work.');
       }
@@ -174,11 +180,15 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
     }
   };
   // A fresh link for the same address and role; `createInvite` replaces the
-  // expired one rather than adding a second.
+  // expired one rather than adding a second, and mails it when mail is on.
   const reinvite = (invite: InviteRow) => run(() => client.members.invite({
     email: invite.email,
     role: invite.accountRole === 'admin' ? 'admin' : 'member',
-  }));
+  }), emailsInvites ? t('reinvited_emailed', { email: invite.email }) : undefined);
+  const resendInvite = (invite: InviteRow) => run(
+    () => client.members.resendInvite({ inviteId: invite.inviteId }),
+    t('resent', { email: invite.email }),
+  );
 
   if (!loaded) {
     return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
@@ -205,6 +215,7 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
         : undefined}
     >
       {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+      {notice && !error && <p className="mt-3 text-sm text-muted-foreground" role="status">{notice}</p>}
 
       <ListToolbar
         className="mt-4"
@@ -293,6 +304,14 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
               }}
               onRevokeInvite={revokeInvite}
               onReinvite={reinvite}
+              onResendInvite={resendInvite}
+              emails={emailsInvites}
+              onResetTwoStep={(userId, email) => {
+                // eslint-disable-next-line no-alert
+                if (window.confirm(`Reset two-step sign-in for ${email}? They are signed out everywhere and set it up again at their next sign-in if this account requires it.`)) {
+                  run(() => client.members.resetSecondFactor({ userId }));
+                }
+              }}
             />
           )
         : (
@@ -322,6 +341,7 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
         open={inviting}
         pending={pending}
         error={error}
+        emails={emailsInvites}
         onOpenChange={setInviting}
         onInvite={async (email, role) => {
           try {

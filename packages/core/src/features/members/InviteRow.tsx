@@ -1,7 +1,7 @@
 'use client';
 
 import type { InviteRow as InviteRowData } from './access';
-import { Check, Copy, MoreHorizontal, RotateCw } from 'lucide-react';
+import { Check, Copy, Mail, MoreHorizontal, RotateCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Column, ListRow, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
@@ -26,20 +26,24 @@ import { useCopyInviteLink } from './inviteLink';
  * is the subline, where a person's email is.
  *
  * The verbs are the ones the invite dialog's pending list had — copy the link,
- * revoke — and now live only here. An expired invite's link no longer works, so
- * its row offers Re-invite instead of Copy: a fresh link for the same address
- * and role, which replaces the old one (`createInvite`).
+ * revoke — and now live only here, with "Resend email" when this server mails
+ * invites (`services/InviteMail.ts`). An expired invite's link no longer works,
+ * so its row offers Re-invite instead of Copy and Resend: a fresh link for the
+ * same address and role, which replaces the old one and, with mail on, is
+ * mailed (`createInvite`).
  * @param props - The row.
  * @param props.invite - The invite, from `inviteRows`.
  * @param props.pending - A write is in flight; the menu waits for it.
  * @param props.onRevoke - Revoke it; the caller confirms first.
  * @param props.onReinvite - Make a fresh link for an expired one.
+ * @param props.onResend - Mail it again; absent when this server sends no email.
  */
 export function InviteRow(props: {
   invite: InviteRowData;
   pending: boolean;
   onRevoke: (invite: InviteRowData) => void;
   onReinvite: (invite: InviteRowData) => void;
+  onResend?: (invite: InviteRowData) => void;
 }) {
   const t = useTranslations('Members');
   const [copied, copy] = useCopyInviteLink();
@@ -105,16 +109,24 @@ export function InviteRow(props: {
                   </DropdownMenuItem>
                 )
               : (
-                  <DropdownMenuItem
-                    onSelect={(e) => {
-                      // Keep the menu open long enough to show that it worked.
-                      e.preventDefault();
-                      void copy(invite.token);
-                    }}
-                  >
-                    {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-                    {copied ? t('copied') : t('copy_link')}
-                  </DropdownMenuItem>
+                  <>
+                    {props.onResend && (
+                      <DropdownMenuItem onSelect={() => props.onResend?.(invite)}>
+                        <Mail aria-hidden />
+                        {t('resend_email')}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        // Keep the menu open long enough to show that it worked.
+                        e.preventDefault();
+                        void copy(invite.token);
+                      }}
+                    >
+                      {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+                      {copied ? t('copied') : t('copy_link')}
+                    </DropdownMenuItem>
+                  </>
                 )}
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => props.onRevoke(invite)}>

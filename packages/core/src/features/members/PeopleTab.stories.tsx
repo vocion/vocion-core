@@ -98,6 +98,11 @@ export const ExpiredInvite: Story = {
   args: { ...base, invites: [PENDING, EXPIRED] },
 };
 
+/** Mail on: a live invite's row can send its email again; an expired one still offers Re-invite. */
+export const MailOn: Story = {
+  args: { ...base, invites: [PENDING, EXPIRED], emails: true, onResendInvite: () => {} },
+};
+
 /** Status: invited — only the invites. */
 export const InvitesOnly: Story = {
   args: { ...base, rows: [], invites: [PENDING, EXPIRED] },
