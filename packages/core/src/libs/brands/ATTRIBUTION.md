@@ -68,6 +68,11 @@ entry a mark.
 | `granola` | Granola | No logo | Granola publishes a press kit but no terms for third-party use of its logo: https://grano.la/press. |
 | `microsoftazure` | Microsoft Azure | No logo | Microsoft requires an express licence for its logos and product icons (Azure icons are for architecture diagrams and documentation only): https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks. simple-icons removed Microsoft marks in v13 at Microsoft's request. |
 | `netsuite` | NetSuite | No logo | Oracle's trademark guidelines do not permit third parties to use its logos: https://www.oracle.com/legal/trademarks.html. |
+| `microsoft` | Microsoft 365 | No logo | As `microsoftazure`. The Microsoft login and login app behind the Microsoft 365 connectors. |
+| `microsoftonedrive` | OneDrive | No logo | As `microsoftazure`. |
+| `microsoftoutlook` | Microsoft Outlook | No logo | As `microsoftazure`. Covers Outlook mail and Outlook Calendar. |
+| `microsoftsharepoint` | SharePoint | No logo | As `microsoftazure`. |
+| `microsoftteams` | Microsoft Teams | No logo | As `microsoftazure`. |
 | `openai` | OpenAI | No logo | OpenAI's brand guidelines ask products built on its API to be free of its logos and to ask permission first: https://openai.com/brand/. simple-icons dropped the mark in v16. |
 | `ramp` | Ramp | No logo | Ramp publishes no terms for third-party use of its logo. |
 | `rippling` | Rippling | No logo | Rippling publishes no terms for third-party use of its logo. |

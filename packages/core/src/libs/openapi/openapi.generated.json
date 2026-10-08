@@ -3554,7 +3554,7 @@
             }
           }
         },
-        "description": "List the workspace's vendor login apps, saved or not.\n\nOne entry per vendor that takes one (Google, Slack, Atlassian, HubSpot,\nNotion, Zoom, Apollo):\n`{ loginApps: [{ provider, vendor, saved, name, keyHint, savedAt, redirectUrl }] }`.\n`keyHint` is the saved client ID, masked; the secret is never returned.\n`redirectUrl` is the callback to register at the vendor, null when the\nserver has no public address (NEXT_PUBLIC_APP_URL).\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session."
+        "description": "List the workspace's vendor login apps, saved or not.\n\nOne entry per vendor that takes one (Google, Slack, Atlassian, HubSpot,\nNotion, Zoom, Apollo, QuickBooks, Xero, Gusto, Microsoft):\n`{ loginApps: [{ provider, vendor, saved, name, keyHint, savedAt, redirectUrl }] }`.\n`keyHint` is the saved client ID, masked; the secret is never returned.\n`redirectUrl` is the callback to register at the vendor, null when the\nserver has no public address (NEXT_PUBLIC_APP_URL).\n\nRequires a workspace admin, as the Developers page does.\nAuth: tenant API token or dashboard session."
       }
     },
     "/api/v1/login-apps/{provider}": {

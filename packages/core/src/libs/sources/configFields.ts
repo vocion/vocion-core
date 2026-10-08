@@ -314,6 +314,145 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  // Microsoft 365 (`libs/sources/outlookMail.ts`, `outlookCalendar.ts`,
+  // `teams.ts`, `microsoftFiles.ts`): one Microsoft login serves all five.
+  'outlook-mail': [
+    {
+      key: 'folder',
+      label: 'Mail folder',
+      type: 'text',
+      defaultValue: 'inbox',
+      placeholder: 'inbox',
+      help: 'A folder name Outlook knows (inbox, sentitems, archive) or a folder id.',
+    },
+    {
+      key: 'pastDays',
+      label: 'Index mail from the past (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://graph.microsoft.com/v1.0',
+    },
+  ],
+
+  'outlook-calendar': [
+    {
+      key: 'calendarId',
+      label: 'Calendar',
+      type: 'text',
+      help: 'Leave blank for the signed-in account’s own calendar, or paste a calendar id.',
+    },
+    {
+      key: 'pastDays',
+      label: 'Index events from the past (days)',
+      type: 'number',
+      defaultValue: 30,
+      min: 1,
+    },
+    {
+      key: 'futureDays',
+      label: 'Index events ahead (days)',
+      type: 'number',
+      defaultValue: 60,
+      min: 1,
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://graph.microsoft.com/v1.0',
+    },
+  ],
+
+  'microsoft-teams': [
+    {
+      key: 'teamId',
+      label: 'Team ID',
+      type: 'text',
+      help: 'Leave blank to read every team the account belongs to. In Teams: the team’s … menu → Get link to team; the groupId in the link.',
+    },
+    {
+      key: 'channelId',
+      label: 'Channel ID',
+      type: 'text',
+      placeholder: '19:…@thread.tacv2',
+      help: 'Leave blank to read every channel of the team(s). In Teams: the channel’s … menu → Get link to channel; the part after /channel/.',
+    },
+    {
+      key: 'pastDays',
+      label: 'Index conversations from the past (days)',
+      type: 'number',
+      defaultValue: 30,
+      min: 1,
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://graph.microsoft.com/v1.0',
+    },
+  ],
+
+  'sharepoint': [
+    {
+      key: 'site',
+      label: 'SharePoint site',
+      type: 'text',
+      defaultValue: '',
+      placeholder: 'https://contoso.sharepoint.com/sites/Sales',
+      help: 'The site’s address as it shows in the browser. Leave blank for the organization’s root site.',
+    },
+    {
+      key: 'library',
+      label: 'Document library',
+      type: 'text',
+      defaultValue: '',
+      placeholder: 'Documents',
+      help: 'Leave blank for the site’s default library.',
+    },
+    {
+      key: 'folderPath',
+      label: 'Folder',
+      type: 'text',
+      defaultValue: '',
+      placeholder: 'Proposals/2026',
+      help: 'Leave blank to sync the whole library.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://graph.microsoft.com/v1.0',
+    },
+  ],
+
+  'onedrive': [
+    {
+      key: 'folderPath',
+      label: 'Folder',
+      type: 'text',
+      defaultValue: '',
+      placeholder: 'Clients/Northwind',
+      help: 'Leave blank to sync the whole OneDrive.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://graph.microsoft.com/v1.0',
+    },
+  ],
+
   // Apollo is queried live and syncs nothing, so there is nothing to ask for
   // beyond the API host — the key itself is the credential, taken by Connect.
   'apollo': [

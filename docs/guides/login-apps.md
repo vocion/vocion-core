@@ -31,6 +31,7 @@ a different client with its own settings:
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | [QuickBooks](#quickbooks) |
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | [Xero](#xero) |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | [Gusto](#gusto) |
+| `microsoft` | `outlook-mail`, `outlook-calendar`, `microsoft-teams`, `sharepoint`, `onedrive` | `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET` (the sign-in app) | [microsoft-365.md](microsoft-365.md) |
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | [slack.md](slack.md#connecting-the-slack-source-with-a-click) |
 | `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | [jira.md](jira.md#connect-with-atlassian) |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | [github.md](github.md#connect-with-github--the-app-instead-of-a-token) |
@@ -41,7 +42,7 @@ a different client with its own settings:
 A workspace admin can save the vendor's app for this workspace alone:
 
 1. Open **Developers**, add a credential, and pick **&lt;Vendor&gt; login app**
-   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero or Gusto).
+   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero, Gusto or Microsoft).
 2. The form shows the exact **redirect URL to register** at the vendor, with a
    copy button. Register it on the vendor's app.
 3. Paste the **Client ID** and **Client secret**, and save.

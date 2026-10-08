@@ -38,7 +38,7 @@ import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { BUILTIN_TOOLS, capabilityStatuses } from './catalog';
 
 /** Where a tool comes from. */
-export type ToolFamilyKind = 'builtin' | 'records' | 'hubspot' | 'apollo' | 'gmail' | 'calendar' | 'zoom' | 'posthog' | 'rest' | 'workspace';
+export type ToolFamilyKind = 'builtin' | 'records' | 'hubspot' | 'apollo' | 'gmail' | 'calendar' | 'microsoft' | 'zoom' | 'posthog' | 'rest' | 'workspace';
 
 /** Whether the tools of a family (or one paid built-in) can run right now. */
 export type ToolReadiness = {
@@ -143,7 +143,8 @@ const SOURCE_FAMILIES: SourceFamilyRule[] = [
   { kind: 'hubspot', label: 'HubSpot', description: 'Live CRM reads — contacts, companies, deals, properties, lists — for agents holding a HubSpot source.', connectorSlug: 'hubspot', source: /^hubspot(?:$|-)/, tool: /^hubspot_/ },
   { kind: 'apollo', label: 'Apollo', description: 'Live prospecting and enrichment for agents holding an Apollo source.', connectorSlug: 'apollo', source: /^apollo(?:$|-)/, tool: /^apollo_/ },
   { kind: 'gmail', label: 'Gmail', description: 'Email threads, read through the Gmail source.', connectorSlug: 'gmail', source: /^gmail(?:$|-)/, tool: /^get_gmail_/ },
-  { kind: 'calendar', label: 'Calendar', description: 'Events on the connected Google Calendar.', connectorSlug: 'google-calendar', source: /^google-calendar(?:$|-)/, tool: /^calendar_/ },
+  { kind: 'calendar', label: 'Calendar', description: 'Events on the connected Google or Outlook calendar.', connectorSlug: 'google-calendar', source: /^(?:google|outlook)-calendar(?:$|-)/, tool: /^calendar_/ },
+  { kind: 'microsoft', label: 'Microsoft 365', description: 'Live Outlook mail, Teams channels and chats, and OneDrive and SharePoint files, through the workspace\'s Microsoft login.', connectorSlug: 'outlook-mail', source: /^(?:outlook-mail|microsoft-teams|sharepoint|onedrive)(?:$|-)/, tool: /^(?:outlook_|get_outlook_|msteams_|microsoft_)/ },
   { kind: 'zoom', label: 'Zoom', description: 'Recordings and transcripts of the workspace\'s Zoom calls.', connectorSlug: 'zoom', source: /^zoom(?:$|-)/, tool: /^(?:get_zoom_|find_zoom_)/ },
   { kind: 'posthog', label: 'PostHog', description: 'Daily event counts from the PostHog mirror.', connectorSlug: 'posthog', source: /^posthog(?:$|-)/, tool: /^posthog_/ },
 ];

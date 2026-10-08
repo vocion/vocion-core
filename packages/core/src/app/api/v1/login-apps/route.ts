@@ -9,7 +9,7 @@ import { authApi, isErrorResponse, requireWorkspaceAdmin } from '../_shared';
  * List the workspace's vendor login apps, saved or not.
  *
  * One entry per vendor that takes one (Google, Slack, Atlassian, HubSpot,
- * Notion, Zoom, Apollo):
+ * Notion, Zoom, Apollo, QuickBooks, Xero, Gusto, Microsoft):
  * `{ loginApps: [{ provider, vendor, saved, name, keyHint, savedAt, redirectUrl }] }`.
  * `keyHint` is the saved client ID, masked; the secret is never returned.
  * `redirectUrl` is the callback to register at the vendor, null when the
