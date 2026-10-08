@@ -22,8 +22,9 @@ vi.mock('next-auth', () => {
     code = 'credentials';
   }
   return {
-    default: (config: typeof captured.config) => {
-      captured.config = config;
+    // Auth.ts hands Auth.js a function that builds the config on first use.
+    default: (config: typeof captured.config | (() => typeof captured.config)) => {
+      captured.config = typeof config === 'function' ? config() : config;
       return { auth: vi.fn(), handlers: {}, signIn: vi.fn(), signOut: vi.fn(), unstable_update: vi.fn(), config };
     },
     CredentialsSignin,

@@ -208,7 +208,9 @@ export async function locateMedia(orgId: string, recordId: string, filename: str
     return null;
   }
   const key = mediaKey(orgId, recordId, filename);
-  const dir = path.resolve(deps.dir ?? mediaDir());
+  // turbopackIgnore: the media folder is only known at runtime; traced, it
+  // pulls the whole project into the build's trace (next.config.ts, #832).
+  const dir = path.resolve(/* turbopackIgnore: true */ deps.dir ?? mediaDir());
   const abs = path.resolve(dir, key);
   const contentType = mediaContentType(filename);
   if (abs.startsWith(dir + path.sep)) {
@@ -430,7 +432,9 @@ export async function readBrandAsset(accountId: string, filename: string, deps: 
   }
   const contentType = BRAND_EXT_TYPE[filename.endsWith('.png') ? 'png' : 'svg'];
   const key = brandKey(accountId, filename);
-  const dir = path.resolve(deps.dir ?? mediaDir());
+  // turbopackIgnore: the media folder is only known at runtime; traced, it
+  // pulls the whole project into the build's trace (next.config.ts, #832).
+  const dir = path.resolve(/* turbopackIgnore: true */ deps.dir ?? mediaDir());
   const abs = path.resolve(dir, key);
   if (abs.startsWith(dir + path.sep)) {
     try {

@@ -145,7 +145,7 @@ export async function signInMethodLinked(userId: string, provider: string): Prom
       return;
     }
     const label = allSignInProviders().find(d => d.id === provider)?.label ?? provider;
-    const { emitEvent } = await import('@/services/EventService');
+    const { emitEventDetached: emitEvent } = await import('@/libs/eventBridge');
     await emitEvent({
       orgId: tenancy.projectId,
       type: 'account.sign_in_method_added',
