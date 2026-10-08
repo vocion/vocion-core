@@ -9,6 +9,11 @@
  *
  * The refusals matter most. A read for the wrong org fails with no KMS call at
  * all, and a warm cache is no way around it.
+ *
+ * The fallback for DEKs that predate the context has an end:
+ * `VOCION_KMS_ALLOW_UNBOUND_DEKS=0` refuses them, which is what stops an
+ * unbound blob planted on another org's row from opening there, and
+ * `bindKmsDeks` re-wraps every DEK first so turning it off breaks nothing.
  */
 import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
@@ -97,7 +102,7 @@ vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { eq } = await import('drizzle-orm');
 const { sourceDekSchema } = await import('@/models/Schema');
-const { kmsVault, resetKmsCache } = await import('./kmsVault');
+const { bindKmsDeks, kmsVault, resetKmsCache } = await import('./kmsVault');
 const { VaultDecryptionError } = await import('./credentialVault');
 
 const KEY_ARN = 'arn:aws:kms:us-west-2:000000000000:key/00000000-0000-0000-0000-000000000000';
@@ -144,6 +149,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('kmsVault binds every DEK to its org', () => {
@@ -286,5 +292,109 @@ describe('kmsVault reads a DEK wrapped before the context, and re-wraps it', () 
       .toThrow(/kms:Decrypt/);
     expect(commands('Decrypt')).toHaveLength(1);
     expect(commands('ReEncrypt')).toHaveLength(0);
+  });
+});
+
+describe('kmsVault with the unbound fallback closed', () => {
+  it('refuses a DEK that predates the context, with one KMS call and nothing re-wrapped', async () => {
+    const vault = kmsVault({ kmsKeyArn: KEY_ARN, allowUnboundDeks: false });
+    const legacy = await insertLegacyDek(NORTHWIND);
+    const sealed = await sealWith(legacy.plaintext, 'legacy-secret');
+
+    const read = vault.decrypt(NORTHWIND, sealed.ciphertext, sealed.nonce, sealed.authTag, legacy.id);
+
+    await expect(read).rejects.toBeInstanceOf(VaultDecryptionError);
+    await expect(read).rejects.toThrow(/predates per-workspace keys[\s\S]*Reconnect the credential/);
+    expect(commands('Decrypt').map(c => c.input.EncryptionContext)).toEqual([{ orgId: NORTHWIND }]);
+    expect(commands('ReEncrypt')).toHaveLength(0);
+  });
+
+  it('is closed by VOCION_KMS_ALLOW_UNBOUND_DEKS=0, and open when it is unset', async () => {
+    const legacy = await insertLegacyDek(NORTHWIND);
+    const sealed = await sealWith(legacy.plaintext, 'legacy-secret');
+
+    vi.stubEnv('VOCION_KMS_ALLOW_UNBOUND_DEKS', '0');
+
+    await expect(kmsVault({ kmsKeyArn: KEY_ARN }).decrypt(NORTHWIND, sealed.ciphertext, sealed.nonce, sealed.authTag, legacy.id))
+      .rejects
+      .toBeInstanceOf(VaultDecryptionError);
+
+    vi.stubEnv('VOCION_KMS_ALLOW_UNBOUND_DEKS', undefined);
+
+    await expect(kmsVault({ kmsKeyArn: KEY_ARN }).decrypt(NORTHWIND, sealed.ciphertext, sealed.nonce, sealed.authTag, legacy.id))
+      .resolves
+      .toEqual(Buffer.from('legacy-secret'));
+  });
+
+  it('will not open an unbound blob planted on another org\'s row, so it is never laundered into that org', async () => {
+    const vault = kmsVault({ kmsKeyArn: KEY_ARN, allowUnboundDeks: false });
+    const legacy = await insertLegacyDek(NORTHWIND);
+    const sealed = await sealWith(legacy.plaintext, 'nw-secret');
+    const [planted] = await db
+      .insert(sourceDekSchema)
+      .values({ orgId: KESTREL, kmsKeyArn: KEY_ARN, wrappedDek: legacy.wrappedDek, algorithm: 'AES_256_GCM' })
+      .returning({ id: sourceDekSchema.id });
+
+    await expect(vault.decrypt(KESTREL, sealed.ciphertext, sealed.nonce, sealed.authTag, planted!.id))
+      .rejects
+      .toBeInstanceOf(VaultDecryptionError);
+
+    const [row] = await db.select().from(sourceDekSchema).where(eq(sourceDekSchema.id, planted!.id));
+
+    expect(row?.wrappedDek).toBe(legacy.wrappedDek);
+    expect(commands('ReEncrypt')).toHaveLength(0);
+  });
+});
+
+describe('bindKmsDeks, before the fallback is closed', () => {
+  it('re-wraps every unbound DEK, leaves bound ones alone, names the ones nothing opens, and says the fallback can close', async () => {
+    const vault = kmsVault({ kmsKeyArn: KEY_ARN });
+    const bound = await vault.encrypt(NORTHWIND, Buffer.from('nw-secret'));
+    const legacy = await insertLegacyDek(KESTREL);
+    const sealed = await sealWith(legacy.plaintext, 'ks-secret');
+    const [boundRow] = await db.select().from(sourceDekSchema).where(eq(sourceDekSchema.id, bound.dekId));
+    // `source_dek_org_active_idx` is unique on (org, created_at), so the two
+    // extra Kestrel rows are dated apart from the legacy one.
+    const [planted] = await db
+      .insert(sourceDekSchema)
+      .values({ orgId: KESTREL, kmsKeyArn: KEY_ARN, wrappedDek: boundRow!.wrappedDek, algorithm: 'AES_256_GCM', createdAt: new Date(Date.now() - 60_000) })
+      .returning({ id: sourceDekSchema.id });
+    await db.insert(sourceDekSchema).values({ orgId: KESTREL, kmsKeyArn: 'arn:aws:kms:us-west-2:000000000000:key/other', wrappedDek: 'not-ours', algorithm: 'AES_256_GCM', createdAt: new Date(Date.now() - 120_000) });
+
+    const report = await bindKmsDeks({ kmsKeyArn: KEY_ARN });
+
+    expect(report).toEqual({ total: 3, bound: 1, rewrapped: 1, unopenable: [planted!.id], failed: [], fallbackStillNeeded: false });
+
+    const [stillBound] = await db.select().from(sourceDekSchema).where(eq(sourceDekSchema.id, bound.dekId));
+
+    expect(stillBound?.wrappedDek).toBe(boundRow!.wrappedDek);
+
+    // The legacy DEK now opens with the fallback closed.
+    resetKmsCache();
+
+    await expect(kmsVault({ kmsKeyArn: KEY_ARN, allowUnboundDeks: false }).decrypt(KESTREL, sealed.ciphertext, sealed.nonce, sealed.authTag, legacy.id))
+      .resolves
+      .toEqual(Buffer.from('ks-secret'));
+  });
+
+  it('on a dry run writes nothing and says the fallback is still needed', async () => {
+    const legacy = await insertLegacyDek(NORTHWIND);
+
+    const report = await bindKmsDeks({ kmsKeyArn: KEY_ARN, dryRun: true });
+
+    expect(report).toMatchObject({ total: 1, rewrapped: 1, fallbackStillNeeded: true });
+
+    const [row] = await db.select().from(sourceDekSchema).where(eq(sourceDekSchema.id, legacy.id));
+
+    expect(row?.wrappedDek).toBe(legacy.wrappedDek);
+  });
+
+  it('says the fallback is still needed when KMS refuses for a reason it cannot read past', async () => {
+    const legacy = await insertLegacyDek(NORTHWIND);
+    kms.failNextCall('ReEncrypt', Object.assign(new Error('not authorized to perform kms:ReEncryptFrom'), { name: 'AccessDeniedException' }));
+
+    const report = await bindKmsDeks({ kmsKeyArn: KEY_ARN });
+
+    expect(report).toMatchObject({ total: 1, bound: 0, rewrapped: 0, failed: [{ dekId: legacy.id, message: expect.stringContaining('kms:ReEncryptFrom') }], fallbackStillNeeded: true });
   });
 });

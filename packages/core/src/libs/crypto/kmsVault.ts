@@ -19,20 +19,30 @@
  * a read names the org it is reading for and is refused when the DEK row
  * belongs to a different one — before any KMS call, and on a cache hit too.
  *
- * DEKs wrapped before the context was passed still open: an unwrap that KMS
+ * DEKs wrapped before the context was passed still open while
+ * `VOCION_KMS_ALLOW_UNBOUND_DEKS` allows it (the default): an unwrap that KMS
  * refuses as `InvalidCiphertextException` is retried without a context, and a
  * DEK that opens that way is re-wrapped under its org's context in place
  * (`ReEncrypt`, so the plaintext key never travels again). A failed re-wrap is
  * logged and costs nothing else — the read still returns, and the next unwrap
  * tries again. IAM for the vault role: `kms:GenerateDataKey`, `kms:Decrypt`,
  * and `kms:ReEncryptFrom` + `kms:ReEncryptTo` for the re-wrap.
+ *
+ * That fallback is a hole while it is open: an unbound blob from an old row or
+ * a backup, written onto another org's row by someone with database access,
+ * opens there and is then re-wrapped as that org's. So it has an end. A fresh
+ * deployment has no unbound DEKs and sets `VOCION_KMS_ALLOW_UNBOUND_DEKS=0`
+ * from the start. An existing one runs `npm run vault:rewrap-deks`
+ * (`bindKmsDeks`), which re-wraps every DEK under the key and says whether any
+ * still needs the fallback, then turns it off.
  */
 
 import type { CredentialVault, EncryptResult } from './credentialVault';
+import type { DekRow } from './dekOwner';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient, ReEncryptCommand } from '@aws-sdk/client-kms';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { sourceDekSchema } from '@/models/Schema';
 import {
@@ -41,18 +51,31 @@ import {
   aesEncrypt,
   VaultDecryptionError,
 } from './credentialVault';
+import { crossOrgRefusal, dekRowFor } from './dekOwner';
 
 const DEK_CACHE_MS = 15 * 60 * 1000;
 /** The unwrapped key, and the org its row belongs to — a cache hit is checked against it. */
 const dekCache = new Map<number, { key: Buffer; orgId: string; cachedAt: number }>();
 
-/** The `source_dek` columns an unwrap needs. */
-type DekRow = { id: number; orgId: string; wrappedDek: string };
-
 export type KmsVaultOptions = {
   kmsKeyArn: string;
   region?: string;
+  /**
+   * Whether a DEK wrapped before the org context still opens (and is then
+   * re-wrapped). Unset: `VOCION_KMS_ALLOW_UNBOUND_DEKS`, which is on unless it
+   * says `0` or `false`.
+   */
+  allowUnboundDeks?: boolean;
 };
+
+/**
+ * `VOCION_KMS_ALLOW_UNBOUND_DEKS`: on unless it says `0` or `false`, so an
+ * existing deployment keeps reading its older DEKs until it chooses not to.
+ */
+function unboundDeksAllowedByEnvironment(): boolean {
+  const raw = process.env.VOCION_KMS_ALLOW_UNBOUND_DEKS?.trim().toLowerCase();
+  return raw !== '0' && raw !== 'false';
+}
 
 /**
  * The KMS EncryptionContext a DEK is wrapped under: the org it seals for.
@@ -77,24 +100,45 @@ function isInvalidCiphertext(error: unknown): boolean {
 }
 
 /**
- * The refusal for a credential read under an org its DEK does not belong to.
- * A `VaultDecryptionError`, so the routes show it: it names the cause and the
- * fix and no secret. The two org ids go on `cause`, for the log.
- * @param dekId - The DEK row asked for.
- * @param owner - The org the row belongs to.
- * @param reader - The org the read was made for.
+ * The DEK wrapped again under its org's context, without the plaintext key
+ * leaving KMS.
+ * @param kms - The client.
+ * @param keyArn - The key it is wrapped under, before and after.
+ * @param dek - The row, as it was read.
+ * @param sourceContext - The context it is wrapped under now; none for a DEK that predates them.
  */
-function crossOrgRefusal(dekId: number, owner: string, reader: string): VaultDecryptionError {
-  return new VaultDecryptionError(
-    'This credential was sealed for a different workspace than the one reading it, so it is not '
-    + 'opened here. Reconnect the credential in this workspace.',
-    { cause: new Error(`source_dek ${dekId} belongs to org ${owner}; read for org ${reader}`) },
-  );
+async function reEncryptUnderOrg(kms: KMSClient, keyArn: string, dek: DekRow, sourceContext?: Record<string, string>): Promise<string> {
+  const r = await kms.send(new ReEncryptCommand({
+    CiphertextBlob: Buffer.from(dek.wrappedDek, 'base64'),
+    SourceKeyId: keyArn,
+    ...(sourceContext ? { SourceEncryptionContext: sourceContext } : {}),
+    DestinationKeyId: keyArn,
+    DestinationEncryptionContext: dekEncryptionContext(dek.orgId),
+  }));
+  if (!r.CiphertextBlob) {
+    throw new Error('KMS ReEncrypt returned an empty CiphertextBlob');
+  }
+  return Buffer.from(r.CiphertextBlob).toString('base64');
+}
+
+/**
+ * Store a re-wrapped DEK, conditional on the old value: a second process that
+ * re-wrapped first wrote an equally valid blob, and there is nothing to gain by
+ * overwriting it.
+ * @param dek - The row, as it was read.
+ * @param wrappedDek - The blob bound to its org.
+ */
+async function storeRewrapped(dek: DekRow, wrappedDek: string): Promise<void> {
+  await db
+    .update(sourceDekSchema)
+    .set({ wrappedDek })
+    .where(and(eq(sourceDekSchema.id, dek.id), eq(sourceDekSchema.wrappedDek, dek.wrappedDek)));
 }
 
 export function kmsVault(opts: KmsVaultOptions): CredentialVault {
   const kms = new KMSClient({ region: opts.region ?? process.env.AWS_REGION ?? 'us-east-1' });
   const KEY_ARN = opts.kmsKeyArn;
+  const allowUnboundDeks = opts.allowUnboundDeks ?? unboundDeksAllowedByEnvironment();
 
   async function getOrCreateActiveDek(orgId: string): Promise<DekRow> {
     const [existing] = await db
@@ -149,22 +193,7 @@ export function kmsVault(opts: KmsVaultOptions): CredentialVault {
    */
   async function rewrapUnderContext(dek: DekRow): Promise<void> {
     try {
-      const r = await kms.send(new ReEncryptCommand({
-        CiphertextBlob: Buffer.from(dek.wrappedDek, 'base64'),
-        SourceKeyId: KEY_ARN,
-        DestinationKeyId: KEY_ARN,
-        DestinationEncryptionContext: dekEncryptionContext(dek.orgId),
-      }));
-      if (!r.CiphertextBlob) {
-        throw new Error('KMS ReEncrypt returned an empty CiphertextBlob');
-      }
-      // Conditional on the old value: a second process that re-wrapped first
-      // wrote an equally valid blob, and there is nothing to gain by
-      // overwriting it.
-      await db
-        .update(sourceDekSchema)
-        .set({ wrappedDek: Buffer.from(r.CiphertextBlob).toString('base64') })
-        .where(and(eq(sourceDekSchema.id, dek.id), eq(sourceDekSchema.wrappedDek, dek.wrappedDek)));
+      await storeRewrapped(dek, await reEncryptUnderOrg(kms, KEY_ARN, dek));
     } catch (error) {
       console.warn('[kmsVault] could not re-wrap a DEK under its org context; it still opens without one, and the next unwrap retries', {
         dekId: dek.id,
@@ -186,6 +215,17 @@ export function kmsVault(opts: KmsVaultOptions): CredentialVault {
     } catch (error) {
       if (!isInvalidCiphertext(error)) {
         throw error;
+      }
+      if (!allowUnboundDeks) {
+        // The deployment has closed the fallback, so a DEK that predates the
+        // context is refused like one bound to another org: from here the two
+        // look the same, and telling them apart would mean opening it.
+        throw new VaultDecryptionError(
+          'KMS would not unwrap the key that sealed this credential for this workspace: it was '
+          + 'wrapped for a different workspace, is damaged, or predates per-workspace keys, which '
+          + 'this deployment no longer opens. Reconnect the credential in this workspace.',
+          { cause: error },
+        );
       }
       // Wrapped before DEKs carried their org as context. Anything else KMS
       // refuses this way — a DEK bound to another org, a damaged blob — fails
@@ -234,17 +274,7 @@ export function kmsVault(opts: KmsVaultOptions): CredentialVault {
       }
       return cached.key;
     }
-    const [row] = await db
-      .select({ id: sourceDekSchema.id, orgId: sourceDekSchema.orgId, wrappedDek: sourceDekSchema.wrappedDek })
-      .from(sourceDekSchema)
-      .where(eq(sourceDekSchema.id, dekId));
-    if (!row) {
-      throw new Error(`source_dek row ${dekId} not found`);
-    }
-    if (row.orgId !== orgId) {
-      throw crossOrgRefusal(dekId, row.orgId, orgId);
-    }
-    return unwrapDek(row);
+    return unwrapDek(await dekRowFor(orgId, dekId));
   }
 
   return {
@@ -274,6 +304,73 @@ export function kmsVault(opts: KmsVaultOptions): CredentialVault {
       return created.id;
     },
   };
+}
+
+/** What `bindKmsDeks` found, DEK by DEK. */
+export type DekBindingReport = {
+  /** DEK rows under the key. */
+  total: number;
+  /** Already wrapped under their org's context. */
+  bound: number;
+  /** Wrapped without a context, and re-wrapped under their org's (or would be, on a dry run). */
+  rewrapped: number;
+  /** Open under neither their own org's context nor none: another org's blob, or damaged. They do not open with the fallback either. */
+  unopenable: number[];
+  /** KMS refused for another reason (access, throttling); whether these are bound is unknown. */
+  failed: Array<{ dekId: number; message: string }>;
+  /** Whether turning `VOCION_KMS_ALLOW_UNBOUND_DEKS` off now would stop any DEK opening. */
+  fallbackStillNeeded: boolean;
+};
+
+/**
+ * Bind every DEK wrapped under the key to its org, so a deployment can close
+ * the unbound fallback with evidence instead of waiting for each DEK to be read.
+ *
+ * Each row is first re-encrypted from its own org's context: if KMS accepts
+ * that, it is already bound and nothing is written. If KMS refuses it as the
+ * wrong context, it is re-encrypted from no context and stored, conditional on
+ * the old value as the lazy re-wrap does. Neither step brings a plaintext key
+ * into this process. Needs `kms:ReEncryptFrom` + `kms:ReEncryptTo`.
+ * @param opts - The key, its region, and `dryRun` to report without writing.
+ */
+export async function bindKmsDeks(opts: KmsVaultOptions & { dryRun?: boolean }): Promise<DekBindingReport> {
+  const kms = new KMSClient({ region: opts.region ?? process.env.AWS_REGION ?? 'us-east-1' });
+  const rows = await db
+    .select({ id: sourceDekSchema.id, orgId: sourceDekSchema.orgId, wrappedDek: sourceDekSchema.wrappedDek })
+    .from(sourceDekSchema)
+    .where(eq(sourceDekSchema.kmsKeyArn, opts.kmsKeyArn))
+    .orderBy(asc(sourceDekSchema.id));
+  const report: DekBindingReport = { total: rows.length, bound: 0, rewrapped: 0, unopenable: [], failed: [], fallbackStillNeeded: false };
+  const failed = (dek: DekRow, error: unknown) =>
+    report.failed.push({ dekId: dek.id, message: error instanceof Error ? error.message : String(error) });
+
+  for (const dek of rows) {
+    try {
+      await reEncryptUnderOrg(kms, opts.kmsKeyArn, dek, dekEncryptionContext(dek.orgId));
+      report.bound += 1;
+      continue;
+    } catch (error) {
+      if (!isInvalidCiphertext(error)) {
+        failed(dek, error);
+        continue;
+      }
+    }
+    try {
+      const rewrapped = await reEncryptUnderOrg(kms, opts.kmsKeyArn, dek);
+      if (!opts.dryRun) {
+        await storeRewrapped(dek, rewrapped);
+      }
+      report.rewrapped += 1;
+    } catch (error) {
+      if (isInvalidCiphertext(error)) {
+        report.unopenable.push(dek.id);
+      } else {
+        failed(dek, error);
+      }
+    }
+  }
+  report.fallbackStillNeeded = report.failed.length > 0 || (Boolean(opts.dryRun) && report.rewrapped > 0);
+  return report;
 }
 
 /** Used by tests to drop the in-memory cache. */

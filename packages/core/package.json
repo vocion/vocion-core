@@ -72,6 +72,7 @@
     "stripe:setup-price": "dotenv -c production -- tsx ./scripts/createStripePrice.ts",
     "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts",
     "connectors:backfill-credentials": "dotenv -c -- tsx src/scripts/backfill-connector-credentials.ts",
+    "vault:rewrap-deks": "dotenv -c -- tsx src/scripts/rewrap-kms-deks.ts",
     "connectors:move-logins": "dotenv -c -- tsx src/scripts/move-connector-logins.ts",
     "objects:backfill-bodies": "dotenv -c -- tsx src/scripts/backfill-record-bodies.ts",
     "objects:backfill-names": "dotenv -c -- tsx src/scripts/backfill-record-names.ts",

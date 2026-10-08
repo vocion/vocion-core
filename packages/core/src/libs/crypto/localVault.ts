@@ -30,6 +30,7 @@ import {
   aesEncrypt,
   VaultDecryptionError,
 } from './credentialVault';
+import { dekRowFor } from './dekOwner';
 
 function readMasterKey(): Buffer {
   const raw = process.env.VOCION_CREDENTIAL_VAULT_KEY;
@@ -125,6 +126,10 @@ export function localVault(): CredentialVault {
       };
     },
     async decrypt(orgId, ciphertext, nonce, authTag, dekId) {
+      // Every DEK row here holds the same master key, so the key itself cannot
+      // tell one org's credential from another's. The row can: refuse a read
+      // made for an org it does not belong to, as the KMS vault does.
+      await dekRowFor(orgId, dekId);
       const key = await getDek(orgId, dekId);
       try {
         return aesDecrypt(
