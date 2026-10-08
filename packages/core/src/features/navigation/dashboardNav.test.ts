@@ -88,11 +88,16 @@ describe('dashboardNav registry', () => {
       ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings', '/dashboard/workspace'],
       ['/dashboard/skills', '/dashboard/evals', '/dashboard/apps'],
       ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption'],
-      ['/dashboard/members', '/dashboard/developers', '/api-docs', '/dashboard/admin'],
+      ['/dashboard/members', '/dashboard/brand', '/dashboard/developers', '/api-docs', '/dashboard/admin'],
     ]);
     expect(tabsOf('/dashboard/teams').map(r => r.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/hire']);
     expect(tabsOf('/dashboard/skills').map(r => r.url)).toEqual(['/dashboard/skills', '/dashboard/tools', '/dashboard/models']);
     expect(tabsOf('/dashboard/missions')).toEqual([]);
+  });
+
+  it('puts Brand in Organization, for admins only', () => {
+    expect(manageNavGroups(true).find(s => s.group.id === 'Organization')!.routes.map(r => r.url)).toContain('/dashboard/brand');
+    expect(manageNavGroups(false).find(s => s.group.id === 'Organization')!.routes.map(r => r.url)).not.toContain('/dashboard/brand');
   });
 
   it('puts Apps in Build as one row, where "+ Add app" lands', () => {

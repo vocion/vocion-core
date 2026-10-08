@@ -36,6 +36,7 @@ import {
 } from './Artifacts';
 import { pause as pauseAutomationRoute, resume as resumeAutomationRoute } from './Automations';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
+import { get as getBrandRoute, restore as restoreBrandRoute, save as saveBrandRoute, uploadLogo as uploadBrandLogoRoute } from './Branding';
 import { latestRoute as briefingsLatestRoute, personalRoute as briefingsPersonalRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
@@ -308,6 +309,13 @@ export const router = {
     setMember: setGroupMemberRoute,
     setGrant: setGroupGrantRoute,
     removeDirect: removeDirectGrantRoute,
+  },
+  // The Org's brand — Brand settings (admins of the caller's Org only).
+  branding: {
+    get: getBrandRoute,
+    save: saveBrandRoute,
+    restore: restoreBrandRoute,
+    uploadLogo: uploadBrandLogoRoute,
   },
   members: {
     list: listMembersRoute,
