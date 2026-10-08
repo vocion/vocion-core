@@ -22,7 +22,7 @@ export type GrantSummary = {
 };
 
 /** Every vendor a person can log in to. The id is the URL segment of the start and callback routes. */
-export type ConnectProviderId = 'slack' | 'atlassian' | 'github' | 'google' | 'hubspot' | 'notion' | 'zoom' | 'posthog' | 'apollo' | 'quickbooks' | 'xero' | 'gusto';
+export type ConnectProviderId = 'slack' | 'atlassian' | 'github' | 'google' | 'hubspot' | 'notion' | 'zoom' | 'posthog' | 'apollo' | 'quickbooks' | 'xero' | 'gusto' | 'microsoft';
 
 /** Where a person is sent, and what comes back, for one vendor. */
 export type ConnectProvider = {

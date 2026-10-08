@@ -49,6 +49,12 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.XERO_CLIENT_ID, clientSecret: Env.XERO_CLIENT_SECRET };
     case 'gusto':
       return { clientId: Env.GUSTO_CLIENT_ID, clientSecret: Env.GUSTO_CLIENT_SECRET };
+    // The multi-tenant Entra app the deployment already signs people in with
+    // (`libs/identity/signInProviders.ts`): one app registration, with the
+    // connect callback added to its redirect URIs and the Graph permissions
+    // the Microsoft 365 connectors ask for.
+    case 'microsoft':
+      return { clientId: Env.AUTH_MICROSOFT_ENTRA_ID_ID?.trim(), clientSecret: Env.AUTH_MICROSOFT_ENTRA_ID_SECRET?.trim() };
     default:
       return {};
   }

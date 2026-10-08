@@ -166,6 +166,8 @@ const ACTION_EFFECT: Record<string, string> = {
   'notify.requester': 'Answers the person who asked',
   'gmail.send': 'Sends the email',
   'chat.post_message': 'Posts the chat message',
+  'msteams.post_message': 'Posts the Teams message',
+  'outlook.create_event': 'Adds the calendar event',
   'hubspot.update': 'Updates the HubSpot record',
   'wiki.write_page': 'Writes the wiki page',
   'playbook.write': 'Writes the playbook',

@@ -29,10 +29,12 @@ import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { meSetPhoneAction } from './me-set-phone';
 import { membersInviteAction } from './members-invite';
 import { missionUpdateNotesAction } from './mission-update-notes';
+import { teamsPostMessageAction } from './msteams-post-message';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { objectsRenameAction } from './objects-rename';
 import { objectsUpdateMetaAction } from './objects-update-meta';
 import { orgChangeAction } from './org-change';
+import { outlookCreateEventAction } from './outlook-create-event';
 import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
@@ -118,6 +120,11 @@ registerAction(slackPostMessageAction);
 // chat family's other two writes; both reversible (`libs/actions/chat-*.ts`).
 registerAction(chatReplyInThreadAction);
 registerAction(chatAddReactionAction);
+// Microsoft 365 writes, as the workspace's connected Microsoft account: a
+// Teams channel post (not reversible: deleting needs a broader permission
+// than the connector asks for) and an Outlook calendar event (Undo deletes it).
+registerAction(teamsPostMessageAction);
+registerAction(outlookCreateEventAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);

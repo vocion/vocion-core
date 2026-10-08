@@ -94,7 +94,7 @@ person clicks Connect with Slack
   env) or the workspace's own login app, saved on Developers. Otherwise they
   offer paste alone, rather than a button that can only fail.
 - **Workspace login apps.** For Google, Slack, Atlassian, HubSpot, Notion, Zoom,
-  Apollo, QuickBooks, Xero and Gusto, a workspace admin can save the vendor's client ID and secret as
+  Apollo, QuickBooks, Xero, Gusto and Microsoft, a workspace admin can save the vendor's client ID and secret as
   a `<provider>-login-app` credential (`libs/connect/loginClient.ts`). A new
   login runs on it in preference to the server's. Each login records the
   client ID it ran on (`loginClientId`), and every refresh finds that same app
@@ -142,6 +142,7 @@ forwarded host of the request.
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | `/api/connect/quickbooks/callback` |
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | `/api/connect/xero/callback` |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | `/api/connect/gusto/callback` |
+| `microsoft` | `outlook-mail`, `outlook-calendar`, `microsoft-teams`, `sharepoint`, `onedrive` | `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET` (the sign-in Entra app) | `/api/connect/microsoft/callback` |
 
 All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in
@@ -156,6 +157,10 @@ Before going live with each vendor:
   Google login stops working a week after it was made and the person sees "An
   admin needs to log in with Google again". Move the app to "In production"
   before customers use it.
+- **Microsoft.** Add the Graph delegated permissions in
+  [microsoft-365.md](microsoft-365.md) to the Entra app. Teams'
+  `ChannelMessage.Read.All` needs a tenant admin's consent in every customer
+  tenant, as does every permission in a tenant that turned user consent off.
 - **Zoom.** Add the scopes listed on the Zoom connector to the Marketplace
   app, plus their `:admin` variants so admins can read every user's
   recordings. Zoom sends no scope in the login URL.

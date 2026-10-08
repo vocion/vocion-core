@@ -122,6 +122,11 @@ is `true`. An unverified address is refused.
    AUTH_MICROSOFT_ENTRA_ID_SECRET=…
    ```
 
+   The same app also runs the Microsoft 365 connectors (Outlook, Teams,
+   SharePoint, OneDrive): add `https://<host>/api/connect/microsoft/callback`
+   as a second redirect URI and the Graph permissions listed in
+   [microsoft-365.md](microsoft-365.md).
+
 6. Optional but recommended: **Token configuration → Add optional claim → ID**,
    tick `email` and `xms_edov`. With them, Vocion can match a person by their
    mail address when it differs from their sign-in name (below).

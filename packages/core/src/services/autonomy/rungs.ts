@@ -98,6 +98,10 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   // A post to a channel the workspace bound: read by people who did not ask,
   // but taken back by Undo. Medium, beside the email.
   'chat.post_message': 'medium',
+  // Microsoft 365: a Teams post is read by a channel and cannot be taken back
+  // from here; an Outlook event invites its attendees, and Undo deletes it.
+  'msteams.post_message': 'medium',
+  'outlook.create_event': 'medium',
   // The tracker family: an issue filed or commented on a client's board is
   // read by people who did not ask (medium); a transition, a field or an
   // attachment is a reversible edit to a record they already own (low).

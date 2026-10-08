@@ -83,6 +83,9 @@ export type CredentialPlatformId
     | 'google'
     | 'slack'
     | 'zoom'
+  // One Microsoft login (delegated, Microsoft Graph) serves Outlook mail,
+  // Outlook Calendar, Teams, SharePoint and OneDrive, as Google's does its five.
+    | 'microsoft'
   // Measurement platforms. Read-only, and resolved per org with no row id in
   // hand, because a `verified` measure names a connector rather than a
   // credential — see the descriptor for why that forces `one-live`.
@@ -105,7 +108,8 @@ export type CredentialPlatformId
     | 'apollo-login-app'
     | 'quickbooks-login-app'
     | 'xero-login-app'
-    | 'gusto-login-app';
+    | 'gusto-login-app'
+    | 'microsoft-login-app';
 
 /**
  * A built-in tool provider whose calls are paid for with a platform key.
@@ -357,6 +361,7 @@ const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
   loginAppPlatform('quickbooks-login-app', 'quickbooks', 'QuickBooks', 'quickbooks'),
   loginAppPlatform('xero-login-app', 'xero', 'Xero', 'xero'),
   loginAppPlatform('gusto-login-app', 'gusto', 'Gusto', 'gusto'),
+  loginAppPlatform('microsoft-login-app', 'microsoft', 'Microsoft', 'microsoft'),
 ];
 
 /**
@@ -1341,6 +1346,67 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         label: 'Client secret',
         pattern: null,
         shapeHint: 'is the client secret on the app\'s Credentials page',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'microsoft',
+    label: 'Microsoft 365',
+    keySource: 'supplied',
+    brand: 'microsoft',
+    // `one-live`, for the reason Apollo, Notion and GitHub are: widening the
+    // cap means rebuilding `api_token_org_platform_live_idx`. One delegated
+    // login is the workspace's Microsoft connection: a re-login with the same
+    // account rotates it in place, and every Microsoft 365 source points at it.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['outlook-mail', 'outlook-calendar', 'microsoft-teams', 'sharepoint', 'onedrive'],
+    howToConnect: {
+      // Each connector asks Microsoft for its own Graph permissions; a refresh
+      // then carries every permission consented so far, so the one login row
+      // serves each connector logged in for. Teams' ChannelMessage.Read.All
+      // needs an admin's consent for the organization.
+      loginByConnector: {
+        'outlook-mail': { provider: 'microsoft', access: ['Mail.Read'], settingsAfterLogin: [] },
+        'outlook-calendar': { provider: 'microsoft', access: ['Calendars.ReadWrite'], settingsAfterLogin: [] },
+        'microsoft-teams': { provider: 'microsoft', access: ['Team.ReadBasic.All', 'Channel.ReadBasic.All', 'ChannelMessage.Read.All', 'ChannelMessage.Send', 'Chat.Read'], settingsAfterLogin: [] },
+        'sharepoint': { provider: 'microsoft', access: ['Sites.Read.All'], settingsAfterLogin: [{ key: 'site', label: 'SharePoint site' }] },
+        'onedrive': { provider: 'microsoft', access: ['Files.Read.All'], settingsAfterLogin: [] },
+      },
+      paste: {
+        credential: 'OAuth client and refresh token',
+        access: ['Delegated Microsoft Graph permissions for the connector, consented by the account the refresh token belongs to'],
+      },
+    },
+    // One login covers every Microsoft 365 connector the person consented to.
+    credentialsShareable: true,
+    toolProvider: null,
+    llmProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an Entra app\'s client ID and secret plus a refresh token it was issued',
+    helpText: 'Log in with Microsoft is the way to connect. Pasting is a stopgap: an Entra app\'s client ID and secret and a delegated refresh token it was issued, with offline_access and the connector\'s Graph permissions. A pasted refresh token is not renewed and stops when Microsoft expires it.',
+    fields: [
+      {
+        name: 'clientId',
+        label: 'Application (client) ID',
+        pattern: null,
+        shapeHint: 'is the Application (client) ID from the Entra app registration',
+        // Travels in the login URL in the clear; shown in full so two
+        // Microsoft credentials can be told apart by app.
+        secret: false,
+      },
+      {
+        name: 'clientSecret',
+        label: 'Client secret',
+        pattern: null,
+        shapeHint: 'is a client secret value from the same app registration',
+        secret: true,
+      },
+      {
+        name: 'refreshToken',
+        label: 'Refresh token',
+        pattern: null,
+        shapeHint: 'is a delegated refresh token the app was issued',
         secret: true,
       },
     ],

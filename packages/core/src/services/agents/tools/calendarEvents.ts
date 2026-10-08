@@ -23,13 +23,18 @@
  *    "next"; it cannot reliably diff twelve ISO strings against a thirteenth.
  *
  * Access boundary is the source gate, the same as every other connector tool:
- * no connected Google Calendar source, no tool.
+ * no connected calendar source, no tool. It is the one calendar tool: Google
+ * Calendar and Outlook Calendar (Microsoft 365) both answer it, and an agent
+ * holding both gets one merged day, each event named by the calendar it is on.
  */
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { graphPages } from '@/libs/microsoft/graph';
 import { resolveGoogleAccessToken } from '@/libs/sources/googleAuth';
+import { calendarViewPath, eventInstant, OUTLOOK_CALENDAR_SLUG } from '@/libs/sources/outlookCalendar';
 import { dayKey, DEFAULT_TIME_ZONE, formatDate, formatDateTime, startOfDay } from '@/libs/time/zone';
+import { graphTokenForConnector, microsoftInScope } from './microsoft365';
 import { firstCredentialed, sourcesForConnector } from './zoomTranscript';
 
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -169,8 +174,89 @@ function dayWindow(day: string | undefined, now: Date, tz: string): { timeMin: s
   return { timeMin: start.toISOString(), timeMax: end.toISOString(), label };
 }
 
-export function hasCalendarSource(ctx: RuntimeContext): boolean {
+function hasGoogleCalendarSource(ctx: RuntimeContext): boolean {
   return ctx.connectorSources.some(s => /^google-calendar(?:$|-)/.test(s));
+}
+
+export function hasCalendarSource(ctx: RuntimeContext): boolean {
+  return hasGoogleCalendarSource(ctx) || microsoftInScope(ctx, OUTLOOK_CALENDAR_SLUG);
+}
+
+type OutlookCalEvent = {
+  subject?: string | null;
+  isCancelled?: boolean;
+  isAllDay?: boolean;
+  start?: { dateTime?: string; timeZone?: string };
+  end?: { dateTime?: string; timeZone?: string };
+  location?: { displayName?: string };
+  onlineMeeting?: { joinUrl?: string } | null;
+  attendees?: Array<{ emailAddress?: { name?: string; address?: string }; status?: { response?: string } }>;
+  organizer?: { emailAddress?: { address?: string } };
+};
+
+/**
+ * The Outlook calendar's events in a window, in the shape this tool renders.
+ * All-day events keep their date, as Google's do.
+ * @param orgId - The workspace.
+ * @param timeMin - Window start, ISO.
+ * @param timeMax - Window end, ISO.
+ */
+export async function outlookCalendarEvents(orgId: string, timeMin: string, timeMax: string): Promise<CalEvent[]> {
+  const got = await graphTokenForConnector(orgId, [OUTLOOK_CALENDAR_SLUG]);
+  if (!got.ok) {
+    throw new Error(got.error);
+  }
+  const events: CalEvent[] = [];
+  const path = calendarViewPath('/me/calendar', new Date(timeMin), new Date(timeMax));
+  for await (const ev of graphPages<OutlookCalEvent & { id: string }>(got.token, { path, what: 'the Outlook calendar', headers: { Prefer: 'outlook.timezone="UTC"' } }, 5)) {
+    const start = eventInstant(ev.start);
+    const end = eventInstant(ev.end);
+    events.push({
+      id: ev.id,
+      status: ev.isCancelled ? 'cancelled' : 'confirmed',
+      summary: ev.subject ?? undefined,
+      location: ev.location?.displayName || undefined,
+      hangoutLink: ev.onlineMeeting?.joinUrl ?? undefined,
+      start: ev.isAllDay ? { date: start.slice(0, 10) } : { dateTime: start },
+      end: ev.isAllDay ? { date: end.slice(0, 10) } : { dateTime: end },
+      attendees: (ev.attendees ?? []).map(a => ({ email: a.emailAddress?.address, displayName: a.emailAddress?.name, responseStatus: a.status?.response })),
+      organizer: { email: ev.organizer?.emailAddress?.address },
+    });
+  }
+  return events;
+}
+
+/**
+ * The Google calendar's events in a window.
+ * @param orgId - The workspace.
+ * @param timeMin - Window start, ISO.
+ * @param timeMax - Window end, ISO.
+ */
+async function googleCalendarEvents(orgId: string, timeMin: string, timeMax: string): Promise<CalEvent[]> {
+  const sources = await sourcesForConnector(orgId, 'google-calendar');
+  if (sources.length === 0) {
+    throw new Error('No Google Calendar source is connected for this workspace.');
+  }
+  const credentialed = await firstCredentialed(orgId, sources);
+  if (!credentialed) {
+    throw new Error('The Google Calendar source has no live credentials.');
+  }
+  const token = await resolveGoogleAccessToken(credentialed.credentials, orgId);
+  const params = new URLSearchParams({
+    singleEvents: 'true',
+    orderBy: 'startTime',
+    maxResults: '100',
+    timeMin,
+    timeMax,
+  });
+  const res = await fetch(`${API}/calendars/primary/events?${params.toString()}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Calendar read failed (${res.status}).`);
+  }
+  const list = (await res.json()) as { items?: CalEvent[] };
+  return list.items ?? [];
 }
 
 export function calendarTools(ctx: RuntimeContext) {
@@ -181,15 +267,6 @@ export function calendarTools(ctx: RuntimeContext) {
   const calendarEvents = tool(
     async (args) => {
       const { day, days_ahead } = args as { day?: string; days_ahead?: number };
-      const sources = await sourcesForConnector(ctx.orgId, 'google-calendar');
-      if (sources.length === 0) {
-        return 'No Google Calendar source is connected for this workspace. Say that the calendar could not be read — do not substitute a schedule from a briefing or from memory.';
-      }
-      const credentialed = await firstCredentialed(ctx.orgId, sources);
-      if (!credentialed) {
-        return 'The Google Calendar source has no live credentials. Say the calendar could not be read; never infer a schedule from other documents.';
-      }
-
       const now = new Date();
       const tz = ctx.timeZone ?? DEFAULT_TIME_ZONE;
       const { timeMin, timeMax, label } = dayWindow(day, now, tz);
@@ -197,26 +274,29 @@ export function calendarTools(ctx: RuntimeContext) {
       const end = new Date(new Date(timeMax).getTime() + span * 86_400_000).toISOString();
       const windowLabel = span > 0 ? `${label} and the next ${span} day(s)` : label;
 
-      try {
-        const token = await resolveGoogleAccessToken(credentialed.credentials, ctx.orgId);
-        const params = new URLSearchParams({
-          singleEvents: 'true',
-          orderBy: 'startTime',
-          maxResults: '100',
-          timeMin,
-          timeMax: end,
-        });
-        const res = await fetch(`${API}/calendars/primary/events?${params.toString()}`, {
-          headers: { authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) {
-          return `Calendar read failed (${res.status}). Say the calendar could not be read; do not substitute a schedule from another document.`;
+      // Every calendar the agent holds, read side by side. One that cannot be
+      // read is said, not dropped: half a schedule presented as the whole is
+      // the failure this tool exists to prevent.
+      const readers: Array<{ name: string; read: () => Promise<CalEvent[]> }> = [
+        ...(hasGoogleCalendarSource(ctx) ? [{ name: 'Google Calendar', read: () => googleCalendarEvents(ctx.orgId, timeMin, end) }] : []),
+        ...(microsoftInScope(ctx, OUTLOOK_CALENDAR_SLUG) ? [{ name: 'Outlook Calendar', read: () => outlookCalendarEvents(ctx.orgId, timeMin, end) }] : []),
+      ];
+      const events: CalEvent[] = [];
+      const failed: string[] = [];
+      for (const reader of readers) {
+        try {
+          events.push(...await reader.read());
+        } catch (err) {
+          failed.push(`${reader.name}: ${(err as Error).message ?? 'unknown'}`);
         }
-        const list = (await res.json()) as { items?: CalEvent[] };
-        return renderCalendar(list.items ?? [], now, windowLabel, tz);
-      } catch (err) {
-        return `Calendar read failed: ${(err as Error).message ?? 'unknown'}. Say the calendar could not be read; do not substitute a schedule from another document.`;
       }
+      if (failed.length === readers.length) {
+        return `Calendar read failed — ${failed.join(' · ')} Say the calendar could not be read; do not substitute a schedule from a briefing, another document or memory.`;
+      }
+      const rendered = renderCalendar(events, now, windowLabel, tz);
+      return failed.length > 0
+        ? `${rendered}\n\nNOT READ: ${failed.join(' · ')} Say that this calendar could not be read; the list above is only the others.`
+        : rendered;
     },
     {
       name: 'calendar_events',

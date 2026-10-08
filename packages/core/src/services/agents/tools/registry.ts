@@ -71,6 +71,7 @@ import {
 import { liveBrowserTools } from './liveBrowser';
 import { lookupObjectsTool } from './lookupObjects';
 import { lookupPersonTools } from './lookupPerson';
+import { microsoft365Tools } from './microsoft365';
 import { updateMissionNotesTool } from './missionNotes';
 import { offerConnectionTool } from './offerConnection';
 import { pageContextTool } from './pageContext';
@@ -315,6 +316,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     ...zoomTools(ctx),
     ...gmailTools(ctx),
     ...calendarTools(ctx),
+    // Source-gated — live Microsoft 365 reads (Outlook mail, Teams, OneDrive
+    // and SharePoint files) for the connectors the agent holds.
+    ...microsoft365Tools(ctx),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
     ...personalizationTools(ctx),
