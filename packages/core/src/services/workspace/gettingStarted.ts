@@ -2,8 +2,8 @@
  * GETTING STARTED — where a new shared workspace stands, read from what is
  * really there, never from a list of boxes somebody ticked.
  *
- * Four steps, each the first move of a working workspace and each one a card
- * the workspace lead can put in chat (`propose_setup`):
+ * Five steps, each the first move of a working workspace and each one a card
+ * the workspace lead can put in chat (`propose_setup`, `propose_brand`):
  *
  * - **connect** — a system the workspace reads is connected and still live
  *   (`connectorHasLiveSource`: a revoked or expired login is not connected).
@@ -11,6 +11,8 @@
  *   an app and a template are the plugins they turn on).
  * - **hire** — an active agent besides the workspace lead core seeded.
  * - **invite** — somebody else is in the account, or an invite is out.
+ * - **brand** — "Make it yours": the Org wears its own logo and colours
+ *   (`tenant_account.brand`, `services/branding/OrgBrandService.ts`).
  *
  * Read by the sidebar checklist and the lead's `setup_options`, so the two
  * never disagree. Null for a personal workspace, which has its own assistant
@@ -21,13 +23,13 @@ import { and, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { WORKSPACE_LEAD_SLUG } from '@/libs/workspace/workspaceLead';
-import { accountMembershipSchema, agentSchema, inviteSchema, projectSchema } from '@/models/Schema';
+import { accountMembershipSchema, agentSchema, inviteSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
 
-export const GETTING_STARTED_STEPS = ['connect', 'app', 'hire', 'invite'] as const;
+export const GETTING_STARTED_STEPS = ['connect', 'app', 'hire', 'invite', 'brand'] as const;
 export type GettingStartedStep = (typeof GETTING_STARTED_STEPS)[number];
 
 export type GettingStarted = {
-  /** The four steps in order, each with whether the workspace has done it. */
+  /** The steps in order, each with whether the workspace has done it. */
   steps: Array<{ id: GettingStartedStep; done: boolean }>;
   /** How many are done. */
   done: number;
@@ -52,7 +54,7 @@ export async function connectedConnectors(orgId: string): Promise<string[]> {
 }
 
 /**
- * Where this workspace stands on its four first steps.
+ * Where this workspace stands on its first steps.
  * @param orgId - The workspace (project).
  * @returns Null for a personal workspace or one that does not exist.
  */
@@ -65,7 +67,7 @@ export async function gettingStartedFor(orgId: string): Promise<GettingStarted |
   if (!project || project.kind === 'personal') {
     return null;
   }
-  const [connected, agents, [members], [invites]] = await Promise.all([
+  const [connected, agents, [members], [invites], [org]] = await Promise.all([
     connectedConnectors(orgId),
     db
       .select({ slug: agentSchema.slug })
@@ -79,6 +81,10 @@ export async function gettingStartedFor(orgId: string): Promise<GettingStarted |
       .select({ n: sql<number>`count(*)::int` })
       .from(inviteSchema)
       .where(and(eq(inviteSchema.accountId, project.accountId), isNull(inviteSchema.acceptedAt), gt(inviteSchema.expiresAt, new Date()))),
+    db
+      .select({ branded: sql<boolean>`${tenantAccountSchema.brand} is not null` })
+      .from(tenantAccountSchema)
+      .where(eq(tenantAccountSchema.id, project.accountId)),
   ]);
   const plugins = project.enabledPlugins ?? [];
   const memberCount = Number(members?.n ?? 0);
@@ -88,6 +94,7 @@ export async function gettingStartedFor(orgId: string): Promise<GettingStarted |
     app: plugins.length > 0,
     hire: agents.length > 0,
     invite: memberCount > 1 || inviteCount > 0,
+    brand: org?.branded === true,
   };
   const steps = GETTING_STARTED_STEPS.map(id => ({ id, done: doneBy[id] }));
   return {

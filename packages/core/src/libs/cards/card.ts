@@ -88,6 +88,13 @@ export const SETUP_CARD_KIND = 'setup';
 /** The kind "Connect your systems" is offered as (`connect_system`, `ConnectSystemsCard.tsx`): its link starts the walk-through. */
 export const CONNECT_SYSTEMS_CARD_KIND = 'connect-systems';
 
+/**
+ * The kind a drafted brand is drawn as (`propose_brand`, `BrandPreviewCard.tsx`):
+ * the brand on a sidebar and a sign-in page, and three typed choices — use
+ * it (its one action), adjust it in Brand settings (`href`), skip it.
+ */
+export const BRAND_CARD_KIND = 'brand';
+
 export type CardKindDescriptor = {
   kind: string;
   /** The renderer's name in the UI registry (`features/dashboard/chat/cards`). */
@@ -132,6 +139,8 @@ registerCardKind({ kind: SETUP_CARD_KIND, renderer: 'setup', refine: c => (c.act
 // "Connect your systems" (`connect_system`): no action of its own — its link
 // opens the docked walk-through, which runs on its own RPCs.
 registerCardKind({ kind: CONNECT_SYSTEMS_CARD_KIND, renderer: 'connect-systems', refine: c => (c.href && c.actions.length === 0 ? null : 'a connect-systems card names its walk-through (href) and runs no action itself') });
+// A drafted brand: one action (apply it) and where to adjust it.
+registerCardKind({ kind: BRAND_CARD_KIND, renderer: 'brand', refine: c => (c.actions.length !== 1 ? 'a brand card offers exactly one action' : c.href ? null : 'a brand card names where to adjust it (href)') });
 
 export type CardCheck = { ok: true; card: Card } | { ok: false; reason: string };
 

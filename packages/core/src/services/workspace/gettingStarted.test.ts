@@ -1,5 +1,5 @@
 /**
- * Getting started, against PGlite: each of the four steps is read from what
+ * Getting started, against PGlite: each of the five steps is read from what
  * is really in the workspace, and only from this workspace. A checklist that
  * ticked a step on a neighbour's connection, or on the lead core seeded, would
  * say "done" about work nobody did.
@@ -21,6 +21,7 @@ vi.mock('@/services/connect/createSourceOnLogin', () => ({
 
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, agentSchema, inviteSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { inArray } = await import('drizzle-orm');
 const { gettingStartedFor } = await import('./gettingStarted');
 const { WORKSPACE_LEAD_SLUG } = await import('@/libs/workspace/workspaceLead');
 
@@ -54,6 +55,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   sourcesByOrg.clear();
   live.clear();
+  await db.update(tenantAccountSchema).set({ brand: null }).where(inArray(tenantAccountSchema.id, [NORTHWIND, KESTREL]));
   await db.delete(agentSchema);
   await db.delete(inviteSchema);
   await db.delete(projectSchema);
@@ -69,12 +71,23 @@ beforeEach(async () => {
 });
 
 describe('gettingStartedFor', () => {
-  it('a new workspace with only its seeded lead has done none of the four', async () => {
+  it('a new workspace with only its seeded lead has done none of the five', async () => {
     await db.insert(agentSchema).values({ orgId: SUPPORT, projectId: SUPPORT, slug: WORKSPACE_LEAD_SLUG, name: 'Workspace lead', systemPrompt: 'x', role: 'lead' });
     const state = await gettingStartedFor(SUPPORT);
 
-    expect(state).toMatchObject({ done: 0, total: 4 });
-    expect(state?.steps.map(s => s.id)).toEqual(['connect', 'app', 'hire', 'invite']);
+    expect(state).toMatchObject({ done: 0, total: 5 });
+    expect(state?.steps.map(s => s.id)).toEqual(['connect', 'app', 'hire', 'invite', 'brand']);
+  });
+
+  it('"Make it yours" is done when the Org wears a brand — this Org\'s, never the neighbour\'s', async () => {
+    await db.update(tenantAccountSchema).set({ brand: { name: 'Kestrel Capital' } }).where(eq(tenantAccountSchema.id, KESTREL));
+
+    expect(stepsOf(await gettingStartedFor(NEIGHBOUR)).brand).toBe(true);
+    expect(stepsOf(await gettingStartedFor(SUPPORT)).brand).toBe(false);
+
+    await db.update(tenantAccountSchema).set({ brand: { name: 'Northwind' } }).where(eq(tenantAccountSchema.id, NORTHWIND));
+
+    expect(stepsOf(await gettingStartedFor(SUPPORT)).brand).toBe(true);
   });
 
   it('counts each step from what is there', async () => {
@@ -86,7 +99,7 @@ describe('gettingStartedFor', () => {
 
     const state = await gettingStartedFor(SUPPORT);
 
-    expect(stepsOf(state)).toEqual({ connect: true, app: true, hire: true, invite: true });
+    expect(stepsOf(state)).toEqual({ connect: true, app: true, hire: true, invite: true, brand: false });
     expect(state?.done).toBe(4);
     expect(state?.detail.connected).toEqual(['github']);
   });
@@ -96,7 +109,7 @@ describe('gettingStartedFor', () => {
     await db.insert(agentSchema).values({ orgId: SUPPORT, projectId: SUPPORT, slug: 'reporting-analyst', name: 'Reporting analyst', systemPrompt: 'x', active: 'false' });
     await db.insert(inviteSchema).values({ id: 'inv-gs-2', accountId: NORTHWIND, email: 'ana@northwind.example', role: 'member', token: 'tok-gs-2', expiresAt: new Date(Date.now() - 1000) });
 
-    expect(stepsOf(await gettingStartedFor(SUPPORT))).toEqual({ connect: false, app: false, hire: false, invite: false });
+    expect(stepsOf(await gettingStartedFor(SUPPORT))).toEqual({ connect: false, app: false, hire: false, invite: false, brand: false });
   });
 
   it('a second member in the account is someone invited', async () => {
@@ -106,7 +119,7 @@ describe('gettingStartedFor', () => {
 
   it('is tenant-scoped: the neighbour\'s plugins, agents and connections tick nothing here', async () => {
     expect(stepsOf(await gettingStartedFor(NEIGHBOUR))).toMatchObject({ connect: true, app: true, hire: true });
-    expect(stepsOf(await gettingStartedFor(SUPPORT))).toEqual({ connect: false, app: false, hire: false, invite: false });
+    expect(stepsOf(await gettingStartedFor(SUPPORT))).toEqual({ connect: false, app: false, hire: false, invite: false, brand: false });
   });
 
   it('has nothing to say about a personal workspace, or one that does not exist', async () => {

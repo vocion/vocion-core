@@ -241,8 +241,12 @@ export const recordCardDecision = os
       throw ApiError.notFound({ id: input.id });
     }
     if (input.turn === false) {
-      const marked = input.runId !== undefined && (input.action === 'approve' || input.action === 'reject')
-        ? await markCardRun({ orgId, conversationId: input.id, cardId: input.cardId, patch: { runId: input.runId, state: 'decided', decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}) } } }).catch(() => false)
+      // A run decided, or — a skip — a card set aside that never became one
+      // (the brand preview's Skip): the card remembers it either way, so a
+      // reload draws the outcome, not the choices again.
+      const decided = (input.action === 'approve' || input.action === 'reject') && (input.runId !== undefined || input.action === 'reject');
+      const marked = decided
+        ? await markCardRun({ orgId, conversationId: input.id, cardId: input.cardId, patch: { ...(input.runId !== undefined ? { runId: input.runId } : {}), state: 'decided', decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}) } } }).catch(() => false)
         : false;
       return { id: null, marked };
     }

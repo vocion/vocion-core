@@ -1,7 +1,7 @@
 import type { RuntimeContext } from '../types';
 import type { Card } from '@/libs/cards/card';
 import process from 'node:process';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The workspace lead's setup tools. A plan goes in as typed steps and comes
@@ -13,11 +13,16 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 vi.mock('@/services/chat/synthesis', () => ({ invalidateChipCache: vi.fn() }));
 vi.mock('@/routers/AuthGuards', () => ({ guardAuth: vi.fn(), guardRole: vi.fn(), loadProject: vi.fn() }));
+// The company's own site, as Firecrawl's branding extractor reads it.
+const lookupBrand = vi.fn();
+vi.mock('@/libs/tools/brand/firecrawlBrand', () => ({ lookupBrand }));
 
 const { db } = await import('@/libs/DB');
 const { accountMembershipSchema, agentSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
-const { proposeSetup, setupOptions, setupWorkspaceTools } = await import('./setupWorkspace');
-const { readCard, SETUP_CARD_KIND } = await import('@/libs/cards/card');
+const { proposeBrand, proposeSetup, setupOptions, setupWorkspaceTools } = await import('./setupWorkspace');
+const { BRAND_CARD_KIND, readCard, SETUP_CARD_KIND } = await import('@/libs/cards/card');
+const { decodeDraft } = await import('@/libs/branding/draft');
+const { ProviderNotConfiguredError } = await import('@/libs/tools/types');
 const { safeListApps } = await import('@/libs/workspace/apps');
 const { listCatalog } = await import('@/services/CatalogService');
 
@@ -125,7 +130,8 @@ describe('setup_options', () => {
     const text = await setupOptions(ctxFor(vi.fn()));
 
     // Two people are in the Org already, so inviting someone is done.
-    expect(text).toContain('1 of 4 first steps');
+    expect(text).toContain('1 of 5 first steps');
+    expect(text).toContain('Make it yours (logo and colours): not yet');
     expect(text).toContain('Invite someone: done');
     expect(text).toContain(`- ${app.id} — ${app.name}`);
     expect(text).toContain(`- ${role.slug} — ${role.name}`);
@@ -145,8 +151,84 @@ describe('setup_options', () => {
 
 describe('who holds the tools', () => {
   it('only an agent granted them, and only in a shared workspace', () => {
-    expect(setupWorkspaceTools(ctxFor(vi.fn())).map(t => t.name)).toEqual(['setup_options', 'propose_setup']);
+    // The brand preview is a step of the same plan: holding the plan holds it.
+    expect(setupWorkspaceTools(ctxFor(vi.fn())).map(t => t.name)).toEqual(['setup_options', 'propose_setup', 'propose_brand']);
+    expect(setupWorkspaceTools(ctxFor(vi.fn(), { grants: ['propose_brand'] })).map(t => t.name)).toEqual(['propose_brand']);
     expect(setupWorkspaceTools(ctxFor(vi.fn(), { grants: [] }))).toEqual([]);
     expect(setupWorkspaceTools(ctxFor(vi.fn(), { kind: 'personal' }))).toEqual([]);
+  });
+});
+
+describe('propose_brand — "brand this workspace from <site>"', () => {
+  const NORTHWIND_SITE = {
+    url: 'https://northwind.example',
+    name: 'Northwind | Home',
+    logoUrl: 'https://northwind.example/logo.svg',
+    faviconUrl: 'https://northwind.example/favicon.ico',
+    colors: { primary: '#1f6feb', background: '#ffffff', textPrimary: '#111111' },
+    fonts: { heading: 'Space Grotesk', body: 'Inter' },
+    confidence: 0.82,
+  };
+
+  beforeEach(() => {
+    lookupBrand.mockReset();
+  });
+
+  it('reads the site, drafts the brand and shows ONE preview card with its three choices', async () => {
+    lookupBrand.mockResolvedValueOnce(NORTHWIND_SITE);
+    const emit = vi.fn();
+    const said = await proposeBrand(ctxFor(emit), { site: 'northwind.example' });
+    const [card] = cardsFrom(emit);
+
+    expect(lookupBrand).toHaveBeenCalledWith('northwind.example', { orgId: ORG });
+    expect(card?.kind).toBe(BRAND_CARD_KIND);
+    expect(readCard(card).ok).toBe(true);
+    expect(card?.title).toBe('Make it yours: Northwind');
+    // Use this brand: the person's action, applying exactly the draft.
+    expect(card?.actions).toEqual([expect.objectContaining({ label: 'Use this brand', actionId: 'org.brand_apply' })]);
+    expect(card?.actions[0]?.input).toMatchObject({ name: 'Northwind', accent: '#1f6feb', headingFont: 'Space Grotesk', senderName: 'Northwind', logos: { wordmark: 'https://northwind.example/logo.svg' }, website: 'https://northwind.example' });
+    // Adjust: Brand settings, with the same draft in the link.
+    expect(card?.href).toMatch(/^\/dashboard\/brand\?draft=/);
+    expect(decodeDraft(new URL(`https://x.example${card!.href}`).searchParams.get('draft'))).toMatchObject({ name: 'Northwind', accent: '#1f6feb' });
+    // What the site did not give is said on the card, not guessed.
+    expect(card?.fields?.map(f => f.value).join(' ')).toContain('.ico');
+    expect(said).toContain('Nothing has changed yet');
+  });
+
+  it('a member is not shown a card: only an Org admin brands the Org', async () => {
+    lookupBrand.mockResolvedValue(NORTHWIND_SITE);
+    const emit = vi.fn();
+    const said = await proposeBrand(ctxFor(emit, { userId: 'usr-setup-omar' }), { site: 'northwind.example' });
+
+    expect(cardsFrom(emit)).toEqual([]);
+    expect(said).toContain('only an Org admin');
+  });
+
+  it('with no lookup configured, the one move left is a link to Brand settings', async () => {
+    lookupBrand.mockRejectedValueOnce(new ProviderNotConfiguredError('brand lookup', 'firecrawl', ['FIRECRAWL_API_KEY']));
+    const emit = vi.fn();
+    const said = await proposeBrand(ctxFor(emit), { site: 'northwind.example' });
+    const [card] = cardsFrom(emit);
+
+    expect(card).toMatchObject({ kind: 'link', href: '/dashboard/brand' });
+    expect(said).toContain('not set up');
+  });
+
+  it('a site whose only colour cannot be worn keeps Vocion\'s accent, and says so', async () => {
+    lookupBrand.mockResolvedValueOnce({ ...NORTHWIND_SITE, colors: { primary: '#ffff00' } });
+    const emit = vi.fn();
+    await proposeBrand(ctxFor(emit), { site: 'northwind.example' });
+    const [card] = cardsFrom(emit);
+
+    expect(card?.actions[0]?.input).toMatchObject({ accent: null });
+    expect(card?.fields?.map(f => f.value).join(' ')).toContain('accent stays Vocion');
+  });
+
+  it('as a step of a plan, it needs the site', async () => {
+    const emit = vi.fn();
+    const said = await proposeSetup(ctxFor(emit), { steps: [{ kind: 'brand', why: 'So it looks like ours.' }] });
+
+    expect(cardsFrom(emit)).toEqual([]);
+    expect(said).toContain('ask for their website');
   });
 });

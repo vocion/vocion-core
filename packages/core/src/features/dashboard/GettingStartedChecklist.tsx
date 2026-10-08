@@ -9,12 +9,13 @@ import { Link, usePathname } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
 /**
- * GETTING STARTED · N OF 4 — the sidebar's small checklist for a new shared
+ * GETTING STARTED · N OF 5 — the sidebar's small checklist for a new shared
  * workspace, in the place the "Invite team members" box sat.
  *
  * Every tick is read from the workspace (`services/workspace/gettingStarted.ts`
  * via `nav.gettingStarted`): a system connected, an app or template added, an
- * agent hired, someone invited. Nothing here is ticked by hand, so it never
+ * agent hired, someone invited, and the Org wearing its own logo and colours
+ * ("Make it yours", which opens the chat for the lead's brand preview). Nothing here is ticked by hand, so it never
  * says a step is done that is not. It re-reads when a setup card in chat runs
  * or is undone (`SETUP_CHANGED_EVENT`), when the page changes and when the
  * window comes back into focus.
@@ -23,12 +24,12 @@ import { client } from '@/libs/Orpc';
  * already written (`?prompt=`) — except connecting, which opens "Connect your
  * systems" docked above the composer (`connectSystemsHref`) — because setting up happens in the
  * conversation; a step done opens the place it lives. Dismissible, remembered
- * per person per workspace (nav prefs), and gone by itself once all four are
+ * per person per workspace (nav prefs), and gone by itself once every step is
  * done.
  */
 
 export type GettingStartedState = {
-  steps: Array<{ id: 'connect' | 'app' | 'hire' | 'invite'; done: boolean }>;
+  steps: Array<{ id: 'connect' | 'app' | 'hire' | 'invite' | 'brand'; done: boolean }>;
   done: number;
   total: number;
 };
@@ -39,6 +40,7 @@ const DONE_HREF: Record<GettingStartedState['steps'][number]['id'], string> = {
   app: '/dashboard/apps',
   hire: '/dashboard/agents',
   invite: '/dashboard/members',
+  brand: '/dashboard/brand',
 };
 
 /**

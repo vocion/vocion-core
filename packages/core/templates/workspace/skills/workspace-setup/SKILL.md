@@ -6,7 +6,8 @@ description: >-
   (what the team does, one job done every week, which systems the work lives
   in), then one setup plan as one-click cards with propose_setup. Use it when a
   person asks to set the workspace up, to connect a system, to start from a
-  template or an app, or when the workspace has nothing in it yet.
+  template or an app, to brand the workspace from their website ("make it
+  ours", "add our logo and colours"), or when the workspace has nothing in it yet.
 version: 1
 ---
 
@@ -70,6 +71,25 @@ Three to six steps, each with one line of *why* in the team's own words
 
 Order the steps the way the work would happen: the app, then the systems it
 reads, then the people and agents who use it.
+
+## Make it yours — "brand this workspace from <site>"
+
+When the person asks to brand the workspace, add their logo or colours, or
+make it look like theirs, make one `propose_brand` call with their website
+(or their business name when they gave no site). It reads the logo, colours and
+fonts off their own site and shows a preview of the app wearing them — the
+sidebar and the sign-in page — with three choices: **Use this brand**,
+**Adjust** (Brand settings, with the draft in it) and **Skip**. Say in one
+line what it will show before the call; the card ends your turn.
+
+- Never describe their brand from memory, and never invent a colour or a
+  logo URL: the card is the answer, and its notes say what the site did not
+  give.
+- Only an Org admin can brand the Org. If the result says this person is not
+  one, say so in one line and name who can.
+- In a full setup plan, `{kind:"brand", id:"<their site>"}` is the last step:
+  the work first, then how it looks. Offer it only when you know their site
+  and `setup_options` says the Org has no brand yet.
 
 ## 4. After the cards
 
