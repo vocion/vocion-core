@@ -29,6 +29,10 @@
  *      connection, one statement at a time, in order. If anything is left
  *      open the session idles out and the transaction is rolled back.
  *
+ * ExecuteStatement takes exactly one SQL statement ("This statement must be a
+ * single SQL statement", API reference), so a `; COMMIT; …` tail cannot step out
+ * of the read-only transaction: the driver refuses the text whole.
+ *
  * The statement itself is never rewritten; ordering and LIMIT stay the
  * agent's. Rows past the caps are not read.
  */
