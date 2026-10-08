@@ -22,6 +22,17 @@ vi.mock('@/services/AgentService', async importOriginal => ({
   ...(await importOriginal<typeof import('@/services/AgentService')>()),
   runAgentDeep: vi.fn(),
 }));
+// Filing a card the asked workspace put up is the action rail's business; here
+// it only has to land as that workspace's pending run.
+vi.mock('@/services/chat/autoPropose', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/services/chat/autoPropose')>()),
+  autoProposeRecommendationDetailed: vi.fn(async ({ orgId, rec }: { orgId: string; rec: { actionId: string; input?: Record<string, unknown> } }) => {
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema } = await import('@/models/Schema');
+    const [run] = await db.insert(actionRunSchema).values({ orgId, actionId: rec.actionId, input: rec.input ?? {}, status: 'pending' }).returning();
+    return { runId: run!.id, status: 'pending' };
+  }),
+}));
 
 const { db } = await import('@/libs/DB');
 const { and, eq } = await import('drizzle-orm');
@@ -39,7 +50,7 @@ const {
 const { runAgentDeep } = await import('@/services/AgentService');
 const { ensurePersonalProject } = await import('@/services/workspace/personalProject');
 const { createConversation, getConversation, listConversations } = await import('@/services/ConversationService');
-const { assistantTools } = await import('./assistant');
+const { assistantTools, raisedCard } = await import('./assistant');
 
 const NORTHWIND = 'acct-asst-northwind';
 const KESTREL = 'acct-asst-kestrel';
@@ -278,7 +289,7 @@ describe('ask_workspace on a workspace the person can act in', () => {
     expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}`);
   });
 
-  it('shows the workspace\'s steps nested under one "Asking …" row', async () => {
+  it('shows the workspace\'s steps nested under one "Asking …" row, which reads "Asked …" once answered', async () => {
     revenueAnswers();
     const ctx = assistantCtx();
     await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Where does the Contoso renewal stand?' });
@@ -286,7 +297,12 @@ describe('ask_workspace on a workspace the person can act in', () => {
     const row = nodes[0]!;
 
     expect(row).toMatchObject({ kind: 'delegate', status: 'start', label: 'Asking Revenue Team' });
-    expect(nodes.at(-1)).toMatchObject({ id: row.id, kind: 'delegate', status: 'done', label: 'Revenue Team answered' });
+    // Both tenses name the ask, so a folded group says "Asked Revenue Team"
+    // rather than "Consulted Revenue Team answered"; who answered is the result.
+    expect(row.labels).toEqual({ running: 'Asking Revenue Team', done: 'Asked Revenue Team' });
+    // The phrase a folded group's line takes, marked so a 5.0 row (labels only) is never read as one.
+    expect(row.headline).toEqual({ running: 'asking Revenue Team', done: 'asked Revenue Team' });
+    expect(nodes.at(-1)).toMatchObject({ id: row.id, kind: 'delegate', status: 'done', label: 'Asked Revenue Team', result: 'Revenue Lead answered' });
 
     const inner = nodes.filter(n => n.id !== row.id);
 
@@ -329,5 +345,162 @@ describe('ask_workspace on a workspace the person can act in', () => {
 
     expect(out).toContain('Revenue Team answered');
     expect(vi.mocked(runAgentDeep).mock.calls[0]![0].orgId).toBe(REVENUE);
+  });
+});
+
+/**
+ * 5.0 screen capture: when the asked workspace filed an approval, the person's
+ * own thread said so in words and the card was only in that workspace's
+ * Review. It now comes back as a card in the asking thread, naming the
+ * workspace its run lives in so it is decided there, as the person, while the
+ * run stays that workspace's record.
+ */
+describe('ask_workspace brings what the workspace filed back as cards', () => {
+  it('puts the filed proposal up as a card here, carrying the workspace its run lives in', async () => {
+    const [run] = await db.insert(actionRunSchema).values({
+      orgId: REVENUE,
+      actionId: 'email.send',
+      status: 'pending',
+      invokedBy: 'agent:revenue-lead',
+      input: { to: 'buyer@contoso.example', subject: 'Order form', body: 'Attached.' },
+      proposal: { confidence: 0.82, rationale: 'Legal asked for it on the Sep 14 call.', agentSlug: 'revenue-lead', suggestedDecision: 'approve', suggestedDecisionReason: 'The renewal date is close.' },
+    }).returning();
+    revenueAnswers(run!.id);
+    // The app's chat, which draws the card.
+    const ctx = assistantCtx({ rendersCards: true });
+
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form.' }));
+    const cards = ctx.events.filter((e): e is Extract<AgentEvent, { type: 'card' }> => e.type === 'card').map(e => e.card);
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      kind: 'action',
+      runId: run!.id,
+      state: 'filed',
+      workspace: { id: REVENUE, slug: 'revenue', name: 'Revenue Team', accountSlug: 'northwind-asst' },
+      actions: [{ actionId: 'email.send', input: { to: 'buyer@contoso.example', subject: 'Order form', body: 'Attached.' } }],
+      source: { agentSlug: 'revenue-lead', tool: 'ask_workspace' },
+      rationale: 'Legal asked for it on the Sep 14 call.',
+      confidence: 0.82,
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'The renewal date is close.',
+    });
+    expect(cards[0]!.title.length).toBeGreaterThan(0);
+
+    // The run did not move: it is still the workspace's, pending in its Review.
+    const [still] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, run!.id));
+
+    expect(still).toMatchObject({ orgId: REVENUE, status: 'pending' });
+    // The model is told the card is up here, and still gives the person the link.
+    expect(out).toContain('on a card in this thread now');
+    expect(out).toContain('give them these links as written');
+    expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}`);
+    // The asked workspace hears the same: the person sees its card in their thread.
+    expect(vi.mocked(runAgentDeep).mock.calls[0]![0].message).toContain('sees it as a card in their own thread');
+  });
+
+  // 5.0.1 review: a text, Slack thread or email reaches the assistant through
+  // the chat surfaces, which send the turn's words and draw no card. There the
+  // model is never told a card is waiting, and always gives the links.
+  it('off the app\'s chat, never says a card is up, and always gives the links', async () => {
+    const [run] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'email.send', status: 'pending', invokedBy: 'agent:revenue-lead', input: { to: 'buyer@contoso.example' } }).returning();
+    revenueAnswers(run!.id);
+    const ctx = assistantCtx();
+
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form.' }));
+
+    expect(out).not.toContain('on a card');
+    expect(out).not.toContain('in this thread');
+    expect(out).toContain('give them these links as written');
+    expect(out).toContain(`[Proposed email.send](`);
+    expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}?account=northwind-asst) — pending`);
+
+    // The asked workspace is not told the person sees a card either.
+    const note = vi.mocked(runAgentDeep).mock.calls[0]![0].message;
+
+    expect(note).not.toContain('sees it as a card');
+    expect(note).toContain('decides it from the link their assistant gives them');
+    // The typed event still goes out (a surface that draws cards would show
+    // it, and the turn counts it as shown); only the words depend on the surface.
+    expect(ctx.events.some(e => e.type === 'card')).toBe(true);
+  });
+
+  // Accelerate 1: the person's word runs, with undo, and shows no card. A run
+  // the asked workspace already ran, or that failed, is not waiting on anyone.
+  it('puts up no card for a run that already ran or failed, and does not say one is waiting', async () => {
+    for (const status of ['done', 'failed'] as const) {
+      await db.delete(actionRunSchema);
+      vi.mocked(runAgentDeep).mockReset();
+      const [run] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'email.send', status, invokedBy: 'person:usr-asst-alex', input: { to: 'buyer@contoso.example' } }).returning();
+      revenueAnswers(run!.id);
+      const ctx = assistantCtx({ rendersCards: true });
+
+      const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form now.' }));
+
+      expect(ctx.events.some(e => e.type === 'card')).toBe(false);
+      expect(out).not.toContain('on a card');
+      expect(out).toContain(`/w/revenue/dashboard/inbox/proposal-${run!.id}?account=northwind-asst) — ${status}`);
+      expect(out).toContain('give them these links as written');
+    }
+  });
+
+  it('titles the card with the words the workspace\'s agent put on it, when it put one up', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(async (opts) => {
+      opts.onEvent?.({ type: 'recommended_action', recommendation: { label: 'Send Contoso the signed order form', actionId: 'email.send', input: { to: 'buyer@contoso.example' } } });
+      opts.onEvent?.({ type: 'response_delta', delta: 'I put up a card to send it.' });
+      return { response: 'I put up a card to send it.', traceId: 'trace-asst-2', toolCalls: [] };
+    });
+    const ctx = assistantCtx();
+    await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Send Contoso the order form.' });
+    const card = ctx.events.find((e): e is Extract<AgentEvent, { type: 'card' }> => e.type === 'card')?.card;
+    const [filed] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, REVENUE));
+
+    expect(filed).toBeDefined();
+    expect(card).toMatchObject({ title: 'Send Contoso the signed order form', runId: filed!.id, workspace: { id: REVENUE } });
+  });
+
+  it('leaves a filed question as its link: it is answered on its own page there, not as the run that filed it', async () => {
+    const [run] = await db.insert(actionRunSchema).values({ orgId: REVENUE, actionId: 'ask.file', status: 'done', invokedBy: 'agent:revenue-lead', input: { title: 'Which quarter?' }, result: { askId: 77 } }).returning();
+    revenueAnswers(run!.id);
+    const ctx = assistantCtx();
+
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Anything you need from me?' }));
+
+    expect(ctx.events.some(e => e.type === 'card')).toBe(false);
+    expect(out).toContain('A question for you');
+    expect(out).toContain('these stay there, where the person decides what is waiting on them');
+    expect(out).toContain('give them these links as written');
+  });
+
+  it('puts up nothing when the workspace filed nothing', async () => {
+    revenueAnswers();
+    const ctx = assistantCtx();
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'Where does the Contoso renewal stand?' }));
+
+    expect(ctx.events.some(e => e.type === 'card')).toBe(false);
+    expect(out).not.toContain('Raised in');
+  });
+});
+
+describe('raisedCard', () => {
+  const where = { id: REVENUE, slug: 'revenue', name: 'Revenue Team' };
+  const base = { id: 9, actionId: 'email.send', status: 'pending', tool: 'propose_action', outcome: null, askId: null, url: null, title: 'Send the order form', input: {}, rationale: null, confidence: null, agentSlug: null, suggestedDecision: null, suggestedDecisionReason: null };
+
+  it('is one card per run, whichever ask brought it back', () => {
+    expect(raisedCard(base, where)?.id).toBe(raisedCard({ ...base, tool: 'recommend_action' }, where)?.id);
+  });
+
+  it('is no card when the run names no action to press', () => {
+    expect(raisedCard({ ...base, actionId: '' }, where)).toBeNull();
+  });
+
+  it('is a card only while the run waits on the person', () => {
+    expect(raisedCard(base, where)).not.toBeNull();
+
+    for (const status of ['done', 'failed', 'rejected', 'snoozed', 'executing']) {
+      expect(raisedCard({ ...base, status }, where)).toBeNull();
+    }
+
+    expect(raisedCard({ ...base, askId: 77 }, where)).toBeNull();
   });
 });

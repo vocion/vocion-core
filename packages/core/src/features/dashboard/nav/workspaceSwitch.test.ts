@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
+import { countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, isPersonalProject, projectAccent, shouldTriggerFindHotkey, slugLine, workspaceSwitchHref } from './workspaceSwitch';
 
 const projects = [
   { id: 'p-default', slug: 'default', name: 'Default project', agentCount: 0 },
@@ -24,6 +24,40 @@ describe('workspace switcher', () => {
     expect(filterProjects(projects, { query: 'WORK' }).map(p => p.slug)).toEqual(['vocion-workforce']);
     expect(countHiddenEmpty(projects)).toBe(1);
     expect(countHiddenEmpty(projects, 'p-default')).toBe(0);
+  });
+
+  // 5.0 screen capture: an app's picker hid the workspace that had just
+  // installed the app, because it had no agents yet. Every workspace an app's
+  // picker is handed has the app; none is hidden for being empty.
+  it('in an app\'s picker, never hides a workspace for having no agents yet', () => {
+    expect(filterProjects(projects, { keepEmpty: true }).map(p => p.slug)).toEqual(['default', 'revenue', 'delivery-stack', 'vocion-workforce']);
+    expect(filterProjects(projects, { keepEmpty: true, query: 'default' }).map(p => p.slug)).toEqual(['default']);
+    expect(countHiddenEmpty(projects, null, true)).toBe(0);
+  });
+
+  // The personal workspace's slug is a hash of the person's id — an address,
+  // not a name — so the list shows "Personal" with no slug line.
+  it('shows no slug for the person\'s own workspace, and does not search by it', () => {
+    const personal = { id: 'p-mine', slug: 'personal-3f9a2c1b', name: 'Personal', agentCount: 1, kind: 'personal' as const };
+    const shared = { ...projects[1]!, kind: 'shared' as const };
+
+    expect(isPersonalProject(personal)).toBe(true);
+    expect(isPersonalProject(shared)).toBe(false);
+    expect(slugLine(personal)).toBeNull();
+    expect(slugLine(shared)).toBe('revenue');
+    expect(filterProjects([personal, shared], { query: '3f9a' })).toEqual([]);
+    expect(filterProjects([personal, shared], { query: 'person' }).map(p => p.id)).toEqual(['p-mine']);
+  });
+
+  // 5.0.1 review: the row reads "Personnel" in French, but the search matched
+  // only the stored "Personal", so typing what was on screen found nothing.
+  it('searches the name a row is shown by', () => {
+    const personal = { id: 'p-mine', slug: 'personal-3f9a2c1b', name: 'Personal', agentCount: 1, kind: 'personal' as const };
+    const shared = { ...projects[1]!, kind: 'shared' as const };
+    const nameOf = (p: { kind?: string; name: string }) => (p.kind === 'personal' ? 'Personnel' : p.name);
+
+    expect(filterProjects([personal, shared], { query: 'personnel', nameOf }).map(p => p.id)).toEqual(['p-mine']);
+    expect(filterProjects([personal, shared], { query: 'revenue', nameOf }).map(p => p.id)).toEqual(['p-rev']);
   });
 
   it('re-points a canonical path at the workspace being switched to, rather than nesting a second one', () => {

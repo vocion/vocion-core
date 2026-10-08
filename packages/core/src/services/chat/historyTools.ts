@@ -30,6 +30,11 @@ export type RunEntry = {
   label?: string;
   actionId?: string;
   runId?: number;
+  /**
+   * The workspace the card's run lives in, when it is not this conversation's
+   * (a card the person's assistant brought back from a workspace it asked).
+   */
+  workspace?: { id?: string; name?: string };
   ref?: { type: string; id: number };
   /** The proposal's status NOW, read when the history is assembled (`withLiveCardState`). */
   status?: string;
@@ -120,7 +125,8 @@ function refusedCall(output: unknown): boolean {
  * @param r - The card entry.
  */
 function cardResult(r: RunEntry): string {
-  const n = r.runId ? `proposal #${r.runId}` : 'its proposal';
+  const there = r.workspace?.name ? ` in ${r.workspace.name}` : '';
+  const n = r.runId ? `proposal #${r.runId}${there}` : `its proposal${there}`;
   const status = r.status ?? (r.state === 'decided' || r.ref ? 'done' : undefined);
   if (r.ref) {
     return `Card "${r.label}" ran (${n} executed) and created ${r.ref.type} #${r.ref.id}. That record exists now — read it by id; do not file it again or ask for its id.`;
@@ -136,6 +142,11 @@ function cardResult(r: RunEntry): string {
   }
   if (status === 'approved' || status === 'executing' || status === 'awaiting_execution') {
     return `Card "${r.label}" is approved and running (${n}). Do not put it up again.`;
+  }
+  if (r.workspace?.name) {
+    // Another workspace's run: decided on its card, or there — no tool here
+    // reaches it, so "go" is pointed at the card rather than at a call.
+    return `Card "${r.label}" is ${n}, waiting on the person. It is ${r.workspace.name}'s record: they decide it on the card in this thread or through its link there, and you cannot decide it from here. If they say "approve" or "go", tell them to press it on the card; do not put it up again.`;
   }
   if (r.state === 'unfiled') {
     return `Card "${r.label}" was on the person's screen but could not be filed as a proposal. If they say "approve", "go" or "file it", make its call.`;
@@ -171,36 +182,64 @@ export function outcomeOf(result: Record<string, unknown> | null | undefined): s
  * decided after its turn was stored (a tap, the trust ladder, a later turn)
  * replays as what it became. Never throws: a history that cannot be hydrated
  * is replayed as stored.
+ *
+ * A card whose run lives in another workspace (`workspace` on the card — one
+ * the person's assistant brought back) is read THERE, as the person: only
+ * when they can still act in that workspace (`actAs`, the rule switching to
+ * it applies). One they can no longer reach is dropped from the replay, never
+ * read under this conversation's workspace.
  * @param orgId - The workspace.
  * @param turns - The stored turns.
+ * @param userId - Who the turn runs for; without one, no other workspace is read.
  */
-export async function withLiveCardState(orgId: string, turns: HistoryTurn[] | undefined): Promise<HistoryTurn[] | undefined> {
-  const ids = [...new Set((turns ?? []).flatMap(t => entries(t.runs).filter(r => r.type === 'card' && typeof r.runId === 'number').map(r => r.runId!)))];
-  if (!turns || ids.length === 0) {
+export async function withLiveCardState(orgId: string, turns: HistoryTurn[] | undefined, userId?: string): Promise<HistoryTurn[] | undefined> {
+  const cards = (turns ?? []).flatMap(t => entries(t.runs).filter(r => r.type === 'card' && typeof r.runId === 'number'));
+  if (!turns || cards.length === 0) {
     return turns;
+  }
+  const home = (r: RunEntry): string => r.workspace?.id ?? orgId;
+  const idsByWorkspace = new Map<string, Set<number>>();
+  for (const r of cards) {
+    idsByWorkspace.set(home(r), (idsByWorkspace.get(home(r)) ?? new Set()).add(r.runId!));
   }
   try {
     const { and, eq, inArray } = await import('drizzle-orm');
     const { db } = await import('@/libs/DB');
     const { actionRunSchema } = await import('@/models/Schema');
-    const rows = await db
-      .select({ id: actionRunSchema.id, status: actionRunSchema.status, result: actionRunSchema.result, error: actionRunSchema.error })
-      .from(actionRunSchema)
-      .where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, ids)));
-    const byId = new Map(rows.map(r => [r.id, r]));
+    const { actAs } = await import('@/services/workspace/actAs');
+    type LiveRow = { id: number; status: string; result: unknown; error: string | null };
+    const rowsByWorkspace = new Map<string, Map<number, LiveRow>>();
+    const unreachable = new Set<string>();
+    for (const [workspace, ids] of idsByWorkspace) {
+      if (workspace !== orgId && !(userId && await actAs(userId, workspace))) {
+        unreachable.add(workspace);
+        continue;
+      }
+      const rows = await db
+        .select({ id: actionRunSchema.id, status: actionRunSchema.status, result: actionRunSchema.result, error: actionRunSchema.error })
+        .from(actionRunSchema)
+        .where(and(eq(actionRunSchema.orgId, workspace), inArray(actionRunSchema.id, [...ids])));
+      rowsByWorkspace.set(workspace, new Map(rows.map(r => [r.id, r])));
+    }
     return turns.map((t) => {
       if (!Array.isArray(t.runs)) {
         return t;
       }
       return {
         ...t,
-        runs: entries(t.runs).map((r) => {
-          const row = r.type === 'card' && typeof r.runId === 'number' ? byId.get(r.runId) : undefined;
+        runs: entries(t.runs).flatMap((r) => {
+          if (r.type !== 'card' || typeof r.runId !== 'number') {
+            return [r];
+          }
+          if (unreachable.has(home(r))) {
+            return [];
+          }
+          const row = rowsByWorkspace.get(home(r))?.get(r.runId);
           if (!row) {
-            return r;
+            return [r];
           }
           const outcome = outcomeOf(row.result as Record<string, unknown> | null);
-          return { ...r, status: row.status, ...(outcome ? { outcome } : {}), ...(row.error ? { error: row.error } : {}) };
+          return [{ ...r, status: row.status, ...(outcome ? { outcome } : {}), ...(row.error ? { error: row.error } : {}) }];
         }),
       };
     });

@@ -14,6 +14,14 @@ export type HeadlineStep = {
   /** The step's finished label, e.g. `Read the brand guide`. */
   label: string;
   tool?: string;
+  /**
+   * The phrase this step adds to the line, in both tenses and as written —
+   * "asking Northwind Revenue" / "asked Northwind Revenue" — when its
+   * producer marks it (`ask_workspace`). Preferred over anything inferred
+   * from the label, and never re-cased: a workspace's name is a proper noun.
+   * Rows stored before it existed carry none and read as they always did.
+   */
+  headline?: { running: string; done: string };
 };
 
 const ARTIFACT_TOOLS = new Set(['render_markdown', 'render_document', 'edit_document', 'export_document_pdf', 'render_table', 'render_chart', 'render_record', 'create_artifact', 'update_artifact']);
@@ -27,6 +35,29 @@ function joinPhrases(phrases: string[]): string {
     return phrases[0] ?? '';
   }
   return `${phrases.slice(0, -1).join(', ')} and ${phrases[phrases.length - 1]}`;
+}
+
+/**
+ * The phrase a step's producer marked for the line, in the tense its status
+ * is in: still running reads "asking …", landed or failed reads "asked …".
+ * @param s - The step.
+ */
+function markedPhrase(s: HeadlineStep): string | null {
+  if (!s.headline) {
+    return null;
+  }
+  return s.status === 'start' || s.status === 'progress' ? s.headline.running : s.headline.done;
+}
+
+/**
+ * What a delegation with no marked phrase adds to the headline. A subagent
+ * row from the trace emitter is a name with "finished" or a hand-off verb
+ * around it, and reads as consulting that name; so does an ask stored by 5.0,
+ * whose finished label was "<Workspace> answered".
+ * @param s - The delegate step.
+ */
+function delegatePhrase(s: HeadlineStep): string {
+  return `consulted ${s.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to /, '').replace(/ (?:finished|answered)$/, '')}`;
 }
 
 /**
@@ -53,9 +84,7 @@ export function stepHeadline(steps: HeadlineStep[], sources = 0): string {
     if (s.kind === 'search' || (s.tool && ARTIFACT_TOOLS.has(s.tool))) {
       continue;
     }
-    const phrase = s.kind === 'delegate'
-      ? `consulted ${s.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to /, '').replace(/ finished$/, '')}`
-      : lower(s.label);
+    const phrase = markedPhrase(s) ?? (s.kind === 'delegate' ? delegatePhrase(s) : lower(s.label));
     if (!phrases.includes(phrase)) {
       phrases.push(phrase);
     }

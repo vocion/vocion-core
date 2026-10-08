@@ -209,6 +209,13 @@ export type TraceNodeEvent = {
    * re-derives it when the status changes.
    */
   labels?: { running: string; done: string };
+  /**
+   * What this step adds to a folded group's one line, in both tenses and as
+   * written ("asked Northwind Revenue"), when its producer says so
+   * (`libs/chat/stepHeadline.ts`). Absent: the line is composed from `label`,
+   * as it was for every row before this existed.
+   */
+  headline?: { running: string; done: string };
   /** For skills / drafts / delegates. */
   confidence?: number;
   /** Sources this node surfaced — bubbles up to the message-level "Grounded in". */
@@ -511,6 +518,14 @@ export type RuntimeContext = {
    * reach another workspace are present only there. Absent reads as shared.
    */
   workspaceKind?: 'shared' | 'personal';
+  /**
+   * The surface this turn answers on draws the turn's `card` events where the
+   * person reads the answer — the app's chat (`rpc/agent/stream`), and only
+   * there. A text, a Slack thread, an email, a schedule or an MCP caller gets
+   * the turn's words alone, so a tool must not tell the model a card is on
+   * screen unless this is true. Absent reads as false.
+   */
+  rendersCards?: boolean;
   /** Per-agent retrieval tuning. */
   searchConfig: SearchConfig;
   /**

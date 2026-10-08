@@ -50,7 +50,7 @@ export type ConversationRun
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; decision?: { action: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; workspace?: import('@/libs/cards/card').CardWorkspace; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; decision?: { action: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
@@ -69,6 +69,8 @@ export type ConversationTraceNode = {
   result?: string;
   /** Both tenses of the step's name, when a labeler supplied them. */
   labels?: { running: string; done: string };
+  /** What the step adds to a folded group's line, both tenses, as written (`stepHeadline`). */
+  headline?: { running: string; done: string };
   confidence?: number;
   citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
   /** How many text runs had started when this step began — its place between the passages. */

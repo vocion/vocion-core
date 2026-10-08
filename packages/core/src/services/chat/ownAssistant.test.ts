@@ -98,6 +98,19 @@ describe('a shared number', () => {
     expect(await db.select().from(conversationSchema).where(eq(conversationSchema.orgId, FACTORY))).toEqual([]);
   });
 
+  // 5.0.1 review: a text gets the turn's words and nothing else, so its turn
+  // is never told that its surface draws cards. A tool that brings back a
+  // proposal (`ask_workspace`) then gives the person its link as written
+  // instead of saying a card is waiting in a thread they cannot see.
+  it('runs the turn as one whose surface draws no cards', async () => {
+    const runAgent = vi.fn(async (_opts: { rendersCards?: boolean }) => ({ response: 'Two things are waiting on you.', traceId: 't', toolCalls: [] }));
+
+    await svc.handleInbound(smsAdapter(), text(RILEY_PHONE, SHARED, 'what is on my plate?'), { runAgent: runAgent as never, preflight: ok });
+
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    expect(runAgent.mock.calls[0]![0].rendersCards).toBeUndefined();
+  });
+
   it('makes a sender\'s personal workspace, with its assistant, when it is not there yet', async () => {
     const adapter = smsAdapter();
     const runAgent = vi.fn(async () => ({ response: 'Nothing is waiting on you.', traceId: 't', toolCalls: [] }));

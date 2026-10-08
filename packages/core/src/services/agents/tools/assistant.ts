@@ -18,8 +18,22 @@
  * Talk is private, work lands in the workspace: this thread stays the
  * person's alone, and what the workspace was asked, what it answered and any
  * card or question it raised are that workspace's records, visible to its
- * members and decided there. The answer comes back with links built by
- * `workspaceUrl`, so the person is one move from acting on it.
+ * members. The answer comes back with links built by `workspaceUrl`, so the
+ * person is one move from acting on it.
+ *
+ * A proposal it filed that waits on the person comes back as a CARD, here:
+ * the same card, put up in this thread with the workspace it lives in
+ * (`card.workspace`), decided from here as the person (`actAs`,
+ * `routers/actingWorkspace.ts`) while the run stays in the workspace's review
+ * queue. Only a run still `pending` is a card: one that already ran (the
+ * person's word runs, with undo), failed or was turned down is not waiting on
+ * anyone, and its line in the answer says how it stands.
+ *
+ * The links come back on every surface. Only the app's chat draws a card
+ * (`ctx.rendersCards`); a text, a Slack thread or an email gets the turn's
+ * words alone. So the model is told a card is up only where one is, and it is
+ * always told to give the person the links as written, so they are one move
+ * from deciding wherever they read the answer.
  *
  * Identity. Both tools exist only in a personal workspace (`ctx.workspaceKind`),
  * and on every call they check that the person the turn runs for owns it
@@ -30,23 +44,31 @@
  * "not yours", so a workspace's existence is not disclosed by asking for it.
  *
  * The work shows live. The ask is one delegate row in this turn's activity
- * ("Asking Northwind Factory"), and the workspace's own steps indent beneath
- * it as they happen (agent-chat-surface.md §2, §9). The row is drawn here, not
- * by the trace emitter, because only this tool knows the workspace's name and
- * the id its steps hang under (`SELF_TRACED_TOOLS` in `traceEmitter.ts`).
+ * ("Asking Northwind Factory", then "Asked Northwind Factory · Factory Lead
+ * answered"), and the workspace's own steps indent beneath it as they happen
+ * (agent-chat-surface.md §2, §9). The row is drawn here, not by the trace
+ * emitter, because only this tool knows the workspace's name and the id its
+ * steps hang under (`SELF_TRACED_TOOLS` in `traceEmitter.ts`). It names both
+ * tenses (`labels`), and the phrase it adds to a folded group's line in both
+ * tenses (`headline`), so the group says "asked Northwind Factory" as written
+ * (`libs/chat/stepHeadline.ts`).
  */
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { AgentEvent, RuntimeContext, TraceActor, TraceNodeEvent } from '../types';
+import type { Card, CardWorkspace } from '@/libs/cards/card';
+import type { TurnAction } from '@/services/chat/workspaceTurn';
 import type { ActingWorkspace } from '@/services/workspace/actingWorkspaces';
 import { randomUUID } from 'node:crypto';
 import { tool } from '@langchain/core/tools';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { readCard } from '@/libs/cards/card';
 import { db } from '@/libs/DB';
 import { userSchema } from '@/models/Schema';
 import { describeWorkspaces, readWorkspaceRoute, routePrompt, WORKSPACE_ROUTE_BAR } from '@/services/chat/workspaceRoute';
 import { askWorkspace, WorkspaceTurnError } from '@/services/chat/workspaceTurn';
+import { workspaceAddressById } from '@/services/ProjectService';
 import { actAs } from '@/services/workspace/actAs';
 import { listActingWorkspaces, resolveActingWorkspace } from '@/services/workspace/actingWorkspaces';
 
@@ -157,6 +179,42 @@ export function nestUnder(event: TraceNodeEvent, rowId: string): TraceNodeEvent 
   };
 }
 
+/**
+ * What the asked workspace filed, as a card for this thread: the same action
+ * card a turn in that workspace would put up, already filed (`runId`), naming
+ * the workspace its run lives in so the card reads and decides it there.
+ * Null for anything that is not waiting on the person as a proposal — a run
+ * already decided, a filed question (answered on its own page) — and for a
+ * filing the card contract refuses (no action to press); each of those is left
+ * to its link in the tool's text.
+ * @param action - One run the asked workspace's turn filed.
+ * @param workspace - Where it lives.
+ */
+export function raisedCard(action: TurnAction, workspace: CardWorkspace): Card | null {
+  // A run that ran, failed or was turned down is decided: a card would ask
+  // the person to decide it again (Accelerate 1: their word runs, no card).
+  if (action.status !== 'pending' || action.askId !== null) {
+    return null;
+  }
+  const checked = readCard({
+    // One run, one card: the same run brought back twice is the same card.
+    id: `card_run${action.id}`,
+    kind: 'action',
+    title: action.title,
+    actions: action.actionId ? [{ label: action.title, actionId: action.actionId, input: action.input, style: 'primary' }] : [],
+    source: { ...(action.agentSlug ? { agentSlug: action.agentSlug } : {}), tool: 'ask_workspace' },
+    runId: action.id,
+    workspace,
+    // Filed, never `proposed`: a proposed card hands the turn to the person
+    // and ends it (`agents/handOff.ts`), and the assistant still owes its answer.
+    state: 'filed',
+    ...(action.rationale ? { rationale: action.rationale } : {}),
+    ...(action.confidence !== null ? { confidence: action.confidence } : {}),
+    ...(action.suggestedDecision && action.suggestedDecisionReason ? { suggestedDecision: action.suggestedDecision, suggestedDecisionReason: action.suggestedDecisionReason } : {}),
+  });
+  return checked.ok ? checked.card : null;
+}
+
 export function askWorkspaceTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -198,7 +256,11 @@ export function askWorkspaceTool(ctx: RuntimeContext) {
       // beneath it as they happen.
       const rowId = `ask-${randomUUID()}`;
       const actor: TraceActor = { id: 'lead', kind: 'lead', name: ctx.agentSlug ?? 'Assistant' };
-      const labels = { running: `Asking ${target.name}`, done: `${target.name} answered` };
+      // Both tenses name the ask; who answered is the row's result.
+      const labels = { running: `Asking ${target.name}`, done: `Asked ${target.name}` };
+      // What the ask adds to a folded group's line, as written: the workspace's
+      // name is a proper noun, so the line never re-cases it.
+      const headline = { running: `asking ${target.name}`, done: `asked ${target.name}` };
       const row = (status: TraceNodeEvent['status'], extra: Partial<TraceNodeEvent> = {}): AgentEvent => ({
         type: 'trace_node',
         id: rowId,
@@ -207,6 +269,7 @@ export function askWorkspaceTool(ctx: RuntimeContext) {
         status,
         label: status === 'error' ? `${target.name} could not answer` : status === 'done' ? labels.done : labels.running,
         labels,
+        headline,
         detail: message.replace(/\s+/g, ' ').trim().slice(0, 140),
         tool: 'ask_workspace',
         ...extra,
@@ -225,14 +288,34 @@ export function askWorkspaceTool(ctx: RuntimeContext) {
           title: `${asker}'s assistant asked: ${message.replace(/\s+/g, ' ').trim()}`.slice(0, 120),
           surface: 'assistant',
           ...(ctx.conversationId !== undefined ? { parentConversationId: ctx.conversationId } : {}),
-          note: `\n\n--- how I am reaching you ---\nThis was asked by ${asker}'s own assistant, on ${asker}'s behalf, from their personal workspace. ${asker} reads your answer through it, with no screen beside your reply: put the whole answer in the text and cite what you read inline. A card or a question you raise stays here in ${target.name}, where ${asker} decides it; say in words that you raised it. This conversation is ${target.name}'s record and its members can open it.`,
+          note: `\n\n--- how I am reaching you ---\nThis was asked by ${asker}'s own assistant, on ${asker}'s behalf, from their personal workspace. ${asker} reads your answer through it: put the whole answer in the text and cite what you read inline. ${ctx.rendersCards
+            ? `A card you file stays here in ${target.name} as its record, and ${asker} sees it as a card in their own thread and can decide it there`
+            : `A card or a question you raise stays here in ${target.name}, where ${asker} decides it from the link their assistant gives them`}; say in words that you raised it. This conversation is ${target.name}'s record and its members can open it.`,
           onEvent: (event) => {
             if (event.type === 'trace_node') {
               ctx.emit(nestUnder(event, rowId));
             }
           },
         });
-        ctx.emit(row('done', { result: result.truncated ? 'answered in part' : `${result.agentName} answered` }));
+        ctx.emit(row('done', { result: result.truncated ? `${result.agentName} answered in part` : `${result.agentName} answered` }));
+
+        // What it filed and still waits on the person comes back as a card
+        // in this thread, decidable here; the runs stay in the workspace's
+        // review queue. A filed question waits as the QUESTION, answered on
+        // its own page there (the link below), not as the run that filed it.
+        const address = result.actions.length > 0 ? await workspaceAddressById(identity.orgId) : null;
+        const where: CardWorkspace = { id: identity.orgId, slug: target.slug, name: target.name, ...(address ? { accountSlug: address.accountSlug } : {}) };
+        let carded = 0;
+        for (const a of result.actions) {
+          const card = raisedCard(a, where);
+          if (card) {
+            ctx.emit({ type: 'card', card });
+            carded += 1;
+          }
+        }
+        // Said to be on screen only where the surface draws it; the links go
+        // to the person on every surface, so they can act in one move.
+        const onScreen = ctx.rendersCards === true ? carded : 0;
 
         const raised = result.actions.map((a) => {
           const what = a.askId !== null ? 'A question for you' : `Proposed ${a.actionId}`;
@@ -244,7 +327,9 @@ export function askWorkspaceTool(ctx: RuntimeContext) {
           '',
           result.reply.trim() || '(no answer in words)',
           ...(raised.length > 0
-            ? ['', `Raised in ${target.name} — these stay there and the person decides them there; give them these links as written:`, ...raised]
+            ? ['', onScreen > 0
+                ? `Raised in ${target.name} — ${onScreen === 1 ? 'the proposal waiting on the person is' : `the ${onScreen} proposals waiting on the person are`} on ${onScreen === 1 ? 'a card' : 'cards'} in this thread now, where they can decide ${onScreen === 1 ? 'it' : 'them'}; the record stays in ${target.name}. Say in a line what is waiting on them, and give them these links as written:`
+                : `Raised in ${target.name} — these stay there, where the person decides what is waiting on them; say in a line what that is, and give them these links as written:`, ...raised]
             : []),
         ].join('\n');
       } catch (error) {

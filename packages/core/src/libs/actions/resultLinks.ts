@@ -23,6 +23,7 @@
 import type { TypeCodes } from '@/libs/codes';
 import type { RecordLinker } from '@/libs/workspace/recordHref';
 import { nounCode, recordCode } from '@/libs/codes';
+import { workspaceUrl } from '@/libs/links';
 import { inboxHref } from '@/services/inbox/inboxRef';
 
 export type ResultLink = {
@@ -153,4 +154,32 @@ export function resultLinks(run: { actionId: string; input: Meta | null; result:
     }
   }
   return out;
+}
+
+/**
+ * What a run in ANOTHER workspace made, linked into that workspace.
+ *
+ * A card the person's assistant brought back from a workspace it asked reads
+ * its run from there (`review.actionStatus` with `workspaceId`). Its in-app
+ * links are paths of that workspace, and left bare they would open against
+ * the session's — a different workspace's page, or a 404. Each in-app link is
+ * written as `/w/<slug>/…` instead, the entry route that opens it there, and
+ * loses its preview `ref`: the preview pane reads the session's workspace. An
+ * external link is left as it is.
+ * @param workspace - The run's workspace, or null when it is the session's own.
+ * @param workspace.slug - `project.slug`.
+ * @param workspace.accountSlug - Its account's slug, since slugs are unique only inside one.
+ * @param made - The record link and the result links, as read for that workspace.
+ * @param made.href - The record the run made, when it made one.
+ * @param made.links - Everything it made.
+ */
+export function linksInWorkspace(workspace: { slug: string; accountSlug?: string } | null, made: { href: string | null; links: ResultLink[] }): { href: string | null; links: ResultLink[] } {
+  if (!workspace) {
+    return made;
+  }
+  const there = (href: string): string => (href.startsWith('/') && !href.startsWith('//') ? workspaceUrl(workspace.slug, href, { accountSlug: workspace.accountSlug }) : href);
+  return {
+    href: made.href ? there(made.href) : null,
+    links: made.links.map(({ ref: _ref, ...link }) => (link.external ? link : { ...link, href: there(link.href) })),
+  };
 }

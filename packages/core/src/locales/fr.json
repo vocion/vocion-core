@@ -46,6 +46,7 @@
     "show_empty_projects": "Afficher {count} {count, plural, one {projet vide} other {projets vides}}",
     "manage_workspace": "Gérer l’espace",
     "workspace_fallback": "Espace",
+    "personal_workspace": "Personnel",
     "current_workspace": "Espace actuel :",
     "developers": "Développeurs",
     "usage_this_period": "Consommation de la période",
@@ -173,6 +174,7 @@
   },
   "Chat": {
     "rail_label": "Conversation",
+    "open_in_workspace": "Ouvrir dans {workspace}",
     "rail_title": "Discussion",
     "model_control": "Modèle",
     "model_strength": "Puissance du modèle",

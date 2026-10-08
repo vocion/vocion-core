@@ -46,6 +46,7 @@
     "show_empty_projects": "Show {count} empty {count, plural, one {project} other {projects}}",
     "manage_workspace": "Manage workspace",
     "workspace_fallback": "Workspace",
+    "personal_workspace": "Personal",
     "current_workspace": "Current workspace:",
     "developers": "Developers",
     "usage_this_period": "Usage this period",
@@ -173,6 +174,7 @@
   },
   "Chat": {
     "rail_label": "Conversation",
+    "open_in_workspace": "Open in {workspace}",
     "rail_title": "Chat",
     "model_control": "Model",
     "model_strength": "Model strength",

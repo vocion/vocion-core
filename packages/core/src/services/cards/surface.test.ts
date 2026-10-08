@@ -77,3 +77,19 @@ describe('a card filed under done-for-you', () => {
     expect(collector.finalise().runs.find(r => r.type === 'card')).toMatchObject({ rationale: 'So the factory can read the repos.', href: '/dashboard/connectors?add=github' });
   });
 });
+
+describe('a card whose run lives in another workspace', () => {
+  it('goes on the ledger naming that workspace, and is never filed again here', async () => {
+    const events: AgentEvent[] = [];
+    const collector = new RunCollector();
+    const file = vi.fn();
+    const workspace = { id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue' };
+    const card = CardSchema.parse({ id: 'card_run9', kind: 'action', title: 'Send the order form', actions: [{ label: 'Send', actionId: 'email.send' }], runId: 9, state: 'filed', workspace });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await surfaceCard(card, { write: e => events.push(e), collector, file, where: { conversationId: 1, agentSlug: 'assistant' } });
+
+    expect(file).not.toHaveBeenCalled();
+    expect(events).toEqual([{ type: 'card', card }]);
+    expect(collector.finalise().runs.find(r => r.type === 'card')).toMatchObject({ id: 'card_run9', runId: 9, state: 'filed', workspace });
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPollableRunId, isRequestRejected, TERMINAL_STATUSES } from './useActionRunStatus';
+import { FOREIGN_IDLE_MS, isPollableRunId, isRequestRejected, keepPolling, TERMINAL_STATUSES } from './useActionRunStatus';
 
 describe('isPollableRunId', () => {
   it('accepts a real run id', () => {
@@ -37,5 +37,34 @@ describe('TERMINAL_STATUSES', () => {
     expect(TERMINAL_STATUSES.has('rejected')).toBe(true);
     expect(TERMINAL_STATUSES.has('pending')).toBe(false);
     expect(TERMINAL_STATUSES.has('executing')).toBe(false);
+  });
+});
+
+// 5.0.1 review: a card from another workspace has no live topic here, so it
+// polls. It polled every 2–30s for as long as it waited, hidden tab or not.
+describe('keepPolling', () => {
+  const here = { status: 'pending', live: false, foreign: false, hidden: false, idleMs: 0 };
+  const there = { ...here, foreign: true };
+
+  it('stops once the run settles or the stream pushes it, here or there', () => {
+    expect(keepPolling({ ...here, status: 'done' })).toBe(false);
+    expect(keepPolling({ ...here, live: true })).toBe(false);
+    expect(keepPolling({ ...there, status: 'failed' })).toBe(false);
+  });
+
+  it('keeps a card of this workspace polling while its stream is down, whatever the tab does', () => {
+    expect(keepPolling({ ...here, hidden: true, idleMs: FOREIGN_IDLE_MS * 3 })).toBe(true);
+  });
+
+  it('pauses a card from another workspace while the tab is hidden, or once it has sat unchanged past the cap', () => {
+    expect(keepPolling(there)).toBe(true);
+    expect(keepPolling({ ...there, status: 'snoozed', idleMs: FOREIGN_IDLE_MS - 1 })).toBe(true);
+    expect(keepPolling({ ...there, hidden: true })).toBe(false);
+    expect(keepPolling({ ...there, idleMs: FOREIGN_IDLE_MS })).toBe(false);
+  });
+
+  it('retries a failed read only on the same terms', () => {
+    expect(keepPolling({ ...here, status: null })).toBe(true);
+    expect(keepPolling({ ...there, status: null, hidden: true })).toBe(false);
   });
 });

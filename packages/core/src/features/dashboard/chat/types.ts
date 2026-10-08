@@ -7,6 +7,7 @@
  */
 
 import type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
+import type { CardWorkspace } from '@/libs/cards/card';
 import type { TurnStatus } from '@/services/chat/turnStatus';
 
 export type IndexedDocument = {
@@ -46,7 +47,7 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
     /** A card the turn put up (backlog 025) — rendered from the row after a reload. */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; input?: Record<string, unknown>; runId?: number; workspace?: CardWorkspace; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: CardField[]; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision; draft?: { prompt: string; missing: string } }
     /** A person's decision on a card, written as a user turn. */
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
 
@@ -87,6 +88,8 @@ export type TraceNode = {
   result?: string;
   /** Both tenses of the step's name, once known; `label` is re-derived from it as the status changes. */
   labels?: { running: string; done: string };
+  /** What the step adds to a folded group's line, both tenses, as written (`stepHeadline`). */
+  headline?: { running: string; done: string };
   confidence?: number;
   citations?: TraceCitation[];
   /**
@@ -125,6 +128,12 @@ export type RecommendedAction = {
   agentSlug?: string;
   /** Set when the server already filed it into the review queue (act-within-bounds). */
   runId?: number;
+  /**
+   * The workspace that run lives in, when it is not this conversation's — a
+   * card the person's assistant brought back from a workspace it asked. The
+   * card reads and decides it there (`workspaceId` on the review routes).
+   */
+  workspace?: CardWorkspace;
   /** The agent's own recommendation for the queue card, and why. Both or neither. */
   suggestedDecision?: 'approve' | 'reject' | 'snooze';
   suggestedDecisionReason?: string;

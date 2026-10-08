@@ -277,6 +277,8 @@ export type AgentRequest = {
   turnMessage?: string;
   /** The person's own time zone for this turn; falls back to the workspace's. */
   timeZone?: string;
+  /** The surface draws this turn's cards (the app's chat); see `RuntimeContext.rendersCards`. */
+  rendersCards?: boolean;
 };
 
 /**

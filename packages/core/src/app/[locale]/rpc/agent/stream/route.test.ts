@@ -174,6 +174,17 @@ describe('agent stream route — a turn that dies part-way', () => {
     expect(assistant?.status).toBe('incomplete');
   });
 
+  // An ask's card is drawn here and nowhere else (5.0.1 review): only this
+  // route tells the turn its surface draws cards, so a tool may say one is up.
+  it('tells the turn this surface draws its cards', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(finishes);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+
+    await postTurn(conv.id, 'how many deals closed?');
+
+    expect(vi.mocked(runAgentDeep).mock.calls.at(-1)?.[0].rendersCards).toBe(true);
+  });
+
   it('marks a turn that finishes `complete`, so a healthy answer is not a row nobody can read', async () => {
     vi.mocked(runAgentDeep).mockImplementation(finishes);
     const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });

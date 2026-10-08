@@ -2,6 +2,7 @@
 
 import type { RecommendedAction } from './types';
 import { ArrowRight, CalendarClock, Check, Clock3, FilePen, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X, Zap } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
@@ -10,12 +11,11 @@ import { cardDedupKey } from '@/libs/actions/cardDedupKey';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
-import { inboxHref } from '@/services/inbox/inboxRef';
 import { openAgentSurface } from './agentSurface';
 import { useRecordCardDecision } from './cards/CardDecisions';
 import { ConnectLinkCard, isConnectLinkCard } from './ConnectLinkCard';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
-import { describeActionEffect, describeCardState } from './recommendedAction';
+import { describeActionEffect, describeCardState, proposalHref } from './recommendedAction';
 import { answerInput, rulingChoices } from './rulingChoices';
 import { TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
@@ -35,7 +35,25 @@ import { TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
  * page — never a bypass). A card that arrives with `runId` already set was
  * filed by the server under the conversation's `act-within-bounds` autonomy
  * and starts in the status view.
+ *
+ * A card whose run lives in ANOTHER workspace (`rec.workspace` — one the
+ * person's assistant brought back from a workspace it asked) is the same card:
+ * it reads, decides, defers and undoes the run there (`workspaceId` on every
+ * review call, authorized by `actAs`), and its review link opens it there. The
+ * record stays that workspace's.
  */
+
+/**
+ * "Open in <workspace>", in the person's language: the link on a card whose
+ * run lives in another workspace. Its own component so only such a card reads
+ * the translations.
+ * @param props - The workspace.
+ * @param props.name - Its name.
+ */
+function OpenInWorkspace({ name }: { name: string }) {
+  const t = useTranslations('Chat');
+  return <>{t('open_in_workspace', { workspace: name })}</>;
+}
 
 /** A secondary control on a card: an icon, no border, a tint on hover. */
 const QUIET_ICON = 'inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-60';
@@ -95,7 +113,10 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
   const [choosing, setChoosing] = useState<string | null>(null);
   // Bumped after a decision so the status is read now, not on the backoff.
   const [pollNonce, setPollNonce] = useState(0);
-  const live = useActionRunStatus(phase.runId, pollNonce);
+  // Where the run lives when it is not this conversation's workspace: every
+  // call about it goes there.
+  const where = rec.workspace ? { workspaceId: rec.workspace.id } : {};
+  const live = useActionRunStatus(phase.runId, pollNonce, rec.workspace?.id);
   // One gesture at a time, closed synchronously on the first press.
   const once = useSingleFlight();
   /**
@@ -169,7 +190,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
       setPhase({ status: 'proposed', runId: res.runId });
       onProposed?.(res.runId);
       setDeciding('approve');
-      await client.review.decideAction({ id: res.runId, decision: 'approve' });
+      await client.review.decideAction({ id: res.runId, decision: 'approve', ...where });
       record('approve', res.runId);
       settle('approve');
     } catch (err) {
@@ -209,7 +230,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
         setPhase({ status: 'proposed', runId });
         onProposed?.(runId);
       }
-      await client.review.decideAction({ id: runId, decision: 'approve', editedInput: answerInput(rec.input, optionId) });
+      await client.review.decideAction({ id: runId, decision: 'approve', editedInput: answerInput(rec.input, optionId), ...where });
       record('approve', runId);
       settle('approve');
     } catch (err) {
@@ -226,7 +247,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
     setDeciding(decision);
     setDecideError(null);
     try {
-      await client.review.decideAction({ id: phase.runId, decision });
+      await client.review.decideAction({ id: phase.runId, decision, ...where });
       record(decision, phase.runId);
       settle(decision);
     } catch (err) {
@@ -264,7 +285,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
         onProposed?.(runId);
       }
       const until = deferUntil();
-      await client.review.snoozeAction({ id: runId, until: until.toISOString(), note: 'Deferred from chat' });
+      await client.review.snoozeAction({ id: runId, until: until.toISOString(), note: 'Deferred from chat', ...where });
       setDeferredUntil(until);
     } catch (err) {
       setDecideError((err as Error).message);
@@ -303,7 +324,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
     setDeciding('undo');
     setDecideError(null);
     try {
-      await client.review.undoAction({ id: phase.runId });
+      await client.review.undoAction({ id: phase.runId, ...where });
       setAsked(null);
       setPollNonce(n => n + 1);
     } catch (err) {
@@ -428,7 +449,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
   // state line comes back: "You chose X · Undo".
   const pendingRuling = Boolean(choices) && canApprove && !draft && !deferredUntil && (status === null || status === 'pending');
   const title = choices ? str(rec.input.title).trim() || rec.label : rec.label;
-  const reviewHref = phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal';
+  const reviewHref = proposalHref(rec, phase.runId);
   const decideInReviewIcon = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -560,8 +581,8 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
               {deferredLine(deferredUntil)}
             </span>
             {phase.runId !== undefined && (
-              <Link href={inboxHref('proposal', phase.runId)} className="inline-flex items-center gap-1 text-sm text-brand-amber-deep hover:opacity-90">
-                Open in review
+              <Link href={proposalHref(rec, phase.runId)} className="inline-flex items-center gap-1 text-sm text-brand-amber-deep hover:opacity-90">
+                {rec.workspace ? <OpenInWorkspace name={rec.workspace.name} /> : 'Open in review'}
                 <ArrowRight className="size-3.5" aria-hidden />
               </Link>
             )}
@@ -616,7 +637,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
                         href={reviewHref}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
                       >
-                        {status === 'pending' ? 'Decide in review' : 'Open in review'}
+                        {rec.workspace ? <OpenInWorkspace name={rec.workspace.name} /> : status === 'pending' ? 'Decide in review' : 'Open in review'}
                         <ArrowRight className="size-3.5" aria-hidden />
                       </Link>
                     )}

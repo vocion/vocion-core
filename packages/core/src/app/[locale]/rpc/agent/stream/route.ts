@@ -293,6 +293,9 @@ export async function POST(request: Request): Promise<Response> {
       conversationHistory,
       pageContext: pageContext ?? undefined,
       timeZone,
+      // This surface draws the turn's cards (`surfaceCard` below), so a tool
+      // may tell the model a card is on screen; no other caller sets this.
+      rendersCards: true,
       ...(deliverable ? { deliverable } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       modelPrefs,

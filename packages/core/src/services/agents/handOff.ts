@@ -16,6 +16,7 @@
  * run has nobody waiting, and its cards queue for Review while it carries on.
  */
 
+import type { AgentEvent } from './types';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 
 /** The turn ended at a card a person has to act on. Not a failure. */
@@ -105,4 +106,24 @@ export class HandOffGateCallback extends BaseCallbackHandler {
   override async handleLLMStart(): Promise<void> {
     this.guard.beforeModelCall();
   }
+}
+
+/**
+ * The card an event puts in front of the person, by its title — what the
+ * turn counts as already on screen, so the card pass (`cardBackstop.ts`)
+ * never writes the same card a second time. A recommendation is one; so is a
+ * filed card a tool put up with an action to press (a proposal the person's
+ * assistant brought back from a workspace it asked — written again, it would
+ * be filed into the asking workspace too). Anything else is null: a
+ * connection card names no action, and nothing the pass writes repeats it.
+ * @param event - What the turn just emitted.
+ */
+export function cardOnScreen(event: AgentEvent): string | null {
+  if (event.type === 'recommended_action') {
+    return event.recommendation.label;
+  }
+  if (event.type === 'card' && event.card.runId !== undefined && event.card.actions.length > 0) {
+    return event.card.title;
+  }
+  return null;
 }

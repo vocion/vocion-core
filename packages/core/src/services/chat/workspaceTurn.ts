@@ -46,6 +46,7 @@ import { autoProposeRecommendationDetailed } from '@/services/chat/autoPropose';
 import { scheduleConversationTitle } from '@/services/chat/conversationTitle';
 import { RunCollector } from '@/services/chat/runCollector';
 import { appendMessage, createConversation, getConversation, listMessages, toHistoryTurns } from '@/services/ConversationService';
+import { describeActionRun } from '@/services/inbox/describeActionRun';
 import { workspaceAddressById } from '@/services/ProjectService';
 import { allowedSourceSlugsForUser } from '@/services/SourceAccessService';
 import { getWorkspaceLead } from '@/services/TeamService';
@@ -131,6 +132,23 @@ export type TurnAction = {
   askId: number | null;
   /** The review-queue (or ask) page for this item, workspace-aware. */
   url: string | null;
+  /**
+   * What it is, as a person reads it: the card's own words when the agent put
+   * one up, else the run described from its payload ("Update Contoso's close
+   * date"), so a caller can show it without reading the run again.
+   */
+  title: string;
+  /** What it would run with — the payload a card previews (an email's to and subject, a ruling's options). */
+  input: Record<string, unknown>;
+  /** Why the proposer believes the payload is right, when it said. */
+  rationale: string | null;
+  /** How sure it was, 0–1, when it said. */
+  confidence: number | null;
+  /** The agent whose judgement it is, when the run names one. */
+  agentSlug: string | null;
+  /** What the agent recommends the reviewer do, and why — both or neither. */
+  suggestedDecision: 'approve' | 'reject' | 'snooze' | null;
+  suggestedDecisionReason: string | null;
 };
 
 export type AskWorkspaceInput = {
@@ -198,7 +216,7 @@ const defaultDeps: WorkspaceTurnDeps = { runAgent: runAgentDeep, preflight: pref
 const FILING_TOOLS = new Set(['propose_action', 'file_ask', 'withdraw_ask']);
 
 type ToolProgress = { type: 'tool_progress'; tool: string; meta?: { runId?: unknown; status?: unknown; outcome?: unknown } };
-type FiledRun = { runId: number; tool: string; outcome: string | null };
+type FiledRun = { runId: number; tool: string; outcome: string | null; label?: string };
 
 /**
  * A note under the message telling the model how it is being reached. The
@@ -349,7 +367,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
         if (event.recommendation.runId === undefined && event.recommendation.actionId) {
           pending.push(autoProposeRecommendationDetailed({ orgId, userId: actorId, rec: event.recommendation }).then((done) => {
             if (done !== null) {
-              filed.push({ runId: done.runId, tool: 'recommend_action', outcome: null });
+              filed.push({ runId: done.runId, tool: 'recommend_action', outcome: null, label: event.recommendation.label });
               collector.onCardFiled(event.recommendation.label, event.recommendation.actionId, done.runId, { state: done.status === 'done' ? 'decided' : 'filed', ref: done.ref });
             }
           }));
@@ -494,7 +512,7 @@ async function actionsFor(orgId: string, workspace: WorkspaceAddress | null, fil
     return [];
   }
   const rows = await db
-    .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, status: actionRunSchema.status, result: actionRunSchema.result })
+    .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, status: actionRunSchema.status, result: actionRunSchema.result, input: actionRunSchema.input, proposal: actionRunSchema.proposal, invokedBy: actionRunSchema.invokedBy })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.orgId, orgId), inArray(actionRunSchema.id, [...byId.keys()])));
   const rowById = new Map(rows.map(r => [r.id, r]));
@@ -508,6 +526,25 @@ async function actionsFor(orgId: string, workspace: WorkspaceAddress | null, fil
     if (workspace) {
       url = askId !== null ? askUrlFor(workspace, askId) : workspaceUrl(workspace.slug, `/dashboard/inbox/proposal-${row.id}`, { absolute: true, accountSlug: workspace.accountSlug });
     }
-    return [{ id: row.id, actionId: row.actionId, status: row.status, tool: f.tool, outcome: f.outcome, askId, url }];
+    const input = (row.input ?? {}) as Record<string, unknown>;
+    const proposal = row.proposal ?? null;
+    const described = describeActionRun({ id: row.id, actionId: row.actionId, input, proposal, invokedBy: row.invokedBy });
+    const suggested = proposal?.suggestedDecision && proposal.suggestedDecisionReason ? proposal.suggestedDecision : null;
+    return [{
+      id: row.id,
+      actionId: row.actionId,
+      status: row.status,
+      tool: f.tool,
+      outcome: f.outcome,
+      askId,
+      url,
+      title: f.label?.trim() || described.title,
+      input,
+      rationale: described.rationale,
+      confidence: described.confidence,
+      agentSlug: described.agentSlug,
+      suggestedDecision: suggested,
+      suggestedDecisionReason: suggested ? proposal!.suggestedDecisionReason! : null,
+    }];
   });
 }

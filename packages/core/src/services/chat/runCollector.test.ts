@@ -85,6 +85,17 @@ describe('RunCollector', () => {
     expect(c.finalise().text).toBe(text);
   });
 
+  it('stores the workspace a card\'s run lives in, so a reload still decides it there', () => {
+    const c = new RunCollector();
+    const workspace = { id: 'proj-revenue', slug: 'revenue', name: 'Northwind Revenue' };
+    c.onCard({ id: 'card_run9', label: 'Send the order form', actionId: 'email.send', runId: 9, state: 'filed', workspace });
+    c.onCard({ id: 'card_2', label: 'Draft the reply', actionId: 'email.send' });
+    const cards = c.finalise().runs.filter(r => r.type === 'card');
+
+    expect(cards[0]).toMatchObject({ runId: 9, workspace });
+    expect(cards[1]).not.toHaveProperty('workspace');
+  });
+
   it('stores a card\'s rationale so a reload can show why (#1080)', () => {
     const c = new RunCollector();
     c.onCard({ label: 'Connect GitHub', actionId: '', rationale: 'So the factory can read the repos.', href: '/dashboard/connectors?add=github' });

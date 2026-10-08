@@ -14,6 +14,11 @@ export type SwitcherProject = {
   name: string;
   description?: string | null;
   agentCount?: number;
+  /**
+   * `personal` for the person's own workspace. Its slug is a hash of their id
+   * (`personalProject.ts`) — an address, never a name — so it is not shown.
+   */
+  kind?: 'shared' | 'personal';
 };
 
 /** An account the person belongs to, as the switcher labels it. */
@@ -93,31 +98,60 @@ export function isEmptyProject(p: SwitcherProject): boolean {
 }
 
 /**
- * The switcher's list: filtered by a case-insensitive match on name or slug,
- * empty projects hidden unless `showEmpty`, the active one always kept.
- * @param projects
- * @param opts
- * @param opts.query
- * @param opts.showEmpty
- * @param opts.activeId
+ * The person's own workspace — shown by what it is, "Personal", never by its slug.
+ * @param p - A row of the list.
  */
-export function filterProjects<T extends SwitcherProject>(projects: T[], opts: { query?: string; showEmpty?: boolean; activeId?: string | null }): T[] {
+export function isPersonalProject(p: Pick<SwitcherProject, 'kind'>): boolean {
+  return p.kind === 'personal';
+}
+
+/**
+ * The slug line under a row's name, or null when the row shows none: the
+ * personal workspace's slug is a hash, which reads as noise.
+ * @param p - A row of the list.
+ */
+export function slugLine(p: Pick<SwitcherProject, 'kind' | 'slug'>): string | null {
+  return isPersonalProject(p) ? null : p.slug;
+}
+
+/**
+ * The switcher's list: filtered by a case-insensitive match on the name it
+ * shows or the slug it shows, empty projects hidden unless `showEmpty`, the
+ * active one always kept. The shown name is `nameOf`'s when given — the
+ * personal workspace reads "Personnel" in French, and a person searches for
+ * what they see, not what the row stores.
+ *
+ * `keepEmpty` is an app's picker: every workspace handed to it has the app,
+ * so none is hidden for having no agents yet — a workspace that just installed
+ * the app is exactly the one a person goes looking for.
+ * @param projects - Every workspace the list may show.
+ * @param opts - How to narrow it.
+ * @param opts.query - What the person typed into the search.
+ * @param opts.showEmpty - The empty-projects toggle is on.
+ * @param opts.activeId - The current workspace, kept whatever else holds.
+ * @param opts.keepEmpty - Never hide a row for having no agents.
+ * @param opts.nameOf - The name a row is shown by; its stored name when absent.
+ */
+export function filterProjects<T extends SwitcherProject>(projects: T[], opts: { query?: string; showEmpty?: boolean; activeId?: string | null; keepEmpty?: boolean; nameOf?: (p: T) => string }): T[] {
   const q = (opts.query ?? '').trim().toLowerCase();
+  const nameOf = opts.nameOf ?? ((p: T) => p.name);
   return projects.filter((p) => {
-    if (!opts.showEmpty && isEmptyProject(p) && p.id !== opts.activeId) {
+    if (!opts.keepEmpty && !opts.showEmpty && isEmptyProject(p) && p.id !== opts.activeId) {
       return false;
     }
-    return q === '' || p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q);
+    return q === '' || nameOf(p).toLowerCase().includes(q) || (slugLine(p)?.toLowerCase().includes(q) ?? false);
   });
 }
 
 /**
  * Number of projects hidden by the empty-project rule (for the toggle's label).
- * @param projects
- * @param activeId
+ * None in an app's picker, which hides none.
+ * @param projects - Every workspace the list may show.
+ * @param activeId - The current workspace, never hidden.
+ * @param keepEmpty - Never hide a row for having no agents.
  */
-export function countHiddenEmpty(projects: SwitcherProject[], activeId?: string | null): number {
-  return projects.filter(p => isEmptyProject(p) && p.id !== activeId).length;
+export function countHiddenEmpty(projects: SwitcherProject[], activeId?: string | null, keepEmpty = false): number {
+  return keepEmpty ? 0 : projects.filter(p => isEmptyProject(p) && p.id !== activeId).length;
 }
 
 /**
