@@ -348,8 +348,19 @@ function readDirFiles(dir: string): string[] {
   return names;
 }
 
-export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): PrimitiveFilesResult | null {
-  const contextPath = getWorkspacePath();
+/**
+ * A primitive's files as the drilldown shows them: the project's own
+ * workspace layer, then the inherited core layer.
+ *
+ * `contextPath` is required and has no default: it is the project's OWN
+ * workspace folder (`workspacePathForProject`), never the process-wide
+ * mount, which on a shared host is another company's — its prompts would
+ * show on this project's page under a slug the two happen to share.
+ * @param kind - primitive kind
+ * @param slug - primitive slug
+ * @param contextPath - The project's own workspace folder, or null when it has none here.
+ */
+export function readPrimitiveFiles(kind: PrimitiveKind, slug: string, contextPath: string | null): PrimitiveFilesResult | null {
   if (!contextPath) {
     return null;
   }

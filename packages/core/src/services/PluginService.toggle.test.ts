@@ -82,12 +82,17 @@ describe('pluginWriteTarget', () => {
   it('the mounted project writes the folder; another project writes its own list, and is told the repo file', async () => {
     const dir = mount(REVENUE);
 
-    expect(await pluginWriteTarget(REVENUE, 'metacto-revenue', dir)).toMatchObject({ mode: 'workspace', workspaceDir: dir, blocker: null, owner: null });
-    expect(await pluginWriteTarget(FACTORY, 'squatch-factory', dir)).toMatchObject({ mode: 'project', blocker: null, repoFile: 'workspace/squatch-factory/workspace.yaml', owner: { slug: 'metacto-revenue', name: 'Metacto Revenue' } });
+    expect(await pluginWriteTarget(REVENUE, 'metacto-revenue', dir)).toMatchObject({ mode: 'workspace', workspaceDir: dir, blocker: null });
+
+    const other = await pluginWriteTarget(FACTORY, 'squatch-factory', dir);
+
+    expect(other).toMatchObject({ mode: 'project', blocker: null, repoFile: 'workspace/squatch-factory/workspace.yaml' });
+    // Whose folder it is stays out: on a shared host that names one company to another.
+    expect(other).not.toHaveProperty('owner');
   });
 
   it('no folder at all is the project path too, never a blocker', async () => {
-    expect(await pluginWriteTarget(FACTORY, 'squatch-factory', null)).toMatchObject({ mode: 'project', blocker: null, workspaceDir: null, owner: null });
+    expect(await pluginWriteTarget(FACTORY, 'squatch-factory', null)).toMatchObject({ mode: 'project', blocker: null, workspaceDir: null });
   });
 
   it('a folder the map names for the project is the project\'s to write', async () => {
@@ -120,8 +125,10 @@ describe('togglePluginForProject', () => {
     expect(res.after).toEqual(['software-factory', 'data-rooms', 'proposals']);
     expect(res.note).toContain('Turned on proposals for this project only');
     expect(res.note).toContain('applied from git');
-    expect(res.note).toContain('Metacto Revenue\'s (metacto-revenue)');
-    expect(res.note).toContain('left alone');
+    expect(res.note).toContain('no file was changed');
+    // Nothing of the project whose folder is mounted: not its name, slug or id.
+    expect(res.note).not.toMatch(/Metacto Revenue|metacto-revenue/);
+    expect(res.note).not.toContain(REVENUE);
     expect(res.note).toContain('add "proposals" to plugins: in workspace/squatch-factory/workspace.yaml');
     expect(manifest(dir)).toBe(before);
     expect(await enabledOf(FACTORY)).toEqual(['software-factory', 'data-rooms', 'proposals']);
@@ -145,7 +152,9 @@ describe('togglePluginForProject', () => {
     const res = await togglePluginForProject({ orgId: FACTORY, projectSlug: 'squatch-factory', workspaceDir: null, slug: 'wiki', enabled: true, appliedBy: 'test' });
 
     expect(res.mode).toBe('project');
-    expect(res.note).toContain('no workspace folder is mounted here');
+    // The same words as when another project's folder is mounted, so the
+    // note does not say whether one is.
+    expect(res.note).toContain('no workspace folder of its own on this host');
     expect(await enabledOf(FACTORY)).toEqual(['software-factory', 'wiki']);
   });
 

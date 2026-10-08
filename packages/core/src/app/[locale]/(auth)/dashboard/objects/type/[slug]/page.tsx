@@ -9,6 +9,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
 
@@ -35,8 +36,10 @@ export default async function ObjectTypeDetailPage(props: {
   });
 
   const sourceRelevance = (objType.sourceRelevance ?? {}) as Record<string, number>;
-  const sourceFiles = readPrimitiveFiles('object', slug);
-  const dirtyState = getWorkspaceDirtyState();
+  // This project's own folder, never the host's mount as such (another company's on a shared host).
+  const ownWorkspace = await workspacePathForProject(orgId);
+  const sourceFiles = readPrimitiveFiles('object', slug, ownWorkspace);
+  const dirtyState = getWorkspaceDirtyState(ownWorkspace);
 
   return (
     <>

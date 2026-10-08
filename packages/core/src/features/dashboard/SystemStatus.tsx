@@ -13,6 +13,8 @@ type ServiceCheck = {
 };
 
 type StatusData = {
+  /** `installation`: an operator's view, every workspace on the host. `workspace`: the caller's own. */
+  scope: 'installation' | 'workspace';
   services: ServiceCheck[];
   db: Record<string, unknown>;
   retrieval: Record<string, unknown>;
@@ -103,24 +105,26 @@ export const SystemStatus = () => {
 
   const upCount = data.services.filter(s => s.status === 'up').length;
   const totalCount = data.services.length;
+  // Service health is the operator's view; a workspace sees its own figures only.
+  const showServices = data.scope === 'installation' && totalCount > 0;
 
   return (
     <div className="space-y-6">
       {/* Summary bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className={`flex size-10 items-center justify-center rounded-full ${upCount === totalCount ? 'bg-green-100' : 'bg-amber-100'}`}>
-            {upCount === totalCount
-              ? <CheckCircle2 className="size-5 stroke-green-600" />
-              : <AlertTriangle className="size-5 stroke-amber-600" />}
-          </div>
+          {showServices && (
+            <div className={`flex size-10 items-center justify-center rounded-full ${upCount === totalCount ? 'bg-green-100' : 'bg-amber-100'}`}>
+              {upCount === totalCount
+                ? <CheckCircle2 className="size-5 stroke-green-600" />
+                : <AlertTriangle className="size-5 stroke-amber-600" />}
+            </div>
+          )}
           <div>
             <div className="font-semibold">
-              {upCount}
-              /
-              {totalCount}
-              {' '}
-              services healthy
+              {showServices
+                ? `${upCount}/${totalCount} services healthy`
+                : data.scope === 'installation' ? 'Every workspace on this installation' : 'This workspace'}
             </div>
             <div className="text-xs text-muted-foreground">
               Last checked:
@@ -140,49 +144,51 @@ export const SystemStatus = () => {
         </button>
       </div>
 
-      {/* Service grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {data.services.map(svc => (
-          <div key={svc.name} className="rounded-lg border border-border p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <StatusIcon status={svc.status} />
-                <span className="font-medium">{svc.name}</span>
+      {/* Service grid — operators only */}
+      {showServices && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {data.services.map(svc => (
+            <div key={svc.name} className="rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <StatusIcon status={svc.status} />
+                  <span className="font-medium">{svc.name}</span>
+                </div>
+                <StatusBadge status={svc.status} />
               </div>
-              <StatusBadge status={svc.status} />
-            </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {svc.latencyMs}
-                ms
-              </span>
-              {svc.externalUrl && (
-                <a
-                  href={svc.externalUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 hover:text-foreground"
-                >
-                  Open
-                  <ExternalLink className="size-3" />
-                </a>
+              <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  {svc.latencyMs}
+                  ms
+                </span>
+                {svc.externalUrl && (
+                  <a
+                    href={svc.externalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 hover:text-foreground"
+                  >
+                    Open
+                    <ExternalLink className="size-3" />
+                  </a>
+                )}
+              </div>
+              {svc.details && Object.keys(svc.details).length > 0 && (
+                <div className="mt-2 space-y-0.5">
+                  {Object.entries(svc.details).slice(0, 3).map(([k, v]) => (
+                    <div key={k} className="text-[11px] text-muted-foreground">
+                      {k}
+                      :
+                      {' '}
+                      {String(v)}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-            {svc.details && Object.keys(svc.details).length > 0 && (
-              <div className="mt-2 space-y-0.5">
-                {Object.entries(svc.details).slice(0, 3).map(([k, v]) => (
-                  <div key={k} className="text-[11px] text-muted-foreground">
-                    {k}
-                    :
-                    {' '}
-                    {String(v)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Data stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -216,28 +222,6 @@ export const SystemStatus = () => {
               </div>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* Quick links */}
-      <div className="rounded-lg border border-border p-4">
-        <div className="mb-3 text-sm font-semibold">Platform Links</div>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { label: 'Vocion', url: 'http://localhost:3000' },
-            { label: 'Langfuse', url: 'http://localhost:3200' },
-          ].map(link => (
-            <a
-              key={link.label}
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-            >
-              {link.label}
-              <ExternalLink className="size-3 stroke-muted-foreground" />
-            </a>
-          ))}
         </div>
       </div>
     </div>

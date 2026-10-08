@@ -25,7 +25,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { listProcessorSlugs, processorConfigSchema } from '@/libs/processors/registry';
-import { withManifestDir } from '@/libs/sources/manifestDir';
+import { withManifestDir, withoutReservedKeys } from '@/libs/sources/manifestDir';
 import { withProcessor } from '@/libs/sources/processor';
 import { getConnector, listConnectors } from '@/libs/sources/registry';
 import { agentSchema, knowledgeSourceSchema, memoryNamespaceSchema } from '@/models/Schema';
@@ -248,9 +248,13 @@ export async function upsertSourceRow(
   // shows. All four are reserved keys inside the stored blob rather than
   // columns, and all four are written by whoever holds the pen, this path
   // replaces the blob wholesale.
+  // The authored config never carries a reserved key: each comes from its
+  // named field above, so one sent inside `config` (an API caller choosing
+  // `_manifestDir`, the folder a file source reads) is dropped.
+  const authored = withoutReservedKeys(spec.config);
   const named = spec.name?.trim()
-    ? { ...spec.config, [SOURCE_NAME_KEY]: spec.name.trim() }
-    : { ...spec.config };
+    ? { ...authored, [SOURCE_NAME_KEY]: spec.name.trim() }
+    : authored;
   const payload = {
     orgId,
     slug: spec.slug,

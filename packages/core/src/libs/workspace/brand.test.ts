@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -41,6 +41,25 @@ describe('readWorkspaceBrand', () => {
 
     expect(logoDataUri('../../etc/passwd', root)).toBeUndefined();
     expect(logoDataUri('data:image/png;base64,AAAA', root)).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('a logo in a sibling company\'s folder, or behind a committed symlink, is refused', () => {
+    // Workspaces mounted side by side: /workspace/northwind and
+    // /workspace/northwind-labs. A prefix test reads the second as inside
+    // the first; so does a link that git carried into the folder.
+    const host = mkdtempSync(path.join(tmpdir(), 'brand-host-'));
+    const root = path.join(host, 'northwind');
+    const sibling = path.join(host, 'northwind-labs');
+    mkdirSync(root);
+    mkdirSync(sibling);
+    writeFileSync(path.join(root, 'mark.svg'), '<svg>northwind</svg>');
+    writeFileSync(path.join(sibling, 'mark.svg'), '<svg>labs</svg>');
+    symlinkSync(path.join(sibling, 'mark.svg'), path.join(root, 'linked.svg'));
+
+    expect(logoDataUri('mark.svg', root)).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(logoDataUri(path.join(sibling, 'mark.svg'), root)).toBeUndefined();
+    expect(logoDataUri('../northwind-labs/mark.svg', root)).toBeUndefined();
+    expect(logoDataUri('linked.svg', root)).toBeUndefined();
   });
 
   it('roles that name an unknown token are skipped rather than emitted broken', () => {

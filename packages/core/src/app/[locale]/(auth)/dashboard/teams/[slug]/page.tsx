@@ -13,6 +13,7 @@ import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { listAgents } from '@/services/AgentService';
 import { getTeam } from '@/services/TeamService';
@@ -48,8 +49,10 @@ export default async function TeamDetailPage(props: {
   const wired = new Set(agents.filter(a => memberSlugs.has(a.slug)).flatMap(a => a.skillSlugs ?? []));
   const boundary = { total: wired.size, gated: 0 };
 
-  const sourceFiles = readPrimitiveFiles('team', slug);
-  const dirtyState = getWorkspaceDirtyState();
+  // This project's own folder, never the host's mount as such (another company's on a shared host).
+  const ownWorkspace = await workspacePathForProject(orgId);
+  const sourceFiles = readPrimitiveFiles('team', slug, ownWorkspace);
+  const dirtyState = getWorkspaceDirtyState(ownWorkspace);
 
   return (
     <TeamDetailScreen

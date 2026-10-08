@@ -40,8 +40,14 @@ symlinkSync(join(OUTSIDE, 'missions', 'stolen.yaml'), join(WORKSPACE, 'workflows
 
 const ORIGINAL_WORKSPACE_PATH = process.env.WORKSPACE_PATH;
 
+// A different company's folder mounted process-wide, to prove the drilldown
+// reads the folder it is handed and never the host's mount as such.
+const MOUNTED_ELSEWHERE = join(ROOT, 'workspace-kestrel');
+mkdirSync(join(MOUNTED_ELSEWHERE, 'missions'), { recursive: true });
+writeFileSync(join(MOUNTED_ELSEWHERE, 'missions', 'real-mission.yaml'), 'name: Kestrel Mission\nprompt: kestrel-only\n');
+
 beforeEach(() => {
-  process.env.WORKSPACE_PATH = WORKSPACE;
+  process.env.WORKSPACE_PATH = MOUNTED_ELSEWHERE;
 });
 
 afterEach(() => {
@@ -56,20 +62,20 @@ describe('readPrimitiveFiles — slug containment', () => {
   it('refuses a traversal slug on the flat-file kinds instead of reading outside the workspace', () => {
     // Climbs out of workspace-acme/missions onto a real file. Without the
     // guard its contents go to whoever loaded the page.
-    const result = readPrimitiveFiles('mission', '../../outside-any-workspace/missions/stolen');
+    const result = readPrimitiveFiles('mission', '../../outside-any-workspace/missions/stolen', WORKSPACE);
 
     expect(result).toBeNull();
   });
 
   it('refuses a traversal slug on the directory kinds', () => {
     // Same climb, but onto a real directory of files rather than one file.
-    const result = readPrimitiveFiles('workflow', '../../outside-any-workspace/workflows/stolen-workflow');
+    const result = readPrimitiveFiles('workflow', '../../outside-any-workspace/workflows/stolen-workflow', WORKSPACE);
 
     expect(result).toBeNull();
   });
 
   it('drops a file that is a symlink pointing out of the workspace, keeping the rest of the folder', () => {
-    const result = readPrimitiveFiles('workflow', 'linked-file-workflow');
+    const result = readPrimitiveFiles('workflow', 'linked-file-workflow', WORKSPACE);
 
     expect(JSON.stringify(result)).not.toContain('leaked-by-traversal');
     // The legitimate file beside it still loads — one bad link does not
@@ -78,14 +84,30 @@ describe('readPrimitiveFiles — slug containment', () => {
   });
 
   it('still reads a legitimate directory-backed primitive', () => {
-    const result = readPrimitiveFiles('workflow', 'real-workflow');
+    const result = readPrimitiveFiles('workflow', 'real-workflow', WORKSPACE);
 
     expect(result?.files.map(f => f.path)).toContain('workflows/real-workflow/workflow.yaml');
   });
 
   it('still reads a legitimate flat-file primitive', () => {
-    const result = readPrimitiveFiles('mission', 'real-mission');
+    const result = readPrimitiveFiles('mission', 'real-mission', WORKSPACE);
 
     expect(result?.files[0]?.content).toContain('Real Mission');
+  });
+});
+
+describe('readPrimitiveFiles — the project\'s own folder, never the host\'s mount', () => {
+  it('reads the folder it is handed, not WORKSPACE_PATH, even when both hold the slug', () => {
+    const result = readPrimitiveFiles('mission', 'real-mission', WORKSPACE);
+
+    expect(result?.files[0]?.content).toContain('Real Mission');
+    expect(JSON.stringify(result)).not.toContain('kestrel-only');
+  });
+
+  it('shows nothing from the workspace layer for a project with no folder of its own here', () => {
+    // WORKSPACE_PATH is set (another company's folder), but this project has
+    // none: the old reader fell back to the mount and showed the other
+    // company's mission under this project's slug.
+    expect(readPrimitiveFiles('mission', 'real-mission', null)).toBeNull();
   });
 });

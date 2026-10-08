@@ -116,6 +116,10 @@ describe('plugins.set', () => {
 
     expect(res).toMatchObject({ mode: 'project', applied: null, after: ['software-factory', 'wiki'] });
     expect(res.note).toContain('workspace/squatch-factory/workspace.yaml');
+    // The mounted folder is another project's: nothing in the answer names it.
+    expect(JSON.stringify(res)).not.toMatch(/Metacto Revenue|metacto-revenue/);
+    expect(JSON.stringify(res)).not.toContain(REVENUE);
+    expect(JSON.stringify(res)).not.toContain(dir);
     expect(manifest(dir)).toBe(before);
     expect(await enabledOf(FACTORY)).toEqual(['software-factory', 'wiki']);
     expect(await enabledOf(REVENUE)).toEqual([]);

@@ -128,7 +128,7 @@ describe('readRollupDeclarations', () => {
   it('reads the software-factory plugin\'s declarations when the mounted workspace turns it on', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rollups-'));
     dirs.push(dir);
-    writeFileSync(join(dir, 'workspace.yaml'), 'version: 1\norgId: t\nname: t\nplugins: [software-factory]\n');
+    writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: t\nplugins: [software-factory]\n`);
     process.env.WORKSPACE_PATH = dir;
 
     const decls = await readRollupDeclarations(ORG);
@@ -152,7 +152,7 @@ describe('readRollupDeclarations', () => {
   it('a workspace type of the same slug replaces the plugin\'s declarations', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rollups-'));
     dirs.push(dir);
-    writeFileSync(join(dir, 'workspace.yaml'), 'version: 1\norgId: t\nname: t\nplugins: [software-factory]\n');
+    writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: t\nplugins: [software-factory]\n`);
     mkdirSync(join(dir, 'objects', 'request'), { recursive: true });
     writeFileSync(join(dir, 'objects', 'request', 'type.yaml'), 'slug: request\nlabel: Request\nrollups:\n  - {field: spend, from: {type: engineering_task, by: requestId}, sum: actualCents}\n');
     process.env.WORKSPACE_PATH = dir;
@@ -161,6 +161,22 @@ describe('readRollupDeclarations', () => {
 
     expect(decls.filter(d => d.parentType === 'request').map(d => d.rollup.field)).toEqual(['spend']);
     expect(decls.some(d => d.parentType === 'release')).toBe(true);
+  });
+
+  it('never reads another company\'s mounted folder: its types, and the plugins it turns on, are not this org\'s', async () => {
+    // One host, two companies. The folder on WORKSPACE_PATH is this test
+    // org's; a second org on the same host shares the type slug `request`.
+    // Reading the mount for every org computed this org's rollups onto the
+    // other org's records.
+    const dir = mkdtempSync(join(tmpdir(), 'rollups-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: t\nplugins: [software-factory]\n`);
+    mkdirSync(join(dir, 'objects', 'request'), { recursive: true });
+    writeFileSync(join(dir, 'objects', 'request', 'type.yaml'), 'slug: request\nlabel: Request\nrollups:\n  - {field: spend, from: {type: engineering_task, by: requestId}, sum: actualCents}\n');
+    process.env.WORKSPACE_PATH = dir;
+
+    expect((await readRollupDeclarations(ORG)).map(d => d.rollup.field)).toContain('spend');
+    expect(await readRollupDeclarations('org_kestrel_rollups')).toEqual([]);
   });
 
   it('is empty with nothing mounted and nothing on the project', async () => {

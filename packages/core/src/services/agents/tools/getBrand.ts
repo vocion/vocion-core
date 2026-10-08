@@ -13,12 +13,22 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { brandForAgent, readWorkspaceBrand } from '@/libs/workspace/brand';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 
-export function getBrandTool(_ctx: RuntimeContext) {
+/**
+ * The tool, bound to the run's project. The brand is read from THAT project's
+ * own workspace folder — never the folder mounted on the host as such, which
+ * on a shared host is another company's, so one company's agent would write
+ * in another company's colours, logo and voice.
+ * @param ctx - The run; `ctx.orgId` is the project whose brand is read.
+ */
+export function getBrandTool(ctx: RuntimeContext) {
   return tool(
     async () => {
-      const { brand, issues } = readWorkspaceBrand();
+      const own = await workspacePathForProject(ctx.orgId);
+      const { brand, issues } = readWorkspaceBrand(own ? fromRepoRoot(own) : null);
       if (!brand) {
         return issues.length
           ? `brand.yaml could not be read: ${issues.map(i => i.message).join('; ')}. Fix it in the workspace; until then use the framework's default palette and say the document is unbranded.`

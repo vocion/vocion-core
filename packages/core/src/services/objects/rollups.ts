@@ -1,12 +1,13 @@
 import type { Rollup } from '@/libs/workspace/schemas';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import process from 'node:process';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { enabledPluginsFromWorkspaceDir, loadPlugin } from '@/libs/workspace/plugins';
+import { workspacePathForProject } from '@/libs/workspace/project-path';
 import { RollupSchema } from '@/libs/workspace/schemas';
 import { businessObjectSchema, businessObjectTypeSchema, projectSchema } from '@/models/Schema';
 
@@ -73,17 +74,22 @@ function readTypeDir(objectsDir: string, into: RollupDeclaration[], seenTypes: S
 }
 
 /**
- * Every rollup the org's object types declare — the mounted workspace's own
- * `objects/` first, then the plugins its `workspace.yaml` turns on, then the
- * plugins on the org's project row. A type the workspace authors wins over a
- * plugin's of the same slug, as everywhere else.
+ * Every rollup the org's object types declare — the org's own workspace
+ * folder's `objects/` first, then the plugins its `workspace.yaml` turns on,
+ * then the plugins on the org's project row. A type the workspace authors
+ * wins over a plugin's of the same slug, as everywhere else.
+ *
+ * The folder is the org's OWN (`workspacePathForProject`), never the host's
+ * mount as such: on a shared host that is another company's, and its rollups
+ * would be computed onto this org's records under a type slug the two share.
  * @param orgId - Tenant / project id.
  */
 export async function readRollupDeclarations(orgId: string): Promise<RollupDeclaration[]> {
   const out: RollupDeclaration[] = [];
   const seenTypes = new Set<string>();
   const seenPlugins = new Set<string>();
-  const ws = process.env.WORKSPACE_PATH ?? process.env.CONTEXT_PATH ?? null;
+  const own = await workspacePathForProject(orgId);
+  const ws = own ? fromRepoRoot(own) : null;
   if (ws && existsSync(/* turbopackIgnore: true */ ws)) {
     readTypeDir(join(ws, 'objects'), out, seenTypes);
     for (const plugin of enabledPluginsFromWorkspaceDir(ws)) {
