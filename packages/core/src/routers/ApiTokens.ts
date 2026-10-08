@@ -183,6 +183,9 @@ export const listPlatformsRoute = os.handler(async () => {
   return listPlatforms().map(platform => ({
     id: platform.id,
     label: platform.label,
+    // The vendor's brand, for the tile beside its name. Null for a platform
+    // that is not one vendor.
+    brand: platform.brand ?? null,
     keySource: platform.keySource,
     // Whether saving a second credential here replaces the first or sits
     // alongside it. The form's warnings turn on this, and getting it wrong

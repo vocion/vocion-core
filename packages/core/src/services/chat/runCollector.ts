@@ -44,6 +44,7 @@ function cardRunOf(card: CardRunInput): ConversationRun {
     ...(card.href ? { href: card.href, ...(card.hrefLabel ? { hrefLabel: card.hrefLabel } : {}) } : {}),
     ...(card.secondaryHref ? { secondaryHref: card.secondaryHref, ...(card.secondaryHrefLabel ? { secondaryHrefLabel: card.secondaryHrefLabel } : {}) } : {}),
     ...(card.lastAttempt ? { lastAttempt: card.lastAttempt } : {}),
+    ...(card.brand ? { brand: card.brand } : {}),
     ...(card.decision ? { decision: card.decision } : {}),
     ...(card.draft ? { draft: card.draft } : {}),
   };

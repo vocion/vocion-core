@@ -123,7 +123,7 @@ export type ConfigureInput = {
   /** The plugin's slug, for the setup block's reset. */
   pluginSlug?: string;
   /** Where the plugin's setup stands, when it declares one (services/plugins/setupState.ts). */
-  setup?: { complete: boolean; steps: Array<{ key: string; kind: 'connector' | 'records'; slug: string; label: string; done: boolean }> } | null;
+  setup?: { complete: boolean; steps: Array<{ key: string; kind: 'connector' | 'records'; slug: string; label: string; brand?: string; done: boolean }> } | null;
   seats: ConfigureSeatInput[];
   skills: ConfigureSkillInput[];
   automations: ConfigureAutomationInput[];
@@ -176,7 +176,7 @@ export type ConfigureLink = { id: string; label: string; href: string };
 export type ConfigureAttention = ConfigureLink & { detail: string };
 
 export type ConfigureAside
-  = | { kind: 'setup'; label: string; plugin: string; complete: boolean; items: Array<{ id: string; label: string; done: boolean }> }
+  = | { kind: 'setup'; label: string; plugin: string; complete: boolean; items: Array<{ id: string; label: string; brand?: string; done: boolean }> }
     | { kind: 'health'; label: string; items: ConfigureHealthItem[]; href: string }
     | { kind: 'attention'; label: string; items: ConfigureAttention[] }
     | { kind: 'changes'; label: string; items: Array<ConfigureLink & { who: string | null; when: string }> };
@@ -504,7 +504,7 @@ function aside(kind: ConfigureAsideKind, label: string | undefined, input: Confi
       // not, and the admin's way to start over.
       return !input.setup || !input.pluginSlug
         ? null
-        : { kind, label: name, plugin: input.pluginSlug, complete: input.setup.complete, items: input.setup.steps.map(s => ({ id: s.key, label: s.label, done: s.done })) };
+        : { kind, label: name, plugin: input.pluginSlug, complete: input.setup.complete, items: input.setup.steps.map(s => ({ id: s.key, label: s.label, ...(s.brand ? { brand: s.brand } : {}), done: s.done })) };
     case 'health':
       return input.measures.length === 0
         ? null

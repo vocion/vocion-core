@@ -1,7 +1,7 @@
 import type { ConfigureAside, ConfigureTone, ConfigureView } from './configurePlan';
 import type { ColumnKind } from '@/components/patterns';
 import type { ConfigureTabKind } from '@/libs/workspace/pageFields';
-import { DetailColumns, RightColumn, Section } from '@/components/patterns';
+import { DetailColumns, IntegrationLogo, RightColumn, Section } from '@/components/patterns';
 import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
@@ -108,8 +108,11 @@ function AsideBlock({ block, testId }: { block: ConfigureAside; testId?: string 
     >
       <ul className="-my-1.5 divide-y divide-rule">
         {block.kind === 'setup' && block.items.map(item => (
-          <li key={item.id} className="flex items-baseline justify-between gap-3 py-2" data-testid={`configure-setup-${item.id}`}>
-            <span className="min-w-0 truncate">{item.label}</span>
+          <li key={item.id} className="flex items-center justify-between gap-3 py-2" data-testid={`configure-setup-${item.id}`}>
+            <span className="flex min-w-0 items-center gap-2">
+              <IntegrationLogo brand={item.brand} name={item.label} size="xs" markOnly />
+              <span className="min-w-0 truncate">{item.label}</span>
+            </span>
             <span className={cn('shrink-0 text-xs', item.done ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')}>{item.done ? 'Done' : 'To do'}</span>
           </li>
         ))}

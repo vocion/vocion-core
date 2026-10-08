@@ -1,6 +1,7 @@
 import { ArrowLeft, FileCode2, Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { IntegrationLogo } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { liveCredentialName, memberKeyExplanation } from '@/features/tools/keyExplanations';
@@ -136,6 +137,7 @@ export default async function ToolDetailPage(props: {
           <ToolProviderKeyCard
             platformId={platform.id}
             platformLabel={platform.label}
+            brand={platform.brand}
             helpText={platform.helpText}
             fields={platform.fields.map(field => ({
               name: field.name,
@@ -201,7 +203,10 @@ export default async function ToolDetailPage(props: {
             </div>
             <div>
               <span className="text-muted-foreground">Provider: </span>
-              <code className="font-mono text-xs">{status?.provider ?? 'builtin'}</code>
+              <span className="inline-flex items-center gap-1.5 align-middle">
+                {platform && <IntegrationLogo brand={platform.brand} name={platform.label} size="xs" markOnly />}
+                <code className="font-mono text-xs">{status?.provider ?? 'builtin'}</code>
+              </span>
             </div>
             {!isReady && status?.missingEnv.length
               ? (

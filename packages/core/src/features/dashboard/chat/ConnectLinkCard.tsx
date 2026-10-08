@@ -2,6 +2,7 @@
 
 import type { RecommendedAction } from './types';
 import { Check, Plug } from 'lucide-react';
+import { IntegrationLogo } from '@/components/patterns';
 import { providerOfStartHref } from '@/libs/connect/returnTo';
 import { Link } from '@/libs/I18nNavigation';
 import { LastAttemptLine } from '../LastAttemptLine';
@@ -53,11 +54,11 @@ export function ConnectLinkCard({ rec, replyInProgress = false, timeZone }: { re
   const failed = rec.lastAttempt;
   return (
     <div data-testid="recommended-action-card" className="mt-2.5 flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
-          <Plug className="size-3.5" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
+      <div className="flex items-start gap-2.5">
+        {/* The service's own tile, as on the Connectors page; a card from
+            before cards carried a brand draws the plug. */}
+        <IntegrationLogo brand={rec.brand} name={connectedName(rec.label)} icon={Plug} size="sm" />
+        <div className="min-w-0 flex-1 self-center">
           <div className="text-sm font-semibold break-words">{rec.label}</div>
           {/* A login card is its title and its buttons; a paste card keeps the one line saying which key. */}
           {rec.body && <p className="mt-0.5 text-xs break-words text-muted-foreground" data-testid="connect-card-body">{rec.body}</p>}

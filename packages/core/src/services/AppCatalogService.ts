@@ -45,8 +45,12 @@ export type AppFeature = {
   version: string;
 };
 
-/** A tool an app reads, and whether this workspace has connected it. */
-export type AppConnector = { slug: string; name: string; connected: boolean; needed: boolean };
+/**
+ * A tool an app reads, and whether this workspace has connected it. `brand`
+ * and `icon` are the connector's tile (`libs/brands/catalog.ts`, its lucide
+ * icon), null when the build has no such connector or it is not one vendor.
+ */
+export type AppConnector = { slug: string; name: string; brand: string | null; icon: string | null; connected: boolean; needed: boolean };
 
 export type AppOffer = {
   id: string;
@@ -152,7 +156,10 @@ export async function listAppOffers(orgId: string): Promise<AppOffer[]> {
       agents: unique(own.flatMap(p => namesIn(p, 'agents', 'name', slug => slug.endsWith('.system-prompt')))),
       pages,
       automations: unique(own.flatMap(p => namesIn(p, 'automations', 'name'))),
-      connectors: [...new Set(connectorSlugs)].map(slug => ({ slug, name: getConnector(slug)?.name ?? slug, connected: connected.has(slug), needed: needed.has(slug) })),
+      connectors: [...new Set(connectorSlugs)].map((slug) => {
+        const connector = getConnector(slug);
+        return { slug, name: connector?.name ?? slug, brand: connector?.brand ?? null, icon: connector?.icon ?? null, connected: connected.has(slug), needed: needed.has(slug) };
+      }),
       details: {
         plugins: own.map(p => p.manifest.slug),
         skills: own.reduce((n, p) => n + p.contents.skills.length, 0),

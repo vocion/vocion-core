@@ -74,6 +74,7 @@ export const elevenLabsConnector: SourceConnector<typeof elevenLabsConfigSchema>
   name: 'ElevenLabs',
   description: 'A voice for the workspace\'s agents. Speaks the narration over a QA recording in the agent\'s voice. Nothing is synced.',
   icon: 'AudioLines',
+  brand: 'elevenlabs',
   authKind: 'apikey',
   syncless: true,
   configSchema: elevenLabsConfigSchema,

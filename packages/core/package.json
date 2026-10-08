@@ -164,6 +164,7 @@
     "remark-gfm": "^4.0.1",
     "sanitize-html": "^2.17.7",
     "sharp": "^0.34.5",
+    "simple-icons": "^16.34.0",
     "stripe": "^18.5.0",
     "swagger-ui-react": "5.31.0",
     "tailwind-merge": "^3.5.0",

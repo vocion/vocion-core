@@ -255,6 +255,7 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   name: 'HubSpot',
   description: 'Contacts, deals and companies from HubSpot. CRM records sync incrementally by last-modified.',
   icon: 'Contact',
+  brand: 'hubspot',
   authKind: 'apikey',
   configSchema: hubspotConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

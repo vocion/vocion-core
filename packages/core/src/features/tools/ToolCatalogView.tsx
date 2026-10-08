@@ -1,5 +1,6 @@
 import type { CatalogTool, OrgToolCatalog, RestActionEntry, ToolFamily } from '@/libs/tools/orgCatalog';
 import { Bot, Wrench } from 'lucide-react';
+import { IntegrationLogo } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Link } from '@/libs/I18nNavigation';
 import { ReadinessBadge } from './ReadinessBadge';
@@ -78,9 +79,9 @@ function ToolCard({ tool }: { tool: CatalogTool }) {
             </span>
           )}
           {status && (
-            <span>
+            <span className="inline-flex items-center gap-1">
               provider:
-              {' '}
+              <IntegrationLogo brand={tool.providerBrand} name={status.provider} size="xs" markOnly />
               <span className="font-mono">{status.provider}</span>
             </span>
           )}
@@ -190,6 +191,7 @@ function FamilySection({ family }: { family: ToolFamily }) {
   return (
     <section data-testid={`tool-family-${family.id}`}>
       <div className="mb-1 flex items-center gap-2">
+        <IntegrationLogo brand={family.brand} name={family.label} size="xs" markOnly />
         <h2 className="text-xs font-medium text-muted-foreground">{family.label}</h2>
         {family.readiness && <ReadinessBadge ready={family.readiness.ready} keyStateUnknown={family.readiness.keyStateUnknown} />}
         {family.sources.length > 0 && (

@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { IntegrationLogo } from '@/components/patterns';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { connectStartHref, returnUrl, safeReturnPath } from '@/libs/connect/returnTo';
 import {
@@ -28,6 +29,7 @@ import {
 } from '@/libs/sources/configFields';
 import { withArticle } from '@/utils/withArticle';
 import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, failedAttempts, initialCredentialDraft, missingCredentialLabels } from './ConnectByLogin';
+import { connectorIcon } from './connectors/connectorIcon';
 import { ConnectorList } from './connectors/ConnectorList';
 import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
@@ -1242,6 +1244,7 @@ async function createSource(kind: string, configJson: Record<string, unknown>): 
  * so each form owns its own state and hands its config to `onSubmit`.
  * @param root0
  * @param root0.title
+ * @param root0.lead
  * @param root0.error
  * @param root0.requirement
  * @param root0.notice
@@ -1254,6 +1257,7 @@ async function createSource(kind: string, configJson: Record<string, unknown>): 
  */
 function AddSourceDialogFrame({
   title,
+  lead,
   error,
   requirement,
   notice,
@@ -1265,6 +1269,8 @@ function AddSourceDialogFrame({
   children,
 }: {
   title: string;
+  /** A small mark before the title: the connector's tile. */
+  lead?: React.ReactNode;
   error: string | null;
   requirement: string | null;
   /** A standing note about what saving will do, shown above the fields. */
@@ -1284,7 +1290,8 @@ function AddSourceDialogFrame({
           is visible wherever the operator has scrolled to. */}
       <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center gap-3 border-b px-4 py-3">
+            {lead}
             <h3 className="font-display text-lg">{title}</h3>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
@@ -1433,9 +1440,11 @@ function describeMissingPiece(state: {
   return null;
 }
 
-function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
+function AddWebSourceDialog({ kind, title, lead, existing, onClose, onAdded }: {
   kind: string;
   title: string;
+  /** The connector's tile, drawn before the title. */
+  lead?: React.ReactNode;
   /** The source being edited, or null when adding a new one. */
   existing: Source | null;
   onClose: () => void;
@@ -1475,6 +1484,7 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
   return (
     <AddSourceDialogFrame
       title={title}
+      lead={lead}
       error={error}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
       submitLabel={existing ? 'Save changes' : 'Add connector'}
@@ -1673,6 +1683,7 @@ function SourceConfigInput({ field, value, onChange }: {
  * @param props - Component props.
  * @param props.kind - Connector slug.
  * @param props.title - Dialog heading.
+ * @param props.lead
  * @param props.fields - The fields this connector asks for.
  * @param props.existing - The source being edited, or null when adding a new one.
  * @param props.connectInfo
@@ -1680,9 +1691,11 @@ function SourceConfigInput({ field, value, onChange }: {
  * @param props.onClose - Called when the dialog is dismissed.
  * @param props.onAdded - Called after the source is saved.
  */
-function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInfo, pasteFirst, onClose, onAdded }: {
+function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, connectInfo, pasteFirst, onClose, onAdded }: {
   kind: string;
   title: string;
+  /** The connector's tile, drawn before the title. */
+  lead?: React.ReactNode;
   fields: ConfigField[];
   existing: Source | null;
   connectInfo?: ConnectInfo;
@@ -1749,6 +1762,7 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, connectInf
   return (
     <AddSourceDialogFrame
       title={title}
+      lead={lead}
       error={error}
       requirement={describeMissingFields([...credentialMissing, ...missingLabels])}
       submitLabel={existing ? 'Save changes' : 'Add connector'}
@@ -1962,13 +1976,16 @@ function CollectionVerdict({ check }: { check: CollectionCheck | undefined }) {
  * @param root0 - Component props.
  * @param root0.kind - Connector slug, always `strapi` here.
  * @param root0.title - Dialog heading.
+ * @param root0.lead
  * @param root0.existing
  * @param root0.onClose - Dismiss without creating anything.
  * @param root0.onAdded - Called after the source and its token are stored.
  */
-function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
+function AddStrapiSourceDialog({ kind, title, lead, existing, onClose, onAdded }: {
   kind: string;
   title: string;
+  /** The connector's tile, drawn before the title. */
+  lead?: React.ReactNode;
   /** The source being edited, or null when adding a new one. */
   existing: Source | null;
   onClose: () => void;
@@ -2235,6 +2252,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
   return (
     <AddSourceDialogFrame
       title={title}
+      lead={lead}
       error={error}
       requirement={requirement}
       submitLabel={existing ? 'Save changes' : 'Add connector'}
@@ -2520,15 +2538,16 @@ function AddSourceDialog({
   // One form per connector, used for both jobs: an edit that could not offer the
   // same fields as the add would be a second place for the config to drift.
   const title = source ? `Edit ${connectorName} source` : `Add ${connectorName} source`;
+  const lead = <IntegrationLogo brand={connector?.brand} name={connectorName} icon={connectorIcon(connector?.icon ?? '')} size="sm" />;
   if (kind === 'strapi') {
-    return <AddStrapiSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+    return <AddStrapiSourceDialog kind={kind} title={title} lead={lead} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
   // Named rather than inferred from an empty field list, so a connector left
   // out of CONFIG_FIELDS by mistake does not quietly get the crawler's form.
   // `web`'s crawl toggle hides and shows a second field, which a flat list of
   // inputs cannot express.
   if (kind === 'web') {
-    return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+    return <AddWebSourceDialog kind={kind} title={title} lead={lead} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
   // Every other connector describes its own fields, so one form renders them all.
   const fields = configFieldsFor(kind);
@@ -2536,6 +2555,7 @@ function AddSourceDialog({
     <AddConfigurableSourceDialog
       kind={kind}
       title={title}
+      lead={lead}
       fields={fields}
       existing={source}
       connectInfo={connectInfo}

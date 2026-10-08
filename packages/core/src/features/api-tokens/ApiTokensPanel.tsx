@@ -39,6 +39,7 @@ import type { TokenSummary } from '@/services/ApiTokenService';
 import { ORPCError } from '@orpc/client';
 import { AlertTriangle, Check, Copy, Eye, EyeOff, KeyRound, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { IntegrationLogo } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,6 +75,8 @@ type FreshToken = { id: string; token: string; name: string };
 type PlatformOption = {
   id: string;
   label: string;
+  /** The vendor's brand (`libs/brands/catalog.ts`), for the tile. Null when it is not one vendor; absent from an older server. */
+  brand?: string | null;
   keySource: 'minted' | 'supplied';
   /**
    * `one-live` — saving a second credential replaces the first, which the form
@@ -763,7 +766,12 @@ export function ApiTokensPanel() {
             return (
               <TableRow key={token.id}>
                 <TableCell className="font-medium">{token.name}</TableCell>
-                <TableCell>{platformLabel(platforms, token.platform)}</TableCell>
+                <TableCell>
+                  <span className="inline-flex items-center gap-2">
+                    <IntegrationLogo brand={platforms.find(platform => platform.id === token.platform)?.brand} name={platformLabel(platforms, token.platform)} size="sm" />
+                    {platformLabel(platforms, token.platform)}
+                  </span>
+                </TableCell>
                 <CredentialKeyCell
                   token={token}
                   fields={platforms.find(platform => platform.id === token.platform)?.fields ?? []}
@@ -819,16 +827,21 @@ export function ApiTokensPanel() {
             <form onSubmit={onCreate} className="space-y-4 rounded-md border p-4">
               <div className="space-y-2">
                 <Label htmlFor="token-platform">Platform</Label>
-                <select
-                  id="token-platform"
-                  value={platformId}
-                  onChange={e => setPlatformId(e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                >
-                  {platforms.map(platform => (
-                    <option key={platform.id} value={platform.id}>{platform.label}</option>
-                  ))}
-                </select>
+                {/* A native select cannot draw a logo per option, so the
+                    chosen platform's tile sits beside it. */}
+                <div className="flex items-center gap-2">
+                  {selectedPlatform && <IntegrationLogo brand={selectedPlatform.brand} name={selectedPlatform.label} />}
+                  <select
+                    id="token-platform"
+                    value={platformId}
+                    onChange={e => setPlatformId(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    {platforms.map(platform => (
+                      <option key={platform.id} value={platform.id}>{platform.label}</option>
+                    ))}
+                  </select>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {selectedPlatform?.helpText}
                 </p>

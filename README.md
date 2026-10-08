@@ -251,6 +251,15 @@ commercial warranties/indemnification/SLAs — need a separate agreement. See
 "Vocion" and the Vocion logos are trademarks of Metacto, Inc.; the MPL does not
 grant trademark rights.
 
+The logos of the services Vocion connects to (GitHub, HubSpot, Google and the
+rest) are trademarks of their respective owners. They are shown only to
+identify the service an integration connects to, and imply no endorsement or
+partnership. The marks come from [simple-icons](https://simpleicons.org)
+(CC0-1.0); where a brand is missing there, or its owner's guidelines do not
+allow this use, Vocion shows the name's initials instead. Each logo's source
+and licence is listed in
+[`packages/core/src/libs/brands/ATTRIBUTION.md`](packages/core/src/libs/brands/ATTRIBUTION.md).
+
 ## Docs
 
 - [`docs/DESIGN-PRINCIPLES.md`](./docs/DESIGN-PRINCIPLES.md) — the Product Design Manifesto: the principles and the twelve-question test every product decision must pass
