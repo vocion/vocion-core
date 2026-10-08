@@ -16,7 +16,7 @@ import {
   remove as removeComment,
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
-import { forUser as appsForUserRoute } from './Apps';
+import { forUser as appsForUserRoute, installTemplate as appsInstallTemplateRoute, templates as appsTemplatesRoute } from './Apps';
 import {
   featureShare as artifactFeatureShareRoute,
   folders as artifactFoldersRoute,
@@ -239,6 +239,8 @@ export const router = {
   },
   apps: {
     forUser: appsForUserRoute,
+    templates: appsTemplatesRoute,
+    installTemplate: appsInstallTemplateRoute,
   },
   projects: {
     list: listProjects,

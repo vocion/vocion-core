@@ -1,0 +1,19 @@
+# Where the leadership team's own actions start on the autonomy ladder. Every
+# rule ships off. The factory's actions (filing a request, a plan, a build, a
+# merge, a release, telling the asker) keep the bars the software-factory
+# plugin sets — a rule here would replace them, so none is written.
+rules:
+  # A company update leaving the building. Held for a person by the platform
+  # whatever this says; 0.99 is here so the bar reads as meant.
+  - action: gmail.send
+    autoApproveAbove: 0.99
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  # A customer signal noted on the account, when a CRM is connected.
+  # Reversible, so it may earn its way up once people approve it unchanged.
+  - action: hubspot.update
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: recommend
+    risk: low

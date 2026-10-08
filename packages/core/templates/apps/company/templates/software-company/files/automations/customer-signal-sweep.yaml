@@ -1,0 +1,16 @@
+slug: customer-signal-sweep
+name: Weekday customer signals
+description: >-
+  Wakes the Customer voice every weekday to bring what customers said into the
+  factory.
+status: active
+agent: customer-voice
+when:
+  schedule: '0 15 * * 1-5'
+do:
+  checkMission: customer-signals-become-requests
+  prompt: >-
+    Read what customers said since yesterday. For each need raised more than
+    once, file a request with their words quoted and who said them, or add the
+    evidence to the request that already exists. Reply to no one and promise
+    nothing.

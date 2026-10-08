@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, BookOpen, Bot, Box, Bug, CircleHelp, Cpu, Database, FileText, FolderOpen, GitBranch, Globe, Layers, LayoutDashboard, Lightbulb, ListChecks, Mail, Package, PanelsTopLeft, Puzzle, Radar, Rocket, Send, Server, Shapes, Shield, Siren, Sparkles, Target, Users, Video, Zap } from 'lucide-react';
+import { AlertTriangle, BookOpen, Bot, Box, Bug, Building2, CircleHelp, Cpu, Database, FileText, FolderOpen, GitBranch, Globe, Layers, LayoutDashboard, LifeBuoy, Lightbulb, ListChecks, Mail, Megaphone, Package, PanelsTopLeft, Puzzle, Radar, Rocket, Send, Server, Shapes, Shield, Siren, Sparkles, Target, Users, Video, Zap } from 'lucide-react';
 
 /**
  * lucide icon NAMES a workspace row may carry — a plugin, a page, a product
@@ -14,6 +14,7 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'bot': Bot,
   'box': Box,
   'bug': Bug,
+  'building-2': Building2,
   'circle-help': CircleHelp,
   'cpu': Cpu,
   'database': Database,
@@ -23,9 +24,11 @@ export const ICONS_BY_NAME: Record<string, LucideIcon> = {
   'globe': Globe,
   'layers': Layers,
   'layout-dashboard': LayoutDashboard,
+  'life-buoy': LifeBuoy,
   'lightbulb': Lightbulb,
   'list-checks': ListChecks,
   'mail': Mail,
+  'megaphone': Megaphone,
   'package': Package,
   'panels-top-left': PanelsTopLeft,
   'puzzle': Puzzle,

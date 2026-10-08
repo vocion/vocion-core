@@ -1,0 +1,46 @@
+# The red-team plugin — a second reader, from another model family, on every
+# word an agent is about to publish under the company's name.
+#
+# One model drafting and the same model checking share one family's blind
+# spots: the confident wrong number, the claim nothing backs, the register
+# the workspace has banned. So the reader here is a model from a DIFFERENT
+# vendor than the one that wrote the draft — Claude's drafts are read by
+# GPT, GPT's by Claude — against the workspace's own voice rules (voice.yaml
+# over the platform floor) and its own facts (the wiki pages that bear on the
+# words). It returns typed findings; core routes on them, never on prose.
+#
+# Core ships the MECHANISM (`actionGates:` in plugin.yaml, the critic call,
+# the routing, the ledger of returns — services/gates/actionGate.ts); this
+# plugin ships the MEANING: which actions publish, and the rubric the critic
+# reads. The workspace ships the CONCRETION: its voice, its facts, and the
+# second vendor's key on Connections.
+slug: red-team
+name: Red team
+version: 1.0.0
+description: Before an agent publishes anything outside — an email, an announcement, an answer to whoever asked, a channel post — a model from a different vendor reads it against the workspace's voice and facts; serious findings send it back to the agent once, then to a person, and on your own word they are advice, never a stop.
+depends: []
+surfaces: []
+recommend:
+  when:
+    - something an agent sent out had a wrong fact, a number nobody could back up, or a claim the company never made
+    - a person keeps rewriting agent drafts for the same voice problems before they go out
+    - the team wants a second opinion on outbound copy that is not the same model checking its own work
+    - someone asks how to stop an agent publishing in a voice the company hates
+  connectors: []
+actionGates:
+  - name: red-team
+    label: Red team
+    # The registered actions that put words outside the workspace under the
+    # company's name. Reading the card each one draws is how the critic reads
+    # what a person would (an announcement's words live on its release).
+    actions:
+      - gmail.send
+      - release.announce
+      - notify.requester
+      - chat.post_message
+    critic:
+      vendor: different
+      rubric: red-team-critique
+    # Serious findings send the draft back to the agent that wrote it this many
+    # times; after that a person decides, with the findings on the card.
+    returns: 1

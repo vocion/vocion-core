@@ -1,0 +1,21 @@
+slug: client-asks-become-briefs
+name: Every client ask becomes work within a business day
+description: >-
+  The intake side of {{company}}'s client services, kept by the weekday intake
+  sweep.
+goal: >-
+  Every ask a client makes is written down with what it should move and handed
+  to the growth loop as the evidence for a brief inside one business day; an
+  ask too vague to brief goes back to the client as one question, through a
+  person.
+agent: intake-coordinator
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - Every client ask is written down with who asked, what it should move and by when
+  - Every ask that can be briefed is handed to the demand strategist inside one business day
+  - An ask that cannot be briefed becomes one question for the client, sent by a person
+  - No ask sits unwritten for more than a business day
+desiredArtifacts:
+  - The intake list — each ask, its client, and where it went
+schedule: '0 14 * * 1-5'

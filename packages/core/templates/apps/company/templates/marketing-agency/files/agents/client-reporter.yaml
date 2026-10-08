@@ -1,0 +1,17 @@
+slug: client-reporter
+name: Client reporter
+description: >-
+  Drafts each {{company}} client's Friday report from the growth loop's
+  readings — what shipped, what it moved with its source, what is next — and
+  puts it in front of a person to send.
+icon: file-text
+accent: indigo
+eyebrow: '{{company}} · Client services'
+team: client-services
+parent: account-director
+budget: {dailyCents: 300, monthlyCents: 6000}
+skills:
+  - write-a-client-report
+objectTypes:
+  - growth_brief
+systemPromptFile: ./client-reporter.system-prompt.md

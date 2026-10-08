@@ -78,6 +78,8 @@ export const FEATURES = {
   RECORDING_WALKTHROUGH: 'recording.walkthrough',
   /** A team thread's reads of each post — did a member mark its part complete, did the lead settle it (`services/teams/threadRead.ts`). */
   TEAM_THREAD_READ: 'team.thread_read',
+  /** A declared action gate's critic reading what an agent would publish (`services/gates/actionGate.ts`). */
+  ACTION_GATE: 'gate.action',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

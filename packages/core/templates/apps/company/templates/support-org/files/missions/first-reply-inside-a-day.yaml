@@ -1,0 +1,23 @@
+slug: first-reply-inside-a-day
+name: Every customer hears back inside a business day
+description: >-
+  The standing responsibility of the {{company}} support desk — not a one-off
+  run. Kept by the weekday queue sweep.
+goal: >-
+  {{goal}} Every check: read the queue, find what has no first reply or is
+  about to miss a business day, drive it to a draft or an escalation with an
+  owner, and put it in front of a person.
+agent: support-lead
+# The floor of the ladder: the desk proposes, a person decides. Raise it once
+# the record shows people approving the drafts unchanged.
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - Every ticket has a first reply inside one business day, sent by a person
+  - No escalation sits a business day without an owner, a next step and a date
+  - Every reply and every commitment passed through a person before it reached a customer
+  - Nothing waits on a person for more than a business day without being chased
+desiredArtifacts:
+  - The queue report naming the oldest ticket without a reply and every one about to miss a business day
+  - The list of drafts waiting on a person, with how long each has waited
+schedule: '0 13 * * 1-5'

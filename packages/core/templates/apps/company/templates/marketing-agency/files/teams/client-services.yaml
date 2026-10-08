@@ -1,0 +1,45 @@
+# The agency's client-facing layer. The making — briefs, production, the
+# quality gate, the reading — is the growth-loop plugin's team, turned on with
+# this template; this team owns the clients. Edit it like any team in this
+# workspace; re-installing the template leaves an edited file as you left it.
+name: '{{company}} Client Services'
+description: >-
+  Owns the relationship with {{clients}}: every client ask written down and
+  turned into a brief within a business day, every client told what moved each
+  week in a report a person sends, and every decision that commits the agency
+  put in front of a person. Graded on what clients heard and decided, not on
+  how much was made.
+goal: '{{goal}}'
+lead: account-director
+accountableUser: '{{installer.email}}'
+measures:
+  # THE OUTCOME. Client reports and updates that reached a client — sent by a
+  # person after reading the draft. Observed.
+  - key: client_updates_sent
+    label: Client updates a person sent
+    dimension: outcome
+    target: 5
+    baseline: 0
+    unit: updates
+    window: 7d
+    source: {kind: observed, actions: [gmail.send]}
+  # How quickly an ask becomes work. Agent-reported — the intake coordinator
+  # counts the asks it turned into a brief inside a business day.
+  - key: asks_briefed_on_time
+    label: Client asks briefed inside a business day
+    dimension: velocity
+    target: 8
+    baseline: 0
+    unit: asks
+    window: 7d
+    source: {kind: agent-reported, counts: clientAsksBriefed}
+  # What people decided. Every commitment to a client — scope, a date, a
+  # number in a report — is an ask a person answers.
+  - key: decisions_taken
+    label: Client decisions a person took
+    dimension: quality
+    target: 4
+    baseline: 0
+    unit: decisions
+    window: 7d
+    source: {kind: human-confirmed, askKinds: [approval, ruling, recommendation]}

@@ -3710,6 +3710,13 @@ export const actionRunSchema = pgTable(
       matchedRules?: Array<{ id: string; title?: string; text: string; evidence?: string }>;
       /** Where it was proposed, when a conversation proposed it — the thread and the person whose turn it was. */
       origin?: { conversationId?: number | null; userId?: string | null; byPerson?: boolean };
+      /**
+       * What each declared action gate found before it was queued or run — a
+       * critic from another vendor reading it against the workspace's voice
+       * and facts (`services/gates/actionGate.ts` `GateRecord`). Absent when
+       * no gate reads this action.
+       */
+      gates?: Array<Record<string, unknown>>;
     }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card

@@ -73,7 +73,7 @@ describe('the shipped catalogue', () => {
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: data-rooms, growth-loop, production-watch, proposals, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: company, data-rooms, growth-loop, production-watch, proposals, red-team, software-factory, wiki/);
   });
 
   it('counts what the growth loop ships', () => {

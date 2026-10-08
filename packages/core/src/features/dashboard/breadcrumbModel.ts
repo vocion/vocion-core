@@ -23,9 +23,10 @@ const SHEET_SEGMENTS = new Set(['r', 'g']);
 /**
  * Route folders that are not places either: `/dashboard/p/<slug>` mounts a
  * workspace page, and `/dashboard/p` alone is a 404 — a crumb reading "P"
- * that leads nowhere (agents.metacto.com, 2026-09-24).
+ * that leads nowhere (agents.metacto.com, 2026-09-24). `/dashboard/apps/<app>`
+ * is an app's start page the same way.
  */
-const FOLDER_SEGMENTS = new Set(['p']);
+const FOLDER_SEGMENTS = new Set(['p', 'apps']);
 
 export type Crumb = { url: string; label: string };
 

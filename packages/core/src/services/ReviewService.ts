@@ -26,6 +26,7 @@ import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSche
 import { completeAction, executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
 import { chargeModelCall } from '@/services/budget/chargeModelCall';
+import { gateCardFields } from '@/services/gates/actionGate';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
 
@@ -684,7 +685,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
       suggestedDecisionReason: parseSuggestedDecisionReason(row.proposal?.suggestedDecisionReason),
       approvedByAgent: row.approvedByAgent,
-      card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
+      card: withGateFindings(await renderActionCard(orgId, row.actionId, row.input ?? {}), row.proposal as Record<string, unknown> | null),
       alignment: await scoreFor({
         orgId,
         subjectKey: policyKeyForRun(row.actionId, row.input),
@@ -743,6 +744,21 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
     card: null,
     record: row as unknown as Record<string, unknown>,
   };
+}
+
+/**
+ * The card with what any declared gate found on the run as rows of its own
+ * (`services/gates/actionGate.ts`), so the person deciding reads the findings
+ * where they decide. A run no gate read keeps its card untouched.
+ * @param card - The action's card, or null.
+ * @param proposal - The run's stored envelope.
+ */
+function withGateFindings(card: unknown | null, proposal: Record<string, unknown> | null): unknown | null {
+  const rows = gateCardFields(proposal);
+  if (rows.length === 0 || !card || typeof card !== 'object' || !Array.isArray((card as { fields?: unknown }).fields)) {
+    return card;
+  }
+  return { ...(card as Record<string, unknown>), fields: [...(card as { fields: unknown[] }).fields, ...rows] };
 }
 
 /**

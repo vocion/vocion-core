@@ -1,0 +1,23 @@
+slug: weekly-company-review
+name: The company reads its week against the goal
+description: >-
+  The standing responsibility of {{company}}'s leadership team, kept by the
+  Monday company review automation.
+goal: >-
+  {{goal}} Every Monday the founder has one read of the week against that goal
+  — what shipped and whether the asker heard, what is stuck and on whom, what
+  it cost — and every decision that is theirs is waiting for them as an ask
+  with a recommendation.
+agent: company-chief-of-staff
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - The review leads with the quarter's goal and says whether the week moved it, with the evidence
+  - Every release named has its record, and says whether the asker heard about it
+  - Everything stuck names who it is waiting on and for how long
+  - Every decision that is the founder's is an ask with a recommendation and its evidence
+  - Every number carries its source and the date it was read
+desiredArtifacts:
+  - The Monday company review, one screen
+  - One ask per decision that is the founder's
+schedule: '0 14 * * 1'

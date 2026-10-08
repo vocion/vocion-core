@@ -1,0 +1,21 @@
+slug: support-quality-review
+name: The desk reads its own week
+description: >-
+  Friday's look back at what the {{company}} desk sent: what people approved
+  unchanged, what they rewrote and why, and the answers written by hand that
+  belong in the handbook.
+goal: >-
+  Every week ends with a short, evidenced read of the desk's own work: replies
+  approved unchanged against replies rewritten, the reasons people gave, the
+  questions customers asked twice, and one change the desk will make next week.
+agent: support-lead
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - The read names the approved-unchanged count and the rewritten count, each from the review record
+  - Every rewrite reason a person gave is grouped, quoted, and turned into a change or dismissed with why
+  - Questions customers had to ask twice are listed with the ticket they came from
+  - One change for next week, stated as something a person can say yes or no to
+desiredArtifacts:
+  - The weekly quality read, five lines or fewer
+schedule: '0 20 * * 5'

@@ -103,6 +103,19 @@ export async function runProposal(
   req: ProposalRequest,
   opts: { tool: string; refused?: (code: string, message: string) => string; advice?: string[] },
 ): Promise<string> {
+  // What a declared gate found on a person's own action rides back with the
+  // answer, whichever way the proposal ended (`services/gates/actionGate.ts`).
+  const gateAdvice: string[] = [];
+  const out = await runProposalInner(ctx, req, opts, gateAdvice);
+  return gateAdvice.length > 0 ? `${out}\n\n${gateAdvice.join('\n')}` : out;
+}
+
+async function runProposalInner(
+  ctx: RuntimeContext,
+  req: ProposalRequest,
+  opts: { tool: string; refused?: (code: string, message: string) => string; advice?: string[] },
+  gateAdvice: string[],
+): Promise<string> {
   const { actionId: action_id, input: action_input, confidence, rationale, evidence, suggestedDecision: suggested_decision, suggestedDecisionReason: reason, suggestedSnoozeUntil: suggested_snooze_until } = req;
   // Structural, not the model's say-so: this turn is the factory's own step
   // (planning, recovery, intake) when the mission run it belongs to was
@@ -227,6 +240,7 @@ export async function runProposal(
         suggestedSnoozeUntil: suggested_snooze_until,
       },
     });
+    gateAdvice.push(...(res.advice ?? []));
     ctx.emit({
       type: 'tool_progress',
       tool: opts.tool,

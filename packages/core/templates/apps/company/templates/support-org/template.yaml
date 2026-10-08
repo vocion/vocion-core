@@ -1,0 +1,33 @@
+# Support Org — a support desk that answers every customer inside a business
+# day. One team: a lead who owns the queue, a triager, a reply drafter and an
+# escalation specialist. Nothing reaches a customer until a person sends it.
+slug: support-org
+name: Support Org
+icon: life-buoy
+order: 3
+description: A support desk that answers every customer inside a business day — triaged, drafted, escalated with an owner, and sent by a person.
+includes:
+  - A support team — a lead and three specialists, with you accountable
+  - First reply inside a business day, graded on replies a person sent
+  - A weekday queue sweep and a Friday quality review
+  - Every reply to a customer waits for a person before it goes
+  - A daily spend cap on every seat
+plugins: []
+lead: support-lead
+interview:
+  - key: company
+    question: What is the company called?
+    placeholder: Larkfield Systems
+    default: '{{workspace.name}}'
+    maxLength: 80
+  - key: product
+    question: What do customers come to you for help with?
+    placeholder: Our scheduling app for field-service teams
+    help: One line. The desk reads every ticket against it.
+    default: our product and their account with us
+    maxLength: 160
+  - key: goal
+    question: What should the desk deliver this quarter?
+    placeholder: Every customer hears back within one business day
+    default: Every customer hears back within one business day, with an answer they did not have to ask for twice.
+    maxLength: 200

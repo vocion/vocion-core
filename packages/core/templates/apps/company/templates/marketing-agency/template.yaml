@@ -1,0 +1,36 @@
+# Marketing Agency — client work made, checked and judged by what it moved.
+# The making reuses the growth-loop plugin as it ships (brief, production, the
+# quality gate, the reading); this template adds the agency's own layer on top:
+# a client-services team that turns client asks into briefs and tells every
+# client, every week, what moved — with nothing sent to a client unless a
+# person sends it.
+slug: marketing-agency
+name: Marketing Agency
+icon: megaphone
+order: 2
+description: Client work briefed, made, checked and judged by what it moved — and every client told what moved each week, by a person.
+includes:
+  - The growth loop for the work itself — brief, production, quality gate, the reading
+  - A client-services team — an account director and two specialists, with you accountable
+  - Client asks turned into briefs within a business day
+  - A weekly client report drafted every Friday; a person sends it
+  - A daily spend cap on every seat
+plugins: [growth-loop]
+lead: account-director
+interview:
+  - key: company
+    question: What is the agency called?
+    placeholder: Northwind Creative
+    default: '{{workspace.name}}'
+    maxLength: 80
+  - key: clients
+    question: Who do you make work for?
+    placeholder: B2B software companies selling to finance teams
+    help: One line. Every brief and every client report is written for them.
+    default: the clients on our roster
+    maxLength: 160
+  - key: goal
+    question: What should the agency deliver for its clients this quarter?
+    placeholder: Every client can point to one number our work moved
+    default: Every client can point to one number our work moved this quarter, and hears what moved every week.
+    maxLength: 200

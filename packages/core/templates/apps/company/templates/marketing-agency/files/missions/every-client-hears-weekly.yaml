@@ -1,0 +1,21 @@
+slug: every-client-hears-weekly
+name: Every client hears what moved, every week
+description: >-
+  The standing responsibility of {{company}}'s client services. Kept by the
+  Friday client reports automation.
+goal: >-
+  {{goal}} Every Friday, each active client has a report drafted from the
+  week's briefs and readings and waiting for a person to send, and no client
+  goes a week without hearing from the agency.
+agent: account-director
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - Every active client has a report drafted by Friday afternoon, waiting on a person
+  - Every number in a report names its source and the date it was read
+  - A brief whose reading is not due is reported as not measured yet, never as a result
+  - Nothing reaches a client without a person sending it
+desiredArtifacts:
+  - One draft report per active client, proposed for a person to send
+  - A list of clients with nothing to report and why
+schedule: '0 19 * * 5'

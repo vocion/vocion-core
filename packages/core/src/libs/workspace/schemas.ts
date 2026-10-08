@@ -346,6 +346,33 @@ export const PluginSettingSchema = z.object({
 });
 export type PluginSetting = z.infer<typeof PluginSettingSchema>;
 
+/**
+ * A gate a plugin declares on actions that publish outside the workspace
+ * (`plugin.yaml` `actionGates:`). Before an agent's proposal of one of
+ * `actions` is queued or run, a critic reads what it would publish against
+ * the workspace's voice and its facts and returns typed findings
+ * (`services/gates/actionGate.ts`). Serious findings send the work back to the
+ * agent that wrote it `returns` times, then to a person; on a person's own
+ * word they are advice and the action runs. The plugin names the actions and
+ * the rubric; core names neither.
+ */
+export const ActionGateSchema = z.object({
+  name: SlugSchema,
+  /** What a person reads where the gate's findings are shown, e.g. "Red team". */
+  label: z.string().min(1),
+  /** Registered action ids this gate reads before they run. */
+  actions: z.array(z.string().min(1)).min(1),
+  critic: z.object({
+    /** `different`: a model from a different vendor than the one that wrote the work. */
+    vendor: z.literal('different'),
+    /** Skill slug the critic reads as its rubric — shipped by the plugin. */
+    rubric: SlugSchema.optional(),
+  }),
+  /** How many times serious findings return the work to its author before a person decides. */
+  returns: z.number().int().min(0).max(3).default(1),
+});
+export type ActionGateManifest = z.infer<typeof ActionGateSchema>;
+
 export const PluginManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().min(1),
@@ -403,6 +430,11 @@ export const PluginManifestSchema = z.object({
     connectors: z.array(z.string().min(1)).default([]),
     records: z.array(SlugSchema).default([]),
   }).default({ connectors: [], records: [] }),
+  /**
+   * Gates on actions that publish outside — read before an agent's proposal
+   * of one is queued or run. See {@link ActionGateSchema}.
+   */
+  actionGates: z.array(ActionGateSchema).optional(),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
@@ -442,6 +474,52 @@ export const AppManifestSchema = z.object({
   nav: z.array(z.string().min(1)).default([]),
 }).refine(a => !a.core || a.plugins.length === 0, { message: 'the core app lists no plugins — it keeps every row no other app claims', path: ['plugins'] });
 export type AppManifest = z.infer<typeof AppManifestSchema>;
+
+/**
+ * One question of an app template's interview. The answer fills `{{key}}`
+ * wherever the template's files carry it; `default` (which may itself carry
+ * `{{workspace.name}}`) is what an empty answer becomes, and a question with
+ * no default must be answered.
+ */
+export const AppTemplateQuestionSchema = z.object({
+  key: z.string().regex(/^[a-z][a-zA-Z0-9]*$/, 'a question key is one camelCase word, e.g. company'),
+  question: z.string().min(1),
+  placeholder: z.string().min(1).optional(),
+  help: z.string().min(1).optional(),
+  default: z.string().min(1).optional(),
+  maxLength: z.number().int().min(10).max(400).default(160),
+});
+export type AppTemplateQuestion = z.infer<typeof AppTemplateQuestionSchema>;
+
+/**
+ * App template — `templates/apps/<app>/templates/<slug>/template.yaml`, with
+ * the workspace files it writes beside it under `files/` (teams, agents,
+ * missions, automations, skills, trust rules). Picking one stands the function
+ * up in a workspace in one move: the files are written into the workspace
+ * folder with the interview's answers filled in, the plugins it names (and the
+ * app's own) are turned on, and the workspace is applied. A template is a
+ * concretion — the company type lives here, never in core logic, which only
+ * knows how to render, write and apply one (`libs/workspace/appTemplates.ts`,
+ * `services/apps/AppTemplateService.ts`).
+ */
+export const AppTemplateManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string().min(1),
+  /** lucide icon name, resolved by `features/dashboard/iconByName.ts`. */
+  icon: z.string().min(1).default('layers'),
+  /** Position on the picker, lowest first. */
+  order: z.number().default(100),
+  description: z.string().min(1).describe('one line: the function it stands up'),
+  /** What a person gets, one line each, in their words — the card's list. */
+  includes: z.array(z.string().min(1)).default([]),
+  /** Plugins it turns on beside the app's own — reused as they ship, never copied. */
+  plugins: z.array(SlugSchema).default([]),
+  /** The agent that becomes the workspace lead, when the workspace names none. */
+  lead: SlugSchema.optional(),
+  /** The short interview: one to three questions. */
+  interview: z.array(AppTemplateQuestionSchema).min(1).max(3),
+}).refine(t => new Set(t.interview.map(q => q.key)).size === t.interview.length, { message: 'interview question keys must be unique', path: ['interview'] });
+export type AppTemplateManifest = z.infer<typeof AppTemplateManifestSchema>;
 
 /**
  * Team manifest (F1) — workspace/<org>/teams/<slug>.yaml. The team's

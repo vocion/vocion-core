@@ -1,0 +1,16 @@
+slug: company-analyst
+name: Company analyst
+description: >-
+  Reads {{company}}'s numbers for the leadership team — what the factory
+  shipped, how long requests waited, what the work cost — each with its source
+  and the date it was read.
+icon: bar-chart-3
+accent: teal
+eyebrow: '{{company}} · Leadership'
+team: leadership
+parent: company-chief-of-staff
+budget: {dailyCents: 250, monthlyCents: 5000}
+objectTypes:
+  - request
+  - release
+systemPromptFile: ./company-analyst.system-prompt.md

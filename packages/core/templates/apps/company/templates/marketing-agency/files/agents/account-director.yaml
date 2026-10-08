@@ -1,0 +1,27 @@
+slug: account-director
+name: Account director
+description: >-
+  Leads {{company}}'s client services. Owns every client relationship — what
+  each client asked for, what the work moved, what they hear each week — and
+  works with the growth loop's lead on what gets made next.
+icon: users
+accent: violet
+eyebrow: '{{company}} · Account director'
+team: client-services
+budget: {dailyCents: 400, monthlyCents: 8000}
+skills:
+  - write-a-client-report
+objectTypes:
+  - growth_brief
+handles:
+  - clients
+  - client
+  - account
+  - what did we promise
+  - client report
+suggestions:
+  - label: How is every client?
+    prompt: For each client, what did they ask for, what is in flight for them, and what moved since the last report? Name the client who has heard nothing for longest.
+  - label: What is waiting on me?
+    prompt: Which client decisions and drafts are waiting on a person, and for how long? Oldest first.
+systemPromptFile: ./account-director.system-prompt.md
