@@ -110,14 +110,21 @@ export function SetupCard({ rec }: Props) {
           rationale: rec.body,
           // One card, one run: a second press, or a remount, finds the run the first one made.
           dedupKey: cardDedupKey({ actionId: rec.actionId, label: rec.label, input: rec.input }),
-        }) as { runId: number; status: string };
+        }) as { runId: number; status: string; error?: string };
         id = res.runId;
         state = res.status;
         setRunId(id);
+        // A step that ran and failed says why, where the person pressed it.
+        if (res.status === 'failed' && res.error) {
+          setError(redactInternalIds(res.error));
+        }
       }
       // An action that waits for a person whatever happens is approved in the same press.
       if (state === 'pending') {
-        await client.review.decideAction({ id, decision: 'approve' });
+        const decided = await client.review.decideAction({ id, decision: 'approve' }) as { status?: string; error?: string } | undefined;
+        if (decided?.status === 'failed' && decided.error) {
+          setError(redactInternalIds(decided.error));
+        }
       }
       // The card keeps the run it became — typed, on the card, with no words
       // written for the person — so a reload shows Done and the lead's next

@@ -114,6 +114,20 @@ describe('a setup card', () => {
     expect(decideAction).toHaveBeenCalledWith({ id: 78, decision: 'approve' });
   });
 
+  it('a step that ran and failed says why, where it was pressed', async () => {
+    actAsPerson.mockResolvedValueOnce({ runId: 79, status: 'failed', error: 'Only an admin can invite people. Ask an admin to accept this card, or to invite them from Members.' });
+    actionStatus.mockResolvedValue({ status: 'failed' });
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SetupCard rec={{ ...rec, id: 'card_fail', actionId: 'members.invite', label: 'Invite ana@northwind.example', actionLabel: 'Invite', input: { emails: ['ana@northwind.example'], role: 'member' } }} />
+      </NextIntlClientProvider>,
+    );
+    await page.getByRole('button', { name: 'Invite' }).click();
+
+    await expect.element(page.getByRole('alert')).toHaveTextContent('Only an admin can invite people');
+    await expect.element(page.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
   it('says so when the step could not run, in words for the person', async () => {
     actAsPerson.mockRejectedValueOnce(new Error('Only an admin can invite people. Ask an admin to accept this card, or to invite them from Members.'));
     await render(
