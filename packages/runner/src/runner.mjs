@@ -21,6 +21,12 @@
 //   WORKER_RUN_ID set            claim that run
 //   WORKER_RUN_ID unset          poll GET /worker-runs?status=queued&agentSlug=... for POLL_MAX_SECONDS
 //   LOCAL_TASK / LOCAL_TASK_JSON no Vocion at all: run the contract from a file, stdin (LOCAL_TASK=-) or inline JSON
+//   --claim-to <file>            claim only, write the handoff, exit (the entrypoint's first stage)
+//   VOCION_CLAIM_FILE set        pick up a claim the first stage made, holding no long-lived credential
+//
+// The handoff (Vocion 5.1, handoff.mjs): in the image, the entrypoint claims in a process of its own
+// and then starts this one with every credential that can claim a run removed from its
+// environment, so repository code never runs beside a token that can reach another run.
 //
 // Exit code is 0 in every case so ECS never retries a task on its own; Vocion holds the truth.
 
@@ -34,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { BUILTIN_CHECKS, ContractError, criterionTests, ENGINEER_FLOW_LIMITS, mergeEngineerFlows, normalizeContract, normalizeQa, shotsDirFor, taskShotsDir } from './contract.mjs';
 import { createEventLog, isFinalResult, lineSplitter, looksLikeEventsRejection, MAX_BATCH, messageEvents, renderTranscriptMarkdown, usageFromMessages } from './events.mjs';
+import { claimCredential, readHandoff, scrubLongLived, writeHandoff } from './handoff.mjs';
 import { classifyBase, classifyStop, continueLine, criteriaAllSkipped, effectiveAttempt, evidenceSection, globMatches, humanOwned, keepDecision, matchingTests, namedTestStatus, namedVerdict, numberTests, plainDashes, prTitle, refusedFlowsSection, runtimeDdlHits, skipReason, taskHeadline, testResultsOf, testRunMarkdown, testsSection, verdictText, wipBranchName, wipCommitMessage, wipPrBody, wipPrTitle } from './keep.mjs';
 import { planRequirement } from './plan.mjs';
 import { checkAllowedPaths, checkNotRunnableFailure, notRunnableChecks, pathsMissingFailure } from './preflight.mjs';
@@ -50,9 +57,17 @@ const env = process.env;
 const cfg = {
   vocionUrl: (env.VOCION_URL || '').replace(/\/+$/, '').replace(/\/api\/v1$/, ''),
   vocionToken: env.VOCION_TOKEN || '',
-  // The installation's runner token (backlog 052): this runner claims from every workspace on the
-  // installation, and each claim hands back a run token for that one run's workspace.
+  // A runner token (backlog 052; 5.1): an account's (`vcn_runner_…`), claiming that account's runs,
+  // or on a single-tenant installation the installation's own, claiming every workspace's. Each
+  // claim hands back a run token for that one run.
   runnerToken: env.VOCION_RUNNER_TOKEN || '',
+  // A start token (5.1): what a target that started this container for one run puts in instead of
+  // any long-lived secret. It claims that run (WORKER_RUN_ID) and nothing else.
+  runToken: env.VOCION_RUN_TOKEN || '',
+  // The first stage's claim, for the runner proper (handoff.mjs). Read and deleted at boot.
+  claimFile: env.VOCION_CLAIM_FILE || '',
+  // Claim only, write the handoff here, and exit (the entrypoint's first stage).
+  claimTo: argValue('--claim-to'),
   // As a backup, take only a run that has waited this long unclaimed; 0 makes this runner primary.
   claimAfterSeconds: seconds(env.RUNNER_CLAIM_AFTER, 120),
   // With nothing configured, wait this long before exiting, so a service that restarts on exit
@@ -105,8 +120,28 @@ const WORKER_HOME = path.dirname(fileURLToPath(import.meta.url));
 const LAND_RESERVE_SECONDS = 300; // kept back from the wall clock for verify + land
 
 const startedAt = Date.now();
+// The first stage's claim, taken before anything else: the file is deleted as it is read, so it
+// is gone before any repository code exists in this container. Its push credential becomes this
+// process's own (never in /proc/<pid>/environ, which holds only what the process was started with).
+let handoff = null;
+if (cfg.claimFile) {
+  try {
+    handoff = readHandoff(cfg.claimFile);
+  } catch (e) {
+    // Before the log exists: one line by hand. The run the first stage claimed is left unbeaten,
+    // so its lease lapses and the reaper hands it to the next runner.
+    process.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), phase: 'handoff.missing', error: String(e?.message || e) })}\n`);
+    process.exit(0);
+  }
+}
+if (handoff?.githubToken) {
+  cfg.githubToken = handoff.githubToken;
+  process.env.GITHUB_TOKEN = handoff.githubToken;
+  process.env.GH_TOKEN = handoff.githubToken;
+}
 const hostId = (env.ECS_CONTAINER_METADATA_URI_V4 ? await ecsTaskId() : '') || os.hostname();
-const workerId = `${cfg.target}-${hostId}-${process.pid}`;
+// The lease holder the claim named: the first stage's, so the heartbeats that follow are its.
+const workerId = handoff?.workerId || `${cfg.target}-${hostId}-${process.pid}`;
 
 /** A whole number of seconds, where 0 is a value and not a default. */
 function seconds(v, d) {
@@ -116,17 +151,27 @@ function seconds(v, d) {
 function num(v, d) {
   const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d;
 }
+/** The value after a command-line flag, or ''. */
+function argValue(flag) {
+  const at = process.argv.indexOf(flag);
+  return at > 0 && process.argv[at + 1] ? process.argv[at + 1] : '';
+}
 
 // ---------- logging ----------
 
 // `record` is the task record the run was queued for (run.input.record, { type, id }, set by the
 // dispatch); null for a run queued bare, which then reports to nothing.
-const state = { runId: cfg.runId || null, phase: 'boot', note: '', counts: {}, pendingUsage: null, model: null, costUsd: 0, stopped: false, stopReason: '', killReason: '', paused: false, lostLease: false, claude: null, services: [], serviceEnv: {}, kept: null, record: null, task: null, runLogs: null, held: false, resumeMain: null };
+const state = { runId: cfg.runId || null, phase: 'boot', note: '', counts: {}, pendingUsage: null, model: null, costUsd: 0, stopped: false, stopReason: '', killReason: '', paused: false, lostLease: false, claude: null, services: [], serviceEnv: {}, kept: null, record: null, task: null, runLogs: null, held: false, resumeMain: null, claimRefused: false };
 
 // The run's own step log, small enough to ride heartbeat/complete/fail (backlog 036, the fixed
 // contract): one event per phase this worker logs, plus claude.tool / claude.tool.result from the
 // stream-json reader below. Bulk bytes never go through it; see publishRunLogs.
 const eventLog = createEventLog();
+// The claim stage never beats, so its step-log lines (poll, claimed, handoff) came in the handoff:
+// they go first, so the run's log reads in order.
+for (const ev of Array.isArray(handoff?.events) ? handoff.events : []) {
+  eventLog.add(ev.phase, { level: ev.level, message: ev.message, fields: ev.fields, ts: ev.ts });
+}
 const ERROR_PHASE_RE = /\.(?:failed|crashed|rejected|refused|error)$|^crash$/;
 
 // Debounced "the page feels live" trigger: at most one extra heartbeat every 5s, on top of the
@@ -173,10 +218,10 @@ async function ecsTaskId() {
 // ---------- Vocion client ----------
 
 const vocion = {
-  enabled: Boolean(cfg.vocionUrl && (cfg.vocionToken || cfg.runnerToken)),
-  // The credential for the next call: the workspace token, or once an installation claim is made,
-  // the run token it handed back.
-  token: cfg.vocionToken,
+  enabled: Boolean(cfg.vocionUrl && (cfg.vocionToken || cfg.runnerToken || cfg.runToken || handoff)),
+  // The credential for the next call: the claim's credential until a claim is made, then the run
+  // token it handed back, renewed by every heartbeat that hands back a fresh one.
+  token: handoff?.runToken || cfg.vocionToken,
   async call(method, p, body) {
     const url = `${cfg.vocionUrl}/api/v1${p}`;
     const res = await fetch(url, {
@@ -191,6 +236,11 @@ const vocion = {
       json = text ? JSON.parse(text) : null;
     } catch {
       json = { raw: text.slice(0, 300) };
+    }
+    // A claim hands back the run's token and every heartbeat a fresh one (core 5.1): from then on
+    // that is the credential, whatever claimed.
+    if (res.ok && typeof json?.runToken === 'string' && json.runToken.startsWith('vrt_')) {
+      this.token = json.runToken;
     }
     return { status: res.status, ok: res.ok, json };
   },
@@ -333,8 +383,9 @@ async function heartbeat() {
   }
   state.pendingUsage = withUsage(state.pendingUsage, usage);
   log('heartbeat.rejected', { status: r.status, error: r.json?.error });
-  if (r.status === 403 || r.status === 409 || r.status === 404) {
-    // Another worker holds the lease, or the run is terminal. Nothing we report will land; stop working.
+  if (r.status === 401 || r.status === 403 || r.status === 409 || r.status === 404) {
+    // Another worker holds the lease, the run is terminal, or the run token was refused (expired,
+    // or its run is over). Nothing we report will land; stop working.
     state.lostLease = true;
     killClaude(`lease lost (${r.status})`);
   }
@@ -668,15 +719,18 @@ async function claimRun(id) {
 }
 
 /**
- * Claim from the installation (backlog 052): the next engineering run from any workspace on it,
- * as this target, waiting RUNNER_CLAIM_AFTER when this runner is the backup. With WORKER_RUN_ID
- * set (a target started for one run), that run or nothing. The reply's run token is then the
- * credential for every call about the run, and its git credential the one the runner pushes with.
+ * Claim through POST /runner/claim (backlog 052): the next engineering run the credential may
+ * build, as this target, waiting RUNNER_CLAIM_AFTER when this runner is the backup. A runner token
+ * sees its account's runs (or, single-tenant, the installation's); a start token its one run. With
+ * WORKER_RUN_ID set (a target started for one run), that run or nothing. The reply's run token is
+ * then the credential for every call about the run, and its git credential the one the runner
+ * pushes with.
+ * @param credential - The runner token or the start token.
  */
-async function claimFromInstallation() {
-  setPhase('poll', `installation claim as ${cfg.target}${cfg.claimAfterSeconds ? `, runs waiting ${cfg.claimAfterSeconds}s or more` : ''}${cfg.runId ? `, run ${cfg.runId}` : ''}`);
+async function claimFromInstallation(credential) {
+  setPhase('poll', `claim as ${cfg.target}${cfg.claimAfterSeconds ? `, runs waiting ${cfg.claimAfterSeconds}s or more` : ''}${cfg.runId ? `, run ${cfg.runId}` : ''}`);
   const deadline = Date.now() + cfg.pollMaxSeconds * 1000;
-  vocion.token = cfg.runnerToken;
+  vocion.token = credential;
   while (Date.now() < deadline) {
     const body = { target: cfg.target, workerId, workerVersion: WORKER_VERSION, claimAfterSeconds: cfg.claimAfterSeconds, ...(cfg.runId ? { runId: Number(cfg.runId) } : {}) };
     let r;
@@ -694,8 +748,17 @@ async function claimFromInstallation() {
         process.env.GITHUB_TOKEN = r.json.git.token;
         process.env.GH_TOKEN = r.json.git.token;
       }
-      log('claimed', { attempt: run.attempt, leaseExpiresAt: r.json.leaseExpiresAt, capCents: run.capCents, endsAt: run.endsAt, kind: run.kind, agentSlug: run.agentSlug, target: cfg.target, git: r.json.git?.source || 'environment' });
+      cfg.gitSource = r.json.git?.source || 'environment';
+      log('claimed', { attempt: run.attempt, leaseExpiresAt: r.json.leaseExpiresAt, capCents: run.capCents, endsAt: run.endsAt, kind: run.kind, agentSlug: run.agentSlug, target: cfg.target, git: cfg.gitSource });
       return run;
+    }
+    if (r.status === 401 || r.status === 403) {
+      // A refusal is an answer, not a blip: a revoked or expired token, the installation token on a
+      // multi-tenant host, a target the installation does not declare. Asking again every few
+      // seconds for fifteen minutes changes none of them, so say why once and stop.
+      state.claimRefused = true;
+      log('claim.refused', { status: r.status, error: r.json?.error });
+      return null;
     }
     if (r.status !== 204) {
       log('poll.error', { status: r.status, error: r.json?.error });
@@ -948,7 +1011,7 @@ function runClaude(task, runId, opts = {}) {
 
   // The agent never sees the GitHub or Vocion credentials; it only needs the Anthropic key.
   const childEnv = { ...process.env };
-  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'VOCION_TOKEN', 'VOCION_RUNNER_TOKEN', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
+  for (const k of ['GITHUB_TOKEN', 'GH_TOKEN', 'VOCION_TOKEN', 'VOCION_RUNNER_TOKEN', 'VOCION_RUN_TOKEN', 'VOCION_CLAIM_FILE', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_AUTHORIZATION_TOKEN']) {
     delete childEnv[k];
   }
   Object.assign(childEnv, state.serviceEnv, {
@@ -1766,10 +1829,74 @@ function sleep(ms) {
 
 // ---------- main ----------
 
+/**
+ * Claim one run with the credential this runner holds (handoff.mjs `claimCredential`): a start
+ * token or a runner token through POST /runner/claim, a workspace token by polling its queue and
+ * claiming by id. Null, with the reason logged, when there is nothing to take.
+ */
+async function claimOne() {
+  const credential = claimCredential(cfg);
+  if (!credential) {
+    return null;
+  }
+  if (credential.kind !== 'workspace') {
+    const run = await claimFromInstallation(credential.token);
+    if (!run && state.claimRefused) {
+      // Idle before exiting, as with nothing configured: a service that restarts on exit (the
+      // on-box runner) must not ask again every second with a credential that was just refused.
+      log('exit', { note: `the claim was refused (see claim.refused)${cfg.idleSeconds ? `; idle ${cfg.idleSeconds}s` : ''}` });
+      if (cfg.idleSeconds) {
+        await sleep(cfg.idleSeconds * 1000);
+      }
+    } else if (!run) {
+      log('exit', { note: cfg.runId ? `run ${cfg.runId} is not this runner's to take (claimed, or not queued)` : `no run for ${cfg.target} within ${cfg.pollMaxSeconds}s` });
+    }
+    return run;
+  }
+  vocion.token = credential.token;
+  const id = cfg.runId || await pollForRun();
+  if (!id) {
+    log('exit', { note: `no queued run${cfg.agentSlug ? ` for ${cfg.agentSlug}` : ''} within ${cfg.pollMaxSeconds}s` });
+    return null;
+  }
+  state.runId = id;
+  return claimRun(id);
+}
+
+/**
+ * The entrypoint's first stage (`--claim-to <file>`): claim, write the handoff, exit. Nothing is
+ * cloned and no model is called; the run is built by the next process, which never holds the
+ * credential this one claimed with.
+ * @param file - Where the handoff goes.
+ */
+async function claimStage(file) {
+  log('boot', { mode: 'claim', vocion: vocion.enabled ? cfg.vocionUrl : null, target: cfg.target, credential: claimCredential(cfg)?.kind ?? null, worker_version: WORKER_VERSION });
+  if (!vocion.enabled) {
+    log('exit', { note: 'VOCION_URL, or a runner token, missing; nothing to claim' });
+    if (cfg.idleSeconds) {
+      await sleep(cfg.idleSeconds * 1000);
+    }
+    return;
+  }
+  const run = await claimOne();
+  if (!run) {
+    return;
+  }
+  state.runId = String(run.id);
+  log('handoff', { note: `claimed run ${run.id}; the runner that builds it starts without the credential that claimed it` });
+  // This process never beats, so its step-log lines ride along and the build stage sends them.
+  const events = eventLog.hasPending() ? eventLog.nextBatch() : [];
+  writeHandoff(file, { run, runToken: vocion.token, workerId, leaseExpiresAt: run.leaseExpiresAt, gitSource: cfg.gitSource || null, githubToken: cfg.githubToken || null, events });
+}
+
 async function main() {
+  if (cfg.claimTo) {
+    await claimStage(cfg.claimTo);
+    return;
+  }
   fs.mkdirSync(LOG_DIR, { recursive: true });
   fs.mkdirSync(SCRATCH_DIR, { recursive: true });
-  log('boot', { mode: cfg.localTask || cfg.localTaskJson ? 'local' : (cfg.runId ? 'run' : 'poll'), vocion: vocion.enabled ? cfg.vocionUrl : null, agentSlug: cfg.agentSlug, max_budget_usd: cfg.maxBudgetUsd, wall_clock_minutes: cfg.wallClockMinutes, node: process.version, arch: process.arch, worker_version: WORKER_VERSION });
+  log('boot', { mode: cfg.localTask || cfg.localTaskJson ? 'local' : (handoff ? 'handoff' : (cfg.runId ? 'run' : 'poll')), vocion: vocion.enabled ? cfg.vocionUrl : null, agentSlug: cfg.agentSlug, max_budget_usd: cfg.maxBudgetUsd, wall_clock_minutes: cfg.wallClockMinutes, node: process.version, arch: process.arch, worker_version: WORKER_VERSION });
   for (const k of ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN']) {
     if (!env[k]) {
       log('warn', { note: `${k} is not set` });
@@ -1794,24 +1921,24 @@ async function main() {
       }
       return;
     }
-    if (cfg.runnerToken) {
-      run = await claimFromInstallation();
-      if (!run) {
-        log('exit', { note: cfg.runId ? `run ${cfg.runId} is not this runner's to take (claimed, or not queued)` : `no run for ${cfg.target} within ${cfg.pollMaxSeconds}s` }); return;
-      }
-      runId = String(run.id);
-      state.runId = runId;
+    if (handoff) {
+      // The entrypoint's first stage claimed it; this process never held what claimed it.
+      run = handoff.run;
+      log('claimed', { from: 'handoff', attempt: run.attempt, leaseExpiresAt: handoff.leaseExpiresAt, capCents: run.capCents, endsAt: run.endsAt, kind: run.kind, agentSlug: run.agentSlug, target: cfg.target, git: handoff.gitSource || 'environment' });
     } else {
-      runId = cfg.runId || await pollForRun();
-      if (!runId) {
-        log('exit', { note: `no queued run${cfg.agentSlug ? ` for ${cfg.agentSlug}` : ''} within ${cfg.pollMaxSeconds}s` }); return;
-      }
-      state.runId = runId;
-      run = await claimRun(runId);
+      run = await claimOne();
       if (!run) {
         return;
       }
+      // Started without the entrypoint (local, tests): the claim's credential is done with, so
+      // nothing this process spawns from here on inherits it.
+      scrubLongLived(process.env);
+      cfg.runnerToken = '';
+      cfg.runToken = '';
+      cfg.vocionToken = '';
     }
+    runId = String(run.id);
+    state.runId = runId;
     state.held = true;
     startHeartbeat();
     const rec = run.input?.record;

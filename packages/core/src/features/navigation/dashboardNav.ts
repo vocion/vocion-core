@@ -189,7 +189,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
 
   // ── MANAGE · Organization — the account itself ──────────────────────────
   { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, i18nKey: 'members', keywords: ['users', 'invite', 'settings'] },
-  { url: '/dashboard/developers', title: 'Developers', group: 'Organization', icon: Code2, i18nKey: 'developers', keywords: ['api', 'tokens', 'credentials', 'keys', 'mcp', 'sdk', 'docs'] },
+  { url: '/dashboard/developers', title: 'Developers', group: 'Organization', icon: Code2, i18nKey: 'developers', keywords: ['api', 'tokens', 'credentials', 'keys', 'mcp', 'sdk', 'docs', 'runners', 'runner tokens', 'software factory'] },
   // The one row that leaves the dashboard shell: the reference is a full-page
   // Swagger UI an integrator keeps open beside their editor, so it renders on
   // its own route rather than inside the sidebar layout.

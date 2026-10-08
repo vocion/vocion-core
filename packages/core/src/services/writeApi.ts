@@ -37,6 +37,12 @@ export type ApiCaller = {
   actorId: string;
   principal: Principal;
   source: 'token' | 'session';
+  /**
+   * Set when the caller is a runner presenting a run token: the one run it acts for. The token
+   * was already held to that run's calls (`services/runners/runTokenAccess.ts`); a route reads
+   * this to renew it (the heartbeat) and for nothing that widens it.
+   */
+  run?: { runId: number; target: string; workerId: string | null };
 };
 
 /** A write-API failure with the HTTP status + error code the route should emit. */

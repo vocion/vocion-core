@@ -73,7 +73,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
       paused: reply.paused,
       endsAt: reply.endsAt,
       capRemainingCents: reply.capRemainingCents,
-      toolClaim: reply.toolClaim,
+      // Not to a runner on a run token: it calls no agent tool (see the heartbeat route).
+      ...(caller.run ? {} : { toolClaim: reply.toolClaim }),
       status: reply.run.status,
     });
   } catch (error) {

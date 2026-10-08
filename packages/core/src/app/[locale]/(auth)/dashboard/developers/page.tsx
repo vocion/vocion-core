@@ -4,8 +4,10 @@ import { headers } from 'next/headers';
 import { ApiTokensPanel } from '@/features/api-tokens/ApiTokensPanel';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { RunnersPanel } from '@/features/runners/RunnersPanel';
 import { Link } from '@/libs/I18nNavigation';
 import { appBaseUrl } from '@/libs/links';
+import { externalWorkersEnabled } from '@/services/WorkerRunService';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
@@ -13,7 +15,9 @@ import { requireOrganization } from '@/utils/Auth';
  * Developers — everything an integrator needs to connect something to this
  * workspace, on one page under Organization (nav sweep, 2026-09-15): the MCP
  * and REST endpoints with how to authenticate, the credentials that open
- * them (admins issue and store; members see who to ask), and the docs.
+ * them (admins issue and store; members see who to ask), the Software
+ * Factory's runners (Vocion 5.1: runner tokens and the target per workspace),
+ * and the docs.
  * `/dashboard/api-tokens` redirects here.
  *
  * Credentials stay admin-only for the reason the old page gave: a Vocion
@@ -123,6 +127,19 @@ export default async function DevelopersPage() {
       >
         {isAdmin && <ApiTokensPanel />}
       </DashboardSection>
+
+      {/* SOFTWARE FACTORY (Vocion 5.1): the runners that build this account's engineering runs,
+          and which target builds each workspace. Account admins only, and only where the
+          installation runs engineering runs at all (VOCION_EXTERNAL_WORKERS). */}
+      {isAdmin && externalWorkersEnabled() && (
+        <DashboardSection
+          fullWidthContent
+          title="Software Factory: runners"
+          description="The runners that build this account's engineering runs: which target builds each workspace, and the runner tokens that let a runner claim this account's runs and no other account's."
+        >
+          <RunnersPanel />
+        </DashboardSection>
+      )}
 
       <DashboardSection
         title="Docs"

@@ -151,6 +151,12 @@ export const tenantAccountSchema = pgTable(
     stripeSubscriptionPriceId: text('stripe_subscription_price_id'),
     stripeSubscriptionStatus: text('stripe_subscription_status'),
     stripeSubscriptionCurrentPeriodEnd: bigint('stripe_subscription_current_period_end', { mode: 'number' }),
+    /**
+     * Which of the installation's runner targets builds this account's engineering runs
+     * (migration 0183, `services/runners/workspaceTarget.ts`), unless a workspace names its own.
+     * NULL: any target, the single-tenant behaviour.
+     */
+    runnerTarget: text('runner_target'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -222,6 +228,13 @@ export const projectSchema = pgTable(
     enabledPlugins: jsonb('enabled_plugins').$type<string[]>().default([]).notNull(),
     /** Processes that run as durable workflows in this workspace (workspace.yaml `durable:`, backlog 054). */
     enabledDurable: jsonb('enabled_durable').$type<string[]>().default([]).notNull(),
+    /**
+     * Which of the installation's runner targets builds this workspace's engineering runs
+     * (migration 0183). Wins over the account's `runner_target`; NULL on both means any target.
+     * A run is claimed only by that target and pushed only to it, so a tenant's repository code
+     * runs only on capacity meant for it (`services/runners/workspaceTarget.ts`).
+     */
+    runnerTarget: text('runner_target'),
     /**
      * Which vendor and model produce this workspace's embeddings. Authored as
      * `defaults.embeddingProvider` / `defaults.embeddingModel` in
@@ -4301,6 +4314,36 @@ export const workerRunSchema = pgTable(
     index('worker_run_org_status_idx').on(table.orgId, table.status),
     index('worker_run_org_agent_idx').on(table.orgId, table.agentSlug),
     index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+/**
+ * A runner credential bound to one account (migration 0183, `services/runners/runnerTokens.ts`).
+ * A runner presents `vcn_runner_<id>_<secret>` to `POST /api/v1/runner/claim` and is given only
+ * runs from this account, and from `projectIds` when that is set. Only the SHA-256 of the secret
+ * is kept: the token is shown once, when it is minted. Revoking stamps `revokedAt`.
+ */
+export const runnerTokenSchema = pgTable(
+  'runner_token',
+  {
+    /** Public id, the `<id>` segment of the token. */
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** SHA-256 hex of the secret half. */
+    secretHash: text('secret_hash').notNull(),
+    /** Masked tail, e.g. `…4a9F`, for display only. */
+    keyHint: text('key_hint'),
+    /** The workspaces it may claim for; null = every workspace of the account. */
+    projectIds: jsonb('project_ids').$type<string[]>(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
+    revokedAt: timestamp('revoked_at', { mode: 'date' }),
+    expiresAt: timestamp('expires_at', { mode: 'date' }),
+  },
+  table => [
+    index('runner_token_account_idx').on(table.accountId),
   ],
 );
 

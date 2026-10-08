@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { clerkAuth } from '@/libs/Auth';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce, normalizeWorkspaceRole } from '@/services/authz';
+import { RUN_TOKEN_PREFIX } from '@/services/runners/runToken';
+import { authorizeRunToken } from '@/services/runners/runTokenAccess';
 import { WriteApiError } from '@/services/writeApi';
 
 /**
@@ -31,6 +33,11 @@ import { WriteApiError } from '@/services/writeApi';
 export async function authApi(req?: Request): Promise<ApiCaller | NextResponseType> {
   const authHeader = req?.headers.get('authorization');
   if (authHeader) {
+    // The same reading of the header the runner claim route uses.
+    const bearer = /^Bearer\s+/i.test(authHeader) ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+    if (req && bearer.startsWith(RUN_TOKEN_PREFIX)) {
+      return runTokenCaller(bearer, req);
+    }
     const identity = await authenticateBearer(authHeader);
     if (!identity) {
       return jsonError('UNAUTHORIZED', 'Missing or invalid bearer token', 401);
@@ -61,6 +68,28 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
       scope: { orgId },
     },
     source: 'session',
+  };
+}
+
+/**
+ * A runner's run token, held to its own run's calls before any route runs
+ * (`services/runners/runTokenAccess.ts`). Inside them it acts with the
+ * workspace's full grants, which the task record and QA evidence writes need.
+ * @param bearer - The `vrt_…` value.
+ * @param req - The request it came with.
+ */
+async function runTokenCaller(bearer: string, req: Request): Promise<ApiCaller | NextResponseType> {
+  const verdict = await authorizeRunToken(bearer, req);
+  if (!verdict.ok) {
+    return jsonError(verdict.code, verdict.message, verdict.status);
+  }
+  const { claim } = verdict;
+  return {
+    orgId: claim.orgId,
+    actorId: `token:run-${claim.runId}`,
+    principal: { kind: 'user', id: `runner:${claim.target}:run-${claim.runId}`, scope: { orgId: claim.orgId }, grants: ['*'] },
+    source: 'token',
+    run: { runId: claim.runId, target: claim.target, workerId: claim.workerId ?? null },
   };
 }
 
