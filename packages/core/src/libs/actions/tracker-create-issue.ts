@@ -32,7 +32,7 @@ type Input = z.infer<typeof createIssueInput>;
 export const trackerCreateIssueAction: Action<typeof createIssueInput> = {
   id: CREATE_ISSUE_ACTION_ID,
   name: 'Create a tracker issue',
-  description: 'File an issue on the connected issue tracker (Jira today) from a request, in the asker\'s words, with the Vocion request linked in its description. Undo deletes the issue.',
+  description: 'File an issue on the connected issue tracker (Jira or Linear) from a request, in the asker\'s words, with the Vocion request linked in its description. Undo deletes the issue.',
   inputSchema: createIssueInput,
   grant: 'factory_write',
   external: true,

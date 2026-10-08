@@ -47,7 +47,7 @@ export const READ_PIPELINE_RUNS_TOOL = 'repo_read_pipeline_runs';
 export const FORMER_CHECK_LOGS_TOOL = 'github_read_check_logs';
 export const FORMER_PIPELINE_RUNS_TOOL = 'github_read_workflow_runs';
 
-const REPO = z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'the repository as owner/name').describe('The repository, owner/name.');
+const REPO = z.string().regex(/^[\w.-]+(?:\/[\w.-]+)+$/, 'the repository as owner/name (group/project on GitLab)').describe('The repository, owner/name (group/subgroup/project on GitLab).');
 
 /**
  * The repo family's tools for one turn: the three reads when a code-host
@@ -270,6 +270,14 @@ function pipelineRunsTool(ctx: RuntimeContext): StructuredToolInterface {
   return tool(
     async (args) => {
       try {
+        // A host with its own pipelines (GitLab) answers through its provider;
+        // GitHub's workflow runs keep the path below.
+        const { repoProviderFor } = await import('@/services/repo/provider');
+        const provider = await repoProviderFor(ctx.orgId, args.repo).catch(() => null);
+        if (provider?.listPipelineRuns) {
+          const runs = await provider.listPipelineRuns(ctx.orgId, args.repo, { branch: args.branch ?? null, limit: args.limit ?? 5 });
+          return JSON.stringify({ ok: true, host: provider.label, repo: args.repo, runs, note: runs.length === 0 ? 'No run matched.' : 'Stop a run that should not be running with propose_action repo.cancel_pipeline_run (its url); Undo starts it again.' });
+        }
         const gh = await import('@/services/factory/githubChecks');
         const runs = await gh.listWorkflowRuns(ctx.orgId, args.repo, { workflow: args.workflow ?? null, branch: args.branch ?? null, limit: args.limit ?? 5 });
         // Jobs for the newest few, so a failed deploy names its step without a second read.

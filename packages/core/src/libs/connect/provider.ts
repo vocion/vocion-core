@@ -22,7 +22,7 @@ export type GrantSummary = {
 };
 
 /** Every vendor a person can log in to. The id is the URL segment of the start and callback routes. */
-export type ConnectProviderId = 'slack' | 'atlassian' | 'github' | 'google' | 'hubspot' | 'notion' | 'zoom' | 'posthog' | 'apollo' | 'quickbooks' | 'xero' | 'gusto' | 'linkedin' | 'meta';
+export type ConnectProviderId = 'slack' | 'atlassian' | 'github' | 'google' | 'hubspot' | 'notion' | 'zoom' | 'posthog' | 'apollo' | 'quickbooks' | 'xero' | 'gusto' | 'linkedin' | 'meta' | 'dropbox' | 'box';
 
 /**
  * Whose login it is. `workspace` (the default) is an admin connecting a

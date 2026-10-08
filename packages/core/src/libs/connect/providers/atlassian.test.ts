@@ -59,6 +59,15 @@ describe('atlassianProvider', () => {
     expect(url.searchParams.get('prompt')).toBe('consent');
   });
 
+  it('asks for Confluence\'s read scopes, not Jira\'s, when the login is for Confluence', () => {
+    vi.stubEnv('ATLASSIAN_CLIENT_ID', 'cid');
+    vi.stubEnv('ATLASSIAN_CLIENT_SECRET', 'cs');
+    const url = new URL(atlassianProvider.authorizeUrl({ state: 'st.sig', redirectUri: 'https://v.example/api/connect/atlassian/callback', connector: 'confluence' }));
+
+    expect(url.searchParams.get('scope')).toBe('read:confluence-content.all read:confluence-space.summary search:confluence offline_access');
+    expect(atlassianProvider.connectorSlugs).toEqual(['jira', 'confluence']);
+  });
+
   it('exchanges the code, lists the sites, and pins the cloudId when there is one site', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(res(TOKEN))
@@ -117,7 +126,7 @@ describe('atlassianProvider', () => {
 
     const out = await atlassianProvider.exchange({ query: { code: 'c' }, redirectUri: 'https://v.example/cb' });
 
-    expect(out).toMatchObject({ ok: false, reason: expect.stringContaining('reaches no Jira Cloud site') });
+    expect(out).toMatchObject({ ok: false, reason: expect.stringContaining('reaches no Atlassian Cloud site') });
   });
 
   it('refuses with the vendor reason when the person declined, without calling the token endpoint', async () => {

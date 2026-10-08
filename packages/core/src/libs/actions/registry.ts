@@ -33,6 +33,7 @@ import { goalCreateAction } from './goal-create';
 import { GOOGLE_ADS_ACTIONS } from './google-ads';
 import { hubspotCreateAction } from './hubspot-create';
 import { hubspotUpdateAction } from './hubspot-update';
+import { incidentAcknowledgeAction } from './incident-acknowledge';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { mcpCallAction } from './mcp';
 import { meSetPhoneAction } from './me-set-phone';
@@ -56,6 +57,7 @@ import { restRequestAction } from './rest';
 import { reviewDeclineAction } from './review-decline';
 import { slackPostMessageAction } from './slack-post-message';
 import { sourceConnectAction } from './source-connect';
+import { supportDraftReplyAction } from './support-draft-reply';
 import { teamHireAgentAction } from './team-hire-agent';
 import { trackerAttachFileAction } from './tracker-attach-file';
 import { trackerCommentAction } from './tracker-comment';
@@ -200,6 +202,11 @@ registerAction(trackerAttachFileAction);
 registerAction(financeDraftInvoiceAction);
 registerAction(financeRecategorizeExpenseAction);
 registerAction(financePostJournalEntryAction);
+// A reply drafted on a help-desk ticket as an internal note for the support
+// team to send, and an incident acknowledged on the on-call pager — the
+// support and incident families' writes; neither has an Undo the vendor allows.
+registerAction(supportDraftReplyAction);
+registerAction(incidentAcknowledgeAction);
 // An agent puts a question in front of a person, and takes it back when the
 // thing it asked about went away. Both reversible and internal: the ask is
 // the outcome, nothing executes on the answer.
