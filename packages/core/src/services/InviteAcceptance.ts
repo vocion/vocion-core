@@ -19,7 +19,8 @@
  * the tests all call the same rules.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, eq, isNull, TransactionRollbackError } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
 import { accountMembershipSchema, inviteSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
@@ -211,4 +212,89 @@ export async function acceptInviteAsExistingUser(userId: string, token: string):
   await ensurePersonalProjectsForUser(userId);
 
   return { ok: true, accountId: invite.accountId, openPath: await openPathOnAccount(userId, invite.accountId, invite.accountSlug) };
+}
+
+/** What creating a login from an invite needs. */
+export type NewUserFromInvite = {
+  /** The invite token: from the link's form, or one a provider's verified address matched. */
+  inviteToken: string;
+  /** The address the person proved: typed on the form, or vouched for by Google, Microsoft or an email link. */
+  email: string;
+  name: string | null;
+  /** The bcrypt hash of the password chosen on the form; null for a login made by Google, Microsoft or an email link. */
+  passwordHash: string | null;
+};
+
+export type AcceptAsNewUserResult
+  = | { ok: true; userId: string; accountId: string }
+    | { ok: false; status: 403 | 404 | 409 | 410; error: string; code?: 'EXISTING_USER' };
+
+/**
+ * Accept an invite by creating the person's login: the user, their
+ * membership with the invite's role, and the invite marked used, in one
+ * transaction; then their personal workspace. The one way a user comes to
+ * exist through the web — the invite link's form (`/api/signup`) and a first
+ * sign-in with Google, Microsoft or an email link
+ * (`services/auth/externalSignIn.ts`) both come through here, so a login
+ * looks the same however it was made.
+ *
+ * Someone who already has a login is refused with `code: 'EXISTING_USER'`:
+ * they join by signing in (`acceptInviteAsExistingUser`). The invite is
+ * claimed with a conditional update, like the existing-login path, so a
+ * double submit makes one user.
+ * @param input - The invite and the person.
+ * @param now - The current time; tests pass one.
+ */
+export async function acceptInviteAsNewUser(input: NewUserFromInvite, now: Date = new Date()): Promise<AcceptAsNewUserResult> {
+  const email = input.email.trim().toLowerCase();
+  const existing = { ok: false, status: 409, error: 'You already have a login with this email. Sign in to accept the invite.', code: 'EXISTING_USER' } as const;
+  const [user] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email)).limit(1);
+  if (user) {
+    return existing;
+  }
+  const invite = await inviteByToken(input.inviteToken);
+  const problem = inviteProblem(invite, email, now);
+  if (problem || !invite) {
+    return { ok: false, ...(problem ?? { status: 404, error: 'Invalid invite token.' }) };
+  }
+
+  const userId = `usr-${randomUUID()}`;
+  const outcome = await db.transaction(async (tx) => {
+    const claimed = await tx
+      .update(inviteSchema)
+      .set({ acceptedAt: now })
+      .where(and(eq(inviteSchema.id, invite.id), isNull(inviteSchema.acceptedAt)))
+      .returning({ id: inviteSchema.id });
+    if (claimed.length === 0) {
+      return 'used' as const;
+    }
+    // A second request for the same email between the check above and here
+    // finds the unique email taken: undo the claim and make nothing.
+    const created = await tx
+      .insert(userSchema)
+      .values({ id: userId, name: input.name?.trim() || null, email, passwordHash: input.passwordHash })
+      .onConflictDoNothing({ target: userSchema.email })
+      .returning({ id: userSchema.id });
+    if (created.length === 0) {
+      tx.rollback();
+    }
+    await tx.insert(accountMembershipSchema).values({ accountId: invite.accountId, userId, role: invite.role });
+    return 'created' as const;
+  }).catch((error: unknown) => {
+    if (error instanceof TransactionRollbackError) {
+      return 'exists' as const;
+    }
+    throw error;
+  });
+  if (outcome === 'exists') {
+    return existing;
+  }
+  if (outcome === 'used') {
+    return { ok: false, status: 410, error: 'This invite has already been used.' };
+  }
+
+  // Their own workspace in the account the invite joined them to. Never
+  // throws, so it cannot fail a sign-up; sign-in retries it.
+  await ensurePersonalProjectsForUser(userId);
+  return { ok: true, userId, accountId: invite.accountId };
 }

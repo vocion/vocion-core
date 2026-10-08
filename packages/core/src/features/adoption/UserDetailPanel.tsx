@@ -13,6 +13,8 @@ import { TrendChart } from './TrendChart';
 
 const EVENT_LABELS: Record<string, string> = {
   'auth.login': 'Signed in',
+  'auth.method_linked': 'Linked a sign-in method',
+  'auth.method_unlinked': 'Unlinked a sign-in method',
   'activity.heartbeat': 'Active',
   'chat.conversation_created': 'Started a conversation',
   'chat.message_sent': 'Sent a message',

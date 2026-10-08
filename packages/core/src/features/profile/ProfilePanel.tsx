@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { client } from '@/libs/Orpc';
+import { SignInMethodsSection } from './SignInMethodsSection';
 
 type Status = {
   ok: boolean;
@@ -200,6 +201,8 @@ export function ProfilePanel() {
           </Button>
         </form>
       </DashboardSection>
+
+      <SignInMethodsSection />
     </div>
   );
 }

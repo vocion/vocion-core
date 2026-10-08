@@ -22,6 +22,7 @@
  * | `slots` | `<ExtensionSlot>`: `system.actions` (System page title bar), `spend.stats` (spend page figures) |
  * | `orgs.multiOrg` | `services/OrgPolicy.ts`: lifts the single-Org rule |
  * | `orgs.scopeWorkspaceSwitcher` | `projects.list`: the workspace switcher lists the current Org's workspaces only |
+ * | `signInProviders` | `libs/identity/signInProviders.ts`: more "Continue with …" ways in, under core's invite-only rules |
  *
  * Client-side pieces (a component in the sidebar) cannot come from this list,
  * because it imports server code. They come from `@vocion/enterprise/client`
@@ -31,6 +32,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import type { WorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
 import type { WorkspaceSwitcherTargetPath } from '@/features/dashboard/nav/workspaceSwitch';
+import type { SignInProviderDescriptor } from '@/libs/identity/signInProviders';
 import { extensions as built } from '@vocion/enterprise/index';
 
 /** What a budget guard is asked about: the same call `preflightCheck` is. */
@@ -98,6 +100,13 @@ export type VocionExtension = {
     /** True makes the workspace switcher list only the current Org's workspaces. */
     scopeWorkspaceSwitcher?: boolean;
   };
+  /**
+   * More sign-in providers, after core's Google and Microsoft. Each is offered
+   * only when its own `configured` says so, and every sign-in through one goes
+   * through core's invite-only rules, which read only the address its
+   * `trustedEmail` vouches for.
+   */
+  signInProviders?: SignInProviderDescriptor[];
 };
 
 /** What a component in the sidebar's nav slot receives. */
@@ -175,4 +184,9 @@ export function extensionAllowsMultiOrg(): boolean {
 /** Whether an extension asks the workspace switcher to list only the current Org's workspaces. */
 export function extensionScopesSwitcherToOrg(): boolean {
   return extensions().some(e => e.orgs?.scopeWorkspaceSwitcher === true);
+}
+
+/** Every sign-in provider extensions add, in extension order. */
+export function extensionSignInProviders(): SignInProviderDescriptor[] {
+  return extensions().flatMap(e => e.signInProviders ?? []);
 }

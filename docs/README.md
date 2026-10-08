@@ -66,6 +66,7 @@ about them.
 
 ## Guides
 
+- [Sign in with Google or Microsoft](./guides/sign-in-with-google-or-microsoft.md) — "Continue with Google", "Continue with Microsoft" (work or school accounts) and emailed sign-in links, all still invite-only: the settings, the redirect URIs to register (`/api/auth/callback/google`, `/api/auth/callback/microsoft-entra-id`), setup in the Google Cloud console and an Entra app registration, exactly which address each provider is trusted for, and linking or unlinking from the profile.
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
 - [Extensions](./guides/extensions.md) — how a deployment builds in `@vocion/enterprise`, and the neutral seams it adds through (budget guard and observer, `ext` routes and pages, slots, the Org policy hook).
 - [GitHub as an event source](./guides/github.md) — pull requests, checks, reviews, merges and failed deploy runs on the repositories a workspace lists become `pr.*` and `run.failed` events automations act on; the read-only token and its permissions, the payload shapes, dedupe keys that make a re-poll idempotent, the optional webhook at `/api/webhooks/github`, and an example `when: { event: pr.checks_completed, filter: { conclusion: failure } }`.

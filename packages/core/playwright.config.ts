@@ -97,6 +97,12 @@ export default defineConfig<ChromaticConfig>({
           // purpose, exactly like the vault key above: it signs claims in a
           // database that lives for the length of one run. Never reuse it.
           VOCION_TOOL_SIGNING_SECRET: process.env.VOCION_TOOL_SIGNING_SECRET ?? 'e2e-only-tool-signing-secret-not-a-real-key',
+          // Placeholders so "Continue with Google / Microsoft" render
+          // (e2e/sign-in-methods). Nothing calls either provider.
+          AUTH_GOOGLE_ID: 'e2e-placeholder-google-client',
+          AUTH_GOOGLE_SECRET: 'e2e-placeholder-google-secret',
+          AUTH_MICROSOFT_ENTRA_ID_ID: 'e2e-placeholder-entra-client',
+          AUTH_MICROSOFT_ENTRA_ID_SECRET: 'e2e-placeholder-entra-secret',
           PORT,
         },
       },
@@ -368,6 +374,12 @@ export default defineConfig<ChromaticConfig>({
       name: 'api-docs',
       testDir: './e2e/api-docs',
       timeout: projectTimeout(120 * 1000, 60 * 1000),
+    },
+    {
+      name: 'sign-in-methods',
+      testDir: './e2e/sign-in-methods',
+      timeout: 60 * 1000,
+      use: { ...devices['Desktop Chrome'] },
     },
     ...(process.env.CI
       ? [
