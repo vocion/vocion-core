@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { Bot, Database, GitBranch, Mail, Target, Users, Video } from 'lucide-react';
+import { NextIntlClientProvider } from 'next-intl';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { LetterTile } from '@/components/ui/letter-tile';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -15,7 +16,8 @@ const meta: Meta<typeof CatalogCard> = {
   title: 'Patterns/Front doors',
   component: CatalogCard,
   parameters: { layout: 'padded' },
-  decorators: [Story => <div className="mx-auto max-w-5xl"><Story /></div>],
+  // A card's action is the locale-aware Link, which reads the intl context.
+  decorators: [Story => <NextIntlClientProvider locale="en"><div className="mx-auto max-w-5xl"><Story /></div></NextIntlClientProvider>],
 };
 
 export default meta;

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { Blocks, Plus, Users, Wand2 } from 'lucide-react';
+import { NextIntlClientProvider } from 'next-intl';
 import { AGENT_ACCENT_NAMES } from '@/libs/agentAccents';
 import { TINTS } from '@/libs/tints';
 import { AgentDot, AgentDots } from './agent-dot';
@@ -16,6 +17,8 @@ import { StatusBadge } from './status-badge';
 const meta: Meta = {
   title: 'UI/Front-door primitives',
   parameters: { layout: 'padded' },
+  // EmptyState's action is the locale-aware Link, which reads the intl context.
+  decorators: [Story => <NextIntlClientProvider locale="en"><Story /></NextIntlClientProvider>],
 };
 
 export default meta;
