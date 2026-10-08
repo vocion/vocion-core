@@ -60,7 +60,8 @@ export const DEFAULT_MAX_FIRES_PER_10M = 6;
  * because "why did nothing run all afternoon" is answered from this log or
  * from nowhere.
  */
-export type SkipReason = 'self_trigger' | 'rate_limited' | 'workspace_paused' | 'fire_failed' | 'automation_paused';
+// `setup_incomplete`: a plugin's schedule ticked before the plugin's setup was done (`plugins/setupGate.ts`).
+export type SkipReason = 'self_trigger' | 'rate_limited' | 'workspace_paused' | 'fire_failed' | 'automation_paused' | 'setup_incomplete';
 
 /**
  * Prepend this fire to the chain that led to it.

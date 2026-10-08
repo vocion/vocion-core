@@ -25,6 +25,7 @@ import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGu
 import { JOB } from '@/services/background/catalog';
 import { withRunCost } from '@/services/budget/runCost';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
+import { isScheduleTick, PluginSetupIncompleteError, setupHoldFor } from '@/services/plugins/setupGate';
 import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
 
 /** How long a check waits before its one retry after a transient model error. */
@@ -235,6 +236,23 @@ export async function beginAutomationFire(
       });
     }
     throw err;
+  }
+  // A PLUGIN'S SCHEDULES WAIT FOR ITS SETUP (`plugins/setupGate.ts`). Only a
+  // schedule tick is held: an event answers something that happened, and a
+  // person's Run now is their word. Held like a paused workspace — a
+  // `skipped` row with the steps still to do, then the refusal.
+  if (isScheduleTick(invokedBy, slug)) {
+    const hold = await setupHoldFor(orgId, slug);
+    if (hold) {
+      const err = new PluginSetupIncompleteError(hold, slug);
+      await recordSkippedFire(orgId, slug, {
+        event: invokedBy,
+        payload: input,
+        invokedBy,
+        result: { kind: 'skipped', reason: 'setup_incomplete', detail: `the setup of ${hold.name} is not done — still to do: ${hold.undone.join(', ')}`, event: invokedBy, causedBy: opts.causedBy ?? null },
+      });
+      throw err;
+    }
   }
 
   const [runRow] = await db

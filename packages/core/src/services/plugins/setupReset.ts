@@ -5,9 +5,10 @@
  * (services/plugins/setupState.ts reads the same declaration to say what is
  * done): every connector it names is disconnected, every record of a type it
  * names is deleted with the artifacts filed on it, every proposal still
- * waiting to create one of those records is rejected, and every proposal ever
+ * waiting to create one of those records is rejected, every proposal ever
  * made for one — decided or not — stops answering the duplicate check, so the
- * next setup can file the same records again. Nothing else is touched: the sources stay (they are the workspace's), the agents, missions
+ * next setup can file the same records again, and whatever the plugin's own
+ * agents still had waiting on a person is withdrawn. Nothing else is touched: the sources stay (they are the workspace's), the agents, missions
  * and trust rules stay, the conversations stay. Afterwards the setup chip is
  * back in chat, and the next setup turn starts where the first one did.
  *
@@ -16,14 +17,15 @@
  * process." Admin-only at the router; this service trusts its caller.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
-import { loadPlugin } from '@/libs/workspace/plugins';
-import { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
+import { loadPlugin, pluginContents } from '@/libs/workspace/plugins';
+import { actionRunSchema, askSchema, businessObjectSchema, businessObjectTypeSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { rejectAction } from '@/services/ActionService';
 import { revokeLivePlatformCredentials } from '@/services/ApiTokenService';
 import { deleteArtifact, listArtifactsForRecord } from '@/services/ArtifactService';
+import { supersedeAsk } from '@/services/AskService';
 import { deleteBusinessObject } from '@/services/BusinessObjectService';
 
 export type SetupResetResult = {
@@ -34,6 +36,8 @@ export type SetupResetResult = {
   deleted: Array<{ type: string; records: number; artifacts: number }>;
   /** Proposals that would have created one of those records, now rejected. */
   rejected: number;
+  /** What the plugin's own agents still had in front of a person, now withdrawn. */
+  withdrawn: { proposals: number; asks: number };
 };
 
 /**
@@ -138,5 +142,38 @@ export async function resetSetup(input: { orgId: string; pluginSlug: string; act
       ));
   }
 
-  return { plugin: input.pluginSlug, disconnected, deleted, rejected };
+  // Everything else the plugin's agents still had in front of a person — a
+  // proposal waiting in the queue, a question on Needs you — was raised
+  // about the setup that was just wiped. The two-hourly reply pass had asked
+  // "Jira is still unconnected — connect it?" of a factory with no repos
+  // yet, and the card survived the first reset (Jamie, 2026-10-07). Each is
+  // withdrawn with the reason on it; a question or a proposal from another
+  // plugin's agent, or a person's, is not touched.
+  const agents = pluginContents(loadPlugin(input.pluginSlug)).agents;
+  const withdrawn = { proposals: 0, asks: 0 };
+  if (agents.length > 0) {
+    const reason = `setup of ${manifest.name} was reset`;
+    const byAgent = or(
+      sql`${actionRunSchema.proposal}->>'agentSlug' in (${sql.join(agents.map(a => sql`${a}`), sql`, `)})`,
+      inArray(actionRunSchema.invokedBy, agents.flatMap(a => [`agent:${a}`, `factory:${a}`])),
+    );
+    const proposals = await db
+      .select({ id: actionRunSchema.id })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.orgId, input.orgId), eq(actionRunSchema.status, 'pending'), byAgent));
+    for (const run of proposals) {
+      await rejectAction(run.id, input.orgId, reason, { reviewedBy: input.actor });
+      withdrawn.proposals += 1;
+    }
+    const asks = await db
+      .select({ id: askSchema.id })
+      .from(askSchema)
+      .where(and(eq(askSchema.orgId, input.orgId), eq(askSchema.status, 'open'), inArray(askSchema.agentSlug, [...agents])));
+    for (const ask of asks) {
+      await supersedeAsk(input.orgId, ask.id, reason);
+      withdrawn.asks += 1;
+    }
+  }
+
+  return { plugin: input.pluginSlug, disconnected, deleted, rejected, withdrawn };
 }
