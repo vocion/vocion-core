@@ -9,10 +9,11 @@ Vocion, everywhere they meet the product:
 | **Accent** | Links, the focus ring and the primary token take the Org's accent colour. It is layered over the app's tokens; the app tints (`--tint-*`) are left alone. |
 | **Browser tab** | The title reads "Northwind · Vocion" ("Chat · Northwind" on a page), and the favicon is the Org's mark. |
 | **Sign-in and invite pages** | The Org's logo, "Sign in to Northwind", the accent on the button and on the background glow, and "Powered by Vocion" under the card. |
+| **Who may get in** | Under the sign-in form, the install's policy: "Anyone with a @northwind.example account can sign in with Google or Microsoft" when `VOCION_AUTO_JOIN_DOMAINS` is set, else "Need access? Ask someone at Northwind to invite you". A single-Org server knows its Org before sign-in, so this holds even before the Org has a brand. A multi-Org server knows no Org yet: its sign-in stays Vocion's, with the plain invite-only line. |
 | **Outbound mail** | A header with the Org's logo over each mail, and the Org's sender name on the server's address (`Northwind Ops <reports@…>`). |
 | **Headings** | Set in the Org's heading font, when it picks one the app serves. |
 
-An Org with no brand keeps Vocion's look, and nothing changes until it has one.
+An Org with no brand keeps Vocion's look: the plain Vocion wordmark (never the tagline lockup) on sign-in, which still names the Org.
 
 There are three ways to give an Org its brand: the setup chat, Brand
 settings, and a `brand.yaml` the server already has.

@@ -1,6 +1,7 @@
 'use client';
 
 import type { SignInMessage, SignInOutcome } from '@/features/auth/signInMessages';
+import type { SignInAccess } from '@/features/branding/AuthBrand';
 import type { SignInProviderOption } from '@/libs/identity/signInProviders';
 import { signIn } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
@@ -26,7 +27,18 @@ type Props = {
   emailLink?: boolean;
   /** Open on "check your email" (a link request that came back without JavaScript). */
   linkSent?: boolean;
+  /** Whose instance this is and who may get in, for the subtitle and the line under the form. */
+  access?: SignInAccess;
 };
+
+/**
+ * "A", "A or B", "A, B or C".
+ * @param items - The words.
+ * @param or - The word for "or".
+ */
+function listOr(items: string[], or: string): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${or} ${items.at(-1)}`;
+}
 
 /** How long a mailed link works, as the page says it. Matches `EMAIL_LINK_TTL_MINUTES`. */
 const LINK_MINUTES = 15;
@@ -45,8 +57,9 @@ const LINK_MINUTES = 15;
  * @param props.providers - The providers this deployment offers.
  * @param props.emailLink - Whether "Email me a sign-in link" is offered.
  * @param props.linkSent - Open on "check your email".
+ * @param props.access
  */
-export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLink = false, linkSent = false }: Props) {
+export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLink = false, linkSent = false, access }: Props) {
   const t = useTranslations('SignIn');
   // Spelled out key by key, so the translation check sees every sentence used.
   const say = (message: SignInMessage | null): string | null => {
@@ -89,7 +102,7 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
   const [submitting, setSubmitting] = useState(false);
   // An Org's own sign-in: its name in the subtitle, its accent on the button.
   const accentButton = useAccentButtonClass();
-  const target = useSignInTarget();
+  const target = useSignInTarget() ?? access?.org ?? null;
 
   const autofillHint = () => {
     if (hint) {
@@ -234,9 +247,14 @@ export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLi
             </>
           )}
 
-      {/* Accounts come from invites only, so there is no sign-up link to offer. */}
-      <p className="mt-6 text-center text-sm text-muted-foreground">
-        {t('invite_only')}
+      {/* Who may get in, as the install's policy says: a domain that joins
+          by itself, else whom to ask. There is no sign-up link to offer. */}
+      <p className="mt-6 text-center text-sm text-muted-foreground" data-testid="sign-in-access">
+        {access?.autoJoin
+          ? t('access_auto_join', { domains: listOr(access.autoJoin.domains.map(d => `@${d}`), t('or')), providers: listOr(access.autoJoin.providers, t('or')) })
+          : target
+            ? t('access_ask', { org: target })
+            : t('invite_only')}
       </p>
     </AuthCard>
   );

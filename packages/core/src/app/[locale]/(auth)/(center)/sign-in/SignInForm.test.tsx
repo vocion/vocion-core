@@ -149,3 +149,29 @@ describe('SignInForm in an Org\'s brand', () => {
     await expect.element(page.getByRole('button', { name: 'Sign in' })).not.toHaveClass(/bg-org-accent/);
   });
 });
+
+/**
+ * The line under the form says the install's policy, not a generic rule: the
+ * domains that join by themselves, else whom to ask — and a server that knows
+ * no Org before sign-in (multi-Org) keeps the plain invite-only line.
+ */
+describe('SignInForm access line', () => {
+  it('names the domains that join without an invite, and the providers that prove them', async () => {
+    await renderForm({ providers: PROVIDERS, access: { org: 'Northwind', autoJoin: { domains: ['northwind.example'], providers: ['Google', 'Microsoft'] } } });
+
+    await expect.element(page.getByTestId('sign-in-access')).toHaveTextContent('Anyone with a @northwind.example account can sign in with Google or Microsoft.');
+    await expect.element(page.getByText('Sign in to Northwind')).toBeInTheDocument();
+  });
+
+  it('otherwise says whom to ask, by the Org\'s name, before anyone signs in', async () => {
+    await renderForm({ access: { org: 'Northwind', autoJoin: null } });
+
+    await expect.element(page.getByTestId('sign-in-access')).toHaveTextContent('Need access? Ask someone at Northwind to invite you.');
+  });
+
+  it('a multi-Org server, which knows no Org yet, keeps the invite-only line', async () => {
+    await renderForm({ access: { org: null, autoJoin: null } });
+
+    await expect.element(page.getByTestId('sign-in-access')).toHaveTextContent('This instance is invite-only');
+  });
+});

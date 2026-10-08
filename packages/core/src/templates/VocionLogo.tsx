@@ -40,8 +40,11 @@ const BRAND_LOCKUP = process.env.NEXT_PUBLIC_BRAND_LOCKUP || '';
 // BRAND_LOCKUP is also set; the pair swaps via the `.dark` class variant.
 const BRAND_LOCKUP_DARK = process.env.NEXT_PUBLIC_BRAND_LOCKUP_DARK || '';
 
-export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' | 'lg' }) => {
-  if (BRAND_LOCKUP) {
+export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' | 'lg'; plain?: boolean }) => {
+  // `plain`: the mark and the name only — never the lockup (its descriptor is
+  // unreadable at sign-in size) and never the tagline (sign-in says whose
+  // instance it is in its own words).
+  if (BRAND_LOCKUP && !props.plain) {
     const lockupH
       = props.size === 'sm'
         ? 'h-6'
@@ -87,7 +90,7 @@ export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' |
       {!props.isTextHidden && (
         <span className="flex min-w-0 flex-col leading-none">
           <span className={`font-semibold tracking-tight ${textSize}`}>{BRAND_NAME}</span>
-          {BRAND_TAGLINE && (
+          {BRAND_TAGLINE && !props.plain && (
             <span className="mt-0.5 text-[11px] font-medium tracking-wide text-muted-foreground">
               {BRAND_TAGLINE}
             </span>

@@ -1,8 +1,14 @@
+import type { SignInAccess } from '@/features/branding/AuthBrand';
+import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
 import { SecondFactorChallenge, SecondFactorEnrollmentGate } from '@/features/auth/SecondFactorChallenge';
 import { auth } from '@/libs/Auth';
+import { db } from '@/libs/DB';
 import { signInProviderOptions } from '@/libs/identity/signInProviders';
+import { tenantAccountSchema } from '@/models/Schema';
+import { autoJoinPolicy } from '@/services/auth/autoJoin';
 import { emailLinkConfigured } from '@/services/auth/emailLink';
+import { getOrgBrand, installAccountId } from '@/services/branding/OrgBrandService';
 import { SignInForm } from './SignInForm';
 
 /**
@@ -44,6 +50,7 @@ export default async function SignInPage(props: {
   const hint = hintEmail && hintPassword ? { email: hintEmail, password: hintPassword } : null;
   const providers = signInProviderOptions();
   const emailLink = emailLinkConfigured();
+  const access = await signInAccess(providers.map(p => p.label));
 
   return (
     <SignInForm
@@ -59,6 +66,30 @@ export default async function SignInPage(props: {
       providers={providers}
       emailLink={emailLink}
       linkSent={emailLink && type === 'email' && !error}
+      access={access}
     />
   );
+}
+
+/**
+ * Who may get in, for the line under the form: on a single-Org server, the
+ * Org's name (its brand's, else its own) and the domains that join without an
+ * invite when a provider can prove them. A multi-Org server knows no Org
+ * before sign-in and says nothing about either.
+ * @param providerLabels - "Google", "Microsoft", as offered.
+ */
+async function signInAccess(providerLabels: string[]): Promise<SignInAccess> {
+  const accountId = await installAccountId().catch(() => null);
+  if (!accountId) {
+    return { org: null, autoJoin: null };
+  }
+  const [brand, [row], policy] = await Promise.all([
+    getOrgBrand(accountId).catch(() => null),
+    db.select({ name: tenantAccountSchema.name }).from(tenantAccountSchema).where(eq(tenantAccountSchema.id, accountId)).limit(1),
+    autoJoinPolicy().catch(() => null),
+  ]);
+  return {
+    org: brand?.name ?? row?.name ?? null,
+    autoJoin: policy && policy.accountId === accountId && providerLabels.length > 0 ? { domains: [...policy.domains], providers: providerLabels } : null,
+  };
 }

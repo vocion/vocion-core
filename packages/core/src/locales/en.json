@@ -468,7 +468,10 @@
     "invite_failed": "Your invite couldn't be accepted. Open the invite link from your email, or ask an admin for a new one.",
     "no_invite": "No invite for this address. Ask an admin to invite you.",
     "failed": "Sign-in didn't finish. Try again.",
-    "invite_only": "This instance is invite-only — ask an admin for an invite link to join."
+    "invite_only": "This instance is invite-only — ask an admin for an invite link to join.",
+    "access_auto_join": "Anyone with a {domains} account can sign in with {providers}.",
+    "access_ask": "Need access? Ask someone at {org} to invite you.",
+    "or": "or"
   },
   "TwoStep": {
     "challenge_title": "Two-step sign-in",

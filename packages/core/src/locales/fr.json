@@ -468,7 +468,10 @@
     "invite_failed": "Votre invitation n’a pas pu être acceptée. Ouvrez le lien d’invitation reçu par e-mail, ou demandez-en un nouveau à un administrateur.",
     "no_invite": "Aucune invitation pour cette adresse. Demandez à un administrateur de vous inviter.",
     "failed": "La connexion n’a pas abouti. Réessayez.",
-    "invite_only": "Cette instance fonctionne sur invitation — demandez un lien d’invitation à un administrateur."
+    "invite_only": "Cette instance fonctionne sur invitation — demandez un lien d’invitation à un administrateur.",
+    "access_auto_join": "Toute personne ayant un compte {domains} peut se connecter avec {providers}.",
+    "access_ask": "Besoin d'accès ? Demandez à quelqu'un chez {org} de vous inviter.",
+    "or": "ou"
   },
   "TwoStep": {
     "challenge_title": "Connexion en deux étapes",

@@ -12,7 +12,7 @@ import { OrgLogo, PoweredByVocion } from './OrgLogo';
  */
 export function AuthBrandLogo() {
   const brand = useOrgBrand();
-  return brand ? <OrgLogo brand={brand} size="lg" /> : <VocionLogo size="lg" />;
+  return brand ? <OrgLogo brand={brand} size="lg" /> : <VocionLogo size="lg" plain />;
 }
 
 /**
@@ -34,6 +34,14 @@ export function useAccentButtonClass(): string | undefined {
   const brand = useOrgBrand();
   return brand?.accent ? 'bg-org-accent text-org-accent-foreground hover:bg-org-accent/90' : undefined;
 }
+
+/**
+ * Who may get in, as the sign-in page says it: the install's Org (a
+ * single-Org server knows it before anyone signs in; a multi-Org server does
+ * not), and the domains that join without an invite (`VOCION_AUTO_JOIN_DOMAINS`)
+ * with the providers that prove them.
+ */
+export type SignInAccess = { org: string | null; autoJoin: { domains: string[]; providers: string[] } | null };
 
 /** The name sign-in says it is signing in to: the Org's, or "your workspace". */
 export function useSignInTarget(): string | null {
