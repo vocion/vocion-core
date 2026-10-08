@@ -3,11 +3,12 @@ import { eq } from 'drizzle-orm';
 import { ArrowRight } from 'lucide-react';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { FactList, Section } from '@/components/patterns';
+import { FactList, IntegrationLogo, Section } from '@/components/patterns';
 import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { LetterTile } from '@/components/ui/letter-tile';
 import { AddAppButton } from '@/features/dashboard/apps/AddAppButton';
 import { TemplatePicker } from '@/features/dashboard/apps/TemplatePicker';
+import { connectorIcon } from '@/features/dashboard/connectors/connectorIcon';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { FeatureSwitch } from '@/features/dashboard/plugins/FeatureSwitch';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -147,7 +148,7 @@ export default async function AppPage(props: Props) {
               <ul className="divide-y divide-rule border-t border-rule" data-testid="app-connectors">
                 {app.connectors.map(c => (
                   <li key={c.slug} className="flex items-center gap-3 py-2.5">
-                    <LetterTile name={c.name} size="sm" />
+                    <IntegrationLogo brand={c.brand} name={c.name} icon={c.icon ? connectorIcon(c.icon) : undefined} size="sm" />
                     <span className="min-w-0 flex-1 text-sm">
                       {c.name}
                       {c.needed && <span className="ml-1.5 text-[12px] text-muted-foreground">{t('needed')}</span>}

@@ -1,12 +1,15 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { AlertTriangle, CheckCircle2, Database, FileText, Layers, Plug, Scale, Share2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { IntegrationLogo } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
+import { sourceBrandLookup } from '@/libs/sources/sourceBrand';
 import { agentSchema, businessObjectSchema, businessObjectTypeSchema, playbookSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { listSources } from '@/services/SourceSyncService';
 
 /**
  * Context dashboard — cross-cutting overview of every authored primitive
@@ -58,6 +61,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
       connectorSources.add(src);
     }
   }
+  const brandOf = connectorSources.size > 0 ? sourceBrandLookup(await listSources(orgId)) : () => null;
 
   return (
     <>
@@ -120,7 +124,10 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
           </div>
           <div className="flex flex-wrap gap-2">
             {[...connectorSources].sort().map(src => (
-              <Badge key={src} variant="outline" className="font-mono">{src}</Badge>
+              <Badge key={src} variant="outline" className="gap-1.5 font-mono">
+                <IntegrationLogo brand={brandOf(src)} name={src} size="xs" markOnly className="-ml-0.5 border-0 bg-transparent" />
+                {src}
+              </Badge>
             ))}
           </div>
         </section>

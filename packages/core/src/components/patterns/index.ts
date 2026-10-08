@@ -33,6 +33,7 @@ export { type EvidenceItem, EvidenceList, SourceChip } from './EvidenceList';
 export { FilterBar } from './FilterBar';
 
 export { firstSentence } from './frontDoor';
+export { IntegrationLogo } from './IntegrationLogo';
 // Ledger
 export { LedgerEntry, LedgerGroup, type ProvenanceItem, ProvenanceLine, ScoreChip, type ScoreChipProps, type Verdict, VerdictBadge } from './Ledger';
 export { ListEmpty, ListPage } from './ListPage';

@@ -1,9 +1,11 @@
 import { and, count, eq } from 'drizzle-orm';
-import { ArrowLeft, CalendarClock, Database, FileText, Plug, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CalendarClock, FileText, Plug, RefreshCw } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { IntegrationLogo } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
+import { connectorIcon } from '@/features/dashboard/connectors/connectorIcon';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
@@ -136,9 +138,12 @@ export default async function SourceDetailPage(props: {
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Database className="size-5" aria-hidden />
-            </div>
+            <IntegrationLogo
+              brand={connector?.brand}
+              name={connector?.name ?? source.slug}
+              icon={connectorIcon(connector?.icon ?? 'Database')}
+              size="lg"
+            />
             <div>
               <div>{source.slug}</div>
               <div className="mt-0.5 flex items-center gap-2 text-sm font-normal">

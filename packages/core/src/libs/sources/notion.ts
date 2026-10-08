@@ -368,6 +368,7 @@ export const notionConnector: SourceConnector<typeof notionConfigSchema> = {
   name: 'Notion',
   description: 'Pages and databases from Notion. The title, properties and block text of everything shared with the integration.',
   icon: 'NotebookText',
+  brand: 'notion',
   authKind: 'apikey',
   configSchema: notionConfigSchema,
   defaultReconcileCron: '0 4 * * *',

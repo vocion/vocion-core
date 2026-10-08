@@ -174,6 +174,7 @@ export const apolloConnector: SourceConnector<typeof apolloConfigSchema> = {
   name: 'Apollo',
   description: 'Prospecting and contact enrichment, queried live. Net-new people and company search, verified work emails, and saved lists as a staging area.',
   icon: 'Radar',
+  brand: 'apolloio',
   authKind: 'apikey',
   syncless: true,
   configSchema: apolloConfigSchema,

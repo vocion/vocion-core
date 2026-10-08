@@ -23,6 +23,7 @@
  * declares no `setup:` has no setup state and never appears.
  */
 
+import { getConnector } from '@/libs/sources/registry';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { countActiveRecordsByType } from '@/services/objects/recordCounts';
 import { enabledPluginsForOrg } from '@/services/PluginService';
@@ -37,6 +38,8 @@ export type SetupStep = {
   slug: string;
   /** A short label a card or a sentence can carry. */
   label: string;
+  /** For a connector: its brand (`libs/brands/catalog.ts`), for the checklist's tile. */
+  brand?: string;
   done: boolean;
   /**
    * For a connector: the source slugs of this connector the workspace has
@@ -93,14 +96,18 @@ export async function setupStateForOrg(orgId: string): Promise<PluginSetup[]> {
 
   return declaring.map((p) => {
     const steps: SetupStep[] = [
-      ...p.manifest.setup.connectors.map((connector): SetupStep => ({
-        key: `connector:${connector}`,
-        kind: 'connector',
-        slug: connector,
-        label: `Connect ${connector}`,
-        done: connectorConnected(connector),
-        sources: sourcesByConnector.get(connector) ?? [],
-      })),
+      ...p.manifest.setup.connectors.map((connector): SetupStep => {
+        const brand = getConnector(connector)?.brand;
+        return {
+          key: `connector:${connector}`,
+          kind: 'connector',
+          slug: connector,
+          label: `Connect ${connector}`,
+          ...(brand ? { brand } : {}),
+          done: connectorConnected(connector),
+          sources: sourcesByConnector.get(connector) ?? [],
+        };
+      }),
       ...p.manifest.setup.records.map((type): SetupStep => ({
         key: `records:${type}`,
         kind: 'records',

@@ -33,6 +33,7 @@
  */
 
 import type { LLMProviderName } from '@vocion/sdk';
+import type { BrandKey } from '@/libs/brands/catalog';
 import type { ConnectProviderId } from '@/libs/connect/provider';
 
 /** Every platform id this build understands. */
@@ -173,6 +174,13 @@ export type CredentialPlatform = {
   id: CredentialPlatformId;
   /** Name shown in the platform selector. */
   label: string;
+  /**
+   * The vendor's brand, a key in `libs/brands/catalog.ts`: what every surface
+   * showing this platform (the credentials list, a model picker, the Tools
+   * catalog) draws its tile with. Absent for a platform that is not one
+   * vendor — Vocion's own token, a REST API, "Other platform".
+   */
+  brand?: BrandKey;
   keySource: KeySource;
   /**
    * Whether the org may hold one live credential here or many. See
@@ -287,11 +295,13 @@ function singleKeyField(label: string, pattern: RegExp | null, shapeHint: string
  * @param id - The platform id, `<provider>-login-app`.
  * @param provider - The connect provider whose logins it runs.
  * @param vendor - The vendor's name, as the form shows it.
+ * @param brand - The vendor's brand, for the tile.
  */
-function loginAppPlatform(id: CredentialPlatformId, provider: ConnectProviderId, vendor: string): CredentialPlatform {
+function loginAppPlatform(id: CredentialPlatformId, provider: ConnectProviderId, vendor: string, brand: BrandKey): CredentialPlatform {
   return {
     id,
     label: `${vendor} login app`,
+    brand,
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -317,13 +327,13 @@ function loginAppPlatform(id: CredentialPlatformId, provider: ConnectProviderId,
  * (CIMD), with no secret to bring.
  */
 const LOGIN_APP_PLATFORMS: readonly CredentialPlatform[] = [
-  loginAppPlatform('google-login-app', 'google', 'Google'),
-  loginAppPlatform('slack-login-app', 'slack', 'Slack'),
-  loginAppPlatform('atlassian-login-app', 'atlassian', 'Atlassian'),
-  loginAppPlatform('hubspot-login-app', 'hubspot', 'HubSpot'),
-  loginAppPlatform('notion-login-app', 'notion', 'Notion'),
-  loginAppPlatform('zoom-login-app', 'zoom', 'Zoom'),
-  loginAppPlatform('apollo-login-app', 'apollo', 'Apollo'),
+  loginAppPlatform('google-login-app', 'google', 'Google', 'google'),
+  loginAppPlatform('slack-login-app', 'slack', 'Slack', 'slack'),
+  loginAppPlatform('atlassian-login-app', 'atlassian', 'Atlassian', 'atlassian'),
+  loginAppPlatform('hubspot-login-app', 'hubspot', 'HubSpot', 'hubspot'),
+  loginAppPlatform('notion-login-app', 'notion', 'Notion', 'notion'),
+  loginAppPlatform('zoom-login-app', 'zoom', 'Zoom', 'zoom'),
+  loginAppPlatform('apollo-login-app', 'apollo', 'Apollo', 'apolloio'),
 ];
 
 /**
@@ -348,6 +358,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'openai',
     label: 'OpenAI',
+    brand: 'openai',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -366,6 +377,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'anthropic',
     label: 'Anthropic',
+    brand: 'anthropic',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -380,6 +392,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'vertex',
     label: 'Google Vertex AI',
+    brand: 'googlecloud',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -397,6 +410,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'azure-openai',
     label: 'Azure OpenAI',
+    brand: 'microsoftazure',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -412,6 +426,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'aws',
     label: 'AWS',
+    brand: 'amazonwebservices',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -463,6 +478,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'apollo',
     label: 'Apollo',
+    brand: 'apolloio',
     keySource: 'supplied',
     // `one-live` rather than the `many` its sibling connectors get. Widening
     // the cap means rebuilding `api_token_org_platform_live_idx` to carve
@@ -500,6 +516,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'github',
     label: 'GitHub',
+    brand: 'github',
     keySource: 'supplied',
     // `one-live`, for the reason Apollo and Notion are: widening the cap means
     // rebuilding `api_token_org_platform_live_idx`, and nothing needs two yet.
@@ -532,6 +549,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'granola',
     label: 'Granola',
+    brand: 'granola',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['granola'],
@@ -554,6 +572,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'hubspot',
     label: 'HubSpot',
+    brand: 'hubspot',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['hubspot'],
@@ -582,6 +601,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'jira',
     label: 'Jira',
+    brand: 'jira',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['jira'],
@@ -622,6 +642,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'notion',
     label: 'Notion',
+    brand: 'notion',
     keySource: 'supplied',
     // `one-live`, like Apollo and unlike its sibling connector platforms.
     // Widening the cap means rebuilding `api_token_org_platform_live_idx` to
@@ -664,6 +685,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'posthog',
     label: 'PostHog',
+    brand: 'posthog',
     keySource: 'supplied',
     // `one-live`, for the reason Apollo and Notion are: widening the cap means
     // rebuilding `api_token_org_platform_live_idx`, and nothing needs two yet.
@@ -725,6 +747,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'sentry',
     label: 'Sentry',
+    brand: 'sentry',
     keySource: 'supplied',
     // `one-live`, for the reason Apollo, Notion and PostHog are: widening the
     // cap means rebuilding `api_token_org_platform_live_idx`, and one token
@@ -774,6 +797,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'slate',
     label: 'Slate',
+    brand: 'slate',
     keySource: 'supplied',
     // `one-live`, like Sentry and PostHog: one Slate account per workspace,
     // asked for with no row id in hand.
@@ -804,6 +828,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'elevenlabs',
     label: 'ElevenLabs',
+    brand: 'elevenlabs',
     keySource: 'supplied',
     // `one-live`, for the reason Apollo, Notion, PostHog and Sentry are:
     // widening the cap means rebuilding `api_token_org_platform_live_idx`, and
@@ -828,6 +853,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'strapi',
     label: 'Strapi',
+    brand: 'strapi',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['strapi'],
@@ -917,6 +943,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'google',
     label: 'Google',
+    brand: 'google',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
@@ -985,6 +1012,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'slack',
     label: 'Slack',
+    brand: 'slack',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['slack'],
@@ -1011,6 +1039,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'zoom',
     label: 'Zoom',
+    brand: 'zoom',
     keySource: 'supplied',
     credentialsPerOrg: 'many',
     connectorSlugs: ['zoom'],
@@ -1064,6 +1093,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'google-analytics',
     label: 'Google Analytics',
+    brand: 'googleanalytics',
     keySource: 'supplied',
     // ONE live credential, unlike every other connector platform, and the
     // reason is the shape of what points at it. A source install names the
@@ -1124,6 +1154,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'tavily',
     label: 'Tavily',
+    brand: 'tavily',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -1139,6 +1170,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'brave',
     label: 'Brave Search',
+    brand: 'brave',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
@@ -1155,6 +1187,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   {
     id: 'firecrawl',
     label: 'Firecrawl',
+    brand: 'firecrawl',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],

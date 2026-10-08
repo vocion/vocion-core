@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowUpRight, CalendarClock, Compass, CornerUpLeft, GitBranch, ScrollText, TriangleAlert } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { IntegrationLogo } from '@/components/patterns';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
 import { AgentVoiceControl } from '@/features/dashboard/AgentVoiceControl';
@@ -13,7 +14,9 @@ import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { agentAccent as accent } from '@/libs/agentAccents';
 import { resolveVoice } from '@/libs/agents/voice';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { hasBrandMark } from '@/libs/brands/catalog';
 import { Link } from '@/libs/I18nNavigation';
+import { sourceBrandLookup } from '@/libs/sources/sourceBrand';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
@@ -22,6 +25,7 @@ import { recordRef } from '@/services/chat/recordContext';
 import { agentMemoryStats } from '@/services/MemoryService';
 import { listMissions } from '@/services/MissionService';
 import { listSkillFolders } from '@/services/playbooks/catalog';
+import { listSources } from '@/services/SourceSyncService';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 import { listWorkflows } from '@/services/WorkflowService';
 
@@ -86,6 +90,7 @@ export default async function AgentDetailPage(props: {
   const skillSlugs = agent.skillSlugs ?? [];
   const wiredSkills = skillSlugs.map(s => ({ slug: s, skill: skillBySlug.get(s) ?? null }));
   const sources = agent.connectorSources ?? [];
+  const brandOf = sources.length > 0 ? sourceBrandLookup(await listSources(orgId)) : () => null;
   const objectTypes = agent.objectTypeSlugs ?? [];
 
   // What this agent owns: missions it runs, workflows it owns, and the
@@ -246,7 +251,9 @@ export default async function AgentDetailPage(props: {
                     key={src}
                     className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-foreground/80"
                   >
-                    <span className="size-1.5 rounded-full" style={{ background: a.stripe }} aria-hidden />
+                    {/* The integration's logo when it has one; the agent's dot otherwise. */}
+                    <IntegrationLogo brand={brandOf(src)} name={titleCase(src)} size="xs" markOnly className="-ml-0.5 border-0 bg-transparent" />
+                    {!hasBrandMark(brandOf(src)) && <span className="size-1.5 rounded-full" style={{ background: a.stripe }} aria-hidden />}
                     {titleCase(src)}
                   </span>
                 ))}

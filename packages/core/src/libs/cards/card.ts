@@ -58,6 +58,11 @@ export const CardSchema = z.object({
    * date it happened; `reason` is the short code the log carries.
    */
   lastAttempt: z.object({ at: z.string(), reason: z.string(), summary: z.string() }).optional(),
+  /**
+   * The brand of the service the card is about (`libs/brands/catalog.ts`),
+   * read off its descriptor: the connect card draws that service's logo.
+   */
+  brand: z.string().min(1).optional(),
   /** The record the card's action created when it ran — the id the next turn needs. */
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),

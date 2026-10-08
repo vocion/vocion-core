@@ -1,6 +1,5 @@
 'use client';
 
-import type { LucideIcon } from 'lucide-react';
 import type { RefObject } from 'react';
 import type { FailedAttempt } from '../LastAttemptLine';
 import type { ConnectorRow, Source } from './connectorRows';
@@ -9,43 +8,27 @@ import type { GrantSummary } from '@/libs/connect/provider';
 import type { Tint } from '@/libs/tints';
 import {
   AlertTriangle,
-  BarChart3,
-  Calendar,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleAlert,
-  Contact,
-  Database,
   ExternalLink,
-  FileJson,
-  FileText,
-  FolderOpen,
-  GitPullRequest,
-  Globe,
   KeyRound,
   Loader2,
-  Mail,
-  Megaphone,
-  MessageSquare,
-  NotebookPen,
-  NotebookText,
   Pencil,
   Plug,
   Plus,
   RefreshCw,
   Search,
-  SquareKanban,
   Trash2,
-  Video,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { CatalogCard, CatalogCards, firstSentence, ListRows, RowMenu } from '@/components/patterns';
-import { LetterTile } from '@/components/ui/letter-tile';
+import { CatalogCard, CatalogCards, firstSentence, IntegrationLogo, ListRows, RowMenu } from '@/components/patterns';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { LastAttemptLine } from '../LastAttemptLine';
+import { connectorIcon } from './connectorIcon';
 import { describeSourceConfig, filterConnectorRows, formatRelative, offersReconnect } from './connectorRows';
 
 /**
@@ -76,31 +59,6 @@ const CATALOG_ID = 'connector-catalog';
  */
 const AUTH_KICKER: Record<ConnectorRow['tile']['authKind'], string> = { oauth: 'Sign in', apikey: 'API key', none: 'No sign-in' };
 const AUTH_TINT: Record<ConnectorRow['tile']['authKind'], Tint> = { oauth: 'sky', apikey: 'violet', none: 'mint' };
-
-/**
- * The Lucide icons connectors name in their `icon` field (`libs/sources/*.ts`),
- * listed rather than looked up off the whole namespace, which would pull every
- * icon into the client bundle. A missing name gets the plug.
- */
-const ICONS: Record<string, LucideIcon> = {
-  BarChart3,
-  Calendar,
-  Contact,
-  Database,
-  FileJson,
-  FileText,
-  FolderOpen,
-  GitPullRequest,
-  Globe,
-  Mail,
-  Megaphone,
-  MessageSquare,
-  NotebookPen,
-  NotebookText,
-  Pencil,
-  SquareKanban,
-  Video,
-};
 
 export type ConnectorListProps = {
   rows: ConnectorRow[];
@@ -255,7 +213,7 @@ function AvailableCard({ row, attempt, timeZone, onConnect }: { row: ConnectorRo
   return (
     <CatalogCard
       tint={AUTH_TINT[row.tile.authKind]}
-      lead={<LetterTile name={row.tile.name} icon={ICONS[row.tile.icon] ?? Plug} />}
+      lead={<IntegrationLogo brand={row.tile.brand} name={row.tile.name} icon={connectorIcon(row.tile.icon)} />}
       kicker={AUTH_KICKER[row.tile.authKind]}
       title={row.tile.name}
       job={firstSentence(row.tile.description)}
@@ -330,7 +288,7 @@ function ConnectedRow(props: {
         className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
       >
         <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <LetterTile name={row.tile.name} icon={ICONS[row.tile.icon] ?? Plug} size="sm" />
+        <IntegrationLogo brand={row.tile.brand} name={row.tile.name} icon={connectorIcon(row.tile.icon)} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{row.tile.name}</span>
           <span className="block truncate text-[13px] text-muted-foreground">{summary}</span>

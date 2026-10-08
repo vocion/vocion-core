@@ -554,6 +554,7 @@ export const posthogConnector: SourceConnector<typeof posthogConfigSchema> = {
   name: 'PostHog',
   description: 'Daily product usage from PostHog, as aggregates only. Event counts and unique users per event, plus totals and error counts, one document per day: no people, no properties, no content.',
   icon: 'Activity',
+  brand: 'posthog',
   authKind: 'apikey',
   configSchema: posthogConfigSchema,
   inspectNote: 'Reads the project, its event definitions and one day of counts through the Query API. Read-only and free. Nothing is saved, except an expired login it renews for a connected source.',

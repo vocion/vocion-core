@@ -17,6 +17,7 @@
 import { KeyRound } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { IntegrationLogo } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,6 +37,8 @@ type ToolProviderKeyCardProps = {
   platformId: string;
   /** Platform name as people know it, e.g. `Tavily`. */
   platformLabel: string;
+  /** The platform's brand (`libs/brands/catalog.ts`), for the tile beside its name. */
+  brand?: string | null;
   /** One line of guidance from the platform registry. */
   helpText: string;
   /** The inputs to render, in form order. */
@@ -157,7 +160,7 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
   return (
     <section className="rounded-lg border border-border bg-background p-4">
       <div className="mb-1 flex items-center gap-2">
-        <KeyRound className="size-4 text-primary" />
+        <IntegrationLogo brand={props.brand} name={platformLabel} icon={KeyRound} size="xs" />
         <h2 className="text-sm font-semibold">
           {platformLabel}
           {' '}

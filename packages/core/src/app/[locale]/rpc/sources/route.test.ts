@@ -46,7 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(clerkAuth).mockResolvedValue(signedIn);
   vi.mocked(listConnectors).mockReturnValue([
-    { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey' },
+    { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', brand: 'strapi', authKind: 'apikey' },
     { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none' },
   ] as never);
   vi.mocked(listSources).mockResolvedValue([
@@ -141,9 +141,10 @@ describe('GET /rpc/sources', () => {
       // `credentialPlatform` is how the picker knows to offer the credentials
       // the workspace already holds instead of asking for the key again.
       // `syncless` + `inspectable` are what put Test connection on a row
-      // where a syncing source shows Sync now.
-      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false, requiredScopes: null },
-      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false, requiredScopes: null },
+      // where a syncing source shows Sync now. `brand` is the tile's logo,
+      // null for a connector that is not one vendor.
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', brand: 'strapi', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false, requiredScopes: null },
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', brand: null, authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false, requiredScopes: null },
     ]);
   });
 

@@ -26,9 +26,10 @@ import type { AgentContextRow } from '@/services/agents/runtimeContext';
 import type { ToolCatalogEntry } from '@/services/agents/tools/registry';
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { platformForToolProvider } from '@/libs/platforms/registry';
 import { loadRestSources } from '@/libs/rest/sources';
 import { endpointDescription, REST_LIST_ACTIONS_TOOL, restToolName, toolPrefixFor } from '@/libs/rest/spec';
-import { listConnectors } from '@/libs/sources/registry';
+import { getConnector, listConnectors } from '@/libs/sources/registry';
 import { sourceNameOf } from '@/libs/sources/upsert';
 import { agentSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { agentScope, runtimeContextFromScope, workspaceScope } from '@/services/agents/runtimeContext';
@@ -77,6 +78,12 @@ export type CatalogTool = {
   inputSchema: Record<string, unknown>;
   /** Set for the six built-ins: the provider/key status the catalog already reported. */
   status?: CapabilityStatus;
+  /**
+   * The brand of the paid provider behind a built-in (`libs/brands/catalog.ts`),
+   * read off the provider's credential platform; absent when the provider has
+   * none (the built-in page reader, a search the model does itself).
+   */
+  providerBrand?: string;
   /** Set for a REST source's read tools. */
   rest?: RestToolFacts;
 };
@@ -97,6 +104,8 @@ export type ToolFamily = {
   id: string;
   kind: ToolFamilyKind;
   label: string;
+  /** The brand of the connector behind a source family (`libs/brands/catalog.ts`); absent for the rest. */
+  brand?: string;
   description: string;
   /** The workspace sources behind a source-gated family; empty for the rest. */
   sources: CatalogSource[];
@@ -138,6 +147,16 @@ const SOURCE_FAMILIES: SourceFamilyRule[] = [
   { kind: 'zoom', label: 'Zoom', description: 'Recordings and transcripts of the workspace\'s Zoom calls.', connectorSlug: 'zoom', source: /^zoom(?:$|-)/, tool: /^(?:get_zoom_|find_zoom_)/ },
   { kind: 'posthog', label: 'PostHog', description: 'Daily event counts from the PostHog mirror.', connectorSlug: 'posthog', source: /^posthog(?:$|-)/, tool: /^posthog_/ },
 ];
+
+/**
+ * A family's `brand`, from its connector: spread into the family, so a
+ * connector that is not one vendor leaves the key out.
+ * @param connectorSlug - The connector behind the family.
+ */
+function brandOf(connectorSlug: string): { brand?: string } {
+  const brand = getConnector(connectorSlug)?.brand;
+  return brand ? { brand } : {};
+}
 
 /**
  * `list_projects` → "List projects"; `file_request` → "File request".
@@ -343,7 +362,8 @@ export async function toolCatalogForOrg(orgId: string, opts: { withStatuses?: bo
     readiness: null,
     tools: BUILTIN_TOOLS.map((tool) => {
       const status = statusByCapability.get(tool.capability);
-      return toolOf(tool.name, 'builtin', union.get(tool.name), { title: tool.title, description: tool.description, ...(status ? { status } : {}) });
+      const providerBrand = status ? platformForToolProvider(status.provider)?.brand : undefined;
+      return toolOf(tool.name, 'builtin', union.get(tool.name), { title: tool.title, description: tool.description, ...(status ? { status } : {}), ...(providerBrand ? { providerBrand } : {}) });
     }),
     actions: [],
   };
@@ -378,6 +398,7 @@ export async function toolCatalogForOrg(orgId: string, opts: { withStatuses?: bo
       id: rule.kind,
       kind: rule.kind,
       label: rule.label,
+      ...brandOf(rule.connectorSlug),
       description: rule.description,
       sources,
       readiness: familyReadiness(sources, connections),

@@ -73,6 +73,12 @@ export type ConnectorTile = {
   name: string;
   description: string;
   icon: string;
+  /**
+   * The vendor's brand (`libs/brands/catalog.ts`), drawn as the tile's logo.
+   * Null for a connector that is not one vendor; absent on cores older than
+   * 2026-10-08.
+   */
+  brand?: string | null;
   authKind: 'none' | 'apikey' | 'oauth';
   /**
    * The stored-credential platform this connector authenticates with, or null

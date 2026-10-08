@@ -16,6 +16,7 @@
 import type { z } from 'zod';
 import type { InspectInput } from './inspect';
 import type { CrawlPoliteness } from './robots';
+import type { BrandKey } from '@/libs/brands/catalog';
 import type { IngestDoc } from '@/services/IngestionService';
 
 export type SourceAuthKind = 'none' | 'apikey' | 'oauth';
@@ -58,6 +59,12 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
   description: string;
   /** Lucide icon name for the picker tile. */
   icon: string;
+  /**
+   * The vendor's brand, a key in `libs/brands/catalog.ts`. The tile draws its
+   * mark when the catalog has one and `icon` when it does not. Absent for a
+   * connector that is not one vendor (web, files, a REST API).
+   */
+  brand?: BrandKey;
   authKind: SourceAuthKind;
   /**
    * Zod schema validating the config_json blob the user enters when

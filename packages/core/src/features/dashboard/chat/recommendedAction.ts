@@ -62,9 +62,10 @@ function withSafeHref(field: CardField): CardField {
  * @param card.secondaryHref
  * @param card.secondaryHrefLabel
  * @param card.lastAttempt
+ * @param card.brand
  * @param card.decision
  */
-export function cardShown(card: { kind?: string; actionLabel?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; decision?: CardDecision }): Partial<RecommendedAction> {
+export function cardShown(card: { kind?: string; actionLabel?: string; body?: string; fields?: CardField[]; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: CardLastAttempt; brand?: string; decision?: CardDecision }): Partial<RecommendedAction> {
   const second = cardLink(card.secondaryHref, card.secondaryHrefLabel);
   return {
     ...(card.kind ? { kind: card.kind } : {}),
@@ -73,6 +74,7 @@ export function cardShown(card: { kind?: string; actionLabel?: string; body?: st
     ...(card.fields ? { fields: card.fields.map(withSafeHref) } : {}),
     ...('href' in second ? { secondaryHref: second.href, ...(second.hrefLabel ? { secondaryHrefLabel: second.hrefLabel } : {}) } : {}),
     ...(card.lastAttempt ? { lastAttempt: card.lastAttempt } : {}),
+    ...(card.brand ? { brand: card.brand } : {}),
     ...(card.decision ? { decision: card.decision } : {}),
   };
 }

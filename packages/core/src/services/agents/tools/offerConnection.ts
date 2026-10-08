@@ -86,12 +86,14 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
   // own) would be a card that only errors, so it is offered as paste instead.
   const login = (await connectOptionFor(ctx.orgId, connector.slug))?.configured ? how?.login : undefined;
   const source = { agentSlug: ctx.agentSlug, tool: 'offer_connection' };
+  // The card draws the service's logo, from the connector's own brand.
+  const brand = connector.brand ? { brand: connector.brand } : {};
   if (!login) {
     // No login for this connector: the button opens its token form. A connector
     // with no declaration keeps the plain Connectors link.
     const href = how ? pasteHref(connector.slug, ctx.conversationId) : connectHref(connector.slug, ctx.conversationId);
     const body = how ? { body: pasteBody(how.paste) } : {};
-    const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, ...body, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
+    const card: Card = { id: newCardId(), kind: 'link', title: `Connect ${name}`, ...body, ...brand, actions: [], source, href, hrefLabel: `Connect ${name}`, state: 'proposed' };
     ctx.emit({ type: 'card', card });
     return connectedWording(name, href, null);
   }
@@ -126,6 +128,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
     secondaryHref: `/dashboard/connectors?add=${encodeURIComponent(connector.slug)}&paste=1&returnTo=${encodeURIComponent(returnTo)}`,
     secondaryHrefLabel: 'Paste a token',
     ...(lastAttempt ? { lastAttempt } : {}),
+    ...brand,
     state: 'proposed',
   };
   ctx.emit({ type: 'card', card });

@@ -83,6 +83,7 @@ export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchem
   name: 'Google Calendar',
   description: 'Meetings from your calendar. Title, time, attendees and description over a rolling window of recent and upcoming events.',
   icon: 'Calendar',
+  brand: 'googlecalendar',
   authKind: 'oauth',
   configSchema: calendarConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

@@ -79,6 +79,7 @@ export const s3Connector: SourceConnector<typeof s3ConfigSchema> = {
   name: 'Amazon S3',
   description: 'Files under an Amazon S3 prefix, one document each. Fields are parsed from the key path and filename; built for image archives, rendered through a presigned in-app URL.',
   icon: 'Database',
+  brand: 'amazons3',
   authKind: 'none',
   configSchema: s3ConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
