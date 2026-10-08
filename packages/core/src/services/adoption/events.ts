@@ -56,6 +56,14 @@ type EventSpec = {
 export const ADOPTION_EVENTS = {
   /** JWT issued on credentials sign-in. */
   'auth.login': {},
+  /**
+   * A Google, Microsoft (or extension-registered) sign-in was linked to a
+   * login, on first use with a verified address or from the profile page.
+   * `provider` is Auth.js's provider id.
+   */
+  'auth.method_linked': { meta: z.object({ provider: z.string().max(60) }) },
+  /** A person unlinked a sign-in provider from their profile page. */
+  'auth.method_unlinked': { meta: z.object({ provider: z.string().max(60) }) },
   /** First authenticated RPC in each 5-minute bucket per user — feeds session derivation. */
   'activity.heartbeat': {},
   'chat.conversation_created': { agent: true },

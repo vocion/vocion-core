@@ -1,5 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { listSignInMethods, unlinkSignInMethod } from '@/services/auth/signInMethods';
 import { changePassword, getProfile, updatePhone, updateProfile } from '@/services/UserProfileService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -48,6 +49,28 @@ export const changePasswordRoute = os
       });
     } catch (e) {
       throw ApiError.badRequest(e instanceof Error ? e.message : 'Could not change password.');
+    }
+    return { ok: true };
+  });
+
+/** The person's ways in: password, linked providers, email link. */
+export const signInMethodsRoute = os.handler(async () => {
+  const { userId } = await guardAuth();
+  const methods = await listSignInMethods(userId);
+  if (!methods) {
+    throw ApiError.notFound();
+  }
+  return methods;
+});
+
+/** Unlink a provider, unless it is the person's last way in. */
+export const unlinkSignInMethodRoute = os
+  .input(z.object({ provider: z.string().min(1).max(60) }))
+  .handler(async ({ input }) => {
+    const { userId, projectId, accountId } = await guardAuth();
+    const result = await unlinkSignInMethod({ orgId: projectId, projectId, accountId, userId }, input.provider);
+    if (!result.ok) {
+      throw ApiError.badRequest(result.error);
     }
     return { ok: true };
   });

@@ -1,15 +1,23 @@
 'use client';
 
+import type { SignInProviderOption } from '@/libs/identity/signInProviders';
 import { signIn } from 'next-auth/react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { OrDivider, ProviderButtons } from '@/features/auth/ProviderButtons';
 import { Link } from '@/libs/I18nNavigation';
 
 type Props = {
   /** From ?invite=… — the only way to reach the form. */
   inviteToken: string | null;
+  /**
+   * "Continue with …" buttons for the providers this deployment offers. The
+   * provider's verified address must be the one the invite was sent to; the
+   * invite is then accepted exactly as this form would accept it.
+   */
+  providers?: SignInProviderOption[];
 };
 
 /**
@@ -21,7 +29,7 @@ function signInToAccept(inviteToken: string): string {
   return `/sign-in?callbackUrl=${encodeURIComponent(`/sign-up?invite=${encodeURIComponent(inviteToken)}`)}`;
 }
 
-export function SignUpForm({ inviteToken }: Props) {
+export function SignUpForm({ inviteToken, providers = [] }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -84,9 +92,17 @@ export function SignUpForm({ inviteToken }: Props) {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold">Accept invite</h1>
         <p className="text-sm text-muted-foreground">
-          You've been invited to join. Set a password to continue.
+          {providers.length > 0
+            ? 'You\'ve been invited to join. Continue with the account for the address the invite went to, or set a password.'
+            : 'You\'ve been invited to join. Set a password to continue.'}
         </p>
       </div>
+      {providers.length > 0 && (
+        <div>
+          <ProviderButtons providers={providers} callbackUrl="/dashboard" />
+          <OrDivider />
+        </div>
+      )}
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="space-y-1">
           <Label htmlFor="name">Your name</Label>

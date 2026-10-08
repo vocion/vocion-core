@@ -424,6 +424,15 @@ credential stored under the previous one.
 - Roles: `org:admin`, `org:member` (defined in `src/types/Auth.ts`)
 - Nothing to enable in a provider dashboard: set `AUTH_SECRET` and run the
   migrations. `VOCION_AUTH_PROVIDER` defaults to `local` (`src/libs/Env.ts`)
+- Sign-in beyond the password — Google, Microsoft (`AUTH_GOOGLE_*`,
+  `AUTH_MICROSOFT_ENTRA_ID_*`) and email links (when mail is on) — stays
+  invite-only: `services/auth/signInDecision.ts` links a provider-verified
+  address to its login or accepts a pending invite through
+  `acceptInviteAsNewUser` (the invite form's own path), and refuses everyone
+  else. The adapter never creates a user. Providers are descriptors in
+  `libs/identity/signInProviders.ts`; what each is trusted for is in
+  `libs/identity/trustedEmail.ts` and
+  `docs/guides/sign-in-with-google-or-microsoft.md`
 
 ## Database Schema
 

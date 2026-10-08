@@ -1,48 +1,107 @@
 'use client';
 
+import type { SignInOutcome } from '@/features/auth/signInMessages';
+import type { SignInProviderOption } from '@/libs/identity/signInProviders';
 import { signIn } from 'next-auth/react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { OrDivider, ProviderButtons } from '@/features/auth/ProviderButtons';
+import { signInMessage } from '@/features/auth/signInMessages';
+import { EMAIL_LINK_PROVIDER_ID } from '@/services/auth/emailLinkFragment';
 import { VocionLogo } from '@/templates/VocionLogo';
 
 type Props = {
   callbackUrl: string;
-  error: string | null;
+  /** What the URL carried back: Auth.js's `error`, and the gate's `reason` for a refused sign-in. */
+  outcome?: SignInOutcome;
   hint: { email: string; password: string } | null;
+  /** "Continue with …" buttons for the providers this deployment offers. */
+  providers?: SignInProviderOption[];
+  /** Whether "Email me a sign-in link" is offered. */
+  emailLink?: boolean;
+  /** Open on "check your email" (a link request that came back without JavaScript). */
+  linkSent?: boolean;
 };
 
-export function SignInForm({ callbackUrl, error: initialError, hint }: Props) {
+/** How long a mailed link works, as the page says it. Matches `EMAIL_LINK_TTL_MINUTES`. */
+const LINK_MINUTES = 15;
+
+/**
+ * Sign-in, every way this deployment offers: a button per provider, then the
+ * email field — which mails a sign-in link when mail is set up, with the
+ * password one click away ("Use a password"), and asks for the password
+ * otherwise.
+ * @param props - See {@link Props}.
+ * @param props.callbackUrl - Where to land once signed in.
+ * @param props.outcome - What the URL carried back.
+ * @param props.hint - The demo login, when this is the demo sandbox.
+ * @param props.providers - The providers this deployment offers.
+ * @param props.emailLink - Whether "Email me a sign-in link" is offered.
+ * @param props.linkSent - Open on "check your email".
+ */
+export function SignInForm({ callbackUrl, outcome, hint, providers = [], emailLink = false, linkSent = false }: Props) {
   const [email, setEmail] = useState(hint?.email ?? '');
   const [password, setPassword] = useState(hint?.password ?? '');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(initialError);
+  // The demo login is a password; everywhere else the link comes first.
+  const [mode, setMode] = useState<'link' | 'password'>(emailLink && !hint ? 'link' : 'password');
+  const [sentTo, setSentTo] = useState<string | null>(linkSent ? '' : null);
+  const [error, setError] = useState<string | null>(() => (outcome ? signInMessage(outcome) : null));
   const [submitting, setSubmitting] = useState(false);
 
   const autofillHint = () => {
     if (hint) {
       setEmail(hint.email);
       setPassword(hint.password);
+      setMode('password');
     }
   };
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
+  const onPasswordSubmit = async () => {
     const res = await signIn('credentials', {
       email,
       password,
       redirect: false,
       callbackUrl,
     });
-    setSubmitting(false);
     if (res?.error) {
-      setError('Invalid email or password.');
+      setError(signInMessage({ error: res.error }));
     } else if (res?.ok) {
       window.location.href = res.url ?? callbackUrl;
     }
+  };
+
+  const onLinkSubmit = async () => {
+    const res = await signIn(EMAIL_LINK_PROVIDER_ID, { email, redirect: false, callbackUrl });
+    const params = res?.error && res.url ? new URL(res.url, window.location.origin).searchParams : null;
+    if (res?.error) {
+      setError(signInMessage({
+        error: res.error,
+        retryAfterSeconds: Number(params?.get('retryAfter')) || null,
+      }));
+      return;
+    }
+    // The same answer whether or not the address has a login.
+    setSentTo(email);
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await (mode === 'link' ? onLinkSubmit() : onPasswordSubmit());
+    } catch {
+      setError(signInMessage({ error: 'Unknown' }));
+    }
+    setSubmitting(false);
+  };
+
+  const switchMode = (next: 'link' | 'password') => {
+    setError(null);
+    setMode(next);
   };
 
   return (
@@ -68,40 +127,76 @@ export function SignInForm({ callbackUrl, error: initialError, hint }: Props) {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(v => !v)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showPassword}
-                tabIndex={-1}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-              </button>
-            </div>
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={submitting}>
-            {submitting ? 'Signing in…' : 'Sign in'}
-          </Button>
-        </form>
+        {sentTo !== null
+          ? (
+              <div className="space-y-4 text-center" role="status">
+                <h2 className="text-lg font-semibold">Check your email</h2>
+                <p className="text-sm text-muted-foreground">
+                  {sentTo
+                    ? `If you have an account, we've sent a link to ${sentTo}.`
+                    : 'If you have an account, we\'ve sent you a link.'}
+                  {' '}
+                  {`It works once, for ${LINK_MINUTES} minutes.`}
+                </p>
+                <Button type="button" variant="outline" className="w-full" onClick={() => setSentTo(null)}>
+                  Use a different email
+                </Button>
+              </div>
+            )
+          : (
+              <>
+                <ProviderButtons providers={providers} callbackUrl={callbackUrl} />
+                {providers.length > 0 && <OrDivider />}
+
+                <form onSubmit={onSubmit} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+                  </div>
+                  {mode === 'password' && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="password">Password</Label>
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          type={showPassword ? 'text' : 'password'}
+                          value={password}
+                          onChange={e => setPassword(e.target.value)}
+                          required
+                          autoComplete="current-password"
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(v => !v)}
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          aria-pressed={showPassword}
+                          tabIndex={-1}
+                          className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+                  <Button type="submit" className="w-full" disabled={submitting}>
+                    {mode === 'link'
+                      ? (submitting ? 'Sending…' : 'Email me a sign-in link')
+                      : (submitting ? 'Signing in…' : 'Sign in')}
+                  </Button>
+                  {emailLink && (
+                    <button
+                      type="button"
+                      className="w-full text-center text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                      onClick={() => switchMode(mode === 'link' ? 'password' : 'link')}
+                    >
+                      {mode === 'link' ? 'Use a password' : 'Email me a sign-in link instead'}
+                    </button>
+                  )}
+                </form>
+              </>
+            )}
 
         {/* Accounts come from invites only, so there is no sign-up link to offer. */}
         <p className="mt-6 text-center text-sm text-muted-foreground">

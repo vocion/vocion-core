@@ -1,5 +1,6 @@
 import { setRequestLocale } from 'next-intl/server';
 import { auth } from '@/libs/Auth';
+import { signInProviderOptions } from '@/libs/identity/signInProviders';
 import { describeInviteForUser } from '@/services/InviteAcceptance';
 import { JoinAccountCard } from './JoinAccountCard';
 import { SignUpForm } from './SignUpForm';
@@ -35,5 +36,5 @@ export default async function SignUpPage(props: {
     }
   }
 
-  return <SignUpForm inviteToken={invite ?? null} />;
+  return <SignUpForm inviteToken={invite ?? null} providers={invite ? signInProviderOptions() : []} />;
 }

@@ -13,6 +13,19 @@ export const Env = createEnv({
     VOCION_AUTH_PROVIDER: z.enum(['local', 'clerk']).default('local'),
     /** Clerk — required only when VOCION_AUTH_PROVIDER=clerk. */
     CLERK_SECRET_KEY: z.string().optional(),
+    /**
+     * "Continue with Google" / "Continue with Microsoft" on the sign-in page.
+     * Each provider is offered only when both of its values are set; read
+     * through `libs/identity/signInProviders.ts`, not directly. Redirect URIs:
+     * `<app>/api/auth/callback/google` and
+     * `<app>/api/auth/callback/microsoft-entra-id`
+     * (docs/guides/sign-in-with-google-or-microsoft.md). Separate from
+     * `GOOGLE_OAUTH_CLIENT_ID`, which connects Google data sources.
+     */
+    AUTH_GOOGLE_ID: z.string().optional(),
+    AUTH_GOOGLE_SECRET: z.string().optional(),
+    AUTH_MICROSOFT_ENTRA_ID_ID: z.string().optional(),
+    AUTH_MICROSOFT_ENTRA_ID_SECRET: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']).default('dev'),
@@ -140,6 +153,10 @@ export const Env = createEnv({
     AUTH_SECRET: process.env.AUTH_SECRET,
     VOCION_AUTH_PROVIDER: process.env.VOCION_AUTH_PROVIDER,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+    AUTH_GOOGLE_ID: process.env.AUTH_GOOGLE_ID,
+    AUTH_GOOGLE_SECRET: process.env.AUTH_GOOGLE_SECRET,
+    AUTH_MICROSOFT_ENTRA_ID_ID: process.env.AUTH_MICROSOFT_ENTRA_ID_ID,
+    AUTH_MICROSOFT_ENTRA_ID_SECRET: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
     DATABASE_URL: process.env.DATABASE_URL,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,

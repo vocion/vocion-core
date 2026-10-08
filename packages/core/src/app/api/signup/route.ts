@@ -1,12 +1,10 @@
-import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
-import { inviteProblem } from '@/services/inviteRules';
-import { ensurePersonalProjectsForUser } from '@/services/workspace/personalProject';
+import { hashPassword } from '@/libs/identity/password';
+import { userSchema } from '@/models/Schema';
+import { acceptInviteAsNewUser } from '@/services/InviteAcceptance';
 
 /**
  * Registration endpoint. Accepting an invite is the ONLY way to create an
@@ -51,6 +49,7 @@ export async function POST(req: Request) {
   const lowerEmail = email.toLowerCase();
 
   // An existing login joins by signing in, never by making a second user.
+  // Checked before the password is hashed, so the answer costs no bcrypt.
   const [existingUser] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, lowerEmail)).limit(1);
   if (existingUser) {
     return NextResponse.json(
@@ -59,28 +58,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const [invite] = await db.select().from(inviteSchema).where(eq(inviteSchema.token, inviteToken)).limit(1);
-  const problem = inviteProblem(invite, lowerEmail, new Date());
-  if (problem || !invite) {
-    const refusal = problem ?? { status: 404, error: 'Invalid invite token.' };
-    return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+  // The same path a first sign-in with Google, Microsoft or an email link
+  // takes (`services/auth/externalSignIn.ts`): one way a login is made.
+  const result = await acceptInviteAsNewUser({ inviteToken, email: lowerEmail, name, passwordHash: await hashPassword(password) });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error, ...(result.code ? { code: result.code } : {}) }, { status: result.status });
   }
-
-  const userId = `usr-${randomUUID()}`;
-  const passwordHash = await hashPassword(password);
-  await db.transaction(async (tx) => {
-    await tx.insert(userSchema).values({ id: userId, name, email: lowerEmail, passwordHash });
-    await tx.insert(accountMembershipSchema).values({
-      accountId: invite.accountId,
-      userId,
-      role: invite.role,
-    });
-    await tx.update(inviteSchema)
-      .set({ acceptedAt: new Date() })
-      .where(and(eq(inviteSchema.id, invite.id)));
-  });
-  // Their own workspace in the account the invite joined them to. Never
-  // throws, so it cannot fail a sign-up; sign-in retries it.
-  await ensurePersonalProjectsForUser(userId);
-  return NextResponse.json({ ok: true, userId, mode: 'invite-accept' });
+  return NextResponse.json({ ok: true, userId: result.userId, mode: 'invite-accept' });
 }
