@@ -11,8 +11,8 @@ import { ChatComposer } from './ChatComposer';
  * toggle, a `?` and the send arrow — a per-conversation SETTING competing
  * with the one per-message action. The rung moved to the rail header; the `?`
  * stayed as a 32px ghost beside send, opening a collision-aware popover. The
- * focus state is a 1px ring in the ring token with a soft ground shift, not
- * the 4px amber halo it was.
+ * focus state is the hairline darkening — not the 4px amber halo it was, nor
+ * the amber ring and drop shadow after it — and send is the app's ink primary.
  * @param root0 - Story props.
  * @param root0.initial - Text the box starts with.
  * @param root0.streaming - A turn is in flight: Enter queues, ⌘⏎ sends now.

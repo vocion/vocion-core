@@ -7,7 +7,8 @@ import { useState } from 'react';
 /**
  * User message bubble (Phase C).
  *
- * Right-aligned soft-bordered bubble, preserved whitespace. No avatar,
+ * Right-aligned soft bubble — a ground, no border — with preserved whitespace,
+ * set at the answer's 15px so the two sides read as one conversation. No avatar,
  * no "You" label — right alignment IS the identity ("insert quarter,
  * shoot aliens": the transcript needs no decoration to be read).
  *
@@ -35,7 +36,7 @@ export function UserMessage({ content, attachments = [] }: UserMessageProps) {
           200-character URL with no space in it is a single unbreakable word.
           `whitespace-pre-wrap` alone keeps the person's line breaks but will
           not break that word, so the bubble grew past the transcript. */}
-      <div className="max-w-2xl rounded-2xl border border-border bg-muted/40 px-4 py-2 text-left text-sm break-words whitespace-pre-wrap">
+      <div className="max-w-2xl rounded-[18px] rounded-br-md bg-muted/60 px-4 py-2.5 text-left text-[15px] leading-[1.55] break-words whitespace-pre-wrap">
         {/* What was attached is part of what was said: an image shows itself,
             a document shows its name. Each opens the artifact (authenticated). */}
         {attachments.length > 0 && (

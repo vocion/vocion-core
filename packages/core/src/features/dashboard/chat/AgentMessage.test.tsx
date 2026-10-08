@@ -184,10 +184,12 @@ describe('the live indicator while streaming', () => {
     await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Searching the CRM');
   });
 
-  it('falls back to a plain label when there is no activity to name', async () => {
+  it('says the agent is writing when its words are the newest thing, never a bare "Working…"', async () => {
     await render(<AgentMessage agentName="RevOps Lead" message={streamed} streaming />);
 
     await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Writing…');
+    expect(document.body.textContent).not.toContain('Working…');
   });
 
   it('is present during the tool phase too, before any text has arrived', async () => {
@@ -213,6 +215,96 @@ describe('the live indicator while streaming', () => {
     await render(<AgentMessage agentName="RevOps Lead" message={streamed} />);
 
     expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(0);
+  });
+});
+
+describe('one live line per turn (Chris, 2026-10-08: "Can we combine that into 1 line?")', () => {
+  const actor = { id: 'lead', kind: 'lead' as const, name: 'Revenue' };
+  const looked = { id: 'a', actor, kind: 'tool' as const, status: 'done' as const, label: 'Looked up 3 deals', anchor: 0 };
+  const searching = { id: 'b', actor, kind: 'search' as const, status: 'start' as const, label: 'Searching the CRM…', anchor: 0 };
+
+  it('rides the newest group while it is the last thing in the turn — no second line under it', async () => {
+    const screen = await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '', runs: [], trace: [looked, searching] }}
+        streaming
+        activity="Searching the CRM… page 2 of 4"
+      />,
+    );
+
+    const lines = page.getByTestId('streaming-indicator');
+
+    await expect.element(lines).toHaveTextContent('Searching the CRM… page 2 of 4');
+
+    expect(lines.elements()).toHaveLength(1);
+    // The group's line is the turn's line: count and chevron on it, the rows behind it.
+    expect(lines.element().closest('[data-testid="work-timeline-live"]')).not.toBeNull();
+    await expect.element(lines).toHaveTextContent('2 steps');
+    expect(screen.container.querySelectorAll('[role="status"]')).toHaveLength(1);
+
+    await userEvent.click(page.getByRole('button', { name: /2 steps/ }));
+
+    await expect.element(page.getByTestId('work-steps-live')).toBeInTheDocument();
+  });
+
+  it('moves to the bottom once prose follows the steps, and the group folds to a quiet finished line', async () => {
+    const screen = await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Three deals moved this week.',
+          runs: [{ type: 'text', text: 'Three deals moved this week.' }],
+          trace: [looked, { ...searching, status: 'done', label: 'Searched the CRM' }],
+        }}
+        streaming
+      />,
+    );
+
+    const line = page.getByTestId('streaming-indicator');
+
+    await expect.element(line).toHaveTextContent('Writing…');
+
+    expect(line.elements()).toHaveLength(1);
+    expect(line.element().closest('[data-testid="work-timeline-live"]')).toBeNull();
+    // Under the words being written, not above them.
+    expect(page.getByText('Three deals moved this week.').element().compareDocumentPosition(line.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The group the agent wrote past is the finished line: no shimmer on it.
+    await expect.element(page.getByTestId('work-group')).toBeInTheDocument();
+    expect(screen.container.querySelectorAll('.work-shimmer')).toHaveLength(1);
+  });
+
+  it('sits at the bottom while the agent is only thinking, with nothing to open yet', async () => {
+    const screen = await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '', runs: [], trace: [{ id: 'r', actor, kind: 'reason', status: 'progress', label: 'Thinking', anchor: 0 }] }}
+        streaming
+        activity={null}
+      />,
+    );
+
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Thinking…');
+
+    expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(1);
+    expect(page.getByTestId('work-timeline-live').elements()).toHaveLength(0);
+    expect(screen.container.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
+  it('opens a live group with a failed step by itself', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '', runs: [], trace: [looked, { ...searching, status: 'error', result: 'HubSpot 429' }] }}
+        streaming
+        activity={null}
+      />,
+    );
+
+    await expect.element(page.getByTestId('work-steps-live')).toBeInTheDocument();
+    await expect.element(page.getByTestId('failed-step')).toHaveTextContent('HubSpot 429');
+    expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(1);
   });
 });
 
