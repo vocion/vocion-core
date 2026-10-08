@@ -1,7 +1,7 @@
 /**
  * An existing login accepting an invite into another account (vocion-core#128).
  *
- * Sam is an admin of Metacto and is invited to Contoso as a member. Both
+ * Sam is an admin of Northwind and is invited to Contoso as a member. Both
  * accounts own a `sales` workspace, so the landing URL has to name Contoso.
  * Real rows in PGlite. Joining a second Org is Vocion Cloud behaviour
  * (`VOCION_ORGS=multi`); the single-Org refusal is at the end.
@@ -45,15 +45,15 @@ beforeEach(async () => {
     { id: 'user-kim', email: 'kim@example.com', name: 'Kim' },
   ]);
   await db.insert(tenantAccountSchema).values([
-    { id: 'acct-metacto', name: 'Metacto', slug: 'metacto' },
+    { id: 'acct-northwind', name: 'Northwind', slug: 'northwind' },
     { id: 'acct-contoso', name: 'Contoso', slug: 'contoso' },
   ]);
   await db.insert(accountMembershipSchema).values([
-    { accountId: 'acct-metacto', userId: 'user-sam', role: 'admin' },
+    { accountId: 'acct-northwind', userId: 'user-sam', role: 'admin' },
     { accountId: 'acct-contoso', userId: 'user-kim', role: 'admin' },
   ]);
   await db.insert(projectSchema).values([
-    { id: 'proj-metacto-sales', accountId: 'acct-metacto', slug: 'sales', name: 'Metacto Sales', createdAt: new Date('2025-01-01T00:00:00Z') },
+    { id: 'proj-northwind-sales', accountId: 'acct-northwind', slug: 'sales', name: 'Northwind Sales', createdAt: new Date('2025-01-01T00:00:00Z') },
     { id: 'proj-contoso-sales', accountId: 'acct-contoso', slug: 'sales', name: 'Contoso Sales', createdAt: new Date('2025-02-01T00:00:00Z') },
     { id: 'proj-contoso-ops', accountId: 'acct-contoso', slug: 'ops', name: 'Contoso Ops', createdAt: new Date('2025-03-01T00:00:00Z') },
   ]);
@@ -69,11 +69,11 @@ describe('acceptInviteAsExistingUser', () => {
 
     const result = await acceptInviteAsExistingUser('user-sam', 'tok-open');
 
-    // Contoso's oldest workspace shares its slug with Metacto's, so the URL
+    // Contoso's oldest workspace shares its slug with Northwind's, so the URL
     // must say which account.
     expect(result).toEqual({ ok: true, accountId: 'acct-contoso', openPath: '/w/sales/dashboard?org=contoso' });
     // One login, two memberships, each with its own role.
-    expect(await samsMemberships()).toEqual(['acct-contoso:member', 'acct-metacto:admin']);
+    expect(await samsMemberships()).toEqual(['acct-contoso:member', 'acct-northwind:admin']);
     expect(await db.select().from(userSchema).where(eq(userSchema.email, 'sam@example.com'))).toHaveLength(1);
 
     const [row] = await db.select().from(inviteSchema).where(eq(inviteSchema.token, 'tok-open'));
@@ -87,7 +87,7 @@ describe('acceptInviteAsExistingUser', () => {
 
     await acceptInviteAsExistingUser('user-sam', 'tok-admin');
 
-    expect(await samsMemberships()).toEqual(['acct-contoso:admin', 'acct-metacto:member']);
+    expect(await samsMemberships()).toEqual(['acct-contoso:admin', 'acct-northwind:member']);
   });
 
   it('accepts an invite whose email differs from the login only in case', async () => {
@@ -100,14 +100,14 @@ describe('acceptInviteAsExistingUser', () => {
     await db.insert(inviteSchema).values(invite({ token: 'tok-other', email: 'lee@example.com' }));
 
     expect(await acceptInviteAsExistingUser('user-sam', 'tok-other')).toEqual({ ok: false, status: 403, error: 'This invite was issued for a different email.' });
-    expect(await samsMemberships()).toEqual(['acct-metacto:admin']);
+    expect(await samsMemberships()).toEqual(['acct-northwind:admin']);
   });
 
   it('refuses an invite into an account they are already in, and keeps their role there', async () => {
-    await db.insert(inviteSchema).values(invite({ token: 'tok-metacto', accountId: 'acct-metacto', role: 'member' }));
+    await db.insert(inviteSchema).values(invite({ token: 'tok-northwind', accountId: 'acct-northwind', role: 'member' }));
 
-    expect(await acceptInviteAsExistingUser('user-sam', 'tok-metacto')).toEqual({ ok: false, status: 409, error: 'You are already a member of this Org.' });
-    expect(await samsMemberships()).toEqual(['acct-metacto:admin']);
+    expect(await acceptInviteAsExistingUser('user-sam', 'tok-northwind')).toEqual({ ok: false, status: 409, error: 'You are already a member of this Org.' });
+    expect(await samsMemberships()).toEqual(['acct-northwind:admin']);
   });
 
   it('accepts an invite once: the second try is refused as used', async () => {
@@ -128,7 +128,7 @@ describe('acceptInviteAsExistingUser', () => {
     // The loser is stopped by the invite claim ("already used"), not by the
     // membership's unique index, which would say "already a member".
     expect(results.find(r => !r.ok)).toEqual({ ok: false, status: 410, error: 'This invite has already been used.' });
-    expect(await samsMemberships()).toEqual(['acct-contoso:member', 'acct-metacto:admin']);
+    expect(await samsMemberships()).toEqual(['acct-contoso:member', 'acct-northwind:admin']);
   });
 
   it('refuses an expired invite', async () => {
@@ -200,8 +200,8 @@ describe('acceptInviteAsExistingUser on a single-Org server', () => {
     const result = await acceptInviteAsExistingUser('user-sam', 'tok-single');
 
     expect(result).toMatchObject({ ok: false, status: 409 });
-    expect(result.ok ? '' : result.error).toMatch(/single Org.*already belong to Metacto.*can't also join Contoso/);
-    expect(await samsMemberships()).toEqual(['acct-metacto:admin']);
+    expect(result.ok ? '' : result.error).toMatch(/single Org.*already belong to Northwind.*can't also join Contoso/);
+    expect(await samsMemberships()).toEqual(['acct-northwind:admin']);
 
     const [row] = await db.select().from(inviteSchema).where(eq(inviteSchema.token, 'tok-single'));
 
