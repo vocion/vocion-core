@@ -95,6 +95,7 @@ export const vonageConnector: SourceConnector<typeof vonageConfigSchema> = {
   name: 'Vonage',
   description: 'Your Vonage voice call log, searchable and cited, on the same API key your Vonage numbers text with.',
   icon: 'Phone',
+  brand: 'vonage',
   authKind: 'apikey',
   configSchema: vonageConfigSchema,
   defaultReconcileCron: '45 4 * * 0',

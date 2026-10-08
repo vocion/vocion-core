@@ -63,7 +63,7 @@ describe('descriptor brands', () => {
   // The descriptors that are not one vendor, and so carry no brand. Everything
   // else must name one, so a platform or connector added without a brand fails
   // here rather than shipping a bare monogram nobody chose.
-  const UNBRANDED_PLATFORMS = new Set(['vocion', 'rest', 'app-login', 'custom']);
+  const UNBRANDED_PLATFORMS = new Set(['vocion', 'rest', 'app-login', 'custom', 'openai-compatible']);
   const UNBRANDED_CONNECTORS = new Set(['web', 'local-files', 'file-import', 'rest']);
 
   it.each(listPlatforms().map(platform => [platform.id, platform.brand] as const))('platform %s names a brand that resolves or falls back', (id, brand) => {

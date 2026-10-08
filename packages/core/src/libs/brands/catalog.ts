@@ -32,6 +32,7 @@ import {
   siAtlassian,
   siBrave,
   siDatabricks,
+  siDiscord,
   siElevenlabs,
   siGithub,
   siGmail,
@@ -46,6 +47,7 @@ import {
   siHubspot,
   siJira,
   siMeta,
+  siMistralai,
   siMixpanel,
   siNotion,
   siPosthog,
@@ -54,6 +56,7 @@ import {
   siSnowflake,
   siStrapi,
   siStripe,
+  siVonage,
   siXero,
   siZoom,
 } from 'simple-icons';
@@ -83,6 +86,7 @@ const BRANDS = {
   atlassian: { icon: siAtlassian },
   brave: { icon: siBrave },
   databricks: { icon: siDatabricks },
+  discord: { icon: siDiscord },
   elevenlabs: { icon: siElevenlabs },
   github: { icon: siGithub },
   gmail: { icon: siGmail },
@@ -97,6 +101,7 @@ const BRANDS = {
   hubspot: { icon: siHubspot },
   jira: { icon: siJira },
   meta: { icon: siMeta },
+  mistralai: { icon: siMistralai },
   mixpanel: { icon: siMixpanel },
   notion: { icon: siNotion },
   posthog: { icon: siPosthog },
@@ -105,6 +110,7 @@ const BRANDS = {
   snowflake: { icon: siSnowflake },
   strapi: { icon: siStrapi },
   stripe: { icon: siStripe },
+  vonage: { icon: siVonage },
   xero: { icon: siXero },
   zoom: { icon: siZoom },
 
@@ -115,6 +121,7 @@ const BRANDS = {
   apolloio: { title: 'Apollo.io', fallback: 'Apollo.io\'s terms forbid using its logos without prior written permission (apollo.io/terms); not in simple-icons.' },
   bill: { title: 'BILL', fallback: 'BILL publishes no terms for third-party use of its logo; not in simple-icons.' },
   firecrawl: { title: 'Firecrawl', fallback: 'Firecrawl\'s brand page covers how to treat the marks, not third-party or integration use (firecrawl.dev/brand); not in simple-icons.' },
+  gamma: { title: 'Gamma', fallback: 'Gamma publishes no terms for third-party use of its logo that were found on 2026-10-08; not in simple-icons.' },
   granola: { title: 'Granola', fallback: 'Granola publishes no terms for third-party use of its logo (grano.la/press); not in simple-icons.' },
   linkedin: { title: 'LinkedIn', fallback: 'LinkedIn allows its brand only as its guidelines describe or with express written permission (brand.linkedin.com/policies); not in simple-icons.' },
   netsuite: { title: 'NetSuite', fallback: 'Oracle\'s trademark guidelines do not permit third parties to use its logos (oracle.com/legal/trademarks); not in simple-icons.' },
@@ -126,6 +133,7 @@ const BRANDS = {
   slate: { title: 'Slate', fallback: 'Slate publishes no brand guidelines; not in simple-icons.' },
   workday: { title: 'Workday', fallback: 'Workday\'s trademark guidelines require permission to use its logos (workday.com/en-us/legal/trademarks); not in simple-icons.' },
   tavily: { title: 'Tavily', fallback: 'Tavily\'s brand page allows its marks in a compatibility statement but not alongside other companies\' without formal permission, which a catalog of tools is (tavily.com/brand); not in simple-icons.' },
+  twilio: { title: 'Twilio', fallback: 'Not in simple-icons; Twilio\'s brand terms were not reviewed for integration use on 2026-10-08.' },
 } as const satisfies Record<string, BrandEntry>;
 
 /** A brand a descriptor may name. */

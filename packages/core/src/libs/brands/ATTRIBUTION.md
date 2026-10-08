@@ -29,6 +29,7 @@ about a mark is altered.
 | `atlassian` | Atlassian | simple-icons, from https://atlassian.design/resources/logo-library | CC0-1.0 (drawing) | https://atlassian.design/foundations/logos |
 | `brave` | Brave | simple-icons, from https://brave.com/brave-branding-assets | CC0-1.0 (drawing) | https://brave.com/brave-branding-assets |
 | `databricks` | Databricks | simple-icons, from https://www.databricks.com | CC0-1.0 (drawing) | https://brand.databricks.com/Styleguide/Guide/ |
+| `discord` | Discord | simple-icons, from https://discord.com/branding | CC0-1.0 (drawing) | https://discord.com/branding |
 | `elevenlabs` | ElevenLabs | simple-icons, from https://elevenlabs.io/brand | CC0-1.0 (drawing) | https://elevenlabs.io/brand |
 | `github` | GitHub | simple-icons, from https://github.com/logos | CC0-1.0 (drawing) | https://github.com/logos |
 | `gmail` | Gmail | simple-icons, from Google's product logo set | CC0-1.0 (drawing) | https://about.google/brand-resource-center/brand-elements/ |
@@ -43,6 +44,7 @@ about a mark is altered.
 | `hubspot` | HubSpot | simple-icons, from https://www.hubspot.com/style-guide | CC0-1.0 (drawing) | https://www.hubspot.com/style-guide |
 | `jira` | Jira | simple-icons, from https://atlassian.design/resources/logo-library | CC0-1.0 (drawing) | https://atlassian.design/foundations/logos/ |
 | `meta` | Meta | simple-icons, from https://about.meta.com/brand/resources | CC0-1.0 (drawing) | https://www.facebook.com/brand/resources/meta/company-brand |
+| `mistralai` | Mistral AI | simple-icons, from https://chat.mistral.ai | CC0-1.0 (drawing) | — |
 | `mixpanel` | Mixpanel | simple-icons, from https://brand.mixpanel.com | CC0-1.0 (drawing) | https://brand.mixpanel.com |
 | `notion` | Notion | simple-icons, from https://www.notion.so | CC0-1.0 (drawing) | — |
 | `posthog` | PostHog | simple-icons, from https://posthog.com/handbook/company/brand-assets | CC0-1.0 (drawing) | https://posthog.com/handbook/company/brand-assets |
@@ -51,6 +53,7 @@ about a mark is altered.
 | `snowflake` | Snowflake | simple-icons, from https://www.snowflake.com/brand-guidelines/ | CC0-1.0 (drawing) | https://www.snowflake.com/brand-guidelines/ |
 | `strapi` | Strapi | simple-icons, from https://handbook.strapi.io/strapi-brand-book-2022/strapi-logo | CC0-1.0 (drawing) | https://handbook.strapi.io/strapi-brand-book-2022 |
 | `stripe` | Stripe | simple-icons, from https://stripe.com/newsroom/information | CC0-1.0 (drawing) | — |
+| `vonage` | Vonage | simple-icons, from https://www.vonage.com | CC0-1.0 (drawing) | — |
 | `xero` | Xero | simple-icons, from https://www.xero.com/uk/about/media/downloads | CC0-1.0 (drawing) | — |
 | `zoom` | Zoom | simple-icons, from https://brand.zoom.us/media-library/ | CC0-1.0 (drawing) | https://brand.zoom.us/usage-legal/ |
 
@@ -72,6 +75,7 @@ entry a mark.
 | `apolloio` | Apollo.io | No logo | Apollo.io's terms forbid using its logos without prior written permission: https://www.apollo.io/terms. Not to be confused with simple-icons' `apollographql`, a different company. |
 | `bill` | BILL | No logo | BILL publishes no terms for third-party use of its logo. |
 | `firecrawl` | Firecrawl | No logo | Firecrawl's brand page covers how to treat the marks, not third-party or integration use: https://www.firecrawl.dev/brand. |
+| `gamma` | Gamma | No logo | Not in simple-icons, and no terms for third-party use of Gamma's logo were found when checked on 2026-10-08. |
 | `granola` | Granola | No logo | Granola publishes a press kit but no terms for third-party use of its logo: https://grano.la/press. |
 | `linkedin` | LinkedIn | No logo | LinkedIn's brand may only be used as its guidelines describe or with express written permission: https://brand.linkedin.com/policies. Not in simple-icons. |
 | `microsoftazure` | Microsoft Azure | No logo | Microsoft requires an express licence for its logos and product icons (Azure icons are for architecture diagrams and documentation only): https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks. simple-icons removed Microsoft marks in v13 at Microsoft's request. |
@@ -82,4 +86,5 @@ entry a mark.
 | `slack` | Slack | No logo | Slack's brand terms require a written licence for most logo use and allow an integration to be stated in text only: https://slack.com/terms-of-service/slack-brand. simple-icons dropped Salesforce marks in v16. The "Sign in with Slack" button is Slack's own sign-in asset and is a separate matter. |
 | `slate` | Slate | No logo | Slate publishes no brand guidelines. |
 | `tavily` | Tavily | No logo | Tavily's brand page allows its marks in a compatibility statement but not alongside other companies' without formal permission, which a catalog of tools is: https://www.tavily.com/brand. Ask Tavily before adding it. |
+| `twilio` | Twilio | No logo | Not in simple-icons; Twilio's brand terms were not reviewed for integration use on 2026-10-08. Covers Twilio texts, WhatsApp through Twilio, and Twilio Voice. |
 | `workday` | Workday | No logo | Workday's trademark guidelines require permission to use its logos: https://www.workday.com/en-us/legal/trademarks.html. |

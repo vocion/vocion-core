@@ -494,6 +494,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'mistral',
+    brand: 'mistralai',
     label: 'Mistral',
     keySource: 'supplied',
     credentialsPerOrg: 'one-live',
@@ -955,6 +956,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'discord',
+    brand: 'discord',
     label: 'Discord',
     keySource: 'supplied',
     // `one-live`, like Sentry and Slate: one bot per workspace, and widening
@@ -982,6 +984,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'twilio',
+    brand: 'twilio',
     label: 'Twilio',
     keySource: 'supplied',
     // `one-live`: one Twilio account per workspace, asked for with no row id
@@ -1008,6 +1011,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'vonage',
+    brand: 'vonage',
     label: 'Vonage',
     keySource: 'supplied',
     // `one-live`, for the reason `twilio` is.
@@ -1035,6 +1039,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   },
   {
     id: 'gamma',
+    brand: 'gamma',
     label: 'Gamma',
     keySource: 'supplied',
     // `one-live`: one Gamma account per workspace; a deck is made with it.

@@ -49,6 +49,7 @@ export const gammaConnector: SourceConnector<typeof gammaConfigSchema> = {
   name: 'Gamma',
   description: 'Decks, documents and web pages made from your agents\' work, in your own Gamma account. Nothing is synced.',
   icon: 'Presentation',
+  brand: 'gamma',
   authKind: 'apikey',
   syncless: true,
   configSchema: gammaConfigSchema,
