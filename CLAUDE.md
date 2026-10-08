@@ -424,15 +424,62 @@ credential stored under the previous one.
 - Roles: `org:admin`, `org:member` (defined in `src/types/Auth.ts`)
 - Nothing to enable in a provider dashboard: set `AUTH_SECRET` and run the
   migrations. `VOCION_AUTH_PROVIDER` defaults to `local` (`src/libs/Env.ts`)
-- Sign-in beyond the password — Google, Microsoft (`AUTH_GOOGLE_*`,
-  `AUTH_MICROSOFT_ENTRA_ID_*`) and email links (when mail is on) — stays
-  invite-only: `services/auth/signInDecision.ts` links a provider-verified
-  address to its login or accepts a pending invite through
-  `acceptInviteAsNewUser` (the invite form's own path), and refuses everyone
-  else. The adapter never creates a user. Providers are descriptors in
-  `libs/identity/signInProviders.ts`; what each is trusted for is in
-  `libs/identity/trustedEmail.ts` and
-  `docs/guides/sign-in-with-google-or-microsoft.md`
+- **Sign-in stays invite-only** whatever the method. Google, Microsoft
+  (`AUTH_GOOGLE_*`, `AUTH_MICROSOFT_ENTRA_ID_*`) and email links (when mail is
+  on) go through one pure decision, `services/auth/signInDecision.ts`: a
+  provider-verified address links to its login (and the person is told —
+  "Google added to your sign-in methods"), or accepts its pending invites
+  through `acceptInviteAsNewUser` (the invite form's own path), or — only where
+  the operator listed its domain in `VOCION_AUTO_JOIN_DOMAINS`, single-Org
+  installs only — joins the install's Org as a member (`services/auth/autoJoin.ts`).
+  Everyone else is refused. The adapter never creates a user. Providers are
+  descriptors in `libs/identity/signInProviders.ts`; what each is trusted for
+  is in `libs/identity/trustedEmail.ts` and
+  `docs/guides/sign-in-with-google-or-microsoft.md`.
+- **Invites join at sign-in.** Every completed sign-in, password included,
+  accepts the invites still open for the login's address
+  (`joinPendingInvites`, `services/auth/joinInvites.ts`), choosing them with
+  `invitesToJoin` — the same rule a first sign-in uses: every Org that asked on
+  multi-Org, the one allowed Org on single-Org. Joined Orgs are told to the
+  person as an `org-joined` notification. An invite to an address that already
+  has a login is also told in the app (`org-invited`, `tellInvitee`) and listed
+  on Profile → Invitations with one Join. With mail on, an invite is also
+  emailed ("Join <Org> on Vocion", `services/InviteMail.ts`) and can be resent
+  from its row; Copy link always works.
+- **Forgot-password** mails a single-use, 30-minute, hash-only link in the URL
+  fragment and never says whether an email has a login
+  (`services/auth/passwordReset.ts`; needs mail on and `NEXT_PUBLIC_APP_URL`).
+  Transactional mail renders through `libs/mail/templates.ts`. The dev mail
+  sink (`VOCION_MAIL_SINK_DIR`, `libs/mail/sink.ts`) keeps a JSON copy of every
+  message and is the transport when mail is on without Resend — Playwright
+  reads it (`e2e/accounts`).
+- **Two-step sign-in (TOTP)** is `services/auth/mfa.ts`; the secret is
+  vault-encrypted under the scope `user:<id>`. Required by `VOCION_REQUIRE_MFA=1`
+  or `tenant_account.require_mfa`. A session that still owes a code carries
+  `session.mfa` and an EMPTY `user.id`, so every guard reads it as signed out;
+  only the sign-in page and `/api/mfa/*` read it. The JWT callback clears it
+  only on an in-process proof from `/api/mfa/verify` (`mfaCompletionProof`),
+  never on data a browser posts to `/api/auth/session`. Guard on
+  `session.user.id`, never on `session` alone. A hold lasts ten minutes
+  (`HELD_SIGN_IN_TTL_MS`), then reads as fully signed out.
+- **Ending sessions.** A change to a person's sign-in (a new password by reset,
+  profile or script; two-step on, off or reset) calls `endOtherSessions`
+  (`services/auth/sessionVersion.ts`), which raises `user.session_version`; the
+  session callback reads a token stamped with an older number as signed out.
+  The route the change came from keeps its own session with `keepThisSession`
+  (`libs/Auth.ts`), never by trusting a browser's `/api/auth/session` update.
+- **Rate limits and lockouts** all go through `libs/rateLimit` with the
+  policies in one list (`policies.ts`): `hit` to count an attempt,
+  `tooManyRequests` for the 429 with `Retry-After`. A lockout `hit`s BEFORE it
+  checks the secret and `clear`s on success — never check-then-count-failures,
+  which a parallel burst walks straight past; `peek` is only a cheap early
+  refusal. Password checks go through `services/auth/passwordCheck.ts`, code
+  checks through `countSecondFactorAttempt` (`services/auth/mfa.ts`). Limits
+  guarding a secret count in Postgres (`rate_limit_hit`), throughput limits in
+  memory. Per-IP subjects come from `libs/http/clientIp.ts` (right-most
+  `X-Forwarded-For` hop, `VOCION_TRUSTED_PROXY_COUNT`; the value per topology is
+  in `infra/aws/README.md`). A missing subject or a failing store allows;
+  `VOCION_RATE_LIMIT=off` is for test runs.
 
 ## Database Schema
 

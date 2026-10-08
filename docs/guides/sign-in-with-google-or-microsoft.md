@@ -6,11 +6,16 @@ shows **Continue with Google**. Set `AUTH_MICROSOFT_ENTRA_ID_ID` and
 or school accounts). Turn on outbound mail and it also offers **Email me a
 sign-in link**. None of them opens sign-up: the deployment stays invite-only.
 
+For the whole picture — every way in, invites joined at sign-in, two-step
+sign-in, limits — start at [sign-in.md](sign-in.md). Invites and auto-join
+domains are in [invites.md](invites.md); forgotten passwords in
+[password-reset.md](password-reset.md).
+
 | Way in | Settings | Redirect URI to register |
 |---|---|---|
 | Google | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | `https://<host>/api/auth/callback/google` |
 | Microsoft (Entra ID, multi-tenant) | `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET` | `https://<host>/api/auth/callback/microsoft-entra-id` |
-| Email link | `VOCION_MAIL_ENABLED=1`, `RESEND_API_KEY`, `VOCION_MAIL_FROM` ([email.md](email.md)) | none |
+| Email link | `VOCION_MAIL_ENABLED=1`, `RESEND_API_KEY`, `VOCION_MAIL_FROM` ([email.md](email.md)), or the dev mail sink on a laptop | none |
 | Password | none (always on) | none |
 
 `<host>` is the address people open the app at: the host in
@@ -36,21 +41,34 @@ with Google, Microsoft or an email link, in this order:
    (below): refused.
 3. **A login with that address.** The provider account is linked to it and the
    person signs in. One person stays one login, with a password, Google and
-   Microsoft all able to open it.
-4. **A pending invite to that address.** The invite is accepted exactly as the
+   Microsoft all able to open it. The person is told: a notification,
+   *"Google added to your sign-in methods"*, opens their profile, where the
+   method is listed and can be unlinked. A link nobody meant to make is
+   noticed rather than silent.
+4. **Pending invites to that address.** The first is accepted exactly as the
    invite link's form accepts it: the login is made, with a membership at the
-   invite's role and the person's own workspace. Every other pending invite to
-   the same address is accepted on that login too, as far as the server's Org
-   rule allows: a single-Org server (the default) joins the person to one Org
-   and leaves another Org's invite to its link, which then says why.
-5. **Anything else.** Refused, and the sign-in page says *"No invite for this
+   invite's role and the person's own workspace. The rest are joined as the
+   sign-in completes, as far as the server's Org rule allows: a multi-Org
+   server joins every Org that asked; a single-Org server (the default) joins
+   the one Org it allows and leaves another Org's invite to its link, which
+   then says why. The person is told which Orgs they joined.
+5. **An auto-join domain.** Only on a single-Org install whose operator listed
+   the address's domain in `VOCION_AUTO_JOIN_DOMAINS`: a login is made as a
+   member of the install's Org ([invites.md](invites.md#auto-join-domains)).
+6. **Anything else.** Refused, and the sign-in page says *"No invite for this
    address. Ask an admin to invite you."*
 
 Nothing else makes a user. Auth.js is not allowed to create one at all
-(`buildAdapter` in `libs/Auth.ts`); the only way a login comes to exist through
-the web is accepting an invite (`acceptInviteAsNewUser` in
-`services/InviteAcceptance.ts`). The decision is a pure function,
-`services/auth/signInDecision.ts`, with its tests beside it.
+(`buildAdapter` in `libs/Auth.ts`); a login comes to exist through the web only
+by accepting an invite (`acceptInviteAsNewUser` in
+`services/InviteAcceptance.ts`) or, where the operator opted in, through an
+auto-join domain (`joinByDomain` in `services/auth/autoJoin.ts`). The decision
+is a pure function, `services/auth/signInDecision.ts`, with its tests beside it.
+
+Invites sent later are not left waiting. Someone who already has a login and is
+invited to another Org joins it at their next sign-in — with Google,
+Microsoft, an email link or a password — under the same rule
+([sign-in.md](sign-in.md#invites-are-joined-when-you-sign-in)).
 
 The invite page (`/sign-up?invite=…`) shows the same buttons. Use the account
 whose address the invite was sent to; any other address is refused like any
@@ -138,8 +156,9 @@ admin of any organization sign in as anyone (the "nOAuth" pattern). So:
 - **`email` is trusted only when `xms_edov` is `true`**, Microsoft's statement
   that the address's domain is verified by the issuing organization. Without
   that optional claim, `email` is ignored.
-- **That address must still match an existing login or a pending invite.** A
-  verified address with neither is refused.
+- **That address must still match an existing login, a pending invite, or an
+  auto-join domain the operator listed.** A verified address with none of
+  them is refused.
 
 The consequence to know: an organization that owns a domain can mint any
 sign-in name in it, so it can sign in as any of *its own* addresses that has a
@@ -159,13 +178,16 @@ production, the deployment knows its own address (`NEXT_PUBLIC_APP_URL` or
 `AUTH_URL`). The email field on the sign-in page then sends a link by default,
 with **Use a password** one click away.
 
-- A link is mailed only to an address with a login or a pending invite; using
-  it signs that login in or accepts the invite exactly as above.
+- A link is mailed only to an address with a login, a pending invite, or (where
+  the operator listed its domain) an auto-join domain; using it signs that
+  login in, accepts the invite, or joins exactly as above.
 - The page always answers *"If you have an account, we've sent a link"*, and
   decides whether to send after answering, so it reveals nothing about who has
   a login.
 - A link works once, for 15 minutes. Auth.js stores only a hash of it.
-- Three links per address and ten per network address every 15 minutes.
+- Three links per address and ten per network address every 15 minutes,
+  counted in the shared limiter (`libs/rateLimit/policies.ts`), so the count
+  holds across app instances and restarts.
 - The link opens `/sign-in/email-link`, which asks the person to press **Sign
   in**. Mail scanners (Microsoft Defender's Safe Links and others) open every
   link in a message first; a link that signed in on open would be spent before
@@ -184,7 +206,11 @@ this login. **Unlink** removes a provider, but only while a password or another
 offered provider still gets the person in; the email link does not count,
 because it disappears if the deployment's mail settings change. Links and
 unlinks are recorded on the adoption stream (`auth.method_linked`,
-`auth.method_unlinked`).
+`auth.method_unlinked`), and a new link is told to the person as a
+`sign-in-method-added` notification.
+
+A login made by Google or Microsoft has no password. **Forgot password?** on
+the sign-in page adds one ([password-reset.md](password-reset.md)).
 
 ## Security notes
 
@@ -202,7 +228,7 @@ unlinks are recorded on the adoption stream (`auth.method_linked`,
 | What you see | Why | Fix |
 |---|---|---|
 | `redirect_uri_mismatch` (Google) or `AADSTS50011` (Microsoft) | The redirect URI registered at the provider is not exactly the one the app sent | Register `https://<host>/api/auth/callback/<google \| microsoft-entra-id>` for the host in the address bar; set `NEXT_PUBLIC_APP_URL` / `AUTH_URL` behind a proxy |
-| "No invite for this address" | The verified address has no login and no pending invite | Invite that exact address, or sign in with the account the invite went to |
+| "No invite for this address" | The verified address has no login, no pending invite and no auto-join domain | Invite that exact address, or sign in with the account the invite went to |
 | "Microsoft didn't confirm an email address…" | The account's sign-in name is not an address, and no `email` with `xms_edov` came back | Add the optional claims (step 6), or invite the sign-in name |
 | "Use a work or school Microsoft account" | A personal Microsoft account | Use the organization's account |
 | "Need admin approval" (Microsoft) | The person's organization requires admin consent | Their admin grants consent for the app once |
@@ -213,8 +239,9 @@ unlinks are recorded on the adoption stream (`auth.method_linked`,
 
 This is sign-in for one deployment, configured by whoever runs it. Per-Org
 single sign-on — an Org's own SAML or OIDC connection, capturing an email
-domain, enforcing SSO for an Org's members, SCIM provisioning — is not part of
-core. The seam for it is the provider list in
+domain for one Org, enforcing SSO for an Org's members, SCIM provisioning — is
+not part of core. (Core's `VOCION_AUTO_JOIN_DOMAINS` is the install-wide,
+single-Org version of domain capture; see [invites.md](invites.md#auto-join-domains).) The seam for it is the provider list in
 `libs/identity/signInProviders.ts`, which an extension adds to through its
 `signInProviders` ([extensions.md](extensions.md)): the same list the buttons,
 Auth.js and the profile page read. The invite-only rules apply to an

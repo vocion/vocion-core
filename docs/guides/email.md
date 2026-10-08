@@ -1,7 +1,8 @@
 # Email — reports out, and a mailbox per workspace
 
-Vocion can mail a person. Today one thing uses it: the **daily team report**, a
-trailing-24-hour read on what the workforce did — runs, spend and token weight
+Vocion can mail a person. Sign-in and membership use it — invites, password
+resets and sign-in links ([below](#sign-in-and-invite-mail)) — and so does the
+**daily team report**, a trailing-24-hour read on what the workforce did — runs, spend and token weight
 per team and per member, board-level and red-team runs called out, the count of
 items waiting on a human, and the latest workspace briefing — delivered to the
 workspace's accountable human every morning.
@@ -256,6 +257,45 @@ One grouped mail per run listing every ask that opened since the last one,
 each with a deep link into `/dashboard/inbox/<id>`; asks are marked notified
 so they are mailed once. With mail off the job reports what it would have sent.
 
+## Sign-in and invite mail
+
+With mail on, the same sender carries three short transactional mails. Each is
+one heading, a paragraph or two, one button and a line on expiry, rendered
+by `renderMail` in `libs/mail/templates.ts` with a plain-text part:
+
+| Mail | Subject | Sent when | Guide |
+|---|---|---|---|
+| Invite | *Join Northwind on Vocion* | An admin invites an address, re-invites an expired one, or presses **Resend email** | [invites.md](invites.md) |
+| Password reset | *Reset your Vocion password* | Someone asks on `/forgot-password` and the address has a login | [password-reset.md](password-reset.md) |
+| Sign-in link | *Your Vocion sign-in link* | Someone asks on `/sign-in` and the address has a login, an invite or an auto-join domain | [sign-in-with-google-or-microsoft.md](sign-in-with-google-or-microsoft.md#email-me-a-sign-in-link) |
+
+Every link in them is built from `NEXT_PUBLIC_APP_URL` (then `AUTH_URL`),
+never the request's `Host`. With mail off, nothing is sent: invites are shared
+as links, the sign-in page offers no email link, and **Forgot password?**
+answers as usual but mails nothing — so set mail up before people rely on it.
+
+## The dev mail sink
+
+`VOCION_MAIL_SINK_DIR=<dir>` writes every outbound message to that directory as
+one JSON file (`at`, `from`, `to`, `subject`, `text`, `html`, `tags`,
+`delivered`), oldest first by name (`libs/mail/sink.ts`).
+
+- **Mail on, no Resend key:** the sink is the transport. `sendMail` returns
+  `{ skipped: false, provider: 'sink' }`, and invites, resets and sign-in links
+  all work on a laptop. Open the newest file and follow its link.
+- **Mail on with Resend:** Resend delivers, the sink keeps a copy.
+- **Mail off:** nothing is delivered, and the sink records what would have been
+  sent, with `delivered: false`.
+
+```bash
+VOCION_MAIL_ENABLED=1
+VOCION_MAIL_SINK_DIR=.mail-sink   # gitignored
+```
+
+The Playwright suite reads it (`readSink()`). It is for development and tests:
+never point it at a shared or served directory, because a message can carry a
+sign-in or reset link.
+
 ## Using `sendMail` elsewhere
 
 ```ts
@@ -270,8 +310,11 @@ if (res.skipped) { /* flag off — decide whether that is fine */ }
 - Always pass `text` — some clients render nothing else.
 - `headers` carries `In-Reply-To` / `References` / `Message-ID` for threading; `from` overrides the deployment sender for one message.
 - HTML for mail: one column, table layout, inline styles, no external assets.
-  `services/reports/renderDailyTeamReport.ts` is the reference.
+  `services/reports/renderDailyTeamReport.ts` is the reference for a report;
+  a short transactional mail (one button) goes through `renderMail` in
+  `libs/mail/templates.ts`, which escapes what it is given and writes the
+  plain-text part too.
 
 ## Related
 
-[Automation](../entities/automation.md) · [Briefings](../object-model.md) · [Observability](./observability.md)
+[Automation](../entities/automation.md) · [Briefings](../object-model.md) · [Observability](./observability.md) · [Invites](./invites.md) · [Password reset](./password-reset.md)
