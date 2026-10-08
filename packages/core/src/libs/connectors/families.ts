@@ -18,6 +18,12 @@
  * `analytics` (Mixpanel, Amplitude) answers events, funnels and cohorts, and
  * `ads` (LinkedIn Ads, Meta Ads) answers campaigns and what they spent.
  *
+ * A `crm` is where a sales team keeps its accounts, contacts and deals, and
+ * the activity on them (Salesforce, Pipedrive, Attio: `crm_get_record`,
+ * `crm.update_record`). A `meetings` recorder keeps calls and what was said
+ * on them (Gong, Fireflies, Google Meet: `meeting_read_transcript`). HubSpot
+ * and Zoom predate the families and keep their own tools for now.
+ *
  * The family of a source is read off its connector kind
  * (`knowledge_source.kind`, or `config._connector` for a source cloned from a
  * connector pack). An agent reaches a family when one of its
@@ -31,7 +37,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { knowledgeSourceSchema } from '@/models/Schema';
 
-export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people' | 'warehouse' | 'analytics' | 'ads';
+export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people' | 'warehouse' | 'analytics' | 'ads' | 'crm' | 'meetings';
 
 /**
  * The connector kinds that belong to each family, first provider first.
@@ -56,6 +62,8 @@ export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
   analytics: ['mixpanel', 'amplitude'],
   // An ad platform: campaigns, ad sets and what they spent (`services/ads/provider.ts`).
   ads: ['linkedin-ads', 'meta-ads'],
+  crm: ['salesforce', 'pipedrive', 'attio'],
+  meetings: ['gong', 'fireflies', 'google-meet'],
 };
 
 /** How each family and its constructs are named to a person. */
@@ -68,6 +76,8 @@ export const FAMILY_LABEL: Record<ConnectorFamily, string> = {
   warehouse: 'data warehouse',
   analytics: 'product analytics',
   ads: 'ad platform',
+  crm: 'CRM',
+  meetings: 'meeting recorder',
 };
 
 /**

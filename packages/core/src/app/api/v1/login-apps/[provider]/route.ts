@@ -34,7 +34,8 @@ const MAX_NAME_LENGTH = 80;
  * says so; a new secret for the same app leaves them working.
  *
  * `provider` is one of google, slack, atlassian, hubspot, notion, zoom,
- * apollo. GitHub and PostHog take no login app. A 409 means another save of
+ * apollo, salesforce (every `loginAppPlatforms()` entry). GitHub and PostHog
+ * take no login app. A 409 means another save of
  * the same app kept landing at the same moment; send it again.
  *
  * Requires a workspace admin, as the Developers page does.

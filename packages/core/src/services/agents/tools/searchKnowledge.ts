@@ -15,6 +15,7 @@ import type { RawDoc } from '../search';
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { FAMILY_KINDS, kindOfSource } from '@/libs/connectors/families';
 import { search } from '@/services/RetrievalService';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
 
@@ -33,7 +34,7 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       // query containing the word "discovery" or "intro".
       let sourceSlugs = sourceFilter;
       if (!sourceSlugs && /\b(?:call|calls|meeting|meetings|zoom|transcript|recording)\b/i.test(query)) {
-        sourceSlugs = ctx.connectorSources.filter(s => /^(?:zoom|granola|google-calendar)$/.test(s));
+        sourceSlugs = ctx.connectorSources.filter(s => /^(?:zoom|granola|google-calendar)$/.test(s) || FAMILY_KINDS.meetings.includes(kindOfSource(ctx, s)));
         if (sourceSlugs.length === 0) {
           sourceSlugs = undefined;
         }

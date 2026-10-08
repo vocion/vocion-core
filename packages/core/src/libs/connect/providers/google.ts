@@ -1,6 +1,6 @@
 /**
- * "Log in with Google" for the Gmail, Drive, Google Calendar and Google
- * Analytics connectors — OAuth 2.0 authorization-code flow.
+ * "Log in with Google" for the Gmail, Drive, Google Calendar, Google Meet and
+ * Google Analytics connectors — OAuth 2.0 authorization-code flow.
  *
  * One OAuth client serves all four connectors, but each login asks ONLY for
  * the connector it was started from (least privilege): a Drive login cannot
@@ -34,6 +34,9 @@ export const GOOGLE_LOGIN_SCOPES: Record<string, readonly string[]> = {
   'gmail': ['https://www.googleapis.com/auth/gmail.readonly'],
   'drive': ['https://www.googleapis.com/auth/drive.readonly'],
   'google-calendar': ['https://www.googleapis.com/auth/calendar.readonly'],
+  // Meet's transcripts are Docs attached to the calendar event: the event from
+  // Calendar, the text exported from Drive.
+  'google-meet': ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/drive.readonly'],
   'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
 };
 
@@ -42,6 +45,7 @@ const CONNECTOR_NAMES: Record<string, string> = {
   'gmail': 'Gmail',
   'drive': 'Google Drive',
   'google-calendar': 'Google Calendar',
+  'google-meet': 'Google Meet',
   'ga4': 'Google Analytics',
 };
 
@@ -90,7 +94,7 @@ function hasEveryScope(granted: string, required: readonly string[]): boolean {
 
 export const googleProvider: ConnectProvider = {
   id: 'google',
-  connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4'],
+  connectorSlugs: ['gmail', 'drive', 'google-calendar', 'google-meet', 'ga4'],
   label: 'Google',
   requiredEnv: ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'],
   configured: () => googleClient() !== null,

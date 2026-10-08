@@ -51,6 +51,8 @@ function serverClientPair(provider: ConnectProviderId): { clientId?: string; cli
       return { clientId: Env.GUSTO_CLIENT_ID, clientSecret: Env.GUSTO_CLIENT_SECRET };
     case 'linkedin':
       return { clientId: Env.LINKEDIN_CLIENT_ID, clientSecret: Env.LINKEDIN_CLIENT_SECRET };
+    case 'salesforce':
+      return { clientId: Env.SALESFORCE_CLIENT_ID, clientSecret: Env.SALESFORCE_CLIENT_SECRET };
     default:
       return {};
   }

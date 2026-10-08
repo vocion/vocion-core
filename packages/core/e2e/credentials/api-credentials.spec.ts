@@ -175,6 +175,12 @@ test.describe('the platform selector decides which controls exist', () => {
       'Slate',
       'ElevenLabs',
       'Strapi',
+      // The CRM and meeting-recorder families (Salesforce to Fireflies).
+      'Salesforce',
+      'Pipedrive',
+      'Attio',
+      'Gong',
+      'Fireflies',
       'REST API (bearer token)',
       // The finance and people families. QuickBooks and Gusto log in and
       // have nothing to paste, so the selector leaves them out.
@@ -220,6 +226,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'Xero login app',
       'Gusto login app',
       'LinkedIn login app',
+      'Salesforce login app',
       'Other platform',
     ]);
   });

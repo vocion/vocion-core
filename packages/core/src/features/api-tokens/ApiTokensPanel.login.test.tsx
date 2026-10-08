@@ -25,6 +25,14 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 
+// The panel's logos come through the patterns barrel, which reaches the
+// locale-aware Link. Mocked here, as the other dashboard views' tests do, so
+// this file never depends on what an earlier file in the same browser session
+// registered for it (vitest: "Mock /src/libs/I18nNavigation.ts wasn't registered").
+vi.mock('@/libs/I18nNavigation', () => ({
+  Link: ({ href, children, ...rest }: React.ComponentProps<'a'> & { href: string }) => <a href={href} {...rest}>{children}</a>,
+}));
+
 const { ApiTokensPanel } = await import('./ApiTokensPanel');
 
 beforeEach(() => {

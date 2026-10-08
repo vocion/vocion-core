@@ -903,6 +903,111 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'Moved forward as Meta retires old versions.',
     },
   ],
+
+  // The CRM family: one source reads the whole CRM, and logging in (or
+  // pasting) is all it takes; every setting has a default.
+  'salesforce': [
+    {
+      key: 'objects',
+      label: 'Records to sync',
+      type: 'stringArray',
+      defaultValue: ['accounts', 'contacts', 'deals', 'activities'],
+      help: 'Any of: accounts, contacts, deals (opportunities), activities (tasks and events). Separate with commas.',
+    },
+    {
+      key: 'activityDays',
+      label: 'Index activity from the past (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+      max: 3650,
+    },
+    {
+      key: 'apiVersion',
+      label: 'API version',
+      type: 'text',
+      advanced: true,
+      defaultValue: 'v61.0',
+    },
+  ],
+
+  'pipedrive': [
+    {
+      key: 'objects',
+      label: 'Records to sync',
+      type: 'stringArray',
+      defaultValue: ['accounts', 'contacts', 'deals', 'activities'],
+      help: 'Any of: accounts (organizations), contacts (people), deals (deals), activities (activities and notes). Separate with commas.',
+    },
+    {
+      key: 'activityDays',
+      label: 'Index activity from the past (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+      max: 3650,
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://api.pipedrive.com',
+    },
+  ],
+
+  'attio': [
+    {
+      key: 'objects',
+      label: 'Records to sync',
+      type: 'stringArray',
+      defaultValue: ['accounts', 'contacts', 'deals', 'activities'],
+      help: 'Any of: accounts (companies), contacts (people), deals (deals), activities (notes). Separate with commas.',
+    },
+    {
+      key: 'activityDays',
+      label: 'Index activity from the past (days)',
+      type: 'number',
+      defaultValue: 90,
+      min: 1,
+      max: 3650,
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://api.attio.com/v2',
+    },
+  ],
+
+  // The meetings family.
+  'gong': [
+    { key: 'pastDays', label: 'Index calls from the past (days)', type: 'number', defaultValue: 60, min: 1 },
+  ],
+
+  'fireflies': [
+    { key: 'pastDays', label: 'Index meetings from the past (days)', type: 'number', defaultValue: 60, min: 1 },
+  ],
+
+  'google-meet': [
+    {
+      key: 'calendarId',
+      label: 'Calendar',
+      type: 'text',
+      defaultValue: 'primary',
+      help: 'Whose Google Meet meetings are read: primary, or a calendar id.',
+    },
+    {
+      key: 'pastDays',
+      label: 'Keep (days)',
+      type: 'number',
+      defaultValue: 60,
+      min: 1,
+      max: 365,
+      help: 'How far back a full sync reads meetings that already happened.',
+    },
+  ],
 };
 
 /**

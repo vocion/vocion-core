@@ -23,7 +23,7 @@ a different client with its own settings:
 
 | Provider | Connectors it serves | Env vars | Setup |
 |---|---|---|---|
-| `google` | `gmail`, `drive`, `google-calendar`, `ga4` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | [Google](#google) |
+| `google` | `gmail`, `drive`, `google-calendar`, `google-meet`, `ga4` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | [Google](#google) |
 | `hubspot` | `hubspot` | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` | [HubSpot](#hubspot) |
 | `notion` | `notion` | `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET` | [Notion](#notion) |
 | `zoom` | `zoom` | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` | [Zoom](#zoom) |
@@ -31,6 +31,7 @@ a different client with its own settings:
 | `quickbooks` | `quickbooks` | `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET` | [QuickBooks](#quickbooks) |
 | `xero` | `xero` | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | [Xero](#xero) |
 | `gusto` | `gusto` | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET` | [Gusto](#gusto) |
+| `salesforce` | `salesforce` | `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET` | [Salesforce](#salesforce) |
 | `slack` | `slack` | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | [slack.md](slack.md#connecting-the-slack-source-with-a-click) |
 | `atlassian` | `jira` | `ATLASSIAN_CLIENT_ID`, `ATLASSIAN_CLIENT_SECRET` | [jira.md](jira.md#connect-with-atlassian) |
 | `github` | `github` | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | [github.md](github.md#connect-with-github--the-app-instead-of-a-token) |
@@ -41,7 +42,7 @@ a different client with its own settings:
 A workspace admin can save the vendor's app for this workspace alone:
 
 1. Open **Developers**, add a credential, and pick **&lt;Vendor&gt; login app**
-   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero or Gusto).
+   (Google, Slack, Atlassian, HubSpot, Notion, Zoom, Apollo, QuickBooks, Xero, Gusto or Salesforce).
 2. The form shows the exact **redirect URL to register** at the vendor, with a
    copy button. Register it on the vendor's app.
 3. Paste the **Client ID** and **Client secret**, and save.
@@ -74,7 +75,7 @@ admin session works too. A member's session is refused with 403, as on the
 Developers page.
 
 `:provider` is `google`, `slack`, `atlassian`, `hubspot`, `notion`, `zoom`,
-`apollo`, `quickbooks`, `xero` or `gusto`. Any other name answers 404.
+`apollo`, `quickbooks`, `xero`, `gusto` or `salesforce`. Any other name answers 404.
 
 | Call | What it does |
 |---|---|
@@ -342,6 +343,24 @@ the next one every time. Gusto is login-only. More in [gusto.md](gusto.md).
 Access tokens last 60 days. Where LinkedIn issues a refresh token the login
 renews itself and saves the new token; where it does not, the connector says
 to log in again when the token runs out.
+
+## Salesforce
+
+- **App.** A connected app (Setup → App Manager → New Connected App) or an
+  external client app, with OAuth on and **Require PKCE** allowed. One app
+  can serve every customer org: it does not have to live in the org that logs
+  in.
+- **Redirect URL.** `<NEXT_PUBLIC_APP_URL>/api/connect/salesforce/callback`.
+- **Scopes.** `api`, `refresh_token`, `offline_access`, `id` — the login asks
+  for exactly these.
+- **Save it.** A **Salesforce login app** on Developers, or the env as
+  `SALESFORCE_CLIENT_ID` (the consumer key) and `SALESFORCE_CLIENT_SECRET`.
+  A sandbox logs in at `SALESFORCE_LOGIN_URL=https://test.salesforce.com`.
+
+Salesforce sends no lifetime with its access token (it lasts the org's session
+timeout), so Vocion refreshes after the shortest one an org can set. Without
+any app, a workspace pastes a client-credentials app from its own org instead
+([salesforce.md](salesforce.md)).
 
 ## Where it lives in the code
 

@@ -190,10 +190,10 @@ async function methodFor(orgId: string, slug: string): Promise<ConnectMethod> {
   }
   return {
     kind: 'key',
-    credentialLabel: how?.paste.credential ?? 'API key',
+    credentialLabel: how?.paste?.credential ?? 'API key',
     credentialFields: keyFields(slug),
     configFields: fields,
-    getItAt: how?.paste.getItAt ? { url: how.paste.getItAt.url, steps: [...how.paste.getItAt.steps] } : null,
+    getItAt: how?.paste?.getItAt ? { url: how.paste.getItAt.url, steps: [...how.paste.getItAt.steps] } : null,
   };
 }
 

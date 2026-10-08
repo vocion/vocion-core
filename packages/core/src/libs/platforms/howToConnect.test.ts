@@ -6,6 +6,7 @@ import { GUSTO_LOGIN_ACCESS } from '@/libs/connect/providers/gusto';
 import { HUBSPOT_LOGIN_SCOPES } from '@/libs/connect/providers/hubspot';
 import { LINKEDIN_LOGIN_SCOPES } from '@/libs/connect/providers/linkedin';
 import { POSTHOG_LOGIN_SCOPES } from '@/libs/connect/providers/posthog';
+import { SALESFORCE_LOGIN_SCOPES } from '@/libs/connect/providers/salesforce';
 import { SLACK_SOURCE_SCOPES } from '@/libs/connect/providers/slack';
 import { XERO_LOGIN_SCOPES } from '@/libs/connect/providers/xero';
 import { ZOOM_LOGIN_SCOPES } from '@/libs/connect/providers/zoom';
@@ -50,7 +51,7 @@ describe('howToConnect declarations', () => {
   });
 
   it('login alone is enough where every setting has a default, and not where the source must be pointed somewhere', () => {
-    for (const slug of ['slack', 'notion', 'hubspot', 'zoom', 'apollo', 'gmail', 'drive', 'google-calendar', 'quickbooks', 'xero', 'gusto']) {
+    for (const slug of ['slack', 'notion', 'hubspot', 'zoom', 'apollo', 'gmail', 'drive', 'google-calendar', 'google-meet', 'quickbooks', 'xero', 'gusto', 'salesforce']) {
       expect(loginIsEnough(slug), slug).toBe(true);
     }
     for (const slug of ['github', 'jira', 'ga4', 'posthog']) {
@@ -67,7 +68,7 @@ describe('howToConnect declarations', () => {
   });
 
   it('each Google connector logs in for its own scope only, and Google Ads, which also needs a developer token, has no login', () => {
-    for (const slug of ['gmail', 'drive', 'google-calendar', 'ga4']) {
+    for (const slug of ['gmail', 'drive', 'google-calendar', 'google-meet', 'ga4']) {
       expect(howToConnectFor(slug)?.login?.access, slug).toEqual([...GOOGLE_LOGIN_SCOPES[slug]!]);
     }
 
@@ -110,6 +111,7 @@ describe('howToConnect declarations', () => {
     expect(howToConnectFor('xero')?.login?.access).toEqual([...XERO_LOGIN_SCOPES]);
     expect(howToConnectFor('gusto')?.login?.access).toEqual([...GUSTO_LOGIN_ACCESS]);
     expect(howToConnectFor('linkedin-ads')?.login?.access).toEqual([...LINKEDIN_LOGIN_SCOPES]);
+    expect(howToConnectFor('salesforce')?.login?.access).toEqual([...SALESFORCE_LOGIN_SCOPES]);
   });
 
   it('a Google login shows its scope by name, not as a URL, and other vendors\' scopes show as they are', () => {
