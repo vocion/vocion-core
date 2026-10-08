@@ -14,7 +14,7 @@ import { and, asc, desc, eq, gt, isNull, like, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { loginIsEnough, platformForConnectorSlug } from '@/libs/platforms/registry';
-import { isDeclaredInWorkspaceFile } from '@/libs/sources/manifestDir';
+import { isDeclaredInWorkspaceFile, withoutReservedKeys } from '@/libs/sources/manifestDir';
 import { getConnector } from '@/libs/sources/registry';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { linkSourceToStoredCredential } from '@/services/SourceCredentialService';
@@ -235,7 +235,8 @@ export async function resolveTarget(input: CreateSourceInput): Promise<Target> {
  */
 export function addPickToConfig(existing: Record<string, unknown>, pick: Record<string, unknown>): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...existing };
-  for (const [key, value] of Object.entries(pick)) {
+  // A pick never rewrites what the row is (`_connector`, `_manifestDir`, …).
+  for (const [key, value] of Object.entries(withoutReservedKeys(pick))) {
     const current = existing[key];
     merged[key] = Array.isArray(value) && Array.isArray(current) ? [...new Set([...current, ...value])] : value;
   }

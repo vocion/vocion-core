@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { realPathInside } from '@/libs/workspace/contained';
 import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
 const Hex = z.string().regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i, 'a hex colour like #F18700');
@@ -83,7 +84,9 @@ const MIME: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/p
 /**
  * A logo reference as a data URI: already one, or a file under the workspace.
  * A file outside the workspace root is refused — the brand cannot be used to
- * read arbitrary paths off the server.
+ * read arbitrary paths off the server, nor a sibling company's folder mounted
+ * beside this one (`/workspace/northwind-labs` next to `/workspace/northwind`),
+ * nor anything a committed symlink points at (`realPathInside`).
  * @param ref - `data:` URI or a path relative to the workspace root.
  * @param root - The workspace root.
  */
@@ -95,14 +98,12 @@ export function logoDataUri(ref: string | undefined, root: string): string | und
     return ref;
   }
   const abs = isAbsolute(ref) ? ref : resolve(root, ref);
-  if (!abs.startsWith(resolve(root)) || !existsSync(abs)) {
-    return undefined;
-  }
   const mime = MIME[extname(abs).toLowerCase()];
-  if (!mime) {
+  const real = mime ? realPathInside(root, abs) : null;
+  if (!mime || !real) {
     return undefined;
   }
-  return `data:${mime};base64,${readFileSync(abs).toString('base64')}`;
+  return `data:${mime};base64,${readFileSync(real).toString('base64')}`;
 }
 
 /**

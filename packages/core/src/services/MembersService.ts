@@ -20,6 +20,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { isOperatorEmail } from '@/libs/operator';
 import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
 
 const INVITE_TTL_DAYS = 14;
@@ -87,6 +88,17 @@ export async function createInvite(opts: {
   invitedBy: string;
 }): Promise<PendingInvite> {
   const email = opts.email.trim().toLowerCase();
+
+  // An operator's login is made on the instance (`create-local-user`), never
+  // by invite, so an invite to an operator address that has no login yet is a
+  // trap for whoever opens the link first (`/api/signup` refuses it as well).
+  // One with a login joins by signing in, which needs their password.
+  if (isOperatorEmail(email)) {
+    const [login] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email)).limit(1);
+    if (!login) {
+      throw new Error(`${email} cannot be invited to this account.`);
+    }
+  }
 
   const [existingUser] = await db
     .select({ userId: accountMembershipSchema.userId })

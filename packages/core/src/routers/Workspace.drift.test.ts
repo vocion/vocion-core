@@ -25,10 +25,11 @@ vi.mock('./AuthGuards', () => ({
 vi.mock('@/services/chat/synthesis', () => ({ invalidateChipCache: vi.fn() }));
 
 const { db } = await import('@/libs/DB');
-const { projectSchema, tenantAccountSchema, workspaceVersionSchema } = await import('@/models/Schema');
+const { projectSchema, tenantAccountSchema, userSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { guardAuth, guardRole } = await import('./AuthGuards');
 const { applyNow, driftDiff, driftStatus } = await import('./Workspace');
 const { invalidateCurrentContextShaCache } = await import('@/libs/workspace/current-version');
+const { NO_OWN_WORKSPACE_FOLDER } = await import('@/libs/workspace/mounted-project');
 
 const REVENUE = 'proj_drift_revenue';
 const FACTORY = 'proj_drift_factory';
@@ -41,8 +42,8 @@ function call<T = unknown>(route: unknown, input: unknown = undefined): Promise<
   return procedure['~orpc'].handler({ input, context: {} });
 }
 
-function signedInAs(projectId: string) {
-  const ctx = { userId: 'usr-1', orgId: projectId, accountId: 'acct-drift', projectId, role: 'admin', has: () => true };
+function signedInAs(projectId: string, userId = 'usr-1') {
+  const ctx = { userId, orgId: projectId, accountId: 'acct-drift', projectId, role: 'admin', has: () => true };
   vi.mocked(guardAuth).mockResolvedValue(ctx as unknown as Awaited<ReturnType<typeof guardAuth>>);
   vi.mocked(guardRole).mockResolvedValue(ctx as unknown as Awaited<ReturnType<typeof guardRole>>);
 }
@@ -122,7 +123,7 @@ describe('driftStatus', () => {
     writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${FACTORY}\nname: ${FACTORY}\n`);
 
     expect(await call<Status>(driftStatus)).toMatchObject({ own: true });
-    await expect(call(driftDiff)).rejects.toThrow(/not this project's/);
+    await expect(call(driftDiff)).rejects.toThrow(NO_OWN_WORKSPACE_FOLDER);
   });
 
   it('a project whose folder is mounted and applied from it: drift is a differing sha', async () => {
@@ -143,15 +144,40 @@ describe('driftStatus', () => {
     expect(await call<Status>(driftStatus)).toMatchObject({ own: true, neverApplied: true, drifted: false });
   });
 
-  it('another project under the same mount: not drifted, not ours, and the owner is named', async () => {
+  it('another project under the same mount: a person in it learns nothing about the folder, not even that one is here', async () => {
     const dir = mount(REVENUE);
     await applied(REVENUE, { sourcePath: dir });
-    await applied(FACTORY, { sourcePath: '/srv/squatch/workspace', sha: 'squatch000001' });
+    await applied(FACTORY, { sourcePath: '/srv/factory/workspace', sha: 'factory000001' });
     signedInAs(FACTORY);
-    const s = await call<Status>(driftStatus);
+    const s = await call<{ available: boolean }>(driftStatus);
 
-    expect(s).toMatchObject({ own: false, drifted: false, projectId: FACTORY });
-    expect(s.owner).toMatchObject({ id: REVENUE, slug: 'metacto-revenue', name: 'Metacto Revenue' });
+    // On a shared host the owner is another company: its id, slug, name, path
+    // and sha all stay out of the answer, and the banner stays hidden.
+    expect(s).toEqual({ available: false });
+    expect(JSON.stringify(s)).not.toContain(REVENUE);
+    expect(JSON.stringify(s)).not.toContain(dir);
+  });
+
+  it('another project under the same mount, asked by an operator: not drifted, not ours, and the owner is named', async () => {
+    const previous = process.env.VOCION_OPERATOR_EMAILS;
+    process.env.VOCION_OPERATOR_EMAILS = 'ops@acme.example';
+    await db.insert(userSchema).values({ id: 'usr-drift-operator', email: 'ops@acme.example', name: 'Ops' }).onConflictDoNothing();
+    try {
+      const dir = mount(REVENUE);
+      await applied(REVENUE, { sourcePath: dir });
+      await applied(FACTORY, { sourcePath: '/srv/factory/workspace', sha: 'factory000001' });
+      signedInAs(FACTORY, 'usr-drift-operator');
+      const s = await call<Status>(driftStatus);
+
+      expect(s).toMatchObject({ own: false, drifted: false, projectId: FACTORY });
+      expect(s.owner).toMatchObject({ id: REVENUE, slug: 'metacto-revenue', name: 'Metacto Revenue' });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VOCION_OPERATOR_EMAILS;
+      } else {
+        process.env.VOCION_OPERATOR_EMAILS = previous;
+      }
+    }
   });
 
   it('a project applied by a pipeline, or from a read-only folder, is deploy-managed', async () => {
@@ -192,8 +218,10 @@ describe('driftDiff', () => {
     expect(await versionsOf(REVENUE)).toHaveLength(1);
 
     signedInAs(FACTORY);
+    const refused = await call(driftDiff).catch(err => err);
 
-    await expect(call(driftDiff)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(refused).toMatchObject({ code: 'NOT_FOUND', message: NO_OWN_WORKSPACE_FOLDER });
+    expect(JSON.stringify(refused)).not.toContain(REVENUE);
   });
 });
 
@@ -201,11 +229,14 @@ describe('applyNow', () => {
   it('refuses to apply the mounted folder to a project it does not belong to, and writes nothing', async () => {
     const dir = mount(REVENUE);
     await applied(REVENUE, { sourcePath: dir });
-    await applied(FACTORY, { sourcePath: '/srv/squatch/workspace', sha: 'squatch000001' });
+    await applied(FACTORY, { sourcePath: '/srv/factory/workspace', sha: 'factory000001' });
     signedInAs(FACTORY);
-    const status = await call<Status>(driftStatus);
+    const refused = await call(applyNow, { sha: 'any-sha' }).catch(err => err);
 
-    await expect(call(applyNow, { sha: status.currentSha })).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringContaining('/srv/squatch/workspace') });
+    // Refused with the fixed sentence: the verdict names the other project
+    // and its path, so it goes to the log.
+    expect(refused).toMatchObject({ code: 'NOT_FOUND', message: NO_OWN_WORKSPACE_FOLDER });
+    expect(String((refused as Error).message)).not.toContain(dir);
     expect(await versionsOf(FACTORY)).toHaveLength(1);
   });
 

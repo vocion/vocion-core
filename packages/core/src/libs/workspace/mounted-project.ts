@@ -16,13 +16,22 @@ import { parse as parseYaml } from 'yaml';
  * skills and missions with the folder's), and the sidebar (which would list
  * the folder's pages beside a project that never authored them).
  *
- * The question is answered from what the applier recorded, never guessed:
- *   1. the folder was named for this project (`VOCION_WORKSPACE_MAP`) — its;
- *   2. the project's last applied version records a project — that project's;
- *   3. it records the folder it came from — the same folder, or not;
- *   4. neither is recorded — the folder's `workspace.yaml` `orgId` has to be
- *      this project; a placeholder orgId is not a match, and "not a match"
- *      is the answer, not a guess.
+ * The question is answered from what the applier recorded, never guessed. A
+ * folder has one owner: the project it was most recently applied to.
+ *   1. the folder was named for this project (`VOCION_WORKSPACE_MAP`) — its,
+ *      unless the record or the manifest says it is another project's (a map
+ *      entry can be wrong; the record cannot);
+ *   2. the project's last applied version records another project — not its;
+ *   3. the folder's most recent apply went to another project — not its;
+ *   4. the project was last applied from this folder — its;
+ *   5. otherwise the folder's `workspace.yaml` `orgId` has to be this
+ *      project. That covers a project applied from an operator's checkout
+ *      at another path (`infra/aws/update.sh`), whose mounted copy names it.
+ *      A placeholder orgId is not a match, and "not a match" is the answer.
+ *
+ * The `reason` names projects and paths, so it is for logs and operators;
+ * a person in a project is told only that it has no folder of its own here
+ * (`NO_OWN_WORKSPACE_FOLDER`).
  */
 
 export type MountedFolder = {
@@ -32,9 +41,21 @@ export type MountedFolder = {
   manifestOrgId: string | null;
   /** `VOCION_WORKSPACE_MAP` named this folder for the project. */
   explicit?: boolean;
+  /** The project this folder was most recently applied to (`folderLastAppliedTo`); null when no apply records it. */
+  lastAppliedTo?: string | null;
+  /** `manifestOrgId` is the id of a project on this installation. */
+  manifestNamesAProject?: boolean;
 };
 
 export type MountVerdict = { own: true } | { own: false; reason: string };
+
+/**
+ * What a person in a project is told when it has no workspace folder of its
+ * own on this host — the same sentence whether nothing is mounted or another
+ * project's folder is, so the answer names no other company and does not say
+ * whether one is here.
+ */
+export const NO_OWN_WORKSPACE_FOLDER = 'This project has no workspace folder of its own on this host. Edit it in its workspace repo and apply it from there.';
 
 /**
  * Decide whether the mounted folder is `projectId`'s workspace.
@@ -45,16 +66,24 @@ export type MountVerdict = { own: true } | { own: false; reason: string };
  */
 export function judgeMountedFolder(input: { projectId: string; folder: MountedFolder; applied: AppliedWorkspaceVersion | null }): MountVerdict {
   const { projectId, folder, applied } = input;
+  const appliedToOther = folder.lastAppliedTo && folder.lastAppliedTo !== projectId ? folder.lastAppliedTo : null;
   if (folder.explicit) {
+    if (appliedToOther) {
+      return { own: false, reason: `VOCION_WORKSPACE_MAP names ${folder.path} for this project, but it was last applied to project ${appliedToOther}` };
+    }
+    if (folder.manifestOrgId && folder.manifestOrgId !== projectId && folder.manifestNamesAProject) {
+      return { own: false, reason: `VOCION_WORKSPACE_MAP names ${folder.path} for this project, but its workspace.yaml names project ${folder.manifestOrgId}` };
+    }
     return { own: true };
   }
   if (applied?.projectId && applied.projectId !== projectId) {
     return { own: false, reason: `this project's last apply was recorded for project ${applied.projectId}` };
   }
-  if (applied?.sourcePath) {
-    return samePath(applied.sourcePath, folder.path)
-      ? { own: true }
-      : { own: false, reason: `this project's workspace was last applied from ${applied.sourcePath}, not from the folder mounted here (${folder.path})` };
+  if (appliedToOther) {
+    return { own: false, reason: `the folder mounted here (${folder.path}) was last applied to project ${appliedToOther}` };
+  }
+  if (applied?.sourcePath && samePath(applied.sourcePath, folder.path)) {
+    return { own: true };
   }
   if (folder.manifestOrgId && folder.manifestOrgId === projectId) {
     return { own: true };
@@ -62,7 +91,7 @@ export function judgeMountedFolder(input: { projectId: string; folder: MountedFo
   return {
     own: false,
     reason: applied
-      ? `this project's last apply recorded no source folder, and the mounted workspace.yaml names ${folder.manifestOrgId ?? 'no orgId'}, not this project`
+      ? `this project was last applied from ${applied.sourcePath ?? 'an unrecorded folder'}, and the workspace.yaml mounted here (${folder.path}) names ${folder.manifestOrgId ?? 'no orgId'}, not this project — run workspace:apply against the mounted folder if it is this project's`
       : `nothing has been applied to this project yet, and the mounted workspace.yaml names ${folder.manifestOrgId ?? 'no orgId'}, not this project`,
   };
 }

@@ -31,10 +31,10 @@ import type { IngestDoc } from '@/services/IngestionService';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import process from 'node:process';
 import { createInterface } from 'node:readline';
 import Papa from 'papaparse';
 import { z } from 'zod';
+import { resolveSourcePath } from './manifestDir';
 
 /* ------------------------------------------------------------------ */
 /* Config schema                                                       */
@@ -46,7 +46,7 @@ export const fileImportConfigSchema = z.object({
   path: z
     .string()
     .min(1)
-    .describe('file path, relative to WORKSPACE_PATH or absolute'),
+    .describe('file path, relative to the workspace that declared this source'),
   format: z
     .enum(['auto', 'jsonl', 'csv', 'json'])
     .default('auto')
@@ -90,7 +90,14 @@ export const fileImportConnector: SourceConnector<typeof fileImportConfigSchema>
   configSchema: fileImportConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = fileImportConfigSchema.parse(ctx.config);
-    const filePath = resolvePath(cfg.path);
+    // Inside the workspace that declared the source, never the host's mount
+    // for a project that does not own it, nor anywhere else on the box.
+    const resolved = await resolveSourcePath(cfg.path, ctx);
+    if (!resolved.ok) {
+      ctx.onProgress?.({ kind: 'error', uri: cfg.path, message: resolved.reason });
+      return;
+    }
+    const filePath = resolved.path;
 
     try {
       const s = await stat(filePath);
@@ -130,13 +137,6 @@ export const fileImportConnector: SourceConnector<typeof fileImportConfigSchema>
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
 /* ------------------------------------------------------------------ */
-
-function resolvePath(p: string): string {
-  if (path.isAbsolute(p)) {
-    return p;
-  }
-  return path.resolve(process.env.WORKSPACE_PATH ?? process.cwd(), p);
-}
 
 function detectFormat(filePath: string): 'jsonl' | 'csv' | 'json' | null {
   const ext = path.extname(filePath).toLowerCase();

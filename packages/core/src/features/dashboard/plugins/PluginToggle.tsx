@@ -70,7 +70,7 @@ export function PluginToggle(props: { slug: string; enabled: boolean; canToggle:
     : null;
 
   const repoHint = props.repoFile
-    ? `Updates this project's plugins only — this project is applied from git, and the workspace folder mounted here is another project's. The permanent change is plugins: in ${props.repoFile}.`
+    ? `Updates this project's plugins only — this project is applied from git and has no workspace folder of its own on this host. The permanent change is plugins: in ${props.repoFile}.`
     : null;
 
   return (

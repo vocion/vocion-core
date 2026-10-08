@@ -33,10 +33,13 @@ vi.mock('@/services/chat/synthesis', () => ({ invalidateChipCache: vi.fn() }));
 const { db } = await import('@/libs/DB');
 const { projectSchema, tenantAccountSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { invalidateCurrentContextShaCache } = await import('./current-version');
+const { NO_OWN_WORKSPACE_FOLDER } = await import('./mounted-project');
 const { ownWorkspaceFolder, workspaceFolderForProject, workspacePathForProject } = await import('./project-path');
 
 const NORTHWIND = 'proj_folder_northwind';
 const KESTREL = 'proj_folder_kestrel';
+const NORTHWIND_SALES = 'proj_folder_northwind_sales';
+const KESTREL_SALES = 'proj_folder_kestrel_sales';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'vocion-project-folder-'));
 const NORTHWIND_DIR = join(ROOT, 'northwind');
@@ -64,6 +67,10 @@ beforeAll(async () => {
   await db.insert(projectSchema).values([
     { id: NORTHWIND, accountId: 'acct-folder-northwind', slug: 'northwind', name: 'Northwind' },
     { id: KESTREL, accountId: 'acct-folder-kestrel', slug: 'kestrel-capital', name: 'Kestrel Capital' },
+    // Slugs are unique within an account, not across them: both companies
+    // may call a workspace `sales`.
+    { id: NORTHWIND_SALES, accountId: 'acct-folder-northwind', slug: 'sales', name: 'Sales' },
+    { id: KESTREL_SALES, accountId: 'acct-folder-kestrel', slug: 'sales', name: 'Sales' },
   ]);
 });
 
@@ -109,24 +116,87 @@ describe('ownWorkspaceFolder', () => {
     expect(await workspaceFolderForProject(KESTREL)).toEqual({ path: NORTHWIND_DIR, explicit: false });
   });
 
-  it('follows what the applier recorded over the manifest: a project applied from another folder does not own the mount', async () => {
-    await db.insert(workspaceVersionSchema).values({ orgId: NORTHWIND, projectId: NORTHWIND, sha: 'northwindsha', sourcePath: join(ROOT, 'elsewhere'), status: 'applied', appliedBy: 'cli' });
+  it('is still the mount for a project applied from an operator\'s checkout at another path, when the mount names it', async () => {
+    // A single-tenant install upgraded in place: applied with
+    // `workspace:apply` from /home/ops/checkout, mounted at WORKSPACE_PATH.
+    await db.insert(workspaceVersionSchema).values({ orgId: NORTHWIND, projectId: NORTHWIND, sha: 'northwindsha', sourcePath: join(ROOT, 'ops-checkout'), status: 'applied', appliedBy: 'cli' });
     invalidateCurrentContextShaCache();
 
-    expect((await ownWorkspaceFolder(NORTHWIND)).own).toBe(false);
+    expect(await ownWorkspaceFolder(NORTHWIND)).toEqual({ own: true, path: NORTHWIND_DIR, explicit: false });
   });
 
-  it('is each project\'s own folder when the host maps one per project, with no DB read needed', async () => {
-    process.env.VOCION_WORKSPACE_MAP = `northwind:${NORTHWIND_DIR},kestrel-capital:${KESTREL_DIR}`;
+  it('is not the mount once another project was applied from it, whatever its manifest says', async () => {
+    // Northwind's admin rewrites workspace.yaml to name Kestrel, which was
+    // never applied: the folder is still Northwind's, by the record.
+    await db.insert(workspaceVersionSchema).values({ orgId: NORTHWIND, projectId: NORTHWIND, sha: 'northwindsha', sourcePath: NORTHWIND_DIR, status: 'applied', appliedBy: 'cli' });
+    writeFileSync(join(NORTHWIND_DIR, 'workspace.yaml'), `version: 1\norgId: ${KESTREL}\nname: Planted\n`);
+    invalidateCurrentContextShaCache();
+
+    expect((await ownWorkspaceFolder(KESTREL)).own).toBe(false);
+    expect(await workspacePathForProject(KESTREL)).toBeNull();
+  });
+
+  it('is each project\'s own folder when the host maps one per project id', async () => {
+    process.env.VOCION_WORKSPACE_MAP = `${NORTHWIND}:${NORTHWIND_DIR},${KESTREL}:${KESTREL_DIR}`;
 
     expect(await workspacePathForProject(KESTREL)).toBe(KESTREL_DIR);
     expect(await workspacePathForProject(NORTHWIND)).toBe(NORTHWIND_DIR);
   });
 
   it('is nothing for a project the map leaves out, never the mount', async () => {
-    process.env.VOCION_WORKSPACE_MAP = `northwind:${NORTHWIND_DIR}`;
+    process.env.VOCION_WORKSPACE_MAP = `${NORTHWIND}:${NORTHWIND_DIR}`;
 
     expect(await ownWorkspaceFolder(KESTREL)).toEqual({ own: false, path: null, reason: 'this project has no workspace folder on this host' });
+  });
+});
+
+describe('VOCION_WORKSPACE_MAP on a host with several accounts', () => {
+  const SALES_DIR = join(ROOT, 'sales');
+
+  beforeEach(() => {
+    mkdirSync(SALES_DIR, { recursive: true });
+    writeFileSync(join(SALES_DIR, 'workspace.yaml'), `version: 1\norgId: ${NORTHWIND_SALES}\nname: Northwind sales\n`);
+  });
+
+  it('reads a bare project slug as no project, since both companies have a `sales`', async () => {
+    process.env.VOCION_WORKSPACE_MAP = `sales:${SALES_DIR}`;
+
+    expect(await workspacePathForProject(NORTHWIND_SALES)).toBeNull();
+    expect(await workspacePathForProject(KESTREL_SALES)).toBeNull();
+  });
+
+  it('still reads a bare slug that one project alone carries, so existing maps keep working', async () => {
+    process.env.VOCION_WORKSPACE_MAP = `northwind:${NORTHWIND_DIR},kestrel-capital:${KESTREL_DIR}`;
+
+    expect(await workspacePathForProject(NORTHWIND)).toBe(NORTHWIND_DIR);
+    expect(await workspacePathForProject(KESTREL)).toBe(KESTREL_DIR);
+  });
+
+  it('gives the folder only to the project the entry names, by account and slug or by id', async () => {
+    process.env.VOCION_WORKSPACE_MAP = `northwind-folder/sales:${SALES_DIR}`;
+
+    expect(await workspacePathForProject(NORTHWIND_SALES)).toBe(SALES_DIR);
+    expect(await workspacePathForProject(KESTREL_SALES)).toBeNull();
+
+    process.env.VOCION_WORKSPACE_MAP = `${NORTHWIND_SALES}:${SALES_DIR}`;
+
+    expect(await workspacePathForProject(NORTHWIND_SALES)).toBe(SALES_DIR);
+    expect(await workspacePathForProject(KESTREL_SALES)).toBeNull();
+  });
+
+  it('refuses a map entry that hands Kestrel a folder the record or the manifest gives to Northwind', async () => {
+    // A wrong entry: Kestrel's `sales` mapped onto Northwind's sales folder.
+    process.env.VOCION_WORKSPACE_MAP = `kestrel-folder/sales:${SALES_DIR}`;
+
+    // Its workspace.yaml names Northwind's project, which exists here.
+    expect(await workspacePathForProject(KESTREL_SALES)).toBeNull();
+
+    // And once Northwind was applied from it, the record says so too.
+    writeFileSync(join(SALES_DIR, 'workspace.yaml'), 'version: 1\nname: unlabelled\n');
+    await db.insert(workspaceVersionSchema).values({ orgId: NORTHWIND_SALES, projectId: NORTHWIND_SALES, sha: 'salessha', sourcePath: SALES_DIR, status: 'applied', appliedBy: 'cli' });
+    invalidateCurrentContextShaCache();
+
+    expect(await workspacePathForProject(KESTREL_SALES)).toBeNull();
   });
 });
 
@@ -153,7 +223,7 @@ describe('get_brand — whose brand', () => {
   });
 
   it('reads Kestrel\'s own brand when it has its own folder', async () => {
-    process.env.VOCION_WORKSPACE_MAP = `northwind:${NORTHWIND_DIR},kestrel-capital:${KESTREL_DIR}`;
+    process.env.VOCION_WORKSPACE_MAP = `${NORTHWIND}:${NORTHWIND_DIR},${KESTREL}:${KESTREL_DIR}`;
     writeFileSync(join(KESTREL_DIR, 'brand.yaml'), 'name: Kestrel Capital\n');
 
     expect(await brandFor(KESTREL)).toContain('Brand: Kestrel Capital');
@@ -168,7 +238,10 @@ describe('the operating intent — whose standing instructions', () => {
 
     expect(read.text).toBeNull();
     expect(read.workspaceDir).toBeNull();
-    expect(read.blocker).toMatch(/not this project's/);
+    // The fixed sentence: nothing that names Northwind or where its folder is.
+    expect(read.blocker).toBe(NO_OWN_WORKSPACE_FOLDER);
+    expect(JSON.stringify(read)).not.toContain(NORTHWIND);
+    expect(JSON.stringify(read)).not.toContain(NORTHWIND_DIR);
   });
 
   it('refuses Kestrel\'s write, leaving Northwind\'s file exactly as it was', async () => {

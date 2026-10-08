@@ -3,8 +3,9 @@
  * account, including someone who has a login in another account, since
  * accepting adds a membership to that login. Real rows in PGlite.
  */
+import process from 'node:process';
 import { eq } from 'drizzle-orm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
@@ -44,5 +45,34 @@ describe('createInvite', () => {
     await expect(createInvite({ accountId: 'acct-contoso', email: 'kim@example.com', role: 'member', invitedBy: 'user-kim' }))
       .rejects
       .toThrow('kim@example.com is already a member of this account.');
+  });
+
+  describe('an operator address', () => {
+    const previous = process.env.VOCION_OPERATOR_EMAILS;
+
+    afterEach(() => {
+      if (previous === undefined) {
+        delete process.env.VOCION_OPERATOR_EMAILS;
+      } else {
+        process.env.VOCION_OPERATOR_EMAILS = previous;
+      }
+    });
+
+    it('is never invited while it has no login, so no invite link can claim it', async () => {
+      process.env.VOCION_OPERATOR_EMAILS = 'ops@northwind.example';
+
+      await expect(createInvite({ accountId: 'acct-contoso', email: 'OPS@northwind.example', role: 'admin', invitedBy: 'user-kim' }))
+        .rejects
+        .toThrow('cannot be invited');
+      expect(await db.select().from(inviteSchema)).toHaveLength(0);
+    });
+
+    it('is invited once its login exists, since joining then needs its own password', async () => {
+      process.env.VOCION_OPERATOR_EMAILS = 'sam@example.com';
+
+      await expect(createInvite({ accountId: 'acct-contoso', email: 'sam@example.com', role: 'member', invitedBy: 'user-kim' }))
+        .resolves
+        .toMatchObject({ email: 'sam@example.com' });
+    });
   });
 });

@@ -163,6 +163,32 @@ describe('POST /api/signup', () => {
 
       expect(res.status).toBe(403);
       expect(db.transaction).not.toHaveBeenCalled();
+      // Refused without saying why: the holder learns nothing they could not
+      // learn from any other refused invite.
+      expect(JSON.stringify(await res.json())).not.toMatch(/operat/i);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VOCION_OPERATOR_EMAILS;
+      } else {
+        process.env.VOCION_OPERATOR_EMAILS = previous;
+      }
+    }
+  });
+
+  it('answers a bad token the same for an operator address as for any other, so it names no operator', async () => {
+    // Before, the operator check ran first: anyone could post an address with
+    // a made-up token and learn from a distinct 403 whether it operated the
+    // installation.
+    const previous = process.env.VOCION_OPERATOR_EMAILS;
+    process.env.VOCION_OPERATOR_EMAILS = 'ops@northwind.example';
+    try {
+      queryResults = [[], []];
+      const operator = await POST(signupRequest({ name: 'Probe', email: 'ops@northwind.example', password: 'password123', inviteToken: 'made-up' }));
+      queryResults = [[], []];
+      const anyone = await POST(signupRequest({ name: 'Probe', email: 'someone@kestrel.example', password: 'password123', inviteToken: 'made-up' }));
+
+      expect(operator.status).toBe(anyone.status);
+      expect(await operator.json()).toEqual(await anyone.json());
     } finally {
       if (previous === undefined) {
         delete process.env.VOCION_OPERATOR_EMAILS;

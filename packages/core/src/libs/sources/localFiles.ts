@@ -12,13 +12,14 @@
  *   - Air-gapped deployments where the upstream is a filesystem mount.
  *
  * Config:
- *   - `directory: string` — path to walk. Absolute paths are used as
- *     given; a relative path resolves against the directory of the
- *     workspace manifest that declared the source (stamped into the
- *     stored config as `_manifestDir` at apply time), falling back to
- *     `WORKSPACE_PATH` for sources added through the UI picker.
- *     Recursion is allowed.
- *   - `glob?: string` — filename pattern (default `*.md` + `*.txt`).
+ *   - `directory: string` — path to walk, relative to the directory of the
+ *     workspace manifest that declared the source (stamped into the stored
+ *     config as `_manifestDir` at apply time), else to the project's own
+ *     workspace folder. A path outside that folder is refused
+ *     (`resolveSourcePath`). Recursion is allowed; symlinks are not
+ *     followed.
+ *   - `extensions?: string[]` — file extensions to ingest, each like `.md`
+ *     (default `.md` + `.txt`).
  *
  * Frontmatter on `.md` files (YAML at the very top, fenced by `---`)
  * is parsed and merged into the document's `metadata`. The frontmatter
@@ -34,9 +35,16 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { resolveSourcePath } from './manifestDir';
 
+/**
+ * One extension: a dot and a name. An empty entry, or one with no name after
+ * the dot, would match files that have no extension at all — every file
+ * under `/proc/self`, for one.
+ */
+const Extension = z.string().regex(/^\.[\w-]+$/, 'an extension like .md');
+
 const localFilesConfigSchema = z.object({
-  directory: z.string().min(1).describe('directory to walk — absolute, or relative to the workspace manifest that declared this source'),
-  extensions: z.array(z.string()).default(['.md', '.txt']).describe('file extensions to ingest (default: .md, .txt)'),
+  directory: z.string().min(1).describe('directory to walk, relative to the workspace that declared this source'),
+  extensions: z.array(Extension).default(['.md', '.txt']).describe('file extensions to ingest (default: .md, .txt)'),
 });
 
 export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema> = {
@@ -48,7 +56,12 @@ export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema>
   configSchema: localFilesConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = localFilesConfigSchema.parse(ctx.config);
-    const baseDir = resolveSourcePath(cfg.directory, ctx.config);
+    const resolved = await resolveSourcePath(cfg.directory, ctx);
+    if (!resolved.ok) {
+      ctx.onProgress?.({ kind: 'error', uri: cfg.directory, message: resolved.reason });
+      return;
+    }
+    const baseDir = resolved.path;
 
     let baseStat;
     try {

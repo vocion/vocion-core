@@ -51,16 +51,6 @@ export async function POST(req: Request) {
   const { name, email, password, inviteToken } = parsed.data;
   const lowerEmail = email.toLowerCase();
 
-  // An operator's login is made on the instance, never by invite. Otherwise a
-  // client admin could invite a listed address that has no login yet, follow
-  // their own link, and operate every company on the host (`libs/operator.ts`).
-  if (isOperatorEmail(lowerEmail)) {
-    return NextResponse.json(
-      { error: 'This address operates the installation, so its login is created on the instance rather than by invite.' },
-      { status: 403 },
-    );
-  }
-
   // An existing login joins by signing in, never by making a second user.
   const [existingUser] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, lowerEmail)).limit(1);
   if (existingUser) {
@@ -75,6 +65,17 @@ export async function POST(req: Request) {
   if (problem || !invite) {
     const refusal = problem ?? { status: 404, error: 'Invalid invite token.' };
     return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+  }
+
+  // An operator's login is made on the instance, never by invite. Otherwise a
+  // client admin could invite a listed address that has no login yet, follow
+  // their own link, and operate every company on the host (`libs/operator.ts`).
+  // Checked only once a valid invite for this exact address is in hand, and
+  // refused in words that do not say why: before that, any caller could ask
+  // which addresses operate the installation, on a sign-in with no MFA or
+  // lockout. `createInvite` refuses to make such an invite in the first place.
+  if (isOperatorEmail(lowerEmail)) {
+    return NextResponse.json({ error: 'This invite cannot be used to create a login. Ask whoever invited you.' }, { status: 403 });
   }
 
   const userId = `usr-${randomUUID()}`;

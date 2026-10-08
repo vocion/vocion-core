@@ -1,11 +1,12 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { folderLastAppliedTo } from '@/libs/workspace/current-version';
 import { mountOwnership, workspaceFolderForProject } from '@/libs/workspace/project-path';
 import { getWorkspacePath } from '@/libs/workspace/reader';
-import { projectSchema, workspaceVersionSchema } from '@/models/Schema';
+import { projectSchema } from '@/models/Schema';
 
 /**
  * Whether the folder on `WORKSPACE_PATH` is this project's — what the shell
@@ -25,24 +26,14 @@ export async function mountedWorkspaceIsProjects(orgId: string): Promise<boolean
 /**
  * Which project a folder belongs to, named for a person: the project it was
  * last applied to (by the recorded source folder), else the project its
- * workspace.yaml names, else null. Read so the banner can say "this is
- * metacto-revenue's workspace" instead of "not yours".
+ * workspace.yaml names, else null. Read so an operator's drift banner can say
+ * whose workspace is mounted; never shown to a person in another project,
+ * which on a shared host would name one company to another.
  * @param path - The folder, absolute or repo-relative.
  * @param manifestOrgId - `orgId` from its workspace.yaml, if readable.
  */
 export async function folderOwner(path: string, manifestOrgId: string | null): Promise<{ id: string; slug: string; name: string } | null> {
-  const abs = fromRepoRoot(path);
-  const spellings = [abs, resolve(abs)];
-  try {
-    spellings.push(realpathSync.native(abs));
-  } catch { /* the folder may be gone; the recorded spelling still counts */ }
-  const [applied] = await db
-    .select({ orgId: workspaceVersionSchema.orgId })
-    .from(workspaceVersionSchema)
-    .where(and(eq(workspaceVersionSchema.status, 'applied'), inArray(workspaceVersionSchema.sourcePath, [...new Set(spellings)])))
-    .orderBy(desc(workspaceVersionSchema.appliedAt))
-    .limit(1);
-  const id = applied?.orgId ?? manifestOrgId;
+  const id = (await folderLastAppliedTo(path)) ?? manifestOrgId;
   if (!id) {
     return null;
   }

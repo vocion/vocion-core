@@ -47,6 +47,7 @@ const { db } = await import('@/libs/DB');
 const { auth } = await import('@/libs/Auth');
 const { applyWorkspace, loadWorkspace } = await import('@/libs/workspace');
 const { invalidateCurrentContextShaCache } = await import('@/libs/workspace/current-version');
+const { NO_OWN_WORKSPACE_FOLDER } = await import('@/libs/workspace/mounted-project');
 const { projectSchema, tenantAccountSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { readPrimitive, writeFile } = await import('./Workspace');
 const { applyConfigRoute, planConfigRoute } = await import('./TeamReport');
@@ -76,6 +77,19 @@ seedFolder(KESTREL_DIR, KESTREL, 'kestrel-own');
 function signedInAs(projectId: string, role: 'admin' | 'member') {
   const accountId = projectId === NORTHWIND ? 'acct-tenant-northwind' : 'acct-tenant-kestrel';
   vi.mocked(auth).mockResolvedValue({ user: { id: `usr-${projectId}-${role}`, accountId, projectId, role, workspaceRole: role } } as never);
+}
+
+/**
+ * Kestrel's answer names nothing of Northwind's: not its files, its project
+ * id, its slug or name, nor where its folder is on the host.
+ * @param outcome - What Kestrel got back.
+ */
+function expectNothingOfNorthwind(outcome: unknown) {
+  const text = `${JSON.stringify(outcome)} ${(outcome as Error)?.message ?? ''}`.toLowerCase();
+
+  expect(text).not.toContain('northwind');
+  expect(text).not.toContain(NORTHWIND_DIR.toLowerCase());
+  expect(text).not.toContain(ROOT.toLowerCase());
 }
 
 /**
@@ -134,21 +148,32 @@ afterAll(() => {
 });
 
 describe('workspace.readPrimitive — whose folder', () => {
-  it('refuses a Kestrel member the folder mounted on the host, which is Northwind\'s, and says why', async () => {
+  it('refuses a Kestrel member the folder mounted on the host, which is Northwind\'s, and names nothing of Northwind\'s', async () => {
     signedInAs(KESTREL, 'member');
 
     const outcome = await call(readPrimitive, { kind: 'agent', slug: 'outreach' }).catch(err => err);
 
     expect(outcome).toBeInstanceOf(Error);
-    expect((outcome as { code?: string }).code).toBe('FORBIDDEN');
-    expect(String((outcome as Error).message)).toMatch(/not this project's/);
-    expect(JSON.stringify(outcome)).not.toContain('northwind-only');
+    expect((outcome as { code?: string }).code).toBe('NOT_FOUND');
+    expect(String((outcome as Error).message)).toBe(NO_OWN_WORKSPACE_FOLDER);
+
+    expectNothingOfNorthwind(outcome);
+  });
+
+  it('answers the same whether Northwind\'s folder is mounted or nothing is, so the refusal says nothing about the host', async () => {
+    signedInAs(KESTREL, 'member');
+    const mounted = await call(readPrimitive, { kind: 'agent', slug: 'outreach' }).catch(err => err);
+    delete process.env.WORKSPACE_PATH;
+    invalidateCurrentContextShaCache();
+    const nothing = await call(readPrimitive, { kind: 'agent', slug: 'outreach' }).catch(err => err);
+
+    expect([(mounted as { code?: string }).code, (mounted as Error).message]).toEqual([(nothing as { code?: string }).code, (nothing as Error).message]);
   });
 
   it('refuses the skill branch the same way', async () => {
     signedInAs(KESTREL, 'admin');
 
-    await expect(call(readPrimitive, { kind: 'skill', slug: 'account-brief' })).rejects.toThrow(/not this project's/);
+    await expect(call(readPrimitive, { kind: 'skill', slug: 'account-brief' })).rejects.toThrow(NO_OWN_WORKSPACE_FOLDER);
   });
 
   it('still reads Northwind\'s own files for a Northwind member', async () => {
@@ -160,7 +185,7 @@ describe('workspace.readPrimitive — whose folder', () => {
   });
 
   it('reads each company\'s own folder when the host maps one per project', async () => {
-    process.env.VOCION_WORKSPACE_MAP = `northwind:${NORTHWIND_DIR},kestrel-capital:${KESTREL_DIR}`;
+    process.env.VOCION_WORKSPACE_MAP = `${NORTHWIND}:${NORTHWIND_DIR},${KESTREL}:${KESTREL_DIR}`;
 
     signedInAs(KESTREL, 'member');
     const kestrel = await call<{ files: Array<{ content: string }> }>(readPrimitive, { kind: 'agent', slug: 'outreach' });
@@ -173,7 +198,7 @@ describe('workspace.readPrimitive — whose folder', () => {
   });
 
   it('says a project the map leaves out has no folder here, rather than falling back to the mount', async () => {
-    process.env.VOCION_WORKSPACE_MAP = `northwind:${NORTHWIND_DIR}`;
+    process.env.VOCION_WORKSPACE_MAP = `${NORTHWIND}:${NORTHWIND_DIR}`;
     signedInAs(KESTREL, 'member');
 
     const outcome = await call(readPrimitive, { kind: 'agent', slug: 'outreach' }).catch(err => err);
@@ -190,7 +215,19 @@ describe('workspace.readPrimitive — whose folder', () => {
     invalidateCurrentContextShaCache();
     signedInAs(KESTREL, 'member');
 
-    await expect(call(readPrimitive, { kind: 'agent', slug: 'outreach' })).rejects.toThrow(/not this project's/);
+    await expect(call(readPrimitive, { kind: 'agent', slug: 'outreach' })).rejects.toThrow(NO_OWN_WORKSPACE_FOLDER);
+  });
+
+  it('gives a project applied from an operator\'s checkout its mounted copy, when the copy names it', async () => {
+    // Single-tenant self-host, applied from /home/ops/checkout with dev
+    // dependencies (infra/aws/update.sh), mounted at WORKSPACE_PATH.
+    await db.insert(workspaceVersionSchema).values({ orgId: NORTHWIND, projectId: NORTHWIND, sha: 'northwindsha1', sourcePath: join(ROOT, 'ops-checkout'), status: 'applied', appliedBy: 'cli' });
+    invalidateCurrentContextShaCache();
+    signedInAs(NORTHWIND, 'member');
+
+    const result = await call<{ files: Array<{ content: string }> }>(readPrimitive, { kind: 'agent', slug: 'outreach' });
+
+    expect(result.files[0]?.content).toContain('northwind-only-agent-prompt');
   });
 });
 
@@ -200,7 +237,11 @@ describe('workspace.writeFile — whose folder, and who may write', () => {
   it('refuses a Kestrel admin: nothing written in Northwind\'s folder, nothing applied anywhere', async () => {
     signedInAs(KESTREL, 'admin');
 
-    await expect(call(writeFile, { path: target, content: '# Overwritten by Kestrel\n' })).rejects.toThrow(/not this project's/);
+    const outcome = await call(writeFile, { path: target, content: '# Overwritten by Kestrel\n' }).catch(err => err);
+
+    expect((outcome as Error).message).toBe(NO_OWN_WORKSPACE_FOLDER);
+
+    expectNothingOfNorthwind(outcome);
 
     expect(readFileSync(target, 'utf8')).toContain('northwind-only-skill-body');
     expect(applyWorkspace).not.toHaveBeenCalled();
@@ -211,7 +252,7 @@ describe('workspace.writeFile — whose folder, and who may write', () => {
     signedInAs(KESTREL, 'admin');
     const planted = join(NORTHWIND_DIR, 'skills', 'planted', 'SKILL.md');
 
-    await expect(call(writeFile, { path: planted, content: '# planted\n' })).rejects.toThrow(/not this project's/);
+    await expect(call(writeFile, { path: planted, content: '# planted\n' })).rejects.toThrow(NO_OWN_WORKSPACE_FOLDER);
 
     expect(existsSync(planted)).toBe(false);
   });
@@ -238,7 +279,7 @@ describe('workspace.writeFile — whose folder, and who may write', () => {
   });
 
   it('with a folder per project, a Kestrel admin writes Kestrel\'s folder and cannot reach Northwind\'s', async () => {
-    process.env.VOCION_WORKSPACE_MAP = `northwind:${NORTHWIND_DIR},kestrel-capital:${KESTREL_DIR}`;
+    process.env.VOCION_WORKSPACE_MAP = `${NORTHWIND}:${NORTHWIND_DIR},${KESTREL}:${KESTREL_DIR}`;
     signedInAs(KESTREL, 'admin');
 
     // A path into the other company's folder escapes the caller's own.

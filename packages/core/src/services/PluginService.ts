@@ -30,13 +30,12 @@ import { parseDocument, YAMLSeq } from 'yaml';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { applyWorkspace, invalidateCurrentContextShaCache, loadWorkspace } from '@/libs/workspace';
-import { readManifestOrgId } from '@/libs/workspace/mounted-project';
 import { readWorkspacePage } from '@/libs/workspace/pages';
 import { listPluginSlugs, loadPlugin, resolvePlugins } from '@/libs/workspace/plugins';
 import { mountOwnership } from '@/libs/workspace/project-path';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
-import { folderOwner, mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
+import { mountedWorkspaceIsProjects, projectPagesFolder } from '@/services/WorkspaceMountService';
 
 /**
  * The plugins this org's project has on, in load order. Empty for an org with
@@ -163,10 +162,9 @@ export type PluginToggleResult = {
 export async function pluginWriteTarget(orgId: string, projectSlug: string, workspaceDir: string | null, explicit = false): Promise<PluginWriteTarget> {
   const repoFile = `workspace/${projectSlug}/workspace.yaml`;
   if (workspaceDir && (await mountOwnership(orgId, { path: workspaceDir, explicit })).own) {
-    return { mode: 'workspace', workspaceDir, blocker: workspaceWriteBlocker(workspaceDir), repoFile, owner: null };
+    return { mode: 'workspace', workspaceDir, blocker: workspaceWriteBlocker(workspaceDir), repoFile };
   }
-  const owner = workspaceDir ? await folderOwner(workspaceDir, readManifestOrgId(fromRepoRoot(workspaceDir))) : null;
-  return { mode: 'project', workspaceDir, blocker: null, repoFile, owner: owner ? { slug: owner.slug, name: owner.name } : null };
+  return { mode: 'project', workspaceDir, blocker: null, repoFile };
 }
 
 export type PluginWriteTarget = {
@@ -176,8 +174,6 @@ export type PluginWriteTarget = {
   blocker: string | null;
   /** `workspace/<slug>/workspace.yaml` — the file in the workspace repo. */
   repoFile: string;
-  /** `project` mode: whose folder is mounted here, when known. */
-  owner: { slug: string; name: string } | null;
 };
 
 /**
@@ -252,12 +248,20 @@ async function writeEnabledPlugins(orgId: string, enabledPlugins: string[]): Pro
   invalidateChipCache(orgId);
 }
 
+/**
+ * What a person is told after a project-only toggle. One sentence whether
+ * nothing is mounted here or another project's folder is: naming that
+ * project, or even saying one is here, would tell one company about another
+ * on a shared host.
+ * @param input - The plugin, on or off, and where the toggle wrote.
+ * @param input.slug
+ * @param input.enabled
+ * @param input.target
+ */
 function projectOnlyNote(input: { slug: string; enabled: boolean; target: PluginWriteTarget }): string {
   const { slug, enabled, target } = input;
   const did = enabled ? `Turned on ${slug}` : `Turned off ${slug}`;
-  const folder = target.workspaceDir
-    ? `the workspace folder mounted here${target.owner ? ` is ${target.owner.name}'s (${target.owner.slug}) and` : ''} was left alone`
-    : 'no workspace folder is mounted here';
+  const folder = 'it has no workspace folder of its own on this host, so no file was changed';
   const fix = enabled
     ? `add "${slug}" to plugins: in ${target.repoFile}`
     : `remove "${slug}" from plugins: in ${target.repoFile}`;
