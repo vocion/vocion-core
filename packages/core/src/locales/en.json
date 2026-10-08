@@ -388,7 +388,8 @@
     "details_features": "Its features are the plugins {plugins}.",
     "details_line": "Adding the app writes them to workspace.yaml and applies it:",
     "details_counts": "They bring {skills, plural, one {# skill} other {# skills}}, {missions, plural, one {# mission} other {# missions}}, {objects, plural, one {# object type} other {# object types}} and {teams, plural, one {# team} other {# teams}}.",
-    "project_note": "This workspace is applied from git, so this changes it here only until the repo is updated."
+    "project_note": "This workspace is applied from git, so this changes it here only until the repo is updated.",
+    "connect_all": "{count, plural, one {Connect the system {name} uses} other {Connect the # systems {name} uses}}"
   },
   "Members": {
     "people_count": "{count, plural, one {# person} other {# people}}",

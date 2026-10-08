@@ -388,7 +388,8 @@
     "details_features": "Ses fonctionnalités sont les plugins {plugins}.",
     "details_line": "Ajouter l’app les écrit dans workspace.yaml et l’applique :",
     "details_counts": "Ils apportent {skills, plural, one {# compétence} other {# compétences}}, {missions, plural, one {# mission} other {# missions}}, {objects, plural, one {# type d’objet} other {# types d’objets}} et {teams, plural, one {# équipe} other {# équipes}}.",
-    "project_note": "Cet espace de travail est appliqué depuis git : ce changement ne vaut qu’ici jusqu’à la mise à jour du dépôt."
+    "project_note": "Cet espace de travail est appliqué depuis git : ce changement ne vaut qu’ici jusqu’à la mise à jour du dépôt.",
+    "connect_all": "{count, plural, one {Connecter le système utilisé par {name}} other {Connecter les # systèmes utilisés par {name}}}"
   },
   "Members": {
     "people_count": "{count, plural, one {# personne} other {# personnes}}",
