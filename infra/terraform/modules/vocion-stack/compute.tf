@@ -122,6 +122,16 @@ data "aws_iam_policy_document" "deploy_read" {
       var.runners_enabled ? [aws_secretsmanager_secret.runner[0].arn] : [],
     )
   }
+  # The extension's deploy key: that one secret, read only.
+  dynamic "statement" {
+    for_each = local.extension_enabled ? [aws_secretsmanager_secret.extension_deploy_key[0].arn] : []
+    content {
+      sid       = "ReadExtensionDeployKey"
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [statement.value]
+    }
+  }
   statement {
     sid     = "ReadDeployConfig"
     effect  = "Allow"
@@ -317,21 +327,33 @@ locals {
     } : {},
   )
 
-  deploy_config = {
-    hostname         = var.hostname
-    behind_alb       = var.alb_enabled
-    app_secret_id    = aws_secretsmanager_secret.app_env.arn
-    db_secret_id     = aws_secretsmanager_secret.rds_app.arn
-    runners_param    = var.runners_enabled ? aws_ssm_parameter.runners[0].name : ""
-    runner_secret_id = var.runners_enabled ? aws_secretsmanager_secret.runner[0].arn : ""
-    db = {
-      host  = aws_db_instance.main.address
-      port  = tostring(aws_db_instance.main.port)
-      name  = var.db_name
-      major = local.db_major
-    }
-    env = merge(local.module_env, var.app_env)
-  }
+  deploy_config = merge(
+    {
+      hostname         = var.hostname
+      behind_alb       = var.alb_enabled
+      app_secret_id    = aws_secretsmanager_secret.app_env.arn
+      db_secret_id     = aws_secretsmanager_secret.rds_app.arn
+      runners_param    = var.runners_enabled ? aws_ssm_parameter.runners[0].name : ""
+      runner_secret_id = var.runners_enabled ? aws_secretsmanager_secret.runner[0].arn : ""
+      db = {
+        host  = aws_db_instance.main.address
+        port  = tostring(aws_db_instance.main.port)
+        name  = var.db_name
+        major = local.db_major
+      }
+      env = merge(local.module_env, var.app_env)
+    },
+    # Only with an extension, so an installation without one keeps the same
+    # parameter value.
+    local.extension_enabled ? {
+      extension = {
+        repo          = var.extension_repo
+        ref           = var.extension_ref
+        key_secret_id = aws_secretsmanager_secret.extension_deploy_key[0].arn
+        known_hosts   = var.extension_ssh_known_hosts
+      }
+    } : {},
+  )
 }
 
 resource "aws_ssm_parameter" "deploy" {
@@ -340,6 +362,13 @@ resource "aws_ssm_parameter" "deploy" {
   type        = "String"
   tier        = "Intelligent-Tiering"
   value       = jsonencode(local.deploy_config)
+
+  lifecycle {
+    precondition {
+      condition     = (var.extension_repo == "") == (var.extension_ref == "")
+      error_message = "extension_repo and extension_ref go together: set both (an SSH URL and a tag or full sha) or neither."
+    }
+  }
 }
 
 # ----- the instance -----

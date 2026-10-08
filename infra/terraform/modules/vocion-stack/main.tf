@@ -38,6 +38,10 @@ locals {
   # SSM parameter names the box reads on every deploy (templates/vocion-deploy.sh).
   deploy_param  = "/${var.name_prefix}/deploy"
   runners_param = "/${var.name_prefix}/runners"
+
+  # An extension built in beside core (variables.tf, "an extension").
+  extension_enabled                = var.extension_repo != ""
+  extension_deploy_key_secret_name = var.extension_deploy_key_secret_name != "" ? var.extension_deploy_key_secret_name : "${var.name_prefix}/extension-deploy-key"
 }
 
 # ----- VPC -----

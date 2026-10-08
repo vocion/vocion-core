@@ -24,3 +24,15 @@ resource "aws_secretsmanager_secret" "rds_app" {
   description             = "${var.hostname}: the app's RDS login (JSON: username, password). Not the master user."
   recovery_window_in_days = var.secret_recovery_window_days
 }
+
+# With extension_repo: the private half of a read-only SSH deploy key on that
+# repository, the whole OpenSSH key file as the secret string. The box reads it
+# at deploy to fetch the extension (templates/vocion-deploy.sh) and keeps it
+# only in the deploy's 0700 temporary directory.
+resource "aws_secretsmanager_secret" "extension_deploy_key" {
+  count = local.extension_enabled ? 1 : 0
+
+  name                    = local.extension_deploy_key_secret_name
+  description             = "${var.hostname}: the private half of a read-only SSH deploy key on the extension repository (OpenSSH key file)"
+  recovery_window_in_days = var.secret_recovery_window_days
+}

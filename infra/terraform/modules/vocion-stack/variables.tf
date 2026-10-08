@@ -4,7 +4,7 @@
 # Every other default describes the Cloud profile: an ALB with a WAF in front
 # of one EC2 box, RDS PostgreSQL with pgvector, a KMS-backed credential vault,
 # AWS Backup with a locked vault, ALB access, WAF and VPC flow logs, Bedrock
-# for Anthropic's models, no SSH, no runners.
+# for Anthropic's models, no SSH, no runners, no extension.
 
 # ----- identity -----
 
@@ -103,6 +103,62 @@ variable "app_env" {
   validation {
     condition     = alltrue([for k in keys(var.app_env) : can(regex("^[A-Z_][A-Z0-9_]*$", k))])
     error_message = "app_env keys must be upper-case environment variable names."
+  }
+}
+
+# ----- an extension, built in beside core -----
+#
+# Core's build looks for one optional extension package beside packages/core
+# and, when it finds one, builds it in (docs/guides/extensions.md). With
+# extension_repo set, the box fetches that repository at extension_ref over
+# SSH with a deploy key and puts it where the build looks
+# (templates/vocion-deploy.sh, step 4).
+
+variable "extension_repo" {
+  description = "Git SSH URL of an extension package to build into the app image beside vocion-core (git@github.com:owner/repo.git, or ssh://...). Fetched with the deploy key in extension_deploy_key_secret_name. Empty: core alone."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.extension_repo == "" || can(regex("^(ssh://[A-Za-z0-9._~@:/-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+)$", var.extension_repo))
+    error_message = "extension_repo must be a git SSH URL (git@host:owner/repo.git or ssh://...) with no quotes or spaces."
+  }
+}
+
+variable "extension_ref" {
+  description = "The extension release the box builds in: a tag (v1.2.0) or a full 40-character commit sha. Never a branch. Required with extension_repo."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.extension_ref == "" || can(regex("^(v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?|[0-9a-f]{40})$", var.extension_ref))
+    error_message = "extension_ref must be a release tag like v1.2.0 or a full 40-character commit sha."
+  }
+}
+
+variable "extension_deploy_key_secret_name" {
+  description = "Name of the Secrets Manager secret holding the private half of a read-only SSH deploy key on extension_repo (OpenSSH format, the whole file as the secret string). The module creates the secret, never its value; only the box may read it. Empty: <name_prefix>/extension-deploy-key."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.extension_deploy_key_secret_name == "" || can(regex("^[A-Za-z0-9/_+=.@-]{1,512}$", var.extension_deploy_key_secret_name))
+    error_message = "extension_deploy_key_secret_name must be a Secrets Manager secret name (letters, digits and /_+=.@-)."
+  }
+}
+
+variable "extension_ssh_known_hosts" {
+  description = "known_hosts lines for extension_repo's SSH host. The box refuses any host key not listed. Default: github.com's published keys (https://api.github.com/meta)."
+  type        = list(string)
+  default = [
+    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+    "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
+    "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
+  ]
+
+  validation {
+    condition     = alltrue([for l in var.extension_ssh_known_hosts : can(regex("^[^\\s#][^\\n\\r]* [A-Za-z0-9-]+ [A-Za-z0-9+/=]+$", l))])
+    error_message = "Each extension_ssh_known_hosts entry is one known_hosts line: host, key type, base64 key."
   }
 }
 

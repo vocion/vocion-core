@@ -170,6 +170,19 @@ run "cloud_profile_defaults" {
     condition     = aws_flow_log.vpc[0].traffic_type == "REJECT" && aws_cloudwatch_log_group.flow[0].retention_in_days == 90
     error_message = "the VPC's rejected connections are logged for 90 days"
   }
+  assert {
+    condition = (
+      length(aws_secretsmanager_secret.extension_deploy_key) == 0
+      && !contains(keys(jsondecode(aws_ssm_parameter.deploy.value)), "extension")
+      && length([for st in data.aws_iam_policy_document.deploy_read.statement : st if st.sid == "ReadExtensionDeployKey"]) == 0
+      && output.extension_deploy_key_secret_name == null
+    )
+    error_message = "no extension by default: no deploy key secret, nothing in the deploy config, no read on it"
+  }
+  assert {
+    condition     = strcontains(jsondecode(aws_ssm_document.deploy.content).mainSteps[0].inputs.runCommand[0], "rm -rf \"$${EXT_BUILD_DIR}\"")
+    error_message = "every deploy clears the extension directory, so a box that no longer names one builds core alone"
+  }
 }
 
 run "single_box_with_ssh" {
@@ -313,4 +326,93 @@ run "rejects_a_branch_as_core_ref" {
   }
 
   expect_failures = [var.core_ref]
+}
+
+run "with_an_extension" {
+  command = plan
+
+  variables {
+    extension_repo = "git@github.com:example/extension.git"
+    extension_ref  = "v1.2.0"
+  }
+
+  assert {
+    condition = (
+      aws_secretsmanager_secret.extension_deploy_key[0].name == "vocion-test/extension-deploy-key"
+      && output.extension_deploy_key_secret_name == "vocion-test/extension-deploy-key"
+    )
+    error_message = "the deploy key secret is created, by name only, under the prefix"
+  }
+  assert {
+    condition = (
+      jsondecode(aws_ssm_parameter.deploy.value).extension.repo == "git@github.com:example/extension.git"
+      && jsondecode(aws_ssm_parameter.deploy.value).extension.ref == "v1.2.0"
+      && jsondecode(aws_ssm_parameter.deploy.value).extension.key_secret_id == aws_secretsmanager_secret.extension_deploy_key[0].arn
+      && length(jsondecode(aws_ssm_parameter.deploy.value).extension.known_hosts) == 3
+      && alltrue([for l in jsondecode(aws_ssm_parameter.deploy.value).extension.known_hosts : startswith(l, "github.com ")])
+    )
+    error_message = "the deploy config names the extension, its release, its key secret and github.com's host keys"
+  }
+  assert {
+    condition = (
+      one([for st in data.aws_iam_policy_document.deploy_read.statement : st.actions if st.sid == "ReadExtensionDeployKey"]) == toset(["secretsmanager:GetSecretValue"])
+      && one([for st in data.aws_iam_policy_document.deploy_read.statement : st.resources if st.sid == "ReadExtensionDeployKey"]) == toset([aws_secretsmanager_secret.extension_deploy_key[0].arn])
+    )
+    error_message = "the box may read the deploy key secret, and nothing else by that grant"
+  }
+  assert {
+    condition     = !strcontains(aws_ssm_parameter.deploy.value, "PRIVATE KEY")
+    error_message = "no key material in the deploy config"
+  }
+}
+
+run "with_an_extension_key_secret_named" {
+  command = plan
+
+  variables {
+    extension_repo                   = "ssh://git@git.example.com:2222/team/extension.git"
+    extension_ref                    = "0123456789abcdef0123456789abcdef01234567"
+    extension_deploy_key_secret_name = "shared/extension-key"
+    extension_ssh_known_hosts        = ["[git.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample"]
+  }
+
+  assert {
+    condition = (
+      aws_secretsmanager_secret.extension_deploy_key[0].name == "shared/extension-key"
+      && jsondecode(aws_ssm_parameter.deploy.value).extension.known_hosts == ["[git.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample"]
+    )
+    error_message = "the secret name and the host keys follow the inputs"
+  }
+}
+
+run "rejects_a_branch_as_extension_ref" {
+  command = plan
+
+  variables {
+    extension_repo = "git@github.com:example/extension.git"
+    extension_ref  = "main"
+  }
+
+  expect_failures = [var.extension_ref]
+}
+
+run "rejects_an_https_extension_repo" {
+  command = plan
+
+  variables {
+    extension_repo = "https://github.com/example/extension.git"
+    extension_ref  = "v1.2.0"
+  }
+
+  expect_failures = [var.extension_repo]
+}
+
+run "rejects_an_extension_without_a_ref" {
+  command = plan
+
+  variables {
+    extension_repo = "git@github.com:example/extension.git"
+  }
+
+  expect_failures = [aws_ssm_parameter.deploy]
 }

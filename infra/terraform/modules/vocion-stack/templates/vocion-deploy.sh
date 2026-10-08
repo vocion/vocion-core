@@ -16,13 +16,15 @@
 #                 that changes it reaches the box on its next deploy.
 #   3. checkout   vocion-core at the release, detached. A branch is refused:
 #                 a branch is not a pin.
-#   4. env        the app-env secret, the module's env over it, DATABASE_URL
+#   4. extension  when the module names one: its release, fetched with the
+#                 deploy key, into the checkout where core's build looks
+#   5. env        the app-env secret, the module's env over it, DATABASE_URL
 #                 built from the rds-app secret → .env.production (0600)
-#   5. image      built here from the checkout (or pulled: VOCION_APP_IMAGE)
-#   6. migrate    core's applier, against RDS, BEFORE the new container
+#   6. image      built here from the checkout (or pulled: VOCION_APP_IMAGE)
+#   7. migrate    core's applier, against RDS, BEFORE the new container
 #                 starts, so new code never serves an old schema
-#   7. swap       compose up: core's files plus the module's overlay
-#   8. check      the new container reports the commit that was built
+#   8. swap       compose up: core's files plus the module's overlay
+#   9. check      the new container reports the commit that was built
 #
 # Nothing is printed from a secret. Secret values go to files under a 0700
 # directory and reach docker by environment, never on a command line.
@@ -38,6 +40,11 @@ readonly ARTIFACTS_DIR=/opt/vocion-data/artifacts
 readonly STATE_DIR=/var/lib/vocion
 readonly RDS_CA_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 readonly DB_CLIENT=vocion-db-client
+# The extension's clone (bare, root only), and where core's build looks for an
+# extension package: packages/enterprise beside packages/core, inside the
+# checkout that is the image's build context (core: docs/guides/extensions.md).
+readonly EXT_GIT_DIR=/opt/vocion-extension.git
+readonly EXT_BUILD_DIR="${REPO_DIR}/packages/enterprise"
 # The app image runs as nextjs (uid 1001, packages/core/Dockerfile).
 readonly APP_UID=1001
 
@@ -100,6 +107,9 @@ DB_NAME="$(cfg .db.name)"
 DB_MAJOR="$(cfg .db.major)"
 RUNNERS_PARAM="$(cfg .runners_param)"
 RUNNER_SECRET_ID="$(cfg .runner_secret_id)"
+EXT_REPO="$(cfg .extension.repo)"
+EXT_REF="$(cfg .extension.ref)"
+EXT_KEY_SECRET_ID="$(cfg .extension.key_secret_id)"
 log "deploying ${PUBLIC_HOST} (behind ALB: ${BEHIND_ALB})"
 
 # ----- 3. checkout -----
@@ -126,7 +136,71 @@ DESCRIBE="$(git -C "${REPO_DIR}" describe --tags --long 2>/dev/null || true)"
 SUBJECT="$(git -C "${REPO_DIR}" log -1 --format=%s)"
 log "core ${REF} = ${SHA:0:12} (${DESCRIBE:-no tag})"
 
-# ----- 4. env -----
+# ----- 4. extension -----
+
+# Core's build snapshots an extension package from packages/enterprise, beside
+# packages/core, when one is there. The build runs inside `docker build` with
+# this checkout as its context, so the package has to be IN the checkout:
+# VOCION_ENTERPRISE_DIR set here, or a directory elsewhere on the box, never
+# reaches the build (core's Dockerfile passes no such variable through). The
+# directory is rewritten from the pinned release on every deploy, and removed
+# when the module names no extension, so a stale copy is never built.
+rm -rf "${EXT_BUILD_DIR}"
+EXT_SHA=""
+if [ -n "${EXT_REPO}" ]; then
+  [ -n "${EXT_REF}" ] && [ -n "${EXT_KEY_SECRET_ID}" ] ||
+    die "${CONFIG_PARAM} names an extension without its ref or deploy key secret"
+  # Without core's loader the build would leave the extension out and say nothing.
+  [ -f "${REPO_DIR}/packages/core/src/libs/enterpriseCheckout.ts" ] ||
+    die "core ${REF} cannot build an extension in (it predates core's extension loader); deploy a release that has it, or drop extension_repo"
+  command -v ssh >/dev/null 2>&1 || dnf install -y -q openssh-clients
+
+  # The deploy key exists only in the 0700 work directory, removed on exit.
+  # Trailing whitespace is trimmed and one newline restored, as ssh wants.
+  (
+    umask 077
+    aws secretsmanager get-secret-value --region "${REGION}" --secret-id "${EXT_KEY_SECRET_ID}" --output json |
+      jq -j '.SecretString // "" | sub("\\s+$"; "") + "\n"' >"${WORK}/extension-key"
+  ) || die "could not read the extension deploy key ${EXT_KEY_SECRET_ID}; put its value first (README: An extension)"
+  grep -q -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' "${WORK}/extension-key" ||
+    die "the extension deploy key secret ${EXT_KEY_SECRET_ID} holds no private key file"
+  # Host keys come from the module (extension_ssh_known_hosts): an unlisted
+  # host key is refused, never learned.
+  jq -r '(.extension.known_hosts // [])[]' "${WORK}/config.json" >"${WORK}/extension-known-hosts"
+  [ -s "${WORK}/extension-known-hosts" ] || die "${CONFIG_PARAM} lists no SSH host key for the extension's host"
+  EXT_SSH="ssh -F /dev/null -i ${WORK}/extension-key -o IdentitiesOnly=yes -o BatchMode=yes"
+  EXT_SSH="${EXT_SSH} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${WORK}/extension-known-hosts"
+  ext_git() { git -c core.sshCommand="${EXT_SSH}" "$@"; }
+
+  if [ ! -d "${EXT_GIT_DIR}" ]; then
+    log "cloning the extension ${EXT_REPO}"
+    ext_git clone --quiet --bare "${EXT_REPO}" "${EXT_GIT_DIR}" ||
+      die "could not clone ${EXT_REPO}; is the key in ${EXT_KEY_SECRET_ID} a deploy key on it?"
+    chmod 700 "${EXT_GIT_DIR}"
+  fi
+  git -C "${EXT_GIT_DIR}" remote set-url origin "${EXT_REPO}"
+  ext_git -C "${EXT_GIT_DIR}" fetch --quiet --force --tags origin ||
+    die "could not fetch ${EXT_REPO}; is the key in ${EXT_KEY_SECRET_ID} a deploy key on it?"
+  if [[ "${EXT_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+    git -C "${EXT_GIT_DIR}" cat-file -e "${EXT_REF}^{commit}" 2>/dev/null ||
+      ext_git -C "${EXT_GIT_DIR}" fetch --quiet origin "${EXT_REF}" ||
+      die "commit ${EXT_REF} is not in ${EXT_REPO}"
+    EXT_SHA="${EXT_REF}"
+  elif EXT_SHA="$(git -C "${EXT_GIT_DIR}" rev-parse -q --verify "refs/tags/${EXT_REF}^{commit}")"; then
+    :
+  else
+    die "${EXT_REF} is neither a tag nor a full commit sha of ${EXT_REPO}"
+  fi
+  # The tree alone: no .git in the build context.
+  install -d -m 755 "${EXT_BUILD_DIR}"
+  git -C "${EXT_GIT_DIR}" archive --format=tar "${EXT_SHA}" | tar -x --no-same-owner -C "${EXT_BUILD_DIR}" ||
+    die "could not unpack the extension at ${EXT_SHA:0:12} into ${EXT_BUILD_DIR}"
+  [ -f "${EXT_BUILD_DIR}/index.ts" ] ||
+    die "the extension at ${EXT_REF} has no index.ts at its root, which is what core's build looks for"
+  log "extension ${EXT_REF} = ${EXT_SHA:0:12}, built in from packages/enterprise"
+fi
+
+# ----- 5. env -----
 
 aws secretsmanager get-secret-value --region "${REGION}" --secret-id "${APP_SECRET_ID}" \
   --query SecretString --output text >"${WORK}/app.json" ||
@@ -212,10 +286,12 @@ else
 fi
 install -d -m 750 -o "${APP_UID}" -g "${APP_UID}" "${ARTIFACTS_DIR}"
 
-# ----- 5. image -----
+# ----- 6. image -----
 
 if [ -n "${VOCION_APP_IMAGE:-}" ]; then
   log "pulling ${VOCION_APP_IMAGE}"
+  [ -z "${EXT_SHA}" ] ||
+    log "WARN: a pulled image is not built here; it has the extension only if the build that made it did"
   EXPECTED_APP_URL="${APP_URL}" bash "${REPO_DIR}/infra/aws/pull-app-image.sh" "${VOCION_APP_IMAGE}"
 else
   if [ -f "${REPO_DIR}/infra/aws/install-buildx.sh" ]; then
@@ -223,7 +299,7 @@ else
   fi
   # Every build leaves cache behind; keep enough for a warm rebuild, no more.
   docker builder prune -af --keep-storage 6GB >/dev/null 2>&1 || true
-  log "building the app image for ${APP_URL} (core ${SHA:0:12})"
+  log "building the app image for ${APP_URL} (core ${SHA:0:12}${EXT_SHA:+, extension ${EXT_SHA:0:12}})"
   docker build --progress=plain -t vocion-app:latest \
     --build-arg NEXT_PUBLIC_APP_URL="${APP_URL}" \
     --build-arg VOCION_DEPLOY_PIN="${SHA}" \
@@ -234,7 +310,7 @@ else
     -f "${REPO_DIR}/packages/core/Dockerfile" "${REPO_DIR}"
 fi
 
-# ----- 6. migrate (while the previous container, if any, still serves) -----
+# ----- 7. migrate (while the previous container, if any, still serves) -----
 
 # Core's applier runs psql through `docker exec` into a container. Point it at
 # a client container whose libpq environment names RDS: same script, same
@@ -251,7 +327,7 @@ POSTGRES_CONTAINER="${DB_CLIENT}" POSTGRES_USER="${DB_USER}" POSTGRES_DB="${DB_N
   bash "${REPO_DIR}/infra/aws/apply-migrations.sh"
 docker rm -f "${DB_CLIENT}" >/dev/null 2>&1 || true
 
-# ----- 7. swap -----
+# ----- 8. swap -----
 
 compose() {
   docker compose --env-file "${ENV_FILE}" \
@@ -277,7 +353,7 @@ docker network inspect corecontext >/dev/null 2>&1 || docker network create core
 log "starting the stack"
 compose up -d --remove-orphans
 
-# ----- 8. check -----
+# ----- 9. check -----
 
 pin=""
 for _ in $(seq 1 60); do
@@ -293,6 +369,10 @@ if [ "${BEHIND_ALB}" = "true" ]; then
 fi
 
 install -d -m 755 "${STATE_DIR}"
-printf 'ref=%s\nsha=%s\ndeployed_at=%s\n' "${REF}" "${SHA}" "$(date -u +%FT%TZ)" >"${STATE_DIR}/deployed"
+{
+  printf 'ref=%s\nsha=%s\n' "${REF}" "${SHA}"
+  [ -z "${EXT_SHA}" ] || printf 'extension_ref=%s\nextension_sha=%s\n' "${EXT_REF}" "${EXT_SHA}"
+  printf 'deployed_at=%s\n' "$(date -u +%FT%TZ)"
+} >"${STATE_DIR}/deployed"
 docker image prune -f >/dev/null 2>&1 || true
-log "done: ${APP_URL} serves core ${REF} (${SHA:0:12})"
+log "done: ${APP_URL} serves core ${REF} (${SHA:0:12})${EXT_SHA:+ with extension ${EXT_REF} (${EXT_SHA:0:12})}"

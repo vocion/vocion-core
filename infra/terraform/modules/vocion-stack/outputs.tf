@@ -106,6 +106,11 @@ output "rds_app_secret_name" {
   value       = aws_secretsmanager_secret.rds_app.name
 }
 
+output "extension_deploy_key_secret_name" {
+  description = "Secret holding the private half of the extension's read-only deploy key. Put its value out-of-band (null without extension_repo)."
+  value       = local.extension_enabled ? aws_secretsmanager_secret.extension_deploy_key[0].name : null
+}
+
 output "deploy_config_parameter" {
   description = "SSM parameter the box reads on every deploy (names and non-secret env)."
   value       = aws_ssm_parameter.deploy.name
