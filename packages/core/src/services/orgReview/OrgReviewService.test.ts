@@ -10,7 +10,7 @@ vi.mock('@/libs/DB');
 vi.mock('@/services/adoption/track', () => ({ track: vi.fn() }));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, agentSchema, conversationSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, conversationSchema, projectSchema, tenantAccountSchema, toolCallSchema } = await import('@/models/Schema');
 const { runOrgReview } = await import('./OrgReviewService');
 const { readOrgSignals } = await import('./signals');
 
@@ -175,6 +175,19 @@ describe('workspace scoping', () => {
     expect(signals.agents.map(a => a.slug).sort()).toEqual(['chief', 'deal-desk', 'scout']);
     expect(signals.agents.find(a => a.slug === 'scout')!.lastActiveAt).toBeNull();
     expect(signals.agents.find(a => a.slug === 'deal-desk')!.lastActiveAt).not.toBeNull();
+  });
+
+  it('counts a specialist reached only through its lead as working — its tool calls carry its slug', async () => {
+    await db.insert(toolCallSchema).values({ orgId: ORG, agentSlug: 'scout', leadAgentSlug: 'chief', tool: 'search_knowledge', createdAt: ago(2) });
+    // The same slug's work in another workspace is not this one's.
+    await db.insert(toolCallSchema).values({ orgId: OTHER, agentSlug: 'deal-desk', tool: 'search_knowledge', createdAt: ago(1) });
+
+    const signals = await readOrgSignals(ORG, { now: NOW });
+
+    expect(signals.agents.find(a => a.slug === 'scout')!.lastActiveAt).not.toBeNull();
+    expect((await runOrgReview(ORG, { now: NOW, consolidate: false, model: broken })).findings).toBe(0);
+
+    await db.delete(toolCallSchema);
   });
 
   it('files only in the workspace it reviewed', async () => {

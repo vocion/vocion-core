@@ -20,7 +20,7 @@ otherwise), the `org.review` job:
 
    | Signal | Read from |
    |---|---|
-   | When each agent last worked | the latest of a chat turn (`conversation`), a worker run, a mission run it led, a proposal it made, an ask it filed — all time |
+   | When each agent last worked | the latest of a chat turn (`conversation`), a tool call it made (`tool_call` — a specialist reached only through its lead counts), a worker run, a mission run it led, a proposal it made, an ask it filed — all time |
    | What it spent | assistant turns' cost (`conversation_message.micro_cents`) and worker runs' cents over 30 days; today's counter and the cap in force (`agent_budget`) |
    | What people decided on its work | the alignment ledger (`decision_alignment`) per action kind over 30 days, and the reasons people gave when they turned a proposal down |
    | What it escalates | asks it filed in 30 days, and how they were answered |

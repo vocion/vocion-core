@@ -5,8 +5,10 @@
  * Nothing here is new data. Each signal is a reading of a table the platform
  * already writes for its own reasons:
  *
- *   last run       the latest of a chat turn (`conversation`), a worker run, a
- *                  mission run it led, a proposal it made and an ask it filed
+ *   last run       the latest of a chat turn (`conversation`), a tool call it
+ *                  made (`tool_call` names the delegated specialist, so a seat
+ *                  reached only through its lead still counts), a worker run,
+ *                  a mission run it led, a proposal it made and an ask it filed
  *   spend          assistant turns' cost (`conversation_message.micro_cents`)
  *                  and worker runs' cents in the window, and today's counter
  *                  and cap in force (`agent_budget`, `agentBudgetStatuses`)
@@ -34,6 +36,7 @@ import {
   missionRunSchema,
   projectSchema,
   teamSchema,
+  toolCallSchema,
   workerRunSchema,
 } from '@/models/Schema';
 
@@ -148,12 +151,18 @@ export async function readOrgSignals(orgId: string, opts: { now?: Date; windowDa
     return { orgId, workspace: { name: project?.name ?? 'Workspace', goal: project?.goal ?? null, leadAgentSlug: project?.lead ?? null }, asOf: now, windowDays, agents: [], teams: await readTeamSignals(orgId, [], now) };
   }
 
-  const [chatLast, turnRows, workerLast, workerRows, missionLast, proposalLast, askLast, askRows, decisionRows, rejectionRows, answeredRows, today] = await Promise.all([
+  const [chatLast, toolLast, turnRows, workerLast, workerRows, missionLast, proposalLast, askLast, askRows, decisionRows, rejectionRows, answeredRows, today] = await Promise.all([
     // All-time latest chat activity per agent, off the indexed conversation row.
     db.select({ slug: conversationSchema.agentSlug, at: sql<string>`max(${conversationSchema.updatedAt})` })
       .from(conversationSchema)
       .where(and(eq(conversationSchema.orgId, orgId), inArray(conversationSchema.agentSlug, slugs)))
       .groupBy(conversationSchema.agentSlug),
+    // A specialist a lead delegates to has no conversation of its own; its
+    // tool calls carry its slug.
+    db.select({ slug: toolCallSchema.agentSlug, at: sql<string>`max(${toolCallSchema.createdAt})` })
+      .from(toolCallSchema)
+      .where(and(eq(toolCallSchema.orgId, orgId), inArray(toolCallSchema.agentSlug, slugs)))
+      .groupBy(toolCallSchema.agentSlug),
     db.select({
       slug: sql<string>`coalesce(${conversationMessageSchema.agentSlug}, ${conversationSchema.agentSlug})`,
       turns: sql<number>`count(*)::int`,
@@ -240,7 +249,7 @@ export async function readOrgSignals(orgId: string, opts: { now?: Date; windowDa
 
   const out: AgentSignals[] = active.map((a) => {
     let last: Date | null = null;
-    for (const rows of [chatLast, workerLast, missionLast, proposalLast, askLast] as Array<Array<{ slug: string | null; at: string }>>) {
+    for (const rows of [chatLast, toolLast, workerLast, missionLast, proposalLast, askLast] as Array<Array<{ slug: string | null; at: string }>>) {
       last = later(last, rows.find(r => r.slug === a.slug)?.at);
     }
     const turns = turnRows.find(r => r.slug === a.slug);
