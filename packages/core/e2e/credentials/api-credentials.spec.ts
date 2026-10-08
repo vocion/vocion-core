@@ -264,12 +264,18 @@ test.describe('the platform selector decides which controls exist', () => {
     await expect(page.getByText(/AWS services like Bedrock/)).toBeVisible();
   });
 
+  test('Azure OpenAI asks for its endpoint in the clear and its key masked', async ({ page }) => {
+    await openFormFor(page, 'azure-openai');
+
+    await expect(page.getByLabel('Endpoint')).toHaveAttribute('type', 'text');
+    await expect(page.getByLabel('Azure OpenAI key')).toHaveAttribute('type', 'password');
+  });
+
   test('single-secret platforms ask for exactly one masked field', async ({ page }) => {
     for (const [platformId, label] of [
       ['openai', 'OpenAI key'],
       ['anthropic', 'Anthropic key'],
-      ['azure-openai', 'Azure OpenAI key'],
-      ['vertex', 'Vertex credential'],
+      ['mistral', 'Mistral key'],
       ['custom', 'Credential'],
     ] as const) {
       await openFormFor(page, platformId);
@@ -303,6 +309,7 @@ test.describe('validation refuses a key of the wrong shape', () => {
   test('rejects a too-short Azure key', async ({ page }) => {
     await openFormFor(page, 'azure-openai');
     await page.getByLabel('Name').fill('Short azure');
+    await page.getByLabel('Endpoint').fill('https://northwind.openai.azure.com');
     await page.getByLabel('Azure OpenAI key').fill('a'.repeat(31));
     await page.getByRole('button', { name: 'Save key' }).click();
 
@@ -322,6 +329,7 @@ test.describe('validation refuses a key of the wrong shape', () => {
   test('never echoes the pasted secret back in the error', async ({ page }) => {
     await openFormFor(page, 'azure-openai');
     await page.getByLabel('Name').fill('Echo check');
+    await page.getByLabel('Endpoint').fill('https://northwind.openai.azure.com');
     await page.getByLabel('Azure OpenAI key').fill('sk-ant-super-secret-value');
     await page.getByRole('button', { name: 'Save key' }).click();
 
@@ -530,6 +538,7 @@ test.describe('a key that no longer decrypts', () => {
     // is the only Azure row on the page and nothing here replaces anything.
     await openFormFor(page, 'azure-openai');
     await page.getByLabel('Name').fill(NAME);
+    await page.getByLabel('Endpoint').fill('https://northwind.openai.azure.com');
     await page.getByLabel('Azure OpenAI key').fill(KEYS.azure);
     await page.getByRole('button', { name: 'Save key' }).click();
 
