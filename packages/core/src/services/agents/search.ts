@@ -166,13 +166,23 @@ export function dateStamp(raw: string | undefined, now: Date = new Date(), timeZ
 }
 
 /**
+ * How much of a hit the model reads. A snippet to judge relevance by, not the
+ * document: the founder's turn on 2026-10-09 (trace c126f3ca) re-read fifteen
+ * 400-character blurbs on every later step, and its input grew 37k → 68k
+ * tokens. A source worth reading whole has its own reader (`get_gmail_thread`,
+ * a record's lookup), as it always did.
+ */
+export const SNIPPET_CHARS = 320;
+
+/**
  * Render a numbered search hit for inclusion in the model's tool output.
  * @param doc
  * @param i
  * @param now - Reference instant for the date stamp; injectable for tests.
  * @param timeZone
+ * @param blurbChars
  */
-export function renderDocLine(doc: RawDoc, i: number, now: Date = new Date(), timeZone: string = DEFAULT_TIME_ZONE): string {
+export function renderDocLine(doc: RawDoc, i: number, now: Date = new Date(), timeZone: string = DEFAULT_TIME_ZONE, blurbChars: number = SNIPPET_CHARS): string {
   const blurb = doc.blurb ?? doc.content ?? '';
   const title = doc.semantic_identifier ?? doc.document_id ?? '(no title)';
   const source = doc.source_type ?? 'unknown';
@@ -194,6 +204,6 @@ export function renderDocLine(doc: RawDoc, i: number, now: Date = new Date(), ti
   return [
     `[${i + 1}] **${title}** [${source}]`,
     metaParts ? `   ${metaParts}` : '',
-    `   ${blurb.slice(0, 400)}`,
+    `   ${blurb.replace(/\s+/g, ' ').trim().slice(0, blurbChars)}${blurb.length > blurbChars ? '…' : ''}`,
   ].filter(Boolean).join('\n');
 }

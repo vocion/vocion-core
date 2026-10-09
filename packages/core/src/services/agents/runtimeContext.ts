@@ -27,12 +27,14 @@
  * only the row.
  */
 
+import type { TurnEvidence } from './turnEvidence';
 import type { RuntimeContext } from './types';
 import type { agentSchema } from '@/models/Schema';
 import { loadSourceKinds } from '@/libs/connectors/families';
 import { loadRestSources } from '@/libs/rest/sources';
 import { resolveTimeZone } from '@/libs/time/zone';
 import { loadFilingTypes } from './tools/fileRecord';
+import { newTurnEvidence, noteSources } from './turnEvidence';
 
 /** The columns of an `agent` row the context reads. */
 export type AgentContextRow = Pick<
@@ -159,6 +161,7 @@ export function runtimeContextFromScope(
   scope: AgentScope,
   opts: Omit<RuntimeContextOptions, 'scope'> = {},
 ): RuntimeContext {
+  const evidence = newTurnEvidence();
   return {
     orgId,
     agentSlug: row.slug,
@@ -174,7 +177,8 @@ export function runtimeContextFromScope(
     defaultTimeZone: scope.defaultTimeZone,
     // The person's zone for this turn, else the workspace's.
     timeZone: resolveTimeZone(opts.timeZone, scope.defaultTimeZone),
-    emit: opts.emit ?? (() => {}),
+    emit: noteEvidence(evidence, opts.emit ?? (() => {})),
+    evidence,
     userId: opts.userId,
     allowedSourceSlugs: opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
@@ -187,6 +191,21 @@ export function runtimeContextFromScope(
     // Citation numbering restarts each turn, and the numbers the model cites
     // must belong to the sources THIS turn retrieved.
     citationSeq: { current: 0 },
+  };
+}
+
+/**
+ * The turn's emit, noting every cited source on the turn's evidence ledger as
+ * its `documents` event goes out — whichever tool found it.
+ * @param evidence - The turn's ledger.
+ * @param emit - Where the turn's events go.
+ */
+function noteEvidence(evidence: TurnEvidence, emit: RuntimeContext['emit']): RuntimeContext['emit'] {
+  return (event) => {
+    if (event.type === 'documents') {
+      noteSources(evidence, event.documents);
+    }
+    emit(event);
   };
 }
 

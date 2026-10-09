@@ -64,6 +64,7 @@ import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { agentScope, runtimeContextFromScope } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
+import { createEvidenceHandoffMiddleware, createLookupMemoMiddleware } from './turnEvidence';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of agent blueprints — never of per-request state          */
@@ -650,7 +651,9 @@ export async function compileAgentForRequest(
   // Specialists answer with the SAME tool surface as the lead, on this
   // request's context — a delegate must not read more than the person who
   // asked.
-  const turnMiddleware = opts.turnMiddleware ?? [];
+  // A lookup repeated by the lead or a teammate is answered from the first
+  // (`runtimeContext.ts`, turn evidence); every model call of the turn shares the one ledger.
+  const turnMiddleware = [...(ctx.evidence ? [createLookupMemoMiddleware(ctx.evidence)] : []), ...(opts.turnMiddleware ?? [])];
   //
   // On the fast model a teammate gets the tools in full rather than behind
   // tool search, which the fast model may not take (`effort.ts`).
@@ -689,6 +692,8 @@ export async function compileAgentForRequest(
       createMemoryDigestMiddleware(),
       ...(opts.handOff ? [createHandOffMiddleware(opts.handOff)] : []),
       ...(blueprint.stepModel ? [createLegworkThinkingMiddleware(blueprint.stepModel)] : []),
+      // A consult starts from what this turn already has (`runtimeContext.ts`, turn evidence).
+      ...(ctx.evidence ? [createEvidenceHandoffMiddleware(ctx.evidence)] : []),
       ...turnMiddleware,
     ],
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).

@@ -261,6 +261,8 @@ export function waitingOnMeTools(ctx: RuntimeContext) {
     },
     {
       name: 'waiting_on_me',
+      // A read that does not change within a turn: a repeat is answered from the first (`turnEvidence.ts`).
+      metadata: { turnMemo: true },
       description: [
         'What is waiting on the person you are talking to, read from the records: decisions on them in the review queue (asks, approvals, proposed actions), follow-ups they owe on asks they raised, email replies they owe from their own mailbox, and their unread mentions and notices — each with a link and how long it has waited, in the order to take it.',
         'Call it for "what is waiting on me", "what do I need to do", "my approvals", "my asks", "anything for me" and the like. Never answer those from a knowledge search: these are records, and search cannot see them.',

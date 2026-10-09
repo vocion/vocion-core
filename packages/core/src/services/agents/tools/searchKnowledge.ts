@@ -19,6 +19,10 @@ import { z } from 'zod';
 import { describeFacets, validateFacetFilter } from '@/libs/retrieval/facets';
 import { search } from '@/services/RetrievalService';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
+import { repeatNote, searchKey } from '../turnEvidence';
+
+/** Hits shown when the agent's search config names no number: enough to judge, few enough to re-read every step. */
+export const DEFAULT_SHOWN_HITS = 8;
 
 export function searchKnowledgeTool(ctx: RuntimeContext) {
   const availableSources = ctx.connectorSources.join(', ');
@@ -39,6 +43,17 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
         }
       }
       const sinceDate = since && !Number.isNaN(Date.parse(since)) ? new Date(since) : undefined;
+      // The same search twice in one turn — by the lead or a teammate it
+      // consulted — is answered from the first (`turnEvidence.ts`).
+      const key = searchKey('search_knowledge', { query, source_types, metadata_filters, facets, since });
+      const prior = ctx.evidence?.searches.get(key);
+      if (prior) {
+        return repeatNote(prior);
+      }
+      const remember = (output: string, numbers: number[]): string => {
+        ctx.evidence?.searches.set(key, { query, key, numbers, output, hits: numbers.length });
+        return output;
+      };
 
       // Discovery-call slugging: bias toward the meeting sources when the
       // query is about what was SAID on a call. This narrows rather than
@@ -100,9 +115,9 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       }
 
       if (hits.length === 0) {
-        return facets
+        return remember(facets
           ? `Nothing in the synced index matches ${JSON.stringify(facets)}${sinceDate ? ` since ${sinceDate.toISOString()}` : ''}. That is the complete answer for that state: do not search again with other phrases.`
-          : 'No results found for this query.';
+          : 'No results found for this query.', []);
       }
 
       // Project SearchHit → RawDoc so the existing rerank + sidebar
@@ -138,19 +153,36 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       }
 
       const discoveryIntent = /\b(?:discovery|intro|prospect)\b/i.test(query);
-      const maxResults = ctx.searchConfig.maxResults ?? 15;
-      const docs = reRankResults(filteredDocs, ctx.searchConfig, { wantsDiscovery: discoveryIntent }).slice(0, maxResults);
+      const maxResults = ctx.searchConfig.maxResults ?? DEFAULT_SHOWN_HITS;
+      // One hit per document: two chunks of one email are one source to cite,
+      // and the second only repeats the first's context.
+      const seenDocs = new Set<string>();
+      const docs = reRankResults(filteredDocs, ctx.searchConfig, { wantsDiscovery: discoveryIntent })
+        .filter(d => !d.document_id || (seenDocs.has(d.document_id) ? false : (seenDocs.add(d.document_id), true)))
+        .slice(0, maxResults);
 
       // Allocate a contiguous global citation block for THIS search so the
       // [n] numbers stay unique across multiple searches in one turn — the
       // model is instructed to cite them inline and the UI maps [n] → source.
+      // A source this turn already numbered keeps its number.
+      const known = new Map([...(ctx.evidence?.sources.values() ?? [])].filter(s => s.documentId).map(s => [s.documentId!, s.n]));
       const shown = docs.slice(0, 15);
-      const base = ctx.citationSeq.current;
-      ctx.citationSeq.current += shown.length;
+      const numbered = shown.map((d) => {
+        const already = d.document_id ? known.get(d.document_id) : undefined;
+        if (already) {
+          return { d, n: already, fresh: false };
+        }
+        ctx.citationSeq.current += 1;
+        return { d, n: ctx.citationSeq.current, fresh: true };
+      });
+      const numbers = numbered.map(x => x.n);
+      const fresh = numbered.filter(x => x.fresh);
+      if (fresh.length > 0) {
+        ctx.emit({ type: 'documents', documents: fresh.map(x => toSearchDocument(x.d, x.n)) });
+      }
 
-      ctx.emit({ type: 'documents', documents: shown.map((d, i) => toSearchDocument(d, base + i + 1)) });
-
-      return shown.map((d, i) => renderDocLine(d, base + i, new Date(), ctx.timeZone)).join('\n\n');
+      const lines = shown.map((d, i) => renderDocLine(d, numbers[i]! - 1, new Date(), ctx.timeZone));
+      return remember(lines.join('\n\n'), numbers);
     },
     {
       name: 'search_knowledge',
