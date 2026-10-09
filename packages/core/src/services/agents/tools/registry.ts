@@ -84,6 +84,7 @@ import { posthogCountTools } from './posthogCounts';
 import { productAccessTools } from './productAccess';
 import { proposeActionTool } from './proposeAction';
 import { queryStateTool } from './queryState';
+import { readAttachmentTool } from './readAttachment';
 import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
 import { recordLiveCheckTools } from './recordLiveCheck';
@@ -291,6 +292,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // on for every agent.
     ...renderArtifactTools(ctx),
     ...editArtifactTools(ctx),
+    // Files the person attached: the message carries a preview, this reads
+    // the whole stored original — every row of a sheet, filtered, counted or
+    // paged. Reads only, inside the workspace, so on for every agent.
+    readAttachmentTool(ctx),
     // Documents: paginated, print-ready HTML with the render-verify loop built
     // in (render_document / read_document / edit_document / verify_document /
     // export_document_pdf). Same rule as render_*: no side effect outside the

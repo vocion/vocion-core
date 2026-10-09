@@ -20,6 +20,7 @@ import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { ChatComposer } from './ChatComposer';
+import { ChatDropZone } from './ChatDropZone';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { decisionBlock } from './decisions/DecisionDock';
@@ -421,7 +422,7 @@ function ChatShellInner({
             result) made that 800px on a 390px phone: the transcript AND the
             composer widened with it and this row's `overflow-hidden` cut the
             right side off (2026-09-25, Safari, measured live in WebKit). */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <ChatDropZone className="flex min-w-0 flex-1 flex-col" onFiles={session.booted ? files => void session.attachFiles(files) : undefined}>
           {/* The approval gate is a BLOCK IN THE TRANSCRIPT (058's mechanism,
               the same one the dock's review cards use), after the turn that
               raised it — not a strip pinned above the composer. `afterIndex`
@@ -527,12 +528,14 @@ function ChatShellInner({
             onRemoveTag={session.removeContextRef}
             attachments={session.attachments}
             uploading={session.uploading > 0}
+            pendingUploads={session.pendingUploads}
+            onCancelUpload={session.cancelUpload}
             attachError={session.attachError}
             onDismissAttachError={session.clearAttachError}
             onAttachFiles={files => void session.attachFiles(files)}
             onRemoveAttachment={session.removeAttachment}
           />
-        </div>
+        </ChatDropZone>
 
         {/* An artifact chip, or "Sources · N", opens its preview in the one
             right column. On this route nothing else hosts that column — the

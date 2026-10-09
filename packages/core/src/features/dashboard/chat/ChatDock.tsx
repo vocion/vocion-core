@@ -27,6 +27,7 @@ import { pageShowsRecord, recordFromPath, scopeRefToRecord } from '@/services/ch
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, followExcludeOf } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { ChatComposer } from './ChatComposer';
+import { ChatDropZone } from './ChatDropZone';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
@@ -703,7 +704,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <ChatDropZone className="flex min-h-0 flex-1 flex-col overflow-hidden" onFiles={session.booted ? files => void session.attachFiles(files) : undefined}>
         {/* The guided cards live in the transcript, at `cardAnchor` (058). Kept
             mounted after a decision so the outcome card can state what
             happened — hiding the flow the moment it is decided would drop the
@@ -853,6 +854,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onRemoveTag={session.removeContextRef}
           attachments={session.attachments}
           uploading={session.uploading > 0}
+          pendingUploads={session.pendingUploads}
+          onCancelUpload={session.cancelUpload}
           attachError={session.attachError}
           onDismissAttachError={session.clearAttachError}
           onAttachFiles={files => void session.attachFiles(files)}
@@ -867,7 +870,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             }
           }}
         />
-      </div>
+      </ChatDropZone>
     </>
   );
 

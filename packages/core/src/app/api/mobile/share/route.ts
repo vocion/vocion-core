@@ -1,3 +1,4 @@
+import type { Conversion } from '@/services/chat/convert';
 import type { SharedItem } from '@/services/share/intake';
 import { Buffer } from 'node:buffer';
 import { NextResponse } from 'next/server';
@@ -5,7 +6,7 @@ import { jsonError } from '@/app/api/v1/_shared';
 import { auth } from '@/libs/Auth';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { createArtifact } from '@/services/ArtifactService';
-import { extractText, uploadSpec } from '@/services/chat/attachments';
+import { convertUpload, uploadSpec } from '@/services/chat/attachments';
 import { resolveProjectForUser } from '@/services/ProjectService';
 import { acceptShare, MAX_SHARE_FILES, MAX_SHARE_NOTE_CHARS, shareOpenPath } from '@/services/share/intake';
 
@@ -75,20 +76,20 @@ export async function POST(req: Request) {
     const { contentType, ext, kind } = verdict.accepted;
     const data = Buffer.from(await file.arrayBuffer());
     const saved = await saveArtifact({ orgId, data, ext, contentType });
-    let text: string | undefined;
+    let converted: Conversion | undefined;
     if (kind === 'document') {
       try {
-        text = await extractText(data, contentType);
+        converted = await convertUpload(data, { name: file.name, contentType });
       } catch (err) {
         console.warn(`[mobile/share] could not extract text from ${file.name}: ${(err as Error).message}`);
-        text = '';
+        converted = { text: '' };
       }
     }
     const { artifact } = await createArtifact({
       orgId,
       kind: 'file',
       title: file.name,
-      spec: uploadSpec({ filename: saved.filename, originalName: file.name, contentType, bytes: saved.bytes, url: saved.url, ...(text !== undefined ? { text } : {}) }),
+      spec: uploadSpec({ filename: saved.filename, originalName: file.name, contentType, bytes: saved.bytes, url: saved.url, ...(converted ? { text: converted.text, sheets: converted.sheets, slides: converted.slides } : {}) }),
       url: saved.url,
       folder: 'shared',
       author: { kind: 'human', id: userId },

@@ -47,27 +47,74 @@ export async function shrinkImage(file: File): Promise<File> {
 
 export type UploadResult = { attachments: ChatAttachment[]; refused: string[] };
 
+/** Progress of one upload request: bytes sent so far, of how many. */
+export type UploadProgress = (sent: number, total: number) => void;
+
+type UploadBody = { attachments?: ChatAttachment[]; refused?: string[]; error?: { message?: string; details?: { refused?: string[] } } } | null;
+
+/**
+ * Post the form with XMLHttpRequest rather than fetch, because only XHR
+ * reports upload progress — the bar on each chip.
+ * @param form - The multipart body.
+ * @param onProgress - Called as bytes go out.
+ * @param signal - Aborts the request.
+ */
+function post(form: FormData, onProgress?: UploadProgress, signal?: AbortSignal): Promise<{ status: number; body: UploadBody }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/chat/attachments');
+    xhr.responseType = 'text';
+    if (onProgress) {
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          onProgress(e.loaded, e.total);
+        }
+      });
+    }
+    xhr.addEventListener('load', () => {
+      let body: UploadBody = null;
+      try {
+        body = JSON.parse(xhr.responseText) as UploadBody;
+      } catch {}
+      resolve({ status: xhr.status, body });
+    });
+    xhr.addEventListener('error', () => reject(new Error('The upload did not reach Vocion. Check your connection and try again.')));
+    xhr.addEventListener('abort', () => reject(new DOMException('Upload cancelled', 'AbortError')));
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(form);
+  });
+}
+
 /**
  * Post files to `/api/chat/attachments` and return the chips. A refused file
- * comes back as a sentence in `refused`; a transport failure throws.
- * @param files - What the person picked, dropped or pasted.
+ * comes back as a sentence in `refused`; a transport failure throws; an
+ * aborted upload throws an `AbortError`.
+ * @param files - What the person picked, dropped or pasted, already shrunk (`shrinkImage`).
  * @param conversationId - The thread, when it already exists.
+ * @param opts - Progress and cancellation.
+ * @param opts.onProgress - Bytes sent, of the whole request.
+ * @param opts.signal - Cancels the request.
  */
-export async function uploadAttachments(files: File[], conversationId: number | null): Promise<UploadResult> {
+export async function uploadAttachments(files: File[], conversationId: number | null, opts: { onProgress?: UploadProgress; signal?: AbortSignal } = {}): Promise<UploadResult> {
   const form = new FormData();
   for (const f of files) {
-    form.append('file', await shrinkImage(f), f.name);
+    form.append('file', f, f.name);
   }
   if (conversationId !== null) {
     form.append('conversation_id', String(conversationId));
   }
-  const resp = await fetch('/api/chat/attachments', { method: 'POST', body: form });
-  const body = await resp.json().catch(() => null) as { attachments?: ChatAttachment[]; refused?: string[]; error?: { message?: string; details?: { refused?: string[] } } } | null;
-  if (resp.status === 415 && body?.error) {
+  const { status, body } = await post(form, opts.onProgress, opts.signal);
+  if (status === 415 && body?.error) {
     return { attachments: [], refused: body.error.details?.refused ?? [body.error.message ?? 'Those files cannot be attached.'] };
   }
-  if (!resp.ok || !body) {
-    throw new Error(body?.error?.message ?? `Upload failed (HTTP ${resp.status})`);
+  if (status === 413) {
+    return { attachments: [], refused: ['Those files are too big to send together. Attach them a few at a time.'] };
+  }
+  if (status === 429) {
+    return { attachments: [], refused: ['Too many uploads in the last minute. Wait a moment and try again.'] };
+  }
+  if (status < 200 || status >= 300 || !body) {
+    throw new Error(body?.error?.message ?? 'The upload failed. Try again.');
   }
   return { attachments: body.attachments ?? [], refused: body.refused ?? [] };
 }

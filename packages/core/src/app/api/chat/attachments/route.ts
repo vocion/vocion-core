@@ -1,3 +1,4 @@
+import type { Conversion } from '@/services/chat/convert';
 import { Buffer } from 'node:buffer';
 import { NextResponse } from 'next/server';
 import { jsonError } from '@/app/api/v1/_shared';
@@ -6,7 +7,7 @@ import { clientIp } from '@/libs/http/clientIp';
 import { firstRefusal, hit, RATE_LIMITS, tooManyRequests } from '@/libs/rateLimit';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { createArtifact } from '@/services/ArtifactService';
-import { acceptUpload, attachmentFromArtifact, extractText, MAX_ATTACHMENTS, uploadSpec } from '@/services/chat/attachments';
+import { acceptUpload, attachmentFromArtifact, convertUpload, MAX_ATTACHMENTS, uploadSpec } from '@/services/chat/attachments';
 import { getConversation } from '@/services/ConversationService';
 
 /**
@@ -72,15 +73,15 @@ export async function POST(req: Request) {
     const { contentType, ext, kind } = verdict.accepted;
     const data = Buffer.from(await file.arrayBuffer());
     const saved = await saveArtifact({ orgId, data, ext, contentType });
-    let text: string | undefined;
+    let converted: Conversion | undefined;
     if (kind === 'document') {
       try {
-        text = await extractText(data, contentType);
+        converted = await convertUpload(data, { name: file.name, contentType });
       } catch (err) {
         // A file whose text cannot be read is still attached; the model is
         // told it could not be read rather than handed nothing silently.
         console.warn(`[chat/attachments] could not extract text from ${file.name}: ${(err as Error).message}`);
-        text = '';
+        converted = { text: '' };
       }
     }
     const { artifact } = await createArtifact({
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
       conversationId,
       kind: 'file',
       title: file.name,
-      spec: uploadSpec({ filename: saved.filename, originalName: file.name, contentType, bytes: saved.bytes, url: saved.url, ...(text !== undefined ? { text } : {}) }),
+      spec: uploadSpec({ filename: saved.filename, originalName: file.name, contentType, bytes: saved.bytes, url: saved.url, ...(converted ? { text: converted.text, sheets: converted.sheets, slides: converted.slides } : {}) }),
       url: saved.url,
       author: { kind: 'human', id: userId },
       // A person's upload is something a person would open again.
