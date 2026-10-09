@@ -1,100 +1,74 @@
 'use client';
 
-import type { ReactNode } from 'react';
 import type { AgentOption } from './types';
+import { ArrowRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { NO_AGENTS_HREF } from '@/libs/chat/redact';
 import { Link } from '@/libs/I18nNavigation';
 import { onlyTheSeededLead } from '@/libs/workspace/workspaceLead';
-import { AgentMark } from './AgentMark';
+import { EmptyState } from './EmptyState';
 import { SEARCH_ONLY_SLUG } from './routing';
 
 /**
- * A NEW WORKSPACE OPENS ON ITS LEAD, NOT ON A BLANK PAGE.
+ * A NEW WORKSPACE OPENS ON ITS LEAD, AS LIGHTLY AS ANY EMPTY CHAT.
  *
- * The founder's screenshot of a fresh workspace (2026-10-08): a white page,
- * then "This workspace has no agents yet. Apply a workspace or add one under
- * Manage → Teams & agents." above the composer — developer copy, and a door
- * out of the conversation. Every shared workspace now starts with a workspace
- * lead (`services/workspace/workspaceLead.ts`), and while it is the only agent
- * there the chat opens on it: who it is, one sentence on what it will do, and
- * three starters that send the lead the ask. Everything after that happens in
- * the conversation — a short interview and a plan of one-click cards.
- *
- * Its own component, beside `EmptyState` rather than inside it: the shape is
- * the same (bottom-aligned above the composer, quiet chips), the content is
- * not a workspace's suggestions but a first meeting.
+ * Every shared workspace starts with a workspace lead
+ * (`services/workspace/workspaceLead.ts`), and while it is the only agent
+ * there the chat opens on it. The same light layout as every empty
+ * conversation (`EmptyState`): the mark, and the lead's one-line hello ("Hi
+ * Sam, I'm the workspace lead. Whenever you're ready, I can help set this
+ * up."), with ONE soft chip by the composer, "Set up this workspace →",
+ * which sends the lead the ask and starts the setup interview. The three
+ * starters it had went (founder, 2026-10-08: "a soft nudge or chip. If
+ * that."); connecting a system and templates are steps of that setup.
  */
 
-/** The three ways in, in the order a new workspace takes them. */
-const STARTERS = ['setup', 'connect', 'template'] as const;
-
 /**
- * Whether this chat should open on the lead's introduction: the workspace's
- * only agent is the lead core seeded into it.
+ * Whether this chat should open on the lead's hello: the workspace's only
+ * agent is the lead core seeded into it.
  * @param agents - The surface's agents, virtual entries included.
  */
 export function wantsLeadIntro(agents: readonly AgentOption[]): boolean {
   return onlyTheSeededLead(agents.filter(a => a.slug !== SEARCH_ONLY_SLUG).map(a => a.slug));
 }
 
-/**
- * One height for every starter, a hairline and a neutral hover — the empty
- * state's chip, so the two read as one family.
- */
-const starterClass = 'flex h-9 max-w-full shrink-0 items-center truncate rounded-full border border-border bg-background px-3.5 text-[13px] text-muted-foreground transition-colors pointer-coarse:h-10 hover:bg-surface-hover hover:text-foreground animate-in fade-in fill-mode-both duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background disabled:hover:text-muted-foreground';
-
 export type LeadIntroProps = {
-  /** The lead's name, as its row says ("Workspace lead"). */
-  leadName: string;
-  /** The workspace's name, for the sentence. */
-  workspace: string;
-  /** Sends a starter's prompt to the lead — the same path a suggestion chip takes. */
+  /** The person's first name, for the hello. */
+  firstName?: string | null;
+  /** Sends the setup ask to the lead — the same path a suggestion chip takes. */
   onPick: (prompt: string) => void;
-  /** Holds the starters while the session is still hydrating. */
+  /** Holds the chip while the session is still hydrating. */
   disabled?: boolean;
-  /** The one soft nudge under the starters (what waits on the person), when there is one (`emptyChat.ts`). */
-  nudge?: ReactNode;
 };
 
 /**
- * The lead introduces itself in one sentence, with three starters.
+ * The lead's hello and the one setup chip.
  * @param props - See {@link LeadIntroProps}.
- * @param props.leadName - The lead's name.
- * @param props.workspace - The workspace's name.
- * @param props.onPick - Sends a starter's prompt.
- * @param props.disabled - Holds the starters while hydrating.
- * @param props.nudge - The one soft nudge, when there is one.
+ * @param props.firstName - The person's first name.
+ * @param props.onPick - Sends the setup ask.
+ * @param props.disabled - Holds the chip while hydrating.
  */
-export function LeadIntro({ leadName, workspace, onPick, disabled = false, nudge }: LeadIntroProps) {
+export function LeadIntro({ firstName, onPick, disabled = false }: LeadIntroProps) {
   const t = useTranslations('Onboarding');
+  const line = firstName ? t('lead_hello_named', { name: firstName }) : t('lead_hello');
   return (
-    <div data-testid="lead-intro" className="flex min-h-0 flex-1 flex-col justify-end overflow-y-auto px-4 pb-7 sm:px-6">
-      <div className="mx-auto w-full max-w-md">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-foreground [@media(max-height:560px)]:hidden">
-          <AgentMark name={leadName} decorative />
-          <span>{leadName}</span>
-        </div>
-        <p className="mt-2 text-[15px] leading-relaxed text-foreground/90 [@media(max-height:560px)]:hidden" data-testid="lead-intro-sentence">
-          {t('intro', { workspace })}
-        </p>
-        <div className="mt-4 flex w-full flex-wrap items-start gap-2">
-          {STARTERS.map((id, i) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onPick(t(`starter_${id}_prompt`))}
-              disabled={disabled}
-              style={{ animationDelay: `${i * 40}ms` }}
-              className={starterClass}
-              data-testid={`lead-intro-${id}`}
-            >
-              {t(`starter_${id}`)}
-            </button>
-          ))}
-        </div>
-        {nudge && <div className="mt-3">{nudge}</div>}
-      </div>
+    <div data-testid="lead-intro" className="flex min-h-0 flex-1 flex-col">
+      <EmptyState
+        line={line}
+        nudge={(
+          <button
+            type="button"
+            onClick={() => onPick(t('starter_setup_prompt'))}
+            disabled={disabled}
+            data-testid="lead-intro-setup"
+            className="inline-flex animate-in items-center gap-1.5 rounded-full border border-border/70 bg-background py-1.5 pr-2.5 pl-3 text-[12.5px] text-muted-foreground transition-colors fade-in hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="size-1.5 shrink-0 rounded-full bg-brand-amber" aria-hidden />
+            {t('setup_chip')}
+            <ArrowRight className="size-3.5 shrink-0" aria-hidden />
+          </button>
+        )}
+      />
     </div>
   );
 }

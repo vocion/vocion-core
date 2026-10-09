@@ -7,9 +7,9 @@ import en from '@/locales/en.json';
 import '@/styles/global.css';
 
 /**
- * A workspace's first day opens on its lead: one sentence, three starters,
- * each sending the lead its ask — and only while the seeded lead is the whole
- * team. No developer copy anywhere.
+ * A workspace's first day opens on its lead: one hello and one chip that
+ * starts the setup — and only while the seeded lead is the whole team. No
+ * developer copy anywhere.
  */
 
 vi.mock('@/libs/I18nNavigation', () => ({
@@ -22,22 +22,21 @@ const lead: AgentOption = { slug: 'workspace-lead', name: 'Workspace lead', icon
 const search: AgentOption = { slug: '__search__', name: 'Search only', icon: 'search', placeholder: 'Search…' };
 
 describe('LeadIntro', () => {
-  it('introduces the lead in one sentence and sends each starter\'s ask', async () => {
+  it('says one hello as the lead, and its one chip starts the setup (founder, 2026-10-08: "a soft nudge or chip")', async () => {
     const onPick = vi.fn();
     await render(
       <NextIntlClientProvider locale="en" messages={en}>
-        <LeadIntro leadName="Workspace lead" workspace="Northwind Support" onPick={onPick} />
+        <LeadIntro firstName="Sam" onPick={onPick} />
       </NextIntlClientProvider>,
     );
 
-    await expect.element(page.getByText('Workspace lead')).toBeInTheDocument();
-    await expect.element(page.getByTestId('lead-intro-sentence')).toHaveTextContent('I\'m the lead for Northwind Support');
+    await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent('Hi Sam, I\'m the workspace lead. Whenever you\'re ready, I can help set this up.');
+    // One chip, no starters.
+    expect(page.getByRole('button').elements()).toHaveLength(1);
 
-    await page.getByRole('button', { name: 'Set up this workspace with me' }).click();
-    await page.getByRole('button', { name: 'Connect a system' }).click();
-    await page.getByRole('button', { name: 'Start from a template' }).click();
+    await page.getByRole('button', { name: 'Set up this workspace' }).click();
 
-    expect(onPick.mock.calls.map(([p]) => p)).toEqual(['Set up this workspace with me.', 'I want to connect a system.', 'I want to start from a template.']);
+    expect(onPick).toHaveBeenCalledWith('Set up this workspace with me.');
   });
 
   it('opens only while the seeded lead is the whole team', () => {

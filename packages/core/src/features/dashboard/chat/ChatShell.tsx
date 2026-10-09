@@ -32,7 +32,7 @@ import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
 import { QuotedPassage } from './QuotedPassage';
-import { defaultAgentName, defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
+import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
@@ -472,7 +472,7 @@ function ChatShellInner({
                               never cards: an empty conversation starts warm
                               (`emptyChat.ts`, founder 2026-10-08). */}
                           {wantsLeadIntro(agents)
-                            ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} nudge={nudge} />
+                            ? <LeadIntro firstName={firstName} onPick={session.handlePickSuggestion} />
                             : (
                                 <EmptyState
                                   firstName={firstName}

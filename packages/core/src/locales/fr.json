@@ -243,13 +243,7 @@
     "welcome_back": "Bon retour."
   },
   "Onboarding": {
-    "intro": "Je suis le responsable de {workspace} — dites-moi ce que fait votre équipe et je le configure avec vous.",
-    "starter_setup": "Configurer cet espace avec moi",
     "starter_setup_prompt": "Configure cet espace de travail avec moi.",
-    "starter_connect": "Connecter un système",
-    "starter_connect_prompt": "Je veux connecter un système.",
-    "starter_template": "Partir d’un modèle",
-    "starter_template_prompt": "Je veux partir d’un modèle.",
     "no_agents": "Cet espace de travail n’a pas encore d’agent.",
     "no_agents_cta": "Recrutez-en un dans le catalogue d’agents.",
     "plan_eyebrow": "Plan de configuration",
@@ -273,7 +267,10 @@
     "step_brand": "À votre image : logo et couleurs",
     "step_brand_prompt": "Applique notre marque à cet espace à partir de notre site : ",
     "step_state_done": "fait",
-    "step_state_todo": "pas encore fait"
+    "step_state_todo": "pas encore fait",
+    "lead_hello_named": "Bonjour {name}, je suis le responsable de l’espace de travail. Quand vous voulez, je peux vous aider à le configurer.",
+    "lead_hello": "Bonjour, je suis le responsable de l’espace de travail. Quand vous voulez, je peux vous aider à le configurer.",
+    "setup_chip": "Configurer cet espace de travail"
   },
   "Inbox": {
     "title": "File de revue",

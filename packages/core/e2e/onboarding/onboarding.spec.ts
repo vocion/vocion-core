@@ -64,17 +64,16 @@ async function say(page: Page, text: string): Promise<void> {
   await page.getByRole('button', { name: 'Send message' }).last().click();
 }
 
-test('a new workspace opens on its lead, with three ways in and a Getting started checklist', async ({ page }) => {
+test('a new workspace opens on its lead\'s one-line hello, one setup chip and a Getting started row', async ({ page }) => {
   await openChat(page);
 
   const intro = page.getByTestId('lead-intro');
 
   await expect(intro).toBeVisible({ timeout: 60_000 });
-  await expect(intro).toContainText('Workspace lead');
-  await expect(intro).toContainText(`I'm the lead for ${workspace.name}`);
-  await expect(intro.getByRole('button', { name: 'Set up this workspace with me' })).toBeVisible();
-  await expect(intro.getByRole('button', { name: 'Connect a system' })).toBeVisible();
-  await expect(intro.getByRole('button', { name: 'Start from a template' })).toBeVisible();
+  await expect(intro).toContainText('I\'m the workspace lead. Whenever you\'re ready, I can help set this up.');
+  // One soft chip, no starters (founder, 2026-10-08).
+  await expect(intro.getByRole('button')).toHaveCount(1);
+  await expect(intro.getByRole('button', { name: 'Set up this workspace' })).toBeVisible();
   await expect(page.getByText(/Apply a workspace|Teams & agents/)).toHaveCount(0);
 
   // The checklist sits where the invite box did, every tick read from the
@@ -82,6 +81,8 @@ test('a new workspace opens on its lead, with three ways in and a Getting starte
   // in the Org, and a dev database has other people in it. So may "Make it
   // yours": the Org's brand is the Org's, not this workspace's.)
   await expect(page.getByTestId('getting-started-count')).toHaveText(/^Getting started · [0-2] of 5$/);
+
+  await page.getByRole('button', { name: /Getting started/ }).click();
 
   for (const step of ['connect', 'app', 'hire']) {
     await expect(page.getByTestId(`getting-started-${step}`)).toHaveAttribute('data-done', 'false');
@@ -94,7 +95,7 @@ test('a new workspace opens on its lead, with three ways in and a Getting starte
 
 test('the lead interviews, proposes the plan as one-click cards, and each runs as the person\'s action with Undo', async ({ page }) => {
   await openChat(page);
-  await page.getByTestId('lead-intro').getByRole('button', { name: 'Set up this workspace with me' }).click();
+  await page.getByTestId('lead-intro').getByRole('button', { name: 'Set up this workspace' }).click();
 
   await expect(page.getByText('what does this team do?')).toBeVisible({ timeout: 120_000 });
 

@@ -29,6 +29,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { SidebarProvider, SidebarTrigger } = await import('@/components/ui/sidebar');
+const { OrgBrandProvider } = await import('@/features/branding/BrandContext');
 const { AppSidebar } = await import('./AppSidebar');
 
 const APPS: AppNav[] = [
@@ -39,28 +40,30 @@ const SESSION = {
   expires: '2999-01-01T00:00:00.000Z',
 };
 
-function Shell({ fresh }: { fresh: boolean }) {
+function Shell({ fresh, branded = false }: { fresh: boolean; branded?: boolean }) {
   return (
-    <SessionProvider session={SESSION}>
-      <NextIntlClientProvider locale="en" messages={en}>
-        <SidebarProvider>
-          <SidebarTrigger />
-          <AppSidebar
-            isAdmin
-            needsYouCount={4}
-            apps={APPS}
-            workspacePages={[{ title: 'Wiki', url: '/dashboard/p/wiki', section: 'Pages' }]}
-            gettingStarted={{ steps: [{ id: 'connect', done: true }, { id: 'app', done: true }, { id: 'hire', done: false }, { id: 'invite', done: false }, { id: 'brand', done: false }], done: 2, total: 5, fresh }}
-          />
-        </SidebarProvider>
-      </NextIntlClientProvider>
-    </SessionProvider>
+    <OrgBrandProvider value={branded ? { name: 'Northwind', logo: {}, mark: {}, accent: null, headingFont: null, poweredBy: true } : null}>
+      <SessionProvider session={SESSION}>
+        <NextIntlClientProvider locale="en" messages={en}>
+          <SidebarProvider>
+            <SidebarTrigger />
+            <AppSidebar
+              isAdmin
+              needsYouCount={4}
+              apps={APPS}
+              workspacePages={[{ title: 'Wiki', url: '/dashboard/p/wiki', section: 'Pages' }]}
+              gettingStarted={{ steps: [{ id: 'connect', done: true }, { id: 'app', done: true }, { id: 'hire', done: false }, { id: 'invite', done: false }, { id: 'brand', done: false }], done: 2, total: 5, fresh }}
+            />
+          </SidebarProvider>
+        </NextIntlClientProvider>
+      </SessionProvider>
+    </OrgBrandProvider>
   );
 }
 
-async function openDrawer(fresh = false) {
+async function openDrawer(fresh = false, branded = false) {
   await page.viewport(390, 844);
-  await render(<Shell fresh={fresh} />);
+  await render(<Shell fresh={fresh} branded={branded} />);
   await page.getByRole('button', { name: 'Toggle Sidebar' }).click();
 
   await expect.element(page.getByRole('dialog')).toBeVisible();
@@ -121,6 +124,19 @@ describe('the sidebar drawer on a phone', () => {
 
     expect(footer.top).toBeGreaterThanOrEqual(content.bottom - 1);
     await expect.element(page.getByTestId('sidebar-user')).toHaveTextContent('Sam Rivera');
+  });
+});
+
+describe('the footer of a branded install', () => {
+  it('carries a small "Powered by Vocion" under who is signed in, below the nav and never on it', async () => {
+    await openDrawer(true, true);
+
+    const user = (await page.getByTestId('sidebar-user').element()).getBoundingClientRect();
+    const powered = (await page.getByTestId('powered-by-vocion').element()).getBoundingClientRect();
+    const content = (document.querySelector('[data-mobile="true"] [data-slot="sidebar-content"]') as HTMLElement).getBoundingClientRect();
+
+    expect(powered.top).toBeGreaterThanOrEqual(user.bottom - 1);
+    expect(user.top).toBeGreaterThanOrEqual(content.bottom - 1);
   });
 });
 

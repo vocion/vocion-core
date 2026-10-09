@@ -53,7 +53,7 @@ import {
   writeCollapsed,
   writeStoredRailWidth,
 } from './railState';
-import { defaultAgentName, hasWorkspaceAgents, parseSearchCommand } from './routing';
+import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
@@ -739,7 +739,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             ? (
                 // A workspace on its first day opens on its lead (`LeadIntro`).
                 wantsLeadIntro(agents)
-                  ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} disabled={!session.booted} />
+                  ? <LeadIntro firstName={firstName} onPick={session.handlePickSuggestion} disabled={!session.booted} />
                   : (
                       <EmptyState
                         firstName={firstName}

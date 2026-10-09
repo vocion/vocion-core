@@ -38,6 +38,8 @@ export type EmptyStateProps = {
   hour?: number;
   /** Whether the person is coming back after a while. Default: read from this browser. */
   returning?: boolean;
+  /** The one line, when the surface has its own (a new workspace's lead saying hello). Default: the time-and-return greeting. */
+  line?: string;
 };
 
 function readReturning(): boolean {
@@ -56,8 +58,9 @@ function readReturning(): boolean {
  * @param props.nudge - The one soft nudge, when something waits.
  * @param props.hour - The hour the line is for.
  * @param props.returning - Whether the person is coming back after a while.
+ * @param props.line - The one line, when the surface has its own.
  */
-export function EmptyState({ firstName, nudge, hour, returning }: EmptyStateProps) {
+export function EmptyState({ firstName, nudge, hour, returning, line: ownLine }: EmptyStateProps) {
   const t = useTranslations('Chat');
   const brand = useOrgBrand();
   // Read once, before this visit is written, so a return reads as one.
@@ -69,7 +72,7 @@ export function EmptyState({ firstName, nudge, hour, returning }: EmptyStateProp
       // Blocked storage: every visit greets by the time of day, which is fine.
     }
   }, []);
-  const line = greetingFor({ hour: hour ?? new Date().getHours(), returning: cameBack, firstName }, (key, values) => t(key, values));
+  const line = ownLine ?? greetingFor({ hour: hour ?? new Date().getHours(), returning: cameBack, firstName }, (key, values) => t(key, values));
   const markLight = brand?.mark.light ?? DEFAULT_MARK;
   const markDark = brand?.mark.light ? brand.mark.dark : undefined;
 

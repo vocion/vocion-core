@@ -243,13 +243,7 @@
     "welcome_back": "Welcome back."
   },
   "Onboarding": {
-    "intro": "I'm the lead for {workspace} — tell me what your team does and I'll set it up with you.",
-    "starter_setup": "Set up this workspace with me",
     "starter_setup_prompt": "Set up this workspace with me.",
-    "starter_connect": "Connect a system",
-    "starter_connect_prompt": "I want to connect a system.",
-    "starter_template": "Start from a template",
-    "starter_template_prompt": "I want to start from a template.",
     "no_agents": "This workspace has no agents yet.",
     "no_agents_cta": "Hire one from the agent catalog.",
     "plan_eyebrow": "Setup plan",
@@ -273,7 +267,10 @@
     "step_brand": "Make it yours: logo and colours",
     "step_brand_prompt": "Brand this workspace from our website: ",
     "step_state_done": "done",
-    "step_state_todo": "not done yet"
+    "step_state_todo": "not done yet",
+    "lead_hello_named": "Hi {name}, I'm the workspace lead. Whenever you're ready, I can help set this up.",
+    "lead_hello": "Hi, I'm the workspace lead. Whenever you're ready, I can help set this up.",
+    "setup_chip": "Set up this workspace"
   },
   "Inbox": {
     "title": "Review queue",
