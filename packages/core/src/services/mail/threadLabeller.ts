@@ -14,7 +14,7 @@
  * or unparseable call does the same, so labelling can never fail a sync.
  */
 import type { PriorLabel, ThreadFacts, ThreadLabel } from '@/libs/sources/mailThreadState';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { flushTraces, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
@@ -36,31 +36,58 @@ export type LabelRunCounts = { threads: number; byRule: number; reused: number; 
 
 /**
  * The labels on file for these threads, by thread id.
- * @param orgId - Tenant.
+ *
+ * A label belongs to a MAILBOX and a Gmail thread, not to the source that
+ * filed it: the same mailbox is often connected in more than one workspace of
+ * an Org (on 2026-10-09 Metacto's Executive and Revenue Team workspaces held
+ * the same 3,347 threads), and labelling it once per workspace paid twice for
+ * one answer. So with a mailbox, a label on file in ANY workspace of the same
+ * Org for that mailbox and thread is reused — never across Orgs, and never
+ * from another mailbox. This source's own label wins when both exist.
+ * @param orgId - The workspace.
  * @param sourceId - The source the threads belong to.
  * @param connector - The connector slug, for the external ids.
  * @param threadIds - The threads.
+ * @param mailbox - The owner's address; without it only this source's labels are read.
  */
-export async function priorLabels(orgId: string, sourceId: number, connector: string, threadIds: string[]): Promise<Map<string, PriorLabel>> {
+export async function priorLabels(orgId: string, sourceId: number, connector: string, threadIds: string[], mailbox?: string): Promise<Map<string, PriorLabel>> {
   const out = new Map<string, PriorLabel>();
   if (threadIds.length === 0) {
     return out;
   }
   const byExternal = new Map(threadIds.map(id => [threadStateExternalId(connector, id), id]));
   const ids = [...byExternal.keys()];
+  // Workspaces in the same Org: where the same mailbox's labels may already be.
+  let orgIds = [orgId];
+  if (mailbox) {
+    const { projectSchema } = await import('@/models/Schema');
+    const [own] = await db.select({ accountId: projectSchema.accountId }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
+    if (own) {
+      orgIds = (await db.select({ id: projectSchema.id }).from(projectSchema).where(eq(projectSchema.accountId, own.accountId))).map(p => p.id);
+    }
+  }
   for (let i = 0; i < ids.length; i += 500) {
     const rows = await db
-      .select({ externalId: knowledgeDocumentSchema.externalId, metadata: knowledgeDocumentSchema.metadata })
+      .select({ externalId: knowledgeDocumentSchema.externalId, metadata: knowledgeDocumentSchema.metadata, sourceId: knowledgeDocumentSchema.sourceId })
       .from(knowledgeDocumentSchema)
       .where(and(
-        eq(knowledgeDocumentSchema.orgId, orgId),
-        eq(knowledgeDocumentSchema.sourceId, sourceId),
+        inArray(knowledgeDocumentSchema.orgId, orgIds),
+        mailbox
+          ? sql`(${knowledgeDocumentSchema.sourceId} = ${sourceId} OR lower(${knowledgeDocumentSchema.metadata} -> 'facets' ->> 'mailbox') = ${mailbox.toLowerCase()})`
+          : eq(knowledgeDocumentSchema.sourceId, sourceId),
         inArray(knowledgeDocumentSchema.externalId, ids.slice(i, i + 500)),
       ));
+    // This source's own row first, so it wins over a copy elsewhere.
+    rows.sort((x, y) => Number(y.sourceId === sourceId) - Number(x.sourceId === sourceId));
     for (const r of rows) {
       const prior = priorFromMetadata(r.metadata);
       const threadId = byExternal.get(r.externalId);
-      if (prior && threadId) {
+      if (!prior || !threadId) {
+        continue;
+      }
+      const held = out.get(threadId);
+      // A model's label beats a headers-only fallback from elsewhere.
+      if (!held || (held.label.labelledBy === 'rule' && prior.label.labelledBy !== 'rule')) {
         out.set(threadId, prior);
       }
     }
@@ -232,7 +259,7 @@ export async function planThreadStateBackfill(opts: { orgId: string; sourceId: n
   if (!listed) {
     return null;
   }
-  const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', listed.threadIds);
+  const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', listed.threadIds, listed.mailbox);
   const alreadyLabelled = [...prior.values()].filter(p => p.label.labelledBy !== 'rule').length;
   const maxLabels = listed.threadIds.length - alreadyLabelled;
   return { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: source.slug, mailbox: listed.mailbox, windowDays, threadIds: listed.threadIds, alreadyLabelled, maxLabels, maxCents: Math.round(maxLabels * CENTS_PER_LABEL * 100) / 100 };
@@ -261,7 +288,7 @@ export async function backfillThreadStateBatch(opts: { orgId: string; sourceId: 
   const { threadStateDoc } = await import('@/libs/sources/mailThreadState');
   const { ingestDocument } = await import('@/services/IngestionService');
   const { facts, failed } = await threadFactsFor({ orgId: opts.orgId, credentials, mailbox: opts.mailbox, threadIds: opts.threadIds });
-  const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', facts.map(f => f.threadId));
+  const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', facts.map(f => f.threadId), opts.mailbox);
   const { labels, counts } = await labelThreads({ orgId: opts.orgId, sourceSlug: opts.sourceSlug, threads: facts, prior, maxLabels: facts.length, ...(opts.model ? { model: opts.model } : {}) });
   let filed = 0;
   for (const f of facts) {

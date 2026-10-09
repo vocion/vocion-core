@@ -13,7 +13,7 @@ vi.mock('@/services/SourceCredentialService', async importOriginal => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema } = await import('@/models/Schema');
+const { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { planThreadStateBackfill, runThreadStateBackfill } = await import('./threadLabeller');
 const { FIXTURE_VERDICTS, fixtureThreads, gmailApiStub } = await import('./testing/fixtureInbox');
 
@@ -28,7 +28,16 @@ const model = async (_s: string, user: string) => {
 };
 let sourceId: number;
 
+const SAME_ORG_WS = 'org-backfill-second';
+const OTHER_ORG_WS = 'org-backfill-elsewhere';
+
 beforeAll(async () => {
+  await db.insert(tenantAccountSchema).values([{ id: 'acct-backfill', name: 'Northwind', slug: 'northwind-backfill' }, { id: 'acct-backfill-other', name: 'Kestrel Capital', slug: 'kestrel-backfill' }]);
+  await db.insert(projectSchema).values([
+    { id: ORG, accountId: 'acct-backfill', slug: 'executive', name: 'Executive' },
+    { id: SAME_ORG_WS, accountId: 'acct-backfill', slug: 'revenue', name: 'Revenue Team' },
+    { id: OTHER_ORG_WS, accountId: 'acct-backfill-other', slug: 'revenue', name: 'Revenue' },
+  ]);
   globalThis.fetch = vi.fn(async (input: string | URL | Request) => gmailApiStub(threads, typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)) as typeof fetch;
   const [row] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'gmail', kind: 'plugin', configJson: { _connector: 'gmail' } }).returning({ id: knowledgeSourceSchema.id });
   sourceId = row!.id;
@@ -39,6 +48,8 @@ afterAll(async () => {
   await db.delete(knowledgeChunkSchema);
   await db.delete(knowledgeDocumentSchema);
   await db.delete(knowledgeSourceSchema);
+  await db.delete(projectSchema);
+  await db.delete(tenantAccountSchema);
 });
 
 describe('thread-state backfill', () => {
@@ -72,5 +83,22 @@ describe('thread-state backfill', () => {
 
     expect(second).toMatchObject({ labelled: 0, reused: 5, byRule: 2 });
     expect(calls.length).toBe(before);
+  });
+
+  it('the same mailbox in another workspace of the Org reuses the labels — and another Org does not', async () => {
+    const [second] = await db.insert(knowledgeSourceSchema).values({ orgId: SAME_ORG_WS, slug: 'gmail', kind: 'plugin', configJson: { _connector: 'gmail' } }).returning({ id: knowledgeSourceSchema.id });
+    const plan = (await planThreadStateBackfill({ orgId: SAME_ORG_WS, sourceId: second!.id, windowDays: 30 }))!;
+
+    expect(plan.alreadyLabelled).toBe(5);
+
+    const before = calls.length;
+    const run = await runThreadStateBackfill(plan, { sleep: async () => {}, model });
+
+    expect(run).toMatchObject({ filed: 7, labelled: 0, reused: 5 });
+    expect(calls.length).toBe(before);
+
+    const [elsewhere] = await db.insert(knowledgeSourceSchema).values({ orgId: OTHER_ORG_WS, slug: 'gmail', kind: 'plugin', configJson: { _connector: 'gmail' } }).returning({ id: knowledgeSourceSchema.id });
+
+    expect((await planThreadStateBackfill({ orgId: OTHER_ORG_WS, sourceId: elsewhere!.id, windowDays: 30 }))!.alreadyLabelled).toBe(0);
   });
 });

@@ -408,7 +408,7 @@ async function* threadStates(ctx: SourceContext, cfg: { baseUrl: string }, heade
   // Imported here: the labeller reaches the database and a model, which a
   // connector's import graph (the applier validates configs with it) must not.
   const { labelThreads, priorLabels } = await import('@/services/mail/threadLabeller');
-  const prior = await priorLabels(ctx.orgId, ctx.sourceId, 'gmail', facts.map(f => f.threadId));
+  const prior = await priorLabels(ctx.orgId, ctx.sourceId, 'gmail', facts.map(f => f.threadId), mailbox);
   const { labels, counts } = await labelThreads({ orgId: ctx.orgId, sourceSlug: 'gmail', threads: facts, prior });
   ctx.onProgress?.({ kind: 'skipped', message: `thread state: ${counts.threads} threads (${counts.byRule} by headers, ${counts.reused} unchanged, ${counts.labelled} labelled, ${counts.fallback} left for the next sync)` });
   for (const f of facts) {
