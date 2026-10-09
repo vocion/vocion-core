@@ -27,7 +27,7 @@
       "reply": ""
     },
     {
-      "match": "The person, latest message: help me connect the systems this workspace needs",
+      "match": "The person, latest message: help me connect the team connectors this workspace needs",
       "steps": [
         {
           "tool": "report_consent",
@@ -80,7 +80,7 @@
       "reply": ""
     },
     {
-      "match": "help me connect the systems this workspace needs",
+      "match": "help me connect the team connectors this workspace needs",
       "steps": [
         {
           "tool": "describe_setup",

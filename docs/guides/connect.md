@@ -1,5 +1,9 @@
 # Connecting a source at the vendor
 
+This guide is about **team connectors**, the shared systems a workspace's
+agents use. A person's own accounts are **personal connectors**; see
+[personal-connections.md](personal-connections.md).
+
 A source that reads a third-party system needs that system's credential. Until
 now every one of them was pasted: a person made a token somewhere else and typed
 it into the connect dialog. For the vendors that offer an authorization flow,

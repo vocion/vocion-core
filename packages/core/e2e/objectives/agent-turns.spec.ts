@@ -183,7 +183,7 @@ test('a Getting started step closes the drawer and sends a real turn; the picker
   await page.getByTestId('getting-started-connect').tap();
 
   // The drawer closed, and the person's ask went out as a message.
-  await expect(page.getByTestId('user-message').filter({ hasText: 'Help me connect the systems this workspace needs' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('user-message').filter({ hasText: 'Help me connect the team connectors this workspace needs' })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('getting-started-connect')).toBeHidden();
 
   await shot(page, '06-checklist-turn');

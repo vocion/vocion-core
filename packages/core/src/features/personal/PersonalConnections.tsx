@@ -32,7 +32,7 @@ function day(at: Date | string): string {
 }
 
 /**
- * Personal → Connectors: the person's OWN accounts, connected for their own
+ * Personal connectors: the person's OWN accounts, connected for their own
  * assistant only (docs/guides/personal-connections.md). One row per thing
  * they can connect, each with the one move it needs — Connect, or Disconnect
  * — and what connecting it lets the assistant do. An Org admin sees the
@@ -98,10 +98,6 @@ export function PersonalConnections() {
 
   return (
     <div className="max-w-3xl space-y-5" data-testid="personal-connections">
-      <p className="text-[13px] text-muted-foreground">
-        Your own accounts, read by your assistant and nobody else. Nothing from them is copied into a shared workspace, and your Org's admins cannot open them.
-      </p>
-
       {line && (
         <p role="status" className={line.ok ? 'text-sm text-foreground' : 'text-sm text-brand-fail'}>{line.text}</p>
       )}

@@ -25,7 +25,11 @@ import { connectSystemsHref } from '@/libs/connect/systemsLink';
 
 export const CONNECT_SYSTEM_TOOL = 'connect_system';
 
+/** The kind field both connect tools take (`libs/connect/connectorKinds.ts`). */
+export const CONNECTOR_KIND_FIELD = z.enum(['team', 'personal']).optional().describe('Which kind of connector the person means, read from their words. "team" (the default in a shared workspace): a shared system the workspace\'s agents use, connected by an admin in Team connectors. "personal": their OWN account for their personal assistant only — their inbox, their calendar, their files, their DMs, their GitHub — connected in Personal connectors. A request for the kind this workspace does not hold is answered with one line pointing to the right page, never a card.');
+
 const InputSchema = z.object({
+  kind: CONNECTOR_KIND_FIELD,
   named: z.array(z.string().min(1).max(80)).max(20).optional().describe('Connector slugs (from list_capabilities) of systems the person named in their own words, in their order — each one is shown to them as "You named it", so never a system you inferred. Leave out when they named none ("what should I connect?").'),
   title: z.string().min(3).max(90).optional().describe('The card\'s question, in your words for this person now ("Connect GitHub so the factory can read your repos?"). Compose it from the facts below; leave out only to use a plain default.'),
   why: z.string().min(3).max(240).optional().describe('One or two lines on why these systems matter to this person now, from the live facts (what is installed, what failed, what the team tried). Leave out to show none.'),
@@ -44,6 +48,15 @@ type Input = z.infer<typeof InputSchema>;
  * @returns What the model reads.
  */
 export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<string> {
+  // Team connectors are connected here; a request for the other kind, or any
+  // request in a Personal workspace, gets one line pointing to the right page.
+  if (ctx.workspaceKind === 'personal' || input.kind === 'personal') {
+    const { connectKindCheck } = await import('@/services/connect/connectorKindRouting');
+    const decision = await connectKindCheck(ctx, input.named ?? [], input.kind ?? (input.app ? 'team' : undefined));
+    if (!decision.proceed) {
+      return decision.reply;
+    }
+  }
   const { recommendConnections } = await import('@/services/connect/recommendations');
   const plan = await recommendConnections({ orgId: ctx.orgId, userId: ctx.userId }, input);
   if (plan.refused) {
@@ -57,7 +70,7 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
   // The words are the agent's, composed from the live facts at this turn; the
   // template is only the fallback (founder, 2026-10-09: "not hard coded
   // bullshit that gets stale").
-  const title = input.title?.trim() || (plan.scope ? `Connect the systems ${plan.scope.appName} uses` : 'Connect your systems');
+  const title = input.title?.trim() || (plan.scope ? `Connect the team connectors ${plan.scope.appName} uses` : 'Connect your team connectors');
   // Every step's line, for the systems actually walked.
   const walked = new Set(plan.candidates.map(c => c.connector));
   const say = Object.fromEntries((input.steps ?? []).filter(s => walked.has(s.connector) && s.why.trim()).map(s => [s.connector, s.why.trim()]));
@@ -107,7 +120,7 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
 export function connectSystemTool(ctx: RuntimeContext) {
   return tool(async (input: Input) => connectSystem(ctx, input), {
     name: CONNECT_SYSTEM_TOOL,
-    description: 'Walk the person through connecting their systems, one at a time, in a docked card above the composer: a ranked list from evidence (apps added here, their mail host, what their Org already uses, what they named), each connected by login or key, verified, then a summary of what each unlocks. Use for "connect my tools", "what should I connect?", "connect the systems <app> uses", or two or more systems named at once. Pass the connector slugs they named, or an app id.',
+    description: 'Walk the person through connecting the workspace\'s team connectors — the shared systems its agents use — one at a time, in a docked card above the composer: a ranked list from evidence (apps added here, their mail host, what their Org already uses, what they named), each connected by login or key, verified, then a summary of what each unlocks. Use for "connect my tools", "what should I connect?", "connect the systems <app> uses", or two or more systems named at once. Pass the connector slugs they named, or an app id.',
     schema: InputSchema,
   });
 }

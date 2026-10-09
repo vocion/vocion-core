@@ -6,6 +6,7 @@ import type { ConnectPlanInput, ConnectVerification } from '@/libs/connect/syste
 import type { ConfigFieldValue } from '@/libs/sources/configFields';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
+import { CONNECTOR_KIND_NAME } from '@/libs/connect/connectorKinds';
 import { client } from '@/libs/Orpc';
 import { buildConfigFromFields, describeMissingFields, initialFieldValues } from '@/libs/sources/configFields';
 import { ConnectSystemsView } from './ConnectSystemsView';
@@ -245,7 +246,7 @@ export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, 
     }
   };
 
-  const title = state.phase !== 'loading' && 'plan' in state && state.plan.scope ? `${state.plan.scope.appName} setup` : 'Connect your systems';
+  const title = state.phase !== 'loading' && 'plan' in state && state.plan.scope ? `${state.plan.scope.appName} setup` : CONNECTOR_KIND_NAME.team;
   return (
     <div data-testid="connect-systems" data-phase={state.phase} data-step={stepAt ?? undefined} data-connector={current?.connector}>
       <ConnectSystemsView

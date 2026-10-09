@@ -42,7 +42,7 @@ describe('GettingStartedChecklist', () => {
     await expect.element(page.getByTestId('getting-started-app')).toHaveAttribute('href', '/dashboard/apps');
     // Connecting opens "Connect your systems" docked above the composer.
     // A prompt, not a shortcut: the person's own ask, sent once as a real turn.
-    await expect.element(page.getByTestId('getting-started-connect')).toHaveAttribute('href', `/dashboard/chat?ask=${encodeURIComponent('Help me connect the systems this workspace needs')}`);
+    await expect.element(page.getByTestId('getting-started-connect')).toHaveAttribute('href', `/dashboard/chat?ask=${encodeURIComponent('Help me connect the team connectors this workspace needs')}`);
 
     gettingStarted.mockResolvedValueOnce({ steps: [{ id: 'connect', done: false }, { id: 'app', done: true }, { id: 'hire', done: true }, { id: 'invite', done: false }, { id: 'brand', done: false }], done: 2, total: 5 });
     window.dispatchEvent(new Event(SETUP_CHANGED_EVENT));

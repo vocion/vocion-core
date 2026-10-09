@@ -72,7 +72,7 @@ const apolloRow = (page: Page) => page.locator('[data-connector-row="apollo"]');
 test('the page leads with what needs a person, says whose connections these are, and fits the phone', async ({ page }) => {
   await openConnectors(page);
 
-  await expect(page.getByTestId('connectors-scope-line')).toContainText('Shared with everyone in this workspace.');
+  await expect(page.getByTestId('connectors-scope-line')).toContainText('Shared systems your team\'s agents use, connected by an admin.');
   // The connection that needs someone sorts first, its reason in words and its one fix beside it.
   await expect(page.locator('[data-connection]').first()).toHaveAttribute('data-status', 'attention');
   await expect(page.getByText('Needs attention: not signed in yet')).toBeVisible();
@@ -84,6 +84,22 @@ test('the page leads with what needs a person, says whose connections these are,
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('two kinds, one name each: Team connectors links to Personal connectors and back', async ({ page }) => {
+  await openConnectors(page);
+
+  await expect(page.getByText('Team connectors', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('connectors-scope-line')).toContainText('Shared systems your team\'s agents use');
+
+  await page.getByRole('link', { name: 'Your own Gmail and calendar live in Personal connectors →' }).click();
+
+  await expect(page.getByText('Personal connectors', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('connectors-scope-line')).toContainText('Yours only: read by your personal assistant and nobody else.');
+
+  await page.getByRole('link', { name: 'Shared systems your team\'s agents use are in Team connectors →' }).click();
+
+  await expect(page.getByText('Team connectors', { exact: true })).toBeVisible();
 });
 
 test('connect: find it, paste its key, and it is Working', async ({ page }) => {

@@ -110,7 +110,7 @@ export async function reportBrokenConnection(input: { orgId: string; userId: str
       kind: 'urgent',
       key: `broken:${input.connector}:${now.toISOString().slice(0, 10)}`,
       title: `${label} stopped working`,
-      body: `Your assistant can no longer read your ${label}. Connect it again to pick up where it left off.`,
+      body: `Your personal assistant can no longer read your ${label}. Reconnect it in Personal connectors to pick up where it left off.`,
       path: '/dashboard/connectors',
       workspaceSlug: home.slug,
       accountSlug: home.accountSlug,

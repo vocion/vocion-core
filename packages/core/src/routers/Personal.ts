@@ -1,5 +1,5 @@
 /**
- * Personal → Connectors: a person's own connections, and the Org's switch for
+ * Personal connectors: a person's own connections, and the Org's switch for
  * them (docs/guides/personal-connections.md).
  *
  * Every route acts in the session's workspace only when it is the caller's OWN

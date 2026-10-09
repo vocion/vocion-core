@@ -9,6 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const plan = vi.fn();
 vi.mock('@/services/connect/recommendations', () => ({ recommendConnections: (...args: unknown[]) => plan(...args) }));
 
+const kindCheck = vi.fn();
+vi.mock('@/services/connect/connectorKindRouting', () => ({ connectKindCheck: (...args: unknown[]) => kindCheck(...args) }));
+
 const { connectSystem } = await import('./connectSystems');
 
 function ctx(): RuntimeContext & { emitted: unknown[] } {
@@ -18,7 +21,10 @@ function ctx(): RuntimeContext & { emitted: unknown[] } {
 
 const candidate = (connector: string, name: string) => ({ connector, name, score: 100, recommended: true, evidence: [{ kind: 'named' }], method: { kind: 'page', href: '/x' }, unlocks: [] });
 
-beforeEach(() => plan.mockReset());
+beforeEach(() => {
+  plan.mockReset();
+  kindCheck.mockReset();
+});
 
 describe('connect_system', () => {
   it('shows one card whose link starts the walk-through with what the person named', async () => {
@@ -29,7 +35,7 @@ describe('connect_system', () => {
 
     expect(plan).toHaveBeenCalledWith({ orgId: 'proj-tool-northwind', userId: 'usr-tool-dana' }, { named: ['slack', 'jira'] });
     expect(c.emitted).toHaveLength(1);
-    expect(c.emitted[0]).toMatchObject({ type: 'card', card: { kind: 'connect-systems', title: 'Connect your systems', href: '/dashboard/chat?objective=connect-systems&named=slack%2Cjira', actions: [] } });
+    expect(c.emitted[0]).toMatchObject({ type: 'card', card: { kind: 'connect-systems', title: 'Connect your team connectors', href: '/dashboard/chat?objective=connect-systems&named=slack%2Cjira', actions: [] } });
     expect(said).toContain('Slack, Jira');
   });
 
@@ -38,7 +44,7 @@ describe('connect_system', () => {
     const c = ctx();
     await connectSystem(c, { app: 'gtm' });
 
-    expect(c.emitted[0]).toMatchObject({ card: { title: 'Connect the systems GTM uses' } });
+    expect(c.emitted[0]).toMatchObject({ card: { title: 'Connect the team connectors GTM uses' } });
 
     plan.mockResolvedValue({ candidates: [], connected: [{ connector: 'slack', name: 'Slack' }], question: null, scope: null, refused: null });
     const empty = ctx();
@@ -93,5 +99,35 @@ describe('connect_system', () => {
     plan.mockResolvedValue({ candidates: [{ ...candidate('slack', 'Slack'), evidence: [{ kind: 'tried', times: 3 }] }], connected: [], question: null, scope: null, refused: null });
 
     expect(await connectSystem(ctx(), { named: ['slack'] })).toContain('- Slack: Agents tried to use it 3 times this week and couldn\'t');
+  });
+
+  it('a request for the person\'s own account answers with one line pointing to Personal connectors, and no card', async () => {
+    kindCheck.mockResolvedValue({ proceed: false, reply: 'Your own Gmail is a personal connector — only your personal assistant reads it, and only you can connect it. Connect it in Personal connectors. Say that in one line; show no card here.' });
+    const c = ctx();
+
+    const said = await connectSystem(c, { named: ['gmail'], kind: 'personal' });
+
+    expect(kindCheck).toHaveBeenCalledWith(c, ['gmail'], 'personal');
+    expect(said).toMatch(/^Your own Gmail is a personal connector/);
+    expect(c.emitted).toEqual([]);
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it('in a Personal workspace, asks which kind before any team plan is built', async () => {
+    kindCheck.mockResolvedValue({ proceed: false, reply: 'HubSpot is a team connector — your team\'s agents use it, and an admin connects it. Connect it in Team connectors.' });
+    const c = { ...ctx(), workspaceKind: 'personal' as const };
+
+    const said = await connectSystem(c, { named: ['hubspot'] });
+
+    expect(said).toContain('HubSpot is a team connector');
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it('a team request in a shared workspace never asks', async () => {
+    plan.mockResolvedValue({ candidates: [candidate('hubspot', 'HubSpot')], connected: [], question: null, scope: null, refused: null });
+
+    await connectSystem(ctx(), { named: ['hubspot'], kind: 'team' });
+
+    expect(kindCheck).not.toHaveBeenCalled();
   });
 });

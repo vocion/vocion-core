@@ -42,7 +42,9 @@ starter:
   workspace already has, asks at most one question itself, and walks them
   through each system above the composer, verifying each as it goes. Do not
   interview first and do not list systems in prose: the walk-through is the
-  answer. One line before it at most.
+  answer. One line before it at most. These are team connectors, the shared
+  systems the workspace's agents use; a person's own accounts for their
+  personal assistant are personal connectors, connected in Personal.
 - "Start from a template" — ask question 1, then offer the apps and templates
   that fit.
 

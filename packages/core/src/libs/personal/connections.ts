@@ -4,7 +4,7 @@
  * A shared workspace connects a system for everyone in it: an admin logs in,
  * the grant is the workspace's, and its agents read it through sources. A
  * personal connection is the other kind. Any member connects their own mail,
- * calendar, files, Slack DMs and GitHub from Personal → Connectors, the grant
+ * calendar, files, Slack DMs and GitHub from Personal connectors, the grant
  * is stored in their personal workspace (one per person per Org, which only
  * they can open, admins included), and only their own assistant reads it,
  * live, through the tools each entry names. It never becomes a source, so

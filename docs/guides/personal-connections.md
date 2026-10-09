@@ -1,14 +1,30 @@
-# Personal connections
+# Personal connectors
+
+Connectors come in two kinds, named the same everywhere
+(`libs/connect/connectorKinds.ts`):
+
+- **Team connectors** are shared. The workspace's agents use them, and an
+  Org or workspace admin connects and manages them, on Manage workspace →
+  Team connectors.
+- **Personal connectors** are yours only: your Gmail, Calendar, Drive, Slack
+  DMs and GitHub, read only by your personal assistant, on Personal →
+  Personal connectors.
+
+Each page has one line linking to the other. An agent asked for the other
+kind than its workspace holds answers in one line with that link, never with
+a connect card (`services/connect/connectorKindRouting.ts`): a lead never
+asks someone to connect their own inbox as a team connector, and a personal
+assistant never offers to connect a team system.
 
 Any member can connect their **own** Gmail, Google Calendar, Google Drive,
 Slack direct messages and GitHub for their own assistant. They do it from
-**Personal → Connectors**, and no admin is needed. The assistant then reads
+**Personal connectors**, and no admin is needed. The assistant then reads
 those systems live, for that person alone. Nothing from them reaches a shared
 workspace.
 
 This is the other half of [Connect](connect.md):
 
-| | A workspace connection | A personal connection |
+| | A team connector | A personal connector |
 |---|---|---|
 | Who connects | A workspace admin | Any member, for themselves |
 | Whose grant | The workspace's | The person's |
@@ -18,7 +34,7 @@ This is the other half of [Connect](connect.md):
 
 ## What a person sees
 
-Personal → Connectors lists five rows: Gmail, Google Calendar, Google Drive,
+Personal connectors lists five rows: Gmail, Google Calendar, Google Drive,
 Slack DMs and GitHub. Each row has:
 
 - what connecting it lets the assistant do;
@@ -108,7 +124,7 @@ admins only.
 ## The Org's switch
 
 `tenant_account.personal_connections` (migration 0202) is on by default. An
-Org admin turns it off from Personal → Connectors (`personal.setPolicy`).
+Org admin turns it off from Personal connectors (`personal.setPolicy`).
 
 When it is off:
 

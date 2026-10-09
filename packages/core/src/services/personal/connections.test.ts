@@ -128,7 +128,7 @@ describe('reading a personal credential — one person\'s grant never answers an
   });
 });
 
-describe('Personal → Connectors', () => {
+describe('Personal connectors', () => {
   it('lists every connection with the account it is connected as, and no token', async () => {
     await connectGoogle(alexHome, ALEX, 'alex@northwind.example');
 

@@ -24,7 +24,7 @@ These settings sit under **Notification settings → Your day → Push to you**.
 | | When | Opens |
 |---|---|---|
 | **An approval blocking a run** | A decision waiting on you whose kind is an approval. It holds its run until you decide. | The row in its workspace |
-| **A broken connection** | One of your own connections stopped working: the grant was revoked or expired, so only reconnecting fixes it. This is told once a day per connection. | Personal → Connectors |
+| **A broken connection** | One of your own connections stopped working: the grant was revoked or expired, so only reconnecting fixes it. This is told once a day per connection. | Personal connectors |
 
 **Finding new approvals.**
 

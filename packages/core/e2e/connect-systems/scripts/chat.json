@@ -1,7 +1,7 @@
 {
   "turns": [
     {
-      "match": "help me connect the systems gtm uses",
+      "match": "help me connect the team connectors gtm uses",
       "steps": [
         {
           "tool": "connect_system",
@@ -27,7 +27,7 @@
       "reply": "Notion it is."
     },
     {
-      "match": "help me connect the systems this workspace needs",
+      "match": "help me connect the team connectors this workspace needs",
       "steps": [
         {
           "tool": "connect_system",

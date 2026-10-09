@@ -50,7 +50,7 @@ export async function usableGithubToken(input: { orgId: string; tokenId: string;
   });
   const body = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !body.access_token || body.error) {
-    throw new Error('GitHub would not renew your login. Connect GitHub again from Personal → Connectors.');
+    throw new Error('GitHub would not renew your login. Connect GitHub again from Personal connectors.');
   }
   const renewed = { ...values, token: body.access_token, refreshToken: body.refresh_token ?? refreshToken, expiresAt: grantExpiresAt(body.expires_in, 8 * 3600) };
   // Lost the race: another turn renewed first, and its token is as good as ours for this call.
