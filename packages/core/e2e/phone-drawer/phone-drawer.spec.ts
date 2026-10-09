@@ -105,18 +105,26 @@ test('the workspace picker scrolls by touch inside the drawer', async () => {
   expect(await list.evaluate(el => el.scrollTop)).toBe(0);
 
   // A real touch drag, not a scrollTop write: the scroll lock only ever
-  // refused touch and wheel events.
-  const box = (await list.boundingBox())!;
+  // refused touch and wheel events. The popover zooms in, so wait for it to
+  // settle, and drag again until the list moves: on the CI box the first
+  // gesture can land before the lock's listeners are attached (2026-10-09).
+  // With the lock swallowing touches, no number of drags moves it.
+  await list.evaluate(el => Promise.all(el.closest('[data-slot="popover-content"]')?.getAnimations({ subtree: true }).map(a => a.finished) ?? []));
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Input.synthesizeScrollGesture', {
-    x: Math.round(box.x + box.width / 2),
-    y: Math.round(box.y + box.height * 0.75),
-    yDistance: -Math.round(box.height / 2),
-    gestureSourceType: 'touch',
-    speed: 800,
-  });
 
-  await expect.poll(() => list.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await expect(async () => {
+    const box = (await list.boundingBox())!;
+    await cdp.send('Input.synthesizeScrollGesture', {
+      x: Math.round(box.x + box.width / 2),
+      y: Math.round(box.y + box.height * 0.75),
+      yDistance: -Math.round(box.height / 2),
+      gestureSourceType: 'touch',
+      speed: 600,
+    });
+
+    expect(await list.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  }).toPass({ timeout: 15_000 });
+
   // The drawer under it stayed put: still open, and the page did not move.
   await expect(drawer()).toBeVisible();
 });
