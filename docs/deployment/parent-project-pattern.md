@@ -605,7 +605,7 @@ the Vocion default fills in.
 | `NEXT_PUBLIC_BRAND_MARK` | Glyph image — a path under `public/` or a `data:` URI. Replaces the Vocion mark. |
 | `NEXT_PUBLIC_BRAND_LOCKUP` | Mark + wordmark as one image; replaces both glyph and text. |
 | `NEXT_PUBLIC_BRAND_LOCKUP_DARK` | Dark-mode lockup variant (only used with `BRAND_LOCKUP`). |
-| `NEXT_PUBLIC_BRAND_ATTRIBUTION` | Sidebar footer line (default `Vocion · Apache 2.0`). |
+| `NEXT_PUBLIC_BRAND_ATTRIBUTION` | Sidebar footer line (default `Vocion · MPL-2.0`). |
 
 Keep client artwork in the client repo and inline it as a base64 `data:` URI
 (`infra/aws/bootstrap.sh` in the Metacto project does this) — OSS `vocion-core`

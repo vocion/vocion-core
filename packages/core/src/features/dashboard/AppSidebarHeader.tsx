@@ -1,21 +1,15 @@
 'use client';
 
-import { ArrowLeftRight, Bell, LogOut, MessageSquareText, Monitor, Moon, Pause, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
+import { Bell, LogOut, MessageSquareText, Pause, Search, Settings2, User as UserIcon, Users as UsersIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
-import { useTheme } from 'next-themes';
 import { Suspense, useEffect, useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SidebarTrigger } from '@/components/ui/sidebar';
@@ -25,7 +19,7 @@ import { AgentSurfaceButton } from '@/features/dashboard/chat/AgentSurfaceButton
 import { openCommandPalette } from '@/features/dashboard/commandPaletteEvent';
 import { FeedbackDialog } from '@/features/dashboard/FeedbackButton';
 import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitch';
-import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
+import { tabToThemeControl, ThemeSegmentedControl } from '@/features/dashboard/ThemeSegmentedControl';
 import { openManageView } from '@/features/dashboard/useNavView';
 import { WorkspacePauseDialog } from '@/features/dashboard/WorkspaceOffSwitch';
 import { NotificationBell } from '@/features/notifications/NotificationBell';
@@ -42,9 +36,12 @@ import { ShellBarActionsOutlet, ShellBarTitleOutlet, useShellBarTitleClaimed } f
  * Ask · the notifications bell · the account avatar (Feedback and Docs
  * moved off the bar on 2026-09-18 — into this menu and the Manage view),
  * which wears a thin ring showing this workspace's budget used when a budget
- * exists. The avatar menu leads with that spend and the current workspace
- * (⇄ opens the sidebar switcher), then theme, profile, members, sign out and
- * the © attribution. Page-owned controls still portal in via ShellBarActions.
+ * exists. The avatar menu leads with that spend and workspace settings, then
+ * the one-click theme control, profile, members, sign out and the ©
+ * attribution. Switching workspace (or Org) is the sidebar header's job alone
+ * — the menu's "Current workspace ⇄" row was a second door to the same
+ * popover and left on 2026-10-08. Page-owned controls still portal in via
+ * ShellBarActions.
  * @param props
  * @param props.workspace - Active project's slug and name, or null.
  * @param props.usage - This workspace's spend this period vs its hard cap (cents), when budgets exist.
@@ -56,8 +53,6 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
   canPauseWorkspace?: boolean;
 }) => {
   const { data: session } = useSession();
-  const { theme, setTheme } = useTheme();
-  const t = useTranslations('ThemeSwitcher');
   const tl = useTranslations('DashboardLayout');
   const user = session?.user;
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -72,7 +67,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
     .slice(0, 2)
     .join('')
     .toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?';
-  const attribution = process.env.NEXT_PUBLIC_BRAND_ATTRIBUTION || 'Vocion · Apache 2.0';
+  const attribution = process.env.NEXT_PUBLIC_BRAND_ATTRIBUTION || 'Vocion · MPL-2.0';
   const build = buildInfo();
 
   // Bare `F` opens search when nothing is being typed (Vercel/ElevenLabs).
@@ -179,7 +174,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
               <span className="flex size-7 items-center justify-center rounded-full bg-surface-soft text-[12px]">{initials}</span>
             </span>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-72 shadow-(--shadow-pop)">
+          <DropdownMenuContent align="end" className="w-72 shadow-(--shadow-pop)" onKeyDown={tabToThemeControl}>
             <DropdownMenuLabel className="flex flex-col">
               <span className="font-medium">{user?.name ?? 'Account'}</span>
               <span className="text-xs text-muted-foreground">{user?.email}</span>
@@ -210,42 +205,8 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
               <Settings2 className="mr-2 size-4 text-muted-foreground" aria-hidden />
               {tl('workspace_settings')}
             </DropdownMenuItem>
-
-            {workspace && (
-              <DropdownMenuItem onClick={openWorkspaceSwitcher} className="justify-between">
-                <span className="min-w-0 truncate">
-                  <span className="text-muted-foreground">{tl('current_workspace')}</span>
-                  {' '}
-                  <span className="font-medium">{workspace.name}</span>
-                </span>
-                <ArrowLeftRight className="ml-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
-              </DropdownMenuItem>
-            )}
             <DropdownMenuSeparator />
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Sun className="mr-2 size-4 dark:hidden" />
-                <Moon className="mr-2 hidden size-4 dark:block" />
-                Theme
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-                  <DropdownMenuRadioItem value="light">
-                    <Sun className="mr-2 size-4" />
-                    {t('theme_light_label')}
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="dark">
-                    <Moon className="mr-2 size-4" />
-                    {t('theme_dark_label')}
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="system">
-                    <Monitor className="mr-2 size-4" />
-                    {t('theme_system_label')}
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+            <ThemeSegmentedControl />
 
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>

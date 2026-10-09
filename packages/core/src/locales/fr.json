@@ -1,5 +1,6 @@
 {
   "ThemeSwitcher": {
+    "theme_label": "Thème",
     "theme_light_label": "Clair",
     "theme_dark_label": "Sombre",
     "theme_system_label": "Système"
@@ -46,7 +47,6 @@
     "show_empty_projects": "Afficher {count} {count, plural, one {projet vide} other {projets vides}}",
     "manage_workspace": "Gérer l’espace",
     "workspace_fallback": "Espace",
-    "current_workspace": "Espace actuel :",
     "developers": "Développeurs",
     "usage_this_period": "Consommation de la période",
     "notifications": "Notifications",
