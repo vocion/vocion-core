@@ -2,7 +2,7 @@
 # Build (context is packages/runner, so the contract schema ships with the runner):
 #   docker build --platform linux/arm64 -f packages/runner/Dockerfile -t vocion-runner packages/runner
 # Published from vocion-core CI, tagged by the commit it was built from. See docs/guides/runner.md.
-FROM node:22-bookworm-slim
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim
 
 ARG CLAUDE_CODE_VERSION=latest
 ENV DEBIAN_FRONTEND=noninteractive \
