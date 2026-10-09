@@ -126,6 +126,7 @@ import {
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, setPins as setNavPins } from './Nav';
+import { currentRoute as currentObjectiveRoute, resumeRoute as resumeObjectiveRoute, stopRoute as stopObjectiveRoute } from './Objectives';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
@@ -377,6 +378,12 @@ export const router = {
     waiting: waitingDecisionsRoute,
     answer: answerDecisionRoute,
     build: buildDecisionRoute,
+  },
+  // What a conversation is in the middle of (`libs/objectives/objective.ts`).
+  objectives: {
+    current: currentObjectiveRoute,
+    stop: stopObjectiveRoute,
+    resume: resumeObjectiveRoute,
   },
   learnings: {
     listSteps: listLearningSteps,

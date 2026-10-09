@@ -120,3 +120,31 @@ describe('the opening hint (founder, 2026-10-09)', () => {
     expect(later.score).toBeLessThan(fresh.score);
   });
 });
+
+describe('a setup the person started and left (its objective)', () => {
+  it('offers to resume it where it stands, in its conversation, over starting one', () => {
+    const [top] = openingHints(input({ apps: [{ ...factory, resume: { conversationId: 12 } }] }));
+
+    expect(top).toMatchObject({
+      key: 'setup:software-factory',
+      type: 'setup',
+      label: 'Resume setting up Software Factory →',
+      reason: '2 steps left; next: Connect GitHub.',
+      action: { kind: 'open', href: '/dashboard/chat?conversation=12' },
+    });
+
+    const fresh = openingHints(input({ apps: [factory] }))[0]!;
+
+    expect(top!.score).toBeGreaterThan(fresh.score);
+  });
+
+  it('is hidden by the same dismissal as the setup hint it replaces', () => {
+    const hints = openingHints(input({ apps: [{ ...factory, resume: { conversationId: 12 } }], dismissed: [{ key: 'setup:software-factory', type: 'setup', at: new Date(now.getTime() - DAY) }] }));
+
+    expect(hints.some(h => h.type === 'setup')).toBe(false);
+  });
+
+  it('says nothing once it is set up', () => {
+    expect(openingHints(input({ apps: [{ ...factory, steps: factory.steps.map(s => ({ ...s, done: true })), resume: { conversationId: 12 } }] })).some(h => h.type === 'setup')).toBe(false);
+  });
+});

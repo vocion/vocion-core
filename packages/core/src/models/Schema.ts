@@ -1817,6 +1817,14 @@ export const conversationSchema = pgTable(
      * again ends again later, under a new dedupe key. NULL means open.
      */
     endedAt: timestamp('ended_at', { mode: 'date' }),
+    /**
+     * What the conversation is in the middle of (migration 0201): one
+     * objective — setting up an app's plugin — and whether the person
+     * stopped it. Its steps and progress are never stored here; they are
+     * read live from the plugin's setup (`libs/objectives/objective.ts`).
+     * NULL when the conversation has none.
+     */
+    objective: jsonb('objective').$type<import('@/libs/objectives/objective').ConversationObjective>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

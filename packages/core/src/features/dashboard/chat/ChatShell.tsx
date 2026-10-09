@@ -29,6 +29,7 @@ import { EmptyState } from './EmptyState';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
+import { ConversationObjective } from './objectives/ObjectiveStrip';
 import { OpeningHints } from './OpeningHints';
 import { QuotedPassage } from './QuotedPassage';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
@@ -251,6 +252,20 @@ function ChatShellInner({
     }
   }, [session.conversationId, session.isStreaming, latestDocs, latest?.id, openRef]);
   const onCommand = useChatCommands(startNewChat);
+  // An address that names a conversation AFTER the page booted (an opening
+  // hint's "Resume setting up … →", a link followed in place) opens it: the
+  // session read `resumeConversationId` once, at boot.
+  const namedRef = useRef(conversationId);
+  useEffect(() => {
+    if (conversationId === null || conversationId === namedRef.current || !session.booted) {
+      namedRef.current = conversationId;
+      return;
+    }
+    namedRef.current = conversationId;
+    if (conversationId !== session.conversationId) {
+      void sessionRef.current.handlePickConversation(conversationId);
+    }
+  }, [conversationId, session.booted, session.conversationId]);
 
   // An empty conversation names how many wait elsewhere, once, softly, in the
   // chip that opens Review (#1264, `emptyChat.ts`); once the person is in a
@@ -458,6 +473,7 @@ function ChatShellInner({
                 )}
 
           <ChatComposer
+            pinned={<ConversationObjective session={session} />}
             above={(
               <>
                 {/* The Decision this thread waits on, docked first — the
