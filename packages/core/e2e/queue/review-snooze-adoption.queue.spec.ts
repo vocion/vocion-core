@@ -204,7 +204,8 @@ test('a snooze taken from the review card shows up as a snooze on the adoption s
   await page.goto(`${baseURL}/dashboard/inbox/proposal-${runId}`);
   const focus = page.getByTestId('review-focus');
 
-  await expect(focus.getByText(ITEM_TITLE).first()).toBeVisible();
+  // The breadcrumb names it too, hidden from sm up where the top bar carries it.
+  await expect(focus.getByText(ITEM_TITLE).filter({ visible: true }).first()).toBeVisible();
 
   await focus.getByRole('button', { name: 'Snooze', exact: true }).click();
   await focus.getByRole('button', { name: 'Tomorrow' }).click();

@@ -173,7 +173,7 @@ export const HubspotUpdate: Story = {
   args: { ...base, current: hubspotUpdate, edited: { dealstage: 'contractsent', closedate: '2026-09-30', notes: 'Close date pushed to Sep 30 after the Sep 14 working session; contract out for signature.' }, activeTypes: ['hubspot.update'] },
 };
 
-/** A generic email (dry run): to/subject/body editable, Approve → draft. */
+/** A generic email (dry run): to/subject/body editable, Create draft in Gmail. */
 export const GmailSend: Story = {
   args: { ...base, current: gmailSend, edited: { to: 'contact@example.com', subject: 'Following up on the proposal', body: 'Hi —\n\nChecking in on the proposal we sent Sep 9. Happy to walk through any questions this week.' } },
 };

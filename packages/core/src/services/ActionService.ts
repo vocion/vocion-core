@@ -1180,6 +1180,9 @@ export async function undoAction(runId: number, orgId: string, opts: { by: strin
   if (run.status !== 'done') {
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — only a done run can be undone`);
   }
+  if (action.canUndo && !action.canUndo(run.result ?? {})) {
+    throw new ActionError('NOT_REVERSIBLE', `This ${action.name.toLowerCase()} run cannot be undone — what it did cannot be taken back.`);
+  }
   const undoSource = sourceSlugOf(action, run.input);
   const credentials = undoSource ? await getCredentialsForSource(orgId, undoSource) : undefined;
   const wasAuto = run.approvedByAgent === true;

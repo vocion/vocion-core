@@ -1,11 +1,11 @@
 /**
  * Keyboard shortcuts for focus-mode review. One hand on the keyboard clears a
- * queue: `j`/`k` move, `a`/`d`/`s` decide, `?` shows the hint. Nothing fires
+ * queue: `j`/`k` move, `a`/`d`/`s` decide, `e` edits a message, `?` shows the hint. Nothing fires
  * while the person is typing in a field — the shortcuts are for the queue,
  * never for the text.
  */
 
-export type ReviewShortcut = 'next' | 'prev' | 'approve' | 'decline' | 'snooze' | 'help';
+export type ReviewShortcut = 'next' | 'prev' | 'approve' | 'decline' | 'snooze' | 'edit' | 'help';
 
 export const SHORTCUTS: ReadonlyArray<{ key: string; action: ReviewShortcut }> = [
   { key: 'j', action: 'next' },
@@ -13,6 +13,7 @@ export const SHORTCUTS: ReadonlyArray<{ key: string; action: ReviewShortcut }> =
   { key: 'a', action: 'approve' },
   { key: 'd', action: 'decline' },
   { key: 's', action: 'snooze' },
+  { key: 'e', action: 'edit' },
   { key: '?', action: 'help' },
 ];
 

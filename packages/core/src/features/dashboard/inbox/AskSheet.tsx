@@ -48,7 +48,7 @@ export type SheetAsk = {
    * (`sheetHeadline`). Defaults to `title`.
    */
   headline?: string;
-  /** Review sheets: the payload is an email, so the plain verb reads "Approve & send". */
+  /** Review sheets: the payload is an email, so the plain verb reads "Send" (or "Create draft in Gmail"). */
   isEmail?: boolean;
   /** Review sheets: approving writes a draft rather than sending, so the verb says so. */
   draft?: boolean;

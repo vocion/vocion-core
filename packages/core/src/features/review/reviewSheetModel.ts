@@ -211,7 +211,9 @@ export type ReviewDecisionPlan = {
 export function planDecision(input: { note: string; edited: boolean; draft?: boolean; isEmail?: boolean }): ReviewDecisionPlan {
   const note = input.note.trim();
   const carriesNote = note !== '' || input.edited;
-  const plain = input.isEmail ? (input.draft ? 'Approve → draft' : 'Approve & send') : 'Approve';
+  // Says what happens, not what to call the button: a draft is created, an
+  // email is sent.
+  const plain = input.isEmail ? (input.draft ? 'Create draft in Gmail' : 'Send') : 'Approve';
   const primary: ReviewVerb = { id: 'approve', label: carriesNote ? 'Approve with changes' : plain, shortcut: 'a' };
   const reject: ReviewVerb = { id: 'reject', label: 'Reject', shortcut: 'd', tone: 'danger' };
   const sendBack: ReviewVerb = { id: 'send_back', label: 'Send back with direction' };

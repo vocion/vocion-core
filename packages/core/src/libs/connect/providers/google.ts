@@ -38,6 +38,17 @@ export const GOOGLE_LOGIN_SCOPES: Record<string, readonly string[]> = {
   'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
 };
 
+/**
+ * Access a reconnect may ask for on top of a connector's own scopes, by the
+ * name the start route takes (`?access=compose`). A workspace's Gmail is read
+ * only until someone approves an action that writes a draft and is told it
+ * cannot (`libs/connect/permissionError.ts`): the reconnect it is offered asks
+ * for exactly this, and Google's incremental consent keeps the rest.
+ */
+export const GOOGLE_EXTRA_ACCESS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  gmail: { compose: ['https://www.googleapis.com/auth/gmail.compose'] },
+};
+
 /** What the person sees for each connector, for error sentences. */
 const CONNECTOR_NAMES: Record<string, string> = {
   'gmail': 'Gmail',
@@ -62,9 +73,12 @@ function googleClient(chosen?: LoginClient, audience?: ConnectAudience): LoginCl
  * drafts), a workspace's the read-only set above.
  * @param connector - The connector slug.
  * @param audience - Whose login it is.
+ * @param access
  */
-function vendorScopesFor(connector: string, audience?: ConnectAudience): readonly string[] | undefined {
-  return audience === 'personal' ? PERSONAL_GOOGLE_SCOPES[connector] : GOOGLE_LOGIN_SCOPES[connector];
+function vendorScopesFor(connector: string, audience?: ConnectAudience, access?: string): readonly string[] | undefined {
+  const base = audience === 'personal' ? PERSONAL_GOOGLE_SCOPES[connector] : GOOGLE_LOGIN_SCOPES[connector];
+  const extra = access ? GOOGLE_EXTRA_ACCESS[connector]?.[access] ?? [] : [];
+  return base ? [...new Set([...base, ...extra])] : undefined;
 }
 
 /**
@@ -125,12 +139,12 @@ export const googleProvider: ConnectProvider = {
 
   personal: { configured: () => personalLoginClient('google') !== null },
 
-  authorizeUrl({ state, redirectUri, connector, client: chosen, audience }) {
+  authorizeUrl({ state, redirectUri, connector, client: chosen, audience, access }) {
     const client = googleClient(chosen, audience);
     if (!client) {
       throw new Error('Google OAuth is not configured — set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET.');
     }
-    const vendorScopes = vendorScopesFor(connector, audience);
+    const vendorScopes = vendorScopesFor(connector, audience, access);
     if (!vendorScopes) {
       throw new Error(`Google login does not serve the "${connector}" connector.`);
     }

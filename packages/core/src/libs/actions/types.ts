@@ -141,12 +141,78 @@ export type ReviewCard = {
   /** Recommended next action — what approving does. */
   nextAction?: string;
   /**
+   * THE MESSAGE THIS CARD SENDS, when what approving does is put words in
+   * front of someone: an email, a reply draft, a Slack post, a CRM note. The
+   * shell then draws the one outbound artifact (`features/review/
+   * OutboundMessageArtifact.tsx`) — who it goes to, the thread it answers,
+   * the copy, the signature, and a short Why — instead of a tab per item.
+   * The body itself is still the content item `contentId` names, so editing,
+   * regenerating and the history work as they do for every card.
+   */
+  outbound?: OutboundMessage;
+  /**
+   * A MULTI-TOUCH SEQUENCE this card queues: which one, for whom, sent from
+   * which inbox. The shell draws its content items as a step timeline under
+   * these enrolment details. Never set beside `outbound`: a reply is one
+   * message in a thread, a sequence is several to someone not in one.
+   */
+  sequence?: SequenceEnrolment;
+  /**
    * Whether the card offers Regenerate. Stamped by the SERVER from the
    * action's declared `regenerate` capability at card-build time — never set
    * by a presenter, so no object type can claim a capability its action does
    * not implement.
    */
   canRegenerate?: boolean;
+};
+
+/**
+ * One outbound message, as the review card shows it. The words are channel-
+ * neutral so an email, a chat post and a CRM note share one artifact; a
+ * presenter fills in only what its channel has.
+ */
+export type OutboundMessage = {
+  /** `email` has a subject, Cc and a signature; `chat` and `note` have neither. */
+  channel: 'email' | 'chat' | 'note';
+  /** What approving does: write a draft the person sends, or deliver it now. */
+  mode: 'draft' | 'send';
+  /** The system it lands in: "Gmail", "Slack", "HubSpot". */
+  system: string;
+  /** Recipients — addresses (`Name <address>` is fine), a channel, a record. */
+  to: string[];
+  cc?: string[];
+  /** Who it goes out as, when known. */
+  from?: string;
+  /** Whether To and Cc take the reviewer's edits (`ReviewContentEdit.to` / `cc`). */
+  recipientsEditable?: boolean;
+  /** The content item that carries the subject and body. */
+  contentId: string;
+  /** The sender's signature, appended on approval, when known. */
+  signature?: string;
+  /** The conversation this answers, when it answers one. */
+  thread?: {
+    subject?: string;
+    /** Opens the thread in its own system. */
+    href?: string;
+    /** The last 1–3 messages, oldest first. */
+    messages: Array<{ from: string; at: string; snippet: string }>;
+  };
+  /** What the receipt says once it lands: "Draft created", "Sent", "Posted". */
+  doneLabel: string;
+  /** The link on the receipt: "Open in Gmail". The URL comes from the run's result (`result.link`). */
+  openLabel?: string;
+};
+
+/** A HubSpot (or any) sequence enrolment, as the sequence card shows it. */
+export type SequenceEnrolment = {
+  /** The existing sequence. */
+  name: string;
+  /** The contact enrolled. */
+  contact: string;
+  /** The inbox the steps go out from. */
+  sender: string;
+  /** The system it is queued in: "HubSpot". */
+  system: string;
 };
 
 /**
@@ -270,8 +336,12 @@ export type RegenerateOptions = {
   contentId?: string;
 };
 
-/** One reviewer edit to a content item, keyed by the item's `id`. */
-export type ReviewContentEdit = { id: string; subject?: string; body?: string };
+/**
+ * One reviewer edit to a content item, keyed by the item's `id`. `to` and
+ * `cc` are an outbound message's recipients, comma-separated, for a card
+ * whose `outbound.recipientsEditable` says they take edits.
+ */
+export type ReviewContentEdit = { id: string; subject?: string; body?: string; to?: string; cc?: string };
 
 export type Action<S extends z.ZodType = z.ZodType> = {
   /** Stable id, e.g. `gmail.send`. */
@@ -558,4 +628,16 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * the created id — in its result. Return what undo did, for the run.
    */
   undo?: (ctx: ActionContext, input: z.infer<S>, result: Record<string, unknown>) => Promise<Record<string, unknown> | void>;
+  /**
+   * Whether THIS done run can be put back, for a kind whose `undo` covers
+   * some results and not others: a Gmail draft is deleted, a sent email is
+   * not unsent. Absent, every done run of a kind with `undo` can be.
+   */
+  canUndo?: (result: Record<string, unknown>) => boolean;
+  /**
+   * The same question asked BEFORE it runs, of the input: what a card may
+   * promise ("with Undo") about a run it has not made yet. Absent, every
+   * input of a kind with `undo` can be put back.
+   */
+  undoableFor?: (input: z.infer<S>) => boolean;
 };
