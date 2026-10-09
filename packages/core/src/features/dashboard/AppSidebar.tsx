@@ -109,7 +109,7 @@ function pluginIcon(url: string, name: string): LucideIcon {
   return DASHBOARD_ROUTES.find(r => r.url === url)?.icon ?? iconByName(name);
 }
 
-export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, apps = [], gettingStarted = null, personalWorkspace = false, ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, goalsCount = 0, apps = [], gettingStarted = null, personalWorkspace = false, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
   /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
@@ -122,6 +122,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   workspacePages?: WorkspaceNavPage[];
   /** Open items waiting on a person — shown as a badge on "Review queue" (the inbox PR supplies it). */
   needsYouCount?: number;
+  /** The person's active goals here (in Personal, everywhere) — the badge on "Goals". */
+  goalsCount?: number;
   /**
    * This workspace's apps (`splitNavByApp(...).apps`), core app included. The
    * other props hold only the core app's rows. Empty: no rail, the nav as it was.
@@ -267,9 +269,9 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     url: r.url,
     icon: r.icon,
     origin: 'work',
-    badge: r.url === '/dashboard/inbox' ? needsYouCount : undefined,
+    badge: r.url === '/dashboard/inbox' ? needsYouCount : r.url === '/dashboard/goals' ? goalsCount : undefined,
     ...(r.pinnable ? {} : { pinnable: false as const }),
-  }), [label, needsYouCount]);
+  }), [label, needsYouCount, goalsCount]);
   const viewer = useMemo(() => ({ isAdmin, enabledPlugins }), [isAdmin, enabledPlugins]);
   const workCore = useMemo(() => workCoreRoutes(viewer).map(toWorkItem), [toWorkItem, viewer]);
   // A plugin's Workspace rows join the pinnable WORK rows, pinned by default —

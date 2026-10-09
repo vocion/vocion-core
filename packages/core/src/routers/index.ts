@@ -85,6 +85,7 @@ import {
   onlineTearDown as onlineEvalTearDown,
   run as runEval,
 } from './Evals';
+import { setMilestoneRoute as setGoalMilestoneRoute, setStatusRoute as setGoalStatusRoute, unlinkRoute as unlinkGoalRoute } from './Goals';
 import {
   create as createGroupRoute,
   overview as groupsOverviewRoute,
@@ -407,6 +408,12 @@ export const router = {
     current: currentObjectiveRoute,
     stop: stopObjectiveRoute,
     resume: resumeObjectiveRoute,
+  },
+  // A person's goals: the goal page's Pause / Done / Drop, milestone ticks, unlink (`routers/Goals.ts`).
+  goals: {
+    setStatus: setGoalStatusRoute,
+    setMilestone: setGoalMilestoneRoute,
+    unlink: unlinkGoalRoute,
   },
   learnings: {
     listSteps: listLearningSteps,

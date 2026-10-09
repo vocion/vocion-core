@@ -395,6 +395,15 @@ export default defineConfig<ChromaticConfig>({
       timeout: projectTimeout(180 * 1000, 90 * 1000),
       use: { ...devices['iPhone 14'], browserName: 'chromium' as const },
     },
+    // Goals: a workspace's list, one goal's page (measured live, Pause,
+    // a milestone ticked by hand) and "Your goals" in Personal across
+    // workspaces. Self-seeding. Run with: npx playwright test --project=goals
+    {
+      name: 'goals',
+      testDir: './e2e/goals',
+      timeout: projectTimeout(180 * 1000, 90 * 1000),
+      use: { ...devices['Desktop Chrome'] },
+    },
     {
       name: 'credentials',
       testDir: './e2e/credentials',

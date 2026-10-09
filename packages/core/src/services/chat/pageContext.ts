@@ -61,6 +61,8 @@ export const RECORD_TYPES = [
    * name "this plan" while it is open.
    */
   'feature_section',
+  /** A person's goal (`goal`, `libs/objectives/goal.ts`): its page declares it, so the rail is about it. */
+  'goal',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;

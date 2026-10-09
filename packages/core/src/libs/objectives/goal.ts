@@ -409,3 +409,14 @@ export function readHorizon(value: unknown): GoalHorizon | null {
   }
   return null;
 }
+
+/**
+ * What pinning a goal points at: the object-pin shape on `feat/pin-favorites`
+ * (`libs/pins/pinTarget.ts`, `{ kind, id }` stored as `pin:goal:<id>`). The
+ * hook for when that lands: add `goal` to its PIN_KINDS and its resolver
+ * reads `getGoal`; the goal page already carries this target.
+ * @param id - The goal.
+ */
+export function goalPinTarget(id: number): { kind: 'goal'; id: string } {
+  return { kind: 'goal', id: String(id) };
+}

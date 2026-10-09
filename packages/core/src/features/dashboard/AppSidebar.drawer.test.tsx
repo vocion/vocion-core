@@ -98,7 +98,7 @@ describe('the sidebar drawer on a phone', () => {
 
     const rows = drawer.getByRole('link').elements().map(a => a.textContent?.trim());
 
-    expect(rows.slice(0, 5)).toEqual(['Chat', 'Review', 'Briefings', 'Scorecard', 'Wiki']);
+    expect(rows.slice(0, 6)).toEqual(['Chat', 'Review', 'Briefings', 'Goals', 'Scorecard', 'Wiki']);
   });
 
   it('pins from a long press, through a small menu', async () => {

@@ -25,6 +25,7 @@ import {
   Plug,
   ShieldCheck,
   Sparkles,
+  Target,
   TestTube,
   TrendingUp,
   UserPlus,
@@ -127,6 +128,10 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, i18nKey: 'chat', keywords: ['ask', 'agent'] },
   { url: '/dashboard/inbox', title: 'Review', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
   { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings', pinnable: true, defaultPinned: true },
+  // A person's goals (`libs/objectives/goal.ts`): a workspace's list, or in
+  // Personal "Your goals" across their workspaces. Its row carries the count
+  // of the person's active goals.
+  { url: '/dashboard/goals', title: 'Goals', group: 'Workspace', icon: Target, i18nKey: 'goals', pinnable: true, defaultPinned: true, keywords: ['goals', 'objectives', 'outcomes', 'okrs', 'targets', 'milestones', 'progress'] },
   // Everything an agent or a person made beside a conversation — live,
   // versioned, editable. Replaces Canvases, whose saved tile arrangements
   // nobody arranged twice (`/dashboard/canvases` 308s here).
