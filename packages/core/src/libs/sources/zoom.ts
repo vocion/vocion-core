@@ -318,6 +318,7 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
   name: 'Zoom',
   description: 'Meeting recordings and transcripts from Zoom. Company-wide (Server-to-Server OAuth) or for the person who logged in with Zoom.',
   icon: 'Video',
+  category: 'chat-meetings',
   brand: 'zoom',
   authKind: 'oauth',
   configSchema: zoomConfigSchema,

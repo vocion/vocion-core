@@ -195,6 +195,7 @@ export const gmailConnector: SourceConnector<typeof gmailConfigSchema> = {
   name: 'Gmail',
   description: 'Email from Gmail. Subject, sender and snippet, synced incrementally by received date.',
   icon: 'Mail',
+  category: 'mail-calendar',
   brand: 'gmail',
   authKind: 'oauth',
   configSchema: gmailConfigSchema,

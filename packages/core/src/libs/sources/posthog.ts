@@ -554,6 +554,7 @@ export const posthogConnector: SourceConnector<typeof posthogConfigSchema> = {
   name: 'PostHog',
   description: 'Daily product usage from PostHog, as aggregates only. Event counts and unique users per event, plus totals and error counts, one document per day: no people, no properties, no content.',
   icon: 'Activity',
+  category: 'data-analytics',
   brand: 'posthog',
   authKind: 'apikey',
   configSchema: posthogConfigSchema,

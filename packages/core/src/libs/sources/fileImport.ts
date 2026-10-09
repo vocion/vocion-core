@@ -86,6 +86,7 @@ export const fileImportConnector: SourceConnector<typeof fileImportConfigSchema>
   name: 'File import',
   description: 'One CSV, JSON or JSONL file, imported as documents. Columns are detected for you; override them with fieldMapping when needed.',
   icon: 'FileJson',
+  category: 'docs-files',
   authKind: 'none',
   configSchema: fileImportConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

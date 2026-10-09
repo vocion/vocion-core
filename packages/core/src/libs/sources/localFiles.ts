@@ -44,6 +44,7 @@ export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema>
   name: 'Local files',
   description: 'Markdown and text files from a folder on the server. Useful for demos, fixtures, and one-shot corpus imports.',
   icon: 'FolderOpen',
+  category: 'docs-files',
   authKind: 'none',
   configSchema: localFilesConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

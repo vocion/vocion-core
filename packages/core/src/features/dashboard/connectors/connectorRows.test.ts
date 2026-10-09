@@ -1,6 +1,7 @@
 import type { ConnectorTile, Source } from './connectorRows';
 import { describe, expect, it } from 'vitest';
-import { attentionFor, buildConnectorRows, filterConnectorRows, offersReconnect, parseMissingScopes } from './connectorRows';
+import { CONNECTOR_CATEGORIES } from '@/libs/sources/types';
+import { buildConnections, catalogEntries, categoriesIn, filterCatalog, instanceLabel, offersReconnect, parseMissingScopes, relativeTime } from './connectorRows';
 
 const tile = (slug: string, name: string, extra: Partial<ConnectorTile> = {}): ConnectorTile => ({
   slug,
@@ -51,60 +52,113 @@ describe('parseMissingScopes', () => {
   });
 });
 
-describe('buildConnectorRows', () => {
-  const tiles = [tile('web', 'Web', { authKind: 'none' }), tile('zoom', 'Zoom', { authKind: 'oauth', requiredScopes: ['user:read:list_users:admin', 'cloud_recording:read:list_recording_files:admin'] }), tile('hubspot', 'HubSpot')];
+describe('buildConnections', () => {
+  const tiles = [tile('web', 'Web', { authKind: 'none' }), tile('zoom', 'Zoom', { authKind: 'oauth' }), tile('hubspot', 'HubSpot'), tile('jira', 'Jira')];
+  const done = (extra: Partial<NonNullable<Source['sync']>> = {}) => ({ status: 'completed' as const, startedAt: '', completedAt: '', error: null, counts: {}, ...extra });
 
-  it('lists every connector, connected first, each group A–Z', () => {
-    const rows = buildConnectorRows(tiles, [source('zoom-main', 'zoom')]);
-
-    expect(rows.map(r => `${r.tile.slug}:${r.state}`)).toEqual(['zoom:connected', 'hubspot:not-connected', 'web:not-connected']);
-  });
-
-  it('sums the size across a connector\'s rows and keeps the newest sync time', () => {
-    const rows = buildConnectorRows(tiles, [
-      source('site-a', 'web', { id: 1, authKind: 'none', documentCount: 10, chunkCount: 120, lastSyncedAt: '2026-09-17T10:00:00.000Z' }),
-      source('site-b', 'web', { id: 2, authKind: 'none', documentCount: 5, chunkCount: 40, lastSyncedAt: '2026-09-18T10:00:00.000Z' }),
+  it('is one row per connection, the ones that need a person first, then A–Z', () => {
+    const rows = buildConnections(tiles, [
+      source('web-docs', 'web', { id: 1, authKind: 'none', sync: done() }),
+      source('zoom', 'zoom', { id: 2, authKind: 'oauth', credentialBroken: 'expired', credentialConnected: false }),
+      source('hubspot', 'hubspot', { id: 3, enabled: 'false' }),
+      source('web-blog', 'web', { id: 4, authKind: 'none' }),
     ]);
-    const web = rows.find(r => r.tile.slug === 'web')!;
 
-    expect(web.sources).toHaveLength(2);
-    expect(web.documents).toBe(15);
-    expect(web.chunks).toBe(160);
-    expect(web.lastSyncedAt).toBe('2026-09-18T10:00:00.000Z');
+    expect(rows.map(r => [r.source.slug, r.status])).toEqual([
+      ['zoom', 'attention'],
+      ['web-blog', 'working'],
+      ['web-docs', 'working'],
+      ['hubspot', 'paused'],
+    ]);
   });
 
-  it('is syncing while any row runs, and needs attention when a run failed on scopes', () => {
-    const running = buildConnectorRows(tiles, [source('z', 'zoom', { sync: { status: 'running', startedAt: '2026-09-18T10:00:00.000Z', completedAt: null, error: null, counts: {} } })]);
+  it('words each problem plainly and gives it one fix', () => {
+    const one = (extra: Partial<Source>) => buildConnections(tiles, [source('h', 'hubspot', extra)])[0]!;
 
-    expect(running[0]?.state).toBe('syncing');
-
-    const failed = buildConnectorRows(tiles, [source('z', 'zoom', { sync: { status: 'failed', startedAt: '2026-09-18T10:00:00.000Z', completedAt: '2026-09-18T10:00:05.000Z', error: ZOOM_ERROR, counts: {} } })]);
-    const zoom = failed[0]!;
-
-    expect(zoom.state).toBe('attention');
-    expect(zoom.attention).toBe('Last sync failed: the token is missing 2 scopes.');
-    expect(zoom.missingScopes).toEqual(['cloud_recording:read:list_recording_files:admin', 'cloud_recording:read:list_user_recordings:admin']);
+    expect([one({ credentialBroken: 'revoked', credentialConnected: false }).problem, one({ credentialBroken: 'revoked', credentialConnected: false }).fix]).toEqual(['revoked', 'reconnect']);
+    expect([one({ credentialBroken: 'expired', credentialConnected: false }).problem, one({ credentialBroken: 'expired' }).fix]).toEqual(['expired', 'reconnect']);
+    expect([one({ credentialConnected: false }).problem, one({ credentialConnected: false }).fix]).toEqual(['not-connected', 'connect']);
+    expect(one({ sync: done({ status: 'failed', error: ZOOM_ERROR }) }).problem).toBe('missing-permissions');
+    expect([one({ sync: done({ status: 'failed', error: 'timeout' }) }).problem, one({ sync: done({ status: 'failed', error: 'timeout' }) }).fix]).toEqual(['sync-failed', 'reconnect']);
+    expect([one({ sync: done({ status: 'abandoned' }) }).problem, one({ sync: done({ status: 'abandoned' }) }).fix]).toEqual(['sync-stopped', 'retry']);
+    expect(one({ sync: done({ counts: { errors: 2 } }) }).problem).toBe('items-not-saved');
+    expect([one({ sync: done() }).problem, one({ sync: done() }).fix]).toEqual([null, null]);
   });
 
-  it('puts a revoked credential ahead of a sync error, since the fix is different', () => {
-    expect(attentionFor([source('h', 'hubspot', { credentialBroken: 'revoked', sync: { status: 'failed', startedAt: '', completedAt: null, error: '401', counts: {} } })])).toMatch(/revoked/);
-    expect(attentionFor([source('h', 'hubspot', { credentialConnected: false })])).toMatch(/Needs credentials/);
-    expect(attentionFor([source('h', 'hubspot')])).toBeNull();
+  it('retries a failed crawl rather than offering a login it does not have', () => {
+    const row = buildConnections(tiles, [source('w', 'web', { authKind: 'none', sync: done({ status: 'failed', error: '404' }) })])[0]!;
+
+    expect([row.problem, row.fix]).toEqual(['sync-failed', 'retry']);
   });
 
-  it('keeps a row whose connector is no longer registered, rather than hiding its documents', () => {
-    const rows = buildConnectorRows(tiles, [source('old', 'legacy-crm', { documentCount: 3 })]);
+  it('a paused connection reads Paused and offers no fix, whatever went wrong before', () => {
+    const row = buildConnections(tiles, [source('h', 'hubspot', { enabled: 'false', credentialBroken: 'revoked' })])[0]!;
 
-    expect(rows[0]?.tile.slug).toBe('legacy-crm');
-    expect(rows[0]?.documents).toBe(3);
+    expect([row.status, row.problem, row.fix]).toEqual(['paused', null, null]);
   });
 
-  it('filters by every word in any order and keeps the order otherwise', () => {
-    const rows = buildConnectorRows([tile('google-ads', 'Google Ads'), tile('ga4', 'Google Analytics')], []);
+  it('keeps a connection whose connector is no longer registered, rather than hiding its documents', () => {
+    expect(buildConnections(tiles, [source('old', 'retired-crm')])[0]!.tile.name).toBe('retired-crm');
+  });
 
-    expect(filterConnectorRows(rows, 'ads google').map(r => r.tile.slug)).toEqual(['google-ads']);
-    expect(filterConnectorRows(rows, '').map(r => r.tile.slug)).toEqual(['google-ads', 'ga4']);
-    expect(filterConnectorRows(rows, 'salesforce')).toEqual([]);
+  it('tells two connections of one connector apart by what they read, and leaves a single one alone', () => {
+    const rows = buildConnections(tiles, [
+      source('web-docs', 'web', { id: 1, authKind: 'none', config: { _connector: 'web', crawl: { startUrl: 'https://docs.northwind.example' } } }),
+      source('web-blog', 'web', { id: 2, authKind: 'none', config: { _connector: 'web', urls: ['https://blog.northwind.example'] } }),
+      source('jira', 'jira', { id: 3 }),
+    ]);
+
+    expect(rows.map(r => instanceLabel(r, rows))).toEqual([null, 'https://blog.northwind.example', 'Crawl https://docs.northwind.example · up to 50 pages']);
+  });
+});
+
+describe('catalogEntries and filterCatalog', () => {
+  const tiles = [
+    tile('gmail', 'Gmail', { category: 'mail-calendar', authKind: 'oauth' }),
+    tile('google-ads', 'Google Ads', { category: 'sales-marketing', description: 'Campaign spend.' }),
+    tile('web', 'Web', { category: 'docs-files', authKind: 'none' }),
+    tile('rest', 'REST API'),
+  ];
+
+  it('marks what is connected and what this server cannot connect, A–Z', () => {
+    const entries = catalogEntries(tiles, [source('web', 'web')], { unavailable: ['gmail'], isAdmin: true });
+
+    expect(entries.map(e => [e.tile.slug, e.connected, e.unavailable])).toEqual([
+      ['gmail', false, true],
+      ['google-ads', false, false],
+      ['rest', false, false],
+      ['web', true, false],
+    ]);
+  });
+
+  it('hides a connector that cannot be connected from anyone who is not an admin', () => {
+    expect(catalogEntries(tiles, [], { unavailable: ['gmail'], isAdmin: false }).map(e => e.tile.slug)).not.toContain('gmail');
+  });
+
+  it('filters by every word in any order, within a category when one is chosen', () => {
+    const entries = catalogEntries(tiles, [], { unavailable: [], isAdmin: true });
+
+    expect(filterCatalog(entries, 'ads google', null).map(e => e.tile.slug)).toEqual(['google-ads']);
+    expect(filterCatalog(entries, '', 'docs-files').map(e => e.tile.slug)).toEqual(['web']);
+    expect(filterCatalog(entries, '', 'other').map(e => e.tile.slug)).toEqual(['rest']);
+    expect(filterCatalog(entries, 'gmail', 'docs-files')).toEqual([]);
+  });
+
+  it('offers only the categories that hold something, in the page order', () => {
+    const entries = catalogEntries(tiles, [], { unavailable: [], isAdmin: true });
+
+    expect(categoriesIn(entries, CONNECTOR_CATEGORIES)).toEqual(['mail-calendar', 'docs-files', 'sales-marketing', 'other']);
+  });
+});
+
+describe('relativeTime', () => {
+  const now = Date.parse('2026-10-09T12:00:00.000Z');
+
+  it('is coarse, and in the page\'s language', () => {
+    expect(relativeTime('2026-10-09T11:59:50.000Z', 'en', now)).toBe('now');
+    expect(relativeTime('2026-10-09T10:00:00.000Z', 'en', now)).toBe('2 hours ago');
+    expect(relativeTime('2026-10-06T12:00:00.000Z', 'en', now)).toBe('3 days ago');
+    expect(relativeTime('2026-10-09T10:00:00.000Z', 'fr', now)).toBe('il y a 2 heures');
   });
 });
 

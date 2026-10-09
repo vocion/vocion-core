@@ -26,6 +26,7 @@ export const gustoConnector: SourceConnector<typeof gustoConfigSchema> = {
   brand: 'gusto',
   description: 'Payroll and HR, read live: who works here, in which department, who is out, and what each pay run cost in total. Work information only; read-only.',
   icon: 'Users',
+  category: 'finance-people',
   authKind: 'oauth',
   syncless: true,
   configSchema: gustoConfigSchema,

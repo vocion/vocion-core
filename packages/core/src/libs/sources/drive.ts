@@ -44,6 +44,7 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
   name: 'Google Drive',
   description: 'Docs, Sheets and Slides from Google Drive. Plain text files too, synced incrementally by modified time.',
   icon: 'FileText',
+  category: 'docs-files',
   brand: 'googledrive',
   authKind: 'oauth',
   configSchema: driveConfigSchema,

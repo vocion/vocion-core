@@ -78,6 +78,7 @@ export const bigqueryConnector: SourceConnector<typeof bigqueryConfigSchema> = {
   name: 'BigQuery',
   description: 'Your BigQuery datasets, queried live and read-only: one SELECT at a time over the datasets you allow, capped in rows, size, time and bytes billed. Nothing is copied into Vocion.',
   icon: 'Database',
+  category: 'data-analytics',
   brand: 'googlebigquery',
   authKind: 'apikey',
   syncless: true,

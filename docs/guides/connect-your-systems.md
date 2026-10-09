@@ -25,7 +25,6 @@ why, composed from the facts the tool hands back.
 | Chat | "connect my tools", "what should I connect?", or two or more systems named at once. The agent calls `connect_system`; it reaches the person as one setup Decision ("Connect your systems") whose option opens the walk-through, and arriving live it opens it at once. The workspace's lead's `workspace-setup` skill says when. |
 | Onboarding | The **Getting started** checklist's "Connect a system" step. A setup plan (`propose_setup`) with two or more `connect` steps also becomes one "Connect your systems" step. |
 | An app's page | "Connect the 3 systems GTM uses", above the app's "Connects to" list. Planned for that app only (`&app=<id>`). |
-| Connectors page | **Set up with your assistant**, in the title bar. |
 
 ## What it offers, and why
 

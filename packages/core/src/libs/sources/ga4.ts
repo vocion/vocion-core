@@ -33,6 +33,7 @@ export const ga4Connector: SourceConnector<typeof ga4ConfigSchema> = {
   name: 'Google Analytics 4',
   description: 'Sessions, conversions and bounce rate from Google Analytics. One GA4 report row per date and landing page.',
   icon: 'BarChart3',
+  category: 'data-analytics',
   brand: 'googleanalytics',
   authKind: 'oauth',
   configSchema: ga4ConfigSchema,

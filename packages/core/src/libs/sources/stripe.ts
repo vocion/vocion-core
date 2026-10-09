@@ -25,6 +25,7 @@ export const stripeConnector: SourceConnector<typeof stripeConfigSchema> = {
   brand: 'stripe',
   description: 'Billing, read live: customers, invoices and what is still owed, subscriptions, payments and payouts. Read-only, except a draft invoice an agent may prepare, never sent.',
   icon: 'CreditCard',
+  category: 'finance-people',
   authKind: 'apikey',
   syncless: true,
   configSchema: stripeConfigSchema,

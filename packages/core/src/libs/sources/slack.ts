@@ -91,6 +91,7 @@ export const slackConnector: SourceConnector<typeof slackConfigSchema> = {
   name: 'Slack',
   description: 'Messages from Slack. One channel, or every channel the bot is in, synced incrementally by timestamp.',
   icon: 'MessageSquare',
+  category: 'chat-meetings',
   brand: 'slack',
   authKind: 'oauth',
   configSchema: slackConfigSchema,

@@ -1,8 +1,18 @@
 import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { render as renderBare } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
-import { describeSyncResult, filterConnectors, initialCredentialChoice, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
+import { Toaster } from '@/components/ui/toast';
+import messages from '@/locales/en.json';
+import { describeSyncResult, initialCredentialChoice, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
+
+/**
+ * Render inside the intl provider the panel's copy reads from.
+ * @param ui - What to render.
+ */
+function render(ui: React.ReactElement) {
+  return renderBare(<NextIntlClientProvider locale="en" messages={messages}>{ui}</NextIntlClientProvider>);
+}
 
 const addConnector = vi.fn();
 vi.mock('@/libs/Orpc', () => ({
@@ -47,16 +57,6 @@ type ConnectorFixture = {
 
 function connector(slug: string, name: string, description: string): ConnectorFixture {
   return { slug, name, description, icon: name, authKind: 'apikey', credentialPlatform: null, syncless: false, inspectable: false };
-}
-
-/**
- * A numbered fixture whose name is zero-padded, so its alphabetical position
- * matches its number — "Connector 2" would otherwise sort after "Connector 19".
- * @param index - Which connector in the run of fixtures.
- */
-function paddedConnector(index: number): ConnectorFixture {
-  const label = String(index).padStart(2, '0');
-  return connector(`c${label}`, `Connector ${label}`, `Ingest system ${label}.`);
 }
 
 const CONNECTORS: ConnectorFixture[] = [
@@ -263,6 +263,10 @@ function stubSourcesApi(
         ? new Response(JSON.stringify({ credentialId: 'cred-1' }), { status: 200 })
         : new Response(JSON.stringify({ error: options.credentialRejection }), { status: 400 });
     }
+    if (/^\/rpc\/sources\/\d+\/pause$/.test(url) && init?.method === 'POST') {
+      posts.push({ url, body: JSON.parse(String(init.body)) });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
     if (/^\/rpc\/sources\/\d+\/start-syncing$/.test(url) && init?.method === 'POST') {
       posts.push({ url, body: {} });
       return new Response(JSON.stringify({ firstSync: 'started' }), { status: 200 });
@@ -276,26 +280,35 @@ function stubSourcesApi(
 /** Open the picker, choose Strapi, and fill in the connection details. */
 async function openStrapiForm() {
   await openPicker();
-  await page.getByRole('button', { name: /Strapi/ }).click();
+  await page.getByRole('button', { name: 'Connect Strapi' }).click();
 
   await userEvent.fill(page.getByLabelText(/Strapi URL/), 'https://cms.partner.org');
   await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
 }
 
 /**
- * Open a configured row's overflow menu and choose an entry — Edit and Delete
- * live there, beside the row's one primary action.
- * @param name - The menu entry.
+ * Open a connection's Manage panel (the row itself opens it) and press one of
+ * its actions — Change settings, Sync now, Test connection.
+ * @param name - The action.
  */
-async function openRowAction(name: string) {
-  await page.getByRole('button', { name: /^More for / }).first().click();
-  await page.getByRole('menuitem', { name }).click();
+async function openManageAction(name: string) {
+  await expect.element(page.getByTestId('connected-section')).toBeVisible();
+
+  const toggle = page.getByTestId('connected-section').element().querySelector('button[aria-expanded]') as HTMLButtonElement;
+  if (toggle.getAttribute('aria-expanded') !== 'true') {
+    toggle.click();
+  }
+  await page.getByTestId('manage-panel').getByRole('button', { name }).click();
 }
 
+/** Open the catalog of every connector, wherever the page has folded it. */
 async function openPicker() {
-  await page.getByRole('button', { name: 'Add connector' }).first().click();
+  await expect.element(page.getByRole('searchbox', { name: 'Search connectors' })).toBeVisible();
 
-  await expect.element(page.getByPlaceholder(/Search connectors/)).toBeVisible();
+  const browse = page.getByRole('button', { name: 'Browse all connectors' });
+  if (browse.query()) {
+    await browse.click();
+  }
 }
 
 /**
@@ -303,45 +316,8 @@ async function openPicker() {
  * Only tests that render a configured source row reach one.
  */
 function renderPanel() {
-  return render(
-    <NextIntlClientProvider locale="en" messages={{}}>
-      <SourcesPanel />
-    </NextIntlClientProvider>,
-  );
+  return render(<SourcesPanel />);
 }
-
-describe('filterConnectors', () => {
-  it('matches on name, slug and description', () => {
-    expect(filterConnectors(CONNECTORS, 'strapi').map(c => c.slug)).toEqual(['strapi']);
-    expect(filterConnectors(CONNECTORS, 'crm').map(c => c.slug)).toEqual(['hubspot']);
-    expect(filterConnectors(CONNECTORS, 'google-ads').map(c => c.slug)).toEqual(['google-ads']);
-  });
-
-  it('sorts matches A–Z by name, not by registry order', () => {
-    expect(filterConnectors(CONNECTORS, '').map(c => c.name)).toEqual(['Google Ads', 'HubSpot', 'Strapi', 'Web']);
-    expect(filterConnectors(CONNECTORS, 'ingest').map(c => c.name)).toEqual(['Google Ads', 'HubSpot', 'Strapi']);
-  });
-
-  it('leaves the caller\'s array untouched while sorting', () => {
-    const original = [...CONNECTORS];
-    filterConnectors(CONNECTORS, '');
-
-    expect(CONNECTORS).toEqual(original);
-  });
-
-  it('matches every word in any order, so "ads google" still finds Google Ads', () => {
-    expect(filterConnectors(CONNECTORS, 'ads google').map(c => c.slug)).toEqual(['google-ads']);
-  });
-
-  it('returns everything for an empty or whitespace query', () => {
-    expect(filterConnectors(CONNECTORS, '')).toHaveLength(CONNECTORS.length);
-    expect(filterConnectors(CONNECTORS, '   ')).toHaveLength(CONNECTORS.length);
-  });
-
-  it('returns nothing when no connector matches', () => {
-    expect(filterConnectors(CONNECTORS, 'salesforce')).toEqual([]);
-  });
-});
 
 describe('parseStrapiCollections', () => {
   it('splits on commas and newlines and drops blanks', () => {
@@ -357,58 +333,27 @@ describe('parseStrapiCollections', () => {
 });
 
 describe('connector picker', () => {
-  it('narrows the list as you type and says how many of the total match', async () => {
+  it('narrows the list as you type', async () => {
     stubSourcesApi(CONNECTORS);
     render(<SourcesPanel />);
     await openPicker();
 
-    await expect.element(page.getByText('4 connectors')).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Connect HubSpot' })).toBeVisible();
 
-    await userEvent.fill(page.getByPlaceholder(/Search connectors/), 'strapi');
+    await userEvent.fill(page.getByRole('searchbox', { name: 'Search connectors' }), 'strapi');
 
-    await expect.element(page.getByText('1 of 4 connectors')).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /Strapi/ })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /HubSpot/ })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Connect Strapi' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Connect HubSpot' })).not.toBeInTheDocument();
   });
 
-  it('tells the operator when nothing matches instead of showing an empty modal', async () => {
+  it('tells the operator when nothing matches instead of showing an empty list', async () => {
     stubSourcesApi(CONNECTORS);
     render(<SourcesPanel />);
     await openPicker();
 
-    await userEvent.fill(page.getByPlaceholder(/Search connectors/), 'salesforce');
+    await userEvent.fill(page.getByRole('searchbox', { name: 'Search connectors' }), 'salesforce');
 
     await expect.element(page.getByText(/No connector matches/)).toBeVisible();
-  });
-
-  it('caps the first page at 25 cards and reveals the rest on demand', async () => {
-    const many = Array.from({ length: 30 }, (_, i) => paddedConnector(i));
-    stubSourcesApi(many);
-    render(<SourcesPanel />);
-    await openPicker();
-
-    // 25 rendered, so the 26th card is absent until "Show more" is clicked.
-    await expect.element(page.getByRole('button', { name: /Connector 24/ })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /Connector 25/ })).not.toBeInTheDocument();
-
-    await page.getByRole('button', { name: /Show 5 more/ }).click();
-
-    await expect.element(page.getByRole('button', { name: /Connector 29/ })).toBeVisible();
-  });
-
-  it('drops back to one page of results when the query changes', async () => {
-    const many = Array.from({ length: 30 }, (_, i) => paddedConnector(i));
-    stubSourcesApi(many);
-    render(<SourcesPanel />);
-    await openPicker();
-
-    await page.getByRole('button', { name: /Show 5 more/ }).click();
-
-    await expect.element(page.getByRole('button', { name: /Connector 29/ })).toBeVisible();
-
-    await userEvent.fill(page.getByPlaceholder(/Search connectors/), 'Connector 1');
-
-    await expect.element(page.getByRole('button', { name: /Show .* more/ })).not.toBeInTheDocument();
   });
 });
 
@@ -539,7 +484,7 @@ describe('add Strapi source', () => {
 
     await page.getByRole('checkbox', { name: 'events' }).click();
     await page.getByRole('checkbox', { name: 'organizers' }).click();
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
 
@@ -575,7 +520,7 @@ describe('add Strapi source', () => {
     await openStrapiForm();
     await page.getByRole('button', { name: 'Load collections' }).click();
     await page.getByRole('checkbox', { name: 'events' }).click();
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await expect.element(page.getByText('That token does not work against this instance')).toBeVisible();
 
@@ -637,7 +582,7 @@ describe('add Strapi source', () => {
     await expect.element(page.getByRole('checkbox', { name: /events/ })).toBeVisible();
 
     // A disabled button swallows hover, so the tooltip has to sit on its wrapper.
-    const wrapper = page.getByRole('button', { name: 'Add connector' }).last().element().parentElement;
+    const wrapper = page.getByRole('button', { name: 'Connect', exact: true }).last().element().parentElement;
 
     expect(wrapper?.getAttribute('title')).toContain('at least one collection');
 
@@ -661,7 +606,7 @@ describe('add Strapi source', () => {
 
     await expect.element(page.getByText('venueNo such collection')).toBeVisible();
 
-    const submit = page.getByRole('button', { name: 'Add connector' }).last();
+    const submit = page.getByRole('button', { name: 'Connect', exact: true }).last();
 
     await expect.element(submit).toBeDisabled();
     await expect.element(page.getByText(/Still needed: a fix for venue \(no such collection\)/)).toBeVisible();
@@ -710,7 +655,7 @@ describe('add Strapi source', () => {
     await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
     await userEvent.fill(page.getByLabelText('Collections'), 'events');
 
-    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: 'Connect', exact: true }).last()).toBeEnabled();
   });
 
   it('keeps submit disabled until the URL, the token and a collection are all given', async () => {
@@ -719,7 +664,7 @@ describe('add Strapi source', () => {
     await openPicker();
     await page.getByRole('button', { name: /Strapi/ }).click();
 
-    const submit = page.getByRole('button', { name: 'Add connector' }).last();
+    const submit = page.getByRole('button', { name: 'Connect', exact: true }).last();
 
     await expect.element(submit).toBeDisabled();
 
@@ -765,7 +710,7 @@ describe('add Strapi source', () => {
 
     await expect.element(page.getByText(/could not be confirmed here/)).toBeVisible();
     // Reachable, so submit is still allowed — the operator decides.
-    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: 'Connect', exact: true }).last()).toBeEnabled();
   });
 
   it('surfaces an unreachable instance instead of closing the dialog', async () => {
@@ -799,7 +744,7 @@ describe('add Strapi source', () => {
     await expect.element(page.getByRole('checkbox', { name: 'events' })).toBeVisible();
 
     await page.getByRole('checkbox', { name: 'events' }).click();
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await expect.element(page.getByText('Unreachable host')).toBeVisible();
     expect(posts.filter(post => post.url.endsWith('/credentials'))).toEqual([]);
@@ -812,7 +757,7 @@ describe('add Strapi source', () => {
     await page.getByRole('button', { name: /Web/ }).click();
 
     await userEvent.fill(page.getByLabelText('URL'), 'https://example.com/docs');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(posts).toHaveLength(1));
 
@@ -900,15 +845,11 @@ describe('a sync started somewhere else', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText(/Syncing now — started/)).toBeVisible();
+    await expect.element(page.getByTestId('connected-section').getByText(/Syncing now/)).toBeVisible();
 
-    const syncButton = page.getByRole('button', { name: /Syncing…/ });
+    await page.getByRole('button', { name: /^Strapi/ }).click();
 
-    await expect.element(syncButton).toBeDisabled();
-    await expect.element(syncButton).toHaveAttribute(
-      'title',
-      'This connector is already syncing. Wait for it to finish, then try again.',
-    );
+    await expect.element(page.getByTestId('manage-panel').getByRole('button', { name: 'Syncing now' })).toBeDisabled();
   });
 
   it('keeps a failed run visible after a reload, with its reason', async () => {
@@ -923,7 +864,13 @@ describe('a sync started somewhere else', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText(/Last sync failed:/)).toBeVisible();
+    await expect.element(page.getByText('Needs attention: last sync failed')).toBeVisible();
+    // The vendor's own words wait in Details, one move away.
+    await expect.element(page.getByText(/OPENAI_API_KEY is not set/)).not.toBeInTheDocument();
+
+    await page.getByRole('button', { name: /^Strapi/ }).click();
+    await page.getByText('Details').click();
+
     await expect.element(page.getByText(/OPENAI_API_KEY is not set/)).toBeVisible();
   });
 
@@ -939,9 +886,9 @@ describe('a sync started somewhere else', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText(/never finished — its process stopped/)).toBeVisible();
-    // Takeover is allowed, so the button must not be stuck disabled.
-    await expect.element(page.getByRole('button', { name: /Sync now/ })).toBeEnabled();
+    await expect.element(page.getByText('Needs attention: a sync stopped partway')).toBeVisible();
+    // Takeover is allowed, so the fix must not be stuck disabled.
+    await expect.element(page.getByRole('button', { name: 'Try again Strapi' })).toBeEnabled();
   });
 
   it('flags a finished run that dropped documents', async () => {
@@ -956,7 +903,7 @@ describe('a sync started somewhere else', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText(/Last sync could not save 2 documents/)).toBeVisible();
+    await expect.element(page.getByText('Needs attention: some items couldn\'t be saved')).toBeVisible();
   });
 });
 
@@ -965,9 +912,9 @@ describe('editing and deleting a source', () => {
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
-    await expect.element(page.getByText('Edit Strapi source')).toBeVisible();
+    await expect.element(page.getByText('Strapi settings')).toBeVisible();
     await expect.element(page.getByLabelText(/Strapi URL/)).toHaveValue('https://cms.partner.org');
     await expect.element(page.getByLabelText('Collections')).toHaveValue('events');
 
@@ -996,7 +943,7 @@ describe('editing and deleting a source', () => {
     stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByText(/Saving restarts this connector's sync/)).toBeVisible();
   });
@@ -1013,36 +960,58 @@ describe('editing and deleting a source', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText(/stopped when the settings changed/)).toBeVisible();
+    await page.getByRole('button', { name: /^Strapi/ }).click();
+    await page.getByText('Details').click();
+
+    await expect.element(page.getByText(/stopped because the source's settings changed/)).toBeVisible();
   });
 
   it('writes a new token only when one is typed', async () => {
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
     await userEvent.fill(page.getByLabelText(/API token/), 'fresh-token');
     await page.getByRole('button', { name: 'Save changes' }).click();
 
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
   });
 
-  it('says what a delete takes with it, and only deletes on confirm', async () => {
+  it('disconnects at once with Undo, and deletes only once Undo has lapsed', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
+    render(
+      <>
+        <SourcesPanel />
+        <Toaster />
+      </>,
+    );
+    const disconnect = async () => {
+      await page.getByRole('button', { name: 'More for Strapi' }).click();
+      await page.getByRole('menuitem', { name: 'Disconnect' }).click();
+    };
+
+    await disconnect();
+
+    await expect.element(page.getByTestId('connected-section')).not.toBeInTheDocument();
+
+    await page.getByRole('button', { name: 'Undo' }).click();
+
+    await expect.element(page.getByTestId('connected-section')).toBeVisible();
+    expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(0);
+
+    await disconnect();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(1), { timeout: 12_000 });
+  }, 20_000);
+
+  it('pauses and resumes from the menu', async () => {
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await openRowAction('Delete…');
+    await page.getByRole('button', { name: 'More for Strapi' }).click();
+    await page.getByRole('menuitem', { name: 'Pause' }).click();
 
-    await expect.element(page.getByText(/It cannot be undone/)).toBeVisible();
-
-    await page.getByRole('button', { name: 'Cancel' }).click();
-
-    expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(0);
-
-    await openRowAction('Delete…');
-    await page.getByRole('button', { name: 'Delete connector' }).click();
-
-    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(1));
+    await vi.waitFor(() => expect(posts.find(post => post.url === '/rpc/sources/1/pause')?.body).toEqual({ paused: true }));
   });
 
   it('offers Connect only while nothing is stored', async () => {
@@ -1050,8 +1019,8 @@ describe('editing and deleting a source', () => {
     stubSourcesApi(CONNECTORS, [], { sources: [unconnected] });
     renderPanel();
 
-    await expect.element(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Update key' })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Connect Strapi', exact: true })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Reconnect Strapi' })).not.toBeInTheDocument();
   });
 });
 
@@ -1063,7 +1032,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
   });
@@ -1077,7 +1046,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1095,7 +1064,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1117,7 +1086,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1145,7 +1114,7 @@ describe('the stored token on an edit', () => {
     });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
 
@@ -1178,7 +1147,7 @@ describe('the stored token on an edit', () => {
     vi.stubGlobal('fetch', fetchStub);
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByRole('alert')).toHaveTextContent(/could not be decrypted/);
   });
@@ -1199,7 +1168,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Strapi', exact: true }).click();
 
     await expect.element(page.getByText('Strapi — prod')).toBeVisible();
     await expect.element(page.getByText('…aaaa')).toBeVisible();
@@ -1212,7 +1181,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Strapi', exact: true }).click();
     await page.getByRole('button', { name: 'Use this credential' }).click();
 
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
@@ -1229,7 +1198,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Strapi', exact: true }).click();
     await page.getByRole('radio', { name: 'Add a new credential' }).click();
 
     await userEvent.fill(page.getByLabelText('Credential name'), 'Strapi — staging');
@@ -1254,7 +1223,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Strapi', exact: true }).click();
 
     await expect.element(page.getByLabelText('Instance URL')).toHaveAttribute('type', 'text');
     await expect.element(page.getByLabelText('API token')).toHaveAttribute('type', 'password');
@@ -1270,7 +1239,7 @@ describe('a credential that cannot be used', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText('Credential revoked')).toBeVisible();
+    await expect.element(page.getByText('Needs attention: access was revoked')).toBeVisible();
   });
 
   it('says expired when that is what happened', async () => {
@@ -1279,7 +1248,7 @@ describe('a credential that cannot be used', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText('Credential expired')).toBeVisible();
+    await expect.element(page.getByText('Needs attention: sign-in expired')).toBeVisible();
   });
 
   it('still asks for a credential when nobody has connected the source', async () => {
@@ -1288,7 +1257,7 @@ describe('a credential that cannot be used', () => {
     });
     renderPanel();
 
-    await expect.element(page.getByText('Needs credentials')).toBeVisible();
+    await expect.element(page.getByText('Needs attention: not signed in yet')).toBeVisible();
   });
 });
 
@@ -1306,7 +1275,7 @@ describe('the rename, as rendered', () => {
     stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
     renderPanel();
 
-    await expect.element(page.getByText('strapi-cms')).toBeVisible();
+    await expect.element(page.getByTestId('connected-section')).toBeVisible();
 
     // `innerText` rather than `textContent`: it keeps the line breaks a person
     // sees, and `textContent` would run adjacent nodes together — turning
@@ -1379,7 +1348,7 @@ describe('a connector whose credential was revoked', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Reconnect Strapi' }).click();
 
     await expect.element(page.getByLabelText('Instance URL')).toBeVisible();
     await expect.element(page.getByText(/nothing to change here/)).not.toBeInTheDocument();
@@ -1393,7 +1362,7 @@ describe('a connector whose credential was revoked', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Reconnect Strapi' }).click();
 
     await expect.element(page.getByText('Strapi — spare')).toBeVisible();
     await expect.element(page.getByLabelText('Instance URL')).toBeVisible();
@@ -1427,7 +1396,7 @@ describe('editing a connector set up before the URL moved', () => {
       storedToken: 'tok-legacy',
     });
     renderPanel();
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
 
@@ -1453,7 +1422,7 @@ describe('editing a connector set up before the URL moved', () => {
       storedToken: 'tok-legacy',
     });
     renderPanel();
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
 
@@ -1475,7 +1444,7 @@ describe('editing a connector set up before the URL moved', () => {
     // connector that was syncing stops.
     const posts = stubSourcesApi(CONNECTORS, [], { sources: [legacyStrapiRow()] });
     renderPanel();
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/Strapi URL/)).toHaveValue('https://cms.partner.org');
 
@@ -1498,7 +1467,7 @@ describe('editing a connector set up before the URL moved', () => {
       storedBaseUrl: 'https://cms.partner.org',
     });
     renderPanel();
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
 
@@ -1564,7 +1533,7 @@ describe('a form built from the connector\'s own fields', () => {
     await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG, OPS');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
@@ -1604,7 +1573,7 @@ describe('a form built from the connector\'s own fields', () => {
 
     await recordType.selectOptions('deals');
     await userEvent.fill(page.getByLabelText('Private-app token', { exact: true }), 'pat-na1-test');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
@@ -1634,10 +1603,10 @@ describe('a form built from the connector\'s own fields', () => {
     await fillJiraCredential();
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await expect.element(page.getByText(/Failed to fetch/)).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: 'Connect', exact: true }).last()).toBeEnabled();
   });
 
   it('sends what a checkbox and a number box were changed to', async () => {
@@ -1650,7 +1619,7 @@ describe('a form built from the connector\'s own fields', () => {
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await page.getByLabelText(/Include the issue description/).click();
     await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '14');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledTimes(1));
 
@@ -1669,7 +1638,7 @@ describe('a form built from the connector\'s own fields', () => {
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
     await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
     await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '0');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     expect(addConnector).not.toHaveBeenCalled();
     await expect.element(page.getByLabelText(/Keep finished issues for/)).toBeInvalid();
@@ -1714,7 +1683,7 @@ describe('a form built from the connector\'s own fields', () => {
     });
     renderPanel();
 
-    await openRowAction('Edit settings');
+    await openManageAction('Change settings');
 
     await expect.element(page.getByLabelText(/Site URL/)).toHaveValue('https://acme.atlassian.net');
     await expect.element(page.getByLabelText(/Project keys/)).toHaveValue('ENG');
@@ -1768,7 +1737,9 @@ describe('testing a connection', () => {
     stubSourcesApi(APOLLO_CONNECTORS, [], { sources: [apolloRow()] });
     renderPanel();
 
-    await expect.element(page.getByRole('button', { name: /Test connection/ })).toBeVisible();
+    await page.getByRole('button', { name: /^Apollo/ }).click();
+
+    await expect.element(page.getByTestId('manage-panel').getByRole('button', { name: 'Test connection' })).toBeVisible();
     expect(page.getByRole('button', { name: /Sync now/ }).elements()).toHaveLength(0);
   });
 
@@ -1776,7 +1747,7 @@ describe('testing a connection', () => {
     const posts = stubSourcesApi(APOLLO_CONNECTORS, [APOLLO_PROBE], { sources: [apolloRow()] });
     renderPanel();
 
-    await page.getByRole('button', { name: /Test connection/ }).click();
+    await openManageAction('Test connection');
     await page.getByRole('button', { name: /^Test connection$/ }).last().click();
 
     await expect.element(page.getByText(/API key accepted/)).toBeVisible();
@@ -1790,7 +1761,7 @@ describe('testing a connection', () => {
     stubSourcesApi(APOLLO_CONNECTORS, [APOLLO_PROBE], { sources: [apolloRow()] });
     renderPanel();
 
-    await page.getByRole('button', { name: /Test connection/ }).click();
+    await openManageAction('Test connection');
     await page.getByRole('button', { name: /^Test connection$/ }).last().click();
 
     await expect.element(page.getByText(/paid-tier only/)).toBeVisible();
@@ -1802,7 +1773,7 @@ describe('testing a connection', () => {
     stubSourcesApi(APOLLO_CONNECTORS, [APOLLO_PROBE], { sources: [apolloRow()] });
     renderPanel();
 
-    await page.getByRole('button', { name: /Test connection/ }).click();
+    await openManageAction('Test connection');
 
     await expect.element(page.getByText(/spends 1 Apollo credit/)).toBeVisible();
   });
@@ -1815,7 +1786,7 @@ describe('testing a connection', () => {
     );
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Apollo', exact: true }).click();
     await userEvent.fill(page.getByLabelText(/Instance URL/), 'https://api.apollo.io');
     await userEvent.fill(page.getByLabelText(/API token/), 'apollo-key-1');
     await page.getByRole('button', { name: /Test connection/ }).last().click();
@@ -1836,7 +1807,7 @@ describe('testing a connection', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: /Test connection/ }).click();
+    await openManageAction('Test connection');
     await page.getByRole('button', { name: /^Test connection$/ }).last().click();
 
     await expect.element(page.getByText('An Apollo API key is required.')).toBeVisible();
@@ -1858,9 +1829,11 @@ describe('the unconfigured vendor login line in the connect dialog', () => {
   async function openEditWithConnect(connect: Record<string, unknown>) {
     stubSourcesApi(CONNECTORS, [], { sources: [{ ...sourceRow(null), credentialConnected: false }], connect });
     renderPanel();
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Strapi', exact: true }).click();
 
-    await expect.element(page.getByText('Connect strapi-cms')).toBeVisible();
+    await expect.element(page.getByText('Connect Strapi', { exact: true })).toBeVisible();
+
+    await page.getByTestId('login-unavailable').getByText('Details').click();
   }
 
   it('points an admin at the Developers page when a workspace may bring its own app', async () => {
@@ -1873,7 +1846,7 @@ describe('the unconfigured vendor login line in the connect dialog', () => {
   it('does not offer a login app when the provider cannot take one', async () => {
     await openEditWithConnect({ ...UNCONFIGURED_LOGIN, bringYourOwnApp: false });
 
-    await expect.element(page.getByText(/Connecting with Slack/)).toBeVisible();
+    await expect.element(page.getByText(/Signing in with Slack isn't set up on this server/)).toBeVisible();
     await expect.element(page.getByText(/login app an admin saves/)).not.toBeInTheDocument();
   });
 

@@ -212,6 +212,45 @@ export async function updateSourceConfig(input: {
 }
 
 /**
+ * Pause or resume one source. A paused source keeps everything it read and its
+ * credential, and reads nothing new: its schedule skips it, Sync now refuses
+ * it, and the live tools that read through a source family leave it out
+ * (`libs/connectors/families.ts`). A run in progress is told to stop.
+ * @param orgId - Org that owns the source.
+ * @param sourceId - Source to pause or resume.
+ * @param paused - True to pause, false to resume.
+ * @returns Whether the source was found.
+ */
+export async function setSourcePaused(orgId: string, sourceId: number, paused: boolean): Promise<boolean> {
+  const updated = await db
+    .update(knowledgeSourceSchema)
+    .set({ enabled: paused ? 'false' : 'true' })
+    .where(and(eq(knowledgeSourceSchema.id, sourceId), eq(knowledgeSourceSchema.orgId, orgId)))
+    .returning({ id: knowledgeSourceSchema.id });
+  if (updated.length === 0) {
+    return false;
+  }
+  if (paused) {
+    await supersedeRunningSync(orgId, sourceId, 'This sync stopped because the connection was paused.');
+  }
+  return true;
+}
+
+/**
+ * Whether a source is paused (`enabled` is the TEXT 'false').
+ * @param orgId - Org that owns the source.
+ * @param sourceId - The source.
+ */
+export async function isSourcePaused(orgId: string, sourceId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ enabled: knowledgeSourceSchema.enabled })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.id, sourceId), eq(knowledgeSourceSchema.orgId, orgId)))
+    .limit(1);
+  return row?.enabled === 'false';
+}
+
+/**
  * Delete one source and everything ingested from it.
  *
  * The documents, their chunks and the sync checkpoint go with it through the

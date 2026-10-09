@@ -11,7 +11,7 @@
 
 import { clerkAuth as auth } from '@/libs/Auth';
 import { logger } from '@/libs/Logger';
-import { runSync, SyncAlreadyRunningError } from '@/services/SourceSyncService';
+import { isSourcePaused, runSync, SyncAlreadyRunningError } from '@/services/SourceSyncService';
 
 export async function POST(
   _req: Request,
@@ -25,6 +25,10 @@ export async function POST(
   const sourceId = Number.parseInt(params.id, 10);
   if (!Number.isInteger(sourceId)) {
     return Response.json({ error: 'Bad source id' }, { status: 400 });
+  }
+  // A paused connection reads nothing new until it is resumed.
+  if (await isSourcePaused(orgId, sourceId)) {
+    return Response.json({ error: 'This connection is paused. Resume it to sync.' }, { status: 409 });
   }
   try {
     const result = await runSync({ orgId, sourceId });

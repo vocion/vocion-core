@@ -1,6 +1,16 @@
+import { NextIntlClientProvider } from 'next-intl';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { render as renderBare } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
+import messages from '@/locales/en.json';
+
+/**
+ * Render inside the intl provider the panel's copy reads from.
+ * @param ui - What to render.
+ */
+function render(ui: React.ReactElement) {
+  return renderBare(<NextIntlClientProvider locale="en" messages={messages}>{ui}</NextIntlClientProvider>);
+}
 
 /**
  * The add form offers what each connector declares (#1080): log in with the
@@ -111,7 +121,7 @@ const ATLASSIAN_NO_LOGIN = { providerLabel: 'Atlassian', loggedInAs: null, store
 const GITHUB_CONFIG = { repos: ['northwind/portal'], baseUrl: 'https://api.github.com', deployBranch: 'main', lookbackDays: 7 };
 
 describe('the add form puts the credential inside it', () => {
-  it('a connector with a login and a paste shows the login button, then "or paste a ..." with a real input and the guidance under it', async () => {
+  it('a connector with a login and a paste leads with the login, with pasting one click away and its guidance folded behind Details', async () => {
     await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
     await page.getByRole('button', { name: 'Connect GitHub' }).click();
 
@@ -123,9 +133,17 @@ describe('the add form puts the credential inside it', () => {
     // Dressed as GitHub's own login, so the person sees whose login opens next.
     await expect.element(login).toHaveAttribute('data-brand', 'github');
 
-    await expect.element(page.getByText('or paste a Personal access token')).toBeVisible();
+    await expect.element(page.getByLabelText('Personal access token', { exact: true })).not.toBeInTheDocument();
+
+    await page.getByRole('button', { name: 'Paste a Personal access token instead' }).click();
+
     await expect.element(page.getByLabelText('Personal access token', { exact: true })).toBeVisible();
-    await expect.element(page.getByRole('link', { name: /github\.com\/settings\/personal-access-tokens\/new/ })).toBeVisible();
+    // One sentence on where to find it; the scopes and steps wait behind Details.
+    await expect.element(page.getByRole('link', { name: 'github.com' })).toHaveAttribute('href', 'https://github.com/settings/personal-access-tokens/new');
+    await expect.element(page.getByText(/Needs access to: pull_requests:read/)).not.toBeVisible();
+
+    await page.getByTestId('connect-paste-guide').getByText('Details').click();
+
     await expect.element(page.getByText('Make a fine-grained personal access token')).toBeVisible();
     await expect.element(page.getByText(/Needs access to: pull_requests:read/)).toBeVisible();
   });
@@ -150,24 +168,28 @@ describe('the add form puts the credential inside it', () => {
     await page.getByRole('button', { name: 'Connect HubSpot' }).click();
 
     await expect.element(page.getByLabelText('Private-app token', { exact: true })).toBeVisible();
-    await expect.element(page.getByText('CRM object read access')).toBeVisible();
     await expect.element(page.getByRole('link', { name: /Log in with/ })).not.toBeInTheDocument();
-    await expect.element(page.getByText(/^or paste a/)).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /^Paste .* instead$/ })).not.toBeInTheDocument();
+
+    await page.getByTestId('connect-paste-guide').getByText('Details').click();
+
+    await expect.element(page.getByText('Needs access to: CRM object read access')).toBeVisible();
   });
 
-  it('a connector with nothing to paste (QuickBooks) shows its login alone: no "or paste", no input, no paste guidance', async () => {
+  it('a connector with nothing to paste (QuickBooks) shows its login alone: no paste, no input', async () => {
     await render(<SourcesPanel connectInfo={{ quickbooks: { providerLabel: 'QuickBooks', loggedInAs: null, stored: null, lastAttempt: null } }} />);
     await page.getByRole('button', { name: 'Connect QuickBooks Online' }).click();
 
     await expect.element(page.getByRole('link', { name: 'Log in with QuickBooks' })).toBeVisible();
-    await expect.element(page.getByText(/^or paste/)).not.toBeInTheDocument();
-    await expect.element(page.getByTestId('connect-paste-guide')).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /^Paste .* instead$/ })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('textbox')).not.toBeInTheDocument();
     await expect.element(page.getByTestId('connect-after-login')).toHaveTextContent('Logging in is all it takes; the source is added for you.');
   });
 
   it('a connector made of several inputs (Jira) asks for each one by name, with no "needs" line when the access list is empty', async () => {
     await render(<SourcesPanel connectInfo={{ jira: ATLASSIAN_NO_LOGIN }} />);
     await page.getByRole('button', { name: 'Connect Jira' }).click();
+    await page.getByRole('button', { name: /^Paste .* instead$/ }).click();
 
     await expect.element(page.getByLabelText('Atlassian account email', { exact: true })).toBeVisible();
     await expect.element(page.getByLabelText('API token', { exact: true })).toBeVisible();
@@ -208,7 +230,7 @@ describe('the add form puts the credential inside it', () => {
     window.history.replaceState(null, '', '/?add=github');
     await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
 
-    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Connect', exact: true }).last()).toBeDisabled();
     await expect.element(page.getByText(/Still needed/i)).toHaveTextContent(/personal access token/);
     await expect.element(page.getByText(/Still needed/i)).toHaveTextContent(/repositories/);
   });
@@ -258,7 +280,7 @@ describe('a stored login fills the credential, masked', () => {
     await expect.element(page.getByText('Connected GitHub.', { exact: false })).toBeVisible();
 
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith({ connector: 'github', config: { ...GITHUB_CONFIG, repos: ['northwind/portal'] }, credential: { keepStored: true } }));
   });
@@ -267,9 +289,10 @@ describe('a stored login fills the credential, masked', () => {
     addConnector.mockResolvedValue({ ok: true, sourceId: 5 });
     window.history.replaceState(null, '', '/?add=github');
     await render(<SourcesPanel connectInfo={{ github: NO_LOGIN }} />);
+    await page.getByRole('button', { name: 'Paste a Personal access token instead' }).click();
     await userEvent.fill(page.getByLabelText('Personal access token', { exact: true }), 'ghp_pasted_once');
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith({ connector: 'github', config: { ...GITHUB_CONFIG, repos: ['northwind/portal'] }, credential: { values: { token: 'ghp_pasted_once' } } }));
 
@@ -282,10 +305,10 @@ describe('a stored login fills the credential, masked', () => {
     await render(<SourcesPanel connectInfo={{ github: LOGGED_IN }} />);
 
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await expect.element(page.getByRole('alert')).toHaveTextContent('Only a workspace admin can connect a source');
-    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Connect', exact: true }).last()).toBeVisible();
   });
 });
 
@@ -318,7 +341,7 @@ describe('Show reveals the stored value for an admin', () => {
     await page.getByRole('button', { name: 'Show' }).click();
     await userEvent.fill(page.getByLabelText('Personal access token', { exact: true }), 'ghp_edited_after_show');
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith({ connector: 'github', config: { ...GITHUB_CONFIG, repos: ['northwind/portal'] }, credential: { values: { token: 'ghp_edited_after_show' } } }));
   });
@@ -331,7 +354,7 @@ describe('Show reveals the stored value for an admin', () => {
     await page.getByRole('button', { name: 'Show' }).click();
     await page.getByRole('button', { name: 'Hide Personal access token' }).click();
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith(expect.objectContaining({ credential: { keepStored: true } })));
   });
@@ -348,7 +371,7 @@ describe('Show reveals the stored value for an admin', () => {
     await expect.element(page.getByLabelText('Personal access token', { exact: true })).toHaveValue('ghs_the_real_value_abcd');
 
     await userEvent.fill(page.getByLabelText(/Repositories/), 'northwind/portal');
-    await page.getByRole('button', { name: 'Add connector' }).last().click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).last().click();
 
     await vi.waitFor(() => expect(addConnector).toHaveBeenCalledWith(expect.objectContaining({ credential: { keepStored: true } })));
   });

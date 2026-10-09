@@ -82,6 +82,7 @@ export const metaAdsConnector: SourceConnector<typeof metaAdsConfigSchema> = {
   name: 'Meta Ads',
   description: 'A Meta ad account (Facebook and Instagram), read live: campaigns and ad sets with their status and budget, and what they delivered and spent by day. Pausing and resuming is a card you decide, with Undo.',
   icon: 'Megaphone',
+  category: 'sales-marketing',
   brand: 'meta',
   authKind: 'apikey',
   syncless: true,

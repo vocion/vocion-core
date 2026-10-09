@@ -31,6 +31,7 @@ export const xeroConnector: SourceConnector<typeof xeroConfigSchema> = {
   brand: 'xero',
   description: 'Read a Xero organisation\'s books — invoices, bills and payments as searchable documents; customers, vendors and accounts live. Read-only.',
   icon: 'Landmark',
+  category: 'finance-people',
   authKind: 'oauth',
   configSchema: xeroConfigSchema,
   defaultReconcileCron: '45 3 * * *',

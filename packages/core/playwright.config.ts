@@ -333,6 +333,15 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // The Connectors page on a phone: connect, broken-then-reconnect, and
+    // disconnect with Undo. Self-seeding; no vendor is called.
+    // Run with: npx playwright test --project=connections
+    {
+      name: 'connections',
+      testDir: './e2e/connections',
+      timeout: projectTimeout(180 * 1000, 90 * 1000),
+      use: { ...devices['Desktop Chrome'] },
+    },
     {
       name: 'credentials',
       testDir: './e2e/credentials',
