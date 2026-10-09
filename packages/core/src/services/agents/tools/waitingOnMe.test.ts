@@ -152,8 +152,34 @@ describe('waiting_on_me', () => {
     expect(out).not.toContain('For Cass only');
   });
 
+  it('lists the email replies the person owes from their own mailbox, with where to find the rest', () => {
+    const place = { id: REVENUE, slug: 'revenue', name: 'Revenue', accountSlug: 'northwind-wom' };
+    const owed = {
+      documentId: 7,
+      sourceSlug: 'gmail',
+      threadId: 't-contoso',
+      subject: 'Pricing for the managed service',
+      counterpart: 'Jamie Smith <jamie@contoso.example>',
+      ask: 'Wants pricing for 40 seats',
+      category: 'sales' as const,
+      state: 'needs_my_reply' as const,
+      lastInboundAt: new Date('2026-10-07T10:00:00Z'),
+      lastOutboundAt: null,
+      uri: 'https://mail.google.com/mail/u/alex%40northwind.example/#all/t-contoso',
+      mailbox: 'alex@northwind.example',
+      from: 'index' as const,
+      workspace: place,
+    };
+    const out = renderWaitingOnMe({ scope: 'workspace', decisions: [], totalOpen: 0, followUps: [], mentions: [], owedMail: [owed], owedMailTotal: 12, unavailable: [] });
+
+    expect(out).toContain('EMAIL REPLIES YOU OWE (12)');
+    expect(out).toContain('[Pricing for the managed service](https://mail.google.com/');
+    expect(out).toContain('Wants pricing for 40 seats');
+    expect(out).toContain('and 11 more: mail_owed_replies lists them all');
+  });
+
   it('says nothing is there rather than inventing it', () => {
-    const out = renderWaitingOnMe({ scope: 'workspace', decisions: [], totalOpen: 0, followUps: [], mentions: [], unavailable: [] });
+    const out = renderWaitingOnMe({ scope: 'workspace', decisions: [], totalOpen: 0, followUps: [], mentions: [], owedMail: [], owedMailTotal: 0, unavailable: [] });
 
     expect(out).toContain('DECISIONS ON YOU: none.');
     expect(out).toContain('FOLLOW-UPS YOU OWE: none.');
