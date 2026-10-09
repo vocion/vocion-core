@@ -4,11 +4,12 @@ import type { AgentOption, ChatMessage, ConversationAutonomy } from './types';
 import type { FollowExclude } from '@/libs/chat/turnFollowups';
 import { Quote } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AgentMessage } from './AgentMessage';
+import { ChatAgentsProvider } from './ChatAgents';
 import { DecisionAnswerLine } from './decisions/DecisionAnswerLine';
-import { turnAttribution } from './routing';
 import { SelectionToolbar } from './SelectionToolbar';
+import { speakersOf } from './speakers';
 import { UserMessage } from './UserMessage';
 import { useSelectionReply } from './useSelectionReply';
 import { useThreadRecords } from './useThreadRecords';
@@ -67,13 +68,17 @@ export type MessageListProps = {
   /** The thread — stamped into a failed step's Copy details block. */
   conversationId?: number | null;
   /** The workspace's agents, so an attributed turn draws the specialist's `AgentDot`. */
-  agents?: ReadonlyArray<Pick<AgentOption, 'slug' | 'name' | 'accent'>>;
+  agents?: readonly AgentOption[];
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
+/** No roster: the transcript draws no teammate avatars. */
+const NO_AGENTS: readonly AgentOption[] = [];
+
 export function MessageList({ messages, agentName, ownAgentSlug, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, onBuildCard, conversationId, pageRecord, agents }: MessageListProps) {
+  const speakers = useMemo(() => speakersOf(messages, { slug: ownAgentSlug, name: agentName }, agents), [messages, ownAgentSlug, agentName, agents]);
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -190,58 +195,54 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
           it the column's min-content is that same 768px, and a grid or flex
           parent sized off min-content hands the transcript 768px on a 390px
           phone. */}
-      <div ref={columnRef} className="mx-auto w-full max-w-3xl min-w-0 space-y-8">
-        {blocksAfter(-1)}
-        {messages.map((msg, i) => (
-          <div key={i} className={`space-y-8 ${gapAfter(i)}`}>
-            {msg.role === 'user'
-              ? (
+      <ChatAgentsProvider value={agents ?? NO_AGENTS}>
+        <div ref={columnRef} className="mx-auto w-full max-w-3xl min-w-0 space-y-8">
+          {blocksAfter(-1)}
+          {messages.map((msg, i) => (
+            <div key={i} className={`space-y-8 ${gapAfter(i)}`}>
+              {msg.role === 'user'
+                ? (
                   // A card's answer has no words: it is drawn as the receipt
                   // it is. Typed words that answered keep their bubble.
-                  <>
-                    {(msg.content.trim() || (msg.attachments?.length ?? 0) > 0 || !msg.decisionAnswer) && <UserMessage content={msg.content} attachments={msg.attachments} />}
-                    {msg.decisionAnswer && <div className={msg.content.trim() ? 'mt-1.5' : ''}><DecisionAnswerLine answer={msg.decisionAnswer} /></div>}
-                  </>
-                )
-              : (
-                  <AgentMessage
-                    message={msg}
-                    agentName={agentName}
-                    // A routed turn (`@agent`, `/search`, a delegation) is
-                    // attributed, never re-identified: "via <specialist>" (§9.10)
-                    // — from the turn's stamped agent, not a guess (backlog 009).
-                    via={(() => {
-                      const who = turnAttribution(msg, { slug: ownAgentSlug, name: agentName });
-                      return who ? t('via', { name: who }) : undefined;
-                    })()}
-                    viaAgent={(() => {
-                      const who = turnAttribution(msg, { slug: ownAgentSlug, name: agentName });
-                      if (!who) {
-                        return undefined;
-                      }
-                      const known = agents?.find(a => (msg.agentSlug ? a.slug === msg.agentSlug : a.name === who));
-                      return { name: who, accent: known?.accent ?? null };
-                    })()}
-                    viaReason={msg.routing?.reason}
-                    streaming={streaming && i === lastIdx}
-                    activity={i === lastIdx ? activity : undefined}
-                    onShowSources={onShowSources}
-                    onCitationClick={onCitationClick}
-                    onFeedback={onFeedback}
-                    autonomy={autonomy}
-                    onOpenArtifact={onOpenArtifact}
-                    onBuildCard={onBuildCard}
-                    conversationId={conversationId}
-                    pageRecord={pageRecord}
-                    latest={i === lastIdx}
-                    threadRecords={i === lastIdx ? threadRecords : undefined}
-                  />
-                )}
-            {blocksAfter(i)}
-          </div>
-        ))}
-        {messages.length === 0 && blocks.filter(b => b.afterIndex > -1).map(b => <div key={b.key}>{b.node}</div>)}
-      </div>
+                    <>
+                      {(msg.content.trim() || (msg.attachments?.length ?? 0) > 0 || !msg.decisionAnswer) && <UserMessage content={msg.content} attachments={msg.attachments} />}
+                      {msg.decisionAnswer && <div className={msg.content.trim() ? 'mt-1.5' : ''}><DecisionAnswerLine answer={msg.decisionAnswer} /></div>}
+                    </>
+                  )
+                : (
+                    <AgentMessage
+                      message={msg}
+                      agentName={agentName}
+                      // A routed turn (`@agent`, `/search`, a delegation) is
+                      // attributed, never re-identified: "via <specialist>" (§9.10)
+                      // — from the turn's stamped agent, not a guess (backlog 009).
+                      // The turn opens with its speaker's avatar and name only
+                      // when the speaker changes to a teammate; the same
+                      // speaker's next turns keep the quiet mark (`speakers.ts`).
+                      via={speakers[i]?.opener ? t('via', { name: speakers[i]!.opener!.name }) : undefined}
+                      opener={speakers[i]?.opener ?? undefined}
+                      writer={speakers[i]?.speaker ?? undefined}
+                      viaReason={msg.routing?.reason}
+                      streaming={streaming && i === lastIdx}
+                      activity={i === lastIdx ? activity : undefined}
+                      onShowSources={onShowSources}
+                      onCitationClick={onCitationClick}
+                      onFeedback={onFeedback}
+                      autonomy={autonomy}
+                      onOpenArtifact={onOpenArtifact}
+                      onBuildCard={onBuildCard}
+                      conversationId={conversationId}
+                      pageRecord={pageRecord}
+                      latest={i === lastIdx}
+                      threadRecords={i === lastIdx ? threadRecords : undefined}
+                    />
+                  )}
+              {blocksAfter(i)}
+            </div>
+          ))}
+          {messages.length === 0 && blocks.filter(b => b.afterIndex > -1).map(b => <div key={b.key}>{b.node}</div>)}
+        </div>
+      </ChatAgentsProvider>
     </div>
   );
 }

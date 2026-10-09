@@ -1,6 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { Speaker } from './speakers';
 import type { AgentRun, IndexedDocument, TraceNode } from './types';
 import type { FailureReport } from '@/libs/chat/redact';
 import {
@@ -23,9 +24,12 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { AgentDot, AgentDots } from '@/components/ui/agent-dot';
 import { failureOneLiner, failureReport } from '@/libs/chat/redact';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
+import { useChatAgents } from './ChatAgents';
 import { sourceLabels } from './helpers';
+import { speakerOf } from './speakers';
 import { liveStepLabel } from './traceReducer';
 import { formatElapsed, useElapsed } from './useElapsed';
 
@@ -443,6 +447,20 @@ export function hasLiveDetail({ runs, trace, thinkingText }: { runs: Extract<Age
   return runs.some(r => !PLUMBING.has(r.name)) || Boolean(thinkingText?.trim());
 }
 
+/**
+ * Who a delegated step went to: the specialist its own steps ran as, else the
+ * name its label carries ("Delegated to Dana", "Dana finished").
+ * @param node - The delegate step.
+ * @param kids - Its steps.
+ */
+function delegateWho(node: TraceNode, kids: readonly TraceNode[]): { slug?: string; name?: string } {
+  const actor = kids.find(k => k.actor.kind === 'specialist')?.actor;
+  if (actor) {
+    return { slug: actor.id, name: actor.name };
+  }
+  return { name: node.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to |^Asked /, '').replace(/ finished$/, '').trim() };
+}
+
 function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext, elapsed: turnElapsed }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport; elapsed?: number }) {
   // Level-1 lines expand independently; one control recollapses everything
   // (agent-chat-surface.md §2.1 rule 1).
@@ -460,6 +478,10 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
   const actions = roots.filter(n => n.kind !== 'reason');
   const reasons = roots.filter(n => n.kind === 'reason');
   const childrenOf = (id: string) => trace.filter(n => n.parentId === id);
+  // A delegated step is drawn as the teammate it went to, and an ask of
+  // several teammates as their cluster (`speakers.ts`).
+  const agents = useChatAgents();
+  const delegateOf = (n: TraceNode) => (n.kind === 'delegate' ? speakerOf(agents, delegateWho(n, childrenOf(n.id))) : null);
   const steps = trace.filter(n => n.kind !== 'reason').length;
   const sources = documents.length;
   const anyOpen = openIds.size > 0;
@@ -546,9 +568,11 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
   const soloRadius = solo ? (solo.result ?? (solo.resultDetail && solo.resultDetail.length <= 60 ? solo.resultDetail : undefined)) : undefined;
   const headline = solo ? null : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool })), sources);
   const failed = actions.some(n => n.status === 'error');
+  // A team answer: the teammates asked in this group, each once.
+  const asked = actions.map(delegateOf).filter((a, i, all): a is Speaker => a !== null && all.findIndex(b => b?.name === a.name) === i);
 
   return (
-    <div className="my-1.5" data-testid="work-group">
+    <div className="my-1.5" data-testid="work-group" data-asked={asked.length > 1 ? asked.length : undefined}>
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
@@ -557,7 +581,11 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
         title={summary}
         className={`group/work flex w-full items-center gap-2 py-1 text-left text-xs transition hover:text-foreground ${failed ? 'text-muted-foreground' : 'text-muted-foreground/75'}`}
       >
-        {solo ? <TraceMarker node={solo} /> : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
+        {solo
+          ? (delegateOf(solo) ? <AgentDot name={delegateOf(solo)!.name} accent={delegateOf(solo)!.accent} size="xs" decorative /> : <TraceMarker node={solo} />)
+          : asked.length > 1
+            ? <AgentDots agents={asked} size="sm" max={4} className="shrink-0" />
+            : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
         <span className="min-w-0 flex-1 truncate">
           {solo
             ? (
@@ -602,7 +630,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
                 <ClaimLine
                   key={n.id}
                   id={n.id}
-                  icon={<TraceMarker node={n} />}
+                  icon={delegateOf(n) ? <AgentDot name={delegateOf(n)!.name} accent={delegateOf(n)!.accent} size="xs" decorative /> : <TraceMarker node={n} />}
                   label={n.kind === 'delegate' ? `→ ${n.label}` : n.label}
                   detail={n.detail}
                   radius={n.status === 'error' ? failureOneLiner(n.result ?? n.resultDetail) : (n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined))}
@@ -665,13 +693,15 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
  * @param root0.elapsed - Seconds since the turn started.
  * @param root0.expanded - Whether the rows show.
  * @param root0.onToggle - Show or hide the rows; absent when there is nothing behind the line.
+ * @param root0.agent
  */
-export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle }: { text: string; steps?: number; elapsed: number; expanded?: boolean; onToggle?: () => void }) {
+export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle, agent }: { text: string; steps?: number; elapsed: number; expanded?: boolean; onToggle?: () => void; agent?: Speaker }) {
   const count = steps > 0 ? `${steps} step${steps === 1 ? '' : 's'}` : null;
   const meta = [count, elapsed >= 1 ? formatElapsed(elapsed) : null].filter(Boolean).join(' · ');
   const line = (
     <>
-      <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
+      {/* The writing agent's own avatar, the same dot as the team (`speakers.ts`). */}
+      {agent ? <AgentDot name={agent.name} accent={agent.accent} size="xs" decorative /> : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <span className="work-shimmer min-w-0 truncate font-medium">{text}</span>
         {meta && (

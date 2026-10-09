@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import { ChevronDown, ChevronUp, CornerDownLeft, Loader2, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { AgentDot } from '@/components/ui/agent-dot';
 import { Surface } from '@/components/ui/surface';
 import { openPreview } from '@/features/preview/previewState';
 import { decisionTitle, DENY_ID } from '@/libs/decisions/decision';
@@ -50,6 +51,8 @@ export type DecisionCardProps = {
   decision: DecisionView;
   /** The agent that asked, by name, for the eyebrow. */
   agentName?: string | null;
+  /** That agent's authored accent: its avatar heads the card ("Allow Dana to send this email?"). */
+  agentAccent?: string | null;
   /** Where it is: `dock` above a composer, `list` as a Needs you row. */
   variant?: 'dock' | 'list';
   /** Its place in the queue of open Decisions — "1 of 3". */
@@ -124,6 +127,7 @@ function deadlineLine(deadline: NonNullable<DecisionView['deadline']>): string {
 export function DecisionCard({
   decision,
   agentName,
+  agentAccent,
   variant = 'dock',
   position,
   collapsed = false,
@@ -389,6 +393,8 @@ export function DecisionCard({
     >
       <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
       <div className="flex items-start gap-2">
+        {/* The asking agent's own avatar, the same dot as the team. */}
+        {agentName && <AgentDot name={agentName} accent={agentAccent} size="md" decorative className="mt-0.5" />}
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase" data-testid="decision-eyebrow">
             {asker}

@@ -59,21 +59,22 @@ describe('AgentMessage Sources chip', () => {
   });
 });
 
-describe('AgentMessage attribution (§9.10)', () => {
-  it('renders a routed reply under the workspace with a "via <specialist>" eyebrow', async () => {
+describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', () => {
+  it('opens a turn the speaker changed to with that teammate\'s avatar and name ("Dana · Pricing")', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
-        via="via Proposal Writer"
-        message={{ role: 'assistant', content: 'Here is the brief.', runs: [{ type: 'text', text: 'Here is the brief.' }] }}
+        via="via Dana"
+        opener={{ name: 'Dana', accent: 'violet', eyebrow: 'Pricing' }}
+        message={{ role: 'assistant', content: 'Here is the price.', runs: [{ type: 'text', text: 'Here is the price.' }] }}
       />,
     );
 
-    await expect.element(page.getByText('Revenue')).toBeInTheDocument();
-    await expect.element(page.getByTestId('via-eyebrow')).toHaveTextContent('via Proposal Writer');
+    await expect.element(page.getByTestId('speaker-opener')).toHaveTextContent('Dana· Pricing');
+    expect(document.querySelector('[data-testid="speaker-opener"] [data-slot="agent-dot"]')).not.toBeNull();
   });
 
-  it('shows no eyebrow when the workspace agent answered itself', async () => {
+  it('keeps the quiet mark when the same speaker carries on, and on the lead\'s own turns', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -82,7 +83,21 @@ describe('AgentMessage attribution (§9.10)', () => {
     );
 
     await expect.element(page.getByText('Pipeline is up 12%.')).toBeInTheDocument();
-    expect(page.getByTestId('via-eyebrow').query()).toBeNull();
+    expect(page.getByTestId('speaker-opener').query()).toBeNull();
+  });
+
+  it('says who is writing, with their avatar', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        streaming
+        writer={{ name: 'Dana', accent: 'violet' }}
+        message={{ role: 'assistant', content: 'Draft', runs: [{ type: 'text', text: 'Draft' }] }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Dana is writing…');
+    expect(document.querySelector('[data-testid="streaming-indicator"] [data-slot="agent-dot"]')).not.toBeNull();
   });
 });
 
