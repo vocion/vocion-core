@@ -131,6 +131,7 @@ describe('a setup the person started and left (its objective)', () => {
       label: 'Resume setting up Software Factory →',
       reason: '2 steps left; next: Connect GitHub.',
       action: { kind: 'open', href: '/dashboard/chat?conversation=12' },
+      resumes: 12,
     });
 
     const fresh = openingHints(input({ apps: [factory] }))[0]!;

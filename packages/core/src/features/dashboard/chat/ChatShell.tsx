@@ -277,6 +277,11 @@ function ChatShellInner({
   const nudge = openingHints
     ? (openingHints.length > 0 ? <OpeningHints hints={openingHints} onSend={session.handlePickSuggestion} /> : null)
     : waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
+  // A lead-only workspace opens on its own setup chip — unless the person
+  // already started a setup and left it: then the ranker's "Resume setting up
+  // … →" takes that one place (`objectives/ObjectiveStrip`).
+  const resumeHint = openingHints?.find(h => h.resumes !== undefined) ?? null;
+  const leadHint = resumeHint ? <OpeningHints hints={[resumeHint]} onSend={session.handlePickSuggestion} /> : null;
   const firstName = usePersonFirstName();
   // YOUR TEAM IS HERE: the empty conversation's centre, and who the composer asks.
   const team = useMemo(() => teamOf(agents, defaultAgentSlug(agents)).members, [agents]);
@@ -441,7 +446,7 @@ function ChatShellInner({
                               never cards: an empty conversation starts warm
                               (`emptyChat.ts`, founder 2026-10-08). */}
                           {wantsLeadIntro(agents)
-                            ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} />
+                            ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} hint={leadHint} />
                             : (
                                 <EmptyState
                                   firstName={firstName}

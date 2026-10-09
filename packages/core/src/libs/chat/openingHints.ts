@@ -38,6 +38,8 @@ export type OpeningHint = {
   reason: string;
   score: number;
   action: HintAction;
+  /** The conversation it picks back up, when it resumes a setup the person started there. */
+  resumes?: number;
 };
 
 export type HintInput = {
@@ -148,6 +150,7 @@ function setupCandidate(input: HintInput): OpeningHint | null {
           reason: `${left.length} ${plural(left.length, 'step', 'steps')} left; next: ${next.label}.`,
           score: score * RESUME_BOOST,
           action: { kind: 'open', href: `/dashboard/chat?conversation=${resume.conversationId}` },
+          resumes: resume.conversationId,
         }
       : canFinish
         ? {
