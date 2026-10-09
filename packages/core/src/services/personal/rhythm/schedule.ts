@@ -14,7 +14,9 @@
  *   3. moves that row's next time to the following day.
  *
  * A delivery more than two hours late (the server was down) is skipped, not
- * sent: a morning brief at two in the afternoon is not one.
+ * sent: a morning brief at two in the afternoon is not one. So is one for a
+ * person who has not been here in seven days, or whose Org turned daily
+ * briefs off (`guard.ts`): their next time still moves on, so nothing piles up.
  */
 
 import type { RhythmKind } from '@/libs/personal/rhythm';
@@ -88,7 +90,7 @@ export async function ensureRhythmRows(now: Date): Promise<number> {
 }
 
 /** What the sweep did, for its log line and its test. */
-export type SweepResult = { made: number; started: Array<{ userId: string; accountId: string; kind: RhythmKind; day: string }>; skipped: number };
+export type SweepResult = { made: number; started: Array<{ userId: string; accountId: string; kind: RhythmKind; day: string }>; skipped: number; inactive: number };
 
 /** How a due delivery is started: a durable job under a once-only id. */
 export type StartDelivery = (id: string, input: { userId: string; accountId: string; kind: RhythmKind; day: string; timeZone: string }) => Promise<void>;
@@ -111,8 +113,12 @@ export async function sweepRhythms(now: Date = new Date(), start: StartDelivery 
     .from(personalRhythmSchema)
     .where(or(lte(personalRhythmSchema.nextBriefAt, now), lte(personalRhythmSchema.nextWrapAt, now)))
     .limit(500);
-  const result: SweepResult = { made, started: [], skipped: 0 };
+  const result: SweepResult = { made, started: [], skipped: 0, inactive: 0 };
+  // Only people still in an Org with briefs on, who were here this week (`guard.ts`).
+  const { eligibleForBriefs } = await import('./guard');
+  const eligible = await eligibleForBriefs(due, now);
   for (const row of due) {
+    const wanted = eligible.has(`${row.userId}:${row.accountId}`);
     const tz = zoneOf(row);
     const moves: Partial<Row> = {};
     for (const kind of ['brief', 'wrap'] as const) {
@@ -124,7 +130,9 @@ export async function sweepRhythms(now: Date = new Date(), start: StartDelivery 
       if (action === 'wait') {
         continue;
       }
-      if (action === 'deliver') {
+      if (action === 'deliver' && !wanted) {
+        result.inactive += 1;
+      } else if (action === 'deliver') {
         const day = rhythmDay(at, tz);
         await start(`personal-rhythm:${row.userId}:${row.accountId}:${kind}:${day}`, { userId: row.userId, accountId: row.accountId, kind, day, timeZone: tz });
         result.started.push({ userId: row.userId, accountId: row.accountId, kind, day });

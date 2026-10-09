@@ -16,7 +16,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { accountMembershipSchema, askSchema, conversationMessageSchema, conversationSchema, missionRunSchema, personalRhythmSchema, projectMemberSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, agentBudgetSchema, askSchema, conversationMessageSchema, conversationSchema, missionRunSchema, notificationSchema, personalRhythmSchema, projectMemberSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { storeLoginCredential } = await import('@/services/ApiTokenService');
 const { ensurePersonalProject } = await import('@/services/workspace/personalProject');
 const { getRhythm, setRhythm, sweepRhythms } = await import('./schedule');
@@ -39,8 +39,9 @@ beforeAll(async () => {
     { id: CASS, email: 'cass@northwind.example', name: 'Cass Lund' },
   ]);
   await db.insert(accountMembershipSchema).values([
-    { accountId: ACCOUNT, userId: ALEX, role: 'member' },
-    { accountId: ACCOUNT, userId: CASS, role: 'member' },
+    // Alex was here yesterday; Cass, the Org's admin, has not been in for a month.
+    { accountId: ACCOUNT, userId: ALEX, role: 'member', lastActiveAt: new Date('2026-10-08T18:00:00Z') },
+    { accountId: ACCOUNT, userId: CASS, role: 'admin', lastActiveAt: new Date('2026-09-01T18:00:00Z') },
   ]);
   await db.insert(projectSchema).values({ id: REVENUE, accountId: ACCOUNT, slug: 'revenue-rh', name: 'Revenue Team' });
   await db.insert(projectMemberSchema).values({ projectId: REVENUE, userId: ALEX, role: 'member' });
@@ -48,6 +49,9 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await db.update(tenantAccountSchema).set({ dailyBriefs: true, briefDailyCents: null }).where(eq(tenantAccountSchema.id, ACCOUNT));
+  await db.delete(agentBudgetSchema);
+  await db.delete(notificationSchema);
   await db.delete(personalRhythmSchema);
   await db.delete(askSchema);
   await db.delete(conversationSchema).where(eq(conversationSchema.orgId, home));
@@ -105,6 +109,57 @@ describe('the sweep — who gets a brief, and when', () => {
     expect(r).toMatchObject({ wrapOn: false, nextWrapAt: null, briefAt: '06:45', timeZone: TZ, zoneChosen: true });
     expect(r.nextBriefAt?.toISOString()).toBe('2026-10-09T13:45:00.000Z');
     await expect(setRhythm(ALEX, ACCOUNT, { briefAt: '7.30' })).rejects.toThrow(/HH:MM/);
+  });
+});
+
+describe('the limits — briefs cost model money, so only where they are wanted', () => {
+  it('starts none for someone who has not been here in seven days, and still moves their time on', async () => {
+    await ensurePersonalProject(CASS, ACCOUNT);
+    await setRhythm(CASS, ACCOUNT, { timeZone: TZ }, new Date('2026-10-09T13:00:00Z'));
+
+    const out = await sweepRhythms(MORNING, async () => {});
+
+    expect(out.started.filter(s => s.userId === CASS)).toEqual([]);
+    expect(out.inactive).toBeGreaterThan(0);
+    expect((await getRhythm(CASS, ACCOUNT, MORNING)).nextBriefAt?.toISOString()).toBe('2026-10-10T14:30:00.000Z');
+  });
+
+  it('starts none in an Org that turned daily briefs off', async () => {
+    await db.update(tenantAccountSchema).set({ dailyBriefs: false }).where(eq(tenantAccountSchema.id, ACCOUNT));
+    await setRhythm(ALEX, ACCOUNT, { timeZone: TZ }, new Date('2026-10-09T13:00:00Z'));
+
+    const out = await sweepRhythms(MORNING, async () => {});
+
+    expect(out.started).toEqual([]);
+  });
+
+  it('a day with nothing in it costs nothing: no model call, no message', async () => {
+    await db.delete(askSchema);
+    const writer = vi.fn(async () => null);
+
+    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+
+    expect(out).toEqual({ delivered: false, reason: 'nothing to say' });
+    expect(writer).not.toHaveBeenCalled();
+    expect(await db.select().from(conversationSchema).where(eq(conversationSchema.orgId, home))).toEqual([]);
+  });
+
+  it('an Org past its daily brief budget gets no brief, and its admins one quiet notice', async () => {
+    const cassHome = (await ensurePersonalProject(CASS, ACCOUNT)).id;
+    await db.update(tenantAccountSchema).set({ briefDailyCents: 50 }).where(eq(tenantAccountSchema.id, ACCOUNT));
+    // Briefs already spent 60 cents in the Org today, charged through the ordinary spend path.
+    await db.insert(agentBudgetSchema).values({ orgId: cassHome, agentSlug: 'platform:personal.brief', feature: 'personal.brief', period: 'daily', currentTokens: 1, currentMicroCents: 60_000_000, periodStartedAt: new Date('2026-10-09T00:00:00Z') });
+    const writer = vi.fn(async () => null);
+
+    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+    await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'wrap', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+
+    expect(out).toMatchObject({ delivered: false, reason: expect.stringContaining('daily brief budget') });
+    expect(writer).not.toHaveBeenCalled();
+
+    const notices = await db.select().from(notificationSchema).where(eq(notificationSchema.kind, 'briefs-paused'));
+
+    expect(notices.map(n => n.userId)).toEqual([CASS]);
   });
 });
 

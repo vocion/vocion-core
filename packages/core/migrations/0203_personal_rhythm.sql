@@ -19,3 +19,8 @@ CREATE TABLE IF NOT EXISTS "personal_rhythm" (
 CREATE INDEX IF NOT EXISTS "personal_rhythm_next_brief_idx" ON "personal_rhythm" ("next_brief_at");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "personal_rhythm_next_wrap_idx" ON "personal_rhythm" ("next_wrap_at");
+--> statement-breakpoint
+-- The Org's switch for daily briefs, and what they may spend on the model in a day.
+ALTER TABLE "tenant_account" ADD COLUMN IF NOT EXISTS "daily_briefs" boolean DEFAULT true NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "tenant_account" ADD COLUMN IF NOT EXISTS "brief_daily_cents" integer;

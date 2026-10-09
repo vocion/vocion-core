@@ -127,7 +127,7 @@ import {
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, setPins as setNavPins } from './Nav';
 import { currentRoute as currentObjectiveRoute, resumeRoute as resumeObjectiveRoute, stopRoute as stopObjectiveRoute } from './Objectives';
-import { connectionsRoute as personalConnectionsRoute, disconnectRoute as personalDisconnectRoute, rhythmRoute as personalRhythmRoute, setPolicyRoute as personalSetPolicyRoute, setRhythmRoute as personalSetRhythmRoute } from './Personal';
+import { connectionsRoute as personalConnectionsRoute, disconnectRoute as personalDisconnectRoute, orgBriefsRoute as personalOrgBriefsRoute, rhythmRoute as personalRhythmRoute, setOrgBriefsRoute as personalSetOrgBriefsRoute, setPolicyRoute as personalSetPolicyRoute, setRhythmRoute as personalSetRhythmRoute } from './Personal';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
@@ -247,6 +247,8 @@ export const router = {
     setPolicy: personalSetPolicyRoute,
     rhythm: personalRhythmRoute,
     setRhythm: personalSetRhythmRoute,
+    orgBriefs: personalOrgBriefsRoute,
+    setOrgBriefs: personalSetOrgBriefsRoute,
   },
   profile: {
     get: getProfileRoute,

@@ -65,6 +65,40 @@ If the model cannot answer, the brief still goes out. Each meeting's first
 piece of evidence becomes its context line, and the oldest decisions become
 the actions.
 
+## Limits
+
+Briefs are on by default, and each one costs a model call. These limits keep
+that spend to the people who want it (`services/personal/rhythm/guard.ts`):
+
+- **The Org's switch.** **Daily briefs for your Org**, under Notification
+  settings → Your day, is admin-only and on by default
+  (`tenant_account.daily_briefs`). When it is off, nobody in the Org gets one.
+  Each person's own times and switches sit under it.
+- **Only people who are here.** A person who has not signed in or used the app
+  in the last seven days gets none (`account_membership.last_active_at` /
+  `last_login_at`). Their next time still moves on, so nothing piles up.
+- **Nothing to say, nothing sent.** The cheap read runs first: records and one
+  calendar call. If there are no meetings, nothing waiting, no team activity
+  and, for the wrap, nothing done, there is no model call and no message.
+  Meeting evidence (mail and record searches) is gathered only for a brief
+  that will be written.
+- **The budget.** The writer's call charges through the ordinary spend path
+  (`chargeModelCall`, feature `personal.brief`), against the person's Personal
+  workspace. Two checks run before every brief:
+  - a hard cap on that workspace refuses the brief (`preflightCheck`);
+  - across the Org, today's brief spend is held to the Org's daily cap. The
+    admin sets it beside the switch (`brief_daily_cents`), or it falls back to
+    the deployment's `VOCION_BRIEF_DAILY_CENTS`.
+
+  Past either check, briefs stop for the day, and the Org's admins get one
+  in-app notice ("Daily briefs paused for today").
+
+**Expected cost.** One classifier call (Claude Haiku 4.5 at $1 in and $5 out
+per million tokens) per brief or wrap. That is about 1.5–3k input tokens of
+facts and about 300 output tokens, or roughly $0.003–0.005 each. A person who
+gets both every working day costs about $0.20 a month. An empty day costs
+nothing.
+
 ## Where it arrives
 
 Each delivery is its own conversation in the person's Personal workspace,

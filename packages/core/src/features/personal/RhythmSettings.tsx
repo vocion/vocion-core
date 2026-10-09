@@ -8,6 +8,7 @@ import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { client } from '@/libs/Orpc';
 
 type Rhythm = Awaited<ReturnType<typeof client.personal.rhythm>>;
+type OrgBriefs = Awaited<ReturnType<typeof client.personal.orgBriefs>>;
 
 /**
  * When the next one arrives, in the person's zone: "Fri, Oct 10, 7:30 AM".
@@ -29,11 +30,14 @@ function nextLabel(at: Date | string | null, tz: string): string | null {
  */
 export function RhythmSettings() {
   const [rhythm, setRhythm] = useState<Rhythm | null>(null);
+  const [org, setOrg] = useState<OrgBriefs | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setRhythm(await client.personal.rhythm({ browserTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+      const [r, o] = await Promise.all([client.personal.rhythm({ browserTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }), client.personal.orgBriefs()]);
+      setRhythm(r);
+      setOrg(o);
     } catch {
       setError('Your brief times could not be read just now.');
     }
@@ -54,6 +58,15 @@ export function RhythmSettings() {
     }
   };
 
+  const saveOrg = async (change: Parameters<typeof client.personal.setOrgBriefs>[0]) => {
+    try {
+      setOrg(await client.personal.setOrgBriefs(change));
+      setError(null);
+    } catch {
+      setError('The Org setting could not be saved.');
+    }
+  };
+
   if (!rhythm) {
     return error ? <p className="text-sm text-muted-foreground">{error}</p> : null;
   }
@@ -65,6 +78,9 @@ export function RhythmSettings() {
 
   return (
     <DashboardSection title="Your day" description={`Your assistant writes these in your Personal workspace, at your times (${rhythm.timeZone}).`}>
+      {org && !org.dailyBriefs && (
+        <p className="mb-3 text-sm text-muted-foreground" data-testid="org-briefs-off">Your Org has turned daily briefs off, so none arrive whatever is set below.</p>
+      )}
       <ListRows>
         {rows.map(r => (
           <ListRow
@@ -89,6 +105,33 @@ export function RhythmSettings() {
           />
         ))}
       </ListRows>
+      {org?.canChange && (
+        <div className="mt-4 flex items-start justify-between gap-4 border-t border-border/60 pt-4" data-testid="org-briefs">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">Daily briefs for your Org</p>
+            <p className="text-xs text-muted-foreground">
+              Everyone who was here this week. Briefs stop for the day once they spend
+              {' '}
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                aria-label="Daily brief budget in dollars"
+                className="inline-flex h-7 w-20 px-2 align-middle"
+                defaultValue={org.briefDailyCents !== null ? (org.briefDailyCents / 100).toString() : org.defaultCents !== null ? (org.defaultCents / 100).toString() : ''}
+                placeholder="no cap"
+                onBlur={(e) => {
+                  const dollars = e.target.value.trim();
+                  void saveOrg({ briefDailyCents: dollars === '' ? null : Math.round(Number(dollars) * 100) });
+                }}
+              />
+              {' '}
+              USD a day.
+            </p>
+          </div>
+          <Switch on={org.dailyBriefs} label="Daily briefs for your Org" onChange={on => void saveOrg({ dailyBriefs: on })} />
+        </div>
+      )}
       {error && <p role="status" className="mt-3 text-sm text-brand-fail">{error}</p>}
     </DashboardSection>
   );

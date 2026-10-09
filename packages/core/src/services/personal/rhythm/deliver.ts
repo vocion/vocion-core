@@ -9,6 +9,10 @@
  * conversation's scope (`personal-rhythm:<kind>:<day>`): a second delivery
  * for the same day finds the first and does nothing.
  *
+ * Limits (`guard.ts`): nothing to say — no meetings, nothing waiting, no
+ * team activity — means no model call and no message; an Org over its brief
+ * budget gets none, and its admins one quiet notice a day.
+ *
  * Warm chat: the Decision is raised only after the message is written, so
  * the card never docks on an empty conversation (`emptyChat.mayDockCard`).
  * Its options are what the assistant does when chosen: choosing one answers
@@ -24,7 +28,8 @@ import { appendMessage, createConversation } from '@/services/ConversationServic
 import { personalAssistantSlug } from '@/services/workspace/personalAssistant';
 import { ensurePersonalProject } from '@/services/workspace/personalProject';
 import { modelWriter, renderRhythm } from './compose';
-import { gatherRhythmFacts } from './facts';
+import { gatherRhythmFacts, hasNothingToSay, withMeetingEvidence } from './facts';
+import { briefBudget, noticeBriefsStopped } from './guard';
 
 /**
  * The conversation scope that makes a delivery once-only.
@@ -70,7 +75,18 @@ export async function deliverRhythm(input: { userId: string; accountId: string; 
   const last = [rhythm?.lastBriefAt, rhythm?.lastWrapAt].filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0];
   const since = last ?? new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  const facts = await gatherRhythmFacts({ kind: input.kind, userId: input.userId, accountId: input.accountId, personalOrgId: personal.id, timeZone: input.timeZone, since, now });
+  // The cheap read first: records and one calendar call. Nothing to say means
+  // no model call and no message.
+  const bare = await gatherRhythmFacts({ kind: input.kind, userId: input.userId, accountId: input.accountId, personalOrgId: personal.id, timeZone: input.timeZone, since, now });
+  if (hasNothingToSay(bare)) {
+    return { delivered: false, reason: 'nothing to say' };
+  }
+  const budget = await briefBudget({ accountId: input.accountId, personalOrgId: personal.id, now });
+  if (!budget.ok) {
+    await noticeBriefsStopped(input.accountId, input.day, budget.why);
+    return { delivered: false, reason: `over budget: ${budget.why}` };
+  }
+  const facts = input.kind === 'brief' ? await withMeetingEvidence(bare) : bare;
   const { factsForWriter } = await import('./compose');
   const message = renderRhythm(facts, await writer(personal.id, factsForWriter(facts)));
 

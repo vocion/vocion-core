@@ -267,6 +267,18 @@ export const tenantAccountSchema = pgTable(
      */
     personalConnections: boolean('personal_connections').default(true).notNull(),
     /**
+     * Daily briefs (0203, docs/guides/morning-brief.md): whether this Org's
+     * people get a morning brief and an evening wrap at all. On by default;
+     * each person's own times and switches sit under it.
+     */
+    dailyBriefs: boolean('daily_briefs').default(true).notNull(),
+    /**
+     * What this Org's briefs may spend on the model in a day, in cents. Null
+     * takes the deployment's default (`VOCION_BRIEF_DAILY_CENTS`), and no
+     * default means no cap beyond each workspace's own budget.
+     */
+    briefDailyCents: integer('brief_daily_cents'),
+    /**
      * The Org's brand (migration 0199) — the same guide a workspace's
      * brand.yaml is (`libs/workspace/brand.ts`), with its logos kept in the
      * media store. Worn by the sidebar, sign-in, the favicon and mail; a

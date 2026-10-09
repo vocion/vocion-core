@@ -163,7 +163,7 @@ defineJob<{ orgId: string }>(JOB.orgReview, async (input) => {
 defineJob(JOB.personalRhythmSweep, async () => {
   const { sweepRhythms } = await import('@/services/personal/rhythm/schedule');
   const out = await sweepRhythms();
-  return { made: out.made, started: out.started.length, skipped: out.skipped };
+  return { made: out.made, started: out.started.length, skipped: out.skipped, inactive: out.inactive };
 }, { retry: twice });
 
 defineJob<{ userId: string; accountId: string; kind: 'brief' | 'wrap'; day: string; timeZone: string }>(JOB.personalRhythm, async (input) => {

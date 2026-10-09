@@ -94,3 +94,25 @@ export const setRhythmRoute = os
     }
     return setRhythm(userId, accountId, input);
   });
+
+/** The Org's daily-brief switch and daily cap, and whether this person may change them. */
+export const orgBriefsRoute = os.handler(async () => {
+  const { accountId, has } = await guardAuth();
+  if (!accountId) {
+    throw ApiError.forbidden();
+  }
+  const { orgBriefSettings } = await import('@/services/personal/rhythm/guard');
+  return { ...(await orgBriefSettings(accountId)), canChange: has({ role: ORG_ROLE.ADMIN }) };
+});
+
+export const setOrgBriefsRoute = os
+  .input(z.object({ dailyBriefs: z.boolean().optional(), briefDailyCents: z.number().int().min(0).max(1_000_000).nullable().optional() }))
+  .handler(async ({ input }) => {
+    const { accountId, has } = await guardAuth();
+    if (!accountId || !has({ role: ORG_ROLE.ADMIN })) {
+      throw ApiError.forbidden();
+    }
+    const { orgBriefSettings, setOrgBriefSettings } = await import('@/services/personal/rhythm/guard');
+    await setOrgBriefSettings(accountId, input);
+    return { ...(await orgBriefSettings(accountId)), canChange: true };
+  });

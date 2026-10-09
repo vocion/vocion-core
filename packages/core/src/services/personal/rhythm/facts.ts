@@ -69,24 +69,36 @@ export type RhythmFacts = {
   doneToday: Array<{ title: string; href: string; workspace: string }>;
   /** Wrap: runs that finished today in their workspaces. */
   finishedToday: Array<{ title: string; workspace: string }>;
+  /** The shared workspaces they reach, for meeting evidence. */
+  workspaces: Array<{ id: string; name: string; slug: string }>;
 };
+
+/**
+ * Whether a brief or wrap has anything to say: no meetings (or none read),
+ * nothing waiting, nothing the team did and nothing done today means no
+ * model call and no message.
+ * @param f - The facts, without evidence.
+ */
+export function hasNothingToSay(f: RhythmFacts): boolean {
+  const meetings = f.meetings.status === 'read' ? f.meetings.items.length : 0;
+  const waiting = f.waiting.decisions.filter(d => d.yours).length + f.waiting.followUps.length;
+  return meetings === 0 && waiting === 0 && f.team.length === 0 && f.doneToday.length === 0 && f.finishedToday.length === 0;
+}
 
 /** How many meetings get evidence gathered; the rest are listed bare. */
 const EVIDENCE_MEETINGS = 6;
 
 /**
- * Meetings in a window, from the person's own calendar, with a few pieces of
- * evidence each: their recent mail with the people in it, and what their
- * workspaces' records say about its subject.
+ * Meetings in a window, from the person's own calendar. One API call; the
+ * evidence under each is gathered separately ({@link withMeetingEvidence}),
+ * and only once the brief is known to be worth writing.
  * @param input - Who, where, and when.
  * @param input.userId - The person.
  * @param input.personalOrgId - Their Personal workspace.
  * @param input.from - Window start.
  * @param input.to - Window end.
- * @param input.workspaces - The shared workspaces they reach, for record evidence.
- * @param input.evidence - Whether to gather evidence (the wrap's "first tomorrow" needs none).
  */
-async function readMeetings(input: { userId: string; personalOrgId: string; from: Date; to: Date; workspaces: Array<{ id: string; name: string; slug: string }>; evidence: boolean }): Promise<MeetingsRead> {
+async function readMeetings(input: { userId: string; personalOrgId: string; from: Date; to: Date }): Promise<MeetingsRead> {
   const cal = await personalCredential({ orgId: input.personalOrgId, userId: input.userId, connector: 'google-calendar' });
   if (!cal.ok) {
     return { status: 'unavailable', why: cal.why };
@@ -108,11 +120,24 @@ async function readMeetings(input: { userId: string; personalOrgId: string; from
       attendees: (e.attendees ?? []).map(a => a.email ?? '').filter(Boolean),
       evidence: [],
     }));
-  if (!input.evidence || meetings.length === 0) {
-    return { status: 'read', items: meetings };
+  return { status: 'read', items: meetings };
+}
+
+/**
+ * Add a few pieces of evidence under each of today's meetings: the person's
+ * recent mail with the people outside the Org in it, read through their own
+ * Gmail, and what their workspaces' records say about its subject (a keyword
+ * search, within their own source access). The costly half of the facts, so
+ * it runs only for a brief that will be written.
+ * @param f - The facts; their meetings gain evidence in place.
+ */
+export async function withMeetingEvidence(f: RhythmFacts): Promise<RhythmFacts> {
+  if (f.meetings.status !== 'read' || f.meetings.items.length === 0) {
+    return f;
   }
-  const mail = await personalCredential({ orgId: input.personalOrgId, userId: input.userId, connector: 'gmail' });
-  const self = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, input.userId)).limit(1);
+  const meetings = f.meetings.items;
+  const mail = await personalCredential({ orgId: f.personalOrgId, userId: f.userId, connector: 'gmail' });
+  const self = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, f.userId)).limit(1);
   const ownDomain = self[0]?.email?.split('@')[1]?.toLowerCase() ?? null;
   await Promise.all(meetings.filter(m => !m.allDay).slice(0, EVIDENCE_MEETINGS).map(async (m) => {
     // The people outside the Org say most about a meeting; inside, it is a standup.
@@ -131,9 +156,9 @@ async function readMeetings(input: { userId: string; personalOrgId: string; from
     const query = [m.title, ...domains].join(' ');
     const { search } = await import('@/services/RetrievalService');
     const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
-    for (const w of input.workspaces.slice(0, 5)) {
+    for (const w of f.workspaces.slice(0, 5)) {
       try {
-        const allowed = await allowedSourceSlugsForUser(w.id, input.userId);
+        const allowed = await allowedSourceSlugsForUser(w.id, f.userId);
         const [hit] = await search(query, { orgId: w.id, mode: 'keyword', k: 1, allowedSourceSlugs: allowed });
         if (hit) {
           m.evidence.push({ from: 'workspace', text: `${hit.title ?? ''} — ${hit.content}`.slice(0, 300), where: `${w.name} · ${hit.sourceSlug}`, href: hit.uri });
@@ -143,7 +168,7 @@ async function readMeetings(input: { userId: string; personalOrgId: string; from
       }
     }
   }));
-  return { status: 'read', items: meetings };
+  return f;
 }
 
 /**
@@ -197,7 +222,7 @@ export async function gatherRhythmFacts(input: { kind: RhythmKind; userId: strin
   const dayStart = startOfDay(today, tz);
   const [user, meetings, waiting, team, doneRows, finishedRows] = await Promise.all([
     db.select({ name: userSchema.name }).from(userSchema).where(eq(userSchema.id, userId)).limit(1),
-    readMeetings({ userId, personalOrgId, ...window, workspaces: shared, evidence: kind === 'brief' }),
+    readMeetings({ userId, personalOrgId, ...window }),
     readWaitingOnMe({ userId, accountId, orgId: personalOrgId, across: true, now }),
     kind === 'brief' ? readTeam(userId, shared, input.since) : Promise.resolve([]),
     kind === 'wrap' && inbox.workspaces.length > 0
@@ -226,5 +251,6 @@ export async function gatherRhythmFacts(input: { kind: RhythmKind; userId: strin
       return { title: r.title, workspace: w.name, href: workspaceUrl(w.slug, inboxHref('ask', r.id), w.accountSlug ? { accountSlug: w.accountSlug } : {}) };
     }),
     finishedToday: finishedRows.map(r => ({ title: r.title, workspace: byId.get(r.orgId)?.name ?? '' })),
+    workspaces: shared.map(w => ({ id: w.id, name: w.name, slug: w.slug })),
   };
 }
