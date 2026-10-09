@@ -6,6 +6,9 @@
 
 import { WORKSPACE_ACCOUNT_PARAM, WORKSPACE_ORG_PARAM, workspaceUrl } from '@/libs/links';
 
+/** Where a switch lands when nothing names a home: the workspace's Chat. */
+export const WORKSPACE_HOME = '/dashboard/chat';
+
 /** Every workspace the person can open, on one page — the switcher's "All workspaces →". */
 export const ALL_WORKSPACES_HREF = '/dashboard/workspaces';
 
@@ -19,6 +22,8 @@ export type SwitcherProject = {
   agentCount?: number;
   /** Archived: never listed, unless it is the current one. */
   archived?: boolean;
+  /** `personal` for the person's own workspace: listed once, above every Org. */
+  kind?: 'shared' | 'personal';
   /** Its stored name was only an address and was recovered (`libs/workspaceName.ts`): listed below the real ones. */
   placeholder?: boolean;
 };

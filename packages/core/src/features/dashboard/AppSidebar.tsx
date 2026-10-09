@@ -28,6 +28,7 @@ import { applyPins, defaultPinDismissal, resolveWorkPins, withoutPins } from '@/
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { useWorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
+import { WORKSPACE_HOME } from '@/features/dashboard/nav/workspaceSwitch';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
 import { OPEN_MANAGE_VIEW, readNavApp, readNavView, writeNavApp, writeNavView } from '@/features/dashboard/useNavView';
@@ -238,10 +239,10 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     ...(coreAppNav ? [coreAppNav.id] : []),
     ...Object.entries(directory?.workspacesByApp ?? {}).filter(([, ws]) => ws.some(w => w.projectId === projectId)).map(([id]) => id),
   ];
-  const switchTarget: WorkspaceSwitcherTargetPath = (p, from) => workspaceSwitchPath({ pathname: from, activeApp: activeAppId, hereApps: apps.map(a => a.id), targetApps: appsOfProject(p.id), appEntry: activeApp?.entry, coreEntry: coreAppNav?.href ?? from });
-  // ONE control for where you are: the Org and the workspace together. An
-  // extension's Org switcher draws inside it (`nav.workspacePicker.org`),
-  // never as a second row above it.
+  // A switch lands on the target's home, never on this page (`workspaceSwitchPath`).
+  const switchTarget: WorkspaceSwitcherTargetPath = p => workspaceSwitchPath({ activeApp: activeAppId, coreApp: coreAppNav?.id, targetApps: appsOfProject(p.id), appEntry: activeApp?.entry, coreEntry: coreAppNav?.href ?? WORKSPACE_HOME });
+  // ONE control for where you are: the Org and the workspace together, two
+  // levels on a multi-Org deployment, never a second switcher above it.
   const picker = (
     <WorkspaceSwitcherLive
       directory={directory}

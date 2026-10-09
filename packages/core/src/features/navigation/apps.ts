@@ -323,30 +323,32 @@ export function resolveActiveApp(input: {
 }
 
 /**
- * Where a workspace switch lands. The same page when both workspaces have the
- * app the person is in (the core app is everywhere); the app's entry when the
- * person picked an app this workspace lacks and is choosing where to open
- * it; the core app's entry when the target lacks the app, since a page of an
- * app the target does not have would open on nothing.
+ * Where a workspace switch lands: the target's home, never the page the person
+ * was on (founder, 2026-10-09: "when switching workspaces, we should probably
+ * default to the app main page, or chat"). A sub-path, its query and an open
+ * record belong to the workspace they were in, and in another one they open
+ * on nothing or on the wrong thing.
+ *
+ * - In an app the target also has (other than the core one): that app's main
+ *   page, its entry.
+ * - Otherwise the core app's entry: the workspace's own home, which is Chat
+ *   unless the workspace's core app says otherwise.
+ *
+ * A deep link into another workspace (a notification opening a record there)
+ * does not come through here: it names its page with `workspaceUrl` and goes
+ * straight to it. Only switching resets.
  * @param input - The switch.
- * @param input.pathname - The current locale-stripped path.
  * @param input.activeApp - The app the sidebar shows.
- * @param input.hereApps - Ids of the apps the current workspace has.
+ * @param input.coreApp - The core app's id.
  * @param input.targetApps - Ids of the apps the target workspace has.
  * @param input.appEntry - The active app's entry route.
  * @param input.coreEntry - The core app's entry route.
  */
-export function workspaceSwitchPath(input: { pathname: string; activeApp: string | undefined; hereApps: readonly string[]; targetApps: readonly string[]; appEntry?: string; coreEntry: string }): string {
-  if (!input.activeApp) {
-    return input.pathname;
+export function workspaceSwitchPath(input: { activeApp: string | undefined; coreApp?: string; targetApps: readonly string[]; appEntry?: string; coreEntry: string }): string {
+  if (input.activeApp && input.activeApp !== input.coreApp && input.appEntry && input.targetApps.includes(input.activeApp)) {
+    return input.appEntry;
   }
-  if (!input.targetApps.includes(input.activeApp)) {
-    return input.coreEntry;
-  }
-  if (!input.hereApps.includes(input.activeApp)) {
-    return input.appEntry ?? input.coreEntry;
-  }
-  return input.pathname;
+  return input.coreEntry;
 }
 
 /**

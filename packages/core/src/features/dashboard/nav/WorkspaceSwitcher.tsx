@@ -1,25 +1,28 @@
 'use client';
 
 import type { KeyboardEvent, ReactNode } from 'react';
+import type { PickerDetail } from './pickerModel';
 import type { WorkspaceDirectory } from './useWorkspaceDirectory';
 import type { SwitcherAccount, SwitcherProject, WorkspaceSwitcherTargetPath } from './workspaceSwitch';
 import type { Tint } from '@/libs/tints';
 import type { OrgsMode } from '@/services/OrgPolicy';
-import { ArrowLeftRight, ArrowRight, Check, Search, Settings2 } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, Check, ChevronLeft, ChevronRight, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DRAWER_CLOSE_ATTR } from '@/components/ui/drawerClose';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { useOrgBrand } from '@/features/branding/BrandContext';
-import { navSlotComponents } from '@/libs/clientExtensions';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
+import { client } from '@/libs/Orpc';
+import { relativeLabel } from '@/libs/timeAgo';
 import { TINT_BG } from '@/libs/tints';
 import { cn } from '@/utils/Helpers';
-import { accountLine, ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
+import { orderForPicker, pickerLine, pickerOrgs } from './pickerModel';
+import { ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, projectAccent, WORKSPACE_HOME, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
  * Workspace context, at the head of the selected app's nav (Vocion 5.0 —
@@ -33,19 +36,19 @@ import { accountLine, ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, gro
  *
  * ONE CONTROL FOR WHERE YOU ARE. Orgs (what people call a `tenant_account`)
  * show only on a multi-Org deployment, which an extension turns on
- * (`services/OrgPolicy.ts`). There the chip reads "Noco › Support" (just the
- * workspace when it shares the Org's name), and the one list groups the
- * workspaces under each Org's name; a switch into another Org's workspace is
- * also how a person switches Org: tenancy follows the picked workspace
- * (vocion-core#128). An extension that has more to say about an Org draws
- * that Org's group header (`nav.workspacePicker.org`), inside this picker.
- * It used to draw a second switcher above this one, and the founder's phone
- * showed "Noco · Org ⇄ Switch" over "Noco ⇄ Switch" (2026-10-08). A
- * single-Org install (the default) never names an Org. This is the one place
- * to switch: the avatar menu carries no switcher row (2026-10-08), though a
- * surface outside the sidebar can still open this popover via
- * {@link OPEN_WORKSPACE_SWITCHER}. Collapsed to the icon rail, the avatar alone is the button. Arrow keys move through
- * the list, from the search box too.
+ * (`services/OrgPolicy.ts`). There the picker has two levels, iOS style
+ * (founder, 2026-10-09): Personal, then one row per Org; an Org with one
+ * workspace opens it from its row, one with several slides to its
+ * workspaces ("‹ Orgs" back, ← and Esc too). Search reaches every Org at
+ * once, flat. A switch into another Org's workspace is also how a person
+ * switches Org: tenancy follows the picked workspace (vocion-core#128). The
+ * chip names the workspace alone, with the Org's square mark; the Org's name
+ * is said only in the picker (never "S.. › Squatch"). A single-Org install
+ * (the default) never names an Org and has no Org level. This is the one
+ * place to switch; a surface outside the sidebar can still open this popover
+ * via {@link OPEN_WORKSPACE_SWITCHER}. Collapsed to the icon rail, the avatar
+ * alone is the button. Arrow keys move through the list, from the search box
+ * too. Every switch lands on the target's home (`workspaceSwitchPath`).
  *
  * It is also every app's workspace picker — one switcher, not one per app
  * (principle 6): the sidebar hands it only the workspaces that have the
@@ -69,11 +72,10 @@ export type WorkspaceSwitcherProps = {
   accounts?: SwitcherAccount[];
   /** The deployment's `VOCION_ORGS`. Default `single`: no Org named, no grouping. */
   orgsMode?: OrgsMode;
-  /**
-   * Draws one Org's group header in the list, when an extension has one
-   * (`nav.workspacePicker.org`). Default: the Org's name.
-   */
-  renderOrgHeader?: (org: SwitcherAccount, ctx: { current: boolean; close: () => void }) => ReactNode;
+  /** Lead, last activity and what waits on the person, per workspace id (`projects.overview`, `inbox.mineCount`). */
+  details?: Record<string, PickerDetail>;
+  /** Each Org's square mark, by account id, for its level-1 row. */
+  marks?: Record<string, { light: string; dark?: string }>;
   projects: SwitcherProject[] | null;
   activeId: string | null;
   onManage?: () => void;
@@ -88,7 +90,7 @@ export type WorkspaceSwitcherProps = {
    * workspace stands in for the active one, as it always has.
    */
   placeholder?: string;
-  /** The page a switch to `p` lands on. Default: the page the person is on. */
+  /** The page a switch to `p` lands on. Default: the workspace's home, Chat. */
   targetPath?: WorkspaceSwitcherTargetPath;
   /** Which way the list opens. Default: up, as it did from the bottom of the sidebar. */
   side?: 'top' | 'bottom';
@@ -115,30 +117,77 @@ export type WorkspaceSwitcherProps = {
  * @param props.selected - Whether it is the current one.
  * @param props.disabled - Whether it can be picked.
  * @param props.onPick - Called when the row is clicked.
+ * @param props.suffix
+ * @param props.waiting
+ * @param props.mark
+ * @param props.drills
+ * @param props.onKeyDown
+ * @param props.testId
  */
-export function SwitcherRow(props: { name: string; sub?: string | null; accentKey: string; selected: boolean; disabled?: boolean; onPick: () => void }) {
+export function SwitcherRow(props: {
+  name: string;
+  sub?: string | null;
+  accentKey: string;
+  selected: boolean;
+  disabled?: boolean;
+  onPick: () => void;
+  /** After the name, muted: the Org in flat search results ("Factory · Northwind"). */
+  suffix?: string | null;
+  /** A count of what waits on the person there. */
+  waiting?: number;
+  /** An image in place of the initial: an Org's square mark. */
+  mark?: { light: string; dark?: string } | null;
+  /** The row drills into a level rather than opening a workspace. */
+  drills?: boolean;
+  onKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void;
+  testId?: string;
+}) {
   return (
     <button
       type="button"
       // Picking another workspace leaves this page, drawer and all
       // (`components/ui/drawerClose.ts`); re-picking the current one only
-      // closes the list.
-      {...{ [DRAWER_CLOSE_ATTR]: props.selected ? 'false' : '' }}
+      // closes the list, and drilling into an Org stays.
+      {...{ [DRAWER_CLOSE_ATTR]: props.selected || props.drills ? 'false' : '' }}
       role="option"
       aria-selected={props.selected}
       aria-disabled={props.disabled || undefined}
       disabled={props.disabled}
       onClick={props.onPick}
-      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+      onKeyDown={props.onKeyDown}
+      data-testid={props.testId}
+      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60 max-md:min-h-11"
     >
-      <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(props.accentKey) }} aria-hidden>
-        {props.name.charAt(0).toUpperCase()}
-      </span>
+      {props.mark
+        ? (
+            <span className="grid size-6 shrink-0 place-items-center" aria-hidden>
+              {/* eslint-disable-next-line next/no-img-element */}
+              <img src={props.mark.light} alt="" className={cn('max-h-6 max-w-6 object-contain', props.mark.dark && 'dark:hidden')} draggable={false} />
+              {props.mark.dark && (
+                // eslint-disable-next-line next/no-img-element
+                <img src={props.mark.dark} alt="" className="hidden max-h-6 max-w-6 object-contain dark:block" draggable={false} />
+              )}
+            </span>
+          )
+        : (
+            <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(props.accentKey) }} aria-hidden>
+              {props.name.charAt(0).toUpperCase()}
+            </span>
+          )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-foreground">{props.name}</span>
-        {props.sub && <span className="block truncate font-mono text-[11px] text-muted-foreground">{props.sub}</span>}
+        <span className="block truncate text-[13px] font-medium text-foreground">
+          {props.name}
+          {props.suffix && <span className="font-normal text-muted-foreground">{` · ${props.suffix}`}</span>}
+        </span>
+        {props.sub && <span className="block truncate text-[11.5px] text-muted-foreground" data-testid="switcher-row-sub">{props.sub}</span>}
       </span>
+      {(props.waiting ?? 0) > 0 && (
+        <span className="inline-flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full bg-brand-amber px-1 text-[10.5px] font-semibold text-white tabular-nums" data-testid="switcher-row-waiting">
+          {props.waiting}
+        </span>
+      )}
       {props.selected && <Check className="size-4 shrink-0 text-foreground" aria-hidden />}
+      {props.drills && <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
     </button>
   );
 }
@@ -149,11 +198,14 @@ export function SwitcherRow(props: { name: string; sub?: string | null; accentKe
  * @param props.project - The workspace this row switches to.
  * @param props.selected - Whether it is the active workspace.
  * @param props.onPick - Called with the workspace when the row is clicked.
+ * @param props.line
+ * @param props.waiting
+ * @param props.suffix
  */
-function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void }) {
+function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void; line?: string | null; waiting?: number; suffix?: string | null }) {
   const p = props.project;
-  // The name alone: the slug line under it was noise (founder, 2026-10-09).
-  return <SwitcherRow name={p.name} accentKey={p.slug} selected={props.selected} onPick={() => props.onPick(p)} />;
+  // Never the slug (founder, 2026-10-09): what it is, "Atlas · 7 agents · active 2h ago".
+  return <SwitcherRow name={p.name} sub={props.line} suffix={props.suffix} waiting={props.waiting} accentKey={p.slug} selected={props.selected} onPick={() => props.onPick(p)} testId="switcher-workspace" />;
 }
 
 /**
@@ -201,6 +253,10 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const locale = useLocale();
   const [open, setOpen] = useState(props.defaultOpen ?? false);
   const [query, setQuery] = useState('');
+  // Level 2: the Org drilled into, and which way the last move went (for the slide).
+  const [orgLevel, setOrgLevel] = useState<string | null>(null);
+  const [direction, setDirection] = useState<'in' | 'out'>('in');
+  const [now] = useState(() => Date.now());
 
   useEffect(() => {
     const onOpen = () => setOpen(true);
@@ -212,24 +268,43 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const projects = useMemo(() => props.projects ?? [], [props.projects]);
   const active = projects.find(p => p.id === props.activeId) ?? (props.placeholder === undefined ? projects[0] ?? null : null);
   const visible = useMemo(() => filterProjects(projects, { query, activeId: active?.id ?? null }), [projects, query, active]);
+  const live = useMemo(() => filterProjects(projects, { activeId: active?.id ?? null }), [projects, active]);
   const accounts = props.accounts ?? [];
-  const multiOrg = props.orgsMode === 'multi';
-  const groups = multiOrg && accounts.length > 1 ? groupByAccount(visible, accounts) : null;
-  const orgName = multiOrg ? props.account?.name : undefined;
-  const headingIdPrefix = useId();
+  const details = props.details ?? {};
+  // Two levels only where there is more than one Org to pick between.
+  const levelled = props.orgsMode === 'multi' && accounts.length > 1;
+  const level1 = useMemo(() => pickerOrgs(live, accounts, details, props.account?.id), [live, accounts, details, props.account?.id]);
+  const drilled = levelled && orgLevel ? level1.orgs.find(o => o.account.id === orgLevel) ?? null : null;
+  const searching = query.trim() !== '';
+  const orgName = new Map(accounts.map(a => [a.id, a.name]));
+
+  const openChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      // A picker opens where a person starts: at the Orgs, with nothing typed.
+      setOrgLevel(null);
+      setQuery('');
+    }
+  };
+  const drillInto = (accountId: string) => {
+    setDirection('in');
+    setOrgLevel(accountId);
+  };
+  const back = () => {
+    setDirection('out');
+    setOrgLevel(null);
+  };
 
   const go = (p: SwitcherProject) => {
     if (active && p.id === active.id) {
-      setOpen(false);
+      openChange(false);
       return;
     }
-    const target = props.targetPath ? props.targetPath(p, pathname) : pathname;
+    // The target's home, never this page or its query (`workspaceSwitchPath`).
+    const target = props.targetPath ? props.targetPath(p, pathname) : WORKSPACE_HOME;
     const href = workspaceSwitchHref({
       slug: p.slug,
       pathname: target,
-      // The query belongs to the page: kept when the switch stays on it, dropped when an app's
-      // picker lands somewhere else (a filter on one page means nothing on another).
-      search: typeof window === 'undefined' || target !== pathname ? '' : window.location.search,
       locale,
       defaultLocale: routing.defaultLocale,
       accountSlug: crossAccountSlug(p, props.account?.id, accounts),
@@ -237,11 +312,19 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     (props.navigate ?? (h => window.location.assign(h)))(href);
   };
 
+  const line = (p: SwitcherProject) => pickerLine(p, details[p.id], {
+    agents: n => t('picker_agents', { count: n }),
+    active: iso => t('picker_active', { ago: relativeLabel(new Date(iso), now) }),
+  });
+  const option = (p: SwitcherProject, suffix?: string | null) => (
+    <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} line={line(p)} waiting={details[p.id]?.waiting} suffix={suffix} />
+  );
+
+  // The chip says the workspace, with its Org's square mark when the Org has
+  // one (founder, 2026-10-09: never "S.. › Squatch"); the Org's name is said
+  // in the picker, not here.
   const name = active?.name ?? (loading ? '' : props.placeholder ?? t('workspace_fallback'));
-  // "Org › Workspace", one line. The Org shows only when it says something
-  // the workspace's name does not ("Northwind › Northwind" reads as a glitch).
-  const orgLine = loading ? null : accountLine(name, orgName);
-  const railLabel = name && orgLine ? `${orgLine} › ${name}` : name;
+  const railLabel = name;
   const initial = (name || 'W').charAt(0).toUpperCase();
   const accent = active ? projectAccent(active.slug) : 'oklch(0.7 0 0)';
 
@@ -293,19 +376,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
           <span className="min-w-0 flex-1" data-testid="workspace-switcher-where">
             {loading
               ? <span className="block h-3.5 w-28 animate-pulse rounded bg-muted" />
-              : (
-                  // The Org gives way first: in a narrow column "Nor… › Support"
-                  // still says where you are; "Northwind ›…" did not.
-                  <span className="flex min-w-0 items-baseline overflow-hidden text-[13px] leading-tight">
-                    {orgLine && (
-                      <>
-                        <span className="min-w-[2ch] shrink truncate text-muted-foreground">{orgLine}</span>
-                        <span className="mx-1 shrink-0 text-muted-foreground/60" aria-hidden>›</span>
-                      </>
-                    )}
-                    <span className="max-w-full min-w-0 shrink-0 truncate font-medium text-foreground">{name}</span>
-                  </span>
-                )}
+              : <span className="block truncate text-[13px] leading-tight font-medium text-foreground">{name}</span>}
           </span>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors group-hover/ws:bg-background group-hover/ws:text-foreground">
             <ArrowLeftRight className="size-3.5" aria-hidden />
@@ -314,13 +385,92 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
         </PopoverTrigger>
       );
 
+  // ← goes back a level (outside the search box, where it moves the caret).
+  const onListKey = (e: KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'ArrowLeft' && drilled && !(e.target instanceof HTMLInputElement)) {
+      e.preventDefault();
+      back();
+      return;
+    }
+    moveThroughOptions(e);
+  };
+  // → or Enter on an Org drills in; the row's own click handles Enter too.
+  const orgKey = (accountId: string) => (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      drillInto(accountId);
+    }
+  };
+  const slide = direction === 'in' ? 'slide-in-from-right-6' : 'slide-in-from-left-6';
+
+  let body: ReactNode;
+  if (searching) {
+    // Search reaches every Org at once, flat, each row saying its Org.
+    body = visible.length === 0
+      ? <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('no_workspaces_match')}</div>
+      : visible.map(p => option(p, levelled && p.kind !== 'personal' ? orgName.get(p.accountId ?? '') : null));
+  } else if (levelled && drilled) {
+    body = (
+      <div key={drilled.account.id} role="group" aria-label={drilled.account.name} className={cn('animate-in fade-in-0 duration-200 motion-reduce:animate-none', slide)} data-testid="switcher-level-workspaces">
+        <div className="sticky top-0 z-10 flex items-center gap-1 bg-popover pb-1">
+          <button type="button" onClick={back} className="inline-flex min-h-8 items-center gap-0.5 rounded-md px-1.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground max-md:min-h-11" data-testid="switcher-back">
+            <ChevronLeft className="size-4" aria-hidden />
+            {t('picker_orgs')}
+          </button>
+          <span className="min-w-0 flex-1 truncate pr-6 text-center text-[13px] font-semibold text-foreground" data-testid="switcher-level-title">{drilled.account.name}</span>
+        </div>
+        {drilled.workspaces.map(p => option(p))}
+      </div>
+    );
+  } else if (levelled) {
+    body = (
+      <div key="orgs" className={cn('animate-in fade-in-0 duration-200 motion-reduce:animate-none', orgLevel === null && direction === 'out' && slide)} data-testid="switcher-level-orgs">
+        {level1.personal.map(p => option(p))}
+        {level1.orgs.map(o => (
+          <SwitcherRow
+            key={o.account.id}
+            name={o.account.name}
+            sub={o.only ? o.only.name : t('picker_workspaces', { count: o.workspaces.length })}
+            accentKey={o.account.slug}
+            mark={props.marks?.[o.account.id] ?? null}
+            selected={o.current}
+            waiting={o.waiting}
+            drills={!o.only}
+            onPick={() => (o.only ? go(o.only) : drillInto(o.account.id))}
+            onKeyDown={o.only ? undefined : orgKey(o.account.id)}
+            testId="switcher-org"
+          />
+        ))}
+      </div>
+    );
+  } else {
+    // One Org: no level 1. Personal first, then the rest by recent use.
+    const personal = visible.filter(p => p.kind === 'personal');
+    body = visible.length === 0
+      ? <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('no_workspaces_match')}</div>
+      : [...personal, ...orderForPicker(visible.filter(p => p.kind !== 'personal'), details)].map(p => option(p));
+  }
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={openChange}>
       {trigger}
       {/* On a touch device the popover must not hand focus to the search box:
           that raises the keyboard over the list a person opened to TAP
-          (Chris, 2026-09-24). A pointer keeps keyboard-first. */}
-      <PopoverContent align="start" side={props.collapsed ? 'right' : (props.side ?? 'top')} className="w-72 p-0" onOpenAutoFocus={keepKeyboardDownOnTouch} onKeyDown={moveThroughOptions}>
+          (Chris, 2026-09-24). A pointer keeps keyboard-first. Esc on level 2
+          goes back to the Orgs; on level 1 it closes. */}
+      <PopoverContent
+        align="start"
+        side={props.collapsed ? 'right' : (props.side ?? 'top')}
+        className="w-80 max-w-[calc(100vw-2rem)] p-0"
+        onOpenAutoFocus={keepKeyboardDownOnTouch}
+        onKeyDown={onListKey}
+        onEscapeKeyDown={(e) => {
+          if (drilled && !searching) {
+            e.preventDefault();
+            back();
+          }
+        }}
+      >
         <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
           <Search className="size-4 shrink-0 text-muted-foreground/60" aria-hidden />
           <input
@@ -331,27 +481,14 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
             className="h-7 w-full bg-transparent text-[13px] outline-hidden placeholder:text-muted-foreground/60"
           />
         </div>
-        <div role="listbox" aria-label={t('switch_workspace')} className="max-h-72 overflow-y-auto p-1">
-          {visible.length === 0 && (
-            <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('no_workspaces_match')}</div>
-          )}
-          {groups
-            ? groups.map(g => (
-                <div key={g.account.id} role="group" aria-labelledby={`${headingIdPrefix}-${g.account.id}`} data-testid="workspace-switcher-org">
-                  <div id={`${headingIdPrefix}-${g.account.id}`}>
-                    {props.renderOrgHeader?.(g.account, { current: g.account.id === props.account?.id, close: () => setOpen(false) })
-                      ?? <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">{g.account.name}</div>}
-                  </div>
-                  {g.projects.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
-                </div>
-              ))
-            : visible.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
+        <div role="listbox" aria-label={t('switch_workspace')} className="max-h-80 overflow-x-hidden overflow-y-auto p-1">
+          {body}
         </div>
         {/* One compact row: every workspace on its own page, and settings. */}
         <div className="flex items-center gap-1 border-t border-border/70 p-1" data-testid="workspace-switcher-footer">
           <Link
             href={ALL_WORKSPACES_HREF}
-            onClick={() => setOpen(false)}
+            onClick={() => openChange(false)}
             className="flex min-h-9 flex-1 items-center gap-1.5 rounded-lg px-2 text-[13px] text-foreground transition-colors hover:bg-surface-hover max-md:min-h-11"
             data-testid="workspace-switcher-all"
           >
@@ -362,7 +499,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
             <button
               type="button"
               onClick={() => {
-                setOpen(false);
+                openChange(false);
                 props.onManage?.();
               }}
               className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[13px] text-foreground transition-colors hover:bg-surface-hover max-md:min-h-11"
@@ -377,13 +514,6 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     </Popover>
   );
 }
-
-/**
- * Lands a switch on the page the person is on.
- * @param _p
- * @param pathname
- */
-const keepPage: WorkspaceSwitcherTargetPath = (_p, pathname) => pathname;
 
 /**
  * The live switcher: the directory the sidebar loaded, the active project from the session.
@@ -407,8 +537,6 @@ export function WorkspaceSwitcherLive(props: {
   const { state } = useSidebar();
   const brand = useOrgBrand();
   const data = props.directory;
-  // An extension's Org header, inside this one picker; the first one wins.
-  const OrgHeader = navSlotComponents('nav.workspacePicker.org')[0];
   const only = props.only;
   const projects = useMemo(() => {
     if (!data) {
@@ -416,15 +544,43 @@ export function WorkspaceSwitcherLive(props: {
     }
     return only ? data.projects.filter(p => only.includes(p.id)) : data.projects;
   }, [data, only]);
+  // What each row says beyond its name, read once the directory is in: the
+  // lead, last activity and Org marks (`projects.overview`), and what waits
+  // on the person (`inbox.mineCount`, the one count). A failed read leaves
+  // the rows on their names.
+  const [details, setDetails] = useState<Record<string, PickerDetail>>({});
+  const [marks, setMarks] = useState<Record<string, { light: string; dark?: string }>>({});
+  const loaded = data !== null;
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      // Through a resolved promise, so a client without the route (an older
+      // server, a story's stub) fails into the catch rather than the effect.
+      Promise.resolve().then(() => client.projects.overview()).catch(() => null),
+      Promise.resolve().then(() => client.inbox.mineCount()).catch(() => null),
+    ]).then(([overview, counts]) => {
+      if (cancelled) {
+        return;
+      }
+      const waiting = new Map((counts?.workspaces ?? []).map(w => [w.id, w.yours]));
+      setDetails(Object.fromEntries((overview?.workspaces ?? []).map(w => [w.id, { leadName: w.leadName, lastActiveAt: w.lastActiveAt, waiting: waiting.get(w.id) ?? 0 }])));
+      setMarks(overview?.marks ?? {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded]);
 
   return (
     <WorkspaceSwitcher
       account={data?.account ?? null}
       accounts={data?.accounts ?? []}
       orgsMode={data?.orgsMode}
-      renderOrgHeader={OrgHeader && data
-        ? (org, ctx) => <OrgHeader org={org} current={ctx.current} close={ctx.close} directory={data} targetPath={props.targetPath ?? keepPage} />
-        : undefined}
+      details={details}
+      marks={marks}
       projects={projects}
       activeId={session?.user?.projectId ?? null}
       onManage={props.onManage}

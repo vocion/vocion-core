@@ -223,19 +223,17 @@ describe('route → app', () => {
 });
 
 describe('workspaceSwitchPath', () => {
-  const base = { pathname: '/dashboard/p/board', hereApps: ['home', 'factory'], appEntry: '/dashboard/p/board', coreEntry: '/dashboard/chat' };
+  const base = { coreApp: 'home', appEntry: '/dashboard/p/board', coreEntry: '/dashboard/chat' };
 
-  it('keeps the page when the target has the app', () => {
+  it('lands on the app\'s main page when the target has the app, never on the page the person was on', () => {
     expect(workspaceSwitchPath({ ...base, activeApp: 'factory', targetApps: ['home', 'factory'] })).toBe('/dashboard/p/board');
-    expect(workspaceSwitchPath({ ...base, pathname: '/dashboard/teams', activeApp: 'home', targetApps: ['home'] })).toBe('/dashboard/teams');
+    expect(workspaceSwitchPath({ ...base, activeApp: 'sales', appEntry: '/gtm/proposals', targetApps: ['home', 'sales'] })).toBe('/gtm/proposals');
   });
 
-  it('falls back to the core app when the target does not have the app', () => {
+  it('lands on the workspace\'s home (Chat) in the core app, or when the target lacks the app', () => {
+    expect(workspaceSwitchPath({ ...base, activeApp: 'home', targetApps: ['home'] })).toBe('/dashboard/chat');
     expect(workspaceSwitchPath({ ...base, activeApp: 'factory', targetApps: ['home'] })).toBe('/dashboard/chat');
-  });
-
-  it('opens the app\'s entry when the person picked an app this workspace lacks', () => {
-    expect(workspaceSwitchPath({ ...base, pathname: '/dashboard/teams', activeApp: 'sales', appEntry: '/gtm/proposals', targetApps: ['home', 'sales'] })).toBe('/gtm/proposals');
+    expect(workspaceSwitchPath({ ...base, activeApp: undefined, targetApps: ['home'] })).toBe('/dashboard/chat');
   });
 });
 
