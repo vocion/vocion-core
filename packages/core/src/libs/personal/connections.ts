@@ -7,7 +7,9 @@
  * calendar, files, Slack DMs and GitHub from Personal → Connectors, the grant
  * is stored in their personal workspace (one per person per Org, which only
  * they can open, admins included), and only their own assistant reads it,
- * live, through the tools each entry names. It never becomes a source, so
+ * live, through the tools each entry names (and Calendar and Gmail on a
+ * schedule for their own morning brief and evening wrap,
+ * `services/briefings/personalFacts.ts`). It never becomes a source, so
  * nothing from it is synced, embedded or shown to anyone else.
  *
  * This file is the only place a personal connection is named. The connect
@@ -26,7 +28,7 @@
  * | `openid`, `email` | non-sensitive | Which Google account was connected, shown on the row. |
  * | `gmail.readonly` | **restricted** | `mail_search`, `mail_read`: find and read the person's mail. |
  * | `gmail.compose` | **restricted** | `mail_draft_reply`: create drafts. Google has no drafts-only scope; this one also permits sending, so "never sends" is enforced in code: no path here calls `messages.send` or `drafts.send` (`libs/personal/google.ts`, pinned by its test). |
- * | `calendar.readonly` | sensitive | `calendar_today`, `calendar_range`. |
+ * | `calendar.events.readonly` | sensitive | `calendar_today`, `calendar_range`, and the scheduled brief and wrap (`services/briefings/personalFacts.ts`): events on the primary calendar only, never calendar settings or the calendar list. |
  * | `drive.readonly` | **restricted** | `drive_search`, `drive_read`. |
  *
  * Restricted scopes need Google's verification plus an annual CASA security
@@ -56,7 +58,7 @@ export const PERSONAL_GOOGLE_SCOPES: Readonly<Record<string, readonly string[]>>
     'https://www.googleapis.com/auth/gmail.readonly', // restricted
     'https://www.googleapis.com/auth/gmail.compose', // restricted — drafts only, enforced in code
   ],
-  'google-calendar': ['https://www.googleapis.com/auth/calendar.readonly'], // sensitive
+  'google-calendar': ['https://www.googleapis.com/auth/calendar.events.readonly'], // sensitive
   'drive': ['https://www.googleapis.com/auth/drive.readonly'], // restricted
 };
 

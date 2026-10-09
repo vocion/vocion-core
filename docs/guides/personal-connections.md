@@ -6,6 +6,12 @@ Slack direct messages and GitHub for their own assistant. They do it from
 those systems live, for that person alone. Nothing from them reaches a shared
 workspace.
 
+Calendar and Gmail are also read on a schedule, for the person's own
+[morning brief and evening wrap](morning-brief.md): today's (or tomorrow's)
+calendar, and recent mail with a meeting's outside attendees. The person can
+retime or turn either off, and an admin can turn daily briefs off for the
+Org.
+
 This is the other half of [Connect](connect.md):
 
 | | A workspace connection | A personal connection |
@@ -13,7 +19,7 @@ This is the other half of [Connect](connect.md):
 | Who connects | A workspace admin | Any member, for themselves |
 | Whose grant | The workspace's | The person's |
 | Where it is stored | `api_token` in the shared workspace | `api_token` in the person's Personal workspace |
-| Who reads it | The workspace's agents, through a source that syncs | The person's own assistant, live, through tools |
+| Who reads it | The workspace's agents, through a source that syncs | The person's own assistant, live, through tools and their daily brief |
 | Synced, embedded, searchable by others | Yes | Never |
 
 ## What a person sees
@@ -126,7 +132,7 @@ header says which tier Google puts each scope in, and why it is needed.
 | Vendor | Asked for | Google tier |
 |---|---|---|
 | Google, Gmail | `gmail.readonly`, `gmail.compose` | restricted, restricted |
-| Google, Calendar | `calendar.readonly` | sensitive |
+| Google, Calendar | `calendar.events.readonly` | sensitive |
 | Google, Drive | `drive.readonly` | restricted |
 | Google, every login | `openid`, `email` | non-sensitive |
 | Slack | user scopes `im:read`, `im:history`, `mpim:read`, `mpim:history`, `search:read`, `users:read` | — |

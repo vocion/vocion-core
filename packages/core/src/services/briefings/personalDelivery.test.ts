@@ -263,6 +263,7 @@ describe('the delivery — one brief on Briefings, one message in chat', () => {
   });
 
   it('a brief with a connected calendar lists today\'s meetings with a line of context each', async () => {
+    // A login from before Calendar narrowed to calendar.events.readonly: the broader grant still serves.
     await storeLoginCredential({ orgId: home, platform: 'google', name: 'Google — alex', account: 'alex@northwind.example', values: { refreshToken: 'rt-alex', clientId: 'cid', clientSecret: 'cs', email: 'alex@northwind.example', scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose openid email' }, createdBy: ALEX });
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
       const url = String(input);

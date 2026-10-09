@@ -27,7 +27,7 @@ const SCOPES: Record<string, string[]> = {
   'gmail': ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'],
   'drive': ['https://www.googleapis.com/auth/drive.readonly'],
   'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
-  'google-calendar': ['https://www.googleapis.com/auth/calendar.readonly'],
+  'google-calendar': ['https://www.googleapis.com/auth/calendar.events.readonly'],
 };
 
 function parseArgs(argv: string[]) {

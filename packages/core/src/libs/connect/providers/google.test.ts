@@ -142,7 +142,7 @@ describe('google connect provider — a person\'s own login', () => {
     const scope = (connector: string) => new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector, audience: 'personal' })).searchParams.get('scope');
 
     expect(scope('gmail')).toBe('https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose openid email');
-    expect(scope('google-calendar')).toBe('https://www.googleapis.com/auth/calendar.readonly openid email');
+    expect(scope('google-calendar')).toBe('https://www.googleapis.com/auth/calendar.events.readonly openid email');
     expect(scope('drive')).toBe('https://www.googleapis.com/auth/drive.readonly openid email');
 
     // A workspace's Gmail stays read-only: drafts are only ever a person's own.
@@ -150,6 +150,16 @@ describe('google connect provider — a person\'s own login', () => {
     env.GOOGLE_OAUTH_CLIENT_SECRET = 'x';
 
     expect(new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector: 'gmail' })).searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.readonly openid email');
+  });
+
+  it('a Calendar login made with the broader calendar.readonly still serves, personal and workspace', () => {
+    const legacy = { scope: 'https://www.googleapis.com/auth/calendar.readonly openid email' };
+    const narrow = { scope: 'https://www.googleapis.com/auth/calendar.events.readonly openid email' };
+
+    expect(googleProvider.missingAccessFor?.(legacy, 'google-calendar', 'personal')).toBeNull();
+    expect(googleProvider.missingAccessFor?.(legacy, 'google-calendar')).toBeNull();
+    expect(googleProvider.missingAccessFor?.(narrow, 'google-calendar', 'personal')).toBeNull();
+    expect(googleProvider.missingAccessFor?.({ scope: 'https://www.googleapis.com/auth/gmail.readonly openid email' }, 'google-calendar', 'personal')).toMatch(/doesn't include Google Calendar/);
   });
 
   it('a personal Gmail login whose consent left out drafts is missing access', () => {
