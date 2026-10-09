@@ -51,13 +51,24 @@ export type EffortEnvelope = {
   ceilingSeconds: number;
   /** Spend after which the turn answers with what it has, in cents. */
   ceilingCents: number;
+  /**
+   * Sources the turn may gather before its next call counts as the synthesis
+   * (`synthesisDue`): past it, a Standard turn thinks again, because what it
+   * writes next is most likely the answer.
+   */
+  evidenceBudget: number;
+  /**
+   * Tool rounds after which the next call counts as the synthesis: a turn that
+   * has looked twice is usually writing its answer next.
+   */
+  synthesisRounds: number;
 };
 
 /** The built-in envelopes. A workspace or agent may move the ceilings (`harness.turnCeilings`). */
 export const ENVELOPES: Record<EffortLevel, EffortEnvelope> = {
-  quick: { level: 'quick', strength: 'fast', thinking: 'off', consults: 'none', fanOut: 3, targetSeconds: 8, ceilingSeconds: 40, ceilingCents: 15 },
-  standard: { level: 'standard', strength: 'balanced', thinking: 'agent', consults: 'one', fanOut: 5, targetSeconds: 20, ceilingSeconds: 90, ceilingCents: 75 },
-  deep: { level: 'deep', strength: 'balanced', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500 },
+  quick: { level: 'quick', strength: 'fast', thinking: 'off', consults: 'none', fanOut: 3, targetSeconds: 8, ceilingSeconds: 40, ceilingCents: 15, evidenceBudget: 8, synthesisRounds: 2 },
+  standard: { level: 'standard', strength: 'balanced', thinking: 'agent', consults: 'one', fanOut: 5, targetSeconds: 20, ceilingSeconds: 90, ceilingCents: 75, evidenceBudget: 12, synthesisRounds: 2 },
+  deep: { level: 'deep', strength: 'balanced', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500, evidenceBudget: 40, synthesisRounds: 4 },
 };
 
 /**
@@ -258,6 +269,29 @@ export class EffortCeilings {
     return this.hit;
   }
 
+  /**
+   * Whether the turn has gathered enough that its next call is most likely the
+   * synthesis: the turn has taken the envelope's tool rounds, the soft time
+   * target has passed, a ceiling has been reached, or the turn holds more
+   * sources than its evidence budget. Latches: once due, every later call of
+   * the turn is.
+   * @param turn - What the turn has done so far.
+   * @param turn.sources - Sources found.
+   * @param turn.rounds - Model calls that asked for tools since the person's message.
+   * @param now - The clock.
+   */
+  synthesisDue(turn: { sources: number; rounds: number }, now: number = Date.now()): boolean {
+    if (!this.due) {
+      this.due = turn.rounds >= this.envelope.synthesisRounds
+        || now - this.startedAt >= this.envelope.targetSeconds * 1000
+        || turn.sources >= this.envelope.evidenceBudget
+        || this.reached(now) !== null;
+    }
+    return this.due;
+  }
+
+  private due = false;
+
   get spentCents(): number {
     return this.cents;
   }
@@ -400,11 +434,33 @@ export function readsToolResults(messages: ReadonlyArray<{ _getType?: () => stri
  * thinking off — and leaves the opening call alone.
  * @param stepModel - The agent's model, built with thinking off.
  */
-export function createLegworkThinkingMiddleware(stepModel: BaseChatModel) {
+/**
+ * Model calls that asked for tools since the person's last message: the turn's
+ * tool rounds so far, read off the messages' shape.
+ * @param messages - The messages going to the model.
+ */
+export function toolRounds(messages: ReadonlyArray<{ _getType?: () => string; getType?: () => string; type?: string; tool_calls?: unknown[] }>): number {
+  let rounds = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    const type = typeof m.getType === 'function' ? m.getType() : typeof m._getType === 'function' ? m._getType() : m.type;
+    if (type === 'human') {
+      break;
+    }
+    if (type === 'ai' && (m.tool_calls?.length ?? 0) > 0) {
+      rounds += 1;
+    }
+  }
+  return rounds;
+}
+
+export function createLegworkThinkingMiddleware(stepModel: BaseChatModel, synthesisDue?: (rounds: number) => boolean) {
   return createMiddleware({
     name: 'VocionLegworkThinking',
     wrapModelCall: async (request, handler) => {
-      if (!readsToolResults(request.messages as never)) {
+      // The opening call plans; a call once the turn has gathered enough is
+      // most likely the answer. Both keep the agent's thinking.
+      if (!readsToolResults(request.messages as never) || synthesisDue?.(toolRounds(request.messages as never))) {
         return handler(request);
       }
       return handler({ ...request, model: stepModel as never });
