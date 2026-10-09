@@ -22,17 +22,12 @@
  * asks the same question and gets the same answer.
  */
 
-/**
- * The tallest anything pinned above the composer may be on a phone: a quarter
- * of the viewport. What is taller scrolls inside it, so the conversation above
- * always keeps the screen and always scrolls. A desktop has the room, unless
- * it is short. A docked card keeps its question and its buttons in view
- * while its middle scrolls (`DecisionCard`, sticky head and foot).
- */
-export const PINNED_MAX_CLASS = 'max-md:max-h-[25dvh] max-md:overflow-y-auto max-md:overscroll-contain md:[@media(max-height:560px)]:max-h-[45dvh] md:[@media(max-height:560px)]:overflow-y-auto md:[@media(max-height:560px)]:overscroll-contain';
-// A phone on its side is wider than `md` and only ~390px tall: capped by
-// height too, or a docked card pushed the composer off the screen (2026-10-09,
-// landscape, "Connect Gmail?" 334px tall in a 390px viewport, no composer).
+// NO CAP ABOVE THE COMPOSER (founder, 2026-10-09: "the card was unreadable
+// because the inner scroll content window was so tiny"). A Decision is not
+// pinned above the box any more: it is the latest item IN the conversation,
+// full height, and the thread scrolls naturally with it (`decisionBlock`).
+// What stays above the box is small by nature — the objective's one line, a
+// chip — so there is nothing to cap and nothing scrolls inside a box.
 
 /**
  * Whether a docked card (a Decision, an approval, a suggested action) may be

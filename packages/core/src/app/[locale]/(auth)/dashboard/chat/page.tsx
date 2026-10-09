@@ -1,10 +1,12 @@
+import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import { setRequestLocale } from 'next-intl/server';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { parseConversationParam } from '@/features/dashboard/chat/resumeRule';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { askOf } from '@/libs/chat/ask';
 import { connectReturnOutcome } from '@/libs/connect/returnTo';
-import { connectSystemsInputOf } from '@/libs/connect/systemsLink';
+import { connectSystemsAsk, connectSystemsInputOf } from '@/libs/connect/systemsLink';
 import { listArtifactsByIds } from '@/services/ArtifactService';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
 import { loadOpeningHints } from '@/services/chat/openingHints';
@@ -20,9 +22,11 @@ import { ORG_ROLE } from '@/types/Auth';
  * entry, so the list is empty only when no workspace resolved at all; the
  * shell renders an empty state for that instead of failing to pick a default.
  *
- * Deep-linkable: `?prompt=<text>` pre-fills the composer without sending,
+ * Deep-linkable: `?ask=<text>` sends the person's ask once as a real turn,
+ * `?prompt=<text>` pre-fills the composer without sending,
  * `?attach=<ids>` starts uploaded files in it (Share to Vocion),
- * `?objective=connect-systems` docks "Connect your systems" above the composer,
+ * `?objective=connect-systems` sends "Help me connect …" as the person's first
+ * message — the lead answers it in words and raises the walk with its tools,
  * `?connect=ok|error` (a login just finished) sends its prepared message once
  * on its own and then drops those params, and `?conversation=<id>` resumes a thread — otherwise the page opens a NEW
  * conversation with the one workspace agent (agent-chat-surface.md §9, §9.10).
@@ -38,13 +42,19 @@ import { ORG_ROLE } from '@/types/Auth';
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string; attach?: string; connect?: string; reason?: string; source?: string; connector?: string; objective?: string; app?: string; named?: string }>;
+  searchParams: Promise<{ ask?: string; agent?: string; prompt?: string; conversation?: string; new?: string; attach?: string; connect?: string; reason?: string; source?: string; connector?: string; objective?: string; app?: string; named?: string }>;
 }) {
   const { locale } = await props.params;
   const searchParams = await props.searchParams;
   const { prompt: seededPrompt, conversation, new: startNew, attach, connect, reason, source, connector } = searchParams;
-  // `?objective=connect-systems[&app=<id>][&named=a,b]` — dock "Connect your systems" above the composer.
+  // `?objective=connect-systems[&app=<id>][&named=a,b]` — a link from an app's
+  // page, the checklist or the Connectors page. Never a card docked by the
+  // link itself: it becomes the person's own message, a real turn, and the
+  // lead raises whatever it decides to (founder, 2026-10-09).
   const connectSystems = connectSystemsInputOf(searchParams);
+  // `?ask=<words>` — a chip, a checklist step or a link that asks for
+  // something: the person's own message, sent once (`libs/chat/ask.ts`).
+  const openingAsk = askOf(searchParams.ask) ?? (connectSystems ? await connectAskFor(connectSystems) : null);
   setRequestLocale(locale);
   const { orgId, userId, has } = await auth();
 
@@ -99,9 +109,19 @@ export default async function ChatPage(props: {
         // `?new=1` — ⌘⇧O or the palette from a page with no chat surface: start
         // a fresh thread instead of resuming this browser session's.
         startNew={startNew === '1'}
-        connectSystems={connectSystems}
+        openingAsk={openingAsk}
         openingHints={openingHints}
       />
     </div>
   );
+}
+
+/**
+ * The person's message for a connect link, with the names they would use.
+ * @param input - What the link named.
+ */
+async function connectAskFor(input: ConnectPlanInput): Promise<string> {
+  const [{ safeListApps }, { getConnector }] = await Promise.all([import('@/libs/workspace/apps'), import('@/libs/sources/registry')]);
+  const app = input.app ? safeListApps().find(a => a.id === input.app)?.name ?? null : null;
+  return connectSystemsAsk({ app, named: (input.named ?? []).map(slug => getConnector(slug)?.name ?? slug) });
 }

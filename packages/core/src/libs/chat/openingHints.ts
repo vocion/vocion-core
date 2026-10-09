@@ -146,7 +146,7 @@ function setupCandidate(input: HintInput): OpeningHint | null {
       ? {
           key: `setup:${app.slug}`,
           type: 'setup',
-          label: `Resume setting up ${app.name} →`,
+          label: `Resume ${app.name} setup →`,
           reason: `${left.length} ${plural(left.length, 'step', 'steps')} left; next: ${next.label}.`,
           score: score * RESUME_BOOST,
           action: { kind: 'open', href: `/dashboard/chat?conversation=${resume.conversationId}` },
@@ -156,10 +156,13 @@ function setupCandidate(input: HintInput): OpeningHint | null {
         ? {
             key: `setup:${app.slug}`,
             type: 'setup',
-            label: `${app.name} is installed — ${left.length} ${plural(left.length, 'step', 'steps')} left: ${next.label} →`,
+            // Leads with the action, short enough to read whole at 390px.
+            label: `Finish ${app.name} setup · ${left.length} ${plural(left.length, 'step', 'steps')} →`,
             reason: app.blocksAgents ? `Its agents can't run until ${next.label.toLowerCase()} is done.` : `${app.name} is not finished yet; ${next.label.toLowerCase()} is next.`,
             score,
-            action: { kind: 'open', href: app.href },
+            // A prompt, never a shortcut: the person's own ask starts a turn,
+            // and the lead raises whatever it decides to (founder, 2026-10-09).
+            action: { kind: 'send', prompt: `Help me finish setting up ${app.name}` },
           }
         : {
             key: `setup:${app.slug}`,
@@ -184,16 +187,15 @@ function connectorCandidate(input: HintInput): OpeningHint | null {
     const verb = c.state === 'broken' || c.state === 'expired' ? 'Reconnect' : c.state === 'incomplete' ? 'Finish connecting' : 'Connect';
     let hint: OpeningHint;
     if (input.person.isAdmin) {
-      const why = c.touchNote ? ` — ${c.touchNote}` : c.state === 'needed' && c.neededBy ? ` — ${c.neededBy} needs it` : '';
       hint = {
         key: `connector:${c.slug}`,
         type: 'connector',
-        label: `${verb} ${c.name}${why} →`,
+        label: `${verb} ${c.name} →`,
         reason: c.state === 'broken' || c.state === 'expired'
-          ? `The ${c.name} connection stopped working${c.recentTouches > 0 ? ', and the team has needed it this week' : ''}.`
+          ? `The ${c.name} connection stopped working${c.touchNote ? ` — ${c.touchNote}` : c.recentTouches > 0 ? ', and the team has needed it this week' : ''}.`
           : c.state === 'needed' ? `${c.neededBy ?? 'An installed app'} reads from ${c.name}.` : `The ${c.name} connection was started and not finished.`,
         score,
-        action: { kind: 'open', href: c.href },
+        action: { kind: 'send', prompt: `Help me ${verb.toLowerCase()} ${c.name}` },
       };
     } else if (c.recentTouches > 0) {
       // A member cannot connect it; say so only when it is getting in their way.

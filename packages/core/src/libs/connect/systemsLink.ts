@@ -55,3 +55,22 @@ export function connectSystemsInputOfHref(href: string | undefined): ConnectPlan
   const q = href.indexOf('?');
   return q < 0 ? null : connectSystemsInputOf(new URLSearchParams(href.slice(q + 1)));
 }
+
+/**
+ * What a link into "Connect your systems" says, in the person's own voice,
+ * as the message it sends: the lead reads it like any other ask and decides
+ * what to raise (founder, 2026-10-09: "After clicking I got a card
+ * immediately. Instead I would expect a chat turn that results in a card").
+ * A link never docks the walk by itself; the lead's `connect_system` does.
+ * @param names - Display names: the app the link is for, the systems it named.
+ * @param names.app - The app's name.
+ * @param names.named - The named systems' names.
+ */
+export function connectSystemsAsk(names: { app?: string | null; named?: readonly string[] }): string {
+  const named = (names.named ?? []).filter(Boolean);
+  if (named.length > 0) {
+    const list = named.length === 1 ? named[0]! : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+    return `Help me connect ${list}`;
+  }
+  return names.app ? `Help me connect the systems ${names.app} uses` : 'Help me connect the systems this workspace needs';
+}

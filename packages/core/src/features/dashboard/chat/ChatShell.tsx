@@ -4,7 +4,6 @@ import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption, ChatAttachment } from './types';
 import type { OpeningHint } from '@/libs/chat/openingHints';
 import type { ConnectReturn } from '@/libs/connect/returnTo';
-import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -23,7 +22,7 @@ import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
-import { ConversationDecisions } from './decisions/DecisionDock';
+import { decisionBlock } from './decisions/DecisionDock';
 import { composerAsk, teamLine, teamOf } from './emptyChat';
 import { EmptyState } from './EmptyState';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
@@ -91,11 +90,13 @@ export type ChatShellProps = {
   /** The ranked opening hints for an empty conversation (`services/chat/openingHints.ts`). */
   openingHints?: OpeningHint[];
   /**
-   * `?objective=connect-systems` — start "Connect your systems" docked above
-   * the composer (the checklist, an app's page and the Connectors page link
-   * here), planned for this input.
+   * `?objective=connect-systems` — a link from an app's page, the checklist or
+   * the Connectors page, as the person's own words ("Help me connect the
+   * systems Software Factory uses"): sent once, in a fresh thread, as a real
+   * turn. The lead answers and raises whatever it decides to; a link never
+   * docks a card by itself (founder, 2026-10-09).
    */
-  connectSystems?: ConnectPlanInput | null;
+  openingAsk?: string | null;
 };
 
 /**
@@ -123,7 +124,7 @@ export type ChatShellProps = {
  * @param props.conversationId
  * @param props.startNew
  * @param props.connectReturn - How a connect this thread started came back.
- * @param props.connectSystems - `?objective=connect-systems`: the walk to start.
+ * @param props.openingAsk - A link's ask, sent once as the person's first message.
  * @param props.openingHints - The ranked opening hints.
  */
 export function ChatShell({
@@ -135,7 +136,7 @@ export function ChatShell({
   conversationId = null,
   startNew = false,
   connectReturn,
-  connectSystems = null,
+  openingAsk = null,
   openingHints,
 }: ChatShellProps) {
   if (agents.length === 0) {
@@ -152,7 +153,7 @@ export function ChatShell({
       conversationId={conversationId}
       startNew={startNew}
       connectReturn={connectReturn}
-      connectSystems={connectSystems}
+      openingAsk={openingAsk}
       openingHints={openingHints}
     />
   );
@@ -186,7 +187,7 @@ function ChatShellInner({
   conversationId = null,
   startNew = false,
   connectReturn,
-  connectSystems = null,
+  openingAsk = null,
   openingHints,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
@@ -323,21 +324,25 @@ function ChatShellInner({
   }, [startNew, session.booted, router, pathname]);
   // Back from a login: the agent carries on by itself, once, and the URL is cleaned so a reload never repeats it.
   useAnswerOnConnectReturn({ outcome: connectReturn ?? null, ready: session.booted, decisions: session.openDecisions, answer: session.answerDecision, fail: session.failDecision, pathname, replaceUrl: router.replace });
-  // "Connect your systems", docked above the composer (`ConversationDecisions`):
-  // started by a link that named it, or by its Decision in the thread. The
-  // link's params leave the URL once it has started, so a reload does not
-  // start it twice.
+  // A link that asked for something ("Help me connect …") is sent once, as
+  // the person's own message in a fresh thread, when the saved thread has
+  // settled; its params leave the URL so a reload never sends it twice.
+  const askedRef = useRef(false);
   useEffect(() => {
-    if (!connectSystems) {
+    if (!openingAsk || !session.booted || askedRef.current) {
       return;
     }
+    askedRef.current = true;
+    sessionRef.current.handleNewChat();
     const params = new URLSearchParams(window.location.search);
-    for (const key of ['objective', 'app', 'named']) {
+    for (const key of ['objective', 'app', 'named', 'ask']) {
       params.delete(key);
     }
     const qs = params.toString();
     router.replace(`${pathname}${qs ? `?${qs}` : ''}`);
-  }, [connectSystems, router, pathname]);
+    // After the reset has rendered, so the message lands in the new thread.
+    setTimeout(() => void sessionRef.current.handlePickSuggestion(openingAsk), 0);
+  }, [openingAsk, session.booted, router, pathname]);
   const queueProps = useComposerQueueProps(session);
   // `@` and `(+)` offer the same list: the artifact contract, then the records
   // this surface knows. The full page is not on a record, so there is no page
@@ -461,6 +466,8 @@ function ChatShellInner({
                 )
               : (
                   <MessageList
+                    // The Decision this thread waits on, as its latest item.
+                    blocks={[decisionBlock(session)]}
                     messages={session.messages}
                     agentName={session.workspaceName}
                     // The workspace speaks through its lead; a specialist's turn is attributed.
@@ -481,9 +488,6 @@ function ChatShellInner({
             pinned={<ConversationObjective session={session} />}
             above={(
               <>
-                {/* The Decision this thread waits on, docked first — the
-                    composer below stays live to answer in words. */}
-                <ConversationDecisions session={session} connectSystems={connectSystems} />
                 {intent?.context?.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
                 {intent?.context?.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
               </>

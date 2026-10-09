@@ -47,6 +47,17 @@ describe('connect_system', () => {
     expect(empty.emitted).toHaveLength(0);
   });
 
+  it('wears the lead\'s own words, composed from the facts it was handed (founder, 2026-10-09: "not hard coded … that gets stale")', async () => {
+    plan.mockResolvedValue({ candidates: [{ ...candidate('github', 'GitHub'), evidence: [{ kind: 'app', app: 'software-factory', appName: 'Software Factory', needed: true }] }], connected: [], question: null, scope: { app: 'software-factory', appName: 'Software Factory' }, refused: null });
+    const c = ctx();
+
+    const said = await connectSystem(c, { app: 'software-factory', title: 'Connect GitHub so the factory can read your repos?', why: 'The release engineer tried to map northwind/api this morning and had no access.' });
+
+    expect(c.emitted[0]).toMatchObject({ card: { title: 'Connect GitHub so the factory can read your repos?', body: 'The release engineer tried to map northwind/api this morning and had no access.' } });
+    // Facts for the agent's own line, not copy to paste.
+    expect(said).toContain('- GitHub: Software Factory needs it');
+  });
+
   it('shows no card to someone who cannot connect, and says why', async () => {
     plan.mockResolvedValue({ candidates: [], connected: [], question: null, scope: null, refused: 'Only a workspace admin can connect a source' });
     const c = ctx();

@@ -1,9 +1,53 @@
 {
   "turns": [
     {
+      "match": "help me connect the systems gtm uses",
+      "steps": [
+        {
+          "tool": "connect_system",
+          "args": {
+            "app": "gtm"
+          }
+        }
+      ],
+      "reply": "GTM reads two systems; here they are, one at a time."
+    },
+    {
+      "match": "help me connect notion",
+      "steps": [
+        {
+          "tool": "connect_system",
+          "args": {
+            "named": [
+              "notion"
+            ]
+          }
+        }
+      ],
+      "reply": "Notion it is."
+    },
+    {
+      "match": "help me connect the systems this workspace needs",
+      "steps": [
+        {
+          "tool": "connect_system",
+          "args": {}
+        }
+      ],
+      "reply": "Pick the ones you use and I'll walk you through each."
+    },
+    {
       "match": "connect my tools",
       "steps": [
-        { "tool": "connect_system", "args": { "named": ["jira", "notion"] } }
+        {
+          "tool": "connect_system",
+          "args": {
+            "named": [
+              "jira",
+              "notion"
+            ]
+          }
+        }
       ],
       "reply": "Here is what to connect, one at a time."
     }

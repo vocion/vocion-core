@@ -31,9 +31,14 @@ export type ViewAnswer
 
 export type ConnectSystemsViewProps = {
   state: FlowState;
-  /** The title: "Connect your systems", or "Connect the systems GTM uses". */
+  /** The eyebrow, short: "Connect your systems", or "GTM setup" (with "· 1 of 2" after it). */
   title: string;
   onAnswer: (a: ViewAnswer) => void;
+  /**
+   * The lead's own words from the turn that raised the walk (its Decision's
+   * why): the first step leads with them, the registry's evidence after.
+   */
+  intro?: string | null;
   /** Typed credential values (secret; held here only until saved). */
   credentialValues: Record<string, string>;
   onCredentialChange: (name: string, value: string) => void;
@@ -49,7 +54,9 @@ export type ConnectSystemsViewProps = {
  */
 function why(c: ConnectCandidate): string {
   const evidence = c.evidence.map(evidenceLine).join(' · ');
-  const unlocks = c.unlocks.length > 0 ? `Unlocks ${unlockLine(c, 'connected')}` : '';
+  // Only features say more than the evidence: "Software Factory needs it —
+  // Unlocks Software Factory can read it" said the same thing twice.
+  const unlocks = c.unlocks.some(u => u.features.length > 0) ? `Unlocks ${unlockLine(c, 'connected')}` : '';
   return [evidence, unlocks].filter(Boolean).join(' — ');
 }
 
@@ -210,7 +217,7 @@ export function ConnectSystemsView(props: ConnectSystemsViewProps) {
           {...common}
           id={`connect-${c.connector}-choose`}
           question={`Connect ${c.name}?`}
-          body={why(c)}
+          body={state.index === 0 && props.intro ? props.intro : why(c)}
           options={[{ id: 'connect', ...connect, recommended: true }, LATER]}
           submitLabel="Continue"
           onAnswer={a => somethingElse(a, ids => onAnswer(ids[0] === 'later' ? { kind: 'later' } : { kind: 'connect' }))}

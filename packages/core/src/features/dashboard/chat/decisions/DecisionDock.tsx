@@ -1,6 +1,5 @@
 'use client';
 
-import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import type { DoneReceipt } from '@/libs/decisions/receipt';
 import { X } from 'lucide-react';
@@ -123,15 +122,14 @@ type DockSession = {
  * in the composer's `above` slot.
  * @param props - The session.
  * @param props.session - The chat session (`useChatSession`).
- * @param props.connectSystems - A walk the page address named, started at once.
  */
-export function ConversationDecisions({ session, connectSystems = null }: { session: DockSession; connectSystems?: ConnectPlanInput | null }) {
+export function ConversationDecisions({ session }: { session: DockSession }) {
   // "Connect your systems" is a setup Decision whose option opens the docked
   // walk-through: while the walk runs it IS the docked card — one at a time —
   // and when it finishes it answers the Decision that started it.
-  const walk = useConnectSystems(connectSystems ? { input: connectSystems } : null);
-  // The conversation in which the person tapped "N things waiting on you".
-  const [openedFor, setOpenedFor] = useState<number | null | undefined>(undefined);
+  // Started only from a Decision the lead raised in this thread ("Start"),
+  // never by the page's address: a link asks the lead first (`openingAsk`).
+  const walk = useConnectSystems(null);
   // A walk this conversation was in the middle of, before a reload or a trip
   // through the drawer, picks up where it was while the Decision it answers
   // is still open (`walkMemory.ts`); once that Decision is answered, it is over.
@@ -159,6 +157,7 @@ export function ConversationDecisions({ session, connectSystems = null }: { sess
         key={active.key}
         input={active.input}
         resume={active.resume ?? null}
+        intro={active.intro ?? null}
         onProgress={where => rememberWalk(conversationId, { input: active.input, ...(active.decisionId !== undefined ? { decisionId: active.decisionId } : {}), ...where })}
         decision={active.decisionId !== undefined && conversationId !== null ? { conversationId, decisionId: active.decisionId } : null}
         onClose={() => {
@@ -177,13 +176,15 @@ export function ConversationDecisions({ session, connectSystems = null }: { sess
     elsewhere: session.waitingDecisions,
     messageCount: session.messages.length,
     personStarted: false,
-    elsewhereOpened: openedFor === session.conversationId && session.waitingDecisions.length > 0,
+    // Never docked by a tap: what waits elsewhere is answered where it lives
+    // (Review, a page) — no chip in chat opens a card without a turn.
+    elsewhereOpened: false,
     streaming: session.isStreaming ?? false,
   });
   if (plan.nudge !== null && !session.dockNotice) {
     return (
       <div className="mb-2 flex justify-center" data-testid="decision-dock-nudge">
-        <WaitingNudge count={plan.nudge} onOpen={() => setOpenedFor(session.conversationId)} />
+        <WaitingNudge count={plan.nudge} />
       </div>
     );
   }
@@ -208,4 +209,17 @@ export function ConversationDecisions({ session, connectSystems = null }: { sess
       error={session.decisionError}
     />
   );
+}
+
+/**
+ * The Decision as the latest item IN the conversation, not a capped box above
+ * the composer (founder, 2026-10-09: "the card was unreadable because the
+ * inner scroll content window was so tiny"). Full height, every option and
+ * its consequence visible; the thread scrolls naturally and the card with it,
+ * into view when it arrives, the composer below it. Still one at a time.
+ * @param session - The chat session.
+ * @returns The block `MessageList` draws after the last message.
+ */
+export function decisionBlock(session: DockSession): { key: string; afterIndex: number; node: React.ReactNode } {
+  return { key: 'conversation-decisions', afterIndex: Number.MAX_SAFE_INTEGER, node: <ConversationDecisions session={session} /> };
 }

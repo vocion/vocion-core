@@ -1244,11 +1244,11 @@ Claude Code's prompt, on the same card:
   docked card.
 - **Warm start** (`chat/emptyChat.ts`). On an empty chat nothing docks unless
   the person started it; what waits elsewhere is the one soft chip
-  (`WaitingNudge`), never a card on its own — in a conversation under way it
-  docks there only when the person taps the chip (`dockPlan`).
-  On a phone the composer's pinned slot is capped at a quarter of the viewport
-  (45% on a short screen) and scrolls inside (`PINNED_MAX_CLASS`); the docked
-  card's question and Submit stay pinned, and its controls are 44px.
+  (`WaitingNudge`, to Review), never a card on its own (`dockPlan`).
+  The active Decision is the latest item in the thread, full height — no cap
+  above the composer, no inner scroll (`decisionBlock`); its controls are 44px
+  on a phone. A chip, a checklist step or a link sends the person's words as a
+  turn; it never opens a card by itself (`libs/chat/ask.ts`).
 - **A look.** An option whose effect has a picture (a drafted brand) draws it
   under the why (`decision-look`), from a renderer named on the option; a
   renderer the client does not know draws nothing.
@@ -1275,8 +1275,9 @@ Claude Code's prompt, on the same card:
 
 A typed `DecisionAnswer` — options by id, their own words, or a skip — handed to
 `onAnswer`. **Never text in the composer, and never a message in the person's
-name**: the transcript draws it as a receipt on their side ("Chose Northwind
-API · Which repo…"). The Done line for what an option ran sits under the reply,
+name**: the card collapses into one bubble on their side — the question small,
+the answer under it ("Which repo…? / Northwind API"), "Skipped" for a skip.
+That bubble is the turn the agent answers. The Done line for what an option ran sits under the reply,
 with Undo only where the action's kind has one.
 
 Storybook: `Chat/DecisionCard` — every state (choice, question, approval as a

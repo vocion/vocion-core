@@ -865,7 +865,8 @@ export function useChatSession({
           // person asked for it. A reload docks the Decision and starts nothing.
           const walk = d.state === 'open' && d.kind === 'setup' ? d.options.map(o => connectSystemsInputOfHref(o.href)).find(Boolean) : null;
           if (walk) {
-            startConnectSystems({ input: walk, decisionId: d.id });
+            // The lead's why for this person now leads the first step.
+            startConnectSystems({ input: walk, decisionId: d.id, intro: d.body ?? null });
           }
           return;
         }

@@ -56,6 +56,9 @@ import { z } from 'zod';
 const StepSchema = z.object({
   tool: z.string().min(1),
   args: z.record(z.string(), z.unknown()).default({}),
+  // What the model writes in the same message as the call — the short line of
+  // context a real model says before the card its tool raises.
+  say: z.string().optional(),
 });
 /**
  * A turn that dies part-way: the model speaks `after` and then throws with
@@ -270,10 +273,10 @@ export class ScriptedChatModel extends BaseChatModel {
       }
       const args = resolveFileRefs(step.args, this.baseDir) as Record<string, unknown>;
       const message = new AIMessage({
-        content: '',
+        content: step.say ?? '',
         tool_calls: [{ id: `scripted-${toolResults + 1}-${Date.now()}`, name: step.tool, args, type: 'tool_call' }],
       });
-      return { generations: [{ text: '', message }] };
+      return { generations: [{ text: step.say ?? '', message }] };
     }
     if (turn.pauseBeforeReplyMs) {
       await new Promise(resolve => setTimeout(resolve, turn.pauseBeforeReplyMs));

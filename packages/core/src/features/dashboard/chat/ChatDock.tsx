@@ -30,7 +30,7 @@ import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
-import { ConversationDecisions } from './decisions/DecisionDock';
+import { decisionBlock } from './decisions/DecisionDock';
 import { RAIL_SET_EVENT } from './dockState';
 import { composerAsk, teamLine, teamOf } from './emptyChat';
 import { EmptyState } from './EmptyState';
@@ -735,7 +735,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   pageRecord={pageRecord}
                   onShowSources={openSources}
                   onCitationClick={(_n, messageId) => openSources(messageId)}
-                  blocks={blocks}
+                  // The Decision this thread waits on, as its latest item.
+                  blocks={[...blocks, decisionBlock(session)]}
                   onFeedback={session.handleFeedback}
                   onBuildCard={session.buildFromCard}
                   autonomy={session.autonomy}
@@ -764,7 +765,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           pinned={<ConversationObjective session={session} />}
           above={(
             <>
-              <ConversationDecisions session={session} />
               {comments && (
                 <CommentChips
                   comments={comments.open}

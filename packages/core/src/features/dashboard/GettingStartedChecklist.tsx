@@ -2,9 +2,10 @@
 
 import { Check, ChevronRight, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
+import { SidebarContext } from '@/components/ui/useSidebar';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
-import { connectSystemsHref } from '@/libs/connect/systemsLink';
+import { chatAskHref } from '@/libs/chat/ask';
 import { Link, usePathname } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -20,10 +21,12 @@ import { client } from '@/libs/Orpc';
  * or is undone (`SETUP_CHANGED_EVENT`), when the page changes and when the
  * window comes back into focus.
  *
- * A step not done yet opens the chat with the ask for the workspace lead
- * already written (`?prompt=`) — except connecting, which opens "Connect your
- * systems" docked above the composer (`connectSystemsHref`) — because setting up happens in the
- * conversation; a step done opens the place it lives. Dismissible, remembered
+ * A step not done yet is a PROMPT, not a shortcut (founder, 2026-10-09: "I
+ * would have wanted that to initiate a chat turn that naturally leads to me
+ * connecting"): tapping it closes the drawer on a phone and sends the
+ * person's own ask as a real message (`chatAskHref`); the lead answers in a
+ * turn over the workspace's live state and raises whatever cards it decides
+ * to. A step done opens the place it lives. Dismissible, remembered
  * per person per workspace (nav prefs), and gone by itself once every step is
  * done.
  *
@@ -76,6 +79,15 @@ export type GettingStartedChecklistProps = {
  */
 export function GettingStartedChecklist({ initial, onDismiss, live = true }: GettingStartedChecklistProps) {
   const t = useTranslations('Onboarding');
+  // On a phone the drawer gets out of the way, so the person sees their ask go
+  // out and the lead's answer come in.
+  // (Outside a sidebar — a page, a story — there is no drawer to close.)
+  const sidebar = use(SidebarContext);
+  const closeDrawer = () => {
+    if (sidebar?.isMobile) {
+      sidebar.setOpenMobile(false);
+    }
+  };
   const [state, setState] = useState<GettingStartedState | null>(initial);
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -114,6 +126,7 @@ export function GettingStartedChecklist({ initial, onDismiss, live = true }: Get
     <div data-testid="getting-started" className="mx-2 mb-1 group-data-[collapsible=icon]:hidden">
       <div className="flex items-center gap-1">
         <button
+          data-testid="getting-started-toggle"
           type="button"
           onClick={() => setOpen(o => !o)}
           aria-expanded={open}
@@ -141,7 +154,8 @@ export function GettingStartedChecklist({ initial, onDismiss, live = true }: Get
           {state.steps.map(step => (
             <li key={step.id}>
               <Link
-                href={step.done ? DONE_HREF[step.id] : step.id === 'connect' ? connectSystemsHref() : `/dashboard/chat?prompt=${encodeURIComponent(t(`step_${step.id}_prompt`))}`}
+                href={step.done ? DONE_HREF[step.id] : chatAskHref(t(`step_${step.id}_prompt`))}
+                onClick={closeDrawer}
                 className="-mx-1 flex h-7 items-center gap-2 rounded-md px-1 text-[12px] transition-colors hover:bg-surface-hover"
                 data-testid={`getting-started-${step.id}`}
                 data-done={step.done ? 'true' : 'false'}

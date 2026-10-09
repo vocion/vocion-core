@@ -13,7 +13,7 @@ import { ADMIN, seedDecisionsWorkspace } from '../decisions/support/seed';
  * on a desktop: one quiet line above the docked Decision, "Setting up
  * Software Factory · 1 of 3 · Stop"; tapping it lists the steps; it survives a
  * reload and a trip through the drawer; Stop pauses it ("Paused …", Resume);
- * and a new chat opens on the one hint "Resume setting up Software Factory",
+ * and a new chat opens on the one hint "Resume Software Factory setup",
  * which opens the conversation where it stands.
  *
  * Run with the scripted model (`npm run e2e:objectives`). `OBJECTIVES_SHOTS`
@@ -86,11 +86,14 @@ for (const device of [
       await expect(page.getByText(/Checked what setup is left/).first()).toBeVisible();
       await expect(page.getByText(/describe setup|describe_setup|file ask|file_ask/i)).toHaveCount(0);
 
-      // One line, just above the one Decision.
+      // One quiet line above the composer; the Decision is in the thread.
       const lineBox = (await strip.boundingBox())!;
       const cardBox = (await card.boundingBox())!;
 
-      expect(lineBox.y + lineBox.height).toBeLessThanOrEqual(cardBox.y + 1);
+      // The card is the latest item in the thread; the line stays pinned just
+      // above the composer, below it.
+      expect(lineBox.y).toBeGreaterThanOrEqual(cardBox.y);
+      await expect(page.getByTestId('composer-above').getByTestId('decision-card')).toHaveCount(0);
 
       await shot(page, `${device.name}-01-line-above-the-decision`);
 
@@ -132,7 +135,7 @@ for (const device of [
       // The next visit opens on the one hint, and it opens the conversation where it stands.
       await page.goto('/dashboard/chat?new=1');
       // The opening hint ranker's own chip (#1272), its setup candidate resumed.
-      const hint = page.getByTestId('opening-hint').filter({ hasText: /Resume setting up Software factory/i });
+      const hint = page.getByTestId('opening-hint').filter({ hasText: /Resume Software factory setup/i });
 
       await expect(hint).toBeVisible({ timeout: 60_000 });
       await expect(page.getByTestId('opening-hint')).toHaveCount(1);

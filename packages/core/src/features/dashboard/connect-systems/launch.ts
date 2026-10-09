@@ -21,6 +21,8 @@ export type ConnectSystemsLaunch = {
   decisionId?: number;
   /** Where it was, when it is picked up again after a reload or a trip away. */
   resume?: FlowResume | null;
+  /** The lead's own why from the turn that raised it, for the first step. */
+  intro?: string | null;
 };
 
 /**

@@ -83,7 +83,10 @@ test('from the Connectors page: one question, a login in its own window and a ke
   await entry.focus();
   await page.keyboard.press('Enter');
 
-  // The one question, docked above the composer.
+  // The link is the person's ask, a real turn; the lead's connect_system
+  // raises the walk's one question, as the latest item in the thread.
+  await expect(page.getByText('Help me connect the systems this workspace needs')).toBeVisible({ timeout: 60_000 });
+
   const card = page.getByTestId('decision-card');
 
   await expect(card).toContainText('Which of these do you use?');
@@ -227,7 +230,9 @@ test('from an app\'s page: one move connects the systems that app reads, and the
 
   const card = page.getByTestId('decision-card');
 
-  await expect(page.getByTestId('decision-eyebrow')).toContainText('Connect the systems GTM uses');
+  // The link asked the lead in the person's words; the lead raised the walk.
+  await expect(page.getByText('Help me connect the systems GTM uses')).toBeVisible();
+  await expect(page.getByTestId('decision-eyebrow')).toContainText('GTM setup');
   // Scoped to one app: no question, straight to the first system.
   await expect(card).not.toContainText('Which of these do you use?');
 

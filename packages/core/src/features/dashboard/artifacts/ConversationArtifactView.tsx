@@ -32,7 +32,7 @@ import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from '@/features/dashboard/chat/autonomyOptions';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
-import { ConversationDecisions } from '@/features/dashboard/chat/decisions/DecisionDock';
+import { decisionBlock } from '@/features/dashboard/chat/decisions/DecisionDock';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
 import { ModelControl } from '@/features/dashboard/chat/ModelControl';
 import { ConversationObjective } from '@/features/dashboard/chat/objectives/ObjectiveStrip';
@@ -276,12 +276,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                       // What the thread filed reads under its latest turn here
                       // too, not only in the dock (it never loaded on /chat/<id>).
                       conversationId={props.conversationId}
+                      blocks={[decisionBlock(session)]}
                     />
                   )}
               {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
               <ChatComposer
                 pinned={<ConversationObjective session={session} />}
-                above={<ConversationDecisions session={session} />}
                 onCommand={onCommand}
                 controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
                 settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, tc('autonomy_thread'))]}

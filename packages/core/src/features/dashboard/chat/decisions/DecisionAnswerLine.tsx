@@ -1,45 +1,30 @@
 'use client';
 
 import type { DecisionAnswerReceipt } from '../types';
-import { CircleCheck, CornerDownRight, SkipForward } from 'lucide-react';
 
 /**
- * A person's answer to a Decision, in the transcript — on their side, as what
- * it is: "Chose Northwind API · Which repo should the factory build in?".
+ * AN ANSWERED DECISION, IN THE THREAD — on the person's side, where their own
+ * message would be: the question in small text, their answer under it
+ * ("Which repositories should the factory include? / Northwind API").
  *
- * A card's answer (keys or a click) is never drawn as a bubble of words: they
- * did not type any. Typed words that answered keep their bubble, and this
- * line sits beneath it saying which question they answered.
- * @param props - The line.
+ * Founder, 2026-10-09, after the Claude app: when a docked question is
+ * answered it becomes an inline element in the conversation, and that record
+ * IS the turn the agent answers — technically and visually. So the card
+ * collapses into this, no answer line elsewhere and no card left behind;
+ * "Something else" shows what they typed, Skip shows "Skipped". It scrolls up
+ * with the history like any message.
+ * @param props - The bubble.
  * @param props.answer - The answer, as recorded.
+ * @param props.typed - The words they typed, when they answered in the composer.
  */
-export function DecisionAnswerLine({ answer }: { answer: DecisionAnswerReceipt }) {
-  const Icon = answer.kind === 'skip' ? SkipForward : answer.via === 'composer' ? CornerDownRight : CircleCheck;
-  const verb = answer.kind === 'skip' ? 'Skipped' : answer.kind === 'free_text' ? 'Answered' : 'Chose';
+export function DecisionAnswerLine({ answer, typed }: { answer: DecisionAnswerReceipt; typed?: string | null }) {
+  const said = answer.kind === 'skip' ? 'Skipped' : (typed?.trim() || answer.line);
   return (
-    <div className="flex justify-end" data-testid="decision-answer" data-decision-id={answer.id} data-via={answer.via}>
-      <p className="inline-flex max-w-2xl items-start gap-1.5 text-right text-[13px] text-muted-foreground">
-        <Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        <span>
-          {answer.via === 'composer'
-            ? (
-                <>
-                  {'Answered '}
-                  <span className="text-foreground/80">{answer.question}</span>
-                </>
-              )
-            : (
-                <>
-                  {answer.kind === 'skip' ? verb : `${verb} `}
-                  {answer.kind !== 'skip' && <span className="font-medium text-foreground">{answer.line}</span>}
-                  <span className="text-muted-foreground/80">
-                    {' · '}
-                    {answer.question}
-                  </span>
-                </>
-              )}
-        </span>
-      </p>
+    <div className="flex justify-end" data-testid="decision-answer" data-decision-id={answer.id} data-via={answer.via} data-kind={answer.kind}>
+      <div className="max-w-2xl rounded-[18px] rounded-br-md bg-muted/60 px-4 py-2.5 text-left break-words" data-testid="user-message">
+        <p className="text-[12.5px] leading-snug text-muted-foreground" data-testid="decision-answer-question">{answer.question}</p>
+        <p className={`mt-1 text-[15px] leading-[1.45] whitespace-pre-wrap ${answer.kind === 'skip' ? 'text-muted-foreground' : 'text-foreground'}`} data-testid="decision-answer-said">{said}</p>
+      </div>
     </div>
   );
 }
