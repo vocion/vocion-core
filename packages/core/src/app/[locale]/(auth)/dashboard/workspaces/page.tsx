@@ -1,4 +1,4 @@
-import { setRequestLocale } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { ListPage } from '@/components/patterns';
 import { WorkspacesList } from '@/features/dashboard/nav/WorkspacesList';
 
@@ -10,8 +10,9 @@ import { WorkspacesList } from '@/features/dashboard/nav/WorkspacesList';
 export default async function WorkspacesPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: 'WorkspacesPage' });
   return (
-    <ListPage title="All workspaces" description="Every workspace you can open in this Org.">
+    <ListPage title={t('title')} description={t('description')}>
       <WorkspacesList />
     </ListPage>
   );

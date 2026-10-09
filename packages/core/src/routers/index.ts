@@ -132,7 +132,7 @@ import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
 import { changePasswordRoute, disableMfaRoute, getProfileRoute, invitationsRoute, mfaStatusRoute, regenerateRecoveryCodesRoute, setAccountMfaRequirementRoute, signInMethodsRoute, unlinkSignInMethodRoute, updateNameRoute, updatePhoneRoute } from './Profile';
-import { list as listProjects, setActive as setActiveProject } from './Projects';
+import { create as createProject, list as listProjects, overview as projectsOverview, setActive as setActiveProject } from './Projects';
 import {
   actAsPersonRoute,
   actionStatusRoute,
@@ -273,6 +273,8 @@ export const router = {
   },
   projects: {
     list: listProjects,
+    overview: projectsOverview,
+    create: createProject,
     setActive: setActiveProject,
   },
   nav: {

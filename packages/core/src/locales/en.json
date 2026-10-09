@@ -743,5 +743,29 @@
     "detail_not_granted": "not granted to the app",
     "detail_not_listed": "granted, not in this connection's list",
     "detail_not_granted_fix": "{count, plural, one {A repository this connection lists is not in the installation, so the sync cannot read it.} other {# repositories this connection lists are not in the installation, so the sync cannot read them.}} Add them at the vendor, or take them out of the list."
+  },
+  "WorkspacesPage": {
+    "title": "All workspaces",
+    "description": "Your Personal, then every workspace you can open.",
+    "search": "Search workspaces",
+    "new_workspace": "New workspace",
+    "agents": "{count, plural, one {# agent} other {# agents}}",
+    "active": "active {ago}",
+    "empty": "Empty",
+    "current": "Current",
+    "waiting": "{count} waiting on you",
+    "show_archived": "Show archived ({count})",
+    "hide_archived": "Hide archived",
+    "archived": "Archived",
+    "no_match": "No workspace matches.",
+    "none": "No workspaces yet.",
+    "loading": "Loading…",
+    "new_title": "New workspace",
+    "new_description": "Its lead will help you set it up in chat.",
+    "new_in_org": "In {org}",
+    "new_name": "Name",
+    "new_create": "Create",
+    "new_cancel": "Cancel",
+    "new_failed": "Could not create it: {reason}"
   }
 }
