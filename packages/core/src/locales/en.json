@@ -234,7 +234,11 @@
     "tag_artifact": "Artifact",
     "tag_page": "This page",
     "tag_change": "Change the draft",
-    "working_with": "Working with:"
+    "working_with": "Working with:",
+    "greeting_named": "Good {part, select, morning {morning} afternoon {afternoon} other {evening}}, {name}. What can I help with?",
+    "greeting": "Good {part, select, morning {morning} afternoon {afternoon} other {evening}}. What can I help with?",
+    "waiting_nudge": "{count, plural, one {# thing waiting on you} other {# things waiting on you}}",
+    "waiting_nudge_dismiss": "Not now"
   },
   "Onboarding": {
     "intro": "I'm the lead for {workspace} — tell me what your team does and I'll set it up with you.",

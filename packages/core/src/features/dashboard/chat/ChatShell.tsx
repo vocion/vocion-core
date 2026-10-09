@@ -25,6 +25,7 @@ import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
+import { mayDockCard } from './emptyChat';
 import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
@@ -37,6 +38,7 @@ import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 import { useSendOnConnectReturn } from './useSendOnConnectReturn';
+import { usePersonFirstName, WaitingNudge } from './WaitingNudge';
 import { WaitingOnYou } from './WaitingOnYou';
 
 /**
@@ -75,7 +77,7 @@ export type ChatShellProps = {
   initialAttachments?: ChatAttachment[];
   /** Dynamic workspace-scoped empty-state chips (urgency + capability). */
   suggestions?: Array<{ label: string; prompt: string }>;
-  /** Empty-state greeting: org eyebrow + "Ask <workspace>". */
+  /** The workspace's short name: who an empty conversation says hello as. */
   greeting?: { eyebrow?: string; workspace: string };
   /** A thread the URL names (`?conversation=<id>`) — resume it instead of starting fresh (§9). */
   conversationId?: number | null;
@@ -87,9 +89,10 @@ export type ChatShellProps = {
   /** `?new=1` — forget this browser session's thread and start fresh (⌘⇧O from a page with no surface). */
   startNew?: boolean;
   /**
-   * The proposals waiting on a person in this workspace (`listPendingDecisions`),
-   * drawn as cards above the composer so the queue is never the only place to
-   * decide them. `more` is how many the queue holds past the cards.
+   * The proposals waiting on a person in this workspace (`listPendingDecisions`).
+   * An empty conversation names how many in one soft chip to Review; a
+   * conversation under way draws them as cards at its end. `more` is how many
+   * the queue holds past the cards.
    */
   pendingDecisions?: { cards: RecommendedAction[]; more: number };
   /**
@@ -281,12 +284,17 @@ function ChatShellInner({
   const waiting = pendingDecisions && (pendingDecisions.cards.length > 0 || pendingDecisions.more > 0)
     ? <WaitingOnYou cards={pendingDecisions.cards} more={pendingDecisions.more} skipRunIds={shownRunIds} />
     : null;
+  // An empty conversation names how many wait, once, softly; the cards are Review's.
+  const waitingCount = pendingDecisions ? pendingDecisions.cards.length + pendingDecisions.more : 0;
+  const nudge = waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
+  const firstName = usePersonFirstName();
   // The approval gate, as a transcript block pinned to the end. `afterIndex`
   // past the last message is how `MessageList` says "after whatever is last"
   // without the caller tracking the index itself.
   const gateBlocks = useMemo(
     () => [
-      ...(waiting ? [{ key: 'waiting-on-you', afterIndex: session.messages.length, node: waiting }] : []),
+      // Never on an empty conversation, which starts warm (`emptyChat.ts`).
+      ...(waiting && mayDockCard({ messageCount: session.messages.length, personStarted: false }) ? [{ key: 'waiting-on-you', afterIndex: session.messages.length, node: waiting }] : []),
       ...(session.pendingHitl
         ? [{
             key: 'hitl-gate',
@@ -460,17 +468,21 @@ function ChatShellInner({
                         <>
                           {/* A workspace on its first day opens on its lead
                               and the three ways to set it up (`LeadIntro`). */}
+                          {/* What waits on the person is one soft chip here,
+                              never cards: an empty conversation starts warm
+                              (`emptyChat.ts`, founder 2026-10-08). */}
                           {wantsLeadIntro(agents)
-                            ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} />
+                            ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} nudge={nudge} />
                             : (
                                 <EmptyState
-                                  greeting={session.emptyGreeting}
+                                  speaker={session.workspaceName}
+                                  firstName={firstName}
                                   suggestions={session.emptyChips}
                                   suggestionsLoading={session.emptyChipsLoading}
                                   onPick={session.handlePickSuggestion}
+                                  nudge={nudge}
                                 />
                               )}
-                          {waiting && <div className="shrink-0 pb-3">{waiting}</div>}
                         </>
                       )
                     : <NoAgentsYet />

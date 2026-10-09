@@ -234,7 +234,11 @@
     "tag_artifact": "Document",
     "tag_page": "Cette page",
     "tag_change": "Modifier le brouillon",
-    "working_with": "Travaille avec :"
+    "working_with": "Travaille avec :",
+    "greeting_named": "{part, select, morning {Bonjour} afternoon {Bon après-midi} other {Bonsoir}}, {name}. Comment puis-je vous aider ?",
+    "greeting": "{part, select, morning {Bonjour} afternoon {Bon après-midi} other {Bonsoir}}. Comment puis-je vous aider ?",
+    "waiting_nudge": "{count, plural, one {# élément vous attend} other {# éléments vous attendent}}",
+    "waiting_nudge_dismiss": "Plus tard"
   },
   "Onboarding": {
     "intro": "Je suis le responsable de {workspace} — dites-moi ce que fait votre équipe et je le configure avec vous.",

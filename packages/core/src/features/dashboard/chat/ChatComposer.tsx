@@ -11,6 +11,7 @@ import { COMPOSER_CONTROL, COMPOSER_MAX_PX, COMPOSER_ROW, CONTROL_PX } from './c
 import { buildComposerMenu, selectableItems, TAG_ICON } from './composerMenu';
 import { ComposerMenuPanel } from './ComposerMenuPanel';
 import { insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
+import { PINNED_MAX_CLASS } from './emptyChat';
 import { matchSlashCommands, parseSlashCommand, slashQuery } from './slashCommands';
 
 /**
@@ -577,8 +578,10 @@ export function ChatComposer({
       {/* `min-w-0` + `wrap-anywhere`: a long id, URL or file name inside the
           bar breaks rather than pushing the whole page sideways on a phone. */}
       <div ref={rootRef} className="relative mx-auto w-full max-w-3xl min-w-0 wrap-anywhere">
-        {/* The surface's own stack — same column, same left edge as the box. */}
-        {above}
+        {/* The surface's own stack — same column, same left edge as the box.
+            Capped on a phone so the conversation above always keeps the
+            screen (`emptyChat.ts`): what is taller scrolls inside it. */}
+        {above && <div className={PINNED_MAX_CLASS} data-testid="composer-above">{above}</div>}
         {menuMode && (
           <ComposerMenuPanel mode={menuMode} sections={sections} cursor={cursor} onPick={pickItem} onHover={setCursor} />
         )}

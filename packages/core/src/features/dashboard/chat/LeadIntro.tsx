@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { AgentOption } from './types';
 import { useTranslations } from 'next-intl';
 import { NO_AGENTS_HREF } from '@/libs/chat/redact';
@@ -52,6 +53,8 @@ export type LeadIntroProps = {
   onPick: (prompt: string) => void;
   /** Holds the starters while the session is still hydrating. */
   disabled?: boolean;
+  /** The one soft nudge under the starters (what waits on the person), when there is one (`emptyChat.ts`). */
+  nudge?: ReactNode;
 };
 
 /**
@@ -61,8 +64,9 @@ export type LeadIntroProps = {
  * @param props.workspace - The workspace's name.
  * @param props.onPick - Sends a starter's prompt.
  * @param props.disabled - Holds the starters while hydrating.
+ * @param props.nudge - The one soft nudge, when there is one.
  */
-export function LeadIntro({ leadName, workspace, onPick, disabled = false }: LeadIntroProps) {
+export function LeadIntro({ leadName, workspace, onPick, disabled = false, nudge }: LeadIntroProps) {
   const t = useTranslations('Onboarding');
   return (
     <div data-testid="lead-intro" className="flex min-h-0 flex-1 flex-col justify-end overflow-y-auto px-4 pb-7 sm:px-6">
@@ -89,6 +93,7 @@ export function LeadIntro({ leadName, workspace, onPick, disabled = false }: Lea
             </button>
           ))}
         </div>
+        {nudge && <div className="mt-3">{nudge}</div>}
       </div>
     </div>
   );

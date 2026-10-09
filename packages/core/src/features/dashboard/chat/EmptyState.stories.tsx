@@ -1,14 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { EmptyState } from './EmptyState';
+import { WaitingNudge } from './WaitingNudge';
 
 /**
- * The chat home after the 2026-09-15 polish pass.
- *
- * It was an oversized two-tone headline ("Ask" in the foreground, the
- * workspace in amber) floating dead-centre in a tall column, as far from the
- * composer as the geometry allowed. Now: one size down, one colour, pinned to
- * the bottom of the pane ~28px above the box it invites you to type in, with
- * chips that are all one height and a ghost "More".
+ * The chat home: the workspace's lead says hello, with at most three quiet
+ * starters and at most one soft nudge (founder, 2026-10-08: "Chat should
+ * always start with a much warmer intro with very little on the chat
+ * screen"). Pinned to the bottom of the pane ~28px above the box it invites
+ * you to type in.
  *
  * Shown at the two rail widths that matter — the 320px minimum and a roomy
  * 680px — with the composer's ground under it so the spacing reads true.
@@ -37,7 +36,9 @@ const meta: Meta<typeof Pane> = {
   component: Pane,
   parameters: { layout: 'centered' },
   args: {
-    greeting: { eyebrow: 'Demo Account', workspace: 'Revenue Team' },
+    speaker: 'Revenue',
+    firstName: 'Sam',
+    hour: 14,
     suggestions: SUGGESTIONS,
     onPick: () => {},
   },
@@ -50,8 +51,11 @@ type Story = StoryObj<typeof Pane>;
 /** The narrowest rail: the headline wraps, the chips stack, nothing clips. */
 export const NarrowRail: Story = { args: { width: 320 } };
 
-/** A wide rail: two chips and a ghost "More" on one row. */
+/** A wide rail: three starters, the rest left out. */
 export const WideRail: Story = { args: { width: 680 } };
+
+/** Something waits on the person: one soft chip, never cards. */
+export const WithNudge: Story = { args: { width: 480, nudge: <WaitingNudge count={3} /> } };
 
 /** While the workspace's chips are being synthesized. */
 export const Loading: Story = { args: { width: 480, suggestions: [], suggestionsLoading: true } };

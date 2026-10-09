@@ -58,6 +58,7 @@ import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
+import { usePersonFirstName } from './WaitingNudge';
 
 function isPhoneViewport(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
@@ -288,6 +289,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  const firstName = usePersonFirstName();
   // "Connect your systems", started by its card in this thread, docked above this composer.
   const connectWalk = useConnectSystems();
   // The record the page beside the rail is about — it refreshes itself, so
@@ -740,7 +742,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   ? <LeadIntro leadName={defaultAgentName(agents)} workspace={session.workspaceName} onPick={session.handlePickSuggestion} disabled={!session.booted} />
                   : (
                       <EmptyState
-                        greeting={session.emptyGreeting}
+                        speaker={session.workspaceName}
+                        firstName={firstName}
                         suggestions={session.emptyChips}
                         suggestionsLoading={session.emptyChipsLoading}
                         onPick={session.handlePickSuggestion}
