@@ -212,3 +212,30 @@ describe('a live step is the same one-line row as a finished one', () => {
     await expect.element(page.getByText(/request #126 Retry uploads/)).toBeInTheDocument();
   });
 });
+
+describe('a team answer (founder, 2026-10-09: agent avatars in chat)', () => {
+  const lead = { id: 'revenue-lead', kind: 'lead' as const, name: 'Revenue lead' };
+  const ASKED: TraceNode[] = [
+    { id: 'd1', actor: lead, kind: 'delegate', status: 'done', label: 'Dana finished' },
+    { id: 'd1a', parentId: 'd1', actor: { id: 'dana', kind: 'specialist', name: 'Dana' }, kind: 'tool', status: 'done', label: 'Read the price book' },
+    { id: 'd2', actor: lead, kind: 'delegate', status: 'done', label: 'Kit finished' },
+    { id: 'd2a', parentId: 'd2', actor: { id: 'kit', kind: 'specialist', name: 'Kit' }, kind: 'tool', status: 'done', label: 'Read the contract' },
+    { id: 'd3', actor: lead, kind: 'delegate', status: 'done', label: 'Delegated to Morgan' },
+  ];
+
+  it('shows the cluster of everyone asked, and each answer under its own avatar', async () => {
+    const { ChatAgentsProvider } = await import('./ChatAgents');
+    await render(
+      <ChatAgentsProvider value={[{ slug: 'dana', name: 'Dana', icon: 'bot', placeholder: '', accent: 'violet' }, { slug: 'kit', name: 'Kit', icon: 'bot', placeholder: '', accent: 'teal' }]}>
+        <WorkTimeline runs={[]} streaming={false} trace={ASKED} />
+      </ChatAgentsProvider>,
+    );
+
+    await expect.element(page.getByTestId('work-group')).toHaveAttribute('data-asked', '3');
+    expect(document.querySelector('[data-testid="work-group"] [data-slot="agent-dots"]')?.getAttribute('aria-label')).toBe('Dana, Kit, Morgan');
+
+    await userEvent.click(page.getByTestId('work-group').getByRole('button').first());
+
+    expect(document.querySelectorAll('[data-testid="work-steps"] [data-slot="agent-dot"]').length).toBeGreaterThanOrEqual(3);
+  });
+});

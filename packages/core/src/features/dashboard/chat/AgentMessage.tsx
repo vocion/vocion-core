@@ -1,6 +1,7 @@
 'use client';
 
 import type { DashboardLinkKind } from './links';
+import type { Speaker } from './speakers';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
 import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
@@ -95,8 +96,13 @@ export type AgentMessageProps = {
   via?: string;
   /** Why the workspace routed the turn there, when it chose (`RoutingDecision.reason`) — shown on hover, so the attribution can be checked. */
   viaReason?: string;
-  /** The specialist the turn is attributed to: its `AgentDot` sits before the "via" line. */
-  viaAgent?: { name: string; accent: string | null };
+  /**
+   * The teammate this turn changed to (`speakers.ts`): the turn opens once with
+   * its avatar and name ("Dana · Pricing"). Absent, the quiet brand mark.
+   */
+  opener?: Speaker;
+  /** Who is speaking this turn, for the writing line ("Dana is writing…"). */
+  writer?: Speaker;
   /** Opens an artifact this turn produced in the pane beside the conversation. */
   onOpenArtifact?: (id: number) => void;
   /** Build it on a card the turn drew (`ArtifactChips`). */
@@ -245,7 +251,7 @@ function turnEndingMarker(status: ChatMessage['status']): string | null {
   return null;
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, viaAgent, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, via, viaReason, opener, writer, onOpenArtifact, onBuildCard, conversationId, pageRecord, latest = false, threadRecords }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -332,7 +338,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
     && hasLiveDetail({ runs: liveSeg.runs, trace: liveSeg.trace, thinkingText: liveSeg.index === firstWork ? message.thinkingText : undefined });
   // What the bottom line says when no step is running: the agent is writing
   // once its words are the newest thing in the turn, thinking before that.
-  const bottomLine = activity ?? (segments[segments.length - 1]?.kind === 'text' ? 'Writing…' : 'Thinking…');
+  // The writing agent's own avatar and name, not a bare "Writing…".
+  const bottomLine = activity ?? (segments[segments.length - 1]?.kind === 'text' ? (writer ? `${writer.name} is writing…` : 'Writing…') : 'Thinking…');
 
   // A small brand mark carries the speaker (2026-09-18) — the uppercase name
   // on every turn was the same two words a hundred times; the surface's
@@ -343,20 +350,23 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
       {/* Width comes from the column in MessageList, not a second cap here. */}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
-          <AgentMark name={agentName} />
-          {via && viaAgent && <AgentDot name={viaAgent.name} accent={viaAgent.accent} size="xs" decorative />}
-          {via && (
-            viaReason
-              ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" align="start" collisionPadding={8}>{viaReason}</TooltipContent>
-                  </Tooltip>
-                )
-              : <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
-          )}
+          {opener
+            ? (
+                // The speaker changed to a teammate: this turn opens once with
+                // its avatar and name ("Dana · Pricing"), why on hover.
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span data-testid="speaker-opener" className="inline-flex items-center gap-1.5 tracking-normal normal-case">
+                      <AgentDot name={opener.name} accent={opener.accent} size="sm" decorative />
+                      <span className="font-medium text-foreground/85">{opener.name}</span>
+                      {opener.eyebrow && <span className="text-muted-foreground/80">{`· ${opener.eyebrow}`}</span>}
+                      {via && <span className="sr-only">{via}</span>}
+                    </span>
+                  </TooltipTrigger>
+                  {viaReason && <TooltipContent side="bottom" align="start" collisionPadding={8}>{viaReason}</TooltipContent>}
+                </Tooltip>
+              )
+            : <AgentMark name={agentName} />}
           {timestamp && <span className="tracking-normal text-muted-foreground/60 normal-case tabular-nums">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (
             <button
@@ -566,7 +576,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           */}
           {streaming && !lineOnGroup && (
             <div className="mt-2 min-w-0">
-              <LiveLine text={bottomLine} elapsed={elapsed} />
+              <LiveLine text={bottomLine} elapsed={elapsed} agent={writer} />
             </div>
           )}
           {/* A card an earlier turn put up, as the record it is now: what

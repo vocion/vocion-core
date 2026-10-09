@@ -35,19 +35,22 @@ import { DoneReceipts } from './DoneReceipts';
  * @param props.onAnswer - Sends the answer: to the agent that asked, or where it lives.
  * @param props.onOpen - Opens an option's flow.
  * @param props.agentName - The asking agent's name, by slug.
+ * @param props.agentAccent
  * @param props.answeringId - The Decision whose answer is on its way.
  * @param props.disabled - Nothing may be answered now.
  * @param props.error - Why the last answer did not land.
  * @param props.notice - What the last answer from the queue did.
  * @param props.onDismissNotice - Clears it.
  */
-export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentName, answeringId = null, disabled = false, error = null, notice = null, onDismissNotice }: {
+export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentName, agentAccent, answeringId = null, disabled = false, error = null, notice = null, onDismissNotice }: {
   decisions: DecisionView[];
   waiting?: DecisionView[];
   onAnswer: (decision: DecisionView, answer: DecisionAnswer) => void;
   /** Opens an option's flow (a sign-in, the connect walk); the page navigates by default. */
   onOpen?: (href: string, decision: DecisionView) => void;
   agentName?: (slug: string | null) => string | null;
+  /** The asking agent's accent, for its avatar on the card. */
+  agentAccent?: (slug: string | null) => string | null;
   answeringId?: number | null;
   disabled?: boolean;
   error?: string | null;
@@ -80,6 +83,7 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
         <DecisionCard
           decision={current}
           agentName={agentName?.(current.agentSlug) ?? null}
+          agentAccent={agentAccent?.(current.agentSlug) ?? null}
           context={here.has(decisionKey(current)) ? null : 'Waiting on you'}
           position={{ index: 0, total: queue.length }}
           collapsed={collapsedFor === decisionKey(current)}
@@ -105,6 +109,7 @@ type DockSession = {
   answeringDecisionId: number | null;
   decisionError: string | null;
   agentNameOf: (slug: string | null) => string | null;
+  agentAccentOf?: (slug: string | null) => string | null;
   conversationId: number | null;
   sendMessage: (text: string) => unknown;
   messages: readonly unknown[];
@@ -154,6 +159,7 @@ export function ConversationDecisions({ session, connectSystems = null }: { sess
         }
       }}
       agentName={session.agentNameOf}
+      agentAccent={session.agentAccentOf}
       answeringId={session.answeringDecisionId}
       error={session.decisionError}
     />

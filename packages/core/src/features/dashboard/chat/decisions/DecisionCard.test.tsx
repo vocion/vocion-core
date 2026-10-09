@@ -343,3 +343,12 @@ describe('an approval is a permission prompt', () => {
     expect(answers).toEqual([{ kind: 'option', optionIds: ['always'] }]);
   });
 });
+
+describe('the asking agent on the card (founder, 2026-10-09)', () => {
+  it('heads the card with that agent\'s avatar', async () => {
+    await render(<DecisionCard decision={repo} agentName="Dana" agentAccent="violet" onAnswer={() => {}} />);
+
+    await expect.element(page.getByTestId('decision-card')).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="decision-card"] [data-slot="agent-dot"]')?.textContent).toBe('D');
+  });
+});

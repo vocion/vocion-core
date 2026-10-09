@@ -2270,6 +2270,7 @@ export function useChatSession({
      * @param slug
      */
     agentNameOf: (slug: string | null) => (slug ? nameOfAgent(slug) : null),
+    agentAccentOf: (slug: string | null) => (slug ? rosterRef.current.find(a => a.slug === slug)?.accent ?? null : null),
     sourcesOpen,
     setSourcesOpen,
     focusCitation,
