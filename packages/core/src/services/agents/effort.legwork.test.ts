@@ -1,11 +1,11 @@
 /**
- * Legwork routing (`legwork.ts`): the turn's opening call keeps the agent's
+ * Legwork routing (`effort.ts`): the turn's opening call keeps the agent's
  * thinking, calls that read tool results run with it off, and the decision is
  * read off the messages' shape — never their words.
  */
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
-import { createLegworkThinkingMiddleware, legworkConfig, readsToolResults, stepThinkingDiffers } from './legwork';
+import { createLegworkThinkingMiddleware, legworkConfig, readsToolResults, stepThinkingDiffers } from './effort';
 
 describe('legwork routing', () => {
   it('defaults to thinking off after the plan and teammates on the fast model', () => {

@@ -59,8 +59,8 @@ import { leadWorkspaceLabelFor } from '@/services/workspace/leadNaming';
 import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentService';
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
+import { createLegworkThinkingMiddleware, legworkConfig, stepThinkingDiffers } from './effort';
 import { createHandOffMiddleware } from './handOff';
-import { createLegworkThinkingMiddleware, legworkConfig, stepThinkingDiffers } from './legwork';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { agentScope, runtimeContextFromScope } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
@@ -258,9 +258,9 @@ type AgentBlueprint = {
   restSources?: RestSourceSpec[];
   /** The tools this agent keeps loaded; the rest are found by tool search (`toolTiers.ts`). Null defers nothing. */
   hotTools?: string[] | null;
-  /** This agent's model with thinking off, for calls that read tool results (`legwork.ts`). Absent when it would be the same model. */
+  /** This agent's model with thinking off, for calls that read tool results (`effort.ts`). Absent when it would be the same model. */
   stepModel?: Awaited<ReturnType<typeof buildChatModelForOrg>>;
-  /** The model teammates do legwork on (`legwork.ts`). Absent keeps them on this agent's model. */
+  /** The model teammates do legwork on (`effort.ts`). Absent keeps them on this agent's model. */
   legworkModel?: Awaited<ReturnType<typeof buildChatModelForOrg>>;
 };
 
@@ -512,7 +512,7 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
     ...(typeof creativity === 'number' ? { temperature: creativity } : {}),
   };
   const model = await buildChatModelForOrg('main', orgId, modelOptions);
-  // LEGWORK ROUTING (`legwork.ts`): the calls that read tool results run with
+  // LEGWORK ROUTING (`effort.ts`): the calls that read tool results run with
   // thinking off, and teammates run on the fast model — unless the agent says
   // otherwise, or a person chose a thinking level for this turn.
   const legwork = legworkConfig(row.harnessConfig);
@@ -653,7 +653,7 @@ export async function compileAgentForRequest(
   const turnMiddleware = opts.turnMiddleware ?? [];
   //
   // On the fast model a teammate gets the tools in full rather than behind
-  // tool search, which the fast model may not take (`legwork.ts`).
+  // tool search, which the fast model may not take (`effort.ts`).
   const subagents: SubAgent[] = blueprint.subagentSpecs.map(spec => ({
     ...spec,
     ...(blueprint.legworkModel ? { tools: domainTools as SubAgent['tools'], model: blueprint.legworkModel } : { tools: tools as SubAgent['tools'] }),
