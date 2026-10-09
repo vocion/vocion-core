@@ -87,6 +87,15 @@ export const ADOPTION_EVENTS = {
    * person cleared their thumb. The note itself never travels here — it goes
    * to the feedback classifier — only whether there was one.
    */
+  /**
+   * The opening hint by an empty conversation's composer (`libs/chat/openingHints.ts`):
+   * shown, clicked or dismissed. A dismissal is also how the ranker hides that
+   * item for 7 days and lowers its type's weight for this person, so the
+   * weights can be tuned from these rows. Keys and types only, never copy.
+   */
+  'chat.hint_shown': { meta: z.object({ key: z.string().max(120), type: z.string().max(20), score: z.number().optional(), rank: z.number().int().min(1).max(2).optional() }) },
+  'chat.hint_clicked': { meta: z.object({ key: z.string().max(120), type: z.string().max(20), score: z.number().optional(), rank: z.number().int().min(1).max(2).optional() }) },
+  'chat.hint_dismissed': { meta: z.object({ key: z.string().max(120), type: z.string().max(20), score: z.number().optional(), rank: z.number().int().min(1).max(2).optional() }) },
   'chat.feedback': {
     agent: true,
     meta: z.object({

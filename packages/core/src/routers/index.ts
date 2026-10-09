@@ -53,7 +53,7 @@ import {
   restore as restoreObject,
   update as updateObject,
 } from './BusinessObject';
-import { suggestions as chatSuggestions } from './Chat';
+import { hintEvent as chatHintEvent, suggestions as chatSuggestions } from './Chat';
 import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
 import { addConnectorRoute, revealStoredCredentialRoute, saveSourceRoute as saveConnectedSourceRoute } from './Connect';
 import { finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } from './ConnectSystems';
@@ -331,6 +331,7 @@ export const router = {
   },
   chat: {
     suggestions: chatSuggestions,
+    hintEvent: chatHintEvent,
   },
   anchoredComments: {
     list: listComments,

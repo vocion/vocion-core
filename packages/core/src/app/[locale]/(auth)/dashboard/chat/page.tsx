@@ -7,9 +7,11 @@ import { connectReturnOutcome } from '@/libs/connect/returnTo';
 import { connectSystemsInputOf } from '@/libs/connect/systemsLink';
 import { listArtifactsByIds } from '@/services/ArtifactService';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
+import { loadOpeningHints } from '@/services/chat/openingHints';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
 import { workspaceGreeting } from '@/services/chat/workspaceLabel';
 import { parseAttachParam } from '@/services/share/intake';
+import { ORG_ROLE } from '@/types/Auth';
 
 /**
  * Chat surface. Server-loads the project's agents from the DB so the
@@ -44,7 +46,7 @@ export default async function ChatPage(props: {
   // `?objective=connect-systems[&app=<id>][&named=a,b]` — dock "Connect your systems" above the composer.
   const connectSystems = connectSystemsInputOf(searchParams);
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId, has } = await auth();
 
   // Shared with the floating chat bubble — same ordering, same default agent.
   const { agents, coordinatorSlug, accountName, projectName } = orgId
@@ -62,6 +64,14 @@ export default async function ChatPage(props: {
   // composer (`decisions.waiting`), so a decision never needs the queue page
   // (Jamie, 2026-10-07).
   const chips = orgId ? await buildWorkspaceChips({ orgId, agents, coordinatorSlug }) : [];
+
+  // The opening hint by the composer: one ranked suggestion, two at most
+  // (`services/chat/openingHints.ts`). No model call; a failed read leaves it out.
+  const lead = agents.find(a => a.slug === coordinatorSlug) ?? agents[0];
+  const leadSpoken = lead?.givenName ?? (lead?.leadRole ? `the ${lead.leadRole}` : lead?.name ?? 'the team');
+  const openingHints = orgId && userId
+    ? await loadOpeningHints({ orgId, userId, isAdmin: has({ role: ORG_ROLE.ADMIN }), leadSpoken }).catch(() => [])
+    : [];
 
   // `?attach=<ids>` — files the phone's share sheet already uploaded
   // (`/api/mobile/share`) start in the composer as chips. Only this
@@ -90,6 +100,7 @@ export default async function ChatPage(props: {
         // a fresh thread instead of resuming this browser session's.
         startNew={startNew === '1'}
         connectSystems={connectSystems}
+        openingHints={openingHints}
       />
     </div>
   );
