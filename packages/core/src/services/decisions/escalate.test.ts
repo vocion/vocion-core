@@ -115,4 +115,14 @@ describe('an unclear instruction, several paths, a setup step', () => {
     expect(await escalate({ type: 'card', card: { id: 'c', kind: 'record', title: 'Request #4', actions: [], source: {}, state: 'proposed' } }, turn)).toEqual([]);
     expect(await escalate({ type: 'response_delta', delta: 'hi' }, turn)).toBeNull();
   });
+
+  it('a step whose effect has a picture (the kind says so) carries that look on the option that runs it, and its link is the other way to take it', async () => {
+    const d = decisionOf(await escalate({ type: 'card', card: { id: 'card_b', kind: 'brand', title: 'Make it yours: Northwind', body: 'Read from northwind.example.', fields: [{ label: 'Note', value: 'No dark logo found.' }], actions: [{ label: 'Use this brand', actionId: 'org.brand_apply', input: { name: 'Northwind', accent: '#1f6feb' }, style: 'primary' }], source: {}, href: '/dashboard/brand?draft=x', hrefLabel: 'Adjust', state: 'proposed' } }, turn));
+
+    expect(d).toMatchObject({ kind: 'setup', question: 'Make it yours: Northwind', body: 'Read from northwind.example. No dark logo found.' });
+    expect(d!.options).toEqual([
+      expect.objectContaining({ id: 'do', label: 'Use this brand', recommended: true, hasEffect: true, look: { renderer: 'brand', data: { name: 'Northwind', accent: '#1f6feb' } } }),
+      expect.objectContaining({ id: 'adjust', label: 'Adjust', href: '/dashboard/brand?draft=x' }),
+    ]);
+  });
 });

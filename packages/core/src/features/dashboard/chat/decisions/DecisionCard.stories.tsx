@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import type { DecisionView } from '@/libs/decisions/decision';
 import { NextIntlClientProvider } from 'next-intl';
 import { useState } from 'react';
+import { NORTHWIND_FIELDS } from '@/features/branding/northwind.fixture';
 import { DecisionAnswerLine } from './DecisionAnswerLine';
 import { DecisionCard } from './DecisionCard';
 import { DecisionDock } from './DecisionDock';
@@ -85,6 +86,17 @@ const proposal: DecisionView = {
   agentSlug: 'revenue-lead',
   href: '/dashboard/inbox/proposal-5016',
   hrefLabel: 'Details',
+};
+const brand: DecisionView = {
+  ...repo,
+  id: 49,
+  kind: 'setup',
+  question: 'Make it yours: Northwind',
+  body: 'Read from northwind.example (90% sure).',
+  options: [
+    { id: 'do', label: 'Use this brand', consequence: 'Runs it as you, now — with Undo.', recommended: true, hasEffect: true, look: { renderer: 'brand', data: { ...NORTHWIND_FIELDS, logos: { wordmark: NORTHWIND_FIELDS.logos.wordmark, mark: NORTHWIND_FIELDS.logos.mark } } } },
+    { id: 'adjust', label: 'Adjust', consequence: 'Opens its settings with this draft, to change it first.', href: '/dashboard/brand' },
+  ],
 };
 const signoff: DecisionView = {
   ...repo,
@@ -265,3 +277,7 @@ function Waiting({ dark = false }: { dark?: boolean }) {
 
 export const WaitingElsewhere: StoryObj<typeof Waiting> = { render: () => <Waiting /> };
 export const WaitingElsewhereDark: StoryObj<typeof Waiting> = { render: () => <Waiting dark /> };
+
+/** "Make it yours": the drafted brand on the app's own chrome, then Use this brand or Adjust. */
+export const MakeItYours: Story = { args: { decision: brand, total: 5 } };
+export const MakeItYoursDark: Story = { args: { decision: brand, total: 5, dark: true } };

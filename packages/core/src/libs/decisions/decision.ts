@@ -64,6 +64,8 @@ export type DecisionOption = {
    * form). The Decision stays open; the flow it opens answers it on return.
    */
   href?: string;
+  /** What its effect will look like, drawn before it runs: a renderer's name and the action's input. */
+  look?: { renderer: string; data: Record<string, unknown> };
 };
 
 /** A Decision as every surface draws it. */
@@ -188,7 +190,7 @@ export type AskLike = {
   kind: string;
   title: string;
   body?: string | null;
-  options?: ReadonlyArray<{ id: string; label: string; description?: string; recommended?: boolean; action?: unknown; href?: string }> | null;
+  options?: ReadonlyArray<{ id: string; label: string; description?: string; recommended?: boolean; action?: unknown; href?: string; look?: string }> | null;
   contextUrl?: string | null;
   /** An approval's payload, fenced (`previewText`). */
   contextMd?: string | null;
@@ -262,6 +264,7 @@ export function decisionOptionsOf(ask: Pick<AskLike, 'kind' | 'options'>): Decis
     ...(o.recommended ? { recommended: true } : {}),
     ...(o.action ? { hasEffect: true } : {}),
     ...(inAppHref(o.href) ? { href: o.href } : {}),
+    ...(typeof o.look === 'string' && o.action && typeof o.action === 'object' ? { look: { renderer: o.look, data: ((o.action as { input?: unknown }).input ?? {}) as Record<string, unknown> } } : {}),
   }));
   const kind = decisionKindOf(ask.kind);
   const options = named.length > 0 ? named : kind === 'approval' ? APPROVAL_OPTIONS : kind === 'signoff' ? SIGNOFF_OPTIONS : [];

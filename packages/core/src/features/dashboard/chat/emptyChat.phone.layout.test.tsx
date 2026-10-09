@@ -1,4 +1,4 @@
-import type { RecommendedAction } from './types';
+import type { DecisionView } from '@/libs/decisions/decision';
 import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
@@ -20,6 +20,12 @@ import '@/styles/global.css';
  * than a quarter of the screen.
  */
 
+/** Three proposals waiting, the founder's count, with the long rationale-as-title the old card drew. */
+function waiting(): DecisionView[] {
+  const RATIONALE = 'The operating intent names this as one of three repositories in the factory scope and states its reliability bar, so it belongs on the board.';
+  return [1, 2, 3].map(n => ({ id: n, subject: 'proposal' as const, kind: 'approval' as const, question: RATIONALE, body: RATIONALE, options: [{ id: 'approve', label: 'Allow once', recommended: true }, { id: 'reject', label: 'Deny' }], allowOther: true, multiple: false, state: 'open' as const, agentSlug: 'lead', ownerUserId: null, conversationId: null }));
+}
+
 vi.mock('@/libs/Orpc', () => ({
   client: {
     chatWidget: { getState: vi.fn(async () => null), setState: vi.fn(async () => ({ agentSlug: 'lead', conversationId: null })), setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })) },
@@ -28,6 +34,8 @@ vi.mock('@/libs/Orpc', () => ({
     teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
     missions: { list: vi.fn(async () => []) },
     review: { actionStatus: vi.fn(async () => ({ status: 'pending', decidedBy: null, decidedAt: null })), decideAction: vi.fn() },
+    // What waits elsewhere reaches the chat as Decisions (`decisions.waiting`).
+    decisions: { open: vi.fn(async () => []), waiting: vi.fn(async () => waiting()), answer: vi.fn(), build: vi.fn() },
   },
 }));
 
@@ -49,13 +57,6 @@ const AGENTS = [
   { slug: 'analyst', name: 'Pipeline Analyst', icon: 'bot' as const, placeholder: 'Ask…', role: 'specialist' as const },
 ];
 
-/** Three proposals waiting, the founder's count, with the long rationale-as-title the old card drew. */
-const RATIONALE = 'The operating intent names this as one of three repositories in the factory scope and states its reliability bar, so it belongs on the board.';
-const WAITING: { cards: RecommendedAction[]; more: number } = {
-  cards: [1, 2, 3].map(n => ({ id: `run:${n}`, kind: 'action', state: 'filed' as const, runId: n, actionId: 'objects.propose_candidate', input: { title: `Northwind repository ${n}` }, label: RATIONALE, rationale: RATIONALE, confidence: 0.72 })),
-  more: 0,
-};
-
 function Shell() {
   return (
     <NextIntlClientProvider locale="en" messages={en}>
@@ -63,7 +64,7 @@ function Shell() {
         <ShellBarTitleOutlet />
         <ShellBarActionsOutlet />
         <div style={{ height: PHONE.height }} className="flex flex-col" data-testid="phone-screen">
-          <ChatShell agents={AGENTS} greeting={{ workspace: 'Northwind' }} pendingDecisions={WAITING} />
+          <ChatShell agents={AGENTS} greeting={{ workspace: 'Northwind' }} />
         </div>
       </ShellBarActionsProvider>
     </NextIntlClientProvider>

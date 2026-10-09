@@ -91,6 +91,11 @@ from the chat route for every producer event that used to draw a card —
   option opens the docked walk-through; while the walk runs it **is** the docked
   card, each step drawn by the same Decision card, and Done answers the Decision
   with what happened (`services/connect/settleWalk.ts`).
+- **A step whose effect has a picture** ("Make it yours", `propose_brand`) → a
+  *setup* Decision whose option carries its **look** — the card kind declares it
+  (`CardKindDescriptor.look`), the option keeps it (`AskOption.look`), and the
+  card draws the drafted brand on the app's own chrome above the options
+  (`chat/decisions/looks.tsx`). "Adjust" opens its settings with the draft.
 - **A deliverable to sign off** → a *signoff* Decision: Sign off, Discard, or
   "Revise — say what to change…" in their own words.
 - **Nobody is here** (a mission, an automation) → the Decision goes to Needs you
@@ -194,11 +199,16 @@ proposal is now. No turn is written in the person's name.
 
 - **Chat** — docked above the composer on every surface that has one (the chat
   page, the rail, a conversation's artifact view), one at a time, "1 of 3" when
-  more wait, folded to one line with Esc. Opening a thread docks what it waits on,
-  then **what waits on the person elsewhere** — a Needs you question with no
-  conversation, a proposal filed from none — behind it, under "Waiting on you"
-  (`DecisionService.waitingElsewhere`). Those are answered where they live, with
-  no turn; the dock says once what the answer did.
+  more wait, folded to one line with Esc. Opening a thread docks what it waits on.
+  **An empty chat opens warm** (#1264, `chat/emptyChat.ts`): no docked card
+  unless the person started that flow, and what waits on them elsewhere — a Needs
+  you question with no conversation, a proposal filed from none
+  (`DecisionService.waitingElsewhere`) — is the one soft, dismissible chip,
+  "3 things waiting on you →", to Review (`WaitingNudge`). Once a conversation is
+  under way they queue in its dock behind its own, under "Waiting on you",
+  answered where they live with no turn; the dock says once what the answer did.
+  On a phone everything pinned above the composer is capped at a quarter of the
+  screen and scrolls inside (`PINNED_MAX_CLASS`).
 - **The past turn** — a Decision a call raised and a Done line it produced are
   replayed with that call's result on the next turn (`chat/historyTools.ts`), so
   the agent binds the answer to the call that asked and never asks twice.

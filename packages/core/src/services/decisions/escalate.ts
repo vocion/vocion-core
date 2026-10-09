@@ -29,7 +29,7 @@ import type { Card } from '@/libs/cards/card';
 import type { AskKind, AskOption } from '@/models/Schema';
 import type { AgentEvent, RecommendedActionPayload } from '@/services/agents/types';
 import type { FiledCard } from '@/services/chat/autoPropose';
-import { CONNECT_SYSTEMS_CARD_KIND, SETUP_CARD_KIND } from '@/libs/cards/card';
+import { cardKind, CONNECT_SYSTEMS_CARD_KIND, SETUP_CARD_KIND } from '@/libs/cards/card';
 import { ALLOW_ONCE_ID, DENY_ID } from '@/libs/decisions/decision';
 
 export type EscalationDeps = {
@@ -191,6 +191,25 @@ async function fromCard(card: Card, deps: EscalationDeps): Promise<AgentEvent[]>
   // A proposal waiting on approval is its own approval Decision.
   if (card.runId !== undefined && card.state === 'filed') {
     return proposalEvent(deps, card.runId);
+  }
+  // A STEP WHOSE EFFECT HAS A PICTURE (a drafted brand, "Make it yours"): the
+  // option that runs it carries its look, drawn above the options before it
+  // runs; the card's link is the other way to take it ("Adjust"). The kind
+  // says so (`CardKindDescriptor.look`); nothing here names one.
+  const look = cardKind(card.kind)?.look;
+  if (look && card.actions.length === 1) {
+    const act = card.actions[0]!;
+    const notes = (card.fields ?? []).map(f => f.value).filter(Boolean);
+    return raise(deps, {
+      kind: 'setup',
+      question: card.title,
+      body: [card.body, ...notes].filter(Boolean).join(' ').slice(0, 600) || null,
+      options: [
+        { id: 'do', label: act.label || 'Use this', description: 'Runs it as you, now — with Undo.', recommended: true, action: { id: act.actionId, input: act.input ?? {} }, look },
+        ...(card.href ? [{ id: 'adjust', label: card.hrefLabel ?? 'Adjust', description: 'Opens its settings with this draft, to change it first.', href: card.href }] : []),
+      ],
+      allowOther: true,
+    });
   }
   // A STEP OF SETTING UP that one action does (add an app, turn a plugin on,
   // hire a role, invite people): choosing it runs that action as the person,

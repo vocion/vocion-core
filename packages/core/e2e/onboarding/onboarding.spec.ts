@@ -53,6 +53,17 @@ async function openChat(page: Page): Promise<void> {
 }
 
 /**
+ * Open the Getting started row, which starts folded to one line.
+ * @param page - The browser page.
+ */
+async function openChecklist(page: Page): Promise<void> {
+  const row = page.getByRole('button', { name: /Getting started/ });
+  if ((await row.getAttribute('aria-expanded')) !== 'true') {
+    await row.click();
+  }
+}
+
+/**
  * Say something in the composer and send it.
  * @param page - The browser page.
  * @param text - What the person says.
@@ -134,6 +145,9 @@ test('the lead interviews, proposes the plan as docked setup steps, and each run
 
   await expect(added).toBeVisible({ timeout: 60_000 });
   await expect(added.getByRole('button', { name: 'Undo' })).toBeVisible();
+
+  await openChecklist(page);
+
   await expect(page.getByTestId('getting-started-app')).toHaveAttribute('data-done', 'true');
 
   await idle();

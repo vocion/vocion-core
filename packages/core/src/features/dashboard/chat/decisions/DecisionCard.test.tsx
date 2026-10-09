@@ -251,14 +251,21 @@ describe('phase two: every kind of Decision on the one card', () => {
     expect(answers).toEqual([{ kind: 'free_text', text: 'Tighten the pricing page' }]);
   });
 
-  it('the dock queues what waits elsewhere behind the conversation\'s own, says where it waits, and says once what an answer did', async () => {
-    const onAnswer = vi.fn();
+  it('in a conversation under way, what waits elsewhere queues behind its own, says where it waits, and the dock says once what an answer did', async () => {
     const elsewhere = { ...repo, id: 9, question: 'Archive the Q3 board?', conversationId: null };
-    await render(<DecisionDock decisions={[repo]} waiting={[repo, elsewhere]} onAnswer={onAnswer} agentName={() => 'Product manager'} notice={{ line: 'Chose No · Rename the board?', receipt: { runId: 5, actionId: 'objects.rename', label: 'Renamed the board', undoable: true } }} />);
+    await render(<DecisionDock decisions={[repo]} waiting={[repo, elsewhere]} onAnswer={vi.fn()} agentName={() => 'Product manager'} notice={{ line: 'Chose No · Rename the board?', receipt: { runId: 5, actionId: 'objects.rename', label: 'Renamed the board', undoable: true } }} />);
 
+    await expect.element(page.getByRole('dialog', { name: repo.question })).toBeInTheDocument();
     await expect.element(page.getByTestId('decision-queue')).toHaveTextContent('1 of 2');
     await expect.element(page.getByTestId('decision-notice')).toHaveTextContent('Chose No · Rename the board?');
     await expect.element(page.getByTestId('done-receipt-undo-5')).toBeVisible();
+  });
+
+  it('what waits elsewhere alone is labelled as such', async () => {
+    const elsewhere = { ...repo, id: 9, question: 'Archive the Q3 board?', conversationId: null };
+    await render(<DecisionDock decisions={[]} waiting={[elsewhere]} onAnswer={vi.fn()} agentName={() => 'Product manager'} />);
+
+    await expect.element(page.getByText('Waiting on you · Product manager asks', { exact: false }).first()).toBeInTheDocument();
   });
 });
 
@@ -276,6 +283,20 @@ const approval: DecisionView = {
     { id: 'reject', label: 'Deny', consequence: 'Nothing runs.' },
   ],
 };
+
+describe('a step whose effect has a picture', () => {
+  it('draws it above the options, from the option that runs it', async () => {
+    await renderCard({ kind: 'setup', question: 'Make it yours: Northwind', options: [{ id: 'do', label: 'Use this brand', recommended: true, hasEffect: true, look: { renderer: 'brand', data: { name: 'Northwind', accent: '#1f6feb' } } }, { id: 'adjust', label: 'Adjust', href: '/dashboard/brand' }] });
+
+    await expect.element(page.getByTestId('decision-look')).toHaveAttribute('data-renderer', 'brand');
+  });
+
+  it('draws nothing for a renderer this client does not know', async () => {
+    await renderCard({ kind: 'setup', question: 'Turn it on', options: [{ id: 'do', label: 'Turn on', recommended: true, look: { renderer: 'not-a-renderer', data: {} } }] });
+
+    expect(page.getByTestId('decision-look').elements()).toHaveLength(0);
+  });
+});
 
 describe('an approval is a permission prompt', () => {
   it('asks "Allow <agent> to <action>?" over the exact payload, Allow once first, Always allow, Deny — with its keys said', async () => {

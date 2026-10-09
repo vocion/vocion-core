@@ -8,6 +8,7 @@ import { Surface } from '@/components/ui/surface';
 import { openPreview } from '@/features/preview/previewState';
 import { decisionTitle, DENY_ID } from '@/libs/decisions/decision';
 import { Link } from '@/libs/I18nNavigation';
+import { DecisionLook } from './looks';
 
 /**
  * THE DECISION CARD — one component for everything a person is asked to
@@ -171,6 +172,8 @@ export function DecisionCard({
   const isApproval = decision.kind === 'approval' && !multiple;
   const escDenies = isApproval && options.some(o => o.id === DENY_ID);
   const recommendedIndex = options.findIndex(o => o.recommended);
+  // An option whose effect has a picture (a drafted brand): drawn under the why.
+  const lookOption = options.find(o => o.look);
 
   useEffect(() => {
     if (!takeFocus || collapsed || busy || typingElsewhere()) {
@@ -400,6 +403,7 @@ export function DecisionCard({
           {bodyNode
             ? <div id={bodyId} className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{bodyNode}</div>
             : decision.body && <p id={bodyId} className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground">{decision.body}</p>}
+          {lookOption?.look && <DecisionLook look={lookOption.look} />}
           {decision.preview && (
             <pre
               className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90"

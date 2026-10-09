@@ -236,3 +236,21 @@ export function previewViewOf(fields: OrgBrandFields, opts: { poweredBy?: boolea
   const brand = withFields(null, { ...fields, name: fields.name.trim() || 'Your company', accent });
   return brandView(brand, { whiteLabel: opts.poweredBy === false });
 }
+
+/**
+ * The brand fields a drafted brand's action input carries (`org.brand_apply`),
+ * as the preview reads them. Anything missing or empty reads as unset.
+ * @param input - The action's input.
+ */
+export function draftFieldsOf(input: Record<string, unknown>): OrgBrandFields {
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null);
+  const logos = (input.logos && typeof input.logos === 'object' ? input.logos : {}) as Record<string, unknown>;
+  return {
+    name: str(input.name) ?? '',
+    accent: str(input.accent),
+    headingFont: str(input.headingFont),
+    senderName: str(input.senderName),
+    logos: Object.fromEntries(Object.entries(logos).filter(([, v]) => typeof v === 'string' && v)) as OrgBrandFields['logos'],
+    website: str(input.website),
+  };
+}

@@ -67,6 +67,24 @@ function reachesVendor(url: string): boolean {
 }
 
 /**
+ * Press a connector's Connect on the Connectors page. The catalog folds past a
+ * screenful ("Show 7 more"), so the connector may be behind it.
+ * @param page - The browser page.
+ * @param name - The connector's name.
+ */
+async function openConnect(page: Page, name: string) {
+  const connect = page.getByRole('button', { name: `Connect ${name}` });
+  const more = page.getByRole('button', { name: /^Show \d+ more/ });
+
+  await expect(connect.or(more).first()).toBeVisible();
+
+  if (!(await connect.isVisible())) {
+    await more.click();
+  }
+  await connect.click();
+}
+
+/**
  * Sign in and land on the dashboard.
  * @param page - The browser page.
  */
@@ -173,7 +191,7 @@ async function acceptDialog(dialog: Dialog): Promise<void> {
 test('GitHub from the Connectors page: log in, the credential field is filled and masked, name the repository, save once', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect GitHub' }).click();
+  await openConnect(page, 'GitHub');
 
   // Before the login the box has a real input to paste into, not a dashed guide.
   await expect(page.getByLabel('Personal access token', { exact: true })).toBeVisible();
@@ -210,7 +228,7 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
 test('HubSpot, with no HubSpot app set up on this server: paste only, one key in the add box and one Save make the connected source and list the key', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect HubSpot' }).click();
+  await openConnect(page, 'HubSpot');
 
   // Paste only: inputs and guidance, never a login button.
   await expect(page.getByRole('link', { name: /Log in with/ })).toHaveCount(0);
@@ -263,7 +281,7 @@ test('a key saved on Developers: the Connectors form shows only its tail until S
   await expect(page.getByRole('row').filter({ hasText: 'Granola key' })).toBeVisible();
 
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect Granola' }).click();
+  await openConnect(page, 'Granola');
   const stored = page.getByTestId('connect-stored-text');
 
   // The page carries the masked tail, never the key.
@@ -365,7 +383,7 @@ test('a HubSpot login app saved through /api/v1: it replaces the Developers one,
 test('Slack from the Connectors page: the login makes the source itself and the add form does not reopen', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect Slack' }).click();
+  await openConnect(page, 'Slack');
 
   await expect(page.getByRole('link', { name: 'Log in with Slack' })).toHaveAttribute('data-brand', 'slack');
 
@@ -392,16 +410,7 @@ for (const login of LOGIN_IS_ENOUGH) {
   test(`${login.name} from the Connectors page: the ${login.providerLabel} login wears its brand and makes the source itself`, async ({ page }) => {
     await signIn(page);
     await page.goto('/dashboard/connectors');
-    // The catalog folds past a screenful ("Show 7 more"); the connector may be behind it.
-    const connect = page.getByRole('button', { name: `Connect ${login.name}` });
-    const more = page.getByRole('button', { name: /^Show \d+ more/ });
-
-    await expect(connect.or(more).first()).toBeVisible();
-
-    if (!(await connect.isVisible())) {
-      await more.click();
-    }
-    await connect.click();
+    await openConnect(page, login.name);
 
     const button = page.getByRole('link', { name: `Log in with ${login.providerLabel}` });
 
@@ -445,7 +454,7 @@ test('in chat: a refused login keeps the setup step docked and says on it why â€
 test('a refused login lands with connect=error and says when and why under Jira', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect Jira' }).click();
+  await openConnect(page, 'Jira');
   await page.getByRole('link', { name: /Log in with/ }).click();
 
   await expect.poll(() => requested(/\/dashboard\/connectors\?.*connect=error&reason=access_denied/)).toBe(true);

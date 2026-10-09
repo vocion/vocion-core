@@ -4549,6 +4549,12 @@ export type AskOption = {
    * way back (`libs/decisions/decision.ts`).
    */
   href?: string;
+  /**
+   * The option's effect has a picture worth showing before it runs (a drafted
+   * brand on the app's own chrome): the UI renderer that draws its action's
+   * input, by name (`features/dashboard/chat/decisions/looks.tsx`).
+   */
+  look?: string;
 };
 
 /**

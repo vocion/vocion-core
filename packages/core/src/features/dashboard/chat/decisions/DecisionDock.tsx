@@ -9,6 +9,7 @@ import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/Connect
 import { startConnectSystems, useConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionKey } from '@/libs/decisions/decision';
+import { mayDockCard } from '../emptyChat';
 import { DecisionCard } from './DecisionCard';
 import { DoneReceipts } from './DoneReceipts';
 
@@ -16,7 +17,10 @@ import { DoneReceipts } from './DoneReceipts';
  * The Decisions waiting on the person, docked above the composer: ONE card at a
  * time — this conversation's own first, oldest first, then what waits on them
  * elsewhere (a Needs you question, a proposal from no conversation) — with
- * "1 of 3" when more wait behind it. It blocks only itself: the composer below
+ * "1 of 3" when more wait behind it. On an empty conversation nothing docks
+ * that the person did not start (`chat/emptyChat.ts`, #1264): what waits
+ * elsewhere is the one soft chip to Review there (`WaitingNudge`), and queues
+ * here once the conversation is under way. It blocks only itself: the composer below
  * stays live ("Or reply directly…"), and a typed reply is read against the
  * conversation's own card before it is routed. Nor is it locked while the
  * agent is still replying: an answer given then is held and goes the moment
@@ -103,6 +107,7 @@ type DockSession = {
   agentNameOf: (slug: string | null) => string | null;
   conversationId: number | null;
   sendMessage: (text: string) => unknown;
+  messages: readonly unknown[];
 };
 
 /**
@@ -129,10 +134,14 @@ export function ConversationDecisions({ session, connectSystems = null }: { sess
       />
     );
   }
+  // An empty conversation docks nothing the person did not start (a link that
+  // named a walk docks its walk above); what waits elsewhere is the one chip
+  // to Review there (`WaitingNudge`), and queues here once it is under way.
+  const mayDock = mayDockCard({ messageCount: session.messages.length, personStarted: false });
   return (
     <DecisionDock
-      decisions={session.openDecisions}
-      waiting={session.waitingDecisions}
+      decisions={mayDock ? session.openDecisions : []}
+      waiting={mayDock ? session.waitingDecisions : []}
       notice={session.dockNotice}
       onDismissNotice={session.dismissDockNotice}
       onAnswer={session.answerDecision}
