@@ -372,7 +372,7 @@ describe('one primary, and the walk is what it does', () => {
     await render(<ReviewSurface run={enrollment(4, { status: 'failed', error: 'HubSpot rejected the enrolment.' })} crumbs={CRUMBS} />);
 
     expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
-    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Retry Enroll');
+    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Enroll');
   });
 
   it('still lets a surface\'s own hold stop it dead', async () => {

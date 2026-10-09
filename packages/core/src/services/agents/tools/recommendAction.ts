@@ -17,6 +17,7 @@ import { labelWithResolvedRefs } from '@/libs/actions/cardLabel';
 import { MERGE_ACTION_ID } from '@/libs/actions/mergeAction';
 import { actionInputHints, getAction, listActions } from '@/libs/actions/registry';
 import { repairActionInput } from '@/libs/actions/repairInput';
+import { restatesLabel } from '@/libs/actions/restatesLabel';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { appBaseUrl } from '@/libs/links';
 import { openLabelFor } from '@/libs/workspace/recordHref';
@@ -128,7 +129,13 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
       // whose 207 was an environment) — `libs/actions/cardLabel.ts`.
       const label = action_id ? labelWithResolvedRefs(written, action_input ?? {}) : written;
       const suggestedDecision: SuggestedDecision = suggested_decision ?? 'approve';
-      const suggestedDecisionReason = suggested_decision_reason?.trim() || rationale?.trim() || `Recommended: ${label}`;
+      // THE WHY IS EVIDENCE, NOT THE TITLE AGAIN. A rationale that only
+      // restates the label is sent back while the model can still fix it:
+      // what was asked, by whom, when, and what is at stake.
+      if (action_id && restatesLabel(rationale, written)) {
+        return JSON.stringify({ ok: false, error: `rationale repeats the label ("${written}"). Give the evidence instead, in one or two sentences: what the person asked or what happened, when, and what is at stake — e.g. "Dana asked on Oct 8 for two call slots before the Oct 15 board review; nobody has answered." Then call recommend_action again.` });
+      }
+      const suggestedDecisionReason = [suggested_decision_reason, rationale].map(x => x?.trim()).find(x => x && !restatesLabel(x, written)) || `Recommended: ${label}`;
       // The card's Approve calls the action with this payload, so a payload the
       // action rejects is a card that can only fail — on 2026-09-18 one reached
       // production as "Couldn't prepare it: Internal server error". Validate
@@ -214,9 +221,9 @@ export function recommendActionTool(ctx: RuntimeContext, opts: { actionIds?: rea
       description: `Put a recommended action in front of the person as ONE DECISION docked above their composer (not dead text): Approve runs it as them, Reject drops it, and their answer comes back to you. Use this for every concrete next action you suggest that maps to a connector action; nothing sends without their approval. Prefer this over spelling the action out in prose. ${described.length > 0 ? `Available actions:\n${available}\n\nEach action's input fields, exactly as named (* = required) — action_input must use these names and nothing else:\n${inputs}` : 'Action ids and their input fields are listed under ACTIONS in your instructions.'}`,
       schema: z.object({
         action_id: z.string().describe('Registered action id, e.g. "gmail.send"'),
-        action_input: z.record(z.string(), z.unknown()).describe('Pre-filled payload for the action — for gmail.send: { to, subject, body, draft: true }'),
+        action_input: z.record(z.string(), z.unknown()).describe('Pre-filled payload for the action — for a reply, gmail.send: { to: "Name <address>", cc (everyone still copied on the thread), subject: "Re: <thread subject>", threadId (the thread being answered), body (the reply only), signature (how the sender signs, when known), draft: true }'),
         label: z.string().describe('Short human button label, e.g. "Draft the note to Nadia Brandt"'),
-        rationale: z.string().optional().describe('One line: why this action, now'),
+        rationale: z.string().optional().describe('One or two sentences of EVIDENCE for why this action, now: what was asked or happened, by whom, when, and what is at stake. Never the label again.'),
         confidence: z.number().min(0).max(1).optional().describe('Your confidence 0–1 from grounding quality'),
         // Required, and asked as a separate question from `rationale`: the
         // card this becomes goes into the review queue with a recommendation

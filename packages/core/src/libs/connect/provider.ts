@@ -59,9 +59,12 @@ export type ConnectProvider = {
    * serving several (Google) asks only for that connector's access. `client`
    * is the app the login runs on (`loginClient.ts`: the workspace's own, else
    * the server's); a provider that takes a client ID and secret falls back to
-   * the server's env app when it is left out. Never logs any of them.
+   * the server's env app when it is left out. `access` names extra access a
+   * reconnect asks for (`compose` for Gmail drafts), from the start route's
+   * `?access=`; a provider with nothing by that name ignores it. Never logs
+   * any of them.
    */
-  authorizeUrl: (input: { state: string; redirectUri: string; connector: string; codeChallenge?: string; client?: LoginClient; audience?: ConnectAudience }) => string;
+  authorizeUrl: (input: { state: string; redirectUri: string; connector: string; codeChallenge?: string; client?: LoginClient; audience?: ConnectAudience; access?: string }) => string;
   /**
    * Turn the callback's query into the credential bag to store, or a refusal.
    * `query` is every query param of the callback request. Vendors differ:

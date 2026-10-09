@@ -42,6 +42,8 @@ export type ToastAction = { label: string; onClick: () => void };
 export type ToastOptions = {
   description?: string;
   action?: ToastAction;
+  /** Where the thing just made lives — "Open in Gmail →". Opens in a new tab, beside `action`. */
+  link?: { label: string; href: string };
   /** ms before it dismisses itself; 0 keeps it until dismissed. Errors default to 0. */
   duration?: number;
 };
@@ -193,14 +195,29 @@ export function Toaster() {
                   {item.description}
                 </ToastPrimitive.Description>
               )}
-              {item.action && (
-                <ToastPrimitive.Action
-                  altText={item.action.label}
-                  onClick={item.action.onClick}
-                  className="mt-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-surface-hover"
-                >
-                  {item.action.label}
-                </ToastPrimitive.Action>
+              {(item.action || item.link) && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  {item.link && (
+                    <a
+                      href={item.link.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-testid="toast-link"
+                      className="rounded-md px-2 py-1 text-[12px] font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-surface-hover hover:decoration-foreground"
+                    >
+                      {item.link.label}
+                    </a>
+                  )}
+                  {item.action && (
+                    <ToastPrimitive.Action
+                      altText={item.action.label}
+                      onClick={item.action.onClick}
+                      className="rounded-md px-2 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-surface-hover"
+                    >
+                      {item.action.label}
+                    </ToastPrimitive.Action>
+                  )}
+                </div>
               )}
             </div>
             <ToastPrimitive.Close
