@@ -19,8 +19,17 @@ VALUES ('default-account', 'Default', 'default')
 ON CONFLICT ("slug") DO NOTHING;
 --> statement-breakpoint
 
--- Create a project per distinct org_id. The project's id is `proj-<orgId>` so
--- it's deterministic + traceable to the legacy org.
+-- Create a project per distinct LEGACY org_id. The project's id is
+-- `proj-<orgId>` so it's deterministic + traceable to the legacy org.
+--
+-- GUARDED (2026-10-09): an org_id that is already a project's id is a
+-- workspace, not a legacy org, and gets no project of its own. Without the
+-- guard, a run against a database whose org_id already held workspace ids
+-- minted a ghost per workspace — `proj-proj-<id>`, "Project proj-<id>" — and
+-- the UPDATEs below then pointed that workspace's content at the ghost. Every
+-- environment that applied this file before the guard keeps what it recorded;
+-- the guard only changes a run on such a database, which is exactly the run
+-- that did the damage. Repair: src/scripts/repair-ghost-projects.ts.
 INSERT INTO "project" ("id", "account_id", "slug", "name")
 SELECT
   'proj-' || org_id,
@@ -51,50 +60,54 @@ FROM (
   UNION SELECT DISTINCT org_id FROM "eval_run" WHERE org_id IS NOT NULL
   UNION SELECT DISTINCT org_id FROM "workflow_run" WHERE org_id IS NOT NULL
 ) AS distinct_orgs
+WHERE NOT EXISTS (SELECT 1 FROM "project" p WHERE p."id" = distinct_orgs.org_id)
+  AND distinct_orgs.org_id NOT LIKE 'proj-%'
 ON CONFLICT ("account_id", "slug") DO NOTHING;
 --> statement-breakpoint
 
--- Populate project_id on every business-content row from its org_id.
-UPDATE "skill" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+-- Populate project_id on every business-content row from its org_id: the
+-- org_id itself when it is already a workspace's id, else the legacy
+-- `proj-<orgId>` project created above (guarded, see that statement).
+UPDATE "skill" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "agent" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "agent" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "workflow" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "workflow" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "business_object_type" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "business_object_type" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "business_object" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "business_object" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "playbook" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "playbook" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "context_version" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "context_version" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "learning_step" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "learning_step" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "learning" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "learning" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "conversation" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "conversation" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "eval_dataset" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "eval_dataset" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "agent_budget" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "agent_budget" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "knowledge_source" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "knowledge_source" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "knowledge_document" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "knowledge_document" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "knowledge_chunk" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "knowledge_chunk" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "source_install" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "source_install" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "source_dek" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "source_dek" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "source_audit" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "source_audit" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "feedback_job" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "feedback_job" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "skill_run" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "skill_run" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "eval_run" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "eval_run" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
 --> statement-breakpoint
-UPDATE "workflow_run" SET project_id = 'proj-' || org_id WHERE project_id IS NULL;
+UPDATE "workflow_run" AS t SET project_id = COALESCE((SELECT p."id" FROM "project" p WHERE p."id" = t.org_id), (SELECT p."id" FROM "project" p WHERE p."id" = 'proj-' || t.org_id)) WHERE t.project_id IS NULL;
