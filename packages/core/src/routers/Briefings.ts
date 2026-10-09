@@ -65,8 +65,10 @@ export const latestRoute = os
 /**
  * briefings.personal — "your day": the person's own brief across the
  * workspaces they reach in this account, composed now and kept in their
- * personal workspace (`services/briefings/personal.ts`). Asking twice inside
- * the republish window is one brief, not two.
+ * personal workspace (`services/briefings/personal.ts`). It is the same brief
+ * the morning schedule delivers: asking again the same day refreshes that
+ * day's edition rather than adding a second one, and the model is called only
+ * within the Org's brief budget.
  */
 export const personalRoute = os
   .input(z.object({ timeZone: z.string().max(64).optional() }).default({}))

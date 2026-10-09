@@ -1,6 +1,13 @@
 /**
- * Who gets a brief, and whether the Org can afford it
- * (docs/guides/morning-brief.md § Limits).
+ * The money half of the brief budget: who gets a personal brief, and whether
+ * the Org can afford it (docs/guides/morning-brief.md § Limits). Its other
+ * half, the attention budget, is `budget.ts`; that file stays free of the
+ * database because the Briefings page imports it in the browser.
+ *
+ * Every personal brief passes here, scheduled or asked for: the composer
+ * (`personal.ts`) calls the model only when {@link briefBudget} says yes, and
+ * the scheduled delivery (`personalDelivery.ts`) also needs
+ * {@link eligibleForBriefs}. One budget, one scope (`platform:personal.brief`).
  *
  * Daily briefs are on by default for every person on every install, so they
  * spend model money nobody asked for unless something limits them:

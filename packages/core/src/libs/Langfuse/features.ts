@@ -11,7 +11,7 @@
  */
 
 export const FEATURES = {
-  /** A person's morning brief and evening wrap: the meeting lines and suggested actions (`services/personal/rhythm/compose.ts`). */
+  /** A person's morning brief and evening wrap: the meeting lines and suggested actions (`services/briefings/personalWriter.ts`). */
   PERSONAL_BRIEF: 'personal.brief',
   /** Chat-time agent runs via `runAgentDeep` (LangChain + deepagents). */
   AGENT_CHAT: 'agent.chat',

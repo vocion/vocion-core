@@ -158,8 +158,9 @@ defineJob<{ orgId: string }>(JOB.orgReview, async (input) => {
 }, { retry: twice });
 
 // A person's morning brief and evening wrap (docs/guides/morning-brief.md): the
-// sweep starts each due one under a once-only id, and the delivery composes
-// it and lands it in their Personal workspace.
+// sweep is the scheduler — it starts each due one under a once-only id — and
+// the delivery publishes it through the one personal-brief composer
+// (`services/briefings/personal.ts`), then tells the person in their chat.
 defineJob(JOB.personalRhythmSweep, async () => {
   const { sweepRhythms } = await import('@/services/personal/rhythm/schedule');
   const out = await sweepRhythms();
@@ -170,7 +171,7 @@ defineJob(JOB.personalRhythmSweep, async () => {
 }, { retry: twice });
 
 defineJob<{ userId: string; accountId: string; kind: 'brief' | 'wrap'; day: string; timeZone: string }>(JOB.personalRhythm, async (input) => {
-  const { deliverRhythm } = await import('@/services/personal/rhythm/deliver');
-  const out = await deliverRhythm(input);
-  return out.delivered ? { delivered: true, conversationId: out.conversationId } : { delivered: false, reason: out.reason };
+  const { deliverPersonalBrief } = await import('@/services/briefings/personalDelivery');
+  const out = await deliverPersonalBrief(input);
+  return out.delivered ? { delivered: true, briefingId: out.briefingId, conversationId: out.conversationId } : { delivered: false, reason: out.reason };
 }, { retry: twice });

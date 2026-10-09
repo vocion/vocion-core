@@ -28,7 +28,7 @@
  * person, no tool: a scheduled run has nobody for anything to be waiting on.
  */
 import type { RuntimeContext } from '../types';
-import type { CrossWorkspaceItem, WorkspaceQueue } from '@/services/inbox/acrossWorkspaces';
+import type { CrossWorkspaceInbox, CrossWorkspaceItem, WorkspaceQueue } from '@/services/inbox/acrossWorkspaces';
 import { tool } from '@langchain/core/tools';
 import { and, desc, eq, gte, inArray, isNull, ne } from 'drizzle-orm';
 import { z } from 'zod';
@@ -70,17 +70,20 @@ export type WaitingOnMe = {
  * @param input.orgId - The workspace the turn runs in.
  * @param input.across - Every workspace on the account, not just this one.
  * @param input.now - The clock.
+ * @param input.inbox - The cross-workspace queue, when the caller already read it (across only).
  */
-export async function readWaitingOnMe(input: { userId: string; accountId: string; orgId: string; across: boolean; now?: Date }): Promise<WaitingOnMe> {
+export async function readWaitingOnMe(input: { userId: string; accountId: string; orgId: string; across: boolean; now?: Date; inbox?: CrossWorkspaceInbox }): Promise<WaitingOnMe> {
   const { userId, accountId, orgId, across } = input;
   const now = input.now ?? new Date();
   // One reader for both scopes: the cross-workspace queue already tags rows as
   // the person's, orders them and builds their links. In one workspace, only
   // that workspace's queue is read.
-  const inbox = await listInboxForUser(userId, {
-    accountId,
-    ...(across ? {} : { workspaceId: orgId, read: (id: string) => (id === orgId ? needsYouItems(id) : Promise.resolve([])) }),
-  });
+  const inbox = across && input.inbox
+    ? input.inbox
+    : await listInboxForUser(userId, {
+        accountId,
+        ...(across ? {} : { workspaceId: orgId, read: (id: string) => (id === orgId ? needsYouItems(id) : Promise.resolve([])) }),
+      });
   const places: Place[] = inbox.workspaces.filter(w => across || w.id === orgId);
   const byId = new Map(places.map(p => [p.id, p]));
   const ids = [...byId.keys()];

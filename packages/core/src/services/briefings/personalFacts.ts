@@ -1,7 +1,8 @@
 /**
- * What a morning brief or an evening wrap is made of, read from the records
- * and the person's own connections — never searched for, never made up
- * (docs/guides/morning-brief.md).
+ * What a personal brief (the morning "your day" or the evening wrap) is made
+ * of, read from the records and the person's own connections — never
+ * searched for, never made up (docs/guides/morning-brief.md). The composer
+ * (`personal.ts`) renders these; nothing else does.
  *
  * Every read here is one the person could make themselves: their own
  * calendar and mail through their personal connections (`personalCredential`
@@ -14,6 +15,8 @@
 
 import type { RhythmKind } from '@/libs/personal/rhythm';
 import type { WaitingOnMe } from '@/services/agents/tools/waitingOnMe';
+import type { CrossWorkspaceInbox } from '@/services/inbox/acrossWorkspaces';
+import type { InboxItem } from '@/services/InboxService';
 import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
@@ -51,7 +54,7 @@ export type TeamLine = {
   briefs: Array<{ title: string; href: string }>;
 };
 
-export type RhythmFacts = {
+export type PersonalFacts = {
   kind: RhythmKind;
   userId: string;
   accountId: string;
@@ -71,6 +74,8 @@ export type RhythmFacts = {
   finishedToday: Array<{ title: string; workspace: string }>;
   /** The shared workspaces they reach, for meeting evidence. */
   workspaces: Array<{ id: string; name: string; slug: string }>;
+  /** The cross-workspace queue, read once: the brief's "Your workspaces" lines come from it too. */
+  inbox: CrossWorkspaceInbox;
 };
 
 /**
@@ -79,7 +84,7 @@ export type RhythmFacts = {
  * model call and no message.
  * @param f - The facts, without evidence.
  */
-export function hasNothingToSay(f: RhythmFacts): boolean {
+export function hasNothingToSay(f: PersonalFacts): boolean {
   const meetings = f.meetings.status === 'read' ? f.meetings.items.length : 0;
   const waiting = f.waiting.decisions.filter(d => d.yours).length + f.waiting.followUps.length;
   return meetings === 0 && waiting === 0 && f.team.length === 0 && f.doneToday.length === 0 && f.finishedToday.length === 0;
@@ -107,7 +112,7 @@ async function readMeetings(input: { userId: string; personalOrgId: string; from
   try {
     events = await calendarEvents({ orgId: cal.orgId, values: cal.values }, input.from.toISOString(), input.to.toISOString());
   } catch (error) {
-    logger.warn('rhythm: calendar read failed', { orgId: input.personalOrgId, errorName: error instanceof Error ? error.name : 'unknown' });
+    logger.warn('personal brief: calendar read failed', { orgId: input.personalOrgId, errorName: error instanceof Error ? error.name : 'unknown' });
     const { isBrokenConnection } = await import('@/libs/personal/broken');
     if (isBrokenConnection(error)) {
       const { reportBrokenConnection } = await import('@/services/personal/urgent');
@@ -137,7 +142,7 @@ async function readMeetings(input: { userId: string; personalOrgId: string; from
  * it runs only for a brief that will be written.
  * @param f - The facts; their meetings gain evidence in place.
  */
-export async function withMeetingEvidence(f: RhythmFacts): Promise<RhythmFacts> {
+export async function withMeetingEvidence(f: PersonalFacts): Promise<PersonalFacts> {
   if (f.meetings.status !== 'read' || f.meetings.items.length === 0) {
     return f;
   }
@@ -216,10 +221,11 @@ async function readTeam(userId: string, workspaces: Array<{ id: string; name: st
  * @param input.timeZone - Their zone.
  * @param input.since - When they last looked (the last brief or wrap), for "since you last looked".
  * @param input.now - The clock.
+ * @param input.read - One workspace's open rows (a seam for tests).
  */
-export async function gatherRhythmFacts(input: { kind: RhythmKind; userId: string; accountId: string; personalOrgId: string; timeZone: string; since: Date; now: Date }): Promise<RhythmFacts> {
+export async function gatherPersonalFacts(input: { kind: RhythmKind; userId: string; accountId: string; personalOrgId: string; timeZone: string; since: Date; now: Date; read?: (orgId: string) => Promise<InboxItem[]> }): Promise<PersonalFacts> {
   const { kind, userId, accountId, personalOrgId, timeZone: tz, now } = input;
-  const inbox = await listInboxForUser(userId, { accountId });
+  const inbox = await listInboxForUser(userId, { accountId, ...(input.read ? { read: input.read } : {}) });
   const shared = inbox.workspaces.filter(w => w.kind !== 'personal').map(w => ({ id: w.id, name: w.name, slug: w.slug, accountSlug: w.accountSlug }));
   const today = dayKey(now, tz);
   const window = kind === 'brief'
@@ -229,7 +235,7 @@ export async function gatherRhythmFacts(input: { kind: RhythmKind; userId: strin
   const [user, meetings, waiting, team, doneRows, finishedRows] = await Promise.all([
     db.select({ name: userSchema.name }).from(userSchema).where(eq(userSchema.id, userId)).limit(1),
     readMeetings({ userId, personalOrgId, ...window }),
-    readWaitingOnMe({ userId, accountId, orgId: personalOrgId, across: true, now }),
+    readWaitingOnMe({ userId, accountId, orgId: personalOrgId, across: true, now, inbox }),
     kind === 'brief' ? readTeam(userId, shared, input.since) : Promise.resolve([]),
     kind === 'wrap' && inbox.workspaces.length > 0
       ? db.select({ id: askSchema.id, orgId: askSchema.orgId, title: askSchema.title }).from(askSchema).where(and(inArray(askSchema.orgId, inbox.workspaces.map(w => w.id)), eq(askSchema.decidedBy, userId), gte(askSchema.decidedAt, dayStart))).orderBy(desc(askSchema.decidedAt)).limit(10)
@@ -258,5 +264,6 @@ export async function gatherRhythmFacts(input: { kind: RhythmKind; userId: strin
     }),
     finishedToday: finishedRows.map(r => ({ title: r.title, workspace: byId.get(r.orgId)?.name ?? '' })),
     workspaces: shared.map(w => ({ id: w.id, name: w.name, slug: w.slug })),
+    inbox,
   };
 }

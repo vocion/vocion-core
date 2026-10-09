@@ -1303,6 +1303,13 @@
       "when": 1792300204000,
       "tag": "0204_personal_push",
       "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1792300205000,
+      "tag": "0205_briefing_edition",
+      "breakpoints": true
     }
   ]
 }

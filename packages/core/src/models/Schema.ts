@@ -3621,6 +3621,12 @@ export const briefingSchema = pgTable(
     teamSlug: text('team_slug'),
     /** Agent that published it (plain slug). */
     agentSlug: text('agent_slug'),
+    /**
+     * A personal brief's once-only key, `<kind>:<local day>` (`brief:2026-10-09`,
+     * migration 0205): one edition per person, kind and day, refreshed in place
+     * when published again. NULL on every workspace brief.
+     */
+    edition: text('edition'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [

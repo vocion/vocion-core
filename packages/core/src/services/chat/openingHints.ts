@@ -13,21 +13,23 @@
  * - attention: what waits on this person elsewhere (`waitingElsewhere`, the
  *   dock's own read).
  * - next: the person's morning brief or evening wrap, delivered in the last
- *   18 hours and not yet opened (`services/personal/rhythm`), else the
- *   latest briefing, when there is one this week (the urgency chip).
+ *   18 hours and not yet opened, linking to the stored brief on Briefings
+ *   (`services/briefings/personalDelivery.ts`), else the latest briefing,
+ *   when there is one this week (the urgency chip).
  * - the person: conversations started and messages sent here, and their hint
  *   dismissals, from the adoption events (`user_activity_event`) — so no new
  *   table holds any of it.
  */
 
 import type { HintInput, HintType, OpeningHint } from '@/libs/chat/openingHints';
-import { and, count, desc, eq, gte, inArray, like, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, like, lte, sql } from 'drizzle-orm';
 import { HINT_TYPES, openingHints } from '@/libs/chat/openingHints';
 import { triedLine } from '@/libs/connect/connectionNeeded';
 import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
 import { briefingSchema, conversationSchema, projectSchema, userActivityEventSchema } from '@/models/Schema';
+import { briefingHref, DELIVERY_SCOPE_PREFIX } from '@/services/briefings/links';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -62,10 +64,12 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
     db.select({ metadata: userActivityEventSchema.metadata, at: userActivityEventSchema.createdAt }).from(userActivityEventSchema).where(and(eq(userActivityEventSchema.orgId, input.orgId), eq(userActivityEventSchema.userId, input.userId), eq(userActivityEventSchema.eventType, 'chat.hint_dismissed'), gte(userActivityEventSchema.createdAt, since30))).catch(() => []),
     // Setups this person started in a conversation and left (their objectives).
     import('@/services/objectives/ObjectiveService').then(m => m.startedSetups(input.orgId, input.userId)).catch(() => new Map<string, number>()),
-    // Their brief or wrap, written for them and still unopened: one message, no turn yet.
-    db.select({ id: conversationSchema.id, scopeRef: conversationSchema.scopeRef })
+    // Their brief or wrap, written for them and still unopened (its delivery
+    // message has had no turn yet), with the stored brief it delivered.
+    db.select({ id: conversationSchema.id, scopeRef: conversationSchema.scopeRef, briefingId: briefingSchema.id })
       .from(conversationSchema)
-      .where(and(eq(conversationSchema.orgId, input.orgId), eq(conversationSchema.createdBy, input.userId), like(conversationSchema.scopeRef, 'personal-rhythm:%'), gte(conversationSchema.createdAt, new Date(now.getTime() - 18 * 60 * 60 * 1000)), lte(conversationSchema.messageCount, 1)))
+      .leftJoin(briefingSchema, and(eq(briefingSchema.orgId, conversationSchema.orgId), sql`${DELIVERY_SCOPE_PREFIX} || ${briefingSchema.edition} = ${conversationSchema.scopeRef}`))
+      .where(and(eq(conversationSchema.orgId, input.orgId), eq(conversationSchema.createdBy, input.userId), like(conversationSchema.scopeRef, `${DELIVERY_SCOPE_PREFIX}%`), gte(conversationSchema.createdAt, new Date(now.getTime() - 18 * 60 * 60 * 1000)), lte(conversationSchema.messageCount, 1)))
       .orderBy(desc(conversationSchema.createdAt))
       .limit(1)
       .then(r => r[0] ?? null)
@@ -122,9 +126,9 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
     next: rhythm
       ? {
           key: `rhythm:${rhythm.id}`,
-          label: rhythm.scopeRef?.startsWith('personal-rhythm:wrap') ? 'Your evening wrap is ready' : 'Your morning brief is ready',
+          label: rhythm.scopeRef?.startsWith(`${DELIVERY_SCOPE_PREFIX}wrap`) ? 'Your evening wrap is ready' : 'Your morning brief is ready',
           prompt: '',
-          href: `/dashboard/chat?conversation=${rhythm.id}`,
+          href: rhythm.briefingId ? briefingHref(rhythm.briefingId) : `/dashboard/chat?conversation=${rhythm.id}`,
           reason: 'Written for you just now, from your calendar, mail and workspaces.',
           weight: 1.9,
         }

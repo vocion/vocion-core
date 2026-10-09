@@ -1,14 +1,16 @@
 /**
- * The morning brief and evening wrap, against PGlite: who gets one and when
- * (the sweep), and what arrives (the delivery).
+ * The scheduled personal brief, against PGlite: who gets one and when (the
+ * sweep), what is kept (one briefing per person, kind and day, on Briefings)
+ * and what arrives (one short chat message that links to it).
  *
  * Northwind's Alex has a Personal workspace and is a member of Revenue Team,
  * where two decisions wait on him. The sweep must give him a rhythm without
  * him visiting a settings page, start each due delivery once, and skip one
- * the server slept through. A delivery must land as one assistant message in
- * his Personal workspace, with what waits on him in the order to take it, and
- * its suggested actions as one Decision, recommended first — and only once a
- * day.
+ * the server slept through. A delivery must store his brief as a briefing in
+ * his Personal workspace — what waits on him in the order to take it — post
+ * one assistant message linking to it, and raise its suggested actions as one
+ * Decision, recommended first — and only once a day, even when he already
+ * asked for his day from the Briefings page.
  */
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,11 +18,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { accountMembershipSchema, agentBudgetSchema, askSchema, conversationMessageSchema, conversationSchema, missionRunSchema, notificationSchema, personalRhythmSchema, projectMemberSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, agentBudgetSchema, askSchema, briefingSchema, conversationMessageSchema, conversationSchema, missionRunSchema, notificationSchema, personalRhythmSchema, projectMemberSchema, projectSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
 const { storeLoginCredential } = await import('@/services/ApiTokenService');
 const { ensurePersonalProject } = await import('@/services/workspace/personalProject');
-const { getRhythm, setRhythm, sweepRhythms } = await import('./schedule');
-const { deliverRhythm } = await import('./deliver');
+const { getRhythm, setRhythm, sweepRhythms } = await import('@/services/personal/rhythm/schedule');
+const { deliverPersonalBrief } = await import('./personalDelivery');
+const { publishPersonalBrief, PERSONAL_BRIEF_PUBLISHER } = await import('./personal');
 const { loadOpeningHints } = await import('@/services/chat/openingHints');
 
 const ACCOUNT = 'acct-rh-northwind';
@@ -55,6 +58,7 @@ beforeEach(async () => {
   await db.delete(personalRhythmSchema);
   await db.delete(askSchema);
   await db.delete(conversationSchema).where(eq(conversationSchema.orgId, home));
+  await db.delete(briefingSchema).where(eq(briefingSchema.orgId, home));
   await db.insert(askSchema).values([
     { orgId: REVENUE, kind: 'approval', title: 'Send the Contoso Supply renewal quote?', status: 'open', ownerUserId: ALEX, createdBy: ALEX, createdAt: new Date('2026-10-06T16:00:00Z'), updatedAt: new Date('2026-10-06T16:00:00Z') },
     { orgId: REVENUE, kind: 'ruling', title: 'Which Bellwater Hall date holds?', status: 'open', ownerUserId: ALEX, createdBy: ALEX, createdAt: new Date('2026-10-08T16:00:00Z'), updatedAt: new Date('2026-10-08T16:00:00Z') },
@@ -137,11 +141,12 @@ describe('the limits — briefs cost model money, so only where they are wanted'
     await db.delete(askSchema);
     const writer = vi.fn(async () => null);
 
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+    const out = await deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
 
     expect(out).toEqual({ delivered: false, reason: 'nothing to say' });
     expect(writer).not.toHaveBeenCalled();
     expect(await db.select().from(conversationSchema).where(eq(conversationSchema.orgId, home))).toEqual([]);
+    expect(await db.select().from(briefingSchema).where(eq(briefingSchema.orgId, home))).toEqual([]);
   });
 
   it('an Org past its daily brief budget gets no brief, and its admins one quiet notice', async () => {
@@ -151,8 +156,8 @@ describe('the limits — briefs cost model money, so only where they are wanted'
     await db.insert(agentBudgetSchema).values({ orgId: cassHome, agentSlug: 'platform:personal.brief', feature: 'personal.brief', period: 'daily', currentTokens: 1, currentMicroCents: 60_000_000, periodStartedAt: new Date('2026-10-09T00:00:00Z') });
     const writer = vi.fn(async () => null);
 
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
-    await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'wrap', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+    const out = await deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+    await deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'wrap', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
 
     expect(out).toMatchObject({ delivered: false, reason: expect.stringContaining('daily brief budget') });
     expect(writer).not.toHaveBeenCalled();
@@ -163,34 +168,52 @@ describe('the limits — briefs cost model money, so only where they are wanted'
   });
 });
 
-describe('the delivery — what arrives', () => {
+describe('the delivery — one brief on Briefings, one message in chat', () => {
   const writer = vi.fn(async () => ({ meetings: [], actions: [
     { label: 'Approve the Contoso Supply renewal quote', why: 'It has waited three days on you.' },
     { label: 'Pick the Bellwater Hall date', why: 'Asked yesterday.' },
   ] }));
+  const brief = () => deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+  const stored = async () => db.select().from(briefingSchema).where(eq(briefingSchema.orgId, home));
+  const messagesOf = async (conversationId: number) => db.select().from(conversationMessageSchema).where(eq(conversationMessageSchema.conversationId, conversationId));
 
-  it('lands one assistant message in the Personal workspace: what waits on him in order, and the team\'s night', async () => {
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+  it('stores the brief as a briefing in his Personal workspace: what waits on him in order, and the team\'s night', async () => {
+    const out = await brief();
 
-    expect(out).toMatchObject({ delivered: true, orgId: home, title: 'Morning brief · Fri, Oct 9, 2026' });
+    expect(out).toMatchObject({ delivered: true, orgId: home, title: 'Your day — Fri, Oct 9, 2026' });
 
-    const messages = await db.select().from(conversationMessageSchema).where(eq(conversationMessageSchema.conversationId, out.delivered ? out.conversationId : 0));
+    const rows = await stored();
 
-    expect(messages).toHaveLength(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: out.delivered ? out.briefingId : 0, publishedBy: PERSONAL_BRIEF_PUBLISHER, edition: 'brief:2026-10-09', title: 'Your day — Fri, Oct 9, 2026' });
 
-    const text = messages[0]!.content;
+    const text = rows[0]!.content;
 
-    expect(messages[0]!.role).toBe('assistant');
     expect(text).toContain('**Good morning, Alex');
     // Calendar is not connected: the brief says so and where, never claims an empty day.
     expect(text).toContain('Google Calendar is not connected');
     // Oldest first: the order to take them.
     expect(text.indexOf('Contoso Supply renewal quote')).toBeLessThan(text.indexOf('Bellwater Hall date'));
     expect(text).toContain('**Revenue Team** — 1 decision taken');
+    // The actions are the Decision's to draw; the brief only says where they are.
+    expect(text).toContain('The 2 things to do first are waiting in Decisions.');
+    expect(text).not.toContain('Approve the Contoso Supply renewal quote');
+  });
+
+  it('posts one short assistant message that says the lead line and links to the stored brief', async () => {
+    const out = await brief();
+    const messages = await messagesOf(out.delivered ? out.conversationId : 0);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.role).toBe('assistant');
+    expect(messages[0]!.content).toContain('Good morning, Alex — Fri, Oct 9, 2026.');
+    expect(messages[0]!.content).toMatch(new RegExp(`\\[Open Your day — Fri, Oct 9, 2026 →\\]\\(/w/[^)]+/dashboard/briefings/${out.delivered ? out.briefingId : 0}\\)`));
+    // Short: the brief is on Briefings, not pasted into chat.
+    expect(messages[0]!.content).not.toContain('## Waiting on you');
   });
 
   it('puts the suggested actions in one Decision, recommended first — raised after the message, so the chat is never empty under it', async () => {
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+    const out = await brief();
 
     const [ask] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, home), eq(askSchema.conversationId, out.delivered ? out.conversationId : 0)));
 
@@ -202,15 +225,37 @@ describe('the delivery — what arrives', () => {
   });
 
   it('is delivered once a day, however many times it is started', async () => {
-    await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
-    const again = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+    await brief();
+    const again = await brief();
 
     expect(again).toMatchObject({ delivered: false, reason: 'already delivered' });
     expect(await db.select().from(conversationSchema).where(eq(conversationSchema.orgId, home))).toHaveLength(1);
+    expect(await stored()).toHaveLength(1);
+  });
+
+  it('is one brief per day, not two, when he already asked for his day on Briefings', async () => {
+    const asked = await publishPersonalBrief(ALEX, ACCOUNT, { now: new Date(MORNING.getTime() - 20 * 60_000), timeZone: TZ, writer: null });
+    const out = await brief();
+
+    const rows = await stored();
+
+    expect(rows).toHaveLength(1);
+    expect(out).toMatchObject({ delivered: true, briefingId: asked.id });
+  });
+
+  it('asking on Briefings past the Org\'s daily brief cap still gives a brief, with no model call', async () => {
+    await db.update(tenantAccountSchema).set({ briefDailyCents: 0 }).where(eq(tenantAccountSchema.id, ACCOUNT));
+    const spend = vi.fn(async () => null);
+
+    const out = await publishPersonalBrief(ALEX, ACCOUNT, { now: MORNING, timeZone: TZ, writer: spend });
+
+    expect(spend).not.toHaveBeenCalled();
+    expect(out.budget).toMatchObject({ ok: false });
+    expect(out.brief.markdown).toContain('Contoso Supply renewal quote');
   });
 
   it('still goes out when the writer cannot answer: the oldest decisions become the actions', async () => {
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, async () => null);
+    const out = await deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, async () => null);
 
     const [ask] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, home), eq(askSchema.conversationId, out.delivered ? out.conversationId : 0)));
 
@@ -237,41 +282,44 @@ describe('the delivery — what arrives', () => {
     }));
     const seen: string[] = [];
 
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, async (_org, facts) => {
+    await deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, async (_org: string, facts: string) => {
       seen.push(facts);
       return { meetings: [{ id: 'ev1', context: 'Dana wants revised renewal terms (mail, Tue).' }], actions: [] };
     });
 
-    const [message] = await db.select().from(conversationMessageSchema).where(eq(conversationMessageSchema.conversationId, out.delivered ? out.conversationId : 0));
+    const [row] = await stored();
 
-    expect(message!.content).toContain('**9:30 AM PDT · Renewal call** — Dana wants revised renewal terms (mail, Tue).');
+    expect(row!.content).toContain('**9:30 AM PDT · Renewal call** — Dana wants revised renewal terms (mail, Tue).');
     // The writer read the mail evidence, gathered with Alex's own login.
     expect(seen[0]).toContain('Renewal terms — Could you send revised terms?');
 
     await db.delete((await import('@/models/Schema')).apiTokenSchema);
   });
 
-  it('the wrap says what got done today, what is still open and what is first tomorrow', async () => {
+  it('the wrap is a second kind of the same brief: done today, still open, first tomorrow', async () => {
     await db.update(askSchema).set({ status: 'approved', decidedBy: ALEX, decidedAt: new Date('2026-10-09T20:00:00Z') }).where(eq(askSchema.title, 'Which Bellwater Hall date holds?'));
     await db.insert(missionRunSchema).values({ orgId: REVENUE, title: 'Q4 pipeline review', brief: 'b', status: 'completed', team: { lead: 'lead', members: [] }, completedAt: new Date('2026-10-09T21:00:00Z') });
 
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'wrap', day: '2026-10-09', timeZone: TZ, now: new Date('2026-10-10T00:31:00Z') }, async () => null);
+    const out = await deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'wrap', day: '2026-10-09', timeZone: TZ, now: new Date('2026-10-10T00:31:00Z') }, async () => null);
 
-    const [message] = await db.select().from(conversationMessageSchema).where(eq(conversationMessageSchema.conversationId, out.delivered ? out.conversationId : 0));
+    expect(out).toMatchObject({ delivered: true, title: 'Your wrap — Fri, Oct 9, 2026' });
 
-    expect(message!.content).toContain('## Done today');
-    expect(message!.content).toContain('You decided [Which Bellwater Hall date holds?]');
-    expect(message!.content).toContain('Finished: Q4 pipeline review — Revenue Team');
-    expect(message!.content).toContain('## Still open');
-    expect(message!.content).toContain('## First tomorrow');
-    expect(message!.content).toContain('Take [Send the Contoso Supply renewal quote?]');
+    const [row] = await stored();
+
+    expect(row!.edition).toBe('wrap:2026-10-09');
+    expect(row!.content).toContain('## Done today');
+    expect(row!.content).toContain('You decided [Which Bellwater Hall date holds?]');
+    expect(row!.content).toContain('Finished: Q4 pipeline review — Revenue Team');
+    expect(row!.content).toContain('## Still open');
+    expect(row!.content).toContain('## First tomorrow');
+    expect(row!.content).toContain('Take [Send the Contoso Supply renewal quote?]');
   });
 
-  it('the opening hint says the brief is ready until it is opened', async () => {
-    const out = await deliverRhythm({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, writer);
+  it('the opening hint says the brief is ready until it is opened, and opens the stored brief', async () => {
+    const out = await brief();
 
     const hints = await loadOpeningHints({ orgId: home, userId: ALEX, isAdmin: false, leadSpoken: 'your assistant', now: new Date(MORNING.getTime() + 60_000) });
 
-    expect(hints[0]).toMatchObject({ label: 'Your morning brief is ready →', action: { kind: 'open', href: `/dashboard/chat?conversation=${out.delivered ? out.conversationId : 0}` } });
+    expect(hints[0]).toMatchObject({ label: 'Your morning brief is ready →', action: { kind: 'open', href: `/dashboard/briefings/${out.delivered ? out.briefingId : 0}` } });
   });
 });
