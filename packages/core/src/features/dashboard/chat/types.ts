@@ -363,6 +363,8 @@ export type AgentOption = {
   givenName?: string;
   /** The seeded lead only: its role, named for the workspace ("Revenue lead"). */
   leadRole?: string;
+  /** A person's own assistant in their Personal workspace: one avatar, its own hello (`assistantName.ts`). */
+  personal?: true;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

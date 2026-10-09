@@ -256,12 +256,11 @@
     "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
     "ask_team": "Demandez à l’équipe…",
     "ask_agent": "Demandez à {name}…",
-    "named_lead_and_team_on_it": "{name} et l’équipe s’en occupent."
+    "named_lead_and_team_on_it": "{name} et l’équipe s’en occupent.",
+    "ask_assistant": "Demandez à votre assistant…"
   },
   "Onboarding": {
     "starter_setup_prompt": "Configure cet espace de travail avec moi.",
-    "no_agents": "Cet espace de travail n’a pas encore d’agent.",
-    "no_agents_cta": "Recrutez-en un dans le catalogue d’agents.",
     "plan_eyebrow": "Plan de configuration",
     "accept": "Accepter",
     "open": "Ouvrir",
@@ -288,7 +287,13 @@
     "lead_self": "je suis le {role}",
     "lead_self_named": "je suis {given}, le {role}",
     "lead_hello_person": "Bonjour {name}, {self}. Quand vous voulez, je peux vous aider à configurer cet espace.",
-    "lead_hello_anyone": "Bonjour, {self}. Quand vous voulez, je peux vous aider à configurer cet espace."
+    "lead_hello_anyone": "Bonjour, {self}. Quand vous voulez, je peux vous aider à configurer cet espace.",
+    "assistant_self": "votre {role}",
+    "assistant_hello_person": "Bonjour {name} — je suis {self}.",
+    "assistant_hello_anyone": "Bonjour — je suis {self}.",
+    "agents_unavailable": "Votre assistant n’est pas encore prêt.",
+    "agents_unavailable_shared": "Le responsable de cet espace n’est pas encore prêt.",
+    "agents_retry": "Réessayer"
   },
   "Inbox": {
     "title": "File de revue",

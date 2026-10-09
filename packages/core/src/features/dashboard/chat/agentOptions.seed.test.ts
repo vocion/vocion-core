@@ -36,3 +36,30 @@ describe('loadChatAgentContext on an empty workspace', () => {
     expect(await db.select().from(agentSchema).where(eq(agentSchema.orgId, UNOPENED))).toHaveLength(0);
   });
 });
+
+describe('a Personal workspace that lost its assistant heals when its person opens chat (Metacto, 2026-10-09)', () => {
+  const HOME = 'proj-chat-seed-home';
+
+  it('reseeds the assistant its lead names, and introduces it as the person\'s own', async () => {
+    // The state on the box: the lead names `assistant`, with no row behind it.
+    await db.insert(projectSchema).values({ id: HOME, accountId: 'acct-chat-seed', slug: 'personal-chat-seed', name: 'Personal', kind: 'personal', leadAgentSlug: 'assistant' });
+
+    const ctx = await loadChatAgentContext(HOME);
+    const assistant = ctx.agents.find(a => a.slug === 'assistant');
+
+    expect(ctx.agents.map(a => a.slug)).toEqual(['assistant', '__search__']);
+    expect(ctx.coordinatorSlug).toBe('assistant');
+    expect(assistant).toMatchObject({ personal: true, leadRole: 'personal assistant on Contoso' });
+    expect(assistant?.givenName).toBeUndefined();
+    // Never a workspace lead in somebody's own workspace.
+    expect((await db.select().from(agentSchema).where(eq(agentSchema.orgId, HOME))).map(a => a.slug)).toEqual(['assistant']);
+  });
+
+  it('once the person names it, it is that name', async () => {
+    await db.update(agentSchema).set({ name: 'Ziggy' }).where(eq(agentSchema.orgId, HOME));
+
+    const ctx = await loadChatAgentContext(HOME);
+
+    expect(ctx.agents[0]).toMatchObject({ slug: 'assistant', name: 'Ziggy', givenName: 'Ziggy', personal: true });
+  });
+});

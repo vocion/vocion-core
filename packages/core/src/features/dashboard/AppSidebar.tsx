@@ -108,7 +108,7 @@ function pluginIcon(url: string, name: string): LucideIcon {
   return DASHBOARD_ROUTES.find(r => r.url === url)?.icon ?? iconByName(name);
 }
 
-export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, apps = [], gettingStarted = null, ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], pluginNav, workspacePages = [], needsYouCount = 0, apps = [], gettingStarted = null, personalWorkspace = false, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
   /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
@@ -132,6 +132,8 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
    * a step is left, the Getting started checklist takes the invite card's place.
    */
   gettingStarted?: GettingStartedState | null;
+  /** A person's own workspace: no team invite card (there is no team to invite into it). */
+  personalWorkspace?: boolean;
 }) => {
   const t = useTranslations('DashboardLayout');
   const chrome = useBrandChrome();
@@ -505,7 +507,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                   <div className="mt-auto">
                     {checklistApplies(gettingStarted)
                       ? !prefs.dismissed.includes(GETTING_STARTED_CARD) && <GettingStartedChecklist initial={gettingStarted} onDismiss={() => prefs.dismiss(GETTING_STARTED_CARD)} />
-                      : !gettingStarted && !prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
+                      : !gettingStarted && !personalWorkspace && !prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
                     {/* The visible door to MANAGE — everything configurational is
                         behind it, so it is a row in the nav, not only a line in a
                         popover. Icon rail: the gear alone, with a tooltip. */}

@@ -714,7 +714,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             ? (
                 // A workspace on its first day opens on its lead (`LeadIntro`).
                 wantsLeadIntro(agents)
-                  ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} disabled={!session.booted} />
+                  ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} disabled={!session.booted} personal={Boolean(team[0]?.personal)} />
                   : (
                       <EmptyState
                         firstName={firstName}

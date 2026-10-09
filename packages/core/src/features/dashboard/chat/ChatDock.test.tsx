@@ -392,7 +392,7 @@ describe('ChatDock', () => {
     }
   });
 
-  it('says an empty workspace is a state, with the next step, and never sends the sentinel', async () => {
+  it('says an empty workspace is a calm state with Retry, never a hire link, and never sends the sentinel', async () => {
     const searchOnly = [{ slug: '__search__', name: 'Search only', icon: 'search' as const, placeholder: 'Search…' }];
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -403,15 +403,16 @@ describe('ChatDock', () => {
       await render(wrap(<ChatDock agents={searchOnly} scopeLabel="Everything" defaultCollapsed={false} />));
 
       await expect.element(page.getByTestId('no-agents-state')).toBeVisible();
-      // The next step is for the person in the workspace, not whoever deploys it.
-      await expect.element(page.getByRole('link', { name: /Hire one from the agent catalog/ })).toHaveAttribute('href', '/dashboard/hire');
-      await expect.element(page.getByTestId('no-agents-state')).not.toHaveTextContent(/Apply a workspace/);
+      // One calm line and Retry: never "no agents yet", never a link to go hire.
+      await expect.element(page.getByTestId('agents-retry')).toBeVisible();
+      expect(page.getByRole('link', { name: /Hire one/ }).elements()).toHaveLength(0);
+      expect(page.getByText(/no agents yet/).elements()).toHaveLength(0);
 
-      // The composer stays live, and the answer is the same sentence.
+      // The composer stays live; nothing is sent, and no fake reply appears.
       await userEvent.fill(page.getByRole('textbox'), 'what should I do?');
       await userEvent.keyboard('{Enter}');
 
-      await expect.element(page.getByText(/This workspace has no agents yet/)).toBeVisible();
+      expect(page.getByText(/no agents yet|Hire one/).elements()).toHaveLength(0);
       expect(calls.filter(u => u.includes('/rpc/agent/stream'))).toHaveLength(0);
     } finally {
       vi.unstubAllGlobals();

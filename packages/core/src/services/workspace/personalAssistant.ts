@@ -17,9 +17,13 @@
  * Changing the template therefore reaches new workspaces only, which is the
  * same contract a hired agent from the catalogue has.
  *
- * Called from `ensurePersonalProject` (sign-in, sign-up, invite accept) and
- * lazily from the chat stream when a personal workspace has no agent yet, so a
- * workspace made before this existed heals on its first turn.
+ * Called from `ensurePersonalProject` (sign-in, sign-up, invite accept), from
+ * the chat page whenever a personal workspace shows no agent
+ * (`loadChatAgentContext`), and from the chat stream, so a workspace that lost
+ * its assistant heals the next time its person opens chat — not only on a
+ * turn the empty state would never let them send (Metacto, 2026-10-09: a
+ * Personal whose lead named `assistant` with no assistant row opened on "This
+ * workspace has no agents yet" for days).
  */
 
 import type { AgentManifest } from '@/libs/workspace/schemas';
@@ -108,6 +112,23 @@ export async function ensurePersonalAssistant(projectId: string): Promise<boolea
   }
   const slug = personalAssistantSlug();
   await db.insert(agentSchema).values(assistantRow(projectId)).onConflictDoNothing();
+  // Never claim it is there without reading it back: a lead that names an
+  // assistant with no row behind it is exactly the state that left a
+  // Personal workspace with nobody to talk to.
+  const [row] = await db
+    .select({ id: agentSchema.id, active: agentSchema.active, pausedAt: agentSchema.pausedAt })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, projectId), eq(agentSchema.slug, slug)))
+    .limit(1);
+  if (!row) {
+    console.error('personal assistant: seeded but not there', { projectId, slug });
+    return false;
+  }
+  // A Personal workspace's assistant is never retired by anything but its
+  // person: it is the only door. A pause they set stays.
+  if (row.active !== 'true' && !row.pausedAt) {
+    await db.update(agentSchema).set({ active: 'true' }).where(eq(agentSchema.id, row.id));
+  }
   if (!project.leadAgentSlug) {
     await db
       .update(projectSchema)

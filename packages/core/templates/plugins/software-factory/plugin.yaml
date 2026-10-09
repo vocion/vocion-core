@@ -514,3 +514,11 @@ notifications:
     title: 'Released: {headline} {liveVerb}'
     body: 'Live in {product}.'
     record: {type: release, id: '{releaseId}'}
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: What is the factory building right now?
+    needs: {connectors: [github]}
+  - label: File a bug for the factory
+    needs: {connectors: [github]}

@@ -20,7 +20,6 @@ import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { linkRecordMentions } from '@/libs/chat/recordMentions';
-import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
 import { nounCode } from '@/libs/codes';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
@@ -1492,16 +1491,10 @@ export function useChatSession({
     // search entry, reached by command rather than as a persona.
     const command = parseSearchCommand(raw);
     // An empty workspace is a STATE, not an error (2026-09-16). Sending would
-    // route the turn to the `__search__` sentinel and come back as
-    // `agent __search__ not found in org proj-…`; the person gets the sentence
-    // that tells them what to do instead, and the composer stays live.
+    // route the turn to the `__search__` sentinel. The page seeds the
+    // workspace's first agent on every load and says so with Retry
+    // (`NoAgentsYet`); the words stay in the composer for when it is ready.
     if (!hasWorkspaceAgents(agents) && !command.searchOnly) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'user', content: raw.trim() },
-        { role: 'assistant', content: NO_AGENTS_MESSAGE },
-      ]);
-      setComposerValue('');
       return;
     }
     streamingRef.current = true;

@@ -452,7 +452,7 @@ function ChatShellInner({
                               never cards: an empty conversation starts warm
                               (`emptyChat.ts`, founder 2026-10-08). */}
                           {wantsLeadIntro(agents)
-                            ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} hint={leadHint} />
+                            ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} hint={team[0]?.personal ? nudge : leadHint} personal={Boolean(team[0]?.personal)} />
                             : (
                                 <EmptyState
                                   firstName={firstName}
