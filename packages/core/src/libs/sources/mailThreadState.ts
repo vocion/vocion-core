@@ -67,6 +67,8 @@ export type ThreadLabel = {
   ask: string;
   /** Who decided: the model by id, or `rule` when the facts alone did. */
   labelledBy: string;
+  /** The prompt version a model label was made under (`LABEL_VERSION`); absent on a headers-only label. */
+  version?: number;
 };
 
 /** How many of a thread's messages the label and the document read. */
@@ -152,12 +154,29 @@ export const labelSchema = z.object({
   ask: z.string().catch('').transform(s => s.replace(/\s+/g, ' ').trim().slice(0, ASK_MAX)),
 });
 
+/**
+ * The labelling prompt's version, stored on every model label (`label_version`).
+ * Raise it with a prompt change that should reach labels already on file — and
+ * then relabel ON PURPOSE (`npm run mail:backfill-thread-state -- --relabel`):
+ * a sync keeps reusing an older label for an unchanged thread, so a deploy
+ * never re-spends on its own.
+ *
+ * v2 (2026-10-09, after the first run on a real mailbox): labels read from the
+ * OWNER's side. v1 filed cold pitches and investor outreach as "sales, owed a
+ * reply" (the pitch asked a question), and a prospect's warm reply to the
+ * owner's outreach as "partner" because it proposed working together — so
+ * "what sales emails do I need to answer" listed 19 pitches and missed the one
+ * live prospect.
+ */
+export const LABEL_VERSION = 2;
+
 export const LABEL_SYSTEM = [
-  'You label one email thread from the point of view of the mailbox owner, for their reply queue. The other side wrote last.',
-  'state: "needs_my_reply" when the last message asks the owner for something or a reply is plainly expected (a question, a request, a proposal awaiting an answer, a meeting to confirm, a warm reply to the owner\'s own outreach);',
-  '"fyi" when there is nothing to answer (a notice, receipt, calendar update, newsletter, a closing "thanks", an automated message);',
-  '"outbound_spam" when it is an unsolicited pitch or automated sales sequence aimed at the owner (cold outreach, "just bumping this", agencies, lead-gen offers) that the owner never engaged with.',
-  'category: what the thread is about — sales (the owner\'s prospects, deals, proposals, pricing), customer (existing clients), partner, vendor (someone selling to the owner, tools, invoices), hiring, internal (colleagues), personal, other.',
+  'You label one email thread for the mailbox owner\'s reply queue, always from the OWNER\'s side. The other side wrote last.',
+  'First decide who started it and who is selling. If the owner (or a colleague) wrote first, the thread is the owner\'s own outreach or an existing relationship. If a stranger wrote first, offering the owner a service, a product, an investment, a partnership or a meeting the owner never asked for, it is a cold approach.',
+  'state: "needs_my_reply" when a reply from the owner is genuinely expected — a real question or request in a relationship the owner is part of, a reply to the owner\'s own outreach (even a short or tentative one), a customer, candidate or colleague waiting on them, a meeting to confirm;',
+  '"outbound_spam" for any cold approach from a stranger the owner never engaged with — sales pitches, agencies, dev shops, lead-gen and podcast offers, "investment opportunities", follow-ups and "just bumping this" on any of those — even when it ends with a question or asks for a call;',
+  '"fyi" when there is nothing to answer — notices, receipts, calendar updates, newsletters, a closing "thanks".',
+  'category, from the owner\'s side: sales = the owner selling — their prospects and deals, replies to the owner\'s outreach, proposals, pricing (a prospect who proposes "collaborating" in reply to the owner\'s outreach is still sales); customer = existing clients; vendor = anyone selling TO the owner, including every cold pitch; partner = an established partner the owner already works with; hiring; internal (colleagues); personal; other.',
   'ask: what the other side wants from the owner, in one short line in plain words (e.g. "Wants a call next week to discuss pricing"); empty when nothing is asked.',
   'Answer with a JSON object only: {"state": …, "category": …, "ask": …}.',
 ].join(' ');
@@ -187,7 +206,7 @@ export function parseLabel(raw: string, model: string): ThreadLabel | null {
   }
   try {
     const parsed = labelSchema.safeParse(JSON.parse(raw.slice(start, end + 1)));
-    return parsed.success ? { ...parsed.data, labelledBy: model } : null;
+    return parsed.success ? { ...parsed.data, labelledBy: model, version: LABEL_VERSION } : null;
   } catch {
     return null;
   }
@@ -256,6 +275,7 @@ export function threadStateDoc(facts: ThreadFacts, label: ThreadLabel, opts: { c
         last_message_id: facts.lastMessageId,
         ask: label.ask,
         labelled_by: label.labelledBy,
+        ...(label.version ? { label_version: label.version } : {}),
       },
     },
   };
@@ -269,9 +289,15 @@ export type PriorLabel = { lastMessageId: string; label: ThreadLabel };
  * message, and decided by a model (a `rule` fallback is retried).
  * @param prior - What the index holds for the thread, if anything.
  * @param facts - The thread as read now.
+ * @param opts - What a relabel asks for.
+ * @param opts.minVersion - Only a label made under at least this prompt version is kept.
  */
-export function reuse(prior: PriorLabel | undefined, facts: ThreadFacts): ThreadLabel | null {
+export function reuse(prior: PriorLabel | undefined, facts: ThreadFacts, opts: { minVersion?: number } = {}): ThreadLabel | null {
   if (!prior || prior.lastMessageId !== facts.lastMessageId || prior.label.labelledBy === 'rule') {
+    return null;
+  }
+  // Only an explicit relabel asks for a newer prompt; a sync keeps what it has.
+  if (opts.minVersion && (prior.label.version ?? 1) < opts.minVersion) {
     return null;
   }
   return prior.label;
@@ -297,6 +323,8 @@ export function priorFromMetadata(metadata: Record<string, unknown> | null | und
       category: THREAD_CATEGORIES.includes(f.category as ThreadCategory) ? f.category as ThreadCategory : 'other',
       ask: typeof f.ask === 'string' ? f.ask : '',
       labelledBy: typeof f.labelled_by === 'string' ? f.labelled_by : 'rule',
+      // Labels from before versions existed were made by the first prompt.
+      version: typeof f.label_version === 'number' ? f.label_version : 1,
     },
   };
 }

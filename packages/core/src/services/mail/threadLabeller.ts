@@ -19,7 +19,7 @@ import { db } from '@/libs/DB';
 import { flushTraces, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { logger } from '@/libs/Logger';
-import { fallbackLabel, LABEL_SYSTEM, labelPrompt, parseLabel, priorFromMetadata, reuse, ruleLabel, threadStateExternalId } from '@/libs/sources/mailThreadState';
+import { fallbackLabel, LABEL_SYSTEM, LABEL_VERSION, labelPrompt, parseLabel, priorFromMetadata, reuse, ruleLabel, threadStateExternalId } from '@/libs/sources/mailThreadState';
 import { knowledgeDocumentSchema } from '@/models/Schema';
 
 /** Model calls one sync may spend labelling, unless the environment says otherwise. */
@@ -86,8 +86,12 @@ export async function priorLabels(orgId: string, sourceId: number, connector: st
         continue;
       }
       const held = out.get(threadId);
-      // A model's label beats a headers-only fallback from elsewhere.
-      if (!held || (held.label.labelledBy === 'rule' && prior.label.labelledBy !== 'rule')) {
+      // A model's label beats a headers-only fallback from elsewhere, and a
+      // label from a newer prompt beats an older one — so after a relabel of
+      // one workspace, the same mailbox's other workspaces pick it up free.
+      const better = held && prior.label.labelledBy !== 'rule'
+        && (held.label.labelledBy === 'rule' || (prior.label.version ?? 1) > (held.label.version ?? 1));
+      if (!held || better) {
         out.set(threadId, prior);
       }
     }
@@ -122,6 +126,7 @@ function configuredMax(): number {
  * @param opts.prior - Labels on file (`priorLabels`).
  * @param opts.maxLabels - Model calls this run may spend; defaults to `VOCION_MAIL_STATE_MAX_LABELS` or 200.
  * @param opts.model - Test seam.
+ * @param opts.relabelBelow - Relabel labels made under an older prompt version (explicit relabels only).
  */
 export async function labelThreads(opts: {
   orgId: string;
@@ -130,6 +135,8 @@ export async function labelThreads(opts: {
   prior: Map<string, PriorLabel>;
   maxLabels?: number;
   model?: LabelModel;
+  /** An explicit relabel: a label made under an older prompt than this is bought again. */
+  relabelBelow?: number;
 }): Promise<{ labels: Map<string, ThreadLabel>; counts: LabelRunCounts }> {
   const labels = new Map<string, ThreadLabel>();
   const counts: LabelRunCounts = { threads: opts.threads.length, byRule: 0, reused: 0, labelled: 0, fallback: 0 };
@@ -141,7 +148,7 @@ export async function labelThreads(opts: {
       counts.byRule += 1;
       continue;
     }
-    const kept = reuse(opts.prior.get(facts.threadId), facts);
+    const kept = reuse(opts.prior.get(facts.threadId), facts, opts.relabelBelow ? { minVersion: opts.relabelBelow } : {});
     if (kept) {
       labels.set(facts.threadId, kept);
       counts.reused += 1;
@@ -227,6 +234,8 @@ export type BackfillPlan = {
   sourceSlug: string;
   mailbox: string;
   windowDays: number;
+  /** Labels made under an older prompt are bought again (`LABEL_VERSION`). */
+  relabel: boolean;
   threadIds: string[];
   /** Threads that already carry a model label (skipped at no cost, unless their last message changed). */
   alreadyLabelled: number;
@@ -243,8 +252,9 @@ export type BackfillPlan = {
  * @param opts.sourceId - The Gmail source.
  * @param opts.windowDays - How far back (default 30).
  * @param opts.now - The clock.
+ * @param opts.relabel - Price relabelling threads labelled under an older prompt.
  */
-export async function planThreadStateBackfill(opts: { orgId: string; sourceId: number; windowDays?: number; now?: Date }): Promise<BackfillPlan | null> {
+export async function planThreadStateBackfill(opts: { orgId: string; sourceId: number; windowDays?: number; now?: Date; relabel?: boolean }): Promise<BackfillPlan | null> {
   const windowDays = opts.windowDays ?? 30;
   const now = opts.now ?? new Date();
   const { knowledgeSourceSchema } = await import('@/models/Schema');
@@ -260,9 +270,9 @@ export async function planThreadStateBackfill(opts: { orgId: string; sourceId: n
     return null;
   }
   const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', listed.threadIds, listed.mailbox);
-  const alreadyLabelled = [...prior.values()].filter(p => p.label.labelledBy !== 'rule').length;
+  const alreadyLabelled = [...prior.values()].filter(p => p.label.labelledBy !== 'rule' && (!opts.relabel || (p.label.version ?? 1) >= LABEL_VERSION)).length;
   const maxLabels = listed.threadIds.length - alreadyLabelled;
-  return { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: source.slug, mailbox: listed.mailbox, windowDays, threadIds: listed.threadIds, alreadyLabelled, maxLabels, maxCents: Math.round(maxLabels * CENTS_PER_LABEL * 100) / 100 };
+  return { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: source.slug, mailbox: listed.mailbox, windowDays, relabel: !!opts.relabel, threadIds: listed.threadIds, alreadyLabelled, maxLabels, maxCents: Math.round(maxLabels * CENTS_PER_LABEL * 100) / 100 };
 }
 
 export type BackfillBatchResult = LabelRunCounts & { failed: number; filed: number };
@@ -278,8 +288,9 @@ export type BackfillBatchResult = LabelRunCounts & { failed: number; filed: numb
  * @param opts.mailbox - The owner's address.
  * @param opts.threadIds - The batch's threads.
  * @param opts.model - Test seam.
+ * @param opts.relabel - Relabel threads labelled under an older prompt.
  */
-export async function backfillThreadStateBatch(opts: { orgId: string; sourceId: number; sourceSlug: string; mailbox: string; threadIds: string[]; model?: LabelModel }): Promise<BackfillBatchResult> {
+export async function backfillThreadStateBatch(opts: { orgId: string; sourceId: number; sourceSlug: string; mailbox: string; threadIds: string[]; model?: LabelModel; relabel?: boolean }): Promise<BackfillBatchResult> {
   const { knowledgeSourceSchema } = await import('@/models/Schema');
   const [source] = await db.select({ apiTokenId: knowledgeSourceSchema.apiTokenId }).from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, opts.sourceId)).limit(1);
   const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
@@ -289,7 +300,7 @@ export async function backfillThreadStateBatch(opts: { orgId: string; sourceId: 
   const { ingestDocument } = await import('@/services/IngestionService');
   const { facts, failed } = await threadFactsFor({ orgId: opts.orgId, credentials, mailbox: opts.mailbox, threadIds: opts.threadIds });
   const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', facts.map(f => f.threadId), opts.mailbox);
-  const { labels, counts } = await labelThreads({ orgId: opts.orgId, sourceSlug: opts.sourceSlug, threads: facts, prior, maxLabels: facts.length, ...(opts.model ? { model: opts.model } : {}) });
+  const { labels, counts } = await labelThreads({ orgId: opts.orgId, sourceSlug: opts.sourceSlug, threads: facts, prior, maxLabels: facts.length, ...(opts.model ? { model: opts.model } : {}), ...(opts.relabel ? { relabelBelow: LABEL_VERSION } : {}) });
   let filed = 0;
   for (const f of facts) {
     const label = labels.get(f.threadId);
@@ -323,7 +334,7 @@ export async function runThreadStateBackfill(
   const batches = Math.ceil(plan.threadIds.length / BACKFILL_BATCH);
   for (let b = 0; b < batches; b++) {
     const ids = plan.threadIds.slice(b * BACKFILL_BATCH, (b + 1) * BACKFILL_BATCH);
-    const r = await step(`batch-${b}`, () => backfillThreadStateBatch({ orgId: plan.orgId, sourceId: plan.sourceId, sourceSlug: plan.sourceSlug, mailbox: plan.mailbox, threadIds: ids, ...(run.model ? { model: run.model } : {}) }));
+    const r = await step(`batch-${b}`, () => backfillThreadStateBatch({ orgId: plan.orgId, sourceId: plan.sourceId, sourceSlug: plan.sourceSlug, mailbox: plan.mailbox, threadIds: ids, relabel: plan.relabel, ...(run.model ? { model: run.model } : {}) }));
     for (const k of Object.keys(total) as Array<keyof BackfillBatchResult>) {
       total[k] += r[k];
     }

@@ -15,6 +15,8 @@
  *   npm run mail:backfill-thread-state -- --project <orgId> --days 30    # one workspace
  *   npm run mail:backfill-thread-state -- --apply                        # run it here, throttled, with progress
  *   npm run mail:backfill-thread-state -- --apply --job                  # start it as a durable job per source
+ *   npm run mail:backfill-thread-state -- --relabel                      # price relabelling under the current prompt (LABEL_VERSION)
+ *   npm run mail:backfill-thread-state -- --relabel --apply --job        # relabel: only ever on purpose, never on a deploy
  */
 import process from 'node:process';
 import { and, eq, or, sql } from 'drizzle-orm';
@@ -32,6 +34,7 @@ async function main() {
   const windowDays = Number(arg('--days') ?? 30);
   const apply = argv.includes('--apply');
   const asJob = argv.includes('--job');
+  const relabel = argv.includes('--relabel');
   const sources = await db
     .select({ id: knowledgeSourceSchema.id, orgId: knowledgeSourceSchema.orgId, slug: knowledgeSourceSchema.slug })
     .from(knowledgeSourceSchema)
@@ -42,7 +45,7 @@ async function main() {
   let totalThreads = 0;
   let totalCents = 0;
   for (const s of sources) {
-    const plan = await planThreadStateBackfill({ orgId: s.orgId, sourceId: s.id, windowDays }).catch((error: unknown) => {
+    const plan = await planThreadStateBackfill({ orgId: s.orgId, sourceId: s.id, windowDays, relabel }).catch((error: unknown) => {
       console.log(JSON.stringify({ source: s.slug, orgId: s.orgId, skipped: error instanceof Error ? error.message : String(error) }));
       return null;
     });
@@ -58,14 +61,14 @@ async function main() {
     if (asJob) {
       const { startJob } = await import('@/libs/durable/jobs');
       const { JOB } = await import('@/services/background/catalog');
-      const started = await startJob(`thread-state-backfill-${plan.sourceId}-${new Date().toISOString().slice(0, 10)}`, { job: JOB.mailThreadStateBackfill, input: { orgId: plan.orgId, sourceId: plan.sourceId, windowDays } });
+      const started = await startJob(`thread-state-${relabel ? 'relabel' : 'backfill'}-${plan.sourceId}-${new Date().toISOString().slice(0, 10)}`, { job: JOB.mailThreadStateBackfill, input: { orgId: plan.orgId, sourceId: plan.sourceId, windowDays, relabel } });
       console.log(JSON.stringify({ started: started.id }));
     } else {
       const done = await runThreadStateBackfill(plan, { log: line => console.log(line) });
       console.log(JSON.stringify({ source: plan.sourceSlug, orgId: plan.orgId, ...done, usd: (done.labelled * 0.0008).toFixed(2) }));
     }
   }
-  console.log(JSON.stringify({ mode: apply ? (asJob ? 'job' : 'apply') : 'dry-run', sources: sources.length, threads: totalThreads, maxUsd: (totalCents / 100).toFixed(2) }));
+  console.log(JSON.stringify({ mode: apply ? (asJob ? 'job' : 'apply') : 'dry-run', relabel, sources: sources.length, threads: totalThreads, maxUsd: (totalCents / 100).toFixed(2) }));
   process.exit(0);
 }
 

@@ -101,4 +101,27 @@ describe('thread-state backfill', () => {
 
     expect((await planThreadStateBackfill({ orgId: OTHER_ORG_WS, sourceId: elsewhere!.id, windowDays: 30 }))!.alreadyLabelled).toBe(0);
   });
+
+  it('a relabel is priced and run only when asked for, and buys new labels only for older prompts', async () => {
+    const { LABEL_VERSION } = await import('@/libs/sources/mailThreadState');
+    const { and, eq, sql } = await import('drizzle-orm');
+    // Mark the first workspace's labels as made by the first prompt.
+    await db.update(knowledgeDocumentSchema).set({ metadata: sql`jsonb_set(${knowledgeDocumentSchema.metadata}, '{facets,label_version}', '1'::jsonb)` }).where(and(eq(knowledgeDocumentSchema.sourceId, sourceId), sql`${knowledgeDocumentSchema.metadata} -> 'facets' ->> 'labelled_by' <> 'rule'`));
+
+    const plain = (await planThreadStateBackfill({ orgId: ORG, sourceId, windowDays: 30 }))!;
+
+    expect(plain.alreadyLabelled).toBe(5);
+
+    const relabel = (await planThreadStateBackfill({ orgId: ORG, sourceId, windowDays: 30, relabel: true }))!;
+
+    // The second workspace's copies are already current, so even a relabel reuses them.
+    expect(relabel.alreadyLabelled).toBe(5);
+
+    const before = calls.length;
+    const sync = await runThreadStateBackfill(plain, { sleep: async () => {}, model });
+
+    expect(sync).toMatchObject({ labelled: 0 });
+    expect(calls.length).toBe(before);
+    expect(LABEL_VERSION).toBeGreaterThan(1);
+  });
 });

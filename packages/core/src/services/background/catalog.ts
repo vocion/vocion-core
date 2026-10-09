@@ -184,10 +184,10 @@ defineJob<{ userId: string; accountId: string; kind: 'brief' | 'wrap'; day: stri
  * `platform:retrieval.state` as it goes. Started by
  * `npm run mail:backfill-thread-state -- --apply --job`.
  */
-defineJob<{ orgId: string; sourceId: number; windowDays?: number }>(JOB.mailThreadStateBackfill, async (input, ctx) => {
+defineJob<{ orgId: string; sourceId: number; windowDays?: number; relabel?: boolean }>(JOB.mailThreadStateBackfill, async (input, ctx) => {
   const { planThreadStateBackfill, runThreadStateBackfill } = await import('@/services/mail/threadLabeller');
   const { logger } = await import('@/libs/Logger');
-  const plan = await ctx.step('plan', () => planThreadStateBackfill({ orgId: input.orgId, sourceId: input.sourceId, windowDays: input.windowDays }));
+  const plan = await ctx.step('plan', () => planThreadStateBackfill({ orgId: input.orgId, sourceId: input.sourceId, windowDays: input.windowDays, relabel: input.relabel }));
   if (!plan) {
     return { skipped: 'no such Gmail source, or the mailbox could not be read' };
   }

@@ -101,7 +101,7 @@ const DECLARED: FacetSet[] = [
         values: REPLY_STATES,
         description: 'needs_my_reply = the other side wrote last and expects an answer from the mailbox owner; waiting_on_them = the owner wrote last; fyi = nothing to answer (notices, receipts, newsletters, a thanks); outbound_spam = a cold pitch or automated sales sequence aimed at the owner',
       },
-      { name: 'category', kind: 'enum', values: THREAD_CATEGORIES, description: 'what the thread is about: sales (prospects, deals, proposals), customer, partner, vendor, hiring, internal, personal, other' },
+      { name: 'category', kind: 'enum', values: THREAD_CATEGORIES, description: 'what the thread is about, from the owner\'s side and read by a small model (a hint, not a fact): sales (the owner selling: prospects, replies to the owner\'s outreach, proposals), customer, partner, vendor (anyone selling to the owner, cold pitches included), hiring, internal, personal, other' },
       { name: 'counterpart', kind: 'text', description: 'who is on the other side, name and address (matches a part, e.g. "kestrel" or "dana")' },
       { name: 'last_inbound_at', kind: 'date', description: 'when the other side last wrote' },
       { name: 'last_outbound_at', kind: 'date', description: 'when the owner last wrote' },
@@ -231,7 +231,7 @@ export function describeFacets(connectors: Iterable<string>): string {
     return '';
   }
   return [
-    'STATE IS A FILTER, NOT A PHRASE: when the question is about state — who owes whom a reply, what is waiting, what is overdue, what is next — pass `facets` and ONE plain query for the topic instead of guessing phrases the documents might contain. Example: "what sales emails do I need to answer" is facets {"reply_state": "needs_my_reply", "category": "sales"} with query "sales". Dates take {"since": "-7d"} or an ISO date; "$me" is the person asking.',
+    'STATE IS A FILTER, NOT A PHRASE: when the question is about state — who owes whom a reply, what is waiting, what is overdue, what is next — pass `facets` and ONE plain query for the topic instead of guessing phrases the documents might contain. Example: "what sales emails do I need to answer" is facets {"reply_state": "needs_my_reply"} with query "sales" — the query ranks the sales-like threads first; a category is a model\'s reading, a hint, so do not hard-filter on one for a broad question. Dates take {"since": "-7d"} or an ISO date; "$me" is the person asking.',
     ...sets.map(s => `${s.noun}s (${s.connector}): ${describeSet(s)}.`),
   ].join(' ');
 }

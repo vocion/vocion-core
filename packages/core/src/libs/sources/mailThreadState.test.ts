@@ -1,7 +1,7 @@
 import type { ThreadMessage } from './mailThreadState';
 import { describe, expect, it } from 'vitest';
 import { facetsMatch, validateFacetFilter } from '@/libs/retrieval/facets';
-import { fallbackLabel, parseLabel, priorFromMetadata, recentMessagesOf, reuse, ruleLabel, threadFacts, threadStateDoc } from './mailThreadState';
+import { fallbackLabel, LABEL_SYSTEM, LABEL_VERSION, parseLabel, priorFromMetadata, recentMessagesOf, reuse, ruleLabel, threadFacts, threadStateDoc } from './mailThreadState';
 
 const OWNER = 'owner@metacto.example';
 const msg = (over: Partial<ThreadMessage> & Pick<ThreadMessage, 'id' | 'from'>): ThreadMessage => ({
@@ -43,7 +43,7 @@ describe('thread facts', () => {
 
 describe('labels', () => {
   it('parses a classifier answer and refuses one that is not a label', () => {
-    expect(parseLabel('Here: {"state":"needs_my_reply","category":"sales","ask":"Wants   pricing"}', 'claude-haiku-4-5')).toEqual({ state: 'needs_my_reply', category: 'sales', ask: 'Wants pricing', labelledBy: 'claude-haiku-4-5' });
+    expect(parseLabel('Here: {"state":"needs_my_reply","category":"sales","ask":"Wants   pricing"}', 'claude-haiku-4-5')).toEqual({ state: 'needs_my_reply', category: 'sales', ask: 'Wants pricing', labelledBy: 'claude-haiku-4-5', version: LABEL_VERSION });
     expect(parseLabel('{"state":"waiting_on_them"}', 'm')).toBeNull();
     expect(parseLabel('no json', 'm')).toBeNull();
   });
@@ -103,5 +103,33 @@ describe('recent messages, for the reply draft that answers the thread', () => {
     const { recent: _recent, ...older } = doc.metadata as Record<string, unknown>;
 
     expect(recentMessagesOf(older, doc.content)).toEqual(recentMessagesOf(doc.metadata as Record<string, unknown>));
+  });
+});
+
+describe('label versions', () => {
+  it('a sync keeps an older label; only an explicit relabel buys a new one', () => {
+    const f = threadFacts('t7', [msg({ id: 'm1', from: 'jamie@contoso.example' })], OWNER)!;
+    const v1 = { lastMessageId: 'm1', label: { state: 'needs_my_reply' as const, category: 'partner' as const, ask: 'Call?', labelledBy: 'claude-haiku-4-5', version: 1 } };
+
+    expect(reuse(v1, f)?.category).toBe('partner');
+    expect(reuse(v1, f, { minVersion: LABEL_VERSION })).toBeNull();
+    expect(reuse({ ...v1, label: { ...v1.label, version: LABEL_VERSION } }, f, { minVersion: LABEL_VERSION })?.category).toBe('partner');
+  });
+
+  it('a label filed before versions existed reads as the first prompt\'s, and a new one carries its version', () => {
+    const f = threadFacts('t8', [msg({ id: 'm1', from: 'jamie@contoso.example' })], OWNER)!;
+    const doc = threadStateDoc(f, { state: 'fyi', category: 'other', ask: '', labelledBy: 'm', version: LABEL_VERSION }, { connector: 'gmail' });
+
+    expect((doc.metadata as { facets: Record<string, unknown> }).facets.label_version).toBe(LABEL_VERSION);
+
+    const old = { ...doc.metadata, facets: { ...(doc.metadata as { facets: Record<string, unknown> }).facets, label_version: undefined } };
+
+    expect(priorFromMetadata(old)?.label.version).toBe(1);
+  });
+
+  it('the prompt reads from the owner\'s side: cold approaches are spam, replies to the owner\'s outreach are sales', () => {
+    expect(LABEL_SYSTEM).toContain('OWNER');
+    expect(LABEL_SYSTEM).toMatch(/cold approach[^.]*outbound_spam|"outbound_spam" for any cold approach/);
+    expect(LABEL_SYSTEM).toContain('in reply to the owner\'s outreach is still sales');
   });
 });
