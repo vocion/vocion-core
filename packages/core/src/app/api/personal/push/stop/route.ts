@@ -11,7 +11,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { readStopToken } from '@/libs/personal/stopLink';
-import { stopChannel } from '@/services/personal/push';
+import { stopChannel } from '@/services/personal/pushSettings';
 
 const NAMES = { slack: 'Slack messages', sms: 'texts', email: 'emails' } as const;
 

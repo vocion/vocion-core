@@ -1,25 +1,30 @@
 /**
- * Keep the production build's size in check by keeping each route's module
- * graph small.
+ * Keep routes that need little from compiling the whole server.
  *
  * Turbopack compiles everything a route reaches into that route, `await
- * import()` targets included, so the build's compile time and memory grow
- * with the SUM over every route of the modules it reaches, not with the size
- * of the code. One edge from a module nearly every route imports to one that
- * reaches the whole server multiplies the server by the number of routes.
- * That happened between v5.12.0 and v5.15.1: the sign-in path started
- * importing the event bus, `libs/Auth.ts` went from reaching 50 modules to
- * 945, and the image build ran out of time on the deploy runner and out of
- * memory on a 32 GB box. Enterprise made it worse through
- * `libs/identity/signInProviders.ts` → `libs/extensions.ts`.
+ * import()` targets included. One edge from a module nearly every route
+ * imports to one that reaches the whole server multiplies the server by the
+ * number of routes. That happened between v5.12.0 and v5.15.1: the sign-in
+ * path started importing the event bus, `libs/Auth.ts` went from reaching 50
+ * modules to 945, and the image build ran out of time on the deploy runner and
+ * out of memory on a 32 GB box. A light route that pulls in the server does
+ * the same on a smaller scale: v5.25.0's one-tap stop link
+ * (`app/api/personal/push/stop`) needed one database write and compiled the
+ * whole server, about 0.5 GB more peak memory, and was the release the deploy
+ * runner could no longer build.
  *
- * Two rules, both read from source in a few seconds, with no build:
+ * The rule, read from source in a few seconds with no build: the modules and
+ * light routes in {@link FORBIDDEN_REACH} must not reach a hub that reaches
+ * the whole server. Emit an event from one through `libs/eventBridge.ts`.
  *
- * 1. **Hot modules stay light.** A module most routes import must not reach
- *    a hub that reaches the whole server ({@link FORBIDDEN_REACH}). Emit an
- *    event from one through `libs/eventBridge.ts`.
- * 2. **A budget for the whole graph.** The sum, over every route, of the
- *    modules it reaches stays under {@link REACH_BUDGET}.
+ * The SUM over every route of the modules it reaches is printed, and is no
+ * longer a budget: it does not track the build's memory. Cutting
+ * `app/api/v1/_shared.ts` from the write API took 17,000 off it (193,569 to
+ * 176,586) and RAISED peak memory by 1 GB and compile work by 18% (2026-10-09):
+ * Turbopack shares the server's chunks between routes that reach all of it,
+ * and every route left with a different part of it gets its own. The build's
+ * memory is budgeted where it is measured, in CI's build job
+ * (`BUILD_PEAK_RSS_BUDGET_MB`, .github/workflows/CI.yml).
  *
  * The graph is approximate: TypeScript drops type-only imports, imports
  * marked `turbopackIgnore` are skipped as Turbopack skips them, and the
@@ -35,31 +40,17 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 /**
- * Modules nearly every route imports, and hubs none of them may reach. The
- * event bus reaches workflows, agents, the tools and every connector.
+ * Modules nearly every route imports, and routes that need almost nothing,
+ * with the hubs none of them may reach. The event bus reaches workflows,
+ * agents, the tools and every connector.
  */
 export const FORBIDDEN_REACH: ReadonlyArray<{ from: string; to: string }> = [
   { from: 'libs/Auth.ts', to: 'services/EventService.ts' },
   { from: 'libs/extensions.ts', to: 'services/EventService.ts' },
   { from: 'services/SourceCredentialService.ts', to: 'services/EventService.ts' },
+  // Sign-in-free: turns one push channel off (services/personal/pushSettings.ts).
+  { from: 'app/api/personal/push/stop/route.ts', to: 'services/EventService.ts' },
 ];
-
-/**
- * The sum over every route of the modules it reaches, as this check counts
- * them: 163,679 at v5.12.0, the last release that built on the deploy runner;
- * 214,945 at v5.15.1, which did not; 184,023 when this was set (2026-10-08).
- * Raise it deliberately, with a reason, never to make a red check green:
- * first look for the edge that put a large graph under a widely imported
- * module.
- *
- * Raised to 196,000 on 2026-10-09: main had reached 195,057 by steady
- * feature growth with no single heavy edge (189,177 at #1280, 194,499 at
- * #1292, +372 at #1293, +186 at #1294), and the follow-up pills add two
- * small leaf modules every chat route reaches (`libs/chat/suggestions.ts`,
- * `SuggestionPills.tsx`), +192. Still well under 214,945, where the deploy
- * runner stopped building.
- */
-export const REACH_BUDGET = 196_000;
 
 /** File names Next treats as a route entry under `app/`. */
 const ENTRY_FILE = /^(?:page|route|layout|template|default|loading|error|not-found)\.tsx?$/;
@@ -215,6 +206,11 @@ export function runCheck(srcDir: string = resolve(fileURLToPath(import.meta.url)
   const graph = moduleGraph(srcDir);
   const problems: string[] = [];
   for (const { from, to } of FORBIDDEN_REACH) {
+    if (!existsSync(join(srcDir, from))) {
+      // A renamed module would otherwise switch its rule off without a word.
+      problems.push(`FORBIDDEN_REACH names ${from}, which does not exist. Point the rule at where it went.`);
+      continue;
+    }
     const chain = pathBetween(graph, from, to);
     if (chain) {
       problems.push(`${from} reaches ${to}, so every route that imports it compiles the whole server:\n  ${chain.join('\n  -> ')}\nCut an edge on that path (an event goes through libs/eventBridge.ts).`);
@@ -222,15 +218,11 @@ export function runCheck(srcDir: string = resolve(fileURLToPath(import.meta.url)
   }
   const reaches = routeEntries(srcDir).map(entry => ({ entry, reach: reachOf(graph, entry) }));
   const total = reaches.reduce((sum, r) => sum + r.reach, 0);
-  if (total > REACH_BUDGET) {
-    const largest = [...reaches].sort((a, b) => b.reach - a.reach).slice(0, 5).map(r => `  ${r.reach}  ${r.entry}`).join('\n');
-    problems.push(`The routes reach ${total} modules in all, over the budget of ${REACH_BUDGET}. Largest:\n${largest}\nLook for the edge that put a large graph under a widely imported module before raising REACH_BUDGET.`);
-  }
   if (problems.length > 0) {
     process.stderr.write(`check:route-graph\n\n${problems.join('\n\n')}\n`);
     return 1;
   }
-  process.stdout.write(`check:route-graph — ${reaches.length} routes reach ${total} modules in all (budget ${REACH_BUDGET}); libs/Auth.ts reaches ${reachOf(graph, 'libs/Auth.ts')}.\n`);
+  process.stdout.write(`check:route-graph — ${reaches.length} routes reach ${total} modules in all; libs/Auth.ts reaches ${reachOf(graph, 'libs/Auth.ts')}.\n`);
   return 0;
 }
 

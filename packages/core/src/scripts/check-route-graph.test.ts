@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { moduleGraph, pathBetween, reachOf, routeEntries } from './check-route-graph';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FORBIDDEN_REACH, moduleGraph, pathBetween, reachOf, routeEntries, runCheck } from './check-route-graph';
 
 const dirs: string[] = [];
 
@@ -59,5 +59,15 @@ describe('the route module graph', () => {
     });
 
     expect(routeEntries(src)).toEqual(['app/[locale]/layout.tsx', 'app/[locale]/page.tsx', 'app/api/x/route.ts', 'proxy.ts']);
+  });
+
+  it('fails when a module it guards no longer exists, so a rename cannot switch a rule off', () => {
+    const src = tree({ 'app/[locale]/page.tsx': 'export default 1;' });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    expect(runCheck(src)).toBe(1);
+    expect(String(stderr.mock.calls[0]?.[0])).toContain(`FORBIDDEN_REACH names ${FORBIDDEN_REACH[0]!.from}, which does not exist`);
+
+    stderr.mockRestore();
   });
 });
