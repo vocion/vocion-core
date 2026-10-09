@@ -61,7 +61,11 @@ export function OpeningHints({ hints, onSend }: { hints: readonly OpeningHint[];
     <div className="flex w-full min-w-0 flex-col items-center gap-1.5" data-testid="opening-hints">
       {shown.map((h, i) => (
         <div key={h.key} className="flex w-full min-w-0 flex-col items-center">
-          <span data-testid="opening-hint" data-type={h.type} className="inline-flex max-w-full min-w-0 animate-in items-center rounded-full border border-border/70 bg-background text-[12.5px] text-muted-foreground fade-in">
+          {/* Readable whole at 390px (founder, 2026-10-09: "Tough to tell what
+              the hint chip said. Important parts were cut off"): the words wrap
+              to two lines rather than cutting mid-word, and the × stands apart
+              from them. */}
+          <span data-testid="opening-hint" data-type={h.type} className="flex max-w-full min-w-0 animate-in items-center gap-1 text-[12.5px] text-muted-foreground fade-in">
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -81,10 +85,10 @@ export function OpeningHints({ hints, onSend }: { hints: readonly OpeningHint[];
                   onPointerLeave={() => press.current && clearTimeout(press.current)}
                   onContextMenu={e => e.preventDefault()}
                   aria-describedby={`hint-why-${i}`}
-                  className="inline-flex min-w-0 items-center gap-1.5 rounded-l-full py-1.5 pr-1 pl-3 text-left transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                  className="inline-flex min-w-0 items-center gap-1.5 rounded-2xl border border-border/70 bg-background py-1.5 pr-2.5 pl-3 text-left transition-colors [-webkit-touch-callout:none] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none max-md:min-h-11"
                 >
                   <span className="size-1.5 shrink-0 rounded-full bg-brand-amber" aria-hidden />
-                  <span className="min-w-0 truncate">{h.label.replace(/ →$/, '')}</span>
+                  <span className="line-clamp-2 min-w-0 leading-snug break-words" data-testid="opening-hint-label">{h.label.replace(/ →$/, '')}</span>
                   <ArrowRight className="size-3.5 shrink-0" aria-hidden />
                 </button>
               </TooltipTrigger>
@@ -95,7 +99,7 @@ export function OpeningHints({ hints, onSend }: { hints: readonly OpeningHint[];
               onClick={() => dismiss(h, i)}
               aria-label={`Not now: ${h.label.replace(/ →$/, '')}`}
               data-testid="opening-hint-dismiss"
-              className="mr-1 grid size-6 shrink-0 place-items-center rounded-full transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+              className="grid size-7 shrink-0 place-items-center rounded-full transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none max-md:size-11"
             >
               <X className="size-3" aria-hidden />
             </button>

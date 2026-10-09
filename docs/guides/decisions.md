@@ -197,9 +197,28 @@ proposal is now. No turn is written in the person's name.
 
 ## Where it lives
 
-- **Chat** — docked above the composer on every surface that has one (the chat
-  page, the rail, a conversation's artifact view), one at a time, "1 of 3" when
-  more wait, folded to one line with Esc. Opening a thread docks what it waits on.
+- **Chat** — the latest item IN the conversation on every surface that has one
+  (the chat page, the rail, a conversation's artifact view; `decisionBlock`),
+  full height — every option, its consequence and the buttons visible — one at
+  a time, "1 of 3" when more wait, folded to one line with Esc. The thread
+  scrolls naturally and the card with it, into view when it arrives, the
+  composer below it. Opening a thread shows what it waits on.
+- **Chips are prompts, not shortcuts** (founder, 2026-10-09: "After clicking I
+  got a card immediately. Instead I would expect a chat turn that results in a
+  card"; "a super deterministic button city"). Nothing in chat or the sidebar
+  opens a Decision or setup card by itself. An opening hint, a starter, a
+  Getting started step, the objective's Resume and every link into chat
+  (`?ask=`, `?objective=connect-systems`; `libs/chat/ask.ts`) send the
+  person's own words as a real message; the lead answers in a turn over the
+  workspace's live state, a line of its own and then whatever cards it raises
+  with its tools — their titles and why-lines its own words
+  (`connect_system`'s `title`/`why`), the templates only a fallback. The first
+  interaction clears the welcome. A Getting started step closes the drawer on
+  a phone. Pages outside chat (the Connectors page's forms) act directly.
+- **An answer is the person's turn.** Answered, the card collapses into one
+  bubble on their side — the question small, their answer under it
+  (`DecisionAnswerLine`): the option, their typed words for "Something
+  else", or "Skipped". The agent's next turn follows it; no card lingers.
   **An empty chat opens warm** (#1264, `chat/emptyChat.ts`): no docked card
   unless the person started that flow, and what waits on them elsewhere — a Needs
   you question with no conversation, a proposal filed from none
@@ -209,14 +228,10 @@ proposal is now. No turn is written in the person's name.
   docked 400ms after "setup my software factory" and came back between setup
   steps, beside the lead's own question — "two prompts in different areas").
   In a conversation under way it is the same chip, shown only while nothing of
-  the conversation's own is docked and no turn runs; tapping it docks the queue
-  there under "Waiting on you", answered where it lives with no turn; the dock
-  says once what the answer did.
-  On a phone everything pinned above the composer is capped at a quarter of the
-  screen (and a short screen — a phone on its side — at 45%) and scrolls inside
-  (`PINNED_MAX_CLASS`); a docked card keeps its question and its Submit pinned
-  while its middle scrolls, its why is one line, every control is 44px, and a
-  new card opens on its question. "Connect your systems" keeps its place across
+  the conversation's own is waiting and no turn runs; it opens Review, where
+  those are answered — a tap never docks a card.
+  Nothing above the composer is capped or scrolls inside a box: the card is in
+  the thread. Every control is 44px on a phone. "Connect your systems" keeps its place across
   a reload or a trip through the drawer while its Decision is open
   (`connect-systems/walkMemory.ts`), and walks only what the person scoped — the
   systems they named, or the app's — never what evidence adds to it.

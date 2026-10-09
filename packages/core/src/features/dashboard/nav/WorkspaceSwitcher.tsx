@@ -5,7 +5,7 @@ import type { WorkspaceDirectory } from './useWorkspaceDirectory';
 import type { SwitcherAccount, SwitcherProject, WorkspaceSwitcherTargetPath } from './workspaceSwitch';
 import type { Tint } from '@/libs/tints';
 import type { OrgsMode } from '@/services/OrgPolicy';
-import { ArrowLeftRight, Check, Search, Settings2 } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, Check, Search, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useId, useMemo, useState } from 'react';
@@ -14,11 +14,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useSidebar } from '@/components/ui/useSidebar';
 import { useOrgBrand } from '@/features/branding/BrandContext';
 import { navSlotComponents } from '@/libs/clientExtensions';
-import { usePathname } from '@/libs/I18nNavigation';
+import { Link, usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
 import { TINT_BG } from '@/libs/tints';
 import { cn } from '@/utils/Helpers';
-import { accountLine, countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
+import { accountLine, ALL_WORKSPACES_HREF, crossAccountSlug, filterProjects, groupByAccount, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
  * Workspace context, at the head of the selected app's nav (Vocion 5.0 —
@@ -145,7 +145,8 @@ export function SwitcherRow(props: { name: string; sub?: string | null; accentKe
  */
 function WorkspaceOption(props: { project: SwitcherProject; selected: boolean; onPick: (p: SwitcherProject) => void }) {
   const p = props.project;
-  return <SwitcherRow name={p.name} sub={p.slug} accentKey={p.slug} selected={props.selected} onPick={() => props.onPick(p)} />;
+  // The name alone: the slug line under it was noise (founder, 2026-10-09).
+  return <SwitcherRow name={p.name} accentKey={p.slug} selected={props.selected} onPick={() => props.onPick(p)} />;
 }
 
 /**
@@ -193,7 +194,6 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const locale = useLocale();
   const [open, setOpen] = useState(props.defaultOpen ?? false);
   const [query, setQuery] = useState('');
-  const [showEmpty, setShowEmpty] = useState(false);
 
   useEffect(() => {
     const onOpen = () => setOpen(true);
@@ -204,8 +204,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const loading = props.projects === null;
   const projects = useMemo(() => props.projects ?? [], [props.projects]);
   const active = projects.find(p => p.id === props.activeId) ?? (props.placeholder === undefined ? projects[0] ?? null : null);
-  const visible = useMemo(() => filterProjects(projects, { query, showEmpty, activeId: active?.id ?? null }), [projects, query, showEmpty, active]);
-  const hiddenEmpty = countHiddenEmpty(projects, active?.id ?? null);
+  const visible = useMemo(() => filterProjects(projects, { query, activeId: active?.id ?? null }), [projects, query, active]);
   const accounts = props.accounts ?? [];
   const multiOrg = props.orgsMode === 'multi';
   const groups = multiOrg && accounts.length > 1 ? groupByAccount(visible, accounts) : null;
@@ -341,27 +340,32 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
               ))
             : visible.map(p => <WorkspaceOption key={p.id} project={p} selected={p.id === active?.id} onPick={go} />)}
         </div>
-        {(hiddenEmpty > 0 || showEmpty) && (
-          <label className="flex cursor-pointer items-center gap-2 border-t border-border/70 px-3 py-2 text-[12px] text-muted-foreground">
-            <input type="checkbox" checked={showEmpty} onChange={e => setShowEmpty(e.target.checked)} className="size-3.5 accent-foreground" />
-            {t('show_empty_projects', { count: hiddenEmpty })}
-          </label>
-        )}
-        {props.onManage && (
-          <div className="border-t border-border/70 p-1">
+        {/* One compact row: every workspace on its own page, and settings. */}
+        <div className="flex items-center gap-1 border-t border-border/70 p-1" data-testid="workspace-switcher-footer">
+          <Link
+            href={ALL_WORKSPACES_HREF}
+            onClick={() => setOpen(false)}
+            className="flex min-h-9 flex-1 items-center gap-1.5 rounded-lg px-2 text-[13px] text-foreground transition-colors hover:bg-surface-hover max-md:min-h-11"
+            data-testid="workspace-switcher-all"
+          >
+            {t('all_workspaces')}
+            <ArrowRight className="size-3.5 text-muted-foreground" aria-hidden />
+          </Link>
+          {props.onManage && (
             <button
               type="button"
               onClick={() => {
                 setOpen(false);
                 props.onManage?.();
               }}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-surface-hover"
+              className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[13px] text-foreground transition-colors hover:bg-surface-hover max-md:min-h-11"
+              data-testid="workspace-switcher-settings"
             >
               <Settings2 className="size-4 text-muted-foreground" aria-hidden />
-              {t('workspace_settings')}
+              {t('workspace_settings_short')}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   );

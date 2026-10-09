@@ -135,13 +135,13 @@ describe('an empty chat on a phone', () => {
     expect(doc.scrollWidth).toBeLessThanOrEqual(doc.clientWidth);
   });
 
-  it('caps anything pinned above the composer at a quarter of the screen; what is taller scrolls inside it', async () => {
+  it('caps nothing above the composer and scrolls nothing inside a box: a Decision lives in the thread (founder, 2026-10-09)', async () => {
     await page.viewport(PHONE.width, PHONE.height);
     await render(
       <NextIntlClientProvider locale="en" messages={en}>
         <div style={{ height: PHONE.height }} className="flex flex-col justify-end">
           <ChatComposer
-            above={<div data-testid="tall-docked" style={{ height: 600 }}>A docked flow the person started</div>}
+            above={<div data-testid="chip-row" style={{ height: 40 }}>A chip</div>}
             value=""
             onChange={() => {}}
             onSubmit={() => {}}
@@ -150,10 +150,9 @@ describe('an empty chat on a phone', () => {
       </NextIntlClientProvider>,
     );
 
-    const pinned = await page.getByTestId('composer-above').element() as HTMLElement;
+    const above = await page.getByTestId('composer-above').element() as HTMLElement;
 
-    expect(pinned.getBoundingClientRect().height).toBeLessThanOrEqual(PHONE.height * 0.25 + 1);
-    expect(pinned.scrollHeight).toBeGreaterThan(pinned.clientHeight);
-    expect(getComputedStyle(pinned).overflowY).toBe('auto');
+    expect(getComputedStyle(above).overflowY).toBe('visible');
+    expect(getComputedStyle(above).maxHeight).toBe('none');
   });
 });

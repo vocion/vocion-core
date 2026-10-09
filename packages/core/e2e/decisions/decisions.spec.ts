@@ -97,10 +97,10 @@ test('the docked Decision is answered from the keyboard, typed — and the recei
 
   const receipt = page.getByTestId('decision-answer').last();
 
-  await expect(receipt).toContainText('Chose Northwind API');
-  await expect(receipt).toContainText(QUESTION);
-  // A click never becomes user text: no bubble says what they chose.
-  await expect(page.locator('[data-testid="decision-answer"] + *').getByText('Northwind API', { exact: true })).toHaveCount(0);
+  // The card collapsed into the person's turn: the question small, their
+  // answer under it, on their side — one bubble, no card left behind.
+  await expect(receipt.getByTestId('decision-answer-question')).toHaveText(QUESTION);
+  await expect(receipt.getByTestId('decision-answer-said')).toHaveText('Northwind API');
 
   await shot(page, 'after-03-answered');
 
@@ -110,7 +110,7 @@ test('the docked Decision is answered from the keyboard, typed — and the recei
     return page.getByTestId('decision-answer').count();
   }, { timeout: 120_000 }).toBeGreaterThan(0);
   await expect(page.getByRole('dialog', { name: QUESTION })).toHaveCount(0);
-  await expect(page.getByTestId('decision-answer').last()).toContainText('Chose Northwind API');
+  await expect(page.getByTestId('decision-answer').last().getByTestId('decision-answer-said')).toHaveText('Northwind API');
 });
 
 test('Esc folds the card away without answering; it opens again', async ({ page }) => {
@@ -144,9 +144,13 @@ test('an answer typed in the composer is read against the open Decision before i
 
   await expect(page.getByText('Building the export in the Northwind Portal, as you said.').last()).toBeVisible({ timeout: 120_000 });
   await expect(page.getByRole('dialog', { name: QUESTION })).toHaveCount(0);
-  // Their words keep their bubble, and say which question they answered.
-  await expect(page.getByText('the second one', { exact: true }).last()).toBeVisible();
-  await expect(page.getByTestId('decision-answer').last()).toHaveAttribute('data-via', 'composer');
+
+  // Their words are the answer in the same one bubble, under the question.
+  const typed = page.getByTestId('decision-answer').last();
+
+  await expect(typed).toHaveAttribute('data-via', 'composer');
+  await expect(typed.getByTestId('decision-answer-question')).toHaveText(QUESTION);
+  await expect(typed.getByTestId('decision-answer-said')).toHaveText('the second one');
 
   await shot(page, 'after-05-answered-in-words');
 });
@@ -192,6 +196,6 @@ test('the approval gate is the same card, asked as a permission prompt: the payl
   await page.keyboard.press('Escape');
 
   await expect(page.getByText('Holding the follow-up; nothing went out.').last()).toBeVisible({ timeout: 120_000 });
-  await expect(page.getByTestId('decision-answer').last()).toContainText('Chose Deny');
+  await expect(page.getByTestId('decision-answer').last().getByTestId('decision-answer-said')).toHaveText('Deny');
   await expect(card).toHaveCount(0);
 });

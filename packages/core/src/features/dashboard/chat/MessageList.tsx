@@ -205,8 +205,12 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
                   // A card's answer has no words: it is drawn as the receipt
                   // it is. Typed words that answered keep their bubble.
                     <>
-                      {(msg.content.trim() || (msg.attachments?.length ?? 0) > 0 || !msg.decisionAnswer) && <UserMessage content={msg.content} attachments={msg.attachments} />}
-                      {msg.decisionAnswer && <div className={msg.content.trim() ? 'mt-1.5' : ''}><DecisionAnswerLine answer={msg.decisionAnswer} /></div>}
+                      {/* An answered Decision IS the person's turn: one bubble,
+                          the question small and their answer under it — the
+                          typed words too, when they answered in the composer. */}
+                      {msg.decisionAnswer
+                        ? <DecisionAnswerLine answer={msg.decisionAnswer} typed={msg.decisionAnswer.via === 'composer' ? msg.content : null} />
+                        : <UserMessage content={msg.content} attachments={msg.attachments} />}
                     </>
                   )
                 : (

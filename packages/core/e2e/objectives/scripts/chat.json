@@ -1,6 +1,91 @@
 {
   "turns": [
     {
+      "match": "The person, latest message: help me finish setting up software factory",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "The person, latest message: help me connect the systems this workspace needs",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "help me finish setting up software factory",
+      "steps": [
+        {
+          "tool": "describe_setup",
+          "args": {
+            "plugin": "software-factory"
+          }
+        },
+        {
+          "tool": "file_ask",
+          "say": "Software factory still needs GitHub, then a product and the repositories it builds. One question first, so I file the right ones.",
+          "args": {
+            "title": "Which repositories should the factory include?",
+            "body": "GitHub grants two repositories. The factory builds only the ones you name.",
+            "kind": "ruling",
+            "options": [
+              {
+                "id": "api",
+                "label": "Northwind API",
+                "description": "Requests land as changes to northwind/api.",
+                "recommended": true
+              },
+              {
+                "id": "portal",
+                "label": "Northwind Portal",
+                "description": "Requests land as changes to the customer portal."
+              },
+              {
+                "id": "both",
+                "label": "Both",
+                "description": "One product, two repositories."
+              }
+            ],
+            "confidence": 0.9
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "help me connect the systems this workspace needs",
+      "steps": [
+        {
+          "tool": "describe_setup",
+          "args": {}
+        },
+        {
+          "tool": "connect_system",
+          "say": "GitHub is the one system this workspace still needs: the factory reads its pull requests and checks.",
+          "args": {
+            "app": "software-factory",
+            "title": "Connect GitHub so the factory can read your repos?",
+            "why": "Software factory is installed and can do nothing until it reads your repositories."
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
       "match": "The person, latest message: setup my software factory",
       "steps": [
         {

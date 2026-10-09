@@ -115,14 +115,22 @@ export function ObjectiveStrip({ view, onStop, onResume }: { view: ObjectiveView
  * The line wired to a chat session — what every surface with a composer puts
  * in the composer's `pinned` slot, above the dock.
  * @param props - The session.
- * @param props.session - The chat session (`useChatSession`): its conversation and whether a turn runs.
+ * @param props.session - The chat session (`useChatSession`): its conversation, whether a turn runs, and how to send.
  * @param props.session.conversationId
  * @param props.session.isStreaming
+ * @param props.session.sendMessage
  */
-export function ConversationObjective({ session }: { session: { conversationId: number | null; isStreaming?: boolean } }) {
+export function ConversationObjective({ session }: { session: { conversationId: number | null; isStreaming?: boolean; sendMessage?: (text: string) => unknown } }) {
   const { view, stop, resume } = useObjective(session.conversationId, !session.isStreaming);
   if (!view) {
     return null;
   }
-  return <ObjectiveStrip key={`${view.conversationId}:${view.plugin}`} view={view} onStop={stop} onResume={resume} />;
+  // Resume is a prompt, never a shortcut: it takes the objective back up AND
+  // asks the lead to carry on, in the person's words, so what comes next is a
+  // turn the lead answers — never a card the strip opened by itself.
+  const onResume = () => {
+    resume();
+    void session.sendMessage?.(`Let's keep setting up ${view.name}`);
+  };
+  return <ObjectiveStrip key={`${view.conversationId}:${view.plugin}`} view={view} onStop={stop} onResume={onResume} />;
 }

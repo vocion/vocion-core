@@ -126,20 +126,13 @@ function deadlineLine(deadline: NonNullable<DecisionView['deadline']>): string {
 }
 
 /**
- * Back to the top of whatever scrolls the dock (the composer's capped slot on
- * a phone), so a new Decision opens on its question — never mid-body where
- * the last one was left (2026-10-09: a review docked scrolled to its
- * deadline line, its question out of sight).
+ * A new Decision comes into view in the thread when it arrives — the latest
+ * item, under the reply that raised it, the composer below it — never off
+ * screen above the fold.
  * @param node - The card.
  */
-function scrollSlotToTop(node: HTMLElement | null): void {
-  for (let el = node?.parentElement ?? null; el; el = el.parentElement) {
-    const overflow = getComputedStyle(el).overflowY;
-    if (overflow === 'auto' || overflow === 'scroll') {
-      el.scrollTop = 0;
-      return;
-    }
-  }
+function bringIntoView(node: HTMLElement | null): void {
+  node?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
 }
 
 /**
@@ -153,14 +146,6 @@ function leavesConversation(href: string): boolean {
 
 /** 44px on a phone — a thumb's target (Apple HIG); the desktop keeps its density. */
 const TAP = 'max-md:min-h-11';
-/** The docked card's question, held at the top of its scrolling slot. */
-const STICKY_HEAD = 'sticky top-0 z-10 -mx-4 -mt-3 rounded-t-xl bg-card px-4 pt-3 pb-1';
-/** The docked card's Skip and Submit, held at the bottom of its scrolling slot. */
-// A phone with the keyboard up has a slot shorter than head and foot
-// together: there, only the question holds, and Submit scrolls with the rest.
-const STICKY_FOOT = 'sticky bottom-0 z-10 -mx-4 -mb-3 rounded-b-xl bg-card px-4 pb-3 max-md:[@media(max-height:600px)]:static';
-/** On a phone the why is one line, so the recommendation shows between the question and Submit. */
-const PHONE_BODY = 'max-md:line-clamp-1';
 
 export function DecisionCard({
   decision,
@@ -220,7 +205,7 @@ export function DecisionCard({
 
   useLayoutEffect(() => {
     if (variant === 'dock') {
-      scrollSlotToTop(rootRef.current);
+      bringIntoView(rootRef.current);
     }
   }, [resetKey, variant]);
 
@@ -479,7 +464,6 @@ export function DecisionCard({
       aria-modal={variant === 'dock' ? false : undefined}
       aria-labelledby={questionId}
       aria-describedby={decision.body || bodyNode ? bodyId : undefined}
-      // Height on a phone is the composer's slot's to cap (`PINNED_MAX_CLASS`).
       className={variant === 'dock' ? 'mb-2 px-4 pt-3 pb-3 shadow-sm' : 'px-4 py-3'}
       data-testid="decision-card"
       data-decision-id={decision.id}
@@ -487,15 +471,13 @@ export function DecisionCard({
       ref={rootRef}
     >
       <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
-      {/* Docked, the question and the buttons stay in view while the middle
-          scrolls in the composer's capped slot (a phone, a keyboard, a phone
-          on its side): the person always sees what they are answering and
-          how to send it (2026-10-09). Inert where nothing scrolls. */}
-      <div className={`flex items-start gap-2 ${variant === 'dock' ? STICKY_HEAD : ''}`} data-testid="decision-head">
+      {/* In the thread, full height: the question, every option with its
+          consequence, and the buttons, all in view as the thread scrolls. */}
+      <div className="flex items-start gap-2" data-testid="decision-head">
         {/* The asking agent's own avatar, the same dot as the team. */}
         {agentName && <AgentDot name={agentName} accent={agentAccent} size="md" decorative className="mt-0.5" />}
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase" data-testid="decision-eyebrow">
+          <p className="text-[12px] font-medium text-muted-foreground" data-testid="decision-eyebrow">
             {asker}
             {queue && (
               <span data-testid="decision-queue">
@@ -510,8 +492,8 @@ export function DecisionCard({
       </div>
       <div className="min-w-0">
         {bodyNode
-          ? <div id={bodyId} className={`mt-1 text-[13px] leading-relaxed text-muted-foreground ${variant === 'dock' ? PHONE_BODY : ''}`}>{bodyNode}</div>
-          : decision.body && <p id={bodyId} className={`mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground ${variant === 'dock' ? PHONE_BODY : ''}`}>{decision.body}</p>}
+          ? <div id={bodyId} className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{bodyNode}</div>
+          : decision.body && <p id={bodyId} className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground">{decision.body}</p>}
         {lookOption?.look && <DecisionLook look={lookOption.look} />}
         {decision.preview && (
           <pre
@@ -604,7 +586,7 @@ export function DecisionCard({
 
       {error && <p role="alert" className="mt-2 text-[12px] text-[var(--brand-fail)]">{error}</p>}
 
-      <div className={`mt-3 flex items-center gap-2 border-t border-border pt-2.5 ${variant === 'dock' ? STICKY_FOOT : ''}`} data-testid="decision-foot">
+      <div className="mt-3 flex items-center gap-2 border-t border-border pt-2.5" data-testid="decision-foot">
         <p className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground sm:block" data-testid="decision-key-hints" aria-hidden>
           {hasOptions && (
             <>

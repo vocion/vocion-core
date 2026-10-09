@@ -34,6 +34,8 @@ export type ConnectSystemsFlowProps = {
   onSomethingElse?: (text: string) => void;
   /** How long a first sync is waited on before the walk moves on and lets it finish in the background. */
   verifyBudgetMs?: number;
+  /** The lead's own why from the turn that raised it, for the first step. */
+  intro?: string | null;
   /** Where it was before a reload or a trip away: it picks up there. */
   resume?: FlowResume | null;
   /** Where it is now, each time that changes, for the surface to keep. */
@@ -50,7 +52,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'That did not work. Try again.';
 }
 
-export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, verifyBudgetMs = 12_000, resume = null, onProgress }: ConnectSystemsFlowProps) {
+export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, verifyBudgetMs = 12_000, resume = null, onProgress, intro = null }: ConnectSystemsFlowProps) {
   const [state, dispatch] = useReducer((s: FlowState, e: FlowEvent) => reduce(s, e), INITIAL);
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [configValues, setConfigValues] = useState<Record<string, ConfigFieldValue>>({});
@@ -243,10 +245,11 @@ export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, 
     }
   };
 
-  const title = state.phase !== 'loading' && 'plan' in state && state.plan.scope ? `Connect the systems ${state.plan.scope.appName} uses` : 'Connect your systems';
+  const title = state.phase !== 'loading' && 'plan' in state && state.plan.scope ? `${state.plan.scope.appName} setup` : 'Connect your systems';
   return (
     <div data-testid="connect-systems" data-phase={state.phase} data-step={stepAt ?? undefined} data-connector={current?.connector}>
       <ConnectSystemsView
+        intro={intro}
         state={state.phase === 'error' && !state.reason ? { phase: 'loading' } : state}
         title={title}
         onAnswer={onAnswer}

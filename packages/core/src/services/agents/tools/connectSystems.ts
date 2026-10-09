@@ -27,6 +27,8 @@ export const CONNECT_SYSTEM_TOOL = 'connect_system';
 
 const InputSchema = z.object({
   named: z.array(z.string().min(1).max(80)).max(20).optional().describe('Connector slugs (from list_capabilities) of systems the person named in their own words, in their order — each one is shown to them as "You named it", so never a system you inferred. Leave out when they named none ("what should I connect?").'),
+  title: z.string().min(3).max(90).optional().describe('The card\'s question, in your words for this person now ("Connect GitHub so the factory can read your repos?"). Compose it from the facts below; leave out only to use a plain default.'),
+  why: z.string().min(3).max(240).optional().describe('One or two lines on why these systems matter to this person now, from the live facts (what is installed, what failed, what the team tried). Leave out to show none.'),
   app: z.string().min(1).max(80).optional().describe('An app id, to walk only the systems that app reads ("connect the systems GTM uses", "set up my software factory"). Setting up an app always passes its id.'),
 });
 type Input = z.infer<typeof InputSchema>;
@@ -48,11 +50,15 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
     const done = plan.connected.map(c => c.name).join(', ');
     return `Nothing left to connect${done ? `: ${done} already connected` : ''}.${unknown.length > 0 ? ` Not a system this workspace can connect: ${unknown.join(', ')}.` : ''} Say so in one line; show no card.`;
   }
-  const title = plan.scope ? `Connect the systems ${plan.scope.appName} uses` : 'Connect your systems';
+  // The words are the agent's, composed from the live facts at this turn; the
+  // template is only the fallback (founder, 2026-10-09: "not hard coded
+  // bullshit that gets stale").
+  const title = input.title?.trim() || (plan.scope ? `Connect the systems ${plan.scope.appName} uses` : 'Connect your systems');
   const card: Card = {
     id: newCardId(),
     kind: CONNECT_SYSTEMS_CARD_KIND,
     title,
+    ...(input.why?.trim() ? { body: input.why.trim() } : {}),
     actions: [],
     source: { agentSlug: ctx.agentSlug, tool: CONNECT_SYSTEM_TOOL },
     href: connectSystemsHref(input),
@@ -65,8 +71,12 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
   }
   ctx.emit({ type: 'card', card: checked.card });
   const names = plan.candidates.map(c => c.name);
+  const { evidenceLine, unlockLine } = await import('@/libs/connect/systemsPlan');
   const lines = [
-    `Showed "${title}". It walks the person through ${plan.question ? `a question ("${plan.question.question}"), then ` : ''}${names.length} system${names.length === 1 ? '' : 's'} one at a time (${names.join(', ')}), verifies each and ends with a summary — above the composer, with no further turn from you.`,
+    `Showed "${title}". It walks the person through ${plan.question ? `a question ("${plan.question.question}"), then ` : ''}${names.length} system${names.length === 1 ? '' : 's'} one at a time (${names.join(', ')}), verifies each and ends with a summary, with no further turn from you.`,
+    // Facts, not copy: what each system is offered on, and what it unlocks —
+    // for the one line you say before the card, in your own words.
+    ...plan.candidates.map(c => `- ${c.name}: ${c.evidence.map(evidenceLine).join('; ') || 'no evidence beyond the request'}; unlocks ${unlockLine(c, 'connected')}.`),
   ];
   if (plan.connected.length > 0) {
     lines.push(`Already connected: ${plan.connected.map(c => c.name).join(', ')}.`);

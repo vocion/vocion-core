@@ -37,7 +37,9 @@ describe('the opening hint (founder, 2026-10-09)', () => {
   it('leads with finishing setup, naming the steps left and the next one', () => {
     const [top] = openingHints(input({ apps: [factory], waiting: [{ kind: 'fyi', ageHours: 2, blocksRun: false }] }));
 
-    expect(top).toMatchObject({ type: 'setup', label: 'Software Factory is installed — 2 steps left: Connect GitHub →', action: { kind: 'open', href: factory.href } });
+    // Action first, short enough to read whole at 390px; a prompt in the
+    // person's voice, never a shortcut to a card (founder, 2026-10-09).
+    expect(top).toMatchObject({ type: 'setup', label: 'Finish Software Factory setup · 2 steps →', action: { kind: 'send', prompt: 'Help me finish setting up Software Factory' } });
     expect(top!.reason).toMatch(/agents can't run/);
   });
 
@@ -48,8 +50,10 @@ describe('the opening hint (founder, 2026-10-09)', () => {
 
     expect(broken.score).toBeGreaterThan(quiet.score);
     expect(busy.score).toBeGreaterThan(broken.score);
-    expect(busy.label).toBe('Reconnect HubSpot — the Revenue lead couldn\'t read deals today →');
-    expect(quiet.label).toBe('Connect HubSpot — Revenue needs it →');
+    expect(busy.label).toBe('Reconnect HubSpot →');
+    expect(busy.reason).toMatch(/stopped working/);
+    expect(busy.action).toEqual({ kind: 'send', prompt: 'Help me reconnect HubSpot' });
+    expect(quiet.label).toBe('Connect HubSpot →');
   });
 
   it('scales attention by count, what blocks a run, and age; an FYI is quieter', () => {
@@ -128,7 +132,7 @@ describe('a setup the person started and left (its objective)', () => {
     expect(top).toMatchObject({
       key: 'setup:software-factory',
       type: 'setup',
-      label: 'Resume setting up Software Factory →',
+      label: 'Resume Software Factory setup →',
       reason: '2 steps left; next: Connect GitHub.',
       action: { kind: 'open', href: '/dashboard/chat?conversation=12' },
       resumes: 12,
@@ -147,5 +151,26 @@ describe('a setup the person started and left (its objective)', () => {
 
   it('says nothing once it is set up', () => {
     expect(openingHints(input({ apps: [{ ...factory, steps: factory.steps.map(s => ({ ...s, done: true })), resume: { conversationId: 12 } }] })).some(h => h.type === 'setup')).toBe(false);
+  });
+});
+
+describe('every hint is a prompt or a page, never a card', () => {
+  it('sends the person\'s own words for anything that would raise a card; only an existing thread or a page opens', () => {
+    const hints = openingHints(input({
+      apps: [factory, { ...factory, slug: 'gtm', name: 'GTM', resume: { conversationId: 9 } }],
+      connectors: [{ slug: 'hubspot', name: 'HubSpot', state: 'broken', recentTouches: 3, href: '/x' }],
+      waiting: [{ kind: 'approval', ageHours: 30, blocksRun: true }],
+      dismissed: [],
+    }));
+    const all = [...hints, ...openingHints(input({ apps: [factory] })), ...openingHints(input({ connectors: [{ slug: 'hubspot', name: 'HubSpot', state: 'broken', recentTouches: 3, href: '/x' }] }))];
+
+    for (const h of all) {
+      if (h.action.kind === 'open') {
+        // A thread that already exists, or a page — never the chat with a card to dock.
+        expect(h.action.href).toMatch(/^\/dashboard\/(chat\?conversation=\d+|inbox)$/);
+      }
+    }
+
+    expect(all.some(h => h.action.kind === 'send')).toBe(true);
   });
 });

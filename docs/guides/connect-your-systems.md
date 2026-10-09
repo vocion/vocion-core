@@ -14,8 +14,11 @@ registries, so a connector added there is offered here with no change
 
 ## Ways in
 
-All four open the same walk-through: the chat page with
-`?objective=connect-systems` (`libs/connect/systemsLink.ts`).
+Every way in is a turn first (founder, 2026-10-09): a link into chat with
+`?objective=connect-systems` (`libs/connect/systemsLink.ts`) sends the person's
+own words ("Help me connect the systems GTM uses", `connectSystemsAsk`), and
+the lead's `connect_system` raises the walk-through — with its own title and
+why, composed from the facts the tool hands back.
 
 | Where | What starts it |
 |---|---|

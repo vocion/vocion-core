@@ -346,7 +346,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // header says it once. The name stays for a screen reader and on hover,
   // and a routed turn is still attributed ("via …", §9.10).
   return (
-    <div className="group flex">
+    <div className="group flex" data-testid="assistant-message">
       {/* Width comes from the column in MessageList, not a second cap here. */}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">

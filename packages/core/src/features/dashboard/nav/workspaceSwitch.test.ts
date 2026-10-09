@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { accountLine, countHiddenEmpty, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
+import { accountLine, crossAccountSlug, filterProjects, groupByAccount, projectAccent, projectsInOrg, shouldTriggerFindHotkey, workspaceSwitchHref } from './workspaceSwitch';
 
 const projects = [
   { id: 'p-default', slug: 'default', name: 'Default project', agentCount: 0 },
+  { id: 'p-old', slug: 'old-pilot', name: 'Old pilot', agentCount: 3, archived: true },
   { id: 'p-rev', slug: 'revenue', name: 'Revenue Team', agentCount: 10 },
   { id: 'p-ds', slug: 'delivery-stack', name: 'Delivery Stack', agentCount: 5 },
   { id: 'p-wf', slug: 'vocion-workforce', name: 'Vocion Workforce', agentCount: 14 },
@@ -16,14 +17,12 @@ describe('workspace switcher', () => {
       .toBe('/fr/w/vocion-workforce/dashboard/teams');
   });
 
-  it('hides empty projects by default, keeps the active one, and searches name or slug', () => {
-    expect(filterProjects(projects, {}).map(p => p.slug)).toEqual(['revenue', 'delivery-stack', 'vocion-workforce']);
-    expect(filterProjects(projects, { activeId: 'p-default' }).map(p => p.slug)).toContain('default');
-    expect(filterProjects(projects, { showEmpty: true })).toHaveLength(4);
+  it('lists empty workspaces like any other, never an archived one (unless current), and searches name or slug', () => {
+    // Founder, 2026-10-09: show empty workspaces by default; hide archived ones.
+    expect(filterProjects(projects, {}).map(p => p.slug)).toEqual(['default', 'revenue', 'delivery-stack', 'vocion-workforce']);
+    expect(filterProjects(projects, { activeId: 'p-old' }).map(p => p.slug)).toContain('old-pilot');
     expect(filterProjects(projects, { query: 'stack' }).map(p => p.slug)).toEqual(['delivery-stack']);
     expect(filterProjects(projects, { query: 'WORK' }).map(p => p.slug)).toEqual(['vocion-workforce']);
-    expect(countHiddenEmpty(projects)).toBe(1);
-    expect(countHiddenEmpty(projects, 'p-default')).toBe(0);
   });
 
   it('re-points a canonical path at the workspace being switched to, rather than nesting a second one', () => {

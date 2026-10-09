@@ -6,6 +6,9 @@
 
 import { WORKSPACE_ACCOUNT_PARAM, WORKSPACE_ORG_PARAM, workspaceUrl } from '@/libs/links';
 
+/** Every workspace the person can open, on one page — the switcher's "All workspaces →". */
+export const ALL_WORKSPACES_HREF = '/dashboard/workspaces';
+
 export type SwitcherProject = {
   id: string;
   /** The account that owns it. Absent in stories that only show one account. */
@@ -14,7 +17,7 @@ export type SwitcherProject = {
   name: string;
   description?: string | null;
   agentCount?: number;
-  /** Archived: hidden with the empty ones unless asked for, or unless it is the current one. */
+  /** Archived: never listed, unless it is the current one. */
   archived?: boolean;
 };
 
@@ -107,40 +110,23 @@ export function accountLine(workspaceName: string | null | undefined, accountNam
 }
 
 /**
- * A project with no agents is a seed/empty row — hidden unless asked for.
- * An archived one is hidden the same way: nobody works there now.
- * @param p
- */
-export function isEmptyProject(p: SwitcherProject): boolean {
-  return (p.agentCount ?? 0) === 0 || p.archived === true;
-}
-
-/**
- * The switcher's list: filtered by a case-insensitive match on name or slug,
- * empty projects hidden unless `showEmpty`, the active one always kept.
+ * The switcher's list: filtered by a case-insensitive match on name or slug.
+ * An empty workspace is listed like any other (founder, 2026-10-09: show empty
+ * workspaces by default, no "Show N empty projects" toggle); an archived one
+ * never is, unless it is the current one.
  * @param projects
  * @param opts
  * @param opts.query
- * @param opts.showEmpty
  * @param opts.activeId
  */
-export function filterProjects<T extends SwitcherProject>(projects: T[], opts: { query?: string; showEmpty?: boolean; activeId?: string | null }): T[] {
+export function filterProjects<T extends SwitcherProject>(projects: T[], opts: { query?: string; activeId?: string | null }): T[] {
   const q = (opts.query ?? '').trim().toLowerCase();
   return projects.filter((p) => {
-    if (!opts.showEmpty && isEmptyProject(p) && p.id !== opts.activeId) {
+    if (p.archived === true && p.id !== opts.activeId) {
       return false;
     }
     return q === '' || p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q);
   });
-}
-
-/**
- * Number of projects hidden by the empty-project rule (for the toggle's label).
- * @param projects
- * @param activeId
- */
-export function countHiddenEmpty(projects: SwitcherProject[], activeId?: string | null): number {
-  return projects.filter(p => isEmptyProject(p) && p.id !== activeId).length;
 }
 
 /**

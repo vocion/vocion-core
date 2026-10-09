@@ -106,6 +106,8 @@ test('the setup Decision docks alone, readable and reachable on a phone; what wa
   await expect(page.getByTestId('waiting-nudge')).toHaveCount(0);
 
   // Its question and Submit are on the screen; so is the box to type in.
+  await card.getByTestId('decision-submit').scrollIntoViewIfNeeded();
+
   expect(await onScreen(page, card.getByTestId('decision-head'))).toBe(true);
   expect(await onScreen(page, card.getByTestId('decision-submit'))).toBe(true);
   expect(await onScreen(page, card.getByRole('option', { name: /Northwind API/ }))).toBe(true);
@@ -114,20 +116,27 @@ test('the setup Decision docks alone, readable and reachable on a phone; what wa
   await shot(page, '02-docked');
 
   // A thumb's 44px, every control in the dock.
-  const small = await page.getByTestId('composer-above').evaluate(slot => [...slot.querySelectorAll<HTMLElement>('button, input, [role=option]')]
+  const small = await card.evaluate(slot => [...slot.querySelectorAll<HTMLElement>('button, input, [role=option]')]
     .filter(el => el.offsetParent !== null)
     .map(el => ({ el: el.dataset.testid ?? el.textContent?.trim(), h: Math.round(el.getBoundingClientRect().height) }))
     .filter(t => t.h < 44));
 
   expect(small).toEqual([]);
 
-  // On its side: the card is capped, its question and Submit still in view,
-  // and the box to type in still on the screen.
+  // On its side: the card is full height in the thread, which scrolls
+  // naturally to its question and to Submit; the box to type in stays on the
+  // screen throughout (founder, 2026-10-09: no capped box, no inner scroll).
   await page.setViewportSize(LANDSCAPE);
 
   await expect(card).toBeVisible();
 
+  await card.getByTestId('decision-head').scrollIntoViewIfNeeded();
+
   expect(await onScreen(page, card.getByTestId('decision-head'))).toBe(true);
+  expect(await onScreen(page, box)).toBe(true);
+
+  await card.getByTestId('decision-submit').scrollIntoViewIfNeeded();
+
   expect(await onScreen(page, card.getByTestId('decision-submit'))).toBe(true);
   expect(await onScreen(page, box)).toBe(true);
 
@@ -153,12 +162,8 @@ test('the setup Decision docks alone, readable and reachable on a phone; what wa
 
   await shot(page, '05-chip');
 
-  // Tapped, it docks here, said once as what it is.
-  await page.getByTestId('waiting-nudge-open').tap();
-
-  await expect(review).toBeVisible();
-  await expect(review.getByTestId('decision-eyebrow')).toHaveText(/^Waiting on you/i);
-  await expect(review.getByTestId('decision-eyebrow')).not.toContainText(/a decision for you/i);
-
-  await shot(page, '06-review-docked');
+  // A tap answers it where it lives — Review — never a card docked here
+  // without a turn (founder, 2026-10-09: chips are prompts, not shortcuts).
+  await expect(page.getByRole('link', { name: /thing waiting on you/ })).toHaveAttribute('href', /\/dashboard\/inbox$/);
+  await expect(review).toHaveCount(0);
 });

@@ -31,7 +31,7 @@ export function UserMessage({ content, attachments = [] }: UserMessageProps) {
   const { quote, body } = splitQuote(content);
   const long = body.length > CLAMP_THRESHOLD;
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end" data-testid="user-message">
       {/* `break-words`: a message carries whatever was pasted into it, and a
           200-character URL with no space in it is a single unbreakable word.
           `whitespace-pre-wrap` alone keeps the person's line breaks but will

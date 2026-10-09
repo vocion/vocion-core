@@ -33,7 +33,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 vi.mock('@/features/preview/previewState', () => ({ openPreview: vi.fn() }));
 vi.mock('@/libs/Orpc', () => ({ client: { connectSystems: { plan: vi.fn(async () => ({ candidates: [], connected: [], question: null, scope: null, refused: null })) } } }));
 
-const { ConversationDecisions } = await import('./DecisionDock');
+const { decisionBlock } = await import('./DecisionDock');
 const { ChatComposer } = await import('../ChatComposer');
 
 const review: DecisionView = {
@@ -69,7 +69,7 @@ const connectGitHub: DecisionView = {
   conversationId: 1,
 };
 
-type Session = Parameters<typeof ConversationDecisions>[0]['session'];
+type Session = Parameters<typeof decisionBlock>[0];
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -89,25 +89,34 @@ function session(over: Partial<Session> = {}): Session {
   };
 }
 
+/**
+ * A phone: the thread scrolls, the Decision is its latest item, the composer below it.
+ * @param root0
+ * @param root0.s
+ * @param root0.height
+ */
 function Phone({ s, height = 844 }: { s: Session; height?: number }) {
   return (
     <NextIntlClientProvider locale="en" messages={en}>
-      <div style={{ height }} className="flex flex-col justify-end" data-testid="phone-screen">
-        <div className="min-h-0 flex-1" data-testid="thread" />
-        <ChatComposer above={<ConversationDecisions session={s} />} value="" onChange={() => {}} onSubmit={() => {}} />
+      <div style={{ height }} className="flex flex-col" data-testid="phone-screen">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4" data-testid="thread">
+          <p style={{ height: 900 }}>The conversation so far.</p>
+          {decisionBlock(s).node}
+        </div>
+        <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />
       </div>
     </NextIntlClientProvider>
   );
 }
 
 /**
- * Whether an element is drawn inside the slot's visible window (and the screen).
+ * Whether an element is drawn inside the thread's visible window.
  * @param el - The element.
  */
 async function inView(el: HTMLElement): Promise<boolean> {
-  const slot = (await page.getByTestId('composer-above').element() as HTMLElement).getBoundingClientRect();
+  const thread = (await page.getByTestId('thread').element() as HTMLElement).getBoundingClientRect();
   const r = el.getBoundingClientRect();
-  return r.top >= slot.top - 1 && r.bottom <= slot.bottom + 1 && r.bottom <= window.innerHeight + 1;
+  return r.top >= thread.top - 1 && r.bottom <= thread.bottom + 1;
 }
 
 beforeEach(() => {
@@ -123,18 +132,14 @@ describe('what waits elsewhere, mid-conversation', () => {
     expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
   });
 
-  it('is one quiet chip once the turn lands, and docks here only when tapped', async () => {
+  it('is one quiet chip once the turn lands, and opens Review — never a card docked by a tap', async () => {
     await page.viewport(390, 844);
     await render(<Phone s={session()} />);
 
     expect(page.getByTestId('decision-card').elements()).toHaveLength(0);
     await expect.element(page.getByTestId('waiting-nudge')).toHaveTextContent('1 thing waiting on you');
-
-    await page.getByTestId('waiting-nudge-open').click();
-
-    await expect.element(page.getByTestId('decision-card')).toBeVisible();
-    // Said once: never "Waiting on you · A decision for you".
-    await expect.element(page.getByTestId('decision-eyebrow')).toHaveTextContent(/^Waiting on you$/i);
+    await expect.element(page.getByRole('link', { name: /1 thing waiting on you/ })).toHaveAttribute('href', '/dashboard/inbox');
+    expect(page.getByTestId('waiting-nudge-open').elements()).toHaveLength(0);
   });
 
   it('stays out of the dock while the conversation\'s own Decision is there', async () => {
@@ -149,70 +154,56 @@ describe('what waits elsewhere, mid-conversation', () => {
   });
 });
 
-describe('a docked card taller than its slot', () => {
+/**
+ * Founder, 2026-10-09: "the card was unreadable because the inner scroll
+ * content window was so tiny … I'd expect all options on that card to be
+ * visible. But that's ok because its interaction with chat scroll is
+ * natural." The Decision is the latest item in the thread, full height.
+ */
+describe('a Decision in the thread', () => {
   for (const [label, w, h] of [['a phone', 390, 844], ['a phone with the keyboard up', 390, 508], ['a phone on its side', 844, 390]] as const) {
-    it(`keeps its question and its buttons in view on ${label}`, async () => {
+    it(`is full height, nothing inside it scrolls, and the thread brings it into view on ${label}`, async () => {
       await page.viewport(w, h);
       await render(<Phone s={session({ openDecisions: [connectGitHub] })} height={h} />);
 
-      const slot = await page.getByTestId('composer-above').element() as HTMLElement;
+      const card = await page.getByTestId('decision-card').element() as HTMLElement;
+      const thread = await page.getByTestId('thread').element() as HTMLElement;
 
-      // Taller than the slot: the middle scrolls…
-      expect(slot.scrollHeight).toBeGreaterThan(slot.clientHeight);
-
-      // …the question does not, and — wherever head and foot both fit —
-      // neither does Submit, with the recommendation between them.
-      const roomy = h > 600 || w >= 768;
-
-      expect(await inView(await page.getByTestId('decision-head').element() as HTMLElement)).toBe(true);
-
-      if (roomy) {
-        expect(await inView(await page.getByTestId('decision-submit').element() as HTMLElement)).toBe(true);
-      }
-      if (h > 600) {
-        expect(await inView(await page.getByRole('option', { name: /Connect GitHub/ }).element() as HTMLElement)).toBe(true);
+      // Every option, its consequence and the buttons are drawn — no box clips them.
+      for (let el = card as HTMLElement | null; el && el !== thread; el = el.parentElement) {
+        expect(['auto', 'scroll']).not.toContain(getComputedStyle(el).overflowY);
       }
 
-      slot.scrollTop = slot.scrollHeight / 2;
+      expect(card.scrollHeight).toBeLessThanOrEqual(card.clientHeight + 1);
+      await expect.element(page.getByText('Opens the sign-in, then brings you back here.')).toBeInTheDocument();
+      await expect.element(page.getByText('Come back to it at the end')).toBeInTheDocument();
+
+      // It arrived in view: its question is on screen, under the conversation.
+      await new Promise(r => setTimeout(r, 600));
+
+      expect(thread.scrollTop).toBeGreaterThan(0);
+      expect(await inView(await page.getByTestId('decision-eyebrow').element() as HTMLElement) || await inView(await page.getByTestId('decision-submit').element() as HTMLElement)).toBe(true);
+
+      // The thread scrolls naturally to the rest of it, Submit included.
+      thread.scrollTop = thread.scrollHeight;
       await new Promise(r => requestAnimationFrame(() => r(null)));
 
-      expect(await inView(await page.getByTestId('decision-head').element() as HTMLElement)).toBe(true);
+      expect(await inView(await page.getByTestId('decision-submit').element() as HTMLElement)).toBe(true);
 
-      if (roomy) {
-        expect(await inView(await page.getByTestId('decision-submit').element() as HTMLElement)).toBe(true);
-      }
-      // Never one over the other.
-      const head = (await page.getByTestId('decision-head').element() as HTMLElement).getBoundingClientRect();
-      const foot = (await page.getByTestId('decision-foot').element() as HTMLElement).getBoundingClientRect();
-
-      expect(foot.top >= head.bottom - 1 || foot.bottom <= head.top + 1).toBe(true);
-
-      // The box to type in is still on the screen.
+      // The box to type in stays below it, on the screen.
       const composer = (await page.getByRole('textbox').last().element() as HTMLElement).getBoundingClientRect();
 
       expect(composer.bottom).toBeLessThanOrEqual(h + 1);
-      expect(slot.getBoundingClientRect().height).toBeLessThanOrEqual(h * 0.45 + 1);
+      expect(composer.top).toBeGreaterThanOrEqual(thread.getBoundingClientRect().bottom - 1);
     });
   }
-
-  it('opens a new card on its question, not where the last one was left', async () => {
-    await page.viewport(390, 844);
-    const screen = await render(<Phone s={session({ openDecisions: [connectGitHub] })} />);
-    const slot = await page.getByTestId('composer-above').element() as HTMLElement;
-    slot.scrollTop = 120;
-
-    await screen.rerender(<Phone s={session({ openDecisions: [{ ...connectGitHub, id: 13, question: 'Connect Sentry' }] })} />);
-
-    await expect.element(page.getByRole('heading', { name: 'Connect Sentry' })).toBeVisible();
-    expect(slot.scrollTop).toBe(0);
-  });
 
   it('gives every control a thumb\'s 44px on a phone', async () => {
     await page.viewport(390, 844);
     await render(<Phone s={session({ openDecisions: [connectGitHub] })} />);
 
-    const slot = await page.getByTestId('composer-above').element() as HTMLElement;
-    const small = [...slot.querySelectorAll<HTMLElement>('button, input, [role=option]')]
+    const card = await page.getByTestId('decision-card').element() as HTMLElement;
+    const small = [...card.querySelectorAll<HTMLElement>('button, input, [role=option]')]
       .map(el => ({ el: el.dataset.testid ?? el.getAttribute('aria-label') ?? el.textContent, h: el.getBoundingClientRect().height }))
       .filter(t => t.h < 44);
 

@@ -31,6 +31,15 @@ credential is stored, whose account it is on, which repositories the
 installation grants (asked of GitHub live) and which the source lists — and
 names each mismatch.
 
+## Your words, from the live facts
+
+The setup state, the sources and the connect plan come back as facts: what
+is installed, what is connected, what each system unlocks, what failed. The
+line you say and the card's question and why are yours, composed from those
+facts for this person now (`connect_system`'s `title` and `why`,
+`offer_connection`'s `why`). Never paste a stock sentence; never list steps
+the facts say are done.
+
 ## The card is the answer
 
 Lead with it. After `describe_setup` (and `describe_sources`, when a

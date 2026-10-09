@@ -9,6 +9,7 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 vi.mock('@/libs/I18nNavigation', () => ({
   usePathname: () => '/dashboard',
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => <a href={href} {...rest}>{children}</a>,
 }));
 
 /**
