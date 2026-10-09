@@ -1143,10 +1143,104 @@ code.
 # Everything stacked above a composer shares its column
 
 Context chips, queued messages, `@` tag chips, anchored-comment chips, the
-pasted-text chip. One padding rule, expressed in the composer container
-(`ChatComposer`'s `above` slot), never per child — a child that guesses at the
-inset is a child that ends up flush against the rail edge while the box beside
-it is inset.
+pasted-text chip, the docked Decision card. One padding rule, expressed in the
+composer container (`ChatComposer`'s `above` slot), never per child — a child
+that guesses at the inset is a child that ends up flush against the rail edge
+while the box beside it is inset.
+
+---
+
+# Decision card
+
+**Everything a person is asked to decide is one card**
+(`features/dashboard/chat/decisions/DecisionCard.tsx`), drawn from one record
+(`libs/decisions/decision.ts`; the model is in `docs/guides/decisions.md`).
+Ten mechanisms asked before it — an ask sheet, a recommendation card, a
+proposal card, an approval gate, a ruling's buttons, chips that sent text — and
+two surfaces doing one job is a defect (design principle 6).
+
+## Anatomy
+
+Docked just above the composer, first in its `above` slot, the way the Claude
+app asks:
+
+```text
+PRODUCT MANAGER ASKS · 1 of 3                                   ⌄
+Which repo should the factory build in?
+Two repos match "Northwind" and the request names neither.
+
+ 1  Northwind API     Recommended
+    Builds land in northwind/api; CI runs on every push.
+ 2  Northwind Portal
+    Builds land in the customer portal.
+ 3  Something else…
+────────────────────────────────────────────────────────────────
+↑↓ move · 1–2 pick · ↵ submit · Tab something else · Esc fold   Skip  [↵ Submit]
+```
+
+- **One surface** (`Surface name="decision"`): options are rows on hairlines,
+  never boxes inside the box. The selected row takes `--surface-soft`; its
+  number badge fills with `--action`. "Recommended" is `--brand-pass` text, not
+  a chip.
+- **The recommendation is first and preselected.** On a fresh card, Enter
+  accepts it.
+- **Each option says what it does**, in one line under its label.
+- **"Something else"** is an inline field — the answer in their own words —
+  numbered after the last option. Offered unless the Decision takes only its
+  options.
+- **Skip** is always there: the agent carries on without an answer.
+- **One at a time.** "1 of 3" in the eyebrow when more wait; the rest queue
+  behind it. The card **blocks only itself**: the composer below stays live and
+  reads "Or reply directly…", and what is typed there is read against the card
+  before it is routed.
+- **The deadline**, when the decision clock runs one, is one line under the
+  question: "Default in 2 days: Northwind API".
+
+## The keyboard contract
+
+The card is fully keyboard-driven, and the keys are shown on it.
+
+| Key | On the option list | In "Something else" |
+|---|---|---|
+| `1`–`9` | Pick that option (toggle, where several may be chosen). The number after the last option goes to "Something else". | types |
+| `↑` `↓` | Move; a single choice follows the highlight. `↓` past the last option enters "Something else". | `↑` at the start returns to the list |
+| `Home` `End` | First, last option | — |
+| `Space` | Pick the highlighted option | types |
+| `Enter`, `⌘↵` | Submit what is picked — on a fresh card, the recommendation | Submit their words |
+| `Tab` | Reach "Something else", then Skip and Submit | — |
+| any letter | Starts an answer in "Something else" | types |
+| `Esc` | Fold the card to one line ("1 decision waiting"); nothing is answered | same |
+
+Focus: a Decision that docks **takes focus**, so Enter alone answers it — unless
+the person is typing in another field, which a card never interrupts.
+
+## Accessibility
+
+- The docked card is `role="dialog"` (`aria-modal="false"`), labelled by its
+  question and described by its why.
+- The options are a `role="listbox"` with `aria-activedescendant` (the list
+  owns the keys; options are highlighted, not focused), `aria-multiselectable`
+  where several may be chosen, `aria-selected` on each `role="option"`.
+- A polite live region says **once per Decision** what arrived and how to
+  answer it.
+- "Something else" is a labelled input; the chevron says what it does and its key.
+
+## Variants
+
+- `dock` — above a composer, with the chevron and Esc.
+- `list` — a Needs you row: `role="group"`, no autofocus, no fold.
+
+## What an answer is
+
+A typed `DecisionAnswer` — options by id, their own words, or a skip — handed to
+`onAnswer`. **Never text in the composer, and never a message in the person's
+name**: the transcript draws it as a receipt on their side ("Chose Northwind
+API · Which repo…"). The Done line for what an option ran sits under the reply,
+with Undo only where the action's kind has one.
+
+Storybook: `Chat/DecisionCard` — every state (choice, question, approval,
+several, queued, folded, deadline, busy, refused, list row, the answer and Done
+lines), each in light and dark.
 
 ---
 

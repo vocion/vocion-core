@@ -77,7 +77,7 @@ export function decideProposalTool(ctx: RuntimeContext) {
       name: 'decide_proposal',
       description: 'Decide a pending proposal card on the person\'s behalf, in their own turn: approve, reject, or defer a week. Use when the person says which card and what to do with it ("approve the first one", "reject the admin panel", "defer the rename") — their words this turn are the gate; the tool refuses a decision they did not say. Never on your own schedule. The card redraws itself; reply in one sentence.',
       schema: z.object({
-        id: z.number().int().positive().describe('The proposal (action run) id — on the card, or from list_proposals'),
+        id: z.number().int().positive().describe('The proposal (action run) id: the proposal number a card in this conversation carries, or one listed under what is waiting on the page\'s record. There is no tool that lists proposals; never guess an id.'),
         decision: z.enum(['approve', 'reject', 'defer']).describe('What the person said to do with it'),
         note: z.string().max(500).optional().describe('The person\'s reason, in their words, when they gave one'),
       }),

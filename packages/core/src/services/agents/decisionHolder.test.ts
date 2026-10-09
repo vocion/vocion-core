@@ -27,7 +27,7 @@ vi.mock('@/services/factory/pullSignals', async orig => ({ ...(await orig<object
 
 const { db } = await import('@/libs/DB');
 const { askSchema, actionRunSchema, userSchema } = await import('@/models/Schema');
-const { askHeldByThePersonHere, mergeCardRunsItself, personIsHere } = await import('./decisionHolder');
+const { mergeCardRunsItself, personIsHere, whoHoldsTheAsk } = await import('./decisionHolder');
 const { fileAskTool } = await import('./tools/fileAsk');
 const { recommendActionTool } = await import('./tools/recommendAction');
 
@@ -96,28 +96,26 @@ describe('who is here', () => {
   });
 });
 
-describe('an ask the person here holds is not filed for "the owner"', () => {
-  it('conversation 392: a merge routed to "the engineering owner" is refused, naming the person, the link and what the records say', async () => {
-    const out = await askHeldByThePersonHere(ctxFor(), { kind: 'ruling', title: 'Merge PR #127: engineering owner\'s call', objectRefs: [{ type: 'request', id: 246 }] });
+describe('an ask the person here holds is asked here, never filed for "the owner"', () => {
+  it('conversation 392: a merge routed to "the engineering owner" is held by the person in the turn, with the link and what the records say', async () => {
+    const out = await whoHoldsTheAsk(ctxFor(), { kind: 'ruling', title: 'Merge PR #127: engineering owner\'s call', objectRefs: [{ type: 'request', id: 246 }] });
 
-    expect(out).toContain('Not filed: Dana Reyes is in this conversation');
-    expect(out).toContain('Do not route it to "the owner"');
-    expect(out).toContain('/w/northwind/dashboard/p/feature/246');
-    expect(out).toContain('QA has not judged it yet; CI failed on PR #127 (integration); PR #127 is not merged');
+    expect(out).toMatchObject({ held: 'here', name: 'Dana Reyes', href: '/w/northwind/dashboard/p/feature/246', about: 'Theme toggle', docked: true });
+    expect(out?.held === 'here' && out.merge).toContain('QA has not judged it yet; CI failed on PR #127 (integration); PR #127 is not merged');
   });
 
   it('files as before when the person said to put it on the queue (their word runs)', async () => {
     saidToDecide.mockResolvedValueOnce({ said: true, quote: 'put it on the queue' });
 
-    expect(await askHeldByThePersonHere(ctxFor(), { kind: 'ruling', title: 'Pick the export format', objectRefs: [] })).toBeNull();
+    expect(await whoHoldsTheAsk(ctxFor(), { kind: 'ruling', title: 'Pick the export format', objectRefs: [] })).toBeNull();
   });
 
   it('files a credential ask: a secret never travels through the chat', async () => {
-    expect(await askHeldByThePersonHere(ctxFor(), { kind: 'credential', title: 'Paste the Northwind API key' })).toBeNull();
+    expect(await whoHoldsTheAsk(ctxFor(), { kind: 'credential', title: 'Paste the Northwind API key' })).toBeNull();
   });
 
   it('files as before on an agent\'s own schedule, where nobody is here to ask', async () => {
-    expect(await askHeldByThePersonHere(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'ruling', title: 'Pick the export format', objectRefs: [{ type: 'request', id: 246 }] })).toBeNull();
+    expect(await whoHoldsTheAsk(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'ruling', title: 'Pick the export format', objectRefs: [{ type: 'request', id: 246 }] })).toBeNull();
   });
 });
 
@@ -125,16 +123,19 @@ describe('a merge nobody decides is asked of nobody', () => {
   it('refuses a merge ask in any turn when the class merges itself on its trust rule — and promises no merge card', async () => {
     loadRecordStatus.mockResolvedValue(status(facts({ mergeRule: { runsItself: true, riskClass: 'ui', line: 'This merge (ui) runs itself on its trust rule once QA approves; no card, nobody presses merge' } })));
 
-    const out = await askHeldByThePersonHere(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'merge', title: 'Merge PR #127', objectRefs: [{ type: 'request', id: 246 }] });
+    const out = await whoHoldsTheAsk(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'merge', title: 'Merge PR #127', objectRefs: [{ type: 'request', id: 246 }] });
 
-    expect(out).toContain('Not filed: This merge (ui) runs itself on its trust rule');
-    expect(out).toContain('never that a merge card is coming');
+    expect(out?.held).toBe('moot');
+    expect(out?.held === 'moot' && out.message).toContain('Not filed: This merge (ui) runs itself on its trust rule');
+    expect(out?.held === 'moot' && out.message).toContain('never that a merge card is coming');
   });
 
   it('refuses a merge ask for a pull request already recorded merged', async () => {
     loadRecordStatus.mockResolvedValue(status(facts({ pullRequest: { url: PR, label: 'PR #127', merge: 'merged', mergedAt: '2026-09-30T17:58:00Z', line: 'PR #127 merged 2026-09-30T17:58:00Z' } })));
 
-    expect(await askHeldByThePersonHere(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'merge', title: 'Merge PR #127', objectRefs: [{ type: 'request', id: 246 }] })).toContain('so there is no merge to ask anyone about');
+    const out = await whoHoldsTheAsk(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'merge', title: 'Merge PR #127', objectRefs: [{ type: 'request', id: 246 }] });
+
+    expect(out?.held === 'moot' && out.message).toContain('so there is no merge to ask anyone about');
   });
 
   it('reads the request a named task serves', async () => {
@@ -145,7 +146,9 @@ describe('a merge nobody decides is asked of nobody', () => {
     const [type] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug: 'engineering_task', label: 'Task' }).returning();
     const [row] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: type!.id, title: 'Theme toggle', metadata: { requestId: 246 } }).returning();
 
-    expect(await askHeldByThePersonHere(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'merge', title: 'Merge PR #127', objectRefs: [{ type: 'engineering_task', id: row!.id }] })).toContain('Not filed: runs itself');
+    const out = await whoHoldsTheAsk(ctxFor({ missionRunId: 41, userId: 'scheduled' }), { kind: 'merge', title: 'Merge PR #127', objectRefs: [{ type: 'engineering_task', id: row!.id }] });
+
+    expect(out?.held === 'moot' && out.message).toContain('Not filed: runs itself');
 
     await db.delete(businessObjectSchema);
     await db.delete(businessObjectTypeSchema);
@@ -153,12 +156,46 @@ describe('a merge nobody decides is asked of nobody', () => {
 });
 
 describe('the tools enforce it in their results', () => {
-  it('file_ask files nothing in the person\'s turn and says what to do instead', async () => {
-    const out = await fileAskTool(ctxFor()).invoke({ title: 'Merge PR #127: engineering owner\'s call', kind: 'ruling', object_refs: [{ type: 'request', id: 246 }], confidence: 0.9 });
+  it('file_ask in the person\'s turn raises a Decision docked in this conversation — no proposal, no Needs you, the turn handed to them', async () => {
+    const ctx = ctxFor();
+    const out = await fileAskTool(ctx).invoke({ title: 'Merge PR #127: engineering owner\'s call', kind: 'ruling', options: [{ id: 'merge', label: 'Merge now', recommended: true }, { id: 'wait', label: 'Wait for CI' }], object_refs: [{ type: 'request', id: 246 }], confidence: 0.9 });
+
+    expect(out).toContain('Asked Dana Reyes here: decision #');
+    expect(out).toContain('do not route it to "the owner"');
+    expect(out).toContain('What the records say: QA has not judged it yet');
+
+    const [ask] = await db.select().from(askSchema);
+
+    expect(ask).toMatchObject({ conversationId: 392, ownerUserId: 'user_dana', agentSlug: 'product-manager', status: 'open', kind: 'ruling' });
+    // Nothing went through the action rail: asking the person here is not a trust question.
+    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
+
+    const raised = ctx.events.find(e => e.type === 'decision');
+
+    expect(raised?.type === 'decision' && raised.decision).toMatchObject({ id: ask!.id, state: 'open', question: 'Merge PR #127: engineering owner\'s call', options: [{ id: 'merge', recommended: true }, { id: 'wait' }] });
+  });
+
+  it('file_ask in a Slack or email thread asks in words — a thread there cannot show a docked card', async () => {
+    const { conversationSchema } = await import('@/models/Schema');
+    await db.delete(conversationSchema);
+    const [slack] = await db.insert(conversationSchema).values({ orgId: ORG, agentSlug: 'product-manager', title: 'Export formats', surface: 'slack' } as never).returning();
+    const out = await fileAskTool(ctxFor({ conversationId: slack!.id })).invoke({ title: 'Pick the export format', kind: 'ruling', options: ['CSV', 'XLSX'], confidence: 0.9 });
 
     expect(out).toContain('Not filed: Dana Reyes is in this conversation');
+    expect(out).toContain('Ask them here, in one line, with your recommendation, numbering the choices.');
     expect(await db.select().from(askSchema)).toHaveLength(0);
-    expect(await db.select().from(actionRunSchema)).toHaveLength(0);
+
+    await db.delete(conversationSchema);
+  });
+
+  it('file_ask stores an option\'s effect as the action it runs', async () => {
+    await fileAskTool(ctxFor()).invoke({ title: 'Which repo should the factory build in?', kind: 'ruling', options: [{ id: 'api', label: 'Northwind API', effect: { action_id: 'objects.update_meta', input: { objectId: 246, fields: { repo: 'northwind/api' } } } }, 'Northwind Portal'], confidence: 0.9 });
+    const [ask] = await db.select().from(askSchema);
+
+    expect(ask!.options).toEqual([
+      { id: 'api', label: 'Northwind API', action: { id: 'objects.update_meta', input: { objectId: 246, fields: { repo: 'northwind/api' } } } },
+      { id: 'northwind-portal', label: 'Northwind Portal' },
+    ]);
   });
 
   it('recommend_action shows no merge card for a class that merges itself', async () => {

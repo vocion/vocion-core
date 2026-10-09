@@ -67,7 +67,7 @@ export const CardSchema = z.object({
   ref: z.object({ type: z.string().min(1), id: z.number().int() }).optional(),
   state: z.enum(CARD_STATES).default('proposed'),
   /** How the person decided, once they did. */
-  decision: z.object({ action: z.string(), at: z.string(), by: z.string().optional() }).optional(),
+  decision: z.object({ action: z.string(), at: z.string(), by: z.string().optional(), option: z.string().optional() }).optional(),
   /** The agent's own recommendation for the decision, and why — both or neither. */
   suggestedDecision: z.enum(['approve', 'reject', 'snooze']).optional(),
   suggestedDecisionReason: z.string().optional(),

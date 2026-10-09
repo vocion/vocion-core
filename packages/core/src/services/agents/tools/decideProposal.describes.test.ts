@@ -22,3 +22,11 @@ it('asks the consent read about what the card does, not its number (Walk 6: "bui
   expect(out).toContain('Approved proposal #6061');
   expect(decide).toHaveBeenCalled();
 });
+
+it('never points the model at a tool that does not exist (there is no list_proposals)', () => {
+  const t = decideProposalTool({ orgId: 'org', userId: 'usr-1', conversationId: 7, connectorSources: [] } as never);
+  const schema = JSON.stringify((t as unknown as { schema: { shape: { id: { description?: string } } } }).schema.shape.id.description);
+
+  expect(schema).not.toContain('list_proposals');
+  expect(schema).toContain('never guess an id');
+});

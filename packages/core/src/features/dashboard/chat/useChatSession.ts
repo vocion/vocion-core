@@ -1,9 +1,11 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, CardDecision, CardField, CardLastAttempt, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { AgentOption, AgentRun, CardDecision, CardField, CardLastAttempt, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, DecisionAnswerReceipt, HitlGatePayload, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
+import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
+import type { DoneReceipt } from '@/libs/decisions/receipt';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
@@ -22,6 +24,8 @@ import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
 import { nounCode } from '@/libs/codes';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
+import { answerLine, decisionAnswerWire } from '@/libs/decisions/decision';
+import { readDoneReceipt } from '@/libs/decisions/receipt';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
@@ -140,7 +144,8 @@ function writePreferredAutonomy(a: ConversationAutonomy): void {
 /** One persisted conversation row, as the conversations router returns it. */
 type PersistedMessageRow = {
   id?: number;
-  role: 'user' | 'assistant';
+  /** `decision`: a person's answer to a Decision given on its card — drawn as a receipt, never as their words. */
+  role: 'user' | 'assistant' | 'decision';
   content: string;
   runsJson: unknown;
   documentsJson: unknown;
@@ -187,10 +192,32 @@ function hydrateTranscript(rows: PersistedMessageRow[], nameOf: (slug: string) =
     const recommendations: RecommendedAction[] = runsRaw
       .filter((r): r is Extract<AgentRun, { type: 'card' }> => r.type === 'card' && typeof r.label === 'string' && r.label.length > 0 && typeof r.actionId === 'string')
       .map(r => ({ ...(r.id ? { id: r.id } : {}), actionId: r.actionId, input: r.input ?? {}, label: r.label, ...(r.rationale ? { rationale: r.rationale } : {}), ...(r.runId !== undefined ? { runId: r.runId } : {}), ...cardLink(r.href, r.hrefLabel), ...cardShown(r), ...draftOf(r.draft), state: (r.state as RecommendedAction['state']) ?? (r.runId !== undefined ? 'filed' : 'proposed'), ...(r.reason ? { unfiledReason: r.reason } : {}) }));
+    // A Decision's answer comes back as the receipt it was, on the person's
+    // side: a card's answer is a row of its own with no words; typed words
+    // that answered keep their bubble and carry the line beneath it.
+    const answered = runsRaw.find((r): r is Extract<AgentRun, { type: 'decision_answer' }> => r.type === 'decision_answer');
+    const decisionAnswer: DecisionAnswerReceipt | undefined = answered
+      ? { id: answered.id, question: answered.question, line: answered.line, kind: answered.answer.kind, via: answered.via ?? (row.role === 'decision' ? 'card' : 'composer') }
+      : undefined;
+    // What the turn did inside the trust bar, said once, with honest Undo.
+    const receipts: DoneReceipt[] = runsRaw
+      .filter((r): r is Extract<AgentRun, { type: 'receipt' }> => r.type === 'receipt')
+      .map(r => readDoneReceipt(r.receipt))
+      .filter((r): r is DoneReceipt => r !== null);
+    if (row.role === 'decision') {
+      return {
+        ...(typeof row.id === 'number' ? { id: row.id } : {}),
+        role: 'user' as const,
+        content: '',
+        ...(decisionAnswer ? { decisionAnswer } : {}),
+      };
+    }
     return {
       ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
       content: row.content ?? '',
+      ...(decisionAnswer && row.role === 'user' ? { decisionAnswer } : {}),
+      ...(receipts.length > 0 && row.role === 'assistant' ? { receipts } : {}),
       ...(row.role === 'assistant' && (rating || row.feedbackNote) ? { feedback: { rating, note: row.feedbackNote ?? null } } : {}),
       ...(runs ? { runs } : {}),
       ...(recommendations.length > 0 ? { recommendations } : {}),
@@ -357,6 +384,14 @@ export function useChatSession({
   const [attachError, setAttachError] = useState<string | null>(null);
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
+  // The Decisions this conversation is waiting on, oldest first — the first
+  // is docked above the composer (`decisions/DecisionDock.tsx`).
+  const [openDecisions, setOpenDecisions] = useState<DecisionView[]>([]);
+  // The Decision whose answer is on its way, and why the last one did not land.
+  const [answeringDecisionId, setAnsweringDecisionId] = useState<number | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  // Bumped to read the open Decisions again (an answer that did not land).
+  const [decisionsTick, setDecisionsTick] = useState(0);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [focusCitation, setFocusCitation] = useState<number | null>(null);
   const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
@@ -435,8 +470,9 @@ export function useChatSession({
   const emptyChips = suggestions.length > 0 ? suggestions : workspaceChips(agents);
   const emptyChipsLoading = false;
   const emptyGreeting = greeting ?? { workspace: workspaceName };
-  // Neutral composer (the ChatComposer default, "Ask anything…").
-  const composerPlaceholder = undefined;
+  // Neutral composer (the ChatComposer default, "Ask anything…") — and, with
+  // a Decision docked above it, the other way to answer: in their own words.
+  const composerPlaceholder = openDecisions.length > 0 ? 'Or reply directly…' : undefined;
   const isStreaming = phase !== 'idle';
   /**
    * The same answer as `isStreaming`, readable SYNCHRONOUSLY.
@@ -788,6 +824,40 @@ export function useChatSession({
         setPendingHitl(evt.gate as HitlGatePayload);
         return;
       }
+      case 'decision': {
+        // A Decision raised in this turn docks above the composer; one that
+        // was answered (by its card, or by typed words the server read as the
+        // answer) leaves the dock — the receipt stays in the transcript.
+        flushDeltas();
+        const d = evt.decision as DecisionView | undefined;
+        if (!d || typeof d.id !== 'number') {
+          return;
+        }
+        if (d.state === 'open' || d.state === 'expired') {
+          setOpenDecisions(prev => (prev.some(x => x.id === d.id) ? prev.map(x => (x.id === d.id ? d : x)) : [...prev, d]));
+          return;
+        }
+        setOpenDecisions(prev => prev.filter(x => x.id !== d.id));
+        setAnsweringDecisionId(cur => (cur === d.id ? null : cur));
+        setDecisionError(null);
+        if (d.answer?.via === 'composer') {
+          const line = d.answer.kind === 'free_text' ? (d.answer.freeText ?? '') : d.answer.kind === 'skip' ? 'Skipped' : d.answer.labels.join(', ');
+          setMessages((prev) => {
+            const at = prev.findLastIndex(m => m.role === 'user');
+            return at === -1 ? prev : prev.map((m, i) => (i === at ? { ...m, decisionAnswer: { id: d.id, question: d.question, line, kind: d.answer!.kind, via: 'composer' } } : m));
+          });
+        }
+        return;
+      }
+      case 'receipt': {
+        // Done inside the trust bar: one line under the turn, Undo only where real.
+        flushDeltas();
+        const r = readDoneReceipt(evt.receipt);
+        if (r) {
+          appendToLatestAgent(m => ({ ...m, receipts: [...(m.receipts ?? []).filter(x => x.runId !== r.runId), r] }));
+        }
+        return;
+      }
       case 'card': {
         // The typed form (backlog 025): on the ledger already, on the wire
         // now, filed later if at all — `card_update` carries the proposal id.
@@ -984,6 +1054,38 @@ export function useChatSession({
   // thread and a ref change doesn't re-render.
   const conversationIdRef = useRef<number | null>(null);
   const [conversationId, setConversationId] = useState<number | null>(null);
+
+  // WHAT THIS CONVERSATION IS WAITING ON, read from the server whenever the
+  // thread changes and whenever a turn lands — so a Decision raised while the
+  // person was away (or in another tab) docks the moment they open the thread,
+  // and the live `decision` events are reconciled with the record.
+  const turnIdle = phase === 'idle';
+  useEffect(() => {
+    if (conversationId === null) {
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect -- a thread with no id waits on nothing
+      setOpenDecisions([]);
+      return;
+    }
+    if (!turnIdle) {
+      return;
+    }
+    let cancelled = false;
+    // Through a resolved promise, so a client without the route (an old
+    // server mid-deploy, a test double) is a warning, never a crash.
+    Promise.resolve()
+      .then(() => client.decisions.open({ conversationId }))
+      .then((rows) => {
+        if (!cancelled) {
+          setOpenDecisions(rows as DecisionView[]);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('useChatSession: could not read the open decisions', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, turnIdle, decisionsTick]);
   // A page hand-off may ask for ONE turn to go to a specialist (the brief's
   // team lead); the conversation itself stays with the workspace agent.
   const routeOnceRef = useRef<string | null>(null);
@@ -1352,7 +1454,14 @@ export function useChatSession({
     };
   }, [agent.slug, isSearchOnly, settleBoot, resumeStream, waitForReply, bootTarget]);
 
-  const sendMessage = useCallback(async (raw: string) => {
+  /**
+   * Send a turn. With `decision`, the turn carries a person's ANSWER to a
+   * Decision — typed, from its card's keys or a click — instead of words:
+   * nothing is put in their mouth, the composer keeps whatever they were
+   * typing, and the server records the answer and runs the agent that asked
+   * (`services/decisions/answersFirst.ts`).
+   */
+  const sendMessage = useCallback(async (raw: string, decision?: { view: DecisionView; answer: DecisionAnswer }) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
     // THE HIGHLIGHTED PASSAGE IS PART OF WHAT WAS SAID (Chris, 2026-09-29: "I
@@ -1360,8 +1469,11 @@ export function useChatSession({
     // be able to submit with just that context"). It rode only as page
     // context: the transcript showed "tell me?" with no quote, history lost
     // it, and an empty box could not send. It is now the turn's opening quote.
-    const quoted = pageContextRef.current?.selection?.text?.trim() ?? '';
-    if ((!raw.trim() && !quoted && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
+    const quoted = decision ? '' : pageContextRef.current?.selection?.text?.trim() ?? '';
+    if ((!raw.trim() && !quoted && !pastedText && attachments.length === 0 && !decision) || streamingRef.current || (uploading > 0 && !decision)) {
+      return;
+    }
+    if (decision && conversationIdRef.current === null) {
       return;
     }
     // `/search <query>` is the retrieval-only path (§9.10) — the virtual
@@ -1393,25 +1505,37 @@ export function useChatSession({
     const text = pastedText
       ? `${typed}\n\n--- pasted ---\n${pastedText}`.trim()
       : typed;
-    const sent = attachments;
+    const sent = decision ? [] : attachments;
     // Fresh turn — reset the per-turn trace accumulator and the anchor clock.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
     textRunsRef.current = 0;
     lastRunIsTextRef.current = false;
+    // A card's answer is drawn as what it is — a receipt on the person's
+    // side — and the composer, its files and its tags are left alone.
+    const answerRow: ChatMessage | null = decision
+      ? { role: 'user', content: '', decisionAnswer: { id: decision.view.id, question: decision.view.question, line: answerLine(decision.view, decision.answer), kind: decision.answer.kind, via: 'card' } }
+      : null;
     setMessages(prev => [
       ...prev,
-      { role: 'user', content: text, ...(sent.length > 0 ? { attachments: sent } : {}) },
+      answerRow ?? { role: 'user', content: text, ...(sent.length > 0 ? { attachments: sent } : {}) },
       { role: 'assistant', content: '', runs: [] },
     ]);
-    setComposerValue('');
-    setPastedText(null);
-    setAttachments([]);
-    setAttachError(null);
+    if (decision) {
+      setAnsweringDecisionId(decision.view.id);
+      setDecisionError(null);
+    } else {
+      setComposerValue('');
+      setPastedText(null);
+      setAttachments([]);
+      setAttachError(null);
+    }
     setPhase('thinking');
 
-    const refs = contextRefs;
-    setContextRefs([]);
+    const refs = decision ? [] : contextRefs;
+    if (!decision) {
+      setContextRefs([]);
+    }
     // What the NEXT message owes (0102), read off the tags the person put on
     // it: `@artifact` arms the contract, nothing else does. The tag is not a
     // record, so it is stripped before `context_refs` travels — the model is
@@ -1425,7 +1549,9 @@ export function useChatSession({
     // specialist's name (§9).
     const onceSlug = routeOnceRef.current;
     routeOnceRef.current = null;
-    const routed = searchAgent ?? routeTurn(recordRefs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
+    // An answer goes to the agent that asked: named, never routed.
+    const asker = decision?.view.agentSlug ? agents.find(a => a.slug === decision.view.agentSlug) ?? null : null;
+    const routed = asker ?? searchAgent ?? routeTurn(recordRefs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
     const turnAgent = routed ?? agent;
     // A new thread nobody named an agent for is routed first: say so, rather
     // than a bare spinner, until the runtime says who answers.
@@ -1450,12 +1576,15 @@ export function useChatSession({
         signal: controller.signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: decision ? '' : text,
           agent_slug: turnAgent.slug,
+          // The answer to a Decision, typed: the server records it and runs
+          // the agent that asked — no routing, no intent read, no words.
+          ...(decision ? { decision_answer: decisionAnswerWire(decision.view.id, decision.answer) } : {}),
           // Nobody named an agent for this turn: let the workspace choose
           // (`services/agents/router.ts`). The reply is attributed to whoever
           // answers, exactly as an `@mention` is; the reason rides with it.
-          ...(!routed && !isSearchOnly ? { route: true } : {}),
+          ...(!routed && !isSearchOnly && !decision ? { route: true } : {}),
           // The turn's deliverable contract (0102) — a typed field, decided
           // before the turn runs, not a judgement the model makes during it.
           deliverable,
@@ -1484,6 +1613,21 @@ export function useChatSession({
             .map(m => ({ role: m.role, content: m.content })),
         }),
       });
+      if (decision && !resp.ok) {
+        // The answer did not land — already decided elsewhere, or not one
+        // this Decision takes. Nothing was said for them: take the receipt
+        // back, say why on the card, and read what is still open.
+        const said = await resp.json().catch(() => null) as { error?: string } | null;
+        setMessages(prev => prev.slice(0, -2));
+        setDecisionError(said?.error ?? 'That answer did not go through.');
+        setAnsweringDecisionId(null);
+        streamingRef.current = false;
+        setPhase('idle');
+        setActivity(null);
+        setTurnOutcome('completed');
+        setDecisionsTick(n => n + 1);
+        return;
+      }
       if (!resp.ok || !resp.body) {
         // The server's own sentence when it sent one ("Too many attempts. Try
         // again in 30 seconds."), so the turn says why rather than a status.
@@ -1550,6 +1694,7 @@ export function useChatSession({
       setPhase('idle');
       setActivity(null);
       setTurnOutcome('completed');
+      setAnsweringDecisionId(null);
       streamStashRef.current = null;
       writeStreamStash(null);
       void stampLastAssistantId();
@@ -1818,6 +1963,15 @@ export function useChatSession({
     }
     void sendMessage(text);
   }, [agent.slug, agents, sendMessage]);
+
+  /**
+   * Answer the docked Decision — from its card's keys or a click. The answer
+   * travels TYPED to the agent that asked; nothing is written as the
+   * person's words (`sendMessage`'s `decision`).
+   */
+  const answerDecision = useCallback((view: DecisionView, answer: DecisionAnswer) => {
+    void sendMessage('', { view, answer });
+  }, [sendMessage]);
 
   const handleApproveHitl = useCallback(() => {
     setPendingHitl(null);
@@ -2088,6 +2242,19 @@ export function useChatSession({
     isStreaming,
     activity,
     pendingHitl,
+    /** The Decisions this conversation waits on, oldest first; the first is docked above the composer. */
+    openDecisions,
+    /** Answer a Decision, typed — never as the person's words. */
+    answerDecision,
+    /** The Decision whose answer is on its way. */
+    answeringDecisionId,
+    /** Why the last answer did not land. */
+    decisionError,
+    /**
+     * An agent's name, by slug — the asker on a Decision's card.
+     * @param slug
+     */
+    agentNameOf: (slug: string | null) => (slug ? nameOfAgent(slug) : null),
     sourcesOpen,
     setSourcesOpen,
     focusCitation,

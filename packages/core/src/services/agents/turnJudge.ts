@@ -42,6 +42,16 @@ export type TurnIntent = z.infer<typeof TurnIntentSchema>;
 export const NO_INTENT: TurnIntent & { unread: true } = { asks: 'answer', changed_record_type: null, record_type: null, summary: '', unread: true };
 
 /**
+ * The reading of a turn that answers an open Decision. The answer is a typed
+ * record, so the turn is not read again: the person decided, and the asking
+ * agent acts on it — never read-only.
+ * @param summary - The answer, in a line.
+ */
+export function answeredIntent(summary: string): TurnIntent {
+  return { asks: 'decide', changed_record_type: null, record_type: null, summary: summary.slice(0, 200) };
+}
+
+/**
  * The person asked for an act, not an answer.
  * @param intent - The turn's reading.
  */
@@ -130,4 +140,92 @@ export async function saidToDecide(input: { orgId: string; messages: string[]; d
     console.warn('turn judge: consent read failed', { orgId: input.orgId, message: (err as Error).message });
     return { said: false, quote: null };
   }
+}
+
+/**
+ * ANSWERS FIRST. While a Decision is open in a conversation, the person's
+ * next message is read against it before it is routed or intent-read: did
+ * they answer it — by number, by label, by meaning — in their own words, or
+ * is this a new topic? A model returns the typed field; code routes on it
+ * (`decisionAnswerFromReading`).
+ */
+export const DecisionAnswerReadSchema = z.object({
+  answers_open_decision: z.object({
+    kind: z.enum(['option', 'free_text', 'none']).describe([
+      'option — the message picks one or more of the listed options, by number ("2", "the second"), by label, or by meaning ("go with the API repo").',
+      'free_text — the message answers the question in their own words but is not one of the options: a different value, a condition, "neither, use X".',
+      'none — the message is not an answer: a new topic, a different request, or a question ABOUT the decision rather than an answer to it.',
+    ].join(' ')),
+    option_ids: z.array(z.string().max(80)).max(8).describe('With option: the ids of every option the message picks, in the order said. Empty otherwise.'),
+    free_text: z.string().max(2_000).nullable().describe('With free_text: their answer, in their words. Null otherwise.'),
+  }),
+});
+export type DecisionAnswerReading = z.infer<typeof DecisionAnswerReadSchema>['answers_open_decision'];
+
+/** No reading: the message is routed as it would have been, and the Decision stays docked. */
+export const NO_DECISION_ANSWER: DecisionAnswerReading = { kind: 'none', option_ids: [], free_text: null };
+
+/**
+ * Does this message answer the open Decision? Fails to "none", so a judge
+ * that cannot read never holds up the turn — the message routes as usual and
+ * the Decision stays where it is.
+ * @param input - The message and the Decision.
+ * @param input.orgId - The workspace.
+ * @param input.message - What the person typed.
+ * @param input.decision - The open Decision.
+ * @param input.decision.question - Its question.
+ * @param input.decision.options - Its options, in the order the card numbers them.
+ * @param input.decision.allowOther - Whether a free-text answer is accepted.
+ * @param input.decision.multiple - Whether several options may be chosen.
+ * @param model - Injected in tests.
+ */
+export async function readDecisionAnswer(input: { orgId: string; message: string; decision: { question: string; options: ReadonlyArray<{ id: string; label: string; consequence?: string }>; allowOther: boolean; multiple: boolean } }, model?: Model): Promise<DecisionAnswerReading> {
+  try {
+    const d = input.decision;
+    const out = await ask(model ?? await classifier(input.orgId), DecisionAnswerReadSchema, 'report_decision_answer', 'Report whether the message answers the open decision.', 'An agent asked a person one question in a work app, shown as a card with numbered options. You read the person\'s next message and report, as typed fields, whether it answers that question. Judge the meaning, not the wording. Answer only through the tool.', [
+      `Open decision: ${d.question}`,
+      d.options.length > 0 ? `Options, numbered as the card shows them:\n${d.options.map((o, i) => `${i + 1}. [id ${o.id}] ${o.label}${o.consequence ? ` — ${o.consequence}` : ''}`).join('\n')}` : 'It has no options: it is answered in words.',
+      d.multiple ? 'Several options may be chosen together.' : 'Exactly one option may be chosen.',
+      d.allowOther ? 'An answer in their own words is accepted.' : 'Only the options are accepted.',
+      `Their message now: ${input.message.slice(0, 4_000)}`,
+    ].join('\n\n'));
+    return out?.answers_open_decision ?? NO_DECISION_ANSWER;
+  } catch (err) {
+    console.warn('turn judge: decision answer read failed', { orgId: input.orgId, message: (err as Error).message });
+    return NO_DECISION_ANSWER;
+  }
+}
+
+/**
+ * The answer code routes on, from the model's reading — or null when the
+ * message is not an answer this Decision can take, and routes as usual.
+ *
+ * Options the Decision does not have are dropped. Two options on a Decision
+ * that takes one ("1 and 3") is not a choice the card could make: it is the
+ * person's words, so it goes to the asking agent as a free-text answer where
+ * free text is accepted, and routes as usual where it is not.
+ * @param decision - The open Decision.
+ * @param decision.options - Its options.
+ * @param decision.allowOther - Whether a free-text answer is accepted.
+ * @param decision.multiple - Whether several options may be chosen.
+ * @param reading - What the judge read.
+ * @param message - What the person typed.
+ */
+export function decisionAnswerFromReading(decision: { options: ReadonlyArray<{ id: string }>; allowOther: boolean; multiple: boolean }, reading: DecisionAnswerReading, message: string): import('@/libs/decisions/decision').DecisionAnswer | null {
+  const words = message.trim();
+  const asText = (text: string) => (decision.allowOther && text.trim() ? { kind: 'free_text' as const, text: text.trim() } : null);
+  if (reading.kind === 'none') {
+    return null;
+  }
+  if (reading.kind === 'free_text') {
+    return asText(reading.free_text?.trim() || words);
+  }
+  const known = [...new Set(reading.option_ids)].filter(id => decision.options.some(o => o.id === id));
+  if (known.length === 0) {
+    return asText(words);
+  }
+  if (known.length > 1 && !decision.multiple) {
+    return asText(words);
+  }
+  return { kind: 'option', optionIds: known };
 }

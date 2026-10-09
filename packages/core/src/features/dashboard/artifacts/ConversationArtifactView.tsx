@@ -32,6 +32,7 @@ import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from '@/features/dashboard/chat/autonomyOptions';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
+import { ConversationDecisions } from '@/features/dashboard/chat/decisions/DecisionDock';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
 import { ModelControl } from '@/features/dashboard/chat/ModelControl';
@@ -282,6 +283,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
               )}
               {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
               <ChatComposer
+                above={<ConversationDecisions session={session} />}
                 onCommand={onCommand}
                 controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
                 settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, tc('autonomy_thread'))]}

@@ -106,3 +106,17 @@ describe('toHistoryTurns carries the runs', () => {
     ]);
   });
 });
+
+describe('toHistoryTurns replays a card\'s answer as the person\'s turn', () => {
+  it('hands a `decision` row to the model as a user turn — the typed record of what they chose', () => {
+    const turns = toHistoryTurns([
+      { id: 'a1', role: 'assistant', content: 'One question before I go on.' },
+      { id: 'd1', role: 'decision', content: '[decision #41 answered] Which repo should the factory build in?\nChosen: Northwind API (option api)', runsJson: [{ type: 'decision_answer', id: 41 }] },
+    ]);
+
+    expect(turns).toEqual([
+      { role: 'assistant', content: 'One question before I go on.', id: 'a1' },
+      { role: 'user', content: '[decision #41 answered] Which repo should the factory build in?\nChosen: Northwind API (option api)', id: 'd1' },
+    ]);
+  });
+});

@@ -232,6 +232,23 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // One Decision, answered by keyboard: the docked card end to end — the
+    // turn ends at it, the keys answer it, the answer travels typed to the
+    // agent that asked, and words in the composer are read against it before
+    // routing. Needs the scripted model, so it is defined only when the
+    // server runs one, like `chat-incomplete`.
+    // Run with: npm run e2e:decisions
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted' && process.env.VOCION_LLM_SCRIPT?.includes('e2e/decisions/')
+      ? [
+          {
+            name: 'decisions',
+            testDir: './e2e/decisions',
+            timeout: projectTimeout(240 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // #1080 — connecting from the Connectors page and from chat. Needs the
     // scripted connect providers (so no login ever reaches a real vendor) and
     // the scripted model (for the chat case), so it is defined only when the

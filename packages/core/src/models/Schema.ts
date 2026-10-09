@@ -1843,7 +1843,11 @@ export const conversationMessageSchema = pgTable('conversation_message', {
   conversationId: integer('conversation_id')
     .notNull()
     .references(() => conversationSchema.id, { onDelete: 'cascade' }),
-  /** 'user' | 'assistant' */
+  /**
+   * 'user' | 'assistant' | 'decision'. A `decision` row is a person's answer
+   * to a Decision given on its card — keys or a click, nothing typed — so it
+   * is never drawn as their words (`runs_json` carries the typed answer).
+   */
   role: text('role').notNull(),
   /** Rendered text content the agent sees on history replay. */
   content: text('content').notNull().default(''),
@@ -1878,8 +1882,11 @@ export const conversationMessageSchema = pgTable('conversation_message', {
   runsJson: jsonb('runs_json').$type<Array<
     | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' }
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; brand?: string; decision?: { action: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; brand?: string; decision?: { action: string; at: string; by?: string; option?: string }; draft?: { prompt: string; missing: string } }
     | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
+    | { type: 'decision'; id: number; question: string; state?: string }
+    | { type: 'decision_answer'; id: number; question: string; answer: { kind: 'option'; optionIds: string[] } | { kind: 'free_text'; text: string } | { kind: 'skip' }; line: string; via?: string }
+    | { type: 'receipt'; receipt: { runId: number; actionId: string; label: string; undoable: boolean; href?: string; status?: 'done' | 'undone' } }
   >>(),
   /**
    * Cited/pulled source documents for this assistant turn — so inline `[n]`
@@ -4532,7 +4539,8 @@ export type AskOption = {
    * What choosing it DOES (Chris, 2026-09-29: "a ruling card's buttons are its
    * options, and choosing one is the answer that restarts the build"). Run as
    * the person who chose it, through the action rail — the same as pressing
-   * Approve on that action's card.
+   * Approve on that action's card. A Decision calls this the option's
+   * effect: the exact typed action it runs.
    */
   action?: { id: string; input: Record<string, unknown> };
 };
@@ -4626,12 +4634,34 @@ export const askSchema = pgTable(
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+    /*
+     * THE DECISION (migration 0193): the ask is the one noun a person decides
+     * through — in chat, on Needs you, in Slack or email. `libs/decisions/
+     * decision.ts` reads a row as a Decision; `services/decisions/
+     * DecisionService.ts` raises and answers one.
+     */
+    /** The conversation it docks in, above the composer. Null: it lives on Needs you only. */
+    conversationId: integer('conversation_id'),
+    /** The accountable person it waits on. */
+    ownerUserId: text('owner_user_id'),
+    /** Whether "Something else" (a free-text answer) is offered. */
+    allowOther: boolean('allow_other').default(true).notNull(),
+    /** Whether several options may be chosen together. */
+    multiSelect: boolean('multi_select').default(false).notNull(),
+    /** Every option chosen, in order; the first is also `decision`. */
+    chosenOptionIds: jsonb('chosen_option_ids').$type<string[]>(),
+    /** Where it was answered: `card` | `composer` | `needs_you` | `slack` | `email` | `default` | `agent`. */
+    decidedVia: text('decided_via'),
+    /** The action_run the chosen option's effect started — what Undo reverses, where its kind has undo. */
+    effectRunId: integer('effect_run_id'),
   },
   table => [
     index('ask_org_status_idx').on(table.orgId, table.status),
     index('ask_org_agent_idx').on(table.orgId, table.agentSlug),
     index('ask_org_group_idx').on(table.orgId, table.groupKey),
     uniqueIndex('ask_org_source_ref_uq').on(table.orgId, table.sourceRef).where(sql`${table.sourceRef} IS NOT NULL`),
+    // Built concurrently in production (migrations/concurrent/0193_…).
+    index('ask_conversation_open_idx').on(table.orgId, table.conversationId).where(sql`${table.status} = 'open'`),
   ],
 );
 

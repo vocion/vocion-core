@@ -214,10 +214,17 @@ export const setAutonomy = os
   });
 
 /**
- * A person decided a card (backlog 025). The decision is written as a USER
- * turn the model can bind to — the card's id, the action, the proposal —
- * never as words the model has to parse ("approve filing it" bound to the
- * wrong record three times on 2026-09-24).
+ * A person decided a card (backlog 025) — recorded ON THE CARD, never as a
+ * turn they did not type.
+ *
+ * This used to append a USER message ("Approved the card …") so the model
+ * could bind the decision; the transcript then showed words the person never
+ * wrote, and the next turn routed and intent-read them like any other line.
+ * The decision is a fact about the card: its run on the turn that drew it
+ * carries the state, who decided, when, and — on a card whose options are
+ * typed (A/B/C/D) — which option. The next turn's history replays the card as
+ * what its proposal is now (`historyTools.withLiveCardState`), so the model
+ * still binds it, by id.
  */
 export const recordCardDecision = os
   .input(z.object({
@@ -226,11 +233,11 @@ export const recordCardDecision = os
     label: z.string().min(1),
     action: z.enum(['approve', 'reject', 'defer', 'undo']),
     runId: z.number().int().optional(),
+    /** The typed option chosen, on a card that offers several. */
+    optionId: z.string().min(1).max(80).optional(),
     /**
-     * False: the card records the run it became and nothing is said in the
-     * conversation. A setup card (`cards/SetupCard.tsx`) is the person's own
-     * press on a step they were offered; the next turn reads what became of it
-     * from the card's run (`withLiveCardState`), not from words written for them.
+     * Accepted from callers that still send it (a setup card sent `false`):
+     * no card decision writes a turn for the person anymore, whatever it says.
      */
     turn: z.boolean().optional(),
   }))
@@ -240,29 +247,15 @@ export const recordCardDecision = os
     if (!conversation) {
       throw ApiError.notFound({ id: input.id });
     }
-    if (input.turn === false) {
-      // A run decided, or — a skip — a card set aside that never became one
-      // (the brand preview's Skip): the card remembers it either way, so a
-      // reload draws the outcome, not the choices again.
-      const decided = (input.action === 'approve' || input.action === 'reject') && (input.runId !== undefined || input.action === 'reject');
-      const marked = decided
-        ? await markCardRun({ orgId, conversationId: input.id, cardId: input.cardId, patch: { ...(input.runId !== undefined ? { runId: input.runId } : {}), state: 'decided', decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}) } } }).catch(() => false)
-        : false;
-      return { id: null, marked };
-    }
-    const verb = { approve: 'Approved', reject: 'Rejected', defer: 'Deferred', undo: 'Undid' }[input.action];
-    const row = await appendMessage({
-      orgId,
-      conversationId: input.id,
-      role: 'user',
-      userId,
-      content: `${verb} the card "${input.label}"${input.runId !== undefined ? ` (proposal #${input.runId})` : ''}.`,
-      runs: [{ type: 'card_decision', cardId: input.cardId, action: input.action, label: input.label, ...(input.runId !== undefined ? { runId: input.runId } : {}) }],
-    });
+    const state = input.action === 'defer' ? 'deferred' : 'decided';
     // The card itself remembers the run it became, so a reload draws the run
     // (done, Undo) where the button was, rather than the button again.
-    if (input.runId !== undefined && (input.action === 'approve' || input.action === 'reject')) {
-      await markCardRun({ orgId, conversationId: input.id, cardId: input.cardId, patch: { runId: input.runId, state: 'decided', decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}) } } }).catch(() => false);
-    }
-    return { id: row.id, marked: input.runId !== undefined };
+    const becameRun = input.runId !== undefined && (input.action === 'approve' || input.action === 'reject');
+    const marked = await markCardRun({
+      orgId,
+      conversationId: input.id,
+      cardId: input.cardId,
+      patch: { state, ...(becameRun ? { runId: input.runId } : {}), decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}), ...(input.optionId ? { option: input.optionId } : {}) } },
+    }).catch(() => false);
+    return { id: null, marked, recorded: marked };
   });

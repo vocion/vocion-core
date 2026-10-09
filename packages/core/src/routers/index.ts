@@ -73,6 +73,7 @@ import {
   setModel as setConvModel,
   tail as tailConv,
 } from './Conversations';
+import { openRoute as openDecisionsRoute } from './Decisions';
 import {
   runDetail as evalRunDetail,
   get as getEval,
@@ -369,6 +370,10 @@ export const router = {
     recordCardDecision: recordConvCardDecision,
     setAutonomy: setConvAutonomy,
     setModel: setConvModel,
+  },
+  // A Decision docked in a conversation (`services/decisions/DecisionService.ts`).
+  decisions: {
+    open: openDecisionsRoute,
   },
   learnings: {
     listSteps: listLearningSteps,

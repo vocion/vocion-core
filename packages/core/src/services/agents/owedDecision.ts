@@ -111,14 +111,16 @@ export async function personMessages(ctx: { orgId: string; conversationId?: numb
   let stored: string[] = [];
   if (ctx.conversationId) {
     try {
-      const { and, desc, eq } = await import('drizzle-orm');
+      const { and, desc, eq, inArray } = await import('drizzle-orm');
       const { db } = await import('@/libs/DB');
       const { conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
       const rows = await db
         .select({ content: conversationMessageSchema.content })
         .from(conversationMessageSchema)
         .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
-        .where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationMessageSchema.conversationId, ctx.conversationId), eq(conversationMessageSchema.role, 'user')))
+        // A Decision answered on its card is the person's word too: what they
+        // chose, as the typed record the row holds.
+        .where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationMessageSchema.conversationId, ctx.conversationId), inArray(conversationMessageSchema.role, ['user', 'decision'])))
         .orderBy(desc(conversationMessageSchema.id))
         .limit(2);
       stored = rows.map(r => String(r.content ?? ''));

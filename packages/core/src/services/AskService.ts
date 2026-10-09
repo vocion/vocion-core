@@ -44,11 +44,15 @@ export { ASK_KINDS, ASK_RISKS };
  * Every read and write here is scoped by orgId.
  */
 
-export const ASK_STATUSES = ['open', 'approved', 'rejected', 'done', 'superseded'] as const;
+export const ASK_STATUSES = ['open', 'approved', 'rejected', 'done', 'superseded', 'skipped'] as const;
 export type AskStatus = typeof ASK_STATUSES[number];
 
-/** The statuses a decided ask can hold — everything but `open`. */
-export const DECIDED_STATUSES = ['approved', 'rejected', 'done', 'superseded'] as const satisfies readonly AskStatus[];
+/**
+ * The statuses a decided ask can hold — everything but `open`. `skipped` is a
+ * Decision the person chose not to answer: closed, with no answer, and the
+ * asking agent carried on without one (`libs/decisions/decision.ts`).
+ */
+export const DECIDED_STATUSES = ['approved', 'rejected', 'done', 'superseded', 'skipped'] as const satisfies readonly AskStatus[];
 export type DecidedStatus = typeof DECIDED_STATUSES[number];
 
 /** The answers every ask accepts on top of its own options. */
@@ -237,6 +241,14 @@ export type AskInput = {
   dueAt?: Date | null;
   notifyAt?: Date | null;
   projectId?: string | null;
+  /** The conversation the Decision docks in, above its composer. */
+  conversationId?: number | null;
+  /** The accountable person it waits on. */
+  ownerUserId?: string | null;
+  /** Whether a free-text "Something else" answer is offered. */
+  allowOther?: boolean;
+  /** Whether several options may be chosen together. */
+  multiSelect?: boolean;
 };
 
 /**
@@ -278,8 +290,12 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       dueAt: ask.dueAt,
       notifyAt: ask.notifyAt,
       projectId: ask.projectId,
+      conversationId: ask.conversationId,
+      ownerUserId: ask.ownerUserId,
+      allowOther: ask.allowOther,
+      multiSelect: ask.multiSelect,
     }).filter(([, v]) => v !== undefined),
-  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
+  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId' | 'conversationId' | 'ownerUserId' | 'allowOther' | 'multiSelect'>> & Pick<Ask, 'kind' | 'title'>;
 
   const sourceRef = ask.sourceRef?.trim() || null;
   if (sourceRef) {
@@ -480,7 +496,7 @@ export async function countOpenAsks(orgId: string): Promise<number> {
 }
 
 /** What one decision resolves to. */
-type Resolved = { status: DecidedStatus; followUp: boolean };
+type Resolved = { status: Exclude<DecidedStatus, 'skipped' | 'superseded'>; followUp: boolean };
 
 /**
  * Resolve a decision against the ask. `approve` / `reject` / `done` / `other`
@@ -531,8 +547,10 @@ function resolveDecision(ask: Ask, decision: string, note: string | null): Resol
  * @param opts.decision - `approve` | `reject` | `done` | `other` | an option id.
  * @param opts.note - Required with `other`; optional otherwise.
  * @param opts.decidedBy - The actor id from the API caller.
+ * @param opts.via - Where it was answered (`card`, `composer`, `needs_you` …), when the caller knows.
+ * @param opts.chosenOptionIds - Every option chosen, on a Decision that takes several; the first must be `decision`.
  */
-export async function decideAsk(opts: { orgId: string; id: number; decision: string; note?: string | null; decidedBy: string }): Promise<Ask> {
+export async function decideAsk(opts: { orgId: string; id: number; decision: string; note?: string | null; decidedBy: string; via?: string | null; chosenOptionIds?: string[] }): Promise<Ask> {
   const { READ_ONLY_RECEIPT, noteWrite, settleTurn, writesRefused } = await import('@/services/agents/turnScope');
   await settleTurn();
   if (writesRefused()) {
@@ -549,10 +567,11 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
   const decision = opts.decision.trim();
   const note = opts.note?.trim() || null;
   const { status, followUp } = resolveDecision(ask, decision, note);
+  const chosenOptionIds = chosenOf(ask, decision, opts.chosenOptionIds);
   const now = new Date();
   const [row] = await db
     .update(askSchema)
-    .set({ status, decision, decisionNote: note, followUp, decidedBy: opts.decidedBy, decidedAt: now, updatedAt: now })
+    .set({ status, decision, decisionNote: note, followUp, decidedBy: opts.decidedBy, decidedAt: now, updatedAt: now, chosenOptionIds, decidedVia: opts.via ?? null })
     .where(and(eq(askSchema.orgId, opts.orgId), eq(askSchema.id, opts.id), eq(askSchema.status, 'open')))
     .returning();
   if (!row) {
@@ -580,7 +599,55 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
         ]),
   ]);
   announceDecided(row);
-  await carryOutChosenOption(row, opts.decidedBy);
+  const effect = await carryOutChosenOption(row, opts.decidedBy);
+  await settleWaitersOn(row);
+  return effect ? (await getAsk(opts.orgId, opts.id)) ?? row : row;
+}
+
+/**
+ * Every option chosen, in order, or null when the answer named no option.
+ * Several only where the ask takes several; the first is always `decision`.
+ * @param ask - The ask.
+ * @param decision - The resolved decision.
+ * @param chosen - What the caller said was chosen.
+ */
+function chosenOf(ask: Ask, decision: string, chosen: string[] | undefined): string[] | null {
+  const isOption = ask.options.some(o => o.id === decision);
+  if (!chosen || chosen.length <= 1) {
+    return isOption ? [decision] : null;
+  }
+  if (!ask.multiSelect) {
+    throw new AskError('VALIDATION_FAILED', 'this decision takes one option', 400);
+  }
+  if (chosen[0] !== decision || chosen.some(id => !ask.options.some(o => o.id === id)) || new Set(chosen).size !== chosen.length) {
+    throw new AskError('VALIDATION_FAILED', `every chosen option must be one of: ${ask.options.map(o => o.id).join(', ')}`, 400);
+  }
+  return chosen;
+}
+
+/**
+ * The person chose not to answer: the Decision closes as `skipped`, with no
+ * answer, and whoever asked carries on without one. Only an `open` ask can be
+ * skipped — the same 409 a second answer gets.
+ * @param opts - The skip.
+ * @param opts.orgId - The workspace.
+ * @param opts.id - The ask.
+ * @param opts.by - Who skipped it.
+ * @param opts.via - Where.
+ */
+export async function skipAsk(opts: { orgId: string; id: number; by: string; via?: string | null }): Promise<Ask> {
+  const now = new Date();
+  const [row] = await db
+    .update(askSchema)
+    .set({ status: 'skipped', decision: null, decidedBy: opts.by, decidedAt: now, decidedVia: opts.via ?? null, updatedAt: now })
+    .where(and(eq(askSchema.orgId, opts.orgId), eq(askSchema.id, opts.id), eq(askSchema.status, 'open')))
+    .returning();
+  if (!row) {
+    const ask = await getAsk(opts.orgId, opts.id);
+    throw ask
+      ? new AskError('CONFLICT', `Ask ${opts.id} was already decided (${ask.status})`, 409)
+      : new AskError('NOT_FOUND', `No ask ${opts.id}`, 404);
+  }
   await settleWaitersOn(row);
   return row;
 }
@@ -613,7 +680,28 @@ async function settleWaitersOn(row: Ask): Promise<void> {
  * @param decidedBy - The person.
  */
 export async function carryOutChosenOption(row: Ask, decidedBy: string): Promise<{ runId: number; status: string } | null> {
-  const chosen = (row.options ?? []).find(o => o.id === row.decision);
+  // Every option chosen runs its own effect, in the order chosen; the first
+  // run that started is the one Undo names on the row (`effect_run_id`).
+  const ids = row.chosenOptionIds && row.chosenOptionIds.length > 0 ? row.chosenOptionIds : row.decision ? [row.decision] : [];
+  let first: { runId: number; status: string } | null = null;
+  for (const id of ids) {
+    const started = await carryOutOne(row, id, decidedBy);
+    first ??= started;
+  }
+  if (first) {
+    await db.update(askSchema).set({ effectRunId: first.runId }).where(and(eq(askSchema.orgId, row.orgId), eq(askSchema.id, row.id)));
+  }
+  return first;
+}
+
+/**
+ * One chosen option's action, run as the person.
+ * @param row - The decided ask.
+ * @param optionId - The option.
+ * @param decidedBy - The person.
+ */
+async function carryOutOne(row: Ask, optionId: string, decidedBy: string): Promise<{ runId: number; status: string } | null> {
+  const chosen = (row.options ?? []).find(o => o.id === optionId);
   if (!chosen?.action || !decidedBy.startsWith('usr-')) {
     return null;
   }

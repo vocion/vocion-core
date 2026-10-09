@@ -50,8 +50,18 @@ export type ConversationRun
      * lookup result three times on 2026-09-24 because the card lived only
      * in the browser.
      */
-    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; brand?: string; decision?: { action: string; at: string; by?: string }; draft?: { prompt: string; missing: string } }
-    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string };
+    | { type: 'card'; id?: string; kind?: string; label: string; actionId: string; actionLabel?: string; input?: Record<string, unknown>; runId?: number; state?: string; reason?: string; rationale?: string; ref?: { type: string; id: number }; body?: string; fields?: Array<{ label: string; value: string; href?: string }>; href?: string; hrefLabel?: string; secondaryHref?: string; secondaryHrefLabel?: string; lastAttempt?: { at: string; reason: string; summary: string }; brand?: string; decision?: { action: string; at: string; by?: string; option?: string }; draft?: { prompt: string; missing: string } }
+    | { type: 'card_decision'; cardId: string; action: string; runId?: number; label?: string }
+    /** A Decision this turn put in front of the person (`libs/decisions/decision.ts`), by id. */
+    | { type: 'decision'; id: number; question: string; state?: string }
+    /**
+     * The person's answer to a Decision — on the row that carries it: a
+     * `decision` row for a card's keys or click (nothing was typed), or the
+     * `user` row whose words the composer's model read as the answer.
+     */
+    | { type: 'decision_answer'; id: number; question: string; answer: import('@/libs/decisions/decision').DecisionAnswer; line: string; via?: string }
+    /** Something done inside the trust bar, said once, with Undo only where the kind has one. */
+    | { type: 'receipt'; receipt: import('@/libs/decisions/receipt').DoneReceipt };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
 export type ConversationTraceNode = {
@@ -336,8 +346,8 @@ export async function listMessages(opts: { orgId: string; conversationId: number
  * @param role - Who the message is from; only an assistant turn takes a status.
  * @returns The status to write into the column.
  */
-function storableStatus(status: TurnStatus | null | undefined, role: 'user' | 'assistant'): TurnStatus | null {
-  if (role === 'user') {
+function storableStatus(status: TurnStatus | null | undefined, role: 'user' | 'assistant' | 'decision'): TurnStatus | null {
+  if (role !== 'assistant') {
     return null;
   }
   if (status === null || status === undefined) {
@@ -353,7 +363,7 @@ function storableStatus(status: TurnStatus | null | undefined, role: 'user' | 'a
 export async function appendMessage(opts: {
   orgId: string;
   conversationId: number;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'decision';
   content: string;
   runs?: ConversationRun[] | null;
   /** Cited source documents for an assistant turn — persisted so citations survive reload. */
@@ -479,13 +489,17 @@ export function toHistoryTurns(messages: Array<{
     if (isDroppedFromHistory(m.status)) {
       continue;
     }
-    if (m.role !== 'user' && m.role !== 'assistant') {
+    if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'decision') {
       continue;
     }
+    // A Decision answered on its card is the person's turn to the model —
+    // the typed record of what they chose, stored as the row's content
+    // (`decisionForModel`) — and never drawn as words they typed.
+    const role = m.role === 'decision' ? 'user' : m.role;
     let content = m.content;
     const at = m.createdAt ? new Date(m.createdAt) : null;
     const dated = at !== null && !Number.isNaN(at.getTime());
-    if (m.role === 'user' && dated && opts.timeZone) {
+    if (role === 'user' && dated && opts.timeZone) {
       const gapMs = previous ? at.getTime() - previous.getTime() : Number.POSITIVE_INFINITY;
       if (gapMs >= HISTORY_STAMP_GAP_MS) {
         content = `[sent ${formatDateTime(at, opts.timeZone)}] ${content}`;
@@ -494,7 +508,7 @@ export function toHistoryTurns(messages: Array<{
     if (dated) {
       previous = at;
     }
-    out.push({ role: m.role, content, ...(m.id ? { id: m.id } : {}), ...(m.role === 'assistant' && m.runsJson ? { runs: m.runsJson } : {}) });
+    out.push({ role, content, ...(m.id ? { id: m.id } : {}), ...(role === 'assistant' && m.runsJson ? { runs: m.runsJson } : {}) });
   }
   return out;
 }
@@ -789,7 +803,8 @@ export type CardRunPatch = {
   state: CardState;
   /** The proposal the card became when a person pressed it, so a reload shows the run, not the button. */
   runId: number;
-  decision: { action: string; at: string; by?: string };
+  /** How a person decided it — and, on a card whose options are typed (A/B/C/D), WHICH option. */
+  decision: { action: string; at: string; by?: string; option?: string };
   lastAttempt: { at: string; reason: string; summary: string };
   /** The line under the title, rewritten when a card's own walk-through finishes ("Connect your systems" writes its summary here). */
   body: string;

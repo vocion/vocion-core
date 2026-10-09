@@ -6,6 +6,7 @@ import { Quote } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef } from 'react';
 import { AgentMessage } from './AgentMessage';
+import { DecisionAnswerLine } from './decisions/DecisionAnswerLine';
 import { turnAttribution } from './routing';
 import { SelectionToolbar } from './SelectionToolbar';
 import { UserMessage } from './UserMessage';
@@ -194,7 +195,14 @@ export function MessageList({ messages, agentName, ownAgentSlug, streaming = fal
         {messages.map((msg, i) => (
           <div key={i} className={`space-y-8 ${gapAfter(i)}`}>
             {msg.role === 'user'
-              ? <UserMessage content={msg.content} attachments={msg.attachments} />
+              ? (
+                  // A card's answer has no words: it is drawn as the receipt
+                  // it is. Typed words that answered keep their bubble.
+                  <>
+                    {(msg.content.trim() || (msg.attachments?.length ?? 0) > 0 || !msg.decisionAnswer) && <UserMessage content={msg.content} attachments={msg.attachments} />}
+                    {msg.decisionAnswer && <div className={msg.content.trim() ? 'mt-1.5' : ''}><DecisionAnswerLine answer={msg.decisionAnswer} /></div>}
+                  </>
+                )
               : (
                   <AgentMessage
                     message={msg}
