@@ -130,7 +130,7 @@ export function ConversationObjective({ session }: { session: { conversationId: 
   // turn the lead answers — never a card the strip opened by itself.
   const onResume = () => {
     resume();
-    void session.sendMessage?.(`Let's keep setting up ${view.name}`);
+    void session.sendMessage?.(view.kind === 'goal' ? `Let's keep working on my goal "${view.name}"` : `Let's keep setting up ${view.name}`);
   };
-  return <ObjectiveStrip key={`${view.conversationId}:${view.plugin}`} view={view} onStop={stop} onResume={onResume} />;
+  return <ObjectiveStrip key={`${view.conversationId}:${view.kind === 'goal' ? `goal:${view.goalId}` : view.plugin}`} view={view} onStop={stop} onResume={onResume} />;
 }

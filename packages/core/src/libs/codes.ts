@@ -35,6 +35,8 @@ export const CORE_NOUN_CODES = {
   artifact: 'ART',
   /** One run of an automation (`automation_run`). */
   automation: 'AUTO',
+  /** A person's goal (`goal`, `libs/objectives/goal.ts`). */
+  goal: 'GOAL',
 } as const;
 
 /** A core noun with a code. */

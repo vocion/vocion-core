@@ -7,6 +7,10 @@
  * them said what the whole thing was, what was done, what was next, or how
  * to stop and come back.
  *
+ * Objectives have a kind: `setup` (below) and `goal` — a person's own
+ * objective that outlives the conversation (`goal.ts`, its own row); a
+ * conversation working on one points at it and draws the same line.
+ *
  * So a conversation can carry ONE objective (`conversation.objective`), and
  * while it runs the composer carries one quiet line above the dock:
  * "Setting up Software Factory · 2 of 3 · Stop". Tapping it lists the steps.
@@ -20,9 +24,15 @@
  * Pure, so the strip, the opening hint and the tests read one answer.
  */
 
-/** What the conversation row keeps (`conversation.objective`, migration 0201). */
-export type ConversationObjective = {
-  /** One kind today: setting up an app's plugin. A new kind is a new member here. */
+/**
+ * What the conversation row keeps (`conversation.objective`, migration 0201):
+ * a setup it is walking, or a goal it is working on (`goal.ts`). Objectives
+ * gain a kind; a setup reads exactly as it always did.
+ */
+export type ConversationObjective = SetupObjective | GoalObjective;
+
+/** Setting up an app's plugin, in this conversation. */
+export type SetupObjective = {
   kind: 'setup';
   /** The plugin being set up (its slug). */
   plugin: string;
@@ -39,6 +49,19 @@ export type ConversationObjective = {
   later?: LaterExtra[];
 };
 
+/**
+ * Working on one of the person's goals in this conversation: the goal is
+ * its own row (`goal`, migration 0209); the conversation only points at it.
+ * Stop here stops the line in this conversation, never the goal itself.
+ */
+export type GoalObjective = {
+  kind: 'goal';
+  goalId: number;
+  state: 'running' | 'stopped';
+  startedAt: string;
+  changedAt?: string;
+};
+
 /** One optional extra, kept for after the objective. */
 export type LaterExtra = { key: string; label: string };
 
@@ -49,7 +72,10 @@ export type ObjectiveStep = { key: string; label: string; done: boolean };
 export type ObjectiveView = {
   conversationId: number;
   kind: ConversationObjective['kind'];
+  /** The plugin, for a setup; empty for a goal. */
   plugin: string;
+  /** The goal, for a goal. */
+  goalId?: number;
   /** "Software Factory". */
   name: string;
   state: ConversationObjective['state'] | 'done';
@@ -61,6 +87,8 @@ export type ObjectiveView = {
   current: number;
   /** Optional extras for after it, never steps of it. */
   later: LaterExtra[];
+  /** A goal's progress as said everywhere: "12 of 40 contacted". */
+  progress?: string;
 };
 
 /**
@@ -72,12 +100,28 @@ export function readObjective(value: unknown): ConversationObjective | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
-  const o = value as Partial<ConversationObjective>;
-  if (o.kind !== 'setup' || typeof o.plugin !== 'string' || !o.plugin || (o.state !== 'running' && o.state !== 'stopped') || typeof o.startedAt !== 'string') {
+  const o = value as Omit<Partial<SetupObjective>, 'kind'> & Partial<Omit<GoalObjective, 'kind'>> & { kind?: unknown };
+  if ((o.state !== 'running' && o.state !== 'stopped') || typeof o.startedAt !== 'string') {
+    return null;
+  }
+  const changed = typeof o.changedAt === 'string' ? { changedAt: o.changedAt } : {};
+  if (o.kind === 'goal') {
+    return Number.isInteger(o.goalId) && (o.goalId as number) > 0 ? { kind: 'goal', goalId: o.goalId as number, state: o.state, startedAt: o.startedAt, ...changed } : null;
+  }
+  if (o.kind !== 'setup' || typeof o.plugin !== 'string' || !o.plugin) {
     return null;
   }
   const later = Array.isArray(o.later) ? o.later.filter((x): x is LaterExtra => !!x && typeof x.key === 'string' && typeof x.label === 'string').slice(0, 12) : [];
-  return { kind: 'setup', plugin: o.plugin, state: o.state, startedAt: o.startedAt, ...(typeof o.changedAt === 'string' ? { changedAt: o.changedAt } : {}), ...(later.length > 0 ? { later } : {}) };
+  return { kind: 'setup', plugin: o.plugin, state: o.state, startedAt: o.startedAt, ...changed, ...(later.length > 0 ? { later } : {}) };
+}
+
+/**
+ * A setup objective, or null for any other kind — what the setup readers take.
+ * @param value - The column's value.
+ */
+export function readSetupObjective(value: unknown): SetupObjective | null {
+  const o = readObjective(value);
+  return o?.kind === 'setup' ? o : null;
 }
 
 /**
@@ -89,7 +133,7 @@ export function readObjective(value: unknown): ConversationObjective | null {
  * @param setup.name - Its name.
  * @param setup.steps - Its steps.
  */
-export function objectiveView(conversationId: number, objective: ConversationObjective, setup: { name: string; steps: ObjectiveStep[] } | null): ObjectiveView | null {
+export function objectiveView(conversationId: number, objective: SetupObjective, setup: { name: string; steps: ObjectiveStep[] } | null): ObjectiveView | null {
   if (!setup || setup.steps.length === 0) {
     return null;
   }
@@ -116,6 +160,11 @@ export function objectiveView(conversationId: number, objective: ConversationObj
  * @param view - The objective.
  */
 export function progressLine(view: ObjectiveView): string {
+  if (view.kind === 'goal') {
+    return view.state === 'done'
+      ? `${view.name} is done`
+      : `${view.state === 'stopped' ? 'Paused · ' : 'Goal: '}${view.name} · ${view.progress ?? `${view.done} of ${view.total}`}`;
+  }
   if (view.state === 'done') {
     return `${view.name} is set up`;
   }
@@ -128,7 +177,7 @@ export function progressLine(view: ObjectiveView): string {
  * @param objective - The objective.
  * @param extras - What the agent offered that the setup does not need.
  */
-export function withLater(objective: ConversationObjective, extras: LaterExtra[]): ConversationObjective {
+export function withLater(objective: SetupObjective, extras: LaterExtra[]): SetupObjective {
   const have = new Set((objective.later ?? []).map(x => x.key));
   const added = extras.filter(x => !have.has(x.key) && (have.add(x.key), true));
   return added.length === 0 ? objective : { ...objective, later: [...(objective.later ?? []), ...added].slice(-12) };
@@ -147,4 +196,39 @@ export function setupObjectiveFor(setups: Array<{ plugin: string; complete: bool
     return open.some(s => s.plugin === named) ? named : null;
   }
   return open.length === 1 ? open[0]!.plugin : null;
+}
+
+/**
+ * A goal objective as the strip draws it: its milestones as the steps (none
+ * for a view measure, whose progress is a count), and its progress line.
+ * @param conversationId - The conversation.
+ * @param objective - What the row keeps.
+ * @param goal - The goal now, or null when it is gone or out of reach.
+ * @param goal.title - Its title.
+ * @param goal.status - Its status.
+ * @param goal.milestones - Its milestones, for a milestone measure.
+ * @param goal.progress - Its progress.
+ * @param goal.progress.done - Done.
+ * @param goal.progress.total - Of.
+ * @param goal.progress.label - Said as.
+ */
+export function goalObjectiveView(conversationId: number, objective: GoalObjective, goal: { title: string; status: string; milestones: ObjectiveStep[]; progress: { done: number; total: number; label: string } } | null): ObjectiveView | null {
+  if (!goal || goal.status === 'dropped') {
+    return null;
+  }
+  const first = goal.milestones.findIndex(s => !s.done);
+  return {
+    conversationId,
+    kind: 'goal',
+    plugin: '',
+    goalId: objective.goalId,
+    name: goal.title,
+    state: goal.status === 'done' ? 'done' : objective.state,
+    steps: goal.milestones,
+    done: goal.progress.done,
+    total: goal.progress.total,
+    current: first === -1 ? goal.milestones.length : first,
+    later: [],
+    progress: goal.progress.label,
+  };
 }

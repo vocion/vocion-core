@@ -1,5 +1,8 @@
 /**
- * A CONVERSATION'S OBJECTIVE — started, read, stopped and resumed.
+ * A CONVERSATION'S OBJECTIVE — started, read, stopped and resumed. Two
+ * kinds: a setup (below) and a goal, which is its own row
+ * (`GoalService.ts`) that a conversation points at; Stop and Resume work the
+ * same for both.
  *
  * The row keeps which objective and whether the person stopped it
  * (`conversation.objective`); what is done is read live from the plugin's
@@ -12,10 +15,10 @@
  * and the conversation's id; the resumable one is also the person's own.
  */
 
-import type { ConversationObjective, LaterExtra, ObjectiveView } from '@/libs/objectives/objective';
+import type { ConversationObjective, LaterExtra, ObjectiveView, SetupObjective } from '@/libs/objectives/objective';
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { objectiveView, readObjective, setupObjectiveFor, withLater } from '@/libs/objectives/objective';
+import { objectiveView, readObjective, readSetupObjective, setupObjectiveFor, withLater } from '@/libs/objectives/objective';
 import { conversationSchema } from '@/models/Schema';
 import { setupStateForOrg } from '@/services/plugins/setupState';
 
@@ -39,6 +42,11 @@ export async function currentObjective(orgId: string, conversationId: number): P
 }
 
 async function viewOf(orgId: string, conversationId: number, objective: ConversationObjective, setups?: Awaited<ReturnType<typeof setupStateForOrg>>): Promise<ObjectiveView | null> {
+  if (objective.kind === 'goal') {
+    // A goal is its own row (`GoalService.ts`); the conversation only points at it.
+    const { goalObjective } = await import('./GoalService');
+    return goalObjective(orgId, conversationId, objective);
+  }
   const all = setups ?? await setupStateForOrg(orgId);
   const setup = all.find(s => s.plugin === objective.plugin) ?? null;
   return objectiveView(conversationId, objective, setup ? { name: setup.name, steps: setup.steps } : null);
@@ -70,9 +78,9 @@ export async function startSetupObjective(opts: { orgId: string; conversationId:
   if (!row) {
     return null;
   }
-  const was = readObjective(row.objective);
+  const was = readSetupObjective(row.objective);
   const now = new Date().toISOString();
-  const next: ConversationObjective = was && was.plugin === plugin
+  const next: SetupObjective = was && was.plugin === plugin
     ? { ...was, state: 'running', ...(was.state === 'stopped' ? { changedAt: now } : {}) }
     : { kind: 'setup', plugin, state: 'running', startedAt: now };
   if (was && JSON.stringify(was) === JSON.stringify(next)) {
@@ -103,7 +111,7 @@ export async function setObjectiveState(orgId: string, conversationId: number, s
   if (!was) {
     return null;
   }
-  const next: ConversationObjective = { ...was, state, changedAt: new Date().toISOString() };
+  const next = { ...was, state, changedAt: new Date().toISOString() } as ConversationObjective;
   await db
     .update(conversationSchema)
     .set({ objective: next })
@@ -127,7 +135,7 @@ export async function startedSetups(orgId: string, userId: string): Promise<Map<
     .limit(20);
   const out = new Map<string, number>();
   for (const row of rows) {
-    const o = readObjective(row.objective);
+    const o = readSetupObjective(row.objective);
     if (o && !out.has(o.plugin)) {
       out.set(o.plugin, row.id);
     }
@@ -149,7 +157,7 @@ export async function setupScopeOf(orgId: string, conversationId: number): Promi
     .from(conversationSchema)
     .where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId)))
     .limit(1);
-  const objective = readObjective(row?.objective);
+  const objective = readSetupObjective(row?.objective);
   if (!objective || objective.state !== 'running') {
     return null;
   }
@@ -176,7 +184,7 @@ export async function keepForLater(orgId: string, conversationId: number, extras
     .from(conversationSchema)
     .where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, conversationId)))
     .limit(1);
-  const objective = readObjective(row?.objective);
+  const objective = readSetupObjective(row?.objective);
   if (!objective) {
     return;
   }

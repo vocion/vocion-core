@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { objectiveView, progressLine, readObjective, setupObjectiveFor, withLater } from './objective';
+import { objectiveView, progressLine, readObjective, readSetupObjective, setupObjectiveFor, withLater } from './objective';
 
 /**
  * Context mid-objective (founder, 2026-10-09): one line that says what the
@@ -69,7 +69,7 @@ describe('optional extras, kept for later', () => {
     const kept = withLater(withLater(running, [{ key: 'plugin:wiki', label: 'Turn on Wiki' }]), [{ key: 'plugin:wiki', label: 'Turn on Wiki' }, { key: 'plugin:red-team', label: 'Turn on Red team' }]);
 
     expect(kept.later).toEqual([{ key: 'plugin:wiki', label: 'Turn on Wiki' }, { key: 'plugin:red-team', label: 'Turn on Red team' }]);
-    expect(readObjective(kept)!.later).toHaveLength(2);
+    expect(readSetupObjective(kept)!.later).toHaveLength(2);
     expect(withLater(kept, [])).toBe(kept);
 
     const view = objectiveView(12, kept, { name: 'Software Factory', steps: STEPS })!;

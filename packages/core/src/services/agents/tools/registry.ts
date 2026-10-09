@@ -55,6 +55,7 @@ import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
 import { getBrandTool } from './getBrand';
 import { gmailTools } from './gmailThread';
+import { goalTools } from './goals';
 import { requestHumanReviewTool } from './hitl';
 import { hubspotCatalogTools } from './hubspotCatalog';
 import { hubspotCompanyTools } from './hubspotCompanies';
@@ -338,6 +339,9 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     // workspace across all of theirs. Never a search.
     ...waitingOnMeTools(ctx),
     queryStateTool(ctx),
+    // Whenever a person is in the turn: their goals — drafted as a Decision,
+    // linked, read live, moved (`services/objectives/GoalService.ts`).
+    ...goalTools(ctx),
     // Personal workspaces only: the person's OWN mail, calendar, files, Slack
     // DMs and GitHub, read live with their own login (`personalCredential`),
     // never a workspace's source. Drafts mail, never sends.

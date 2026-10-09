@@ -5511,3 +5511,50 @@ export const stateQueryLogSchema = pgTable(
     index('state_query_log_user_shape_idx').on(table.userId, table.orgId, table.shape, table.createdAt),
   ],
 );
+
+/**
+ * A GOAL — the objective noun past one conversation (`libs/objectives/goal.ts`,
+ * migration 0209): "Follow up with every Northwind Expo contact by Nov 30".
+ * Owned by one person in one home workspace; every read and write is keyed on
+ * `org_id` and, for a write, the owner. Measured by a saved view (computed
+ * live, never ticked) or by 3–7 milestones. A conversation working on one
+ * carries `{ kind: 'goal', goalId }` as its objective.
+ */
+export const goalSchema = pgTable(
+  'goal',
+  {
+    id: serial('id').primaryKey(),
+    /** The home workspace (`project.id`). */
+    orgId: text('org_id').notNull().references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /** Its Org (`tenant_account.id`), for Personal's reads across Orgs. */
+    accountId: text('account_id').notNull(),
+    ownerUserId: text('owner_user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    horizon: jsonb('horizon').$type<import('@/libs/objectives/goal').GoalHorizon>().notNull(),
+    status: text('status').$type<import('@/libs/objectives/goal').GoalStatus>().default('active').notNull(),
+    measure: jsonb('measure').$type<import('@/libs/objectives/goal').GoalMeasure>().notNull(),
+    links: jsonb('links').$type<import('@/libs/objectives/goal').GoalLink[]>().default([]).notNull(),
+    /** `weekly`: read in the person's Friday review. Null: none. */
+    cadence: text('cadence').$type<'weekly'>(),
+    /** Up to three next steps the agent proposed, as prompts. */
+    nextSteps: jsonb('next_steps').$type<import('@/libs/objectives/goal').NextStep[]>().default([]).notNull(),
+    /** What moved, newest last, capped at 50. */
+    activity: jsonb('activity').$type<import('@/libs/objectives/goal').GoalActivity[]>().default([]).notNull(),
+    /** The last measured "done" count, so a move is noticed. */
+    lastDone: integer('last_done'),
+    /** …of how many, so a line can say "12 of 40" without measuring again. */
+    lastTotal: integer('last_total'),
+    /** When progress last moved: the stall clock. */
+    progressAt: timestamp('progress_at', { mode: 'date' }),
+    /** `agent` or the person's id. */
+    createdBy: text('created_by').notNull(),
+    /** The conversation it was made in, when one. */
+    createdFrom: integer('created_from'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('goal_org_owner_status_idx').on(table.orgId, table.ownerUserId, table.status),
+    index('goal_owner_status_idx').on(table.ownerUserId, table.status),
+  ],
+);
