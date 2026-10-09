@@ -177,7 +177,7 @@ describe('every personal workspace starts with its assistant', () => {
 
     expect(home?.leadAgentSlug).toBe('assistant');
     expect(agent).toMatchObject({ name: 'Assistant', role: 'lead', active: 'true' });
-    expect(agent?.harnessConfig?.grantTools).toEqual(['list_my_workspaces', 'ask_workspace']);
+    expect(agent?.harnessConfig?.grantTools).toEqual(['list_my_workspaces', 'ask_workspace', 'waiting_on_me']);
   });
 });
 
@@ -321,6 +321,23 @@ describe('ask_workspace on a workspace the person can act in', () => {
 
     expect(out).toContain('Revenue Team could not answer');
     expect(ctx.events.at(-1)).toMatchObject({ type: 'trace_node', status: 'error', label: 'Revenue Team could not answer' });
+  });
+
+  it('never hands the model or the trace a stack trace when the asked workspace crashed', async () => {
+    const crash = new TypeError('t is not a function');
+    crash.stack = 'TypeError: t is not a function\n    at u (/app/packages/core/.next/server/chunks/_1ab._.js:1:44704)';
+    vi.mocked(runAgentDeep).mockRejectedValue(crash);
+    const ctx = assistantCtx();
+    const out = String(await toolNamed(ctx, 'ask_workspace').invoke({ workspace: 'revenue', message: 'What is waiting on me?' }));
+
+    expect(out).toContain('Revenue Team could not answer');
+    expect(out).not.toMatch(/is not a function|\.js:\d|did not finish the turn/);
+
+    const row = ctx.events.at(-1) as { result?: string; resultDetail?: string };
+
+    expect(row.result).not.toMatch(/is not a function/);
+    // The raw reason is kept for Copy details.
+    expect(row.resultDetail).toContain('t is not a function');
   });
 
   it('with one workspace to ask, asks it without a routing read when none is named', async () => {

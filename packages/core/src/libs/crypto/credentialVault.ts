@@ -126,6 +126,51 @@ export function aesDecrypt(key: Buffer, ciphertext: Buffer, nonce: Buffer, authT
 
 let _vault: CredentialVault | null = null;
 
+/**
+ * The KMS vault, loaded on first use with a dynamic `import()`.
+ *
+ * It used to be a synchronous require of the module. kmsVault imports the
+ * database module, which Turbopack bundles as an ASYNC module, and a
+ * synchronous require of an async module hands back a pending namespace, so
+ * `kmsVault` destructured to undefined and every decrypt on a KMS install
+ * threw "t is not a function" — calendar_events, source sync, every
+ * connector tool that reads a credential. Every vault method is already
+ * async, so awaiting the import costs nothing and keeps the AWS SDK out of
+ * installs that never use it.
+ * @param kmsKeyArn - The key that wraps each tenant's data keys.
+ */
+export function lazyKmsVault(kmsKeyArn: string): CredentialVault {
+  let inner: Promise<CredentialVault> | null = null;
+  const load = (): Promise<CredentialVault> => {
+    if (!inner) {
+      inner = import('./kmsVault').then((m) => {
+        if (typeof m.kmsVault !== 'function') {
+          throw new TypeError('kmsVault module did not export a kmsVault factory');
+        }
+        return m.kmsVault({ kmsKeyArn });
+      });
+      // A failed load is retried on the next call rather than cached forever.
+      inner.catch(() => {
+        inner = null;
+      });
+    }
+    return inner;
+  };
+  return {
+    kind: 'kms',
+    encrypt: async (orgId, plaintext) => (await load()).encrypt(orgId, plaintext),
+    decrypt: async (orgId, ciphertext, nonce, authTag, dekId) =>
+      (await load()).decrypt(orgId, ciphertext, nonce, authTag, dekId),
+    rotateDek: async (orgId) => {
+      const v = await load();
+      if (!v.rotateDek) {
+        throw new Error('This vault cannot rotate data keys');
+      }
+      return v.rotateDek(orgId);
+    },
+  };
+}
+
 export function buildCredentialVault(): CredentialVault {
   if (_vault) {
     return _vault;
@@ -135,10 +180,7 @@ export function buildCredentialVault(): CredentialVault {
     if (!process.env.VOCION_KMS_KEY_ARN) {
       throw new Error('VOCION_CREDENTIAL_VAULT=kms requires VOCION_KMS_KEY_ARN to be set');
     }
-    // Lazy-load to avoid pulling in @aws-sdk/client-kms unless needed.
-    // eslint-disable-next-line ts/no-require-imports
-    const { kmsVault } = require('./kmsVault') as typeof import('./kmsVault');
-    _vault = kmsVault({ kmsKeyArn: process.env.VOCION_KMS_KEY_ARN });
+    _vault = lazyKmsVault(process.env.VOCION_KMS_KEY_ARN);
     return _vault;
   }
   // Default to localVault. Warn in production.

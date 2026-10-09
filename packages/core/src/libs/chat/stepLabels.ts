@@ -58,6 +58,7 @@ const KNOWN: Record<string, StepLabels> = {
   refresh_briefing: { running: 'Refreshing the briefing…', done: 'Refreshed the briefing' },
   publish_briefing: { running: 'Publishing the briefing…', done: 'Published the briefing' },
   calendar_events: { running: 'Reading the calendar…', done: 'Read the calendar' },
+  waiting_on_me: { running: 'Reading what is waiting on you…', done: 'Read what is waiting on you' },
   get_gmail_thread: { running: 'Reading the email thread…', done: 'Read the email thread' },
   get_zoom_transcript: { running: 'Reading the call transcript…', done: 'Read the call transcript' },
   read_discovery_transcript: { running: 'Reading the call transcript…', done: 'Read the call transcript' },

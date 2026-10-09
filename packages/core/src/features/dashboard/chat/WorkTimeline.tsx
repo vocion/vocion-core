@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { failureReport, redactInternalIds } from '@/libs/chat/redact';
+import { failureOneLiner, failureReport } from '@/libs/chat/redact';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
 import { sourceLabels } from './helpers';
 import { liveStepLabel } from './traceReducer';
@@ -183,7 +183,7 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   const input = run.input ?? {};
   const state = run.state ?? 'done';
   if (run.name === 'error') {
-    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: redactInternalIds(String(run.output ?? '')).slice(0, 160), state: 'error' };
+    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: failureOneLiner(String(run.output ?? '')), state: 'error' };
   }
   const { icon, kind } = kindFor(run.name);
   const { label, detail } = describeToolCall(run.name, input);
@@ -286,7 +286,9 @@ function TraceCitations({ node }: { node: TraceNode }) {
 function FailureDetail({ node, context }: { node: TraceNode; context?: FailureReport }) {
   const [copied, setCopied] = useState(false);
   const raw = node.resultDetail ?? node.result ?? node.detail ?? node.label;
-  const shown = redactInternalIds(raw ?? '');
+  // One readable line on screen; the raw message — stack and all — only in
+  // the Copy details block (2026-10-08: a stack trace rendered inline).
+  const shown = failureOneLiner(raw);
   const block = failureReport({
     ...context,
     tool: node.tool ?? node.label,
@@ -393,7 +395,7 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
       icon={<TraceMarker node={node} />}
       label={label}
       detail={[node.detail, suffix].filter(Boolean).join(' · ') || undefined}
-      radius={node.result ?? (node.resultDetail && node.resultDetail.length <= 60 ? node.resultDetail : undefined)}
+      radius={node.status === 'error' ? failureOneLiner(node.result ?? node.resultDetail) : (node.result ?? (node.resultDetail && node.resultDetail.length <= 60 ? node.resultDetail : undefined))}
       error={node.status === 'error'}
       open={open}
       onToggle={drillText || hasCallDetail ? onToggle : undefined}
@@ -603,7 +605,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
                   icon={<TraceMarker node={n} />}
                   label={n.kind === 'delegate' ? `→ ${n.label}` : n.label}
                   detail={n.detail}
-                  radius={n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined)}
+                  radius={n.status === 'error' ? failureOneLiner(n.result ?? n.resultDetail) : (n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined))}
                   error={n.status === 'error'}
                   open={openIds.has(n.id)}
                   onToggle={() => toggle(n.id)}

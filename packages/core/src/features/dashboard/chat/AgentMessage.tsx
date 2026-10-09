@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
+import { failureHeadline, failureOneLiner } from '@/libs/chat/redact';
 import { splitScratch } from '@/libs/chat/scratch';
 import { turnFollowups } from '@/libs/chat/turnFollowups';
 import { Link } from '@/libs/I18nNavigation';
@@ -282,16 +283,15 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // The message now travels with the badge, so the diagnosis is one hover or
   // one click away and never depends on another component rendering a row.
   const toolErrorName = (erroredRun?.type === 'tool' ? erroredRun.name : undefined) ?? erroredNode?.label ?? 'A tool';
-  const toolErrorDetail = ((erroredRun?.type === 'tool' ? erroredRun.output : undefined) ?? erroredNode?.detail ?? '')
-    .toString()
-    .replaceAll(/\s+/g, ' ')
-    .trim();
-  // A GENERIC name is not a name. When the failure arrives with nothing but
-  // "Error" on it — a provider that refused the whole turn, a missing key, a
-  // network that went away — `${name} failed` renders as "error failed",
-  // which is two words that say the same nothing twice.
-  const namedFailure = !['a tool', 'error', 'failed', ''].includes(toolErrorName.trim().toLowerCase());
-  const failureLabel = namedFailure ? `${toolErrorName} failed` : 'This turn failed';
+  // What the reader sees is ONE line (`failureOneLiner`): never a stack trace,
+  // a bundle path or a minified name. The raw message stays on the step, where
+  // Copy details hands it to whoever debugs it.
+  const toolErrorRaw = (erroredRun?.type === 'tool' ? erroredRun.output : undefined)
+    ?? erroredNode?.resultDetail ?? erroredNode?.result ?? erroredNode?.detail ?? '';
+  const toolErrorDetail = hasToolError ? failureOneLiner(String(toolErrorRaw)) : '';
+  // "failed" said once: a failed step's label already carries it, and adding
+  // our own read "— failed failed" (2026-10-08). A generic name is no name.
+  const failureLabel = failureHeadline(toolErrorName);
   // Did the turn say ANYTHING? A tool that failed mid-answer leaves prose
   // around it and the badge is rightly a way in. A turn that failed outright
   // leaves an empty bubble, and then hiding the reason behind a tap means the
@@ -403,7 +403,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                 setShowError(v => !v);
               }}
               aria-expanded={showError}
-              title={toolErrorDetail ? `${toolErrorName}: ${toolErrorDetail}` : undefined}
+              title={toolErrorDetail || undefined}
               className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case transition hover:bg-[var(--brand-fail-bg)]"
             >
               <AlertCircle className="size-2.5 shrink-0" aria-hidden />
@@ -423,7 +423,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           >
             <div className="font-medium text-[var(--brand-fail)]">{failureLabel}</div>
             <p className="mt-1 break-words whitespace-pre-wrap text-muted-foreground">
-              {toolErrorDetail || 'The tool reported a failure but returned no message. The full step is in the activity trace above.'}
+              {toolErrorDetail}
             </p>
           </div>
         )}
