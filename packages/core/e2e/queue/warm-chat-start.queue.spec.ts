@@ -105,16 +105,19 @@ test('a new chat on a phone is a warm hello and one soft chip, never the cards',
   await expect(page.getByTestId('chat-greeting')).toHaveText(/^(Good (morning|afternoon|evening)|Welcome back), Sam\.$/);
 
   // What waits is one soft chip, with a count; never a card, a carousel or a confidence badge.
-  const nudge = page.getByTestId('waiting-nudge');
+  // The opening hint (`libs/chat/openingHints.ts`): what waits is one ranked
+  // candidate, "N things need your attention", never a card.
+  const nudge = page.locator('[data-testid="opening-hint"][data-type="attention"]');
 
-  await expect(nudge).toContainText(/\d+ things waiting on you/);
+  await expect(nudge).toContainText(/\d+ things need your attention/);
   await expect(page.getByTestId('recommended-action-card')).toHaveCount(0);
   await expect(page.getByTestId('waiting-on-you')).toHaveCount(0);
   await expect(page.getByText('Suggested actions')).toHaveCount(0);
   await expect(page.getByText('72%')).toHaveCount(0);
   await expect(page.getByText(/operating intent/)).toHaveCount(0);
-  // No starter chips: the chip's own dismiss is the only button in the empty pane.
-  await expect(page.getByTestId('chat-empty-state').getByRole('button')).toHaveCount(1);
+  // No starter chips: at most two hints, each its own button and its ×.
+  expect(await page.getByTestId('opening-hint').count()).toBeLessThanOrEqual(2);
+  expect(await page.getByTestId('chat-empty-state').getByRole('button').count()).toBeLessThanOrEqual(4);
 
   // The conversation pane scrolls, the box you type in is on the screen, and nothing is sideways.
   const layout = await page.evaluate(() => {
@@ -129,6 +132,6 @@ test('a new chat on a phone is a warm hello and one soft chip, never the cards',
   expect(layout.sideways).toBe(false);
 
   // The chip opens Review, where the cards are.
-  await nudge.getByRole('link').click();
+  await nudge.getByRole('button').first().click();
   await page.waitForURL(/\/dashboard\/inbox/);
 });

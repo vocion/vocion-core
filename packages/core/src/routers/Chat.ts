@@ -1,5 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { track } from '@/services/adoption/track';
 import { synthesizeAgentChips } from '@/services/chat/synthesis';
 import { guardAuth } from './AuthGuards';
 
@@ -17,4 +18,21 @@ export const suggestions = os
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     return synthesizeAgentChips(orgId, input.agentSlug);
+  });
+
+/**
+ * The opening hint was shown, clicked or dismissed (`libs/chat/openingHints.ts`).
+ * Recorded on the adoption stream; a dismissal is what hides that item for
+ * 7 days and lowers its type's weight for this person.
+ */
+export const hintEvent = os
+  .input(z.object({
+    event: z.enum(['shown', 'clicked', 'dismissed']),
+    hints: z.array(z.object({ key: z.string().min(1).max(120), type: z.string().min(1).max(20), score: z.number().optional(), rank: z.number().int().min(1).max(2).optional() })).min(1).max(2),
+  }))
+  .handler(async ({ input }) => {
+    const actor = await guardAuth();
+    const eventType = input.event === 'shown' ? 'chat.hint_shown' : input.event === 'clicked' ? 'chat.hint_clicked' : 'chat.hint_dismissed';
+    await Promise.all(input.hints.map(h => track(actor, eventType, { meta: h })));
+    return { ok: true };
   });

@@ -2,6 +2,7 @@
 
 import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption, ChatAttachment } from './types';
+import type { OpeningHint } from '@/libs/chat/openingHints';
 import type { ConnectReturn } from '@/libs/connect/returnTo';
 import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import type { PageContext } from '@/services/chat/pageContext';
@@ -28,6 +29,7 @@ import { EmptyState } from './EmptyState';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
+import { OpeningHints } from './OpeningHints';
 import { QuotedPassage } from './QuotedPassage';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
@@ -85,6 +87,8 @@ export type ChatShellProps = {
   connectReturn?: ConnectReturn | null;
   /** `?new=1` — forget this browser session's thread and start fresh (⌘⇧O from a page with no surface). */
   startNew?: boolean;
+  /** The ranked opening hints for an empty conversation (`services/chat/openingHints.ts`). */
+  openingHints?: OpeningHint[];
   /**
    * `?objective=connect-systems` — start "Connect your systems" docked above
    * the composer (the checklist, an app's page and the Connectors page link
@@ -119,6 +123,7 @@ export type ChatShellProps = {
  * @param props.startNew
  * @param props.connectReturn - How a connect this thread started came back.
  * @param props.connectSystems - `?objective=connect-systems`: the walk to start.
+ * @param props.openingHints - The ranked opening hints.
  */
 export function ChatShell({
   agents,
@@ -130,6 +135,7 @@ export function ChatShell({
   startNew = false,
   connectReturn,
   connectSystems = null,
+  openingHints,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -146,6 +152,7 @@ export function ChatShell({
       startNew={startNew}
       connectReturn={connectReturn}
       connectSystems={connectSystems}
+      openingHints={openingHints}
     />
   );
 }
@@ -179,6 +186,7 @@ function ChatShellInner({
   startNew = false,
   connectReturn,
   connectSystems = null,
+  openingHints,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
   const router = useRouter();
@@ -248,7 +256,12 @@ function ChatShellInner({
   // chip that opens Review (#1264, `emptyChat.ts`); once the person is in a
   // conversation they queue in the dock behind its own (`ConversationDecisions`).
   const waitingCount = session.waitingDecisions.length;
-  const nudge = waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
+  // The opening hint (`libs/chat/openingHints.ts`): one ranked suggestion,
+  // two at most, of which "N things need your attention" is one candidate.
+  // Without the server's hints, the plain count stands in.
+  const nudge = openingHints
+    ? (openingHints.length > 0 ? <OpeningHints hints={openingHints} onSend={session.handlePickSuggestion} /> : null)
+    : waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
   const firstName = usePersonFirstName();
   // YOUR TEAM IS HERE: the empty conversation's centre, and who the composer asks.
   const team = useMemo(() => teamOf(agents, defaultAgentSlug(agents)).members, [agents]);
