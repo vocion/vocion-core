@@ -404,6 +404,7 @@ export const quickbooksConnector: SourceConnector<typeof quickbooksConfigSchema>
   brand: 'quickbooks',
   description: 'Read a QuickBooks Online company — accounts, invoices, bills, payments and journal entries — read-only, incremental by last update. Turn on sample data to try it without a login.',
   icon: 'Landmark',
+  category: 'finance-people',
   authKind: 'oauth',
   configSchema: quickbooksConfigSchema,
   // Incremental syncs cannot see a deleted or merged record; a daily full

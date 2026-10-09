@@ -59,7 +59,7 @@ async function keyFor(page: Page, id: string): Promise<string> {
   return String(index + 1);
 }
 
-test('from the Connectors page: one question, a login in its own window and a key typed inline, each verified, then the summary', async ({ page }, info) => {
+test('from its link: one question, a login in its own window and a key typed inline, each verified, then the summary', async ({ page }, info) => {
   const vendorRequests: string[] = [];
   page.context().on('request', (request) => {
     const host = new URL(request.url()).hostname;
@@ -74,14 +74,10 @@ test('from the Connectors page: one question, a login in its own window and a ke
     }
   });
   await signIn(page);
-  await page.goto('/dashboard/connectors');
-  const entry = page.getByTestId('connectors-setup-with-assistant');
-
-  await expect(entry).toBeVisible();
-
-  await shot(page, info, '01-connectors-entry');
-  await entry.focus();
-  await page.keyboard.press('Enter');
+  // The Connectors page no longer carries a second way in (2026-10-09): the
+  // walk starts from chat, the checklist or an app, all through this link.
+  await page.goto('/dashboard/chat?objective=connect-systems');
+  await shot(page, info, '01-connect-systems-entry');
 
   // The link is the person's ask, a real turn; the lead's connect_system
   // raises the walk's one question, as the latest item in the thread.

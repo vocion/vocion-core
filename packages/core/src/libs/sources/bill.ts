@@ -27,6 +27,7 @@ export const billConnector: SourceConnector<typeof billConfigSchema> = {
   brand: 'bill',
   description: 'Payables and receivables, read live: bills with their approval and payment status, vendors, invoices and customers. Read-only — Vocion never pays, approves or sends.',
   icon: 'Receipt',
+  category: 'finance-people',
   authKind: 'apikey',
   syncless: true,
   configSchema: billConfigSchema,

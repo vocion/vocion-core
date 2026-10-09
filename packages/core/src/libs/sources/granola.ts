@@ -82,6 +82,7 @@ export const granolaConnector: SourceConnector<typeof granolaConfigSchema> = {
   name: 'Granola',
   description: 'Meeting notes from Granola. An AI summary and the transcript of each meeting, through the personal API.',
   icon: 'NotebookPen',
+  category: 'chat-meetings',
   brand: 'granola',
   authKind: 'apikey',
   configSchema: granolaConfigSchema,

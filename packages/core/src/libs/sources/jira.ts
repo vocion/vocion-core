@@ -466,6 +466,7 @@ export const jiraConnector: SourceConnector<typeof jiraConfigSchema> = {
   name: 'Jira',
   description: 'Projects and issues from Jira. Key, summary, status and description, synced incrementally by updated date.',
   icon: 'SquareKanban',
+  category: 'engineering',
   brand: 'jira',
   authKind: 'apikey',
   configSchema: jiraConfigSchema,

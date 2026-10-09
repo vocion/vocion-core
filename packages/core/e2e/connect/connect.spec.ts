@@ -67,21 +67,14 @@ function reachesVendor(url: string): boolean {
 }
 
 /**
- * Press a connector's Connect on the Connectors page. The catalog folds past a
- * screenful ("Show 7 more"), so the connector may be behind it.
+ * Press a connector's Connect in the Connectors page's catalog, found by
+ * searching for it.
  * @param page - The browser page.
  * @param name - The connector's name.
  */
 async function openConnect(page: Page, name: string) {
-  const connect = page.getByRole('button', { name: `Connect ${name}` });
-  const more = page.getByRole('button', { name: /^Show \d+ more/ });
-
-  await expect(connect.or(more).first()).toBeVisible();
-
-  if (!(await connect.isVisible())) {
-    await more.click();
-  }
-  await connect.click();
+  await page.getByRole('searchbox', { name: 'Search connectors' }).fill(name);
+  await page.getByTestId('catalog-section').getByRole('button', { name: `Connect ${name}` }).click();
 }
 
 /**
@@ -193,7 +186,9 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   await page.goto('/dashboard/connectors');
   await openConnect(page, 'GitHub');
 
-  // Before the login the box has a real input to paste into, not a dashed guide.
+  // The login leads; pasting a token instead is one click away, into a real input.
+  await page.getByRole('button', { name: 'Paste a Personal access token instead' }).click();
+
   await expect(page.getByLabel('Personal access token', { exact: true })).toBeVisible();
   await expect(page.getByText(/press Connect on its row/)).toHaveCount(0);
 
@@ -213,7 +208,7 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
   // server runs no job executor (no VOCION_SCHEDULE_OWNER), so its scheduler has no tables and the
   // answer is "failed": the save must still succeed, and the page must say to press Sync now.
   const saveResponse = page.waitForResponse(response => response.request().method() === 'POST' && /\/rpc\/connect\/addConnector/.test(response.url()));
-  await page.locator('form').getByRole('button', { name: 'Add connector' }).click();
+  await page.locator('form').getByRole('button', { name: 'Connect', exact: true }).click();
 
   expect(JSON.stringify(await (await saveResponse).json())).toMatch(/"ok":true,"sourceId":\d+,"firstSync":"failed"/);
   await expect(page.getByText('Saved, but its first sync could not start. Press Sync now on its row to try again.')).toBeVisible();
@@ -232,7 +227,10 @@ test('HubSpot, with no HubSpot app set up on this server: paste only, one key in
 
   // Paste only: inputs and guidance, never a login button.
   await expect(page.getByRole('link', { name: /Log in with/ })).toHaveCount(0);
-  await expect(page.getByText('CRM object read access')).toBeVisible();
+
+  await page.getByTestId('connect-paste-guide').getByText('Details').click();
+
+  await expect(page.getByText('Needs access to: CRM object read access')).toBeVisible();
 
   const field = page.getByLabel('Private-app token', { exact: true });
 
@@ -243,7 +241,7 @@ test('HubSpot, with no HubSpot app set up on this server: paste only, one key in
 
   await expect(field).toHaveAttribute('type', 'text');
 
-  await page.locator('form').getByRole('button', { name: 'Add connector' }).click();
+  await page.locator('form').getByRole('button', { name: 'Connect', exact: true }).click();
 
   // One Save: no second dialog asks for the credential.
   await expect(page.getByRole('heading', { name: /^Connect hubspot/ })).toHaveCount(0);
@@ -394,7 +392,7 @@ test('Slack from the Connectors page: the login makes the source itself and the 
 
   // The login was enough, so there is nothing left to add: no form, and no
   // second Slack offered.
-  await expect(page.locator('form').getByRole('button', { name: 'Add connector' })).toHaveCount(0);
+  await expect(page.locator('form').getByRole('button', { name: 'Connect', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Connect Slack' })).toHaveCount(0);
 });
 

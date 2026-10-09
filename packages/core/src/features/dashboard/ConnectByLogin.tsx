@@ -2,7 +2,8 @@
 
 import type { FailedAttempt } from './LastAttemptLine';
 import { Eye, EyeOff } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { client, noStoreClient } from '@/libs/Orpc';
 import { accessForDisplay, afterLoginText, howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
@@ -303,32 +304,61 @@ function CredentialBox({ input, draft, setDraft, focusWhenShown }: {
 }
 
 /**
- * What the credential needs and where to get one, as helper text under the
- * inputs. Every line comes from the declaration; an empty access list prints
- * no line at all.
- * @param props - The declared paste instructions.
- * @param props.paste - `howToConnect.paste`.
- * @param props.paste.credential
- * @param props.paste.access
- * @param props.paste.getItAt
- * @param props.paste.getItAt.url
- * @param props.paste.getItAt.steps
+ * Where to get the key, in one sentence, with the technical part — the
+ * permissions it needs, the vendor's steps, the scopes a login asks for —
+ * folded behind Details. Every line comes from the declaration.
+ * @param props - The declared paste instructions and the login's access.
+ * @param props.paste - `howToConnect.paste`, when the connector takes a pasted key.
+ * @param props.paste.credential - What the vendor calls it.
+ * @param props.paste.access - The permissions it needs.
+ * @param props.paste.getItAt - Where to make one.
+ * @param props.paste.getItAt.url - The vendor's page.
+ * @param props.paste.getItAt.steps - The vendor's steps.
+ * @param props.loginAccess - What the login asks for, when there is a login.
  */
-function PasteHelp({ paste }: { paste: { credential: string; access: readonly string[]; getItAt?: { url: string; steps: readonly string[] } } }) {
+function PasteHelp({ paste, loginAccess }: { paste?: { credential: string; access: readonly string[]; getItAt?: { url: string; steps: readonly string[] } }; loginAccess?: readonly string[] }) {
+  const access = paste?.access ?? [];
+  const steps = paste?.getItAt?.steps ?? [];
+  const hasDetails = access.length > 0 || steps.length > 0 || (loginAccess?.length ?? 0) > 0;
+  if (!paste?.getItAt && !hasDetails) {
+    return null;
+  }
   return (
     <div className="space-y-1.5 text-xs text-muted-foreground" data-testid="connect-paste-guide">
-      {paste.access.length > 0 && <p>{`Needs access to: ${paste.access.join(', ')}`}</p>}
-      {paste.getItAt && (
-        <div>
-          <span>Get one at </span>
-          <a href={paste.getItAt.url} target="_blank" rel="noreferrer" className="font-medium text-brand-amber-deep hover:underline">{paste.getItAt.url}</a>
-          <ol className="mt-1 list-decimal space-y-0.5 pl-4">
-            {paste.getItAt.steps.map(step => <li key={step}>{step}</li>)}
-          </ol>
-        </div>
+      {paste?.getItAt && (
+        <p>
+          {`Find your ${paste.credential.toLowerCase()} at `}
+          <a href={paste.getItAt.url} target="_blank" rel="noreferrer" className="font-medium text-brand-amber-deep hover:underline">{hostOf(paste.getItAt.url)}</a>
+          .
+        </p>
+      )}
+      {hasDetails && (
+        <HowItsAuthored label="Details">
+          <div className="space-y-1.5" data-testid="connect-details">
+            {loginAccess && loginAccess.length > 0 && <p>{`Logging in asks for: ${accessForDisplay(loginAccess)}`}</p>}
+            {access.length > 0 && <p>{`Needs access to: ${access.join(', ')}`}</p>}
+            {steps.length > 0 && (
+              <ol className="list-decimal space-y-0.5 pl-4">
+                {steps.map(step => <li key={step}>{step}</li>)}
+              </ol>
+            )}
+          </div>
+        </HowItsAuthored>
       )}
     </div>
   );
+}
+
+/**
+ * A vendor URL's host, as a link's words: `github.com`, not the whole path.
+ * @param url - The vendor's page.
+ */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
 }
 
 /**
@@ -368,28 +398,66 @@ export function ConnectCredential({ connector, info, draft, setDraft, focusFirst
     );
   }
   const href = login ? connectStartHref({ provider: login.provider, connector, returnTo: `/dashboard/connectors?add=${connector}` }) : null;
+  const inputs = credentialInputsFor(connector);
+  return (
+    <ConnectCredentialChoice
+      login={login && href ? { href, provider: login.provider, label: `Log in with ${info?.providerLabel}`, afterLogin: afterLoginText(login.settingsAfterLogin), access: login.access } : null}
+      paste={how.paste}
+      // Paste opens on its own when there is no login, when the page asked for
+      // it (`?paste=1`), or after Replace on a stored credential.
+      pasteFirst={focusFirst || Boolean(info?.stored)}
+    >
+      {inputs.map((input, index) => (
+        <CredentialBox key={input.name} input={input} draft={draft} setDraft={setDraft} focusWhenShown={focusFirst && index === 0} />
+      ))}
+    </ConnectCredentialChoice>
+  );
+}
+
+/**
+ * One way in at a time: the vendor's login when there is one, with pasting a
+ * key one click away; the paste form alone when there is no login.
+ * @param props - The login, the paste declaration, and the inputs.
+ * @param props.login - The login button's target and words, or null.
+ * @param props.login.href - The start route.
+ * @param props.login.provider - The provider, for the button's dress.
+ * @param props.login.label - "Log in with GitHub".
+ * @param props.login.afterLogin - What is still asked after the login.
+ * @param props.login.access - What the login asks for, for Details.
+ * @param props.paste - `howToConnect.paste`, when the connector takes a key.
+ * @param props.paste.credential
+ * @param props.paste.access
+ * @param props.paste.getItAt
+ * @param props.paste.getItAt.url
+ * @param props.paste.getItAt.steps
+ * @param props.pasteFirst - Open with the paste form showing.
+ * @param props.children - The credential inputs.
+ */
+function ConnectCredentialChoice(props: {
+  login: { href: string; provider: Parameters<typeof ProviderLoginButton>[0]['provider']; label: string; afterLogin: string; access: readonly string[] } | null;
+  paste?: { credential: string; access: readonly string[]; getItAt?: { url: string; steps: readonly string[] } };
+  pasteFirst: boolean;
+  children: React.ReactNode;
+}) {
+  const [pasting, setPasting] = useState(props.pasteFirst || !props.login);
+  const showPaste = Boolean(props.paste) && pasting;
   return (
     <div className="space-y-3" data-testid="connect-credential">
-      {login && href
-        ? (
-            <div className="space-y-2">
-              <ProviderLoginButton provider={login.provider} href={href}>
-                {`Log in with ${info?.providerLabel}`}
-              </ProviderLoginButton>
-              {login.access.length > 0 && (
-                <p className="text-xs text-muted-foreground">{`Asks for: ${accessForDisplay(login.access)}`}</p>
-              )}
-              <p className="text-xs text-muted-foreground" data-testid="connect-after-login">{afterLoginText(login.settingsAfterLogin)}</p>
-              {how.paste && <p className="pt-1 text-sm font-medium text-foreground/80">{`or paste ${withArticle(how.paste.credential)}`}</p>}
-            </div>
-          )
-        : null}
-      <div className="space-y-3">
-        {credentialInputsFor(connector).map((input, index) => (
-          <CredentialBox key={input.name} input={input} draft={draft} setDraft={setDraft} focusWhenShown={focusFirst && index === 0} />
-        ))}
-      </div>
-      {how.paste && <PasteHelp paste={how.paste} />}
+      {props.login && (
+        <div className="space-y-2">
+          <ProviderLoginButton provider={props.login.provider} href={props.login.href}>
+            {props.login.label}
+          </ProviderLoginButton>
+          <p className="text-xs text-muted-foreground" data-testid="connect-after-login">{props.login.afterLogin}</p>
+          {props.paste && !pasting && (
+            <button type="button" onClick={() => setPasting(true)} className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+              {`Paste ${withArticle(props.paste.credential)} instead`}
+            </button>
+          )}
+        </div>
+      )}
+      {showPaste && <div className="space-y-3">{props.children}</div>}
+      {(showPaste || props.login) && <PasteHelp paste={showPaste ? props.paste : undefined} loginAccess={props.login?.access} />}
     </div>
   );
 }

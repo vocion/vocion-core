@@ -143,8 +143,8 @@ describe('GET /rpc/sources', () => {
       // `syncless` + `inspectable` are what put Test connection on a row
       // where a syncing source shows Sync now. `brand` is the tile's logo,
       // null for a connector that is not one vendor.
-      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', brand: 'strapi', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false, requiredScopes: null },
-      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', brand: null, authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false, requiredScopes: null },
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', brand: 'strapi', category: 'other', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false, requiredScopes: null },
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', brand: null, category: 'other', authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false, requiredScopes: null },
     ]);
   });
 

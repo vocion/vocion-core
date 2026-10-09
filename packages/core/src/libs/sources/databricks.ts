@@ -89,6 +89,7 @@ export const databricksConnector: SourceConnector<typeof databricksConfigSchema>
   name: 'Databricks',
   description: 'Your Databricks SQL warehouse, queried live and read-only: one SELECT at a time over the schemas you allow, with row, size and time limits. Nothing is copied into Vocion.',
   icon: 'Database',
+  category: 'data-analytics',
   brand: 'databricks',
   authKind: 'apikey',
   syncless: true,

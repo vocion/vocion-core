@@ -37,6 +37,7 @@ export const googleAdsConnector: SourceConnector<typeof googleAdsConfigSchema> =
   name: 'Google Ads',
   description: 'Campaign performance from Google Ads. Impressions, clicks, cost and conversions by day.',
   icon: 'Megaphone',
+  category: 'sales-marketing',
   brand: 'googleads',
   authKind: 'oauth',
   configSchema: googleAdsConfigSchema,

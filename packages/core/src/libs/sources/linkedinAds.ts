@@ -88,6 +88,7 @@ export const linkedinAdsConnector: SourceConnector<typeof linkedinAdsConfigSchem
   name: 'LinkedIn Ads',
   description: 'A LinkedIn ad account, read live: campaign groups and campaigns with their status and budget, and what they delivered and spent by day. Read-only.',
   icon: 'Megaphone',
+  category: 'sales-marketing',
   brand: 'linkedin',
   authKind: 'oauth',
   syncless: true,

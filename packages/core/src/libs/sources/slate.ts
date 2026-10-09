@@ -58,6 +58,7 @@ export const slateConnector: SourceConnector<typeof slateConfigSchema> = {
   name: 'Slate',
   description: 'Screen recordings with a player, transcript and sharing. Connecting keeps the account\'s session token in the workspace vault and verifies it; nothing is synced.',
   icon: 'Video',
+  category: 'chat-meetings',
   brand: 'slate',
   authKind: 'apikey',
   syncless: true,

@@ -60,6 +60,7 @@ export const amplitudeConnector: SourceConnector<typeof amplitudeConfigSchema> =
   name: 'Amplitude',
   description: 'Product analytics from Amplitude, read live: the events a project tracks, their counts over time, funnels built from any steps, and cohorts. Nothing about a person is copied into Vocion.',
   icon: 'BarChart3',
+  category: 'data-analytics',
   brand: 'amplitude',
   authKind: 'apikey',
   syncless: true,

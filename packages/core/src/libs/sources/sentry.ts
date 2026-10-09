@@ -87,6 +87,7 @@ export const sentryConnector: SourceConnector<typeof sentryConfigSchema> = {
   name: 'Sentry',
   description: 'Production errors, read live. Issues ranked by events per project, environment and release, and each issue\'s latest stack trace, request and breadcrumbs.',
   icon: 'Bug',
+  category: 'engineering',
   brand: 'sentry',
   authKind: 'apikey',
   syncless: true,

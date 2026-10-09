@@ -141,6 +141,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   name: 'Web URL',
   description: 'Public web pages you list, or a whole site. A same-origin crawl with a capped depth and page count.',
   icon: 'Globe',
+  category: 'docs-files',
   authKind: 'none',
   configSchema: webConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

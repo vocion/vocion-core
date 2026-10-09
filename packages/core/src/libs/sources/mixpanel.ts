@@ -62,6 +62,7 @@ export const mixpanelConnector: SourceConnector<typeof mixpanelConfigSchema> = {
   name: 'Mixpanel',
   description: 'Product analytics from Mixpanel, read live: the events a project tracks, their counts over time, saved funnels and cohorts. Nothing about a person is copied into Vocion.',
   icon: 'BarChart3',
+  category: 'data-analytics',
   brand: 'mixpanel',
   authKind: 'apikey',
   syncless: true,

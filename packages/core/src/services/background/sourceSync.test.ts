@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runSync, SyncAlreadyRunningError } from '@/services/SourceSyncService';
 import { syncSourceActivity } from './sourceSync';
 
+const state = vi.hoisted(() => ({ row: null as null | { slug: string; config: Record<string, unknown>; lastSyncedAt: Date | null }, connected: false, paused: false }));
+
 vi.mock('@/services/SourceSyncService', () => ({
   runSync: vi.fn(),
+  isSourcePaused: vi.fn(async () => state.paused),
   SyncAlreadyRunningError: class SyncAlreadyRunningError extends Error {
     constructor(sourceId: number) {
       super(`Source ${sourceId} is already syncing`);
@@ -13,7 +16,6 @@ vi.mock('@/services/SourceSyncService', () => ({
   },
 }));
 
-const state = vi.hoisted(() => ({ row: null as null | { slug: string; config: Record<string, unknown>; lastSyncedAt: Date | null }, connected: false }));
 vi.mock('@/libs/DB', () => ({ db: { select: () => ({ from: () => ({ where: async () => (state.row ? [state.row] : []) }) }) } }));
 vi.mock('@/libs/sources/registry', () => ({ listConnectors: () => [{ slug: 'github', authKind: 'oauth' }, { slug: 'web', authKind: 'none' }] }));
 vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: async () => ({ bySourceId: {}, byConnectorSlug: { github: { connected: state.connected, updatedAt: null, broken: null } } }) }));
@@ -24,9 +26,19 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.row = null;
   state.connected = false;
+  state.paused = false;
 });
 
 describe('syncSourceActivity', () => {
+  it('skips a paused connection quietly, without reading it', async () => {
+    state.paused = true;
+
+    const out = await syncSourceActivity({ orgId: 'org1', sourceId: 7 });
+
+    expect(mockRunSync).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ skipped: true, firstError: 'paused' });
+  });
+
   it('drives runSync incrementally by default and returns the result', async () => {
     mockRunSync.mockResolvedValue({ sourceId: 7, created: 2, updated: 1, unchanged: 5, metadataRefreshed: 0, tombstoned: 0, errors: 0, firstError: null, firstProcessorError: null });
 

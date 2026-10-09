@@ -27,6 +27,7 @@ export const netsuiteConnector: SourceConnector<typeof netsuiteConfigSchema> = {
   brand: 'netsuite',
   description: 'Read a NetSuite account\'s books — invoices, bills and customer payments as searchable documents; customers, vendors and accounts live. Read-only, token-based authentication.',
   icon: 'Landmark',
+  category: 'finance-people',
   authKind: 'apikey',
   configSchema: netsuiteConfigSchema,
   defaultReconcileCron: '0 4 * * *',

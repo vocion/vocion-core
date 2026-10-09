@@ -87,6 +87,8 @@ export async function GET() {
     // The tile's logo (`libs/brands/catalog.ts`): the connector's own brand —
     // Gmail's, not the Google platform's it signs in with.
     brand: c.brand ?? null,
+    // The catalog's shelf ("Docs & files"); absent files it under Other.
+    category: c.category ?? 'other',
     authKind: c.authKind,
     credentialPlatform: platformForConnectorSlug(c.slug)?.id ?? null,
     syncless: c.syncless === true,

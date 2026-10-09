@@ -50,6 +50,13 @@ export type SourceContext = {
   politeness?: CrawlPoliteness;
 };
 
+/**
+ * The shelves the Connectors page's catalog is sorted onto, in the order it
+ * shows them. Named for what a person keeps there, never for a vendor.
+ */
+export const CONNECTOR_CATEGORIES = ['mail-calendar', 'docs-files', 'chat-meetings', 'sales-marketing', 'engineering', 'finance-people', 'data-analytics', 'other'] as const;
+export type ConnectorCategory = (typeof CONNECTOR_CATEGORIES)[number];
+
 export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
   /** Stable slug — `web`, `google-drive`, `github`. */
   slug: string;
@@ -65,6 +72,11 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    * connector that is not one vendor (web, files, a REST API).
    */
   brand?: BrandKey;
+  /**
+   * The shelf the Connectors page files it under (`CONNECTOR_CATEGORIES`).
+   * Absent files it under Other.
+   */
+  category?: ConnectorCategory;
   authKind: SourceAuthKind;
   /**
    * Zod schema validating the config_json blob the user enters when

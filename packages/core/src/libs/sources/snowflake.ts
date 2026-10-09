@@ -98,6 +98,7 @@ export const snowflakeConnector: SourceConnector<typeof snowflakeConfigSchema> =
   name: 'Snowflake',
   description: 'Your Snowflake warehouse, queried live and read-only: one SELECT at a time over the schemas you allow, with row, size and time limits. Nothing is copied into Vocion.',
   icon: 'Database',
+  category: 'data-analytics',
   brand: 'snowflake',
   authKind: 'apikey',
   syncless: true,

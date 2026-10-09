@@ -86,6 +86,7 @@ export const restConnector: SourceConnector<typeof restConfigSchema> = {
   name: 'REST API',
   description: 'Any REST API with a bearer token, queried live. Nothing is indexed: read endpoints declared in the source become agent tools, and write endpoints become proposals on the review queue. To index a Strapi instance into search instead, use Strapi.',
   icon: 'Plug',
+  category: 'other',
   authKind: 'apikey',
   syncless: true,
   configSchema: restConfigSchema,

@@ -5,6 +5,7 @@ import type { ConnectorTile, Source } from './connectors/connectorRows';
 import type { ConnectOutcome } from './connectOutcome';
 import type { FirstSyncWatch, SavedSource, SyncOutcome } from './firstSyncWatch';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
+import type { ConnectionsOverview } from '@/services/connect/connectionsOverview';
 import {
   CheckCircle2,
   CircleAlert,
@@ -14,10 +15,12 @@ import {
   Loader2,
   Plug,
   RefreshCw,
-  Trash2,
 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { IntegrationLogo } from '@/components/patterns';
+import { firstSentence, IntegrationLogo } from '@/components/patterns';
+import { HowItsAuthored } from '@/components/ui/how-its-authored';
+import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { connectStartHref, returnUrl, safeReturnPath } from '@/libs/connect/returnTo';
 import {
@@ -31,7 +34,7 @@ import { withArticle } from '@/utils/withArticle';
 import { addConnectorWithCredential, ConnectCredential, credentialInputsFor, failedAttempts, initialCredentialDraft, missingCredentialLabels } from './ConnectByLogin';
 import { connectorIcon } from './connectors/connectorIcon';
 import { ConnectorList } from './connectors/ConnectorList';
-import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
+import { buildConnections, catalogEntries, connectorSlugFor } from './connectors/connectorRows';
 import { connectOutcomeMessage, readConnectOutcome } from './connectOutcome';
 import { firstSyncNotice, firstSyncRunOf, firstSyncWatchAfter, firstSyncWatchAfterSave, withoutStartedNotice, withStartedNoticeExpired } from './firstSyncWatch';
 
@@ -87,22 +90,34 @@ export function describeSyncResult(result: SyncResult | undefined): SyncOutcome 
   };
 }
 
-export function SourcesPanel({ connectInfo = {}, timeZone }: {
+/** How long a disconnected connection waits for Undo before it is deleted. */
+const UNDO_MS = 8000;
+
+/** What the page renders with before the server has said anything more. */
+const NO_OVERVIEW: Pick<ConnectionsOverview, 'recommended' | 'usedBy' | 'unavailable'> = { recommended: [], usedBy: {}, unavailable: [] };
+
+export function SourcesPanel({ connectInfo = {}, timeZone, overview = NO_OVERVIEW, isAdmin = true }: {
   /** Per connector: the login in this workspace and the last failed attempt, from the server. */
   connectInfo?: Record<string, ConnectInfo>;
   /** IANA zone for dates; the browser's by default. */
   timeZone?: string;
+  /** Recommendations, who uses what, and what this server cannot connect (`connectionsOverview`). */
+  overview?: Pick<ConnectionsOverview, 'recommended' | 'usedBy' | 'unavailable'>;
+  /** Only an admin is offered anything to connect or change. */
+  isAdmin?: boolean;
 }) {
+  const t = useTranslations('Connectors');
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
   const [loading, setLoading] = useState(true);
-  const searchRef = useRef<HTMLInputElement>(null);
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
   const [testingSource, setTestingSource] = useState<Source | null>(null);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
-  const [deletingSource, setDeletingSource] = useState<Source | null>(null);
+  // Connections disconnected in this tab whose delete waits out its Undo.
+  const [disconnecting, setDisconnecting] = useState<Set<number>>(() => new Set());
+  const pendingDeletes = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const [error, setError] = useState<string | null>(null);
   const [syncOutcome, setSyncOutcome] = useState<SyncOutcome | null>(null);
   // What a vendor connect came back with, read once off the URL the callback
@@ -211,7 +226,77 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
     return () => clearTimeout(timer);
   }, [firstSyncWatch]);
 
-  const rows = useMemo(() => buildConnectorRows(connectors, sources), [connectors, sources]);
+  const visibleSources = useMemo(() => sources.filter(s => !disconnecting.has(s.id)), [sources, disconnecting]);
+  const connections = useMemo(() => buildConnections(connectors, visibleSources), [connectors, visibleSources]);
+  const catalog = useMemo(() => catalogEntries(connectors, visibleSources, { unavailable: overview.unavailable, isAdmin }), [connectors, visibleSources, overview.unavailable, isAdmin]);
+
+  // A disconnect deletes for real once its Undo has lapsed, or when the page
+  // goes away first (keepalive, so the request outlives the tab).
+  useEffect(() => {
+    const pending = pendingDeletes.current;
+    const flush = () => {
+      for (const [id, timer] of pending) {
+        clearTimeout(timer);
+        void fetch(`/rpc/sources/${id}`, { method: 'DELETE', keepalive: true });
+      }
+      pending.clear();
+    };
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+
+  const handleDisconnect = useCallback((source: Source) => {
+    const name = connectors.find(c => c.slug === connectorSlugFor(source))?.name ?? source.slug;
+    setDisconnecting(current => new Set(current).add(source.id));
+    const restore = () => setDisconnecting((current) => {
+      const next = new Set(current);
+      next.delete(source.id);
+      return next;
+    });
+    const timer = setTimeout(async () => {
+      pendingDeletes.current.delete(source.id);
+      const failure = await deleteSourceById(source.id).catch((err: Error) => err.message);
+      if (failure) {
+        restore();
+        setError(failure);
+        return;
+      }
+      await refreshQuietly();
+      restore();
+    }, UNDO_MS);
+    pendingDeletes.current.set(source.id, timer);
+    toast.success(t('disconnected', { name }), {
+      duration: UNDO_MS,
+      action: {
+        label: t('undo'),
+        onClick: () => {
+          clearTimeout(pendingDeletes.current.get(source.id));
+          pendingDeletes.current.delete(source.id);
+          restore();
+        },
+      },
+    });
+  }, [connectors, refreshQuietly, t]);
+
+  const handlePause = useCallback(async (source: Source, paused: boolean) => {
+    const name = connectors.find(c => c.slug === connectorSlugFor(source))?.name ?? source.slug;
+    setError(null);
+    try {
+      const res = await fetch(`/rpc/sources/${source.id}/pause`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused }) });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? t('action_failed', { name }));
+        return;
+      }
+      await refreshQuietly();
+      toast.success(paused ? t('paused_toast', { name }) : t('resumed_toast', { name }));
+    } catch {
+      setError(t('action_failed', { name }));
+    }
+  }, [connectors, refreshQuietly, t]);
 
   const handleSync = useCallback(async (id: number) => {
     setSyncingId(id);
@@ -285,17 +370,21 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
           )
         : (
             <ConnectorList
-              rows={rows}
+              connections={connections}
+              catalog={catalog}
+              recommended={overview.recommended}
+              usedBy={overview.usedBy}
+              isAdmin={isAdmin}
               syncingId={syncingId}
-              searchRef={searchRef}
               lastAttempts={failedAttempts(connectInfo)}
               timeZone={timeZone}
               onConnectNew={slug => setAddingKind(slug)}
               onSync={s => void handleSync(s.id)}
               onTest={setTestingSource}
               onEdit={setEditingSource}
-              onDelete={setDeletingSource}
               onConnect={setConnectingSource}
+              onPause={(s, paused) => void handlePause(s, paused)}
+              onDisconnect={handleDisconnect}
             />
           )}
 
@@ -336,18 +425,6 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
             />
           )
         : null}
-      {deletingSource
-        ? (
-            <DeleteSourceDialog
-              source={deletingSource}
-              onClose={() => setDeletingSource(null)}
-              onDeleted={async () => {
-                setDeletingSource(null);
-                await refresh();
-              }}
-            />
-          )
-        : null}
       {testingSource
         ? <TestSourceDialog source={testingSource} onClose={() => setTestingSource(null)} />
         : null}
@@ -355,6 +432,7 @@ export function SourcesPanel({ connectInfo = {}, timeZone }: {
         ? (
             <ConnectCredentialDialog
               source={connectingSource}
+              name={connectorNameFor(connectors, connectorSlugFor(connectingSource)) ?? connectingSource.slug}
               returnTo={returnTo}
               onClose={() => setConnectingSource(null)}
               onConnected={async () => {
@@ -638,6 +716,25 @@ export function initialCredentialChoice(
 }
 
 /**
+ * A platform's paste guidance: its first sentence in view, the rest (scopes,
+ * permission names) behind Details.
+ * @param props
+ * @param props.help - The platform's `helpText`.
+ */
+function HelpLine({ help }: { help: string }) {
+  const first = firstSentence(help);
+  const rest = help.slice(first.length).trim();
+  return (
+    <div className="text-xs text-muted-foreground">
+      <p>{first}</p>
+      {rest && (
+        <HowItsAuthored label="Details">{rest}</HowItsAuthored>
+      )}
+    </div>
+  );
+}
+
+/**
  * The credential dialog: pick a credential the workspace already holds, or
  * supply one.
  *
@@ -656,12 +753,15 @@ export function initialCredentialChoice(
  * grants are still per-install.
  * @param props - Component props.
  * @param props.source - The source being connected.
+ * @param props.name
  * @param props.returnTo - Where the connect started in chat, when it did; the vendor flow lands there.
  * @param props.onClose - Called when the dialog is dismissed.
  * @param props.onConnected - Called after a credential is stored or picked.
  */
-function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
+function ConnectCredentialDialog({ source, name, returnTo, onClose, onConnected }: {
   source: Source;
+  /** The connector's name, for the title. */
+  name: string;
   returnTo: string | null;
   onClose: () => void;
   onConnected: () => Promise<void> | void;
@@ -747,15 +847,13 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border bg-background shadow-xl">
         <form onSubmit={submit}>
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <KeyRound className="size-4 text-muted-foreground" />
             <h3 className="font-display text-lg">
-              Connect
-              {' '}
-              {source.slug}
+              {`Connect ${name}`}
             </h3>
           </div>
           <div className="space-y-4 p-4">
@@ -778,27 +876,24 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                       {' '}
                       {connect.label}
                     </a>
-                    <p className="text-[11px] text-muted-foreground">
-                      Stored AES-GCM encrypted at rest — the token never touches logs or the browser.
-                    </p>
                   </div>
                 )
               : null}
             {connect && !connect.configured
               ? (
-                  <p className="text-xs text-muted-foreground">
-                    Connecting with
-                    {' '}
-                    {connect.label}
-                    {' '}
-                    needs
-                    {' '}
-                    <span className="font-mono">{connect.requiredEnv.join(', ')}</span>
-                    {' '}
-                    on the server
-                    {connect.bringYourOwnApp ? `, or ${withArticle(`${connect.label} login app`)} an admin saves on the Developers page` : ''}
-                    {pasteable ? '. Until then, paste a token below.' : `. ${connect.label} has no key to paste instead.`}
-                  </p>
+                  <div className="space-y-1 text-xs text-muted-foreground" data-testid="login-unavailable">
+                    <p>
+                      {`Signing in with ${connect.label} isn't set up on this server.`}
+                      {pasteable ? ' Paste a key below instead.' : ''}
+                    </p>
+                    <HowItsAuthored label="Details">
+                      {'It needs '}
+                      <code>{connect.requiredEnv.join(', ')}</code>
+                      {' on the server'}
+                      {connect.bringYourOwnApp ? `, or ${withArticle(`${connect.label} login app`)} an admin saves on the Developers page` : ''}
+                      .
+                    </HowItsAuthored>
+                  </div>
                 )
               : null}
             {!connect?.configured && stored.length > 0
@@ -844,7 +939,7 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                   )
                 : (
                     <>
-                      <p className="text-xs text-muted-foreground">{help}</p>
+                      <HelpLine help={help} />
                       {platformFields
                         ? (
                             <label className="block">
@@ -853,12 +948,9 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                                 type="text"
                                 value={credentialName}
                                 onChange={e => setCredentialName(e.target.value)}
-                                placeholder="e.g. Strapi — production"
+                                placeholder="e.g. Production"
                                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                               />
-                              <span className="mt-1 block text-[11px] text-muted-foreground">
-                                How this credential is listed, and how you tell it apart from the next one.
-                              </span>
                             </label>
                           )
                         : null}
@@ -884,11 +976,6 @@ function ConnectCredentialDialog({ source, returnTo, onClose, onConnected }: {
                           />
                         </label>
                       ))}
-                      <p className="text-[11px] text-muted-foreground">
-                        {platformFields
-                          ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so you can rotate it there.'
-                          : 'Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.'}
-                      </p>
                       {/* Test before Save, deliberately: the values as typed are
                         checked against the real service and nothing is stored,
                         so a bad key never becomes a connected-looking source. */}
@@ -981,133 +1068,6 @@ function TestSourceDialog({ source, onClose }: { source: Source; onClose: () => 
       </div>
     </div>
   );
-}
-
-/**
- * Confirm deleting a source, saying exactly what goes with it.
- *
- * Deleting cascades to every document ingested from the source and their
- * embeddings, and there is no undo — so the count is stated up front and the
- * confirm button is the destructive-coloured one.
- * @param root0 - Props.
- * @param root0.source - The source to delete.
- * @param root0.onClose - Close without deleting.
- * @param root0.onDeleted - Called after a successful delete.
- */
-function DeleteSourceDialog({ source, onClose, onDeleted }: {
-  source: Source;
-  onClose: () => void;
-  onDeleted: () => Promise<void> | void;
-}) {
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const confirm = async () => {
-    setDeleting(true);
-    setError(null);
-    try {
-      const message = await deleteSourceById(source.id);
-      if (message) {
-        setError(message);
-        return;
-      }
-      await onDeleted();
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
-        <div className="flex items-center gap-2 border-b px-4 py-3">
-          <Trash2 className="size-4 text-destructive" />
-          <h3 className="font-display text-lg">
-            Delete
-            {' '}
-            {source.slug}
-            ?
-          </h3>
-        </div>
-        <div className="space-y-3 p-4 text-sm">
-          <p>
-            This removes the connector and the
-            {' '}
-            {source.documentCount.toLocaleString()}
-            {' '}
-            document
-            {source.documentCount === 1 ? '' : 's'}
-            {' '}
-            ingested from it, so they stop appearing in search. It cannot be undone.
-          </p>
-          <p className="text-muted-foreground">
-            Nothing changes in
-            {' '}
-            {source.kind}
-            {' '}
-            itself, and the stored credential stays — other sources on the same connector keep working.
-          </p>
-        </div>
-        <div className="border-t px-4 py-3">
-          {error
-            ? (
-                <div role="alert" className="mb-3 flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  {error}
-                </div>
-              )
-            : null}
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={confirm}
-              disabled={deleting}
-              className="inline-flex items-center gap-1.5 rounded-full bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
-            >
-              {deleting
-                ? (
-                    <>
-                      <Loader2 className="size-3 animate-spin" />
-                      Deleting…
-                    </>
-                  )
-                : 'Delete connector'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Connectors whose name, slug or description contains every word in the query,
- * sorted A–Z by name. Word-at-a-time (rather than one substring match) so
- * "google ads" finds the Google Ads tile whichever order the words are typed.
- * An empty query matches everything, which is what the picker shows on open.
- *
- * Alphabetical rather than registry order: the registry is append-ordered by
- * when each connector shipped, which tells an operator scanning the list
- * nothing, and the order shifts under them every time one is added.
- * @param connectors - Every connector the server offers as a tile.
- * @param query - What the operator typed in the picker's search box.
- */
-export function filterConnectors(connectors: ConnectorTile[], query: string): ConnectorTile[] {
-  const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 0);
-  const matches = words.length === 0
-    ? [...connectors]
-    : connectors.filter((connector) => {
-        const haystack = `${connector.name} ${connector.slug} ${connector.description}`.toLowerCase();
-        return words.every(word => haystack.includes(word));
-      });
-  return matches.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 /**
@@ -1279,7 +1239,7 @@ function AddSourceDialogFrame({
   requirement: string | null;
   /** A standing note about what saving will do, shown above the fields. */
   notice: string | null;
-  /** Wording for the submit button — "Add connector" when adding, "Save changes" when editing. */
+  /** Wording for the submit button — "Connect" when adding, "Save changes" when editing. */
   submitLabel: string;
   submitting: boolean;
   canSubmit: boolean;
@@ -1491,7 +1451,7 @@ function AddWebSourceDialog({ kind, title, lead, existing, onClose, onAdded }: {
       lead={lead}
       error={error}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
-      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      submitLabel={existing ? 'Save changes' : 'Connect'}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={url.trim().length > 0}
@@ -1769,7 +1729,7 @@ function AddConfigurableSourceDialog({ kind, title, lead, fields, existing, conn
       lead={lead}
       error={error}
       requirement={describeMissingFields([...credentialMissing, ...missingLabels])}
-      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      submitLabel={existing ? 'Save changes' : 'Connect'}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={missingLabels.length === 0 && credentialMissing.length === 0}
@@ -2259,7 +2219,7 @@ function AddStrapiSourceDialog({ kind, title, lead, existing, onClose, onAdded }
       lead={lead}
       error={error}
       requirement={requirement}
-      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      submitLabel={existing ? 'Save changes' : 'Connect'}
       notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
@@ -2541,7 +2501,7 @@ function AddSourceDialog({
   const source = existing ?? null;
   // One form per connector, used for both jobs: an edit that could not offer the
   // same fields as the add would be a second place for the config to drift.
-  const title = source ? `Edit ${connectorName} source` : `Add ${connectorName} source`;
+  const title = source ? `${connectorName} settings` : `Connect ${connectorName}`;
   const lead = <IntegrationLogo brand={connector?.brand} name={connectorName} icon={connectorIcon(connector?.icon ?? '')} size="sm" />;
   if (kind === 'strapi') {
     return <AddStrapiSourceDialog kind={kind} title={title} lead={lead} existing={source} onClose={onClose} onAdded={onAdded} />;

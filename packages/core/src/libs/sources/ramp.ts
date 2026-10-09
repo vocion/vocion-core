@@ -27,6 +27,7 @@ export const rampConnector: SourceConnector<typeof rampConfigSchema> = {
   brand: 'ramp',
   description: 'Company spend, read live: card transactions, reimbursements, bills and vendors. Read-only — Vocion never issues a card, approves or pays.',
   icon: 'Wallet',
+  category: 'finance-people',
   authKind: 'apikey',
   syncless: true,
   configSchema: rampConfigSchema,

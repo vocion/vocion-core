@@ -1,7 +1,9 @@
 import type { ConnectorTile, Source } from './connectorRows';
+import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
+import messages from '@/locales/en.json';
 
 vi.mock('@/libs/I18nNavigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {} }),
@@ -12,29 +14,31 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { ConnectorList } = await import('./ConnectorList');
-const { buildConnectorRows } = await import('./connectorRows');
+const { buildConnections, catalogEntries } = await import('./connectorRows');
+
+const NOW = Date.parse('2026-10-09T12:00:00.000Z');
 
 const tile = (slug: string, name: string, extra: Partial<ConnectorTile> = {}): ConnectorTile => ({
   slug,
   name,
-  description: `Ingest ${name} records.`,
+  description: `Reads ${name} records. Then more detail nobody needs on a card.`,
   icon: 'Database',
-  authKind: 'oauth',
+  authKind: 'apikey',
   credentialPlatform: null,
   syncless: false,
   inspectable: false,
   ...extra,
 });
 
-const source = (extra: Partial<Source> = {}): Source => ({
-  id: 4,
-  slug: 'zoom-recordings',
+const source = (id: number, connector: string, extra: Partial<Source> = {}): Source => ({
+  id,
+  slug: connector,
   kind: 'plugin',
-  config: { _connector: 'zoom' },
-  lastSyncedAt: '2026-09-17T16:00:00.000Z',
+  config: { _connector: connector },
+  lastSyncedAt: '2026-10-09T10:00:00.000Z',
   enabled: 'true',
   createdAt: '2026-09-01T00:00:00.000Z',
-  authKind: 'oauth',
+  authKind: 'apikey',
   objectType: null,
   documentCount: 12,
   chunkCount: 340,
@@ -44,190 +48,266 @@ const source = (extra: Partial<Source> = {}): Source => ({
   syncless: false,
   inspectable: false,
   inspectNote: null,
-  sync: null,
+  sync: { status: 'completed', startedAt: '2026-10-09T10:00:00.000Z', completedAt: '2026-10-09T10:01:00.000Z', error: null, counts: { created: 12 } },
   ...extra,
 });
 
-const ZOOM = tile('zoom', 'Zoom', { requiredScopes: ['user:read:list_users:admin', 'cloud_recording:read:list_recording_files:admin'] });
-const ERROR = 'Zoom recordings list failed: 400 {"code":4711,"message":"Invalid access token, does not contain scopes:[cloud_recording:read:list_recording_files:admin]"}';
+const ZOOM_ERROR = 'Zoom recordings list failed: 400 {"code":4711,"message":"Invalid access token, does not contain scopes:[cloud_recording:read:list_recording_files:admin]"}';
 
-function renderList(sources: Source[], handlers: Partial<React.ComponentProps<typeof ConnectorList>> = {}) {
-  const rows = buildConnectorRows([tile('hubspot', 'HubSpot', { authKind: 'apikey' }), ZOOM, tile('web', 'Web', { authKind: 'none' })], sources);
-  const noop = () => {};
-  return render(
-    <ConnectorList rows={rows} syncingId={null} onConnectNew={noop} onSync={noop} onTest={noop} onEdit={noop} onDelete={noop} onConnect={noop} {...handlers} />,
+const TILES = [
+  tile('web', 'Web', { authKind: 'none', category: 'docs-files' }),
+  tile('zoom', 'Zoom', { authKind: 'oauth', category: 'chat-meetings', requiredScopes: ['user:read:list_users:admin', 'cloud_recording:read:list_recording_files:admin'] }),
+  tile('hubspot', 'HubSpot', { category: 'sales-marketing' }),
+  tile('github', 'GitHub', { category: 'engineering' }),
+  tile('gmail', 'Gmail', { authKind: 'oauth', category: 'mail-calendar' }),
+  tile('quickbooks', 'QuickBooks Online', { authKind: 'oauth', category: 'finance-people' }),
+  tile('apollo', 'Apollo', { category: 'sales-marketing', syncless: true }),
+];
+
+type Props = React.ComponentProps<typeof ConnectorList>;
+
+function renderList(sources: Source[], extra: Partial<Props> & { unavailable?: string[] } = {}) {
+  const isAdmin = extra.isAdmin ?? true;
+  const handlers = {
+    onConnectNew: vi.fn(),
+    onSync: vi.fn(),
+    onTest: vi.fn(),
+    onEdit: vi.fn(),
+    onConnect: vi.fn(),
+    onPause: vi.fn(),
+    onDisconnect: vi.fn(),
+  };
+  render(
+    <NextIntlClientProvider locale="en" messages={messages}>
+      <ConnectorList
+        connections={buildConnections(TILES, sources)}
+        catalog={catalogEntries(TILES, sources, { unavailable: extra.unavailable ?? [], isAdmin })}
+        recommended={[]}
+        usedBy={{}}
+        isAdmin={isAdmin}
+        syncingId={null}
+        now={NOW}
+        {...handlers}
+        {...extra}
+      />
+    </NextIntlClientProvider>,
   );
+  return handlers;
 }
 
-describe('ConnectorList', () => {
-  it('is one flat list: connected at the top with its size, the rest offered as Connect', async () => {
-    renderList([source()]);
+/**
+ * A section's element, once it has rendered.
+ * @param id - Its test id.
+ */
+async function section(id: string): Promise<HTMLElement> {
+  await expect.element(page.getByTestId(id)).toBeInTheDocument();
 
-    await expect.element(page.getByText('3 connectors · 1 connected')).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /^Zoom/ })).toBeVisible();
-    await expect.element(page.getByText(/12 documents · 340 chunks · last sync/)).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Connect HubSpot' })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Connect Web' })).toBeVisible();
+  return page.getByTestId(id).element() as HTMLElement;
+}
 
-    // Connected rows first, whatever the alphabet says.
-    const names = page.getByRole('button').elements().map(el => el.getAttribute('aria-label') ?? el.textContent ?? '');
+const row = (slug: string) => page.getByTestId('connected-section').element().querySelector(`[data-connection="${slug}"]`) as HTMLElement;
 
-    expect(names.findIndex(n => n.startsWith('Zoom'))).toBeLessThan(names.findIndex(n => n === 'Connect HubSpot'));
+describe('Connected', () => {
+  it('is one row per connection: its status in words, who uses it and when it last synced', async () => {
+    renderList([source(1, 'web', { authKind: 'none' })], { usedBy: { web: ['Support lead', 'Software Factory'] } });
+
+    await expect.element(page.getByTestId('connection-status')).toHaveTextContent('Working');
+    await expect.element(page.getByText('Used by Support lead, Software Factory · Synced 2 hours ago')).toBeVisible();
+    // A working connection has nothing to fix, so the row has no button but its menu.
+    expect(row('web').querySelectorAll('button:not([data-testid="row-menu"])')).toHaveLength(1);
   });
 
-  it('a Connect row hands its connector slug to the caller', async () => {
-    const onConnectNew = vi.fn();
-    renderList([], { onConnectNew });
+  it('puts the connections that need a person first, each with a plain reason and its one fix', async () => {
+    const { onConnect } = renderList([
+      source(1, 'web', { authKind: 'none' }),
+      source(2, 'hubspot', { credentialBroken: 'expired', credentialConnected: false }),
+    ]);
 
-    await userEvent.click(page.getByRole('button', { name: 'Connect HubSpot' }));
+    const slugs = [...(await section('connected-section')).querySelectorAll('[data-connection]')].map(el => el.getAttribute('data-connection'));
 
-    expect(onConnectNew).toHaveBeenCalledWith('hubspot');
+    expect(slugs).toEqual(['hubspot', 'web']);
+
+    await expect.element(page.getByText('Needs attention: sign-in expired')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Reconnect HubSpot' }).click();
+
+    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }));
   });
 
-  it('opens a connected row in place to its last run, size, and the scopes it is missing — with Reconnect', async () => {
-    const onConnect = vi.fn();
-    const failed = source({ sync: { status: 'failed', startedAt: '2026-09-18T14:00:00.000Z', completedAt: '2026-09-18T14:00:03.000Z', error: ERROR, counts: {} } });
-    renderList([failed], { onConnect });
+  it('says a missing permission plainly and keeps the scope ids for Details', async () => {
+    renderList([source(1, 'zoom', { authKind: 'oauth', sync: { status: 'failed', startedAt: '2026-10-09T10:00:00.000Z', completedAt: null, error: ZOOM_ERROR, counts: {} } })]);
 
-    await expect.element(page.getByText('Needs attention')).toBeVisible();
-    expect(page.getByTestId('connector-detail').elements()).toHaveLength(0);
+    await expect.element(page.getByText('Needs attention: needs more permissions')).toBeVisible();
+    await expect.element(page.getByText('cloud_recording:read:list_recording_files:admin')).not.toBeInTheDocument();
 
-    await userEvent.click(page.getByRole('button', { name: /^Zoom/ }));
+    await page.getByRole('button', { name: /^Zoom/ }).click();
+    await page.getByText('Details').click();
 
-    await expect.element(page.getByTestId('connector-detail')).toBeVisible();
-    await expect.element(page.getByText('Last sync failed: the token is missing 1 scope.')).toBeVisible();
-    await expect.element(page.getByText('Chunks in retrieval:')).toBeVisible();
-
-    const scopes = page.getByTestId('connector-scopes');
-
-    await expect.element(scopes.getByText('cloud_recording:read:list_recording_files:admin')).toBeVisible();
-    await expect.element(scopes.getByText('missing', { exact: true })).toBeVisible();
-    await expect.element(scopes.getByText(/Add the missing scopes to the app/)).toBeVisible();
-
-    await userEvent.click(page.getByRole('button', { name: 'Reconnect' }));
-
-    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 4 }));
+    await expect.element(page.getByTestId('connector-scopes')).toHaveTextContent(/cloud_recording:read:list_recording_files:admin\s*missing/);
   });
 
-  it('a row whose login died offers Reconnect right on the row, so "log in with HubSpot again" has a button to press', async () => {
-    const onConnect = vi.fn();
-    const dead = source({
-      id: 9,
-      slug: 'hubspot-crm',
-      config: { _connector: 'hubspot' },
-      sync: { status: 'failed', startedAt: '2026-09-18T14:00:00.000Z', completedAt: '2026-09-18T14:00:01.000Z', error: 'HubSpot would not refresh the login (invalid_grant). An admin needs to log in with HubSpot again on the Connectors page.', counts: {} },
-    });
-    renderList([dead], { onConnect });
+  it('offers Try again where a run failed and there is no login to redo', async () => {
+    const { onSync } = renderList([source(1, 'web', { authKind: 'none', sync: { status: 'abandoned', startedAt: '2026-10-09T10:00:00.000Z', completedAt: null, error: null, counts: {} } })]);
 
-    await expect.element(page.getByText(/An admin needs to log in with HubSpot again/).first()).toBeVisible();
+    await expect.element(page.getByText('Needs attention: a sync stopped partway')).toBeVisible();
 
-    await userEvent.click(page.getByRole('button', { name: 'Reconnect' }));
+    await page.getByRole('button', { name: 'Try again Web' }).click();
 
-    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+    expect(onSync).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
   });
 
-  it('a connected Apollo row always offers Reconnect, since it never syncs and no failed run will say its login died', async () => {
-    const onConnect = vi.fn();
-    const rows = buildConnectorRows([tile('apollo', 'Apollo', { syncless: true, inspectable: true })], [source({ id: 11, slug: 'apollo', config: { _connector: 'apollo' }, syncless: true, inspectable: true })]);
-    render(<ConnectorList rows={rows} syncingId={null} onConnectNew={() => {}} onSync={() => {}} onTest={() => {}} onEdit={() => {}} onDelete={() => {}} onConnect={onConnect} />);
+  it('keeps Manage, Pause and Disconnect behind one quiet menu', async () => {
+    const { onPause, onDisconnect } = renderList([source(1, 'hubspot')]);
 
-    // Its row's primary is Test connection; Reconnect waits in the row's menu.
-    await expect.element(page.getByRole('button', { name: /Test connection/ })).toBeVisible();
+    await page.getByRole('button', { name: 'More for HubSpot' }).click();
 
-    await userEvent.click(page.getByRole('button', { name: /^More for / }));
-    await userEvent.click(page.getByRole('menuitem', { name: 'Reconnect' }));
+    await expect.element(page.getByRole('menuitem', { name: 'Manage' })).toBeVisible();
+    await expect.element(page.getByRole('menuitem', { name: 'Pause' })).toBeVisible();
 
-    expect(onConnect).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
+    await page.getByRole('menuitem', { name: 'Disconnect' }).click();
+
+    expect(onDisconnect).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+
+    await page.getByRole('button', { name: 'More for HubSpot' }).click();
+    await page.getByRole('menuitem', { name: 'Pause' }).click();
+
+    expect(onPause).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), true);
   });
 
-  it('a healthy row offers no Reconnect beside its actions', async () => {
-    renderList([source({ id: 9, slug: 'hubspot-crm', config: { _connector: 'hubspot' } })]);
+  it('a paused connection reads Paused and offers Resume', async () => {
+    const { onPause } = renderList([source(1, 'hubspot', { enabled: 'false' })]);
 
-    await expect.element(page.getByRole('button', { name: /Sync now/ })).toBeVisible();
-    expect(page.getByRole('button', { name: 'Reconnect' }).elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('connection-status')).toHaveTextContent('Paused');
+
+    await page.getByRole('button', { name: 'More for HubSpot' }).click();
+    await page.getByRole('menuitem', { name: 'Resume' }).click();
+
+    expect(onPause).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), false);
   });
 
-  it('keeps one quiet primary on the row and puts Edit and Delete in its menu, with no red', async () => {
-    const onEdit = vi.fn();
-    const onDelete = vi.fn();
-    renderList([source({ id: 9, slug: 'hubspot-crm', config: { _connector: 'hubspot' } })], { onEdit, onDelete });
+  it('opens in place to Manage: its actions, with the detail folded behind Details', async () => {
+    const { onSync, onEdit } = renderList([source(1, 'hubspot')]);
 
-    expect(page.getByRole('button', { name: 'Edit' }).elements()).toHaveLength(0);
-    expect(page.getByRole('button', { name: 'Delete' }).elements()).toHaveLength(0);
-    expect(document.querySelector('[data-connector-row] .text-destructive')).toBeNull();
+    await page.getByRole('button', { name: /^HubSpot/ }).click();
+    await page.getByRole('button', { name: 'Sync now' }).click();
+    await page.getByRole('button', { name: 'Change settings' }).click();
 
-    await userEvent.click(page.getByRole('button', { name: 'More for hubspot-crm' }));
-    await userEvent.click(page.getByRole('menuitem', { name: 'Edit settings' }));
+    expect(onSync).toHaveBeenCalledOnce();
+    expect(onEdit).toHaveBeenCalledOnce();
 
-    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+    await expect.element(page.getByText('Chunks in search: 340')).not.toBeVisible();
 
-    await userEvent.click(page.getByRole('button', { name: 'More for hubspot-crm' }));
-    await userEvent.click(page.getByRole('menuitem', { name: 'Delete…' }));
+    await page.getByText('Details').click();
 
-    expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+    await expect.element(page.getByText('Chunks in search: 340')).toBeVisible();
   });
 
-  it('names the account a grant is on and marks each listed repository against what it granted', async () => {
-    const GITHUB = tile('github', 'GitHub');
-    const rows = buildConnectorRows([GITHUB], [source({
-      id: 9,
-      slug: 'github',
-      kind: 'github',
-      config: { repos: ['The-NocoCompany/warranty-app', 'The-NocoCompany/noco-sales'] },
-      grant: {
-        account: 'The-NocoCompany (organization)',
-        granted: { label: 'Repositories', items: ['The-NocoCompany/warranty-app', 'The-NocoCompany/amazon-ads-reporting'] },
-      },
-    })]);
-    const noop = () => {};
-    render(<ConnectorList rows={rows} syncingId={null} onConnectNew={noop} onSync={noop} onTest={noop} onEdit={noop} onDelete={noop} onConnect={noop} />);
-
-    await userEvent.click(page.getByRole('button', { name: /GitHub/ }).first());
-
-    const grant = page.getByTestId('connector-grant');
-
-    await expect.element(grant).toBeVisible();
-    await expect.element(grant.getByText('The-NocoCompany (organization)')).toBeVisible();
-    // Listed and granted: read. Listed, not granted: the one fact a green card hid.
-    expect(grant.getByText('The-NocoCompany/warranty-app').element().closest('li')?.getAttribute('data-grant-state')).toBe('read');
-    expect(grant.getByText('The-NocoCompany/noco-sales').element().closest('li')?.getAttribute('data-grant-state')).toBe('not-granted');
-    await expect.element(grant.getByText(/A repository this source lists is not in the installation/)).toBeVisible();
-    // Granted but not listed: shown, muted, so the person sees what the source leaves unread.
-    expect(grant.getByText('The-NocoCompany/amazon-ads-reporting').element().closest('li')?.getAttribute('data-grant-state')).toBe('not-listed');
-  });
-
-  it('says on the row when the last run read items and kept none, with the rule that dropped them', async () => {
-    renderList([source({
-      slug: 'github',
-      config: { _connector: 'zoom' },
-      documentCount: 0,
-      sync: {
-        status: 'completed',
-        startedAt: '2026-09-30T21:20:00.000Z',
-        completedAt: '2026-09-30T21:20:30.000Z',
-        error: null,
-        counts: { created: 0, updated: 0, unchanged: 0, errors: 0, skipped: 12 },
-        skipped: [{ uri: 'https://github.com/The-NocoCompany/warranty-app/pull/58', message: 'branch fix-date-range-last-day is outside the factory/ prefix', at: '2026-09-30T21:20:10.000Z' }],
-      },
+  it('names the account a grant is on and marks each listed repository against what it granted, in Details', async () => {
+    renderList([source(1, 'github', {
+      config: { _connector: 'github', repos: ['northwind/portal', 'northwind/billing'] },
+      grant: { account: 'northwind (organization)', granted: { label: 'Repositories', items: ['northwind/portal', 'northwind/docs'] } },
     })]);
 
-    await expect.element(page.getByTestId('sync-skipped-line')).toHaveTextContent('Last sync read 12 items and kept none: branch fix-date-range-last-day is outside the factory/ prefix');
+    await page.getByRole('button', { name: /^GitHub/ }).click();
+
+    await expect.element(page.getByText('Connected as northwind (organization)')).toBeVisible();
+
+    await page.getByText('Details').click();
+    const grant = page.getByTestId('connector-grant').element();
+
+    expect(grant.querySelector('[data-grant-state="not-granted"]')?.textContent).toContain('northwind/billing');
+    expect(grant.querySelector('[data-grant-state="not-listed"]')?.textContent).toContain('northwind/docs');
   });
 
-  it('shows a running sync\'s progress on the row without opening it', async () => {
-    renderList([source({ sync: { status: 'running', startedAt: new Date(Date.now() - 120_000).toISOString(), completedAt: null, error: null, counts: { created: 40, updated: 2 } } })]);
+  it('shows a member what is connected, with nothing to change and a line saying who can', async () => {
+    renderList([source(1, 'hubspot', { credentialBroken: 'revoked', credentialConnected: false })], { isAdmin: false });
 
-    await expect.element(page.getByText('Syncing now', { exact: true })).toBeVisible();
-    await expect.element(page.getByText(/started 2m ago · 42 documents so far/)).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /Syncing…/ })).toBeDisabled();
+    await expect.element(page.getByText('Needs attention: access was revoked')).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Reconnect HubSpot' })).not.toBeInTheDocument();
+    await expect.element(page.getByTestId('member-note')).toHaveTextContent('Only an admin can connect new systems.');
+    await expect.element(page.getByTestId('catalog-section')).not.toBeInTheDocument();
+  });
+});
+
+describe('Recommended for this workspace', () => {
+  const RECOMMENDED = [
+    { slug: 'github', name: 'GitHub', why: 'Software Factory needs it' },
+    { slug: 'hubspot', name: 'HubSpot', why: 'Used in 2 other workspaces of your Org' },
+    { slug: 'gmail', name: 'Gmail', why: 'Mail at northwind.example is hosted there' },
+    { slug: 'zoom', name: 'Zoom', why: 'You named it' },
+  ];
+
+  it('shows at most three, each with its one reason, and drops what is already connected', async () => {
+    const { onConnectNew } = renderList([source(1, 'hubspot')], { recommended: RECOMMENDED });
+    const section = page.getByTestId('recommended-section');
+
+    await expect.element(section.getByText('Software Factory needs it')).toBeVisible();
+    expect(section.element().querySelectorAll('[data-recommended]')).toHaveLength(3);
+    expect(section.element().textContent).not.toContain('HubSpot');
+
+    await section.getByRole('button', { name: 'Connect GitHub' }).click();
+
+    expect(onConnectNew).toHaveBeenCalledWith('github');
   });
 
-  it('filters by the words typed and says how many match', async () => {
+  it('is not offered to a member, who cannot connect anything', async () => {
+    renderList([], { recommended: RECOMMENDED, isAdmin: false });
+
+    await expect.element(page.getByTestId('recommended-section')).not.toBeInTheDocument();
+  });
+});
+
+describe('All connectors', () => {
+  it('stays folded behind its search box while the page has other things on it', async () => {
+    renderList([source(1, 'hubspot')]);
+
+    expect((await section('catalog-section')).querySelector('[data-catalog]')).toBeNull();
+
+    await userEvent.fill(page.getByRole('searchbox', { name: 'Search connectors' }), 'git');
+
+    await expect.element(page.getByRole('button', { name: 'Connect GitHub' })).toBeVisible();
+    expect(page.getByTestId('catalog-section').element().querySelectorAll('[data-catalog]')).toHaveLength(1);
+  });
+
+  it('is open from the start on a page with nothing else on it, one sentence per connector', async () => {
     renderList([]);
 
-    await userEvent.fill(page.getByLabelText('Search connectors'), 'hub');
+    await expect.element(page.getByRole('button', { name: 'Connect Web' })).toBeVisible();
+    await expect.element(page.getByText('Reads Web records.', { exact: true })).toBeVisible();
+    await expect.element(page.getByText(/more detail nobody needs/)).not.toBeInTheDocument();
+  });
 
-    await expect.element(page.getByText('1 of 3 connectors')).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Connect Web' })).not.toBeInTheDocument();
+  it('narrows to a category', async () => {
+    renderList([source(1, 'hubspot')]);
+
+    await page.getByRole('button', { name: 'Engineering' }).click();
+
+    await expect.element(page.getByRole('button', { name: 'Engineering' })).toHaveAttribute('aria-pressed', 'true');
+    expect([...page.getByTestId('catalog-section').element().querySelectorAll('[data-catalog]')].map(el => el.getAttribute('data-catalog'))).toEqual(['github']);
+  });
+
+  it('says quietly that a connector cannot be connected on this server, with no button', async () => {
+    renderList([], { unavailable: ['quickbooks'] });
+
+    const qb = (await section('catalog-section')).querySelector('[data-catalog="quickbooks"]')!;
+
+    expect(qb.textContent).toContain('Not available on this server');
+    expect(qb.querySelector('button')).toBeNull();
+  });
+
+  it('offers another connection of a connector that takes several, and none of one that takes one', async () => {
+    renderList([source(1, 'web', { authKind: 'none' }), source(2, 'apollo', { syncless: true }), source(3, 'hubspot')]);
+
+    await page.getByRole('button', { name: 'Browse all connectors' }).click();
+
+    await expect.element(page.getByRole('button', { name: 'Add another Web connection' })).toBeVisible();
+    expect(page.getByTestId('catalog-section').element().querySelector('[data-catalog="apollo"]')?.textContent).toContain('Connected');
+  });
+
+  it('says so when nothing matches', async () => {
+    renderList([]);
+    await userEvent.fill(page.getByRole('searchbox', { name: 'Search connectors' }), 'nothing like it');
+
+    await expect.element(page.getByText('No connector matches “nothing like it”.')).toBeVisible();
   });
 });

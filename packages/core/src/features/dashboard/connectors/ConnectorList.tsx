@@ -1,673 +1,524 @@
 'use client';
 
-import type { RefObject } from 'react';
 import type { FailedAttempt } from '../LastAttemptLine';
-import type { ConnectorRow, Source } from './connectorRows';
+import type { CatalogEntry, ConnectionProblem, ConnectionRow, Source } from './connectorRows';
 import type { RowMenuItem } from '@/components/patterns';
 import type { GrantSummary } from '@/libs/connect/provider';
-import type { Tint } from '@/libs/tints';
+import type { ConnectorCategory } from '@/libs/sources/types';
+import type { RecommendedConnector } from '@/services/connect/connectionsOverview';
 import {
-  AlertTriangle,
   Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   CircleAlert,
   ExternalLink,
   KeyRound,
   Loader2,
+  Pause,
   Pencil,
+  Play,
   Plug,
-  Plus,
   RefreshCw,
   Search,
-  Trash2,
+  Settings2,
+  Unplug,
 } from 'lucide-react';
+import { useLocale, useTranslations } from 'next-intl';
 import { useMemo, useState } from 'react';
-import { CatalogCard, CatalogCards, firstSentence, IntegrationLogo, ListRows, RowMenu } from '@/components/patterns';
+import { firstSentence, IntegrationLogo, ListRows, RowMenu } from '@/components/patterns';
+import { HowItsAuthored } from '@/components/ui/how-its-authored';
 import { Link } from '@/libs/I18nNavigation';
+import { CONNECTOR_CATEGORIES } from '@/libs/sources/types';
 import { cn } from '@/utils/Helpers';
 import { LastAttemptLine } from '../LastAttemptLine';
 import { connectorIcon } from './connectorIcon';
-import { describeSourceConfig, filterConnectorRows, formatRelative, offersReconnect } from './connectorRows';
+import { categoriesIn, describeSourceConfig, filterCatalog, instanceLabel, relativeTime } from './connectorRows';
 
 /**
- * The connectors page as one flat list (Chris, 2026-09-18, Claude's list as
- * the reference): icon, name, one line, and Connect — for every connector
- * the build knows. A connected connector sits at the top with its summary
- * on the row and opens in place to what Vocion is responsible for and the
- * reference is not: the last run and its errors, the size in documents and
- * chunks, a running sync's progress, the scopes it needs and which are
- * missing. Each connection keeps ONE quiet action on its row (Sync now,
- * Connect, Reconnect or Test connection) and the rest — Edit, Delete — in its
- * `RowMenu`.
+ * The Connectors page (founder, 2026-10-09: "clear, concise, simple, easy to
+ * use"). Three short parts and nothing else:
  *
- * Hairlines for the connected half; one primary action per row
- * (`docs/design/patterns.md`). The connectors not connected yet are front
- * doors — tinted cards, one sentence and Connect.
+ * 1. **Connected** — one row per connection: logo and name, a status in words,
+ *    who uses it, when it last synced, and at most one fix on the row
+ *    (Reconnect, Connect or Try again). Everything else is behind ⋯ (Manage,
+ *    Pause, Disconnect); the row itself opens Manage in place, where the
+ *    technical detail waits behind Details.
+ * 2. **Recommended for this workspace** — at most three, each with one reason,
+ *    the same reason chat gives.
+ * 3. **All connectors** — a search box and categories over one compact list,
+ *    folded away until it is asked for.
+ *
+ * Nothing on it counts what the next line already shows, and there is one way
+ * to start each thing.
  */
 
-/** How many rows render before "Show more" — the search is what makes a long list usable. */
-const PAGE_SIZE = 25;
-
-/** The catalog half's anchor, which Add connector scrolls to. */
-const CATALOG_ID = 'connector-catalog';
-
-/**
- * A connector card's category is how it connects — the kicker says it, and
- * the card's tint says it at a glance, so the catalog groups itself by colour.
- */
-const AUTH_KICKER: Record<ConnectorRow['tile']['authKind'], string> = { oauth: 'Sign in', apikey: 'API key', none: 'No sign-in' };
-const AUTH_TINT: Record<ConnectorRow['tile']['authKind'], Tint> = { oauth: 'sky', apikey: 'violet', none: 'mint' };
+const SECTION_HEADING = 'mb-1 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase';
+const PILL = 'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border border-rule px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-50 sm:min-h-8';
 
 export type ConnectorListProps = {
-  rows: ConnectorRow[];
-  /** The configured row a Sync now this tab started is running on, if any. */
+  connections: ConnectionRow[];
+  catalog: CatalogEntry[];
+  /** From the server, best first; connectors connected since are dropped here. */
+  recommended: RecommendedConnector[];
+  /** Per connector slug: the agents and apps that read it. */
+  usedBy: Record<string, string[]>;
+  /** Only an admin is offered anything to connect or change. */
+  isAdmin: boolean;
+  /** The connection a Sync now from this tab is running on, if any. */
   syncingId: number | null;
-  /** Focus target for the page's Add connector button. */
-  searchRef?: RefObject<HTMLInputElement | null>;
-  /** Start connecting a connector nobody has set up (or another instance of one). */
-  /** The newest failed connect attempt per connector slug, shown under its row. */
+  /** The newest failed connect attempt per connector slug. */
   lastAttempts?: Record<string, FailedAttempt>;
-  /** IANA zone for the attempt's date; the browser's by default. */
+  /** IANA zone for dates; the browser's by default. */
   timeZone?: string;
+  /** Now, for the relative times (tests). */
+  now?: number;
   onConnectNew: (slug: string) => void;
   onSync: (source: Source) => void;
   onTest: (source: Source) => void;
   onEdit: (source: Source) => void;
-  onDelete: (source: Source) => void;
-  /** Store or replace the credential a configured row uses — Connect, or Reconnect after a revoke or a scope change. */
+  /** Store or replace the credential a connection uses. */
   onConnect: (source: Source) => void;
+  onPause: (source: Source, paused: boolean) => void;
+  onDisconnect: (source: Source) => void;
 };
 
 export function ConnectorList(props: ConnectorListProps) {
-  const { rows, searchRef } = props;
-  const [query, setQuery] = useState('');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-
-  const matches = useMemo(() => filterConnectorRows(rows, query), [rows, query]);
-  const visible = matches.slice(0, visibleCount);
-  const hiddenCount = matches.length - visible.length;
-  const connectedCount = rows.filter(r => r.state !== 'not-connected').length;
-
-  // A new query starts a fresh page — otherwise a search run after "Show more"
-  // keeps the taller list for a two-result match.
-  const changeQuery = (next: string) => {
-    setQuery(next);
-    setVisibleCount(PAGE_SIZE);
-  };
-  const toggle = (slug: string) => setOpen(o => ({ ...o, [slug]: !o[slug] }));
-  const connectedRows = visible.filter(row => row.state !== 'not-connected');
-  const availableRows = visible.filter(row => row.state === 'not-connected');
+  const t = useTranslations('Connectors');
+  const connectedSlugs = new Set(props.connections.map(r => r.tile.slug));
+  const recommended = props.isAdmin ? props.recommended.filter(r => !connectedSlugs.has(r.slug)).slice(0, 3) : [];
+  const tileOf = new Map(props.catalog.map(e => [e.tile.slug, e.tile]));
 
   return (
-    <div className="flex flex-col gap-3" data-testid="connector-list">
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="relative block min-w-0 flex-1 sm:max-w-sm">
-          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <input
-            ref={searchRef}
-            type="search"
-            value={query}
-            onChange={e => changeQuery(e.target.value)}
-            placeholder="Search connectors — name or what it ingests"
-            aria-label="Search connectors"
-            className="w-full rounded-md border border-input bg-background py-2 pr-3 pl-9 text-sm"
-          />
-        </label>
-        <p className="text-xs text-muted-foreground">
-          {matches.length === rows.length
-            ? `${rows.length} connectors`
-            : `${matches.length} of ${rows.length} connectors`}
-          {connectedCount > 0 && matches.length === rows.length ? ` · ${connectedCount} connected` : ''}
-        </p>
-        {/* The page's one primary: it takes you to the catalog and the search over it. */}
-        <button
-          type="button"
-          onClick={() => {
-            document.getElementById(CATALOG_ID)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-            searchRef?.current?.focus({ preventScroll: true });
-          }}
-          className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1.5 text-sm font-medium text-action-foreground transition-colors hover:bg-action/90"
-        >
-          <Plus className="size-4" aria-hidden />
-          Add connector
-        </button>
-      </div>
-
-      {connectedRows.length > 0 && (
-        <ListRows>
-          {connectedRows.map(row => (
-            <ConnectedRow
-              key={row.tile.slug}
-              row={row}
-              attempt={props.lastAttempts?.[row.tile.slug]}
-              timeZone={props.timeZone}
-              open={Boolean(open[row.tile.slug])}
-              onToggle={() => toggle(row.tile.slug)}
-              syncingId={props.syncingId}
-              onConnectNew={() => props.onConnectNew(row.tile.slug)}
-              onSync={props.onSync}
-              onTest={props.onTest}
-              onEdit={props.onEdit}
-              onDelete={props.onDelete}
-              onConnect={props.onConnect}
-            />
-          ))}
-        </ListRows>
-      )}
-
-      {/* The catalog half is a set of front doors (docs/design/patterns.md §
-          Front doors): what each one reads, in one sentence, and Connect. The
-          connected half above stays a list — it is work, not choosing. */}
-      {availableRows.length > 0 && (
-        <section id={CATALOG_ID} aria-label="Add a connector" className={cn('scroll-mt-4', connectedRows.length > 0 && 'mt-4')}>
-          {connectedRows.length > 0 && <h2 className="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">Add a connector</h2>}
-          <CatalogCards>
-            {availableRows.map(row => (
-              <AvailableCard key={row.tile.slug} row={row} attempt={props.lastAttempts?.[row.tile.slug]} timeZone={props.timeZone} onConnect={() => props.onConnectNew(row.tile.slug)} />
+    <div className="flex flex-col gap-8" data-testid="connector-list">
+      {props.connections.length > 0 && (
+        <section aria-labelledby="connected-heading" data-testid="connected-section">
+          <h2 id="connected-heading" className={SECTION_HEADING}>{t('connected_heading')}</h2>
+          <ListRows>
+            {props.connections.map(row => (
+              <ConnectionItem key={row.source.id} row={row} rows={props.connections} {...props} />
             ))}
-          </CatalogCards>
+          </ListRows>
         </section>
       )}
 
-      {matches.length === 0 && (
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          No connector matches “
-          {query}
-          ”.
+      {!props.isAdmin && (
+        <p className="text-sm text-muted-foreground" data-testid="member-note">
+          {props.connections.length === 0 ? `${t('empty_member')} ` : ''}
+          {t('member_note')}
         </p>
       )}
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setVisibleCount(count => count + PAGE_SIZE)}
-          className="rounded-lg border border-dashed py-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          Show
-          {' '}
-          {Math.min(hiddenCount, PAGE_SIZE)}
-          {' '}
-          more (
-          {hiddenCount}
-          {' '}
-          hidden)
-        </button>
+
+      {recommended.length > 0 && (
+        <section aria-labelledby="recommended-heading" data-testid="recommended-section">
+          <h2 id="recommended-heading" className={SECTION_HEADING}>{t('recommended_heading')}</h2>
+          <ListRows>
+            {recommended.map((r) => {
+              const tile = tileOf.get(r.slug);
+              return (
+                <div key={r.slug} className="flex min-h-14 items-center gap-3 py-2" data-recommended={r.slug}>
+                  <IntegrationLogo brand={tile?.brand} name={r.name} icon={connectorIcon(tile?.icon ?? 'Plug')} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{r.name}</div>
+                    <div className="truncate text-[13px] text-muted-foreground">{r.why}</div>
+                  </div>
+                  <button type="button" onClick={() => props.onConnectNew(r.slug)} aria-label={t('connect_named', { name: r.name })} className={PILL}>
+                    {t('connect')}
+                  </button>
+                </div>
+              );
+            })}
+          </ListRows>
+        </section>
+      )}
+
+      {props.isAdmin && (
+        <Catalog
+          entries={props.catalog}
+          openByDefault={props.connections.length === 0 && recommended.length === 0}
+          lastAttempts={props.lastAttempts}
+          timeZone={props.timeZone}
+          onConnectNew={props.onConnectNew}
+        />
       )}
     </div>
   );
 }
 
 /**
- * A connector nobody has connected, as a front door: its mark, how it signs
- * in as the kicker, its name, one sentence of what it reads, and Connect.
- * The whole card is the Connect action.
- * @param root0
- * @param root0.row
- * @param root0.attempt - The newest failed connect attempt, when there is one.
- * @param root0.timeZone - IANA zone for its date.
- * @param root0.onConnect
+ * One connection: the row, and — when opened — its Manage panel.
+ * @param props - The row and the page's handlers.
+ * @param props.row - The connection.
+ * @param props.rows - Every connection, to tell siblings of one connector apart.
  */
-function AvailableCard({ row, attempt, timeZone, onConnect }: { row: ConnectorRow; attempt?: FailedAttempt; timeZone?: string; onConnect: () => void }) {
+function ConnectionItem(props: ConnectorListProps & { row: ConnectionRow; rows: ConnectionRow[] }) {
+  const t = useTranslations('Connectors');
+  const locale = useLocale();
+  const [open, setOpen] = useState(false);
+  const { row } = props;
+  const { source, tile } = row;
+  const instance = instanceLabel(row, props.rows);
+  const usedBy = props.usedBy[tile.slug] ?? [];
+  const panelId = `connection-${source.id}`;
+  const busy = row.syncing || props.syncingId === source.id;
+
+  const meta = [
+    usedBy.length > 0 ? t('used_by', { names: usedBy.join(', ') }) : null,
+    // A sync time only where it says something: when there is one, or on a
+    // working connection that has not run yet.
+    busy ? t('syncing') : tile.syncless ? null : source.lastSyncedAt ? t('synced', { when: relativeTime(source.lastSyncedAt, locale, props.now) }) : row.status === 'working' ? t('never_synced') : null,
+  ].filter(Boolean).join(' · ');
+
+  const fixLabel = row.fix === 'reconnect' ? t('fix_reconnect') : row.fix === 'connect' ? t('fix_connect') : row.fix === 'retry' ? t('fix_retry') : null;
+  const fix = () => (row.fix === 'retry' ? props.onSync(source) : props.onConnect(source));
+
+  const menu: RowMenuItem[] = [
+    { label: t('menu_manage'), icon: Settings2, onClick: () => setOpen(true) },
+  ];
+  if (props.isAdmin) {
+    menu.push(row.status === 'paused'
+      ? { label: t('menu_resume'), icon: Play, onClick: () => props.onPause(source, false) }
+      : { label: t('menu_pause'), icon: Pause, onClick: () => props.onPause(source, true) });
+    menu.push({ label: t('menu_disconnect'), icon: Unplug, onClick: () => props.onDisconnect(source) });
+  }
+
   return (
-    <CatalogCard
-      tint={AUTH_TINT[row.tile.authKind]}
-      lead={<IntegrationLogo brand={row.tile.brand} name={row.tile.name} icon={connectorIcon(row.tile.icon)} />}
-      kicker={AUTH_KICKER[row.tile.authKind]}
-      title={row.tile.name}
-      job={firstSentence(row.tile.description)}
-      action={{ label: 'Connect', onClick: onConnect }}
-      visual={attempt ? <div className="relative z-[1]"><LastAttemptLine attempt={attempt} timeZone={timeZone} /></div> : undefined}
-    />
+    <div data-connection={source.slug} data-connector-row={tile.slug} data-status={row.status}>
+      <div className="flex min-h-16 items-center gap-2 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 pr-1 text-left focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+        >
+          <IntegrationLogo brand={tile.brand} name={tile.name} icon={connectorIcon(tile.icon)} size="sm" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">
+              {tile.name}
+              {instance && <span className="font-normal text-muted-foreground">{` · ${instance}`}</span>}
+            </span>
+            <StatusLine row={row} />
+            {meta && <span className="block truncate text-[13px] text-muted-foreground">{meta}</span>}
+          </span>
+        </button>
+        {props.isAdmin && fixLabel && (
+          <button type="button" onClick={fix} disabled={row.fix === 'retry' && busy} aria-label={`${fixLabel} ${tile.name}`} className={PILL}>
+            {row.fix === 'retry' ? <RefreshCw className="size-3" aria-hidden /> : <KeyRound className="size-3" aria-hidden />}
+            {fixLabel}
+          </button>
+        )}
+        <RowMenu items={menu} label={t('more_for', { name: tile.name })} />
+      </div>
+      {props.lastAttempts?.[tile.slug] && row.status === 'attention' && (
+        <div className="pb-2 pl-11">
+          <LastAttemptLine attempt={props.lastAttempts[tile.slug]!} timeZone={props.timeZone} />
+        </div>
+      )}
+      {open && <ManagePanel id={panelId} {...props} busy={busy} />}
+    </div>
   );
 }
 
 /**
- * The state chip on a connected row.
- * @param root0
- * @param root0.row
+ * The status in words: Working, Paused, or Needs attention with its reason.
+ * @param props
+ * @param props.row - The connection.
  */
-function StateChip({ row }: { row: ConnectorRow }) {
-  if (row.state === 'syncing') {
+function StatusLine({ row }: { row: ConnectionRow }) {
+  const t = useTranslations('Connectors');
+  // Each key spelled out, so the translation check can see it is used.
+  const problemWords: Record<ConnectionProblem, string> = {
+    'revoked': t('problem_revoked'),
+    'expired': t('problem_expired'),
+    'not-connected': t('problem_not_connected'),
+    'missing-permissions': t('problem_permissions'),
+    'sync-failed': t('problem_sync_failed'),
+    'sync-stopped': t('problem_sync_stopped'),
+    'items-not-saved': t('problem_items_not_saved'),
+  };
+  if (row.status === 'paused') {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin" aria-hidden />
-        Syncing now
+      <span className="flex items-center gap-1 text-[13px] text-muted-foreground" data-testid="connection-status">
+        <Pause className="size-3.5 shrink-0" aria-hidden />
+        {t('status_paused')}
       </span>
     );
   }
-  if (row.state === 'attention') {
+  if (row.status === 'attention') {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-500">
-        <AlertTriangle className="size-3.5" aria-hidden />
-        Needs attention
+      <span className="flex min-w-0 items-start gap-1 text-[13px] text-amber-700 dark:text-amber-400" data-testid="connection-status">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        <span>{t('status_attention', { reason: problemWords[row.problem!] })}</span>
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-      <CheckCircle2 className="size-3.5" aria-hidden />
-      Connected
+    <span className="flex items-center gap-1 text-[13px] text-emerald-700 dark:text-emerald-400" data-testid="connection-status">
+      {row.syncing ? <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden /> : <CheckCircle2 className="size-3.5 shrink-0" aria-hidden />}
+      {t('status_working')}
     </span>
   );
 }
 
-function ConnectedRow(props: {
-  row: ConnectorRow;
-  attempt?: FailedAttempt;
-  timeZone?: string;
-  open: boolean;
-  onToggle: () => void;
-  syncingId: number | null;
-  onConnectNew: () => void;
-  onSync: (source: Source) => void;
-  onTest: (source: Source) => void;
-  onEdit: (source: Source) => void;
-  onDelete: (source: Source) => void;
-  onConnect: (source: Source) => void;
-}) {
+/**
+ * What Manage opens to: the connection's few actions, the facts a person
+ * asks about, and — behind Details — what an admin needs to debug it.
+ * @param props - The row, its handlers and whether a sync is running.
+ * @param props.id - The panel's id, for the row's aria-controls.
+ * @param props.busy - A sync is running.
+ */
+function ManagePanel(props: ConnectorListProps & { row: ConnectionRow; id: string; busy: boolean }) {
+  const t = useTranslations('Connectors');
   const { row } = props;
-  const Chevron = props.open ? ChevronDown : ChevronRight;
-  const last = row.lastSyncedAt ? formatRelative(new Date(row.lastSyncedAt)) : 'never';
-  const summary = [
-    row.sources.length > 1 ? `${row.sources.length} connections` : null,
-    `${row.documents.toLocaleString()} document${row.documents === 1 ? '' : 's'}`,
-    row.chunks > 0 ? `${row.chunks.toLocaleString()} chunks` : null,
-    `last sync ${last}`,
-  ].filter(Boolean).join(' · ');
-  const detailId = `connector-detail-${row.tile.slug}`;
-
+  const { source } = row;
+  const needsCredential = source.authKind !== 'none' && !source.credentialConnected;
+  const paused = row.status === 'paused';
   return (
-    <div className="py-1" data-connector-row={row.tile.slug} data-state={row.state}>
-      <button
-        type="button"
-        onClick={props.onToggle}
-        aria-expanded={props.open}
-        aria-controls={detailId}
-        className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-      >
-        <Chevron className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <IntegrationLogo brand={row.tile.brand} name={row.tile.name} icon={connectorIcon(row.tile.icon)} size="sm" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{row.tile.name}</span>
-          <span className="block truncate text-[13px] text-muted-foreground">{summary}</span>
-        </span>
-        <StateChip row={row} />
-      </button>
-
-      {/* The connector's configured rows — each with its own line and actions,
-          visible without opening the row: what is running, what failed, and
-          the one button that fixes it. */}
-      <ul className="ml-9 flex flex-col gap-1.5 pr-2 pb-1">
-        {row.sources.map(source => (
-          <li key={source.id} className="flex flex-col gap-1 rounded-lg px-2 py-1.5 sm:flex-row sm:items-start sm:gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Link href={`/dashboard/connectors/${source.slug}`} className="truncate font-medium hover:underline">{source.slug}</Link>
-                {source.objectType ? <span className="rounded border px-1.5 font-mono text-[10px] text-muted-foreground">{source.objectType}</span> : null}
-                {source.authKind !== 'none' ? <CredentialState source={source} /> : null}
-              </div>
-              <p className="truncate text-xs text-muted-foreground">{describeSourceConfig(source.config)}</p>
-              <SyncRunLine sync={source.sync} />
-            </div>
-            <SourceActions source={source} syncing={props.syncingId === source.id} onSync={props.onSync} onTest={props.onTest} onEdit={props.onEdit} onDelete={props.onDelete} onConnect={props.onConnect} />
-          </li>
-        ))}
-      </ul>
-      {props.attempt && (
-        <div className="mb-1 ml-9 px-2">
-          <LastAttemptLine attempt={props.attempt} timeZone={props.timeZone} />
-        </div>
-      )}
-
-      {props.open && (
-        <div id={detailId} className="mr-2 mb-2 ml-9 flex flex-col gap-4 border-t border-border/70 pt-3 text-sm" data-testid="connector-detail">
-          {row.attention && (
-            <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-500">
-              <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-              {row.attention}
-            </p>
-          )}
-          {row.sources.map(source => <SourceDetail key={source.id} source={source} row={row} onConnect={props.onConnect} />)}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={props.onConnectNew}
-              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Plus className="size-3" aria-hidden />
-              Add another
-              {' '}
-              {row.tile.name}
-              {' '}
-              connection
+    <div id={props.id} className="mb-3 ml-11 flex flex-col gap-3 text-sm" data-testid="manage-panel">
+      {source.grant?.account && <p className="text-[13px] text-muted-foreground">{t('connected_as', { account: source.grant.account })}</p>}
+      {props.isAdmin && (
+        <div className="flex flex-wrap gap-2">
+          {source.syncless
+            ? (
+                <button type="button" onClick={() => props.onTest(source)} disabled={!source.inspectable || needsCredential} className={PILL}>
+                  <Plug className="size-3" aria-hidden />
+                  {t('manage_test')}
+                </button>
+              )
+            : (
+                <button type="button" onClick={() => props.onSync(source)} disabled={props.busy || paused || needsCredential} className={PILL}>
+                  {props.busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RefreshCw className="size-3" aria-hidden />}
+                  {props.busy ? t('syncing') : t('manage_sync')}
+                </button>
+              )}
+          <button type="button" onClick={() => props.onEdit(source)} className={PILL}>
+            <Pencil className="size-3" aria-hidden />
+            {t('manage_settings')}
+          </button>
+          {source.authKind !== 'none' && row.fix !== 'reconnect' && row.fix !== 'connect' && (
+            <button type="button" onClick={() => props.onConnect(source)} className={PILL}>
+              <KeyRound className="size-3" aria-hidden />
+              {t('fix_reconnect')}
             </button>
-          </div>
+          )}
         </div>
       )}
+      <HowItsAuthored label={t('details')}>
+        <SourceDetail source={source} row={row} />
+      </HowItsAuthored>
     </div>
   );
 }
 
-function CredentialState({ source }: { source: Source }) {
-  if (source.credentialBroken) {
-    const word = source.credentialBroken === 'revoked' ? 'revoked' : source.credentialBroken === 'expired' ? 'expired' : 'missing';
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive">
-        <AlertTriangle className="size-3.5" aria-hidden />
-        Credential
-        {' '}
-        {word}
-      </span>
-    );
-  }
-  if (!source.credentialConnected) {
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-        <KeyRound className="size-3.5" aria-hidden />
-        Needs credentials
-      </span>
-    );
-  }
-  return null;
-}
-
 /**
- * One line about the latest run — busy, failed, or finished with documents it
- * could not save. The only place a run started elsewhere shows, and the only
- * place a failure survives a reload.
- * @param props
- * @param props.sync
+ * The catalog: a search box and categories over one compact list, folded
+ * away until it is asked for (or open from the start when the page has
+ * nothing else on it).
+ * @param props - The entries and what to do with them.
+ * @param props.entries - Every connector this viewer may see.
+ * @param props.openByDefault - Show the whole list without being asked.
+ * @param props.lastAttempts - The newest failed connect attempt per connector.
+ * @param props.timeZone - For the attempt's date.
+ * @param props.onConnectNew - Start connecting one.
  */
-function SyncRunLine({ sync }: { sync: Source['sync'] }) {
-  if (!sync) {
-    return null;
-  }
-  if (sync.status === 'running') {
-    const done = (sync.counts.created ?? 0) + (sync.counts.updated ?? 0) + (sync.counts.unchanged ?? 0);
-    return (
-      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 className="size-3 animate-spin" aria-hidden />
-        Syncing now — started
-        {' '}
-        {formatRelative(new Date(sync.startedAt))}
-        {done > 0 ? ` · ${done.toLocaleString()} documents so far` : ''}
-      </p>
-    );
-  }
-  if (sync.status === 'abandoned') {
-    return (
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        A sync started
-        {' '}
-        {formatRelative(new Date(sync.startedAt))}
-        {' '}
-        never finished — its process stopped. Sync now will take over.
-      </p>
-    );
-  }
-  if (sync.status === 'superseded') {
-    return <p className="mt-1 text-xs text-muted-foreground">A sync stopped when the settings changed; a fresh one runs with the new settings.</p>;
-  }
-  if (sync.status === 'failed') {
-    return (
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Last sync failed:
-        {' '}
-        {sync.error ?? 'no reason was recorded'}
-      </p>
-    );
-  }
-  const errorCount = sync.counts.errors ?? 0;
-  if (errorCount > 0) {
-    return (
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Last sync could not save
-        {' '}
-        {errorCount}
-        {' '}
-        document
-        {errorCount === 1 ? '' : 's'}
-        .
-      </p>
-    );
-  }
-  // A run that read things and kept none of them, by rule, says so here, with
-  // the rule — otherwise the row reads "0 documents" over a green Connected
-  // and nothing says whether the source is empty or the filter dropped it all.
-  const skippedCount = sync.counts.skipped ?? 0;
-  const kept = (sync.counts.created ?? 0) + (sync.counts.updated ?? 0) + (sync.counts.unchanged ?? 0);
-  if (sync.status === 'completed' && skippedCount > 0 && kept === 0) {
-    const reason = sync.skipped?.[0]?.message;
-    return (
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500" data-testid="sync-skipped-line">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Last sync read
-        {' '}
-        {skippedCount.toLocaleString()}
-        {' '}
-        {skippedCount === 1 ? 'item' : 'items'}
-        {' '}
-        and kept none
-        {reason ? `: ${reason}` : '.'}
-      </p>
-    );
-  }
-  return null;
-}
-
-/**
- * A configured connection's actions: ONE quiet primary on the row — the thing
- * this connection needs next — and the rest in the row's overflow menu
- * (`RowMenu`). Connect while no credential is stored; Test connection for a
- * connector that never syncs; Reconnect after a failed run; otherwise Sync
- * now. Edit and Delete live in the menu, and Delete opens the confirm dialog,
- * whose button is the only red on the page.
- * @param props
- * @param props.source
- * @param props.syncing - A Sync now this tab started is running on this row.
- * @param props.onSync
- * @param props.onTest
- * @param props.onEdit
- * @param props.onDelete
- * @param props.onConnect
- */
-function SourceActions(props: {
-  source: Source;
-  syncing: boolean;
-  onSync: (source: Source) => void;
-  onTest: (source: Source) => void;
-  onEdit: (source: Source) => void;
-  onDelete: (source: Source) => void;
-  onConnect: (source: Source) => void;
+function Catalog(props: {
+  entries: CatalogEntry[];
+  openByDefault: boolean;
+  lastAttempts?: Record<string, FailedAttempt>;
+  timeZone?: string;
+  onConnectNew: (slug: string) => void;
 }) {
-  const { source } = props;
-  const needsCreds = source.authKind !== 'none' && !source.credentialConnected;
-  const runningElsewhere = source.sync?.status === 'running';
-  const busy = props.syncing || runningElsewhere;
-  const reconnect = offersReconnect(source);
-  const pill = 'inline-flex min-h-9 items-center gap-1.5 rounded-full border border-rule px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover disabled:opacity-50 sm:min-h-0';
+  const t = useTranslations('Connectors');
+  const categoryWords: Record<ConnectorCategory, string> = {
+    'mail-calendar': t('category_mail_calendar'),
+    'docs-files': t('category_docs_files'),
+    'chat-meetings': t('category_chat_meetings'),
+    'sales-marketing': t('category_sales_marketing'),
+    'engineering': t('category_engineering'),
+    'finance-people': t('category_finance_people'),
+    'data-analytics': t('category_data_analytics'),
+    'other': t('category_other'),
+  };
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<ConnectorCategory | null>(null);
+  const [browsing, setBrowsing] = useState(props.openByDefault);
+  const categories = useMemo(() => categoriesIn(props.entries, CONNECTOR_CATEGORIES), [props.entries]);
+  const matches = useMemo(() => filterCatalog(props.entries, query, category), [props.entries, query, category]);
+  const showing = browsing || query.trim() !== '' || category !== null;
 
-  const sync = (
-    <button
-      type="button"
-      onClick={() => props.onSync(source)}
-      disabled={busy}
-      title={runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined}
-      className={pill}
-    >
-      {busy
+  return (
+    <section aria-labelledby="catalog-heading" data-testid="catalog-section">
+      <h2 id="catalog-heading" className={SECTION_HEADING}>{t('all_heading')}</h2>
+      <div className="flex flex-col gap-2">
+        <label className="relative block">
+          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <input
+            type="search"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder={t('search_placeholder')}
+            aria-label={t('search_label')}
+            className="h-10 w-full rounded-md border border-input bg-background pr-3 pl-9 text-base sm:max-w-sm sm:text-sm"
+          />
+        </label>
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="group" aria-label={t('categories_label')}>
+          {categories.map(c => (
+            <button
+              key={c}
+              type="button"
+              aria-pressed={category === c}
+              onClick={() => setCategory(cur => (cur === c ? null : c))}
+              className={cn(
+                'min-h-8 shrink-0 rounded-full border px-3 text-xs whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+                category === c ? 'border-foreground bg-foreground text-background' : 'border-rule text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {categoryWords[c]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {showing
         ? (
-            <>
-              <Loader2 className="size-3 animate-spin" aria-hidden />
-              Syncing…
-            </>
+            matches.length === 0
+              ? <p className="py-6 text-center text-sm text-muted-foreground">{t('no_match', { query })}</p>
+              : (
+                  <ListRows className="mt-1">
+                    {matches.map(entry => (
+                      <CatalogRow key={entry.tile.slug} entry={entry} attempt={props.lastAttempts?.[entry.tile.slug]} timeZone={props.timeZone} onConnect={() => props.onConnectNew(entry.tile.slug)} />
+                    ))}
+                  </ListRows>
+                )
           )
         : (
-            <>
-              <RefreshCw className="size-3" aria-hidden />
-              Sync now
-            </>
+            <button type="button" onClick={() => setBrowsing(true)} className="mt-2 text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+              {t('browse_all')}
+            </button>
           )}
-    </button>
+    </section>
   );
-  const test = (
-    <button type="button" onClick={() => props.onTest(source)} disabled={!source.inspectable} className={pill}>
-      <Plug className="size-3" aria-hidden />
-      Test connection
-    </button>
-  );
-  const connect = (label: string) => (
-    <button type="button" onClick={() => props.onConnect(source)} title={label === 'Reconnect' ? 'Log in or paste the credential again' : undefined} className={pill}>
-      <KeyRound className="size-3" aria-hidden />
-      {label}
-    </button>
-  );
-  // The one thing this connection needs next: a credential, a fresh login
-  // after a failed run, or — once it is healthy — the run itself. A connector
-  // that never syncs is checked by Test connection; its Reconnect (always
-  // offered, since no failed run will ever say its login died) waits in the menu.
-  const primary = needsCreds ? connect('Connect') : source.syncless ? test : reconnect ? connect('Reconnect') : sync;
+}
 
-  // Everything else it can do, in the menu.
-  const menu: RowMenuItem[] = [];
-  if (!needsCreds && reconnect) {
-    menu.push(source.syncless
-      ? { label: 'Reconnect', icon: KeyRound, onClick: () => props.onConnect(source) }
-      : { label: 'Sync now', icon: RefreshCw, onClick: () => props.onSync(source), disabled: busy });
-  }
-  menu.push({ label: 'Edit settings', icon: Pencil, onClick: () => props.onEdit(source) });
-  menu.push({ label: 'Delete…', icon: Trash2, onClick: () => props.onDelete(source) });
-
+/**
+ * One connector in the catalog: its mark, name, one sentence, and Connect —
+ * or why it cannot be.
+ * @param props
+ * @param props.entry - The connector.
+ * @param props.attempt - Its newest failed connect attempt.
+ * @param props.timeZone - For the attempt's date.
+ * @param props.onConnect - Start connecting it.
+ */
+function CatalogRow({ entry, attempt, timeZone, onConnect }: { entry: CatalogEntry; attempt?: FailedAttempt; timeZone?: string; onConnect: () => void }) {
+  const t = useTranslations('Connectors');
+  const { tile } = entry;
+  // Several sites, buckets or repositories are several connections; one
+  // account-wide login (Apollo) is one.
+  const canAddAnother = entry.connected && !tile.syncless;
   return (
-    <div className="flex shrink-0 items-center gap-1">
-      {primary}
-      <RowMenu items={menu} label={`More for ${source.slug}`} />
+    <div className="flex min-h-14 flex-col gap-1 py-2" data-catalog={tile.slug}>
+      <div className="flex items-center gap-3">
+        <IntegrationLogo brand={tile.brand} name={tile.name} icon={connectorIcon(tile.icon)} size="sm" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{tile.name}</div>
+          <div className="line-clamp-1 text-[13px] text-muted-foreground">{firstSentence(tile.description)}</div>
+        </div>
+        {entry.unavailable
+          ? <span className="shrink-0 text-xs text-muted-foreground" data-testid="unavailable">{t('unavailable')}</span>
+          : entry.connected && !canAddAnother
+            ? (
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                  <Check className="size-3.5" aria-hidden />
+                  {t('connected_tag')}
+                </span>
+              )
+            : (
+                <button type="button" onClick={onConnect} aria-label={canAddAnother ? t('add_another_named', { name: tile.name }) : t('connect_named', { name: tile.name })} className={PILL}>
+                  {canAddAnother ? t('add_another') : t('connect')}
+                </button>
+              )}
+      </div>
+      {attempt && <div className="pl-11"><LastAttemptLine attempt={attempt} timeZone={timeZone} /></div>}
     </div>
   );
 }
 
 /**
- * What the row opens to: the last run in full, the size, and — for a
- * connector that declares scopes — which ones the token has and lacks, with
- * Reconnect right there.
+ * What Details opens to, for an admin debugging a connection: the size, the
+ * last run in full with the vendor's own error, the account a grant is on,
+ * and — for a connector that declares them — the scopes it has and lacks.
+ * Technical words live here and nowhere else on the page.
  * @param props
- * @param props.source
- * @param props.row
- * @param props.onConnect
+ * @param props.source - The connection.
+ * @param props.row - Its row.
  */
-function SourceDetail({ source, row, onConnect }: { source: Source; row: ConnectorRow; onConnect: (source: Source) => void }) {
+function SourceDetail({ source, row }: { source: Source; row: ConnectionRow }) {
+  const t = useTranslations('Connectors');
   const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null);
   const sync = source.sync;
   const counts = sync ? Object.entries(sync.counts).filter(([, v]) => v > 0) : [];
   const scopes = row.tile.requiredScopes ?? [];
   const missing = new Set(row.missingScopes);
+  const skipped = sync?.status === 'completed' && (sync.counts.skipped ?? 0) > 0 && ((sync.counts.created ?? 0) + (sync.counts.updated ?? 0) + (sync.counts.unchanged ?? 0)) === 0
+    ? sync.skipped?.[0]?.message ?? null
+    : null;
   return (
-    <div className="grid gap-4 sm:grid-cols-2" data-testid={`connector-detail-${source.slug}`}>
-      <dl className="space-y-1 text-[13px]">
-        <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Size</div>
-        <div>
-          <dt className="inline text-muted-foreground">Documents: </dt>
-          <dd className="inline tabular-nums">{source.documentCount.toLocaleString()}</dd>
-        </div>
-        {typeof source.chunkCount === 'number' && (
-          <div>
-            <dt className="inline text-muted-foreground">Chunks in retrieval: </dt>
-            <dd className="inline tabular-nums">{source.chunkCount.toLocaleString()}</dd>
-          </div>
-        )}
-        <div>
-          <dt className="inline text-muted-foreground">Added: </dt>
-          <dd className="inline">{fmt(source.createdAt) ?? '—'}</dd>
-        </div>
-        {source.credentialUpdatedAt && (
-          <div>
-            <dt className="inline text-muted-foreground">Credential stored: </dt>
-            <dd className="inline">{fmt(source.credentialUpdatedAt)}</dd>
-          </div>
-        )}
+    <div className="grid gap-4 rounded-lg border border-rule p-3 text-[13px] sm:grid-cols-2" data-testid={`connector-detail-${source.slug}`}>
+      <dl className="space-y-1">
+        <Fact label={t('detail_name')} value={source.slug} mono />
+        <Fact label={t('detail_reads')} value={describeSourceConfig(source.config)} />
+        <Fact label={t('detail_documents')} value={source.documentCount.toLocaleString()} />
+        {typeof source.chunkCount === 'number' && <Fact label={t('detail_chunks')} value={source.chunkCount.toLocaleString()} />}
+        <Fact label={t('detail_added')} value={fmt(source.createdAt) ?? '—'} />
+        {source.credentialUpdatedAt && <Fact label={t('detail_credential_stored')} value={fmt(source.credentialUpdatedAt)!} />}
         <div className="pt-1">
           <Link href={`/dashboard/connectors/${source.slug}`} className="inline-flex items-center gap-1 text-xs text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
-            Configuration and checkpoint
+            {t('detail_configuration')}
             <ExternalLink className="size-3" aria-hidden />
           </Link>
         </div>
       </dl>
-      <dl className="space-y-1 text-[13px]">
-        <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Last run</div>
+      <dl className="space-y-1">
         {sync
           ? (
               <>
-                <div>
-                  <dt className="inline text-muted-foreground">Status: </dt>
-                  <dd className="inline">{sync.status}</dd>
-                </div>
-                <div>
-                  <dt className="inline text-muted-foreground">Started: </dt>
-                  <dd className="inline">
-                    {fmt(sync.startedAt)}
-                    {sync.completedAt ? ` · finished ${fmt(sync.completedAt)}` : ' · still running'}
-                  </dd>
-                </div>
-                {counts.length > 0 && (
-                  <div>
-                    <dt className="inline text-muted-foreground">Counts: </dt>
-                    <dd className="inline font-mono text-xs">{counts.map(([k, v]) => `${k} ${v}`).join(' · ')}</dd>
-                  </div>
-                )}
+                <Fact label={t('detail_last_run')} value={`${sync.status} · ${fmt(sync.startedAt)}${sync.completedAt ? ` → ${fmt(sync.completedAt)}` : ''}`} />
+                {counts.length > 0 && <Fact label={t('detail_counts')} value={counts.map(([k, v]) => `${k} ${v}`).join(' · ')} mono />}
                 {sync.error && (
                   <div className="text-destructive">
-                    <dt className="inline">Error: </dt>
+                    <dt className="inline">{`${t('detail_error')}: `}</dt>
                     <dd className="inline break-words">{sync.error}</dd>
                   </div>
                 )}
-                <p className="text-xs text-muted-foreground">One run is kept per connection; the previous run is replaced when the next one starts.</p>
+                {skipped && <p className="text-amber-700 dark:text-amber-400" data-testid="sync-skipped-line">{t('detail_kept_none', { reason: skipped })}</p>}
               </>
             )
-          : <p className="text-muted-foreground">Never synced.</p>}
+          : <p className="text-muted-foreground">{t('never_synced')}</p>}
       </dl>
       {source.grant && <GrantDetail source={source} grant={source.grant} />}
-      {scopes.length > 0 && (
+      {scopes.length + row.missingScopes.length > 0 && (
         <div className="sm:col-span-2" data-testid="connector-scopes">
-          <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Scopes this connector needs</div>
+          <div className="text-muted-foreground">{t('detail_scopes')}</div>
           <ul className="mt-1 flex flex-col gap-0.5 font-mono text-xs">
-            {scopes.map(scope => (
-              <li key={scope} className={`flex items-center gap-1.5 ${missing.has(scope) ? 'text-destructive' : 'text-foreground/85'}`}>
+            {[...scopes, ...row.missingScopes.filter(s => !scopes.includes(s))].map(scope => (
+              <li key={scope} className={cn('flex items-center gap-1.5', missing.has(scope) ? 'text-destructive' : 'text-foreground/85')}>
                 {missing.has(scope) ? <CircleAlert className="size-3.5 shrink-0" aria-hidden /> : <CheckCircle2 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
                 {scope}
-                {missing.has(scope) ? <span className="font-sans text-[11px]">missing</span> : null}
-              </li>
-            ))}
-            {row.missingScopes.filter(s => !scopes.includes(s)).map(scope => (
-              <li key={scope} className="flex items-center gap-1.5 text-destructive">
-                <CircleAlert className="size-3.5 shrink-0" aria-hidden />
-                {scope}
-                <span className="font-sans text-[11px]">missing</span>
+                {missing.has(scope) && <span className="font-sans text-[11px]">{t('detail_missing')}</span>}
               </li>
             ))}
           </ul>
-          {missing.size > 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Add the missing scopes to the app in the provider's developer console, save, then Reconnect here — a token already minted does not pick them up.
-            </p>
-          )}
-          {/* The row's own Reconnect shows once a sync failed; one button is enough. */}
-          {!offersReconnect(source) && (
-            <button
-              type="button"
-              onClick={() => onConnect(source)}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
-            >
-              <KeyRound className="size-3" aria-hidden />
-              Reconnect
-            </button>
-          )}
+          {missing.size > 0 && <p className="mt-2 text-xs text-muted-foreground">{t('detail_scopes_fix')}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <dt className="inline text-muted-foreground">{`${label}: `}</dt>
+      <dd className={cn('inline break-words', mono && 'font-mono text-xs')}>{value}</dd>
     </div>
   );
 }
@@ -676,21 +527,19 @@ function SourceDetail({ source, row, onConnect }: { source: Source; row: Connect
  * Whose account the grant is on and what it granted — the installation's
  * organization and repositories, the Slack workspace, the Atlassian site —
  * read against the source's own list where the source has one. A repository
- * the source lists that the installation never covered is the one fact a
- * green card used to hide; it is named here, in place, before a sync runs.
+ * the source lists that the installation never covered is named here.
  * @param props
- * @param props.source
- * @param props.grant
+ * @param props.source - The connection.
+ * @param props.grant - What the vendor granted.
  */
 function GrantDetail({ source, grant }: { source: Source; grant: GrantSummary }) {
+  const t = useTranslations('Connectors');
   const granted = grant.granted;
   const listed = Array.isArray(source.config.repos)
     ? (source.config.repos as unknown[]).filter((r): r is string => typeof r === 'string' && r.length > 0)
     : [];
   const grantedSet = new Set((granted?.items ?? []).map(name => name.toLowerCase()));
   const listedSet = new Set(listed.map(name => name.toLowerCase()));
-  // The source's list first, each marked against the grant; then what the
-  // grant covers that the source does not read. Without a list, the grant alone.
   const rows: Array<{ name: string; state: 'read' | 'not-granted' | 'not-listed' }> = granted
     ? [
         ...listed.map(name => ({ name, state: grantedSet.has(name.toLowerCase()) ? 'read' as const : 'not-granted' as const })),
@@ -700,56 +549,30 @@ function GrantDetail({ source, grant }: { source: Source; grant: GrantSummary })
   const missing = rows.filter(r => r.state === 'not-granted').length;
   return (
     <div className="sm:col-span-2" data-testid="connector-grant">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Connected to</div>
-      <dl className="mt-1 space-y-1 text-[13px]">
-        <div>
-          <dt className="inline text-muted-foreground">Account: </dt>
-          <dd className="inline">{grant.account}</dd>
-        </div>
-        {granted && (
-          <div>
-            <dt className="text-muted-foreground">
-              {granted.label}
-              {rows.length > 0 ? ` (${rows.length})` : ''}
-              :
-            </dt>
-            <dd className="mt-1">
-              {rows.length === 0
-                ? <span className="text-muted-foreground">none granted yet</span>
-                : (
-                    <ul className="flex flex-col gap-0.5 font-mono text-xs">
-                      {rows.map(row => (
-                        <li key={row.name} className="flex items-center gap-1.5" data-grant-state={row.state}>
-                          {row.state === 'not-granted'
-                            ? <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
-                            : <Check className={`size-3.5 shrink-0 ${row.state === 'not-listed' ? 'text-muted-foreground/60' : 'text-emerald-600 dark:text-emerald-500'}`} aria-hidden />}
-                          <span className={row.state === 'not-listed' ? 'text-muted-foreground' : ''}>{row.name}</span>
-                          {row.state === 'not-granted' && <span className="font-sans text-destructive">not granted to the app</span>}
-                          {row.state === 'not-listed' && <span className="font-sans text-muted-foreground">granted, not in this source's list</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-              {granted.note && <p className="mt-1 text-xs text-muted-foreground">{granted.note}</p>}
-              {missing > 0 && (
-                <p className="mt-1 text-xs text-destructive">
-                  {missing === 1 ? 'A repository this source lists is not' : `${missing} repositories this source lists are not`}
-                  {' '}
-                  in the installation, so the sync cannot read
-                  {missing === 1 ? ' it' : ' them'}
-                  . Add
-                  {missing === 1 ? ' it' : ' them'}
-                  {' '}
-                  on the installation's page at the vendor, or take
-                  {missing === 1 ? ' it' : ' them'}
-                  {' '}
-                  out of the source.
-                </p>
+      <Fact label={t('detail_account')} value={grant.account ?? '—'} />
+      {granted && (
+        <div className="mt-1">
+          <div className="text-muted-foreground">{granted.label}</div>
+          {rows.length === 0
+            ? <span className="text-muted-foreground">{t('detail_none_granted')}</span>
+            : (
+                <ul className="mt-1 flex flex-col gap-0.5 font-mono text-xs">
+                  {rows.map(r => (
+                    <li key={r.name} className="flex items-center gap-1.5" data-grant-state={r.state}>
+                      {r.state === 'not-granted'
+                        ? <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
+                        : <Check className={cn('size-3.5 shrink-0', r.state === 'not-listed' ? 'text-muted-foreground/60' : 'text-emerald-600 dark:text-emerald-500')} aria-hidden />}
+                      <span className={r.state === 'not-listed' ? 'text-muted-foreground' : ''}>{r.name}</span>
+                      {r.state === 'not-granted' && <span className="font-sans text-destructive">{t('detail_not_granted')}</span>}
+                      {r.state === 'not-listed' && <span className="font-sans text-muted-foreground">{t('detail_not_listed')}</span>}
+                    </li>
+                  ))}
+                </ul>
               )}
-            </dd>
-          </div>
-        )}
-      </dl>
+          {granted.note && <p className="mt-1 text-xs text-muted-foreground">{granted.note}</p>}
+          {missing > 0 && <p className="mt-1 text-xs text-destructive">{t('detail_not_granted_fix', { count: missing })}</p>}
+        </div>
+      )}
     </div>
   );
 }

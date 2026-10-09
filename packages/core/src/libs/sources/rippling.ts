@@ -23,6 +23,7 @@ export const ripplingConnector: SourceConnector<typeof ripplingConfigSchema> = {
   brand: 'rippling',
   description: 'HR, read live: who works here, their title, department and manager, and who is on leave. Work information only; read-only.',
   icon: 'Users',
+  category: 'finance-people',
   authKind: 'apikey',
   syncless: true,
   configSchema: ripplingConfigSchema,

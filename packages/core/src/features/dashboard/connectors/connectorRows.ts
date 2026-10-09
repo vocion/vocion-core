@@ -1,15 +1,22 @@
 import type { GrantSummary } from '@/libs/connect/provider';
+import type { ConnectorCategory } from '@/libs/sources/types';
 /**
- * The connectors page as a pure model: one row per connector, connected or
- * not, with what a connected row is doing right now. Computed away from
- * React so the states — connected, not connected, syncing, errored with the
- * scopes it is missing — are unit-tested on fixtures.
+ * The Connectors page as a pure model, computed away from React so every
+ * state is unit-tested on fixtures.
  *
- * Chris, 2026-09-18, with Claude's connector list beside it: "make it
- * simpler — a flat list, icon, name, one line, plus to add. We're still
- * responsible for what's connected, history, size, progress. Connected ones
- * maybe explorable." So: every connector is a row; a connected row carries
- * its summary inline and opens in place to the rest.
+ * Founder, 2026-10-09: "simplify the connections page — clear, concise,
+ * simple, easy to use." So the page is three short parts:
+ *
+ * - **Connected** — one row per connection: its status in words (Working,
+ *   Needs attention with a plain reason, Paused) and at most one fix on the
+ *   row. Rows that need a person sort first.
+ * - **Recommended** — at most three, each with one reason (server-side,
+ *   `services/connect/connectionsOverview.ts`).
+ * - **All connectors** — the catalog, searchable and filed by category.
+ *
+ * Earlier (2026-09-18): "We're still responsible for what's connected,
+ * history, size, progress." That detail is still here, one move away, in a
+ * connection's Manage panel and its Details.
  */
 
 export type SyncStatus = 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
@@ -79,6 +86,8 @@ export type ConnectorTile = {
    * 2026-10-08.
    */
   brand?: string | null;
+  /** The catalog shelf it is filed on; absent on cores older than 2026-10-09. */
+  category?: ConnectorCategory;
   authKind: 'none' | 'apikey' | 'oauth';
   /**
    * The stored-credential platform this connector authenticates with, or null
@@ -89,22 +98,6 @@ export type ConnectorTile = {
   inspectable: boolean;
   /** Scopes the third party must grant, when the connector declares them. */
   requiredScopes?: string[] | null;
-};
-
-export type ConnectorState = 'not-connected' | 'connected' | 'syncing' | 'attention';
-
-export type ConnectorRow = {
-  tile: ConnectorTile;
-  /** The configured rows for this connector — several for a multi-instance connector like web. */
-  sources: Source[];
-  state: ConnectorState;
-  /** Why the row needs attention, one line, or null. */
-  attention: string | null;
-  /** Scopes the last error named as missing (Zoom code 4711 and friends). */
-  missingScopes: string[];
-  documents: number;
-  chunks: number;
-  lastSyncedAt: string | null;
 };
 
 /**
@@ -158,105 +151,6 @@ export function offersReconnect(source: Source): boolean {
 }
 
 /**
- * Why a connected row needs a person, or null when it does not.
- * @param sources - The connector's configured rows.
- */
-export function attentionFor(sources: Source[]): string | null {
-  for (const s of sources) {
-    if (s.credentialBroken === 'revoked') {
-      return 'Credential revoked — reconnect to store a fresh one.';
-    }
-    if (s.credentialBroken === 'expired') {
-      return 'Credential expired — reconnect to store a fresh one.';
-    }
-    if (s.authKind !== 'none' && !s.credentialConnected) {
-      return 'Needs credentials — nothing has been connected yet.';
-    }
-  }
-  for (const s of sources) {
-    if (s.sync?.status === 'failed') {
-      const scopes = parseMissingScopes(s.sync.error);
-      return scopes.length > 0
-        ? `Last sync failed: the token is missing ${scopes.length} scope${scopes.length === 1 ? '' : 's'}.`
-        : `Last sync failed: ${s.sync.error ?? 'no reason was recorded'}`;
-    }
-    if (s.sync?.status === 'abandoned') {
-      return 'A sync never finished — its process stopped. Sync now takes over.';
-    }
-    if ((s.sync?.counts.errors ?? 0) > 0) {
-      return `Last sync could not save ${s.sync!.counts.errors} document${s.sync!.counts.errors === 1 ? '' : 's'}.`;
-    }
-  }
-  return null;
-}
-
-/**
- * Every connector as a row, connected ones first (A–Z), then the rest (A–Z).
- * A configured source whose connector is no longer registered still shows,
- * under a tile made from what the row knows, rather than vanishing.
- * @param tiles - The connectors the server offers.
- * @param sources - The org's configured rows.
- */
-export function buildConnectorRows(tiles: ConnectorTile[], sources: Source[]): ConnectorRow[] {
-  const bySlug = new Map<string, Source[]>();
-  for (const s of sources) {
-    const slug = connectorSlugFor(s);
-    bySlug.set(slug, [...(bySlug.get(slug) ?? []), s]);
-  }
-  const knownSlugs = new Set(tiles.map(t => t.slug));
-  const orphanTiles: ConnectorTile[] = [...bySlug.keys()].filter(slug => !knownSlugs.has(slug)).map(slug => ({
-    slug,
-    name: slug,
-    description: 'A connector this build no longer registers; its rows and documents are still here.',
-    icon: 'Plug',
-    authKind: 'none',
-    credentialPlatform: null,
-    syncless: false,
-    inspectable: false,
-  }));
-  const rows = [...tiles, ...orphanTiles].map((tile): ConnectorRow => {
-    const own = bySlug.get(tile.slug) ?? [];
-    const syncing = own.some(s => s.sync?.status === 'running');
-    const attention = attentionFor(own);
-    const missingScopes = [...new Set(own.flatMap(s => (s.sync?.status === 'failed' ? parseMissingScopes(s.sync.error) : [])))];
-    const last = own.map(s => s.lastSyncedAt).filter((d): d is string => Boolean(d)).sort().at(-1) ?? null;
-    return {
-      tile,
-      sources: own,
-      state: own.length === 0 ? 'not-connected' : syncing ? 'syncing' : attention ? 'attention' : 'connected',
-      attention,
-      missingScopes,
-      documents: own.reduce((n, s) => n + s.documentCount, 0),
-      chunks: own.reduce((n, s) => n + (s.chunkCount ?? 0), 0),
-      lastSyncedAt: last,
-    };
-  });
-  const byName = (a: ConnectorRow, b: ConnectorRow) => a.tile.name.localeCompare(b.tile.name);
-  return [
-    ...rows.filter(r => r.state !== 'not-connected').sort(byName),
-    ...rows.filter(r => r.state === 'not-connected').sort(byName),
-  ];
-}
-
-/**
- * Rows whose name, slug or description contains every word in the query.
- * Word-at-a-time so "google ads" finds Google Ads whichever order the words
- * are typed. An empty query keeps everything, in the order given.
- * @param rows
- * @param query
- */
-export function filterConnectorRows(rows: ConnectorRow[], query: string): ConnectorRow[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) {
-    return rows;
-  }
-  return rows.filter((r) => {
-    const hay = `${r.tile.name} ${r.tile.slug} ${r.tile.description}`.toLowerCase();
-    return words.every(w => hay.includes(w));
-  });
-}
-
-/**
  * One line saying what a configured row points at — the crawl URL, the URL
  * count — for the row's subline.
  * @param config - The row's config blob.
@@ -272,24 +166,216 @@ export function describeSourceConfig(config: Record<string, unknown>): string {
   return 'Configured connector';
 }
 
+/** A connection's status, in the three words the page uses. */
+export type ConnectionStatus = 'working' | 'attention' | 'paused';
+
 /**
- * "2h ago" — coarse on purpose; the exact instant is on the detail page.
- * @param date
- * @param now - Injectable for tests.
+ * Why a connection needs a person, as a key the page words plainly
+ * ("Needs attention: sign-in expired"). The vendor's own error text stays in
+ * the connection's Details.
  */
-export function formatRelative(date: Date, now: number = Date.now()): string {
-  const diff = now - date.getTime();
-  const min = Math.floor(diff / 60_000);
-  if (min < 1) {
-    return 'just now';
+export type ConnectionProblem
+  = | 'revoked'
+    | 'expired'
+    | 'not-connected'
+    | 'missing-permissions'
+    | 'sync-failed'
+    | 'sync-stopped'
+    | 'items-not-saved';
+
+/** The one fix a row offers, or null when it needs none. */
+export type ConnectionFix = 'reconnect' | 'connect' | 'retry' | null;
+
+/** One connection on the page. */
+export type ConnectionRow = {
+  source: Source;
+  tile: ConnectorTile;
+  status: ConnectionStatus;
+  problem: ConnectionProblem | null;
+  fix: ConnectionFix;
+  /** A sync is running now, whoever started it. */
+  syncing: boolean;
+  /** Scopes the last error named as missing (Zoom code 4711 and friends). */
+  missingScopes: string[];
+};
+
+/**
+ * What is wrong with one connection, the most fundamental thing first: a
+ * credential that cannot be used comes before a sync that failed on it.
+ * @param source - The configured row.
+ */
+export function problemOf(source: Source): ConnectionProblem | null {
+  if (source.credentialBroken === 'revoked') {
+    return 'revoked';
   }
-  if (min < 60) {
-    return `${min}m ago`;
+  if (source.credentialBroken === 'expired') {
+    return 'expired';
   }
-  const hr = Math.floor(min / 60);
-  if (hr < 24) {
-    return `${hr}h ago`;
+  if (source.authKind !== 'none' && !source.credentialConnected) {
+    return 'not-connected';
   }
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
+  const sync = source.sync;
+  if (sync?.status === 'failed') {
+    return parseMissingScopes(sync.error).length > 0 ? 'missing-permissions' : 'sync-failed';
+  }
+  if (sync?.status === 'abandoned') {
+    return 'sync-stopped';
+  }
+  if (sync?.status === 'completed' && (sync.counts.errors ?? 0) > 0) {
+    return 'items-not-saved';
+  }
+  return null;
+}
+
+/**
+ * The one fix a problem gets on the row: sign in again where the credential
+ * is the problem (or may be — a failed sync on a stored login), Connect where
+ * nothing was ever stored, and otherwise run it again.
+ * @param source - The configured row.
+ * @param problem - What is wrong with it.
+ */
+export function fixFor(source: Source, problem: ConnectionProblem | null): ConnectionFix {
+  switch (problem) {
+    case null:
+      return null;
+    case 'revoked':
+    case 'expired':
+    case 'missing-permissions':
+      return 'reconnect';
+    case 'not-connected':
+      return 'connect';
+    case 'sync-failed':
+      return offersReconnect(source) ? 'reconnect' : 'retry';
+    default:
+      return 'retry';
+  }
+}
+
+/**
+ * A tile made from what a source row knows, for a connector this build no longer registers.
+ * @param slug
+ */
+function orphanTile(slug: string): ConnectorTile {
+  return { slug, name: slug, description: '', icon: 'Plug', authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false };
+}
+
+/**
+ * One row per configured connection: the ones that need a person first, then
+ * the rest, each part A–Z by connector name. A source whose connector is no
+ * longer registered still shows, rather than hiding its documents.
+ * @param tiles - The connectors the server offers.
+ * @param sources - The workspace's configured rows.
+ */
+export function buildConnections(tiles: ConnectorTile[], sources: Source[]): ConnectionRow[] {
+  const bySlug = new Map(tiles.map(t => [t.slug, t]));
+  const rows = sources.map((source): ConnectionRow => {
+    const tile = bySlug.get(connectorSlugFor(source)) ?? orphanTile(connectorSlugFor(source));
+    const paused = source.enabled === 'false';
+    const problem = paused ? null : problemOf(source);
+    return {
+      source,
+      tile,
+      status: paused ? 'paused' : problem ? 'attention' : 'working',
+      problem,
+      fix: paused ? null : fixFor(source, problem),
+      syncing: source.sync?.status === 'running',
+      missingScopes: source.sync?.status === 'failed' ? parseMissingScopes(source.sync.error) : [],
+    };
+  });
+  const rank = (r: ConnectionRow) => (r.status === 'attention' ? 0 : r.status === 'working' ? 1 : 2);
+  return rows.sort((a, b) => rank(a) - rank(b) || a.tile.name.localeCompare(b.tile.name) || a.source.slug.localeCompare(b.source.slug));
+}
+
+/**
+ * What tells two connections of one connector apart on their rows — the site
+ * a crawl reads, the repositories — or null when the connector has only one.
+ * @param row - The connection.
+ * @param rows - Every connection on the page.
+ */
+export function instanceLabel(row: ConnectionRow, rows: ConnectionRow[]): string | null {
+  const siblings = rows.filter(r => r.tile.slug === row.tile.slug);
+  if (siblings.length < 2) {
+    return null;
+  }
+  const described = describeSourceConfig(row.source.config);
+  return described === 'Configured connector' ? row.source.slug : described;
+}
+
+/** One connector in the catalog. */
+export type CatalogEntry = {
+  tile: ConnectorTile;
+  /** The workspace already has at least one connection to it. */
+  connected: boolean;
+  /** This server cannot connect it (a login with no app configured, and nothing to paste). */
+  unavailable: boolean;
+};
+
+/**
+ * The catalog: every connector A–Z, marked connected or unavailable. Only an
+ * admin sees an unavailable one, so they know why it cannot be added; anyone
+ * else never sees a door that will not open.
+ * @param tiles - The connectors the server offers.
+ * @param sources - The workspace's configured rows.
+ * @param opts - What the server said.
+ * @param opts.unavailable - Connector slugs this server cannot connect.
+ * @param opts.isAdmin - Whether the viewer is an admin.
+ */
+export function catalogEntries(tiles: ConnectorTile[], sources: Source[], opts: { unavailable: string[]; isAdmin: boolean }): CatalogEntry[] {
+  const connected = new Set(sources.map(connectorSlugFor));
+  const unavailable = new Set(opts.unavailable);
+  return tiles
+    .map(tile => ({ tile, connected: connected.has(tile.slug), unavailable: unavailable.has(tile.slug) }))
+    .filter(entry => opts.isAdmin || !entry.unavailable)
+    .sort((a, b) => a.tile.name.localeCompare(b.tile.name));
+}
+
+/**
+ * Catalog entries whose name, slug or description contains every word typed,
+ * in any order, within one category when one is chosen.
+ * @param entries - The catalog.
+ * @param query - What was typed.
+ * @param category - The chosen shelf, or null for all.
+ */
+export function filterCatalog(entries: CatalogEntry[], query: string, category: ConnectorCategory | null): CatalogEntry[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return entries.filter((e) => {
+    if (category && (e.tile.category ?? 'other') !== category) {
+      return false;
+    }
+    const hay = `${e.tile.name} ${e.tile.slug} ${e.tile.description}`.toLowerCase();
+    return words.every(w => hay.includes(w));
+  });
+}
+
+/**
+ * The categories that hold at least one entry, in the page's order.
+ * @param entries - The catalog.
+ * @param order - Every category, in display order.
+ */
+export function categoriesIn(entries: CatalogEntry[], order: readonly ConnectorCategory[]): ConnectorCategory[] {
+  const present = new Set(entries.map(e => e.tile.category ?? 'other'));
+  return order.filter(c => present.has(c));
+}
+
+/**
+ * "2 hours ago", in the page's language. Coarse on purpose; the exact time is
+ * in Details.
+ * @param iso - When.
+ * @param locale - The page's locale.
+ * @param now - Now.
+ */
+export function relativeTime(iso: string, locale: string, now: number = Date.now()): string {
+  const seconds = Math.round((new Date(iso).getTime() - now) / 1000);
+  const fmt = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  const abs = Math.abs(seconds);
+  if (abs < 60) {
+    return fmt.format(0, 'second');
+  }
+  if (abs < 3600) {
+    return fmt.format(Math.round(seconds / 60), 'minute');
+  }
+  if (abs < 86_400) {
+    return fmt.format(Math.round(seconds / 3600), 'hour');
+  }
+  return fmt.format(Math.round(seconds / 86_400), 'day');
 }

@@ -321,13 +321,13 @@ describe('gates', () => {
 });
 
 describe('errors are data', () => {
-  it('names the Sources-page fix when the vault holds no key', async () => {
+  it('names the Connectors-page fix when the vault holds no key', async () => {
     vi.mocked(getCredentialsForSource).mockResolvedValue(undefined);
 
     const out = await call(toolsByName().get('apollo_list_labels'));
 
     expect(out).toMatchObject({ ok: false, error: 'no_apollo_credentials' });
-    expect(out.message).toContain('Sources page');
+    expect(out.message).toContain('Connectors page');
   });
 
   it('hands a rejected key back as data rather than throwing into the turn', async () => {

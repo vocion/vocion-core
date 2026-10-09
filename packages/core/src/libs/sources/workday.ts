@@ -27,6 +27,7 @@ export const workdayConnector: SourceConnector<typeof workdayConfigSchema> = {
   brand: 'workday',
   description: 'HR, read live from the custom reports you name: who works here, their title, organization and manager, and who is out. Work information only; read-only.',
   icon: 'Users',
+  category: 'finance-people',
   authKind: 'apikey',
   syncless: true,
   configSchema: workdayConfigSchema,

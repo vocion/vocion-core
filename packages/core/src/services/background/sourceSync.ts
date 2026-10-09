@@ -36,6 +36,12 @@ export async function syncSourceActivity(input: SyncSourceActivityInput): Promis
   if (await neverConnected(input.orgId, input.sourceId)) {
     return { ...skippedResult(input.sourceId), firstError: 'not connected' };
   }
+  // A paused connection keeps its schedule and skips each tick quietly, so
+  // Resume needs nothing rebuilt.
+  const { isSourcePaused } = await import('@/services/SourceSyncService');
+  if (await isSourcePaused(input.orgId, input.sourceId)) {
+    return { ...skippedResult(input.sourceId), firstError: 'paused' };
+  }
   try {
     return await runSync({
       orgId: input.orgId,

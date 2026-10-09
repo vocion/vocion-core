@@ -317,6 +317,7 @@ export const strapiConnector: SourceConnector<typeof strapiConfigSchema> = {
   name: 'Strapi',
   description: 'Entries from Strapi CMS collections. One or more collections, synced incrementally by updatedAt.',
   icon: 'Database',
+  category: 'docs-files',
   brand: 'strapi',
   authKind: 'apikey',
   configSchema: strapiConfigSchema,

@@ -338,6 +338,7 @@ export const githubConnector: SourceConnector<typeof githubConfigSchema> = {
   name: 'GitHub',
   description: 'Pull requests, reviews and deploys from the repositories you choose. Checks, merges and failed deploy runs arrive as events automations act on, with one searchable document per pull request.',
   icon: 'GitPullRequest',
+  category: 'engineering',
   brand: 'github',
   authKind: 'apikey',
   configSchema: githubConfigSchema,

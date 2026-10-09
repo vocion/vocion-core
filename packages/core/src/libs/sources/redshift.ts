@@ -111,6 +111,7 @@ export const redshiftConnector: SourceConnector<typeof redshiftConfigSchema> = {
   name: 'Amazon Redshift',
   description: 'Your Redshift warehouse (serverless or provisioned), queried live through the Data API in a read-only transaction: one SELECT at a time over the schemas you allow, with row, size and time limits. Nothing is copied into Vocion.',
   icon: 'Database',
+  category: 'data-analytics',
   brand: 'amazonredshift',
   authKind: 'apikey',
   syncless: true,

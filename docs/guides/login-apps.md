@@ -132,8 +132,8 @@ or Slack, or pass it on a command line. There are two places it can go:
     which recreates both with the new values
     ([infra/aws/README.md](../../infra/aws/README.md#updating)).
 
-**Check it worked.** Open **Connectors**, press **Add connector** and pick a
-connector the provider serves. With the app set, the form offers a login with
+**Check it worked.** Open **Connectors**, search **All connectors** for a
+connector the provider serves and press **Connect**. With the app set, the form offers a login with
 the vendor. With it unset, the form offers only the paste fields: check the
 login app on Developers, or the env var names and that the server was
 restarted.

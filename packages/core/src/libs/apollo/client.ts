@@ -72,7 +72,7 @@ export function noApolloCredentials(detail?: string): ApolloFailure {
   return {
     ok: false,
     error: 'no_apollo_credentials',
-    message: detail ?? 'No Apollo API key is stored in the vault for this workspace. Connect the apollo source on the Sources page (Add connector → Apollo → paste the key) before calling live Apollo tools.',
+    message: detail ?? 'No Apollo API key is stored in the vault for this workspace. Connect Apollo on the Connectors page (All connectors → Apollo → Connect, then paste the key) before calling live Apollo tools.',
   };
 }
 
