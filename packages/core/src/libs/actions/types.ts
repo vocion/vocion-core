@@ -354,13 +354,6 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   holdForPerson?: (ctx: { orgId: string }, input: Record<string, unknown>) => Promise<string | null>;
   /**
-   * Declining what an agent proposed stays a person's call. The decision clock
-   * otherwise applies an agent's "reject" at its deadline, since a decline runs
-   * nothing. Set it where the proposal is itself the work a person reviews, so
-   * the agent's own verdict cannot drop it unseen.
-   */
-  declineNeedsPerson?: boolean;
-  /**
    * The id the trust ladder keys on for THIS input, when one action id serves
    * several ledgers. A merge is one action with a `riskClass`, and merging
    * docs is not the decision merging a schema is — so the rule, the risk tier

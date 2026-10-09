@@ -4,7 +4,7 @@
  * trust ladder allows it or it can be undone, everything else is held and
  * escalated again, and nothing crosses a workspace.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 vi.mock('@/services/adoption/track', () => ({ track: vi.fn(async () => {}) }));
@@ -106,6 +106,10 @@ beforeEach(async () => {
     { userId: 'usr-ben', email: 'ben@northwind.example', name: 'Ben', role: 'member' },
   ]);
   people.set(OTHER, [{ userId: 'usr-cy', email: 'cy@kestrel.example', name: 'Cy', role: 'admin' }]);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('opening clocks', () => {
@@ -255,16 +259,32 @@ describe('at the deadline', () => {
     expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'applied' });
   });
 
-  it('leaves a candidate the agent advised against for a person to decline', async () => {
+  it('leaves a candidate of a listed type for a person when the agent advised declining it', async () => {
+    vi.stubEnv('VOCION_HOLD_DECLINES', 'objects.propose_candidate.event-candidate');
     const run = await propose(ORG, 'objects.propose_candidate', 'reject', { objectType: 'event-candidate', title: 'Baby Time' });
 
     await toDeadline();
 
     expect(actions.rejectAction).not.toHaveBeenCalled();
-    expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/a person decides what is declined/) });
+    expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/keeps declines for a person/) });
   });
 
-  it('still turns down a never-auto send the agent advised against: only a kind that asks keeps its declines', async () => {
+  it.each([
+    ['nothing is listed', undefined],
+    ['only another type is listed', 'objects.propose_candidate.event-candidate'],
+  ])('still declines a candidate the agent advised against by default when %s', async (_why, listed) => {
+    if (listed) {
+      vi.stubEnv('VOCION_HOLD_DECLINES', listed);
+    }
+    const run = await propose(ORG, 'objects.propose_candidate', 'reject', { objectType: 'request', title: 'Dark mode' });
+
+    await toDeadline();
+
+    expect(actions.rejectAction).toHaveBeenCalledWith(run.id, ORG, expect.stringMatching(/Declined by default/), { reviewedBy: DEFAULT_DECIDER });
+    expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'applied' });
+  });
+
+  it('still turns down a never-auto send the agent advised against', async () => {
     const run = await propose(ORG, 'gmail.send', 'reject', { to: 'buyer@acme.example', subject: 'Hello', body: 'Hi' });
 
     await toDeadline();

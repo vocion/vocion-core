@@ -8,6 +8,7 @@ import {
   clockFor,
   deadlineDistance,
   DECISION_WINDOW_HOURS,
+  declineHeldForPerson,
   DEFAULT_DECIDER,
   defaultVerdict,
   MIN_NOTICE_MS,
@@ -278,8 +279,8 @@ async function factsFor(row: DecisionClock, subject: Subject): Promise<DefaultFa
 
   if (subject.kind === 'proposal') {
     if (row.defaultOption === 'reject') {
-      const held = getAction(subject.run.actionId)?.declineNeedsPerson
-        ? 'the agent advised declining it, and a person decides what is declined'
+      const held = declineHeldForPerson(subject.run.actionId, policyKeyForRun(subject.run.actionId, subject.run.input))
+        ? 'the agent advised declining it, and this installation keeps declines for a person'
         : null;
       return { ...base, inert: held === null, neverAuto: false, heldForPerson: held, rung: DEFAULT_RUNG, riskTier: 'low', reversible: false };
     }

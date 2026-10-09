@@ -1,6 +1,6 @@
 import type { DefaultFacts } from './deadlines';
-import { describe, expect, it } from 'vitest';
-import { batchKeyFor, clockFor, deadlineDistance, defaultVerdict, MIN_NOTICE_MS, riskTierOf } from './deadlines';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { batchKeyFor, clockFor, deadlineDistance, declineHeldForPerson, defaultVerdict, MIN_NOTICE_MS, riskTierOf } from './deadlines';
 
 const H = 60 * 60_000;
 const NOW = new Date('2026-10-08T12:00:00.000Z');
@@ -88,6 +88,30 @@ describe('defaultVerdict', () => {
 
   it('holds a never-auto kind even when its rung would automate', () => {
     expect(defaultVerdict({ ...BASE, neverAuto: true, rung: 'autonomous' }).mode).toBe('hold');
+  });
+});
+
+describe('declineHeldForPerson', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('holds nothing when the installation lists nothing', () => {
+    expect(declineHeldForPerson('objects.propose_candidate', 'objects.propose_candidate.event-candidate')).toBe(false);
+  });
+
+  it('holds a listed key and no other', () => {
+    vi.stubEnv('VOCION_HOLD_DECLINES', ' objects.propose_candidate.event-candidate , ,objects.propose_candidate.venue-candidate');
+
+    expect(declineHeldForPerson('objects.propose_candidate', 'objects.propose_candidate.venue-candidate')).toBe(true);
+    expect(declineHeldForPerson('objects.propose_candidate', 'objects.propose_candidate.request')).toBe(false);
+    expect(declineHeldForPerson('gmail.send', 'gmail.send')).toBe(false);
+  });
+
+  it('reads a listed action id as every key derived from it', () => {
+    vi.stubEnv('VOCION_HOLD_DECLINES', 'objects.propose_candidate');
+
+    expect(declineHeldForPerson('objects.propose_candidate', 'objects.propose_candidate.request')).toBe(true);
   });
 });
 
