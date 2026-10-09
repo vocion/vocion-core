@@ -1,6 +1,19 @@
 {
   "turns": [
     {
+      "match": "The person, latest message: setup my software factory",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
       "match": "answered] which repositories should the factory include?",
       "steps": [],
       "reply": "Including the Northwind API. The factory maps it next."
