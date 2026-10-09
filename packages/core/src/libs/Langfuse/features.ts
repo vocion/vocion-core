@@ -78,6 +78,8 @@ export const FEATURES = {
   TOOL_IMAGE: 'tool.image',
   /** The `draw_mockup` survey — a vision read of the real screen a mockup is drawn on. */
   TOOL_MOCKUP: 'tool.mockup',
+  /** `extract_records` — one read per dropped file (a badge photo, a card, a page of notes) into typed records (`services/intake`). */
+  TOOL_EXTRACT: 'tool.extract',
   /** `ci.diagnose` — why a factory pull request's CI is red, read by the classifier (backlog 049). */
   CI_DIAGNOSE: 'factory.ci_diagnose',
   /** Whether an environment's health response says what its `healthCheck.expect` asks, read by the classifier when the text is not there verbatim (backlog 049). */

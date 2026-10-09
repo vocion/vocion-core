@@ -44,6 +44,7 @@ import { documentTools } from './documents';
 import { drawArchitectureTools } from './drawArchitecture';
 import { drawMockupTools } from './drawMockup';
 import { editArtifactTools } from './editArtifacts';
+import { extractRecordsTool } from './extractRecords';
 import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
 import { fileAskTool, withdrawAskTool } from './fileAsk';
@@ -215,6 +216,10 @@ function baseDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
+    // Files dropped into chat (badges, cards, notes, sheets) read into typed
+    // records with per-field provenance; what it cannot settle is one Decision
+    // (`services/intake`). In-workspace writes only, so on for every agent.
+    extractRecordsTool(ctx),
     // The write beside the read: declared fields on a record of a type the
     // agent works with, through the `objects.update_meta` action. Empty for
     // an agent with no object types.

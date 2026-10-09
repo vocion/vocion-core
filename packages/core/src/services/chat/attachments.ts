@@ -283,7 +283,13 @@ export function historyMarker(attachments: ReadonlyArray<{ title: string }>): st
   return attachments.length === 0 ? '' : `\n\n[Attached: ${attachments.map(a => a.title).join(', ')}]`;
 }
 
-async function readStoredFile(filename: string): Promise<Buffer | null> {
+/**
+ * An upload's bytes, by its stored (content-addressed) filename; null when it
+ * is gone or the name is not one of ours. Exported for list intake, which
+ * reads a dropped image after the turn that carried it.
+ * @param filename - `spec.filename` of a `file` artifact.
+ */
+export async function readStoredFile(filename: string): Promise<Buffer | null> {
   // The name is content-addressed and came from our own row, but it is still
   // used as a path: keep it inside the artifacts directory.
   if (!/^[\w.-]+$/.test(filename)) {

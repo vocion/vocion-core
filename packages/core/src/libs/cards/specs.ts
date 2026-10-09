@@ -166,6 +166,18 @@ export const fileSpecSchema = z.object({
     url: z.string().max(2000).nullable().optional(),
     evidenceId: z.string().max(80).optional(),
   })).max(120).optional(),
+  /**
+   * A file a PERSON attached in chat (`services/chat/attachments.ts`
+   * `uploadSpec`): the name they had, the text the model reads (converted
+   * once at upload), and an Office file's shape. Declared here because the
+   * schema strips what it does not name — before these were, an attached
+   * PDF's text was dropped on save and the model was told the file had none.
+   */
+  uploaded: z.boolean().optional(),
+  originalName: z.string().max(500).optional(),
+  text: z.string().max(250_000).optional(),
+  sheets: z.array(z.object({ name: z.string().max(200), rows: z.number().int().nonnegative(), columns: z.array(z.string().max(500)).max(200) })).max(50).optional(),
+  slides: z.number().int().nonnegative().optional(),
   /** A narrated recording's source: the recording it narrates, by artifact id and served URL. */
   narratedFrom: z.number().int().positive().optional(),
   narratedFromUrl: z.string().max(2000).optional(),

@@ -1,0 +1,15 @@
+slug: lead
+label: Lead
+description: A person met at an event or elsewhere, to research and follow up.
+icon: user
+schema:
+  type: object
+  x-identity: {email: email, name: name, company: company}
+  properties:
+    name: {type: string, description: Full name as printed}
+    email: {type: string, format: email}
+    company: {type: string}
+    title: {type: string, description: Job title}
+    event: {type: string, description: Where we met them}
+    met_by: {type: string, description: Who on the team met them}
+    interest: {type: string, description: What they asked about}

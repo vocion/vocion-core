@@ -39,6 +39,7 @@ import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
+import { recordsSettleIntakeAction } from './records-settle-intake';
 import { repoCancelPipelineRunAction } from './repo-cancel-pipeline-run';
 import { repoCommentPullAction } from './repo-comment-pull';
 import { repoSubmitReviewAction } from './repo-submit-review';
@@ -129,6 +130,8 @@ registerAction(objectProposeCandidateAction);
 // record's write history is these runs.
 registerAction(objectsUpdateMetaAction);
 registerAction(objectsRenameAction);
+// What list intake held back, settled by the person's choice on its one Decision.
+registerAction(recordsSettleIntakeAction);
 // A person keeps their own mobile number from chat, so a text from it is theirs (`me-set-phone.ts`).
 registerAction(meSetPhoneAction);
 registerAction(viewSaveAction);
