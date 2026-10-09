@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
+import { NextIntlClientProvider } from 'next-intl';
+import en from '@/locales/en.json';
 import { EmptyState } from './EmptyState';
 import { WaitingNudge } from './WaitingNudge';
 
@@ -13,11 +15,13 @@ import { WaitingNudge } from './WaitingNudge';
 
 function Pane({ width, ...props }: { width: number } & React.ComponentProps<typeof EmptyState>) {
   return (
-    <div style={{ width }} className="flex h-[520px] flex-col overflow-hidden rounded-xl border border-border bg-background">
-      <EmptyState {...props} />
-      {/* Stand-in for the composer, so the gap above it is the real one. */}
-      <div className="mx-3 mb-3 h-[52px] shrink-0 rounded-2xl border border-border" aria-hidden />
-    </div>
+    <NextIntlClientProvider locale="en" messages={en}>
+      <div style={{ width }} className="flex h-[520px] flex-col overflow-hidden rounded-xl border border-border bg-background">
+        <EmptyState {...props} />
+        {/* Stand-in for the composer, so the gap above it is the real one. */}
+        <div className="mx-3 mb-3 h-[52px] shrink-0 rounded-2xl border border-border" aria-hidden />
+      </div>
+    </NextIntlClientProvider>
   );
 }
 

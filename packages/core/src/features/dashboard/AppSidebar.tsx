@@ -35,7 +35,7 @@ import { appOwningPath, resolveActiveApp, workspaceSwitchPath } from '@/features
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
 import { groupEnabledSurfaces } from '@/features/navigation/surfaces';
-import { Link, usePathname, useRouter } from '@/libs/I18nNavigation';
+import { usePathname, useRouter } from '@/libs/I18nNavigation';
 
 /**
  * Dashboard left sidebar — the app rail (Vocion 5.0) and, beside it, the
@@ -610,13 +610,13 @@ function ManageWorkspaceRow({ label, collapsed, onOpen }: { label: string; colla
 }
 
 /**
- * Who is signed in, at the foot of the nav: initials, then the name, opening
- * the profile. Reads the session's context, so a story with no session shows
- * nothing rather than throwing.
+ * Who is signed in, at the foot of the nav: initials, then the name. Display
+ * only: the account menu (the avatar in the top bar) is where the person's
+ * own pages open, so the footer adds no second door. Reads the session's
+ * context, so a story with no session shows nothing rather than throwing.
  */
 function SidebarUser() {
   const session = use(SessionContext);
-  const { isMobile, setOpenMobile } = useSidebar();
   const user = session?.data?.user;
   if (!user) {
     return null;
@@ -624,14 +624,9 @@ function SidebarUser() {
   const name = user.name || user.email || '';
   const initials = (user.name ?? '').split(' ').map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || (user.email?.[0] ?? '?').toUpperCase();
   return (
-    <Link
-      href="/dashboard/profile"
-      data-testid="sidebar-user"
-      onClick={() => isMobile && setOpenMobile(false)}
-      className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-[13px] text-sidebar-foreground transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
-    >
+    <div data-testid="sidebar-user" className="flex min-w-0 items-center gap-2 px-1 py-1 text-[13px] text-sidebar-foreground">
       <span className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-soft text-[11px] font-medium text-muted-foreground" aria-hidden>{initials}</span>
       <span className="truncate">{name}</span>
-    </Link>
+    </div>
   );
 }
