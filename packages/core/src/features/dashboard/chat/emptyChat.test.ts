@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composerAsk, firstNameOf, greetingFor, isReturning, mayDockCard, partOfDay, teamLine, teamOf, waitingNudgeCount } from './emptyChat';
+import { composerAsk, dockPlan, firstNameOf, greetingFor, isReturning, mayDockCard, partOfDay, teamLine, teamOf, waitingNudgeCount } from './emptyChat';
 
 /**
  * How a conversation starts, as one rule every surface reads (founder,
@@ -73,5 +73,49 @@ describe('your team is here (founder, 2026-10-09)', () => {
     expect(teamLine({ workspace: 'Revenue', members: [ava, analyst] }, t)).toBe('named_lead_and_team_on_it {"name":"Ava"}');
     expect(composerAsk([ava, analyst], t)).toBe('ask_team');
     expect(composerAsk([ava], t)).toBe('ask_agent {"name":"Ava"}');
+  });
+});
+
+/**
+ * Founder, 2026-10-09, typing "setup my software factory" on a phone: a
+ * tracker review filed from no conversation docked 400ms after he sent,
+ * while the lead was still choosing who answers, then came back between
+ * setup steps beside the lead's own question. "Two prompts in different
+ * areas." What waits elsewhere never takes the dock by itself.
+ */
+describe('what a conversation docks', () => {
+  const base = { own: [] as string[], elsewhere: ['review'], messageCount: 1, personStarted: false, elsewhereOpened: false, streaming: false };
+
+  it('never docks what waits elsewhere the moment the person sends, nor while the turn runs', () => {
+    const sending = dockPlan({ ...base, streaming: true });
+
+    expect(sending.own).toEqual([]);
+    expect(sending.elsewhere).toEqual([]);
+    expect(sending.nudge).toBeNull();
+  });
+
+  it('docks the conversation\'s own, and says nothing of elsewhere beside it', () => {
+    const plan = dockPlan({ ...base, own: ['connect-github'] });
+
+    expect(plan.own).toEqual(['connect-github']);
+    expect(plan.elsewhere).toEqual([]);
+    expect(plan.nudge).toBeNull();
+  });
+
+  it('shows what waits elsewhere as one quiet chip when nothing of its own is docked', () => {
+    expect(dockPlan(base).nudge).toBe(1);
+    expect(dockPlan(base).elsewhere).toEqual([]);
+  });
+
+  it('docks it here only once the person taps that chip', () => {
+    const plan = dockPlan({ ...base, elsewhereOpened: true });
+
+    expect(plan.elsewhere).toEqual(['review']);
+    expect(plan.nudge).toBeNull();
+  });
+
+  it('leaves an empty conversation to its greeting\'s own chip', () => {
+    expect(dockPlan({ ...base, messageCount: 0 }).nudge).toBeNull();
+    expect(dockPlan({ ...base, messageCount: 0, own: ['x'] }).own).toEqual([]);
   });
 });

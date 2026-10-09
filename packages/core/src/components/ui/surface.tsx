@@ -50,6 +50,8 @@ export type SurfaceProps = {
   children?: ReactNode;
   /** Render as a `section`/`article` when the surface is a landmark. */
   as?: 'div' | 'section' | 'article' | 'aside';
+  /** The rendered element (React 19 passes it as a prop). */
+  ref?: React.Ref<HTMLDivElement>;
 } & Omit<React.HTMLAttributes<HTMLElement>, 'className' | 'children'>;
 
 /**

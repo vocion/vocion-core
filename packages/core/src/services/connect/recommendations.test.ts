@@ -96,18 +96,27 @@ describe('the Org evidence', () => {
 });
 
 describe('ranking from evidence', () => {
-  it('puts what the person named first, then what an added app needs, then mail, then the Org', async () => {
+  it('ranks what an added app needs, then mail, then the Org, when nobody scoped the plan', async () => {
+    offers = [{ id: 'gtm', name: 'GTM', added: true, connectors: [{ slug: 'hubspot', name: 'HubSpot', connected: false, needed: true }], features: [{ slug: 'pipeline', name: 'Pipeline review' }] }];
+
+    const plan = await recommendConnections({ orgId: SALES, userId: DANA }, {}, { resolveMx: mailAtSuite });
+    const order = plan.question!.options;
+
+    expect(order[0]).toBe('hubspot');
+    expect(order.indexOf('gmail')).toBeGreaterThan(order.indexOf('hubspot'));
+    expect(order.indexOf('jira')).toBeGreaterThan(order.indexOf('drive'));
+    expect(plan.candidates.find(c => c.connector === 'hubspot')!.evidence).toEqual([{ kind: 'app', app: 'gtm', appName: 'GTM', needed: true }]);
+  });
+
+  it('walks only what the person named: evidence never adds a system to a plan they scoped', async () => {
+    // Founder, 2026-10-09: "setup my software factory" walked GitHub, then
+    // Gmail, Calendar and Drive on his mail host — and HubSpot, which an
+    // added app needs — none of them the factory's.
     offers = [{ id: 'gtm', name: 'GTM', added: true, connectors: [{ slug: 'hubspot', name: 'HubSpot', connected: false, needed: true }], features: [{ slug: 'pipeline', name: 'Pipeline review' }] }];
 
     const plan = await recommendConnections({ orgId: SALES, userId: DANA }, { named: ['slack'] }, { resolveMx: mailAtSuite });
-    const order = plan.candidates.map(c => c.connector);
 
-    expect(order[0]).toBe('slack');
-    expect(order[1]).toBe('hubspot');
-    expect(order.indexOf('gmail')).toBeGreaterThan(order.indexOf('hubspot'));
-    expect(plan.candidates.find(c => c.connector === 'hubspot')!.evidence).toEqual([{ kind: 'app', app: 'gtm', appName: 'GTM', needed: true }]);
-    // The Org's habit alone is a hint, not a reason to walk it unasked.
-    expect(order).not.toContain('jira');
+    expect(plan.candidates.map(c => c.connector)).toEqual(['slack']);
     // Named: the person said what they use, so there is nothing to ask.
     expect(plan.question).toBeNull();
   });

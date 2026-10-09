@@ -121,7 +121,11 @@ export function unlockLine(candidate: ConnectCandidate, outcome: ConnectOutcome)
   if (candidate.unlocks.length === 0) {
     return 'Agents can search it now';
   }
+  // A feature named like its app ("Software Factory: Software factory") says it once.
   return candidate.unlocks
-    .map(u => (u.features.length > 0 ? `${u.appName}: ${u.features.join(', ')}` : `${u.appName} can read it`))
+    .map((u) => {
+      const features = u.features.filter(f => f.trim().toLowerCase() !== u.appName.trim().toLowerCase());
+      return features.length > 0 ? `${u.appName}: ${features.join(', ')}` : `${u.appName} can read it`;
+    })
     .join(' · ');
 }

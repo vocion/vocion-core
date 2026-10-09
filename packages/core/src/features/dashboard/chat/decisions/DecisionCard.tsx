@@ -3,10 +3,11 @@
 import type { ReactNode } from 'react';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import { ChevronDown, ChevronUp, CornerDownLeft, Loader2, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AgentDot } from '@/components/ui/agent-dot';
 import { Surface } from '@/components/ui/surface';
 import { openPreview } from '@/features/preview/previewState';
+import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionTitle, DENY_ID } from '@/libs/decisions/decision';
 import { Link } from '@/libs/I18nNavigation';
 import { DecisionLook } from './looks';
@@ -124,6 +125,43 @@ function deadlineLine(deadline: NonNullable<DecisionView['deadline']>): string {
   return deadline.defaultLabel ? `Default ${when}: ${deadline.defaultLabel}` : `Due ${when}`;
 }
 
+/**
+ * Back to the top of whatever scrolls the dock (the composer's capped slot on
+ * a phone), so a new Decision opens on its question — never mid-body where
+ * the last one was left (2026-10-09: a review docked scrolled to its
+ * deadline line, its question out of sight).
+ * @param node - The card.
+ */
+function scrollSlotToTop(node: HTMLElement | null): void {
+  for (let el = node?.parentElement ?? null; el; el = el.parentElement) {
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow === 'auto' || overflow === 'scroll') {
+      el.scrollTop = 0;
+      return;
+    }
+  }
+}
+
+/**
+ * Whether an option's link leaves this conversation (a vendor's login, a
+ * token form) — "Opens ↗" — rather than starting a walk docked right here.
+ * @param href - The option's link.
+ */
+function leavesConversation(href: string): boolean {
+  return connectSystemsInputOfHref(href) === null;
+}
+
+/** 44px on a phone — a thumb's target (Apple HIG); the desktop keeps its density. */
+const TAP = 'max-md:min-h-11';
+/** The docked card's question, held at the top of its scrolling slot. */
+const STICKY_HEAD = 'sticky top-0 z-10 -mx-4 -mt-3 rounded-t-xl bg-card px-4 pt-3 pb-1';
+/** The docked card's Skip and Submit, held at the bottom of its scrolling slot. */
+// A phone with the keyboard up has a slot shorter than head and foot
+// together: there, only the question holds, and Submit scrolls with the rest.
+const STICKY_FOOT = 'sticky bottom-0 z-10 -mx-4 -mb-3 rounded-b-xl bg-card px-4 pb-3 max-md:[@media(max-height:600px)]:static';
+/** On a phone the why is one line, so the recommendation shows between the question and Submit. */
+const PHONE_BODY = 'max-md:line-clamp-1';
+
 export function DecisionCard({
   decision,
   agentName,
@@ -153,6 +191,7 @@ export function DecisionCard({
   const bodyId = `${uid}-b`;
   const optionId = (i: number) => `${uid}-o${i}`;
   const listRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const otherRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
   const { options, multiple, allowOther } = decision;
@@ -179,6 +218,12 @@ export function DecisionCard({
   // An option whose effect has a picture (a drafted brand): drawn under the why.
   const lookOption = options.find(o => o.look);
 
+  useLayoutEffect(() => {
+    if (variant === 'dock') {
+      scrollSlotToTop(rootRef.current);
+    }
+  }, [resetKey, variant]);
+
   useEffect(() => {
     if (!takeFocus || collapsed || busy || typingElsewhere()) {
       return;
@@ -204,6 +249,8 @@ export function DecisionCard({
     if (from === 'other' || (!hasOptions && other.trim())) {
       if (other.trim()) {
         onAnswer({ kind: 'free_text', text: other.trim() });
+        // Sent: the words leave the field (a walk's step stays docked while the agent answers them).
+        setOther('');
       }
       return;
     }
@@ -352,12 +399,59 @@ export function DecisionCard({
   const queue = position && (position.total > 1 || (eyebrow !== undefined && position.total > 0)) ? `${position.index + 1} of ${position.total}` : null;
   // A sign-off is about an artifact: it opens beside the conversation, in place.
   const artifactRef = decision.refs?.find(r => r.type === 'artifact') ?? null;
-  const asker = eyebrow ?? `${context ? `${context} · ` : ''}${agentName ? `${agentName} asks` : 'A decision for you'}`;
+  // "Waiting on you · Revenue lead asks", or "Waiting on you" alone — never
+  // "Waiting on you · A decision for you", which says the same thing twice.
+  const asker = eyebrow ?? (context ? (agentName ? `${context} · ${agentName} asks` : context) : agentName ? `${agentName} asks` : 'A decision for you');
   const canSubmit = !locked && (selected.length > 0 || (hasOptions && !!options[active]) || other.trim().length > 0 || hasForm || (multiple && !!onEscape));
   // Said once per Decision, for a screen reader: what arrived and how to answer it.
   const announcement = useMemo(
-    () => `${asker}: ${title}. ${hasOptions ? `${options.length} options${options.some(o => o.recommended) ? ', the recommended one first' : ''}. Press a number to pick and Enter to submit.` : 'Type your answer and press Enter.'}`,
+    () => `${asker}: ${title}. ${hasOptions ? `${options.length} ${options.length === 1 ? 'option' : 'options'}${options.some(o => o.recommended) ? ', the recommended one first' : ''}. Press a number to pick and Enter to submit.` : 'Type your answer and press Enter.'}`,
     [asker, title, hasOptions, options],
+  );
+
+  const headActions = (
+    <>
+      {artifactRef && (
+        <button
+          type="button"
+          onClick={ev => openPreview({ type: 'artifact', id: artifactRef.id }, ev.currentTarget)}
+          className="mt-0.5 shrink-0 text-[12px] text-muted-foreground hover:text-foreground hover:underline"
+          data-testid="decision-open-artifact"
+        >
+          Open it
+        </button>
+      )}
+      {decision.href && (
+        <Link href={decision.href} className="mt-0.5 shrink-0 text-[12px] text-muted-foreground hover:text-foreground hover:underline" data-testid="decision-details">
+          {decision.hrefLabel ?? 'Details'}
+        </Link>
+      )}
+      {onEscape && (
+        <button
+          type="button"
+          onClick={onEscape}
+          aria-label={`${escapeLabel} (Esc)`}
+          title={`${escapeLabel} (Esc)`}
+          data-testid="decision-escape"
+          className="-mt-0.5 -mr-1 inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[12px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground max-md:h-11"
+        >
+          {escapeLabel}
+          <X className="size-3.5" aria-hidden />
+        </button>
+      )}
+      {variant === 'dock' && !onEscape && (
+        <button
+          type="button"
+          onClick={collapse}
+          aria-expanded
+          aria-label="Fold the decision away (Esc)"
+          title="Fold away (Esc)"
+          className="-mt-0.5 -mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-hover hover:text-foreground max-md:size-11"
+        >
+          <ChevronDown className="size-4" aria-hidden />
+        </button>
+      )}
+    </>
   );
 
   if (variant === 'dock' && collapsed) {
@@ -367,7 +461,7 @@ export function DecisionCard({
           type="button"
           onClick={() => onCollapsedChange?.(false)}
           aria-expanded={false}
-          className="flex w-full items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-left text-[13px] transition hover:bg-surface-hover"
+          className={`flex w-full items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-left text-[13px] transition hover:bg-surface-hover ${TAP}`}
         >
           <span className="shrink-0 font-medium text-foreground">{queue ? `${position!.total} decisions waiting` : '1 decision waiting'}</span>
           <span className="min-w-0 truncate text-muted-foreground">{title}</span>
@@ -390,9 +484,14 @@ export function DecisionCard({
       data-testid="decision-card"
       data-decision-id={decision.id}
       data-variant={variant}
+      ref={rootRef}
     >
       <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
-      <div className="flex items-start gap-2">
+      {/* Docked, the question and the buttons stay in view while the middle
+          scrolls in the composer's capped slot (a phone, a keyboard, a phone
+          on its side): the person always sees what they are answering and
+          how to send it (2026-10-09). Inert where nothing scrolls. */}
+      <div className={`flex items-start gap-2 ${variant === 'dock' ? STICKY_HEAD : ''}`} data-testid="decision-head">
         {/* The asking agent's own avatar, the same dot as the team. */}
         {agentName && <AgentDot name={agentName} accent={agentAccent} size="md" decorative className="mt-0.5" />}
         <div className="min-w-0 flex-1">
@@ -406,61 +505,24 @@ export function DecisionCard({
             )}
           </p>
           <h3 id={questionId} className="mt-1 text-[15px] leading-snug font-medium text-foreground">{title}</h3>
-          {bodyNode
-            ? <div id={bodyId} className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{bodyNode}</div>
-            : decision.body && <p id={bodyId} className="mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground">{decision.body}</p>}
-          {lookOption?.look && <DecisionLook look={lookOption.look} />}
-          {decision.preview && (
-            <pre
-              className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90"
-              data-testid="decision-preview"
-              aria-label="What it will do, exactly"
-            >
-              {decision.preview}
-            </pre>
-          )}
-          {decision.deadline && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="decision-deadline">{deadlineLine(decision.deadline)}</p>}
         </div>
-        {artifactRef && (
-          <button
-            type="button"
-            onClick={ev => openPreview({ type: 'artifact', id: artifactRef.id }, ev.currentTarget)}
-            className="mt-0.5 shrink-0 text-[12px] text-muted-foreground hover:text-foreground hover:underline"
-            data-testid="decision-open-artifact"
+        {headActions}
+      </div>
+      <div className="min-w-0">
+        {bodyNode
+          ? <div id={bodyId} className={`mt-1 text-[13px] leading-relaxed text-muted-foreground ${variant === 'dock' ? PHONE_BODY : ''}`}>{bodyNode}</div>
+          : decision.body && <p id={bodyId} className={`mt-1 line-clamp-3 text-[13px] leading-relaxed text-muted-foreground ${variant === 'dock' ? PHONE_BODY : ''}`}>{decision.body}</p>}
+        {lookOption?.look && <DecisionLook look={lookOption.look} />}
+        {decision.preview && (
+          <pre
+            className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-surface-soft px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90"
+            data-testid="decision-preview"
+            aria-label="What it will do, exactly"
           >
-            Open it
-          </button>
+            {decision.preview}
+          </pre>
         )}
-        {decision.href && (
-          <Link href={decision.href} className="mt-0.5 shrink-0 text-[12px] text-muted-foreground hover:text-foreground hover:underline" data-testid="decision-details">
-            {decision.hrefLabel ?? 'Details'}
-          </Link>
-        )}
-        {onEscape && (
-          <button
-            type="button"
-            onClick={onEscape}
-            aria-label={`${escapeLabel} (Esc)`}
-            title={`${escapeLabel} (Esc)`}
-            data-testid="decision-escape"
-            className="-mt-0.5 -mr-1 inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-[12px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
-          >
-            {escapeLabel}
-            <X className="size-3.5" aria-hidden />
-          </button>
-        )}
-        {variant === 'dock' && !onEscape && (
-          <button
-            type="button"
-            onClick={collapse}
-            aria-expanded
-            aria-label="Fold the decision away (Esc)"
-            title="Fold away (Esc)"
-            className="-mt-0.5 -mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
-          >
-            <ChevronDown className="size-4" aria-hidden />
-          </button>
-        )}
+        {decision.deadline && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="decision-deadline">{deadlineLine(decision.deadline)}</p>}
       </div>
 
       {hasForm && (
@@ -505,14 +567,14 @@ export function DecisionCard({
                   }
                 }}
                 onDoubleClick={() => !locked && onAnswer({ kind: 'option', optionIds: [o.id] })}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 transition ${isSelected ? 'bg-surface-soft' : 'hover:bg-surface-hover'} ${i === active ? 'ring-1 ring-border' : ''} ${locked ? 'cursor-default opacity-60' : ''}`}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 transition ${TAP} ${isSelected ? 'bg-surface-soft' : 'hover:bg-surface-hover'} ${i === active ? 'ring-1 ring-border' : ''} ${locked ? 'cursor-default opacity-60' : ''}`}
               >
                 <kbd className={`mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded border font-sans text-[11px] font-medium ${isSelected ? 'border-transparent bg-action text-action-foreground' : 'border-border text-muted-foreground'}`}>{i + 1}</kbd>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-[14px] font-medium text-foreground">{o.label}</span>
                     {o.recommended && <span className="text-[11px] font-medium text-[var(--brand-pass)]">Recommended</span>}
-                    {o.href && <span className="text-[11px] text-muted-foreground" data-testid="decision-option-opens">Opens ↗</span>}
+                    {o.href && leavesConversation(o.href) && <span className="text-[11px] text-muted-foreground" data-testid="decision-option-opens">Opens ↗</span>}
                   </span>
                   {o.consequence && <span className="mt-0.5 block text-[12.5px] leading-snug text-muted-foreground">{o.consequence}</span>}
                 </span>
@@ -535,14 +597,14 @@ export function DecisionCard({
             aria-label="Something else — answer in your own words"
             placeholder={decision.kind === 'signoff' ? 'Revise — say what to change…' : hasOptions ? 'Something else…' : 'Your answer…'}
             data-testid="decision-other"
-            className="min-w-0 flex-1 border-0 border-b border-border bg-transparent px-0 py-1 text-[14px] outline-none placeholder:text-muted-foreground/70 focus:border-foreground/40"
+            className={`min-w-0 flex-1 border-0 border-b border-border bg-transparent px-0 py-1 text-[14px] outline-none placeholder:text-muted-foreground/70 focus:border-foreground/40 ${TAP}`}
           />
         </div>
       )}
 
       {error && <p role="alert" className="mt-2 text-[12px] text-[var(--brand-fail)]">{error}</p>}
 
-      <div className="mt-3 flex items-center gap-2 border-t border-border pt-2.5">
+      <div className={`mt-3 flex items-center gap-2 border-t border-border pt-2.5 ${variant === 'dock' ? STICKY_FOOT : ''}`} data-testid="decision-foot">
         <p className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground sm:block" data-testid="decision-key-hints" aria-hidden>
           {hasOptions && (
             <>
@@ -583,7 +645,7 @@ export function DecisionCard({
             onClick={() => !locked && onAnswer({ kind: 'skip' })}
             disabled={locked}
             data-testid="decision-skip"
-            className="rounded-md px-2.5 py-1.5 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-50"
+            className={`rounded-md px-2.5 py-1.5 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-50 ${TAP}`}
           >
             {skipLabel}
           </button>
@@ -594,7 +656,7 @@ export function DecisionCard({
           onMouseDown={e => e.preventDefault()}
           disabled={!canSubmit}
           data-testid="decision-submit"
-          className="inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-[13px] font-medium text-action-foreground transition hover:opacity-90 disabled:opacity-40"
+          className={`inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-[13px] font-medium text-action-foreground transition hover:opacity-90 disabled:opacity-40 ${TAP}`}
         >
           {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <CornerDownLeft className="size-3.5" aria-hidden />}
           {submitLabel}

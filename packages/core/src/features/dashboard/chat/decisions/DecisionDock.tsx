@@ -4,23 +4,24 @@ import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
 import type { DoneReceipt } from '@/libs/decisions/receipt';
 import { X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/ConnectSystemsFlow';
 import { startConnectSystems, useConnectSystems } from '@/features/dashboard/connect-systems/launch';
+import { forgetWalk, recallWalk, rememberWalk } from '@/features/dashboard/connect-systems/walkMemory';
 import { connectSystemsInputOfHref } from '@/libs/connect/systemsLink';
 import { decisionKey } from '@/libs/decisions/decision';
-import { mayDockCard } from '../emptyChat';
+import { dockPlan } from '../emptyChat';
+import { WaitingNudge } from '../WaitingNudge';
 import { DecisionCard } from './DecisionCard';
 import { DoneReceipts } from './DoneReceipts';
 
 /**
  * The Decisions waiting on the person, docked above the composer: ONE card at a
  * time — this conversation's own first, oldest first, then what waits on them
- * elsewhere (a Needs you question, a proposal from no conversation) — with
- * "1 of 3" when more wait behind it. On an empty conversation nothing docks
- * that the person did not start (`chat/emptyChat.ts`, #1264): what waits
- * elsewhere is the one soft chip to Review there (`WaitingNudge`), and queues
- * here once the conversation is under way. It blocks only itself: the composer below
+ * elsewhere (a Needs you question, a proposal from no conversation) once the
+ * person asked to answer those here — with "1 of 3" when more wait behind it.
+ * Nothing docks that the person did not start (`chat/emptyChat.ts` `dockPlan`):
+ * what waits elsewhere is the one soft chip, never a card on its own. It blocks only itself: the composer below
  * stays live ("Or reply directly…"), and a typed reply is read against the
  * conversation's own card before it is routed. Nor is it locked while the
  * agent is still replying: an answer given then is held and goes the moment
@@ -73,7 +74,7 @@ export function DecisionDock({ decisions, waiting = [], onAnswer, onOpen, agentN
             {notice.receipt && <DoneReceipts receipts={[notice.receipt]} />}
           </div>
           {onDismissNotice && (
-            <button type="button" onClick={onDismissNotice} aria-label="Dismiss" className="shrink-0 rounded p-0.5 hover:bg-surface-hover hover:text-foreground">
+            <button type="button" onClick={onDismissNotice} aria-label="Dismiss" className="grid shrink-0 place-items-center rounded p-0.5 hover:bg-surface-hover hover:text-foreground max-md:size-11">
               <X className="size-3.5" aria-hidden />
             </button>
           )}
@@ -113,6 +114,7 @@ type DockSession = {
   conversationId: number | null;
   sendMessage: (text: string) => unknown;
   messages: readonly unknown[];
+  isStreaming?: boolean;
 };
 
 /**
@@ -128,25 +130,67 @@ export function ConversationDecisions({ session, connectSystems = null }: { sess
   // walk-through: while the walk runs it IS the docked card — one at a time —
   // and when it finishes it answers the Decision that started it.
   const walk = useConnectSystems(connectSystems ? { input: connectSystems } : null);
+  // The conversation in which the person tapped "N things waiting on you".
+  const [openedFor, setOpenedFor] = useState<number | null | undefined>(undefined);
+  // A walk this conversation was in the middle of, before a reload or a trip
+  // through the drawer, picks up where it was while the Decision it answers
+  // is still open (`walkMemory.ts`); once that Decision is answered, it is over.
+  const conversationId = session.conversationId;
+  const openIds = session.openDecisions.map(d => d.id).join(',');
+  const walking = walk.active !== null;
+  useEffect(() => {
+    if (walking || conversationId === null || !openIds) {
+      return;
+    }
+    const was = recallWalk(conversationId);
+    if (!was) {
+      return;
+    }
+    if (was.decisionId !== undefined && openIds.split(',').includes(String(was.decisionId))) {
+      startConnectSystems({ input: was.input, decisionId: was.decisionId, resume: { picked: was.picked, outcomes: was.outcomes } });
+    } else {
+      forgetWalk(conversationId);
+    }
+  }, [walking, conversationId, openIds]);
   if (walk.active) {
+    const active = walk.active;
     return (
       <ConnectSystemsFlow
-        key={walk.active.key}
-        input={walk.active.input}
-        decision={walk.active.decisionId !== undefined && session.conversationId !== null ? { conversationId: session.conversationId, decisionId: walk.active.decisionId } : null}
-        onClose={walk.close}
+        key={active.key}
+        input={active.input}
+        resume={active.resume ?? null}
+        onProgress={where => rememberWalk(conversationId, { input: active.input, ...(active.decisionId !== undefined ? { decisionId: active.decisionId } : {}), ...where })}
+        decision={active.decisionId !== undefined && conversationId !== null ? { conversationId, decisionId: active.decisionId } : null}
+        onClose={() => {
+          forgetWalk(conversationId);
+          walk.close();
+        }}
         onSomethingElse={text => void session.sendMessage(text)}
       />
     );
   }
-  // An empty conversation docks nothing the person did not start (a link that
-  // named a walk docks its walk above); what waits elsewhere is the one chip
-  // to Review there (`WaitingNudge`), and queues here once it is under way.
-  const mayDock = mayDockCard({ messageCount: session.messages.length, personStarted: false });
+  // Nothing docks that the person did not start (`dockPlan`): this
+  // conversation's own once it is under way; what waits elsewhere only after
+  // they tap its chip — never by itself, mid-flow, beside the lead's own ask.
+  const plan = dockPlan({
+    own: session.openDecisions,
+    elsewhere: session.waitingDecisions,
+    messageCount: session.messages.length,
+    personStarted: false,
+    elsewhereOpened: openedFor === session.conversationId && session.waitingDecisions.length > 0,
+    streaming: session.isStreaming ?? false,
+  });
+  if (plan.nudge !== null && !session.dockNotice) {
+    return (
+      <div className="mb-2 flex justify-center" data-testid="decision-dock-nudge">
+        <WaitingNudge count={plan.nudge} onOpen={() => setOpenedFor(session.conversationId)} />
+      </div>
+    );
+  }
   return (
     <DecisionDock
-      decisions={mayDock ? session.openDecisions : []}
-      waiting={mayDock ? session.waitingDecisions : []}
+      decisions={plan.own}
+      waiting={plan.elsewhere}
       notice={session.dockNotice}
       onDismissNotice={session.dismissDockNotice}
       onAnswer={session.answerDecision}

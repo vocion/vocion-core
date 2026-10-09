@@ -25,9 +25,14 @@
 /**
  * The tallest anything pinned above the composer may be on a phone: a quarter
  * of the viewport. What is taller scrolls inside it, so the conversation above
- * always keeps the screen and always scrolls. A desktop has the room.
+ * always keeps the screen and always scrolls. A desktop has the room, unless
+ * it is short. A docked card keeps its question and its buttons in view
+ * while its middle scrolls (`DecisionCard`, sticky head and foot).
  */
-export const PINNED_MAX_CLASS = 'max-md:max-h-[25dvh] max-md:overflow-y-auto max-md:overscroll-contain';
+export const PINNED_MAX_CLASS = 'max-md:max-h-[25dvh] max-md:overflow-y-auto max-md:overscroll-contain md:[@media(max-height:560px)]:max-h-[45dvh] md:[@media(max-height:560px)]:overflow-y-auto md:[@media(max-height:560px)]:overscroll-contain';
+// A phone on its side is wider than `md` and only ~390px tall: capped by
+// height too, or a docked card pushed the composer off the screen (2026-10-09,
+// landscape, "Connect Gmail?" 334px tall in a 390px viewport, no composer).
 
 /**
  * Whether a docked card (a Decision, an approval, a suggested action) may be
@@ -38,6 +43,38 @@ export const PINNED_MAX_CLASS = 'max-md:max-h-[25dvh] max-md:overflow-y-auto max
  */
 export function mayDockCard(input: { messageCount: number; personStarted: boolean }): boolean {
   return input.messageCount > 0 || input.personStarted;
+}
+
+/**
+ * WHAT A CONVERSATION'S DOCK DRAWS — its own Decisions, and what waits on the
+ * person elsewhere — by the one rule every surface reads.
+ *
+ * Founder, 2026-10-09, on a phone, after typing "setup my software factory":
+ * "I am confused with two prompts in different areas with diff load in and
+ * scroll behavior." A tracker review filed from no conversation docked 400ms
+ * after he sent, while the lead was still choosing who answers; the setup
+ * step then jumped in front of it, and between steps it came back, beside
+ * the lead's own question in the thread.
+ *
+ * So what waits ELSEWHERE never takes the dock by itself, empty conversation
+ * or not: it belongs to no flow the person is in. It is the one soft chip
+ * ("1 thing waiting on you"), shown only while nothing of this conversation's
+ * own is docked and no turn is running, and it docks the queue here when the
+ * person taps it — they started that flow. This conversation's own Decisions
+ * dock as before: once it is under way, or when the person started its flow.
+ * @param input - What the surface knows.
+ * @param input.own - This conversation's open Decisions, oldest first.
+ * @param input.elsewhere - What waits on the person outside any conversation.
+ * @param input.messageCount - Turns in the conversation so far.
+ * @param input.personStarted - The person started the flow its own card belongs to.
+ * @param input.elsewhereOpened - The person tapped the chip to answer what waits elsewhere here.
+ * @param input.streaming - A turn is running.
+ */
+export function dockPlan<T>(input: { own: T[]; elsewhere: T[]; messageCount: number; personStarted: boolean; elsewhereOpened: boolean; streaming: boolean }): { own: T[]; elsewhere: T[]; nudge: number | null } {
+  const own = mayDockCard(input) ? input.own : [];
+  const elsewhere = input.elsewhereOpened ? input.elsewhere : [];
+  const quiet = own.length === 0 && elsewhere.length === 0 && !input.streaming && input.messageCount > 0;
+  return { own, elsewhere, nudge: quiet && input.elsewhere.length > 0 ? input.elsewhere.length : null };
 }
 
 /**
