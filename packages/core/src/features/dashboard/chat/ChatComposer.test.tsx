@@ -488,10 +488,56 @@ describe('attachments — files in the next turn', () => {
     expect(onAttachFiles.mock.calls[0]![0][0].name).toBe('notes.txt');
   });
 
-  it('says why a file was refused, above the box', async () => {
-    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={() => {}} attachError="model.xlsx: images, PDFs and text files can be attached." />);
+  it('says what each attached file is in words — never its MIME type', async () => {
+    const sheet = { id: 7, title: 'Export-All-Leads.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', bytes: 1_258_291, url: '/api/artifacts/7', kind: 'document' as const };
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} attachments={[sheet]} onAttachFiles={() => {}} />);
 
-    await expect.element(page.getByTestId('attach-error')).toHaveTextContent('model.xlsx');
+    await expect.element(page.getByTestId('composer-attachment')).toHaveTextContent('Export-All-Leads.xlsxExcel spreadsheet · 1.2 MB');
+    await expect.element(page.getByTestId('composer-attachment')).not.toHaveTextContent('application/');
+  });
+
+  it('shows a file still going up as a chip with a progress bar, and its × cancels it', async () => {
+    const onCancelUpload = vi.fn();
+    const { rerender } = await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} uploading pendingUploads={[{ key: 'u1', name: 'Export-All-Leads.xlsx', bytes: 2_000_000, progress: 0.42 }]} onCancelUpload={onCancelUpload} onAttachFiles={() => {}} />);
+
+    await expect.element(page.getByRole('progressbar', { name: 'Uploading Export-All-Leads.xlsx' })).toHaveAttribute('aria-valuenow', '42');
+    await expect.element(page.getByTestId('composer-uploading')).toHaveTextContent('42%');
+    await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
+
+    // All the bytes are up; the server is reading the workbook.
+    await rerender(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} uploading pendingUploads={[{ key: 'u1', name: 'Export-All-Leads.xlsx', bytes: 2_000_000, progress: 1 }]} onCancelUpload={onCancelUpload} onAttachFiles={() => {}} />);
+
+    await expect.element(page.getByTestId('composer-uploading')).toHaveTextContent('Reading…');
+
+    await userEvent.click(page.getByRole('button', { name: 'Cancel Export-All-Leads.xlsx' }));
+
+    expect(onCancelUpload).toHaveBeenCalledWith('u1');
+  });
+
+  it('a pasted file becomes an attachment, not text', async () => {
+    const onAttachFiles = vi.fn();
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={onAttachFiles} />);
+    const box = page.getByRole('textbox').element();
+    const dt = new DataTransfer();
+    dt.items.add(new File(['png'], 'screenshot.png', { type: 'image/png' }));
+    box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+
+    expect(onAttachFiles).toHaveBeenCalledTimes(1);
+    expect(onAttachFiles.mock.calls[0]![0][0].name).toBe('screenshot.png');
+  });
+
+  it('offers Office files in the file picker', async () => {
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={() => {}} />);
+
+    const accept = page.getByTestId('composer-file-input').element().getAttribute('accept')!.split(',');
+
+    expect(accept).toEqual(expect.arrayContaining(['.xlsx', '.xls', '.docx', '.pptx', '.odt', '.ods', '.csv', '.pdf', '.png']));
+  });
+
+  it('says why a file was refused, above the box', async () => {
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={() => {}} attachError="Vocion can't read .key files yet. Export it as PDF or PowerPoint." />);
+
+    await expect.element(page.getByTestId('attach-error')).toHaveTextContent('Vocion can\'t read .key files yet.');
   });
 
   it('has no paperclip when the surface cannot take files', async () => {

@@ -3,10 +3,12 @@
 import type { ComposerMenuItem, ComposerMenuMode, ComposerMenuSetting } from './composerMenu';
 import type { QueuedMessage } from './queueReducer';
 import type { SlashCommand, SlashCommandAction } from './slashCommands';
-import type { ChatAttachment, ContextRef } from './types';
-import { ArrowUp, CornerDownLeft, FileText, Loader2, Plus, Square, X } from 'lucide-react';
+import type { ChatAttachment, ContextRef, PendingUpload } from './types';
+import { ArrowUp, CornerDownLeft, Loader2, Plus, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { ATTACHMENT_ACCEPT, ATTACHMENT_HINT } from '@/libs/chat/attachmentFormats';
 import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
+import { AttachmentChip, attachmentMeta } from './AttachmentChip';
 import { COMPOSER_CONTROL, COMPOSER_MAX_PX, COMPOSER_ROW, CONTROL_PX } from './composerBar';
 import { buildComposerMenu, selectableItems, TAG_ICON } from './composerMenu';
 import { ComposerMenuPanel } from './ComposerMenuPanel';
@@ -141,12 +143,20 @@ export type ChatComposerProps = {
   controls?: React.ReactNode;
   /** Files attached to the next message — already uploaded; these are the chips. */
   attachments?: ChatAttachment[];
-  /** An upload is in flight: a spinner chip, and Send waits for it. */
+  /** An upload is in flight: Send waits for it. */
   uploading?: boolean;
+  /** Files still going up, each a chip with a progress bar and an ×. */
+  pendingUploads?: PendingUpload[];
+  /** The × on a chip still going up. */
+  onCancelUpload?: (key: string) => void;
   /** Why the last attach did not fully land — a line above the box. */
   attachError?: string | null;
   onDismissAttachError?: () => void;
-  /** The person picked, dropped or pasted files. Absent = the paperclip is off. */
+  /**
+   * The person picked or pasted files. Absent = attaching is off. A DROP is
+   * the conversation pane's (`ChatDropZone`), which hands the same callback
+   * the files, so one drop never lands twice.
+   */
   onAttachFiles?: (files: File[]) => void;
   onRemoveAttachment?: (id: number) => void;
 };
@@ -197,7 +207,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['Esc', 'Stop the turn (empty box)'],
   ['Shift + Enter', 'New line'],
   ['@', 'Tag an agent, team, mission or the page'],
-  ['(+) · drop · paste', 'Attach an image, PDF or text file'],
+  ['(+) · drop · paste', `Attach a ${ATTACHMENT_HINT}`],
   ['@artifact', 'This turn ends in a document'],
   ['@change', 'This ask changes the draft in view'],
   ['/search …', 'Search only — no model in the loop'],
@@ -266,15 +276,14 @@ export function ChatComposer({
   controls,
   attachments = [],
   uploading = false,
+  pendingUploads = [],
+  onCancelUpload,
   attachError,
   onDismissAttachError,
   onAttachFiles,
   onRemoveAttachment,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  // A drag over the box highlights it; dropping attaches. `dragging` is a
-  // counter, not a flag, because enter/leave fire for every child crossed.
-  const [dragDepth, setDragDepth] = useState(0);
   const canAttach = Boolean(onAttachFiles);
   const takeFiles = (list: FileList | File[] | null | undefined) => {
     const files = Array.from(list ?? []).filter(f => f.size > 0);
@@ -323,7 +332,7 @@ export function ChatComposer({
         settings,
         tagHint,
         shortcuts: SHORTCUTS,
-        words: { commands: 'Commands', tag: 'Tag', attach: words.attach, attachFile: 'Attach a file', attachFileHint: 'Image, PDF or text', shortcuts: 'Shortcuts', shortcutsHint: 'Keys and commands', more: 'More' },
+        words: { commands: 'Commands', tag: 'Tag', attach: words.attach, attachFile: 'Attach a file', attachFileHint: ATTACHMENT_HINT, shortcuts: 'Shortcuts', shortcutsHint: 'Keys and commands', more: 'More' },
       })
     : [];
   const menuItems = selectableItems(sections);
@@ -650,25 +659,33 @@ export function ChatComposer({
             </button>
           </div>
         )}
-        {(pastedText || tags.length > 0 || commandHint || attachments.length > 0 || uploading) && (
+        {(pastedText || tags.length > 0 || commandHint || attachments.length > 0 || pendingUploads.length > 0 || uploading) && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
             {/* The files, as chips — an image shows itself, a document its name
                 and size. Each ✕ drops the chip; the artifact row stays (it is
                 the person's file, in their artifacts list). */}
             {attachments.map(a => (
-              <span key={a.id} data-testid="composer-attachment" className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-muted/40 py-0.5 pr-1 pl-1.5 text-xs sm:max-w-72">
-                {a.kind === 'image'
-                  ? <img src={a.url} alt="" className="size-6 rounded object-cover" />
-                  : <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
-                <span className="truncate">{a.title}</span>
-                {onRemoveAttachment && (
-                  <button type="button" onClick={() => onRemoveAttachment(a.id)} aria-label={`Remove ${a.title}`} className="rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground">
-                    <X className="size-3" aria-hidden />
-                  </button>
-                )}
-              </span>
+              <AttachmentChip
+                key={a.id}
+                testId="composer-attachment"
+                name={a.title}
+                meta={attachmentMeta(a.title, a.bytes)}
+                thumb={a.kind === 'image' ? a.url : undefined}
+                onRemove={onRemoveAttachment ? () => onRemoveAttachment(a.id) : undefined}
+              />
             ))}
-            {uploading && (
+            {pendingUploads.map(p => (
+              <AttachmentChip
+                key={p.key}
+                testId="composer-uploading"
+                name={p.name}
+                meta={p.progress >= 1 ? 'Reading…' : `${Math.round(p.progress * 100)}%`}
+                progress={p.progress}
+                onRemove={onCancelUpload ? () => onCancelUpload(p.key) : undefined}
+                removeLabel={`Cancel ${p.name}`}
+              />
+            ))}
+            {uploading && pendingUploads.length === 0 && (
               <span data-testid="composer-uploading" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
                 Uploading…
@@ -714,37 +731,14 @@ export function ChatComposer({
             e.preventDefault();
             submitPrimary();
           }}
-          // Dropping a file onto the box attaches it. The counter survives
-          // the enter/leave pairs every child element fires.
-          onDragEnter={(e) => {
-            if (canAttach && e.dataTransfer.types.includes('Files')) {
-              e.preventDefault();
-              setDragDepth(d => d + 1);
-            }
-          }}
-          onDragOver={(e) => {
-            if (canAttach && e.dataTransfer.types.includes('Files')) {
-              e.preventDefault();
-            }
-          }}
-          onDragLeave={() => setDragDepth(d => Math.max(0, d - 1))}
-          onDrop={(e) => {
-            if (!canAttach) {
-              return;
-            }
-            e.preventDefault();
-            setDragDepth(0);
-            takeFiles(e.dataTransfer.files);
-          }}
-          data-dragging={dragDepth > 0 || undefined}
           // Focus is the hairline darkening, nothing more. The ring token is
           // amber, and an amber ring plus a ground shift plus a drop shadow
           // made the box the heaviest thing on the screen (Chris, 2026-10-08:
-          // "a little more lightness"). Amber stays for the one moment it
-          // means something here: a file held over the box.
-          className={`${COMPOSER_ROW} rounded-2xl border border-foreground/10 bg-background px-3 py-2 transition-colors focus-within:border-foreground/20 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint`}
+          // "a little more lightness"). A file held over the chat is the
+          // whole pane's moment (`ChatDropZone`), not the box's.
+          className={`${COMPOSER_ROW} rounded-2xl border border-foreground/10 bg-background px-3 py-2 transition-colors focus-within:border-foreground/20`}
         >
-          {/* The file input behind the (+) menu's "Attach a file" row; drop and paste are the other paths. */}
+          {/* The file input behind the (+) menu's "Attach a file" row; a drop on the pane and a paste are the other paths. */}
           {canAttach && (
             <>
               <input
@@ -755,7 +749,7 @@ export function ChatComposer({
                 // a role query for the composer's textbox must find one element.
                 aria-hidden
                 tabIndex={-1}
-                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json,text/html,.md,.csv,.txt,.json"
+                accept={ATTACHMENT_ACCEPT}
                 className="hidden"
                 data-testid="composer-file-input"
                 onChange={(e) => {

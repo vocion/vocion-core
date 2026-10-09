@@ -361,6 +361,17 @@ export default defineConfig<ChromaticConfig>({
       timeout: projectTimeout(240 * 1000, 120 * 1000),
       use: { ...devices['iPhone 14'], browserName: 'chromium' as const },
     },
+    // Files in chat: a drag held anywhere over the conversation shows the
+    // "Drop to attach" overlay, the drop lands as chips with a progress bar,
+    // Office files go up and come back as chips, an unreadable or oversized
+    // file is one plain line, and the + button still works on a phone. No
+    // model needed. Self-seeding. Run with: npx playwright test --project=attachments
+    {
+      name: 'attachments',
+      testDir: './e2e/attachments',
+      timeout: projectTimeout(180 * 1000, 120 * 1000),
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } },
+    },
     // The All workspaces page on a phone: order, search, keyboard, opening a
     // row. Self-seeding. Run with: npx playwright test --project=all-workspaces
     {

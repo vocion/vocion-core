@@ -242,6 +242,19 @@ export type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
  * authenticated URL and a place in the artifacts list; the chip in the
  * composer and under the message is a view of that row, not a second store.
  */
+/**
+ * A file on its way up: a chip with a progress bar until the server answers,
+ * then it becomes a `ChatAttachment`. `progress` runs 0 to 1 over the bytes
+ * sent; at 1 the server is still reading the file (converting a workbook can
+ * take a moment), which the chip says.
+ */
+export type PendingUpload = {
+  key: string;
+  name: string;
+  bytes: number;
+  progress: number;
+};
+
 export type ChatAttachment = {
   /** The artifact row id. */
   id: number;

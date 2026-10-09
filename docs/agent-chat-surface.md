@@ -457,36 +457,59 @@ tag the heuristic still decides, so what reviewers already type keeps working.
 
 See [design/patterns.md](./design/patterns.md) → *Select → talk*.
 
-## Attachments — a file in the turn is an artifact (2026-09-17)
+## Attachments — a file in the turn is an artifact (2026-09-17, Office files 2026-10-09)
 
-A person can put an image, a PDF or a text file into a message: the paperclip
-beside the box, a drop onto it, or a pasted screenshot. Three ways in, one
-mechanism — `POST /api/chat/attachments` — and no new noun.
+A person can put an image, a PDF, an Office file (Excel, Word, PowerPoint,
+OpenDocument), a table (CSV, TSV), an email (.eml, .msg) or a text file into
+a message: the + beside the box, a drop ANYWHERE over the conversation, or a
+paste. Three ways in, one mechanism — `POST /api/chat/attachments` — and no
+new noun.
 
+- **The whole pane is the drop target.** A file held over the transcript,
+  the empty state or the composer shows one "Drop to attach" overlay across
+  the conversation pane (`ChatDropZone`, wrapped around the pane by both the
+  chat page and the rail). The drop lands as chips: a progress bar while the
+  bytes go up ("Reading…" while the server converts), then the name, what it
+  is in words and its size, with an ×. On a phone, the + is the path.
 - **The upload is an artifact.** Kind `file`, authored by the person,
   `visibility: user`, saved through the same content-addressed store the
   agent's `create_artifact` uses and served by the same authenticated route
   (`/api/artifacts/<id>`). It has a row, a version and a place in the
   artifacts list before the message is even sent. The chip in the composer
   and the chip under the sent message are views of that row
-  (`services/chat/attachments.ts`, principle 7).
+  (`services/chat/attachments.ts`, principle 7). The original file stays in
+  the store, which is what makes the next point possible.
 - **What the model receives.** An image travels as an image block beside the
-  message. A PDF or text file travels as its TEXT, extracted once at upload
-  (`pdf-parse`) and stored on the row's spec, inlined under the message with
-  the filename on it and capped per file and per turn — a cut says where it
-  happened. Text rather than a vendor document block, because the
-  workspace's agents run on three vendors and text is the one shape all of
-  them read the same way. The same composition runs in-process
+  message. Everything else travels as TEXT, converted once at upload
+  (`services/chat/convert.ts`) and stored on the row's spec: a PDF's text, a
+  Word or OpenDocument file with its headings as markdown, a deck one section
+  per slide with its speaker notes, an email's headers and body, and a
+  spreadsheet as markdown tables — whole when a sheet is small, and for a
+  big one its columns, its row count and its first 20 rows. The header under
+  the message names the file's id; `read_attachment` takes it and reads the
+  STORED ORIGINAL — every row of a sheet, filtered (`where`, `search`),
+  counted (`group_by`) or paged (200 rows a call), or a document by range or
+  search — so "analyse all the leads" works on all of them without putting
+  them all in the context. Text rather than a vendor document block, because
+  the workspace's agents run on three vendors and text is the one shape all
+  of them read the same way. The same composition runs in-process
   (`composeUserContent`), in the agent-runtime container (`attachments` on
-  the invocation payload) and, text-only, on the AWS-managed harness.
+  the invocation payload; `read_attachment` runs in core like every tool)
+  and, text-only, on the AWS-managed harness.
+- **The parsers never reach a route's bundle.** SheetJS (spreadsheets),
+  `fflate` (the zip inside Office files), `postal-mime` and `msgreader`
+  (mail) are imported lazily inside `convert.ts` and listed in
+  `serverExternalPackages`, so they cost the build nothing (#1300).
 - **The message stays the message.** The persisted user turn is the words
   the person typed; the files are filed under it (`claimAttachments`) and
   come back with it on reload. A later turn's history replay carries
-  `[Attached: report.pdf]` — the names, not the contents — so the agent asks
-  rather than guesses about a file it saw once.
-- **Refusals are sentences.** Wrong type or too big comes back as one line
-  above the box naming the file and the rule; the rest of the batch still
-  attaches.
+  `[Attached: report.pdf (file #12)]` — the names and ids, not the contents —
+  so the agent can read the file again rather than guess.
+- **Refusals are one plain line, never a MIME type.** "Vocion can't read
+  .key files yet. Export it as PDF or PowerPoint." "Export-All-Leads.xlsx is
+  31 MB. Files can be up to 25 MB." The composer checks with the server's own
+  rule and words before uploading (`libs/chat/attachmentFormats.ts`), and the
+  rest of the batch still attaches.
 
 ## Failures reach the person (2026-09-16)
 

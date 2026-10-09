@@ -26,12 +26,19 @@ describe('acceptUpload — what may be attached', () => {
     expect(acceptUpload({ name: 'leads.CSV', type: '', size: 10 })).toMatchObject({ ok: true, accepted: { contentType: 'text/csv' } });
   });
 
-  it('refuses what it does not read, with the reason', () => {
-    const v = acceptUpload({ name: 'model.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 10 });
+  it('takes Office files, mail and tables — the founder\'s lead export among them', () => {
+    expect(acceptUpload({ name: 'Export-All-Leads.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 10 })).toMatchObject({ ok: true, accepted: { ext: 'xlsx', kind: 'document' } });
 
-    expect(v.ok).toBe(false);
-    expect((v as { reason: string }).reason).toContain('model.xlsx');
-    expect(acceptUpload({ name: 'empty.txt', type: 'text/plain', size: 0 })).toMatchObject({ ok: false });
+    for (const name of ['a.xls', 'a.xlsm', 'a.ods', 'a.tsv', 'a.docx', 'a.odt', 'a.pptx', 'a.odp', 'a.xml', 'a.eml', 'a.msg']) {
+      expect(acceptUpload({ name, type: 'application/octet-stream', size: 10 }).ok, name).toBe(true);
+    }
+  });
+
+  it('refuses what it does not read in one plain line, never a MIME type', () => {
+    const v = acceptUpload({ name: 'Q4 board.key', type: 'application/x-iwork-keynote-sffkey', size: 10 });
+
+    expect(v).toEqual({ ok: false, reason: 'Vocion can\'t read .key files yet. Export it as PDF or PowerPoint.' });
+    expect(acceptUpload({ name: 'empty.txt', type: 'text/plain', size: 0 })).toEqual({ ok: false, reason: 'empty.txt is empty.' });
   });
 
   it('caps an image tighter than a document', () => {
@@ -79,7 +86,8 @@ describe('composeUserContent — what the model is handed', () => {
     expect(typeof out).toBe('string');
 
     expect(out).toContain('Summarise this.');
-    expect(out).toContain('--- attached: deck.pdf (application/pdf, 1234 bytes) ---\nQ3 plan');
+    expect(out).toContain('--- attached: deck.pdf (PDF, 1 KB, file #7; read_attachment(id: 7) reads, filters or counts the whole file) ---\nQ3 plan');
+    expect(out).not.toContain('application/pdf');
   });
 
   it('says when a document had no text rather than sending nothing', async () => {
@@ -130,7 +138,7 @@ describe('attachmentsForWire — what crosses to the container', () => {
     const wire = await attachmentsForWire([loadedFromArtifact(row({})), img], async () => Buffer.from('abc'));
 
     expect(wire).toEqual([
-      { title: 'deck.pdf', contentType: 'application/pdf', text: 'Q3 plan' },
+      { title: 'deck.pdf', contentType: 'application/pdf', text: '(PDF, 1 KB, file #7; read_attachment(id: 7) reads, filters or counts the whole file)\nQ3 plan' },
       { title: 'shot.png', contentType: 'image/png', dataUrl: `data:image/png;base64,${Buffer.from('abc').toString('base64')}` },
     ]);
   });
@@ -139,6 +147,7 @@ describe('attachmentsForWire — what crosses to the container', () => {
 describe('historyMarker', () => {
   it('names the files a past message carried, and nothing when it carried none', () => {
     expect(historyMarker([{ title: 'a.pdf' }, { title: 'b.png' }])).toBe('\n\n[Attached: a.pdf, b.png]');
+    expect(historyMarker([{ title: 'Export-All-Leads.xlsx', id: 12 }])).toBe('\n\n[Attached: Export-All-Leads.xlsx (file #12)]');
     expect(historyMarker([])).toBe('');
   });
 });

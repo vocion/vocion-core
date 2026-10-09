@@ -47,6 +47,7 @@ const KNOWN: Record<string, StepLabels> = {
   create_artifact: { running: 'Creating the artifact…', done: 'Created the artifact' },
   update_artifact: { running: 'Updating the artifact…', done: 'Updated the artifact' },
   read_artifact: { running: 'Reading the artifact…', done: 'Read the artifact' },
+  read_attachment: { running: 'Reading the attached file…', done: 'Read the attached file' },
   list_wiki_pages: { running: 'Listing the wiki…', done: 'Listed the wiki' },
   read_wiki_page: { running: 'Reading the wiki…', done: 'Read the wiki' },
   write_wiki_page: { running: 'Writing to the wiki…', done: 'Wrote to the wiki' },
