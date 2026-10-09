@@ -77,7 +77,7 @@ export async function setPersonalConnectionsAllowed(accountId: string, allowed: 
 }
 
 /** The sentence a person reads when their Org has turned personal connections off. */
-export const PERSONAL_CONNECTIONS_OFF = 'Your Org has turned off personal connections, so your own accounts cannot be connected or read. An Org admin can turn them back on from Personal → Connectors.';
+export const PERSONAL_CONNECTIONS_OFF = 'Your Org has turned off personal connections, so your own accounts cannot be connected or read. An Org admin can turn them back on in Personal connectors.';
 
 /** Whether a personal connect may start or finish, and if not, why. */
 export type PersonalConnectGate
@@ -108,7 +108,7 @@ export async function personalConnectGate(input: { orgId: string; userId: string
   return { ok: true, accountId: own.accountId, connection };
 }
 
-/** One row of Personal → Connectors. Names and dates only: never a token. */
+/** One row of Personal connectors. Names and dates only: never a token. */
 export type PersonalConnectionRow = {
   connector: string;
   provider: ConnectProviderId;
@@ -218,18 +218,18 @@ export type PersonalCredential
 export async function personalCredential(input: { orgId: string; userId: string; connector: string }): Promise<PersonalCredential> {
   const connection = personalConnectionFor(input.connector);
   if (!connection) {
-    return { ok: false, why: `${input.connector} is not a personal connection.` };
+    return { ok: false, why: `${input.connector} is not a personal connector. Shared systems your team's agents use are team connectors, connected by an admin in Team connectors.` };
   }
   const own = await ownPersonalWorkspace(input.orgId, input.userId);
   if (!own) {
-    return { ok: false, why: `${connection.label} is only read from your own Personal workspace, and only for you.` };
+    return { ok: false, why: `${connection.label} is a personal connector: only your personal assistant reads it, from your own Personal workspace.` };
   }
   if (!(await personalConnectionsAllowed(own.accountId))) {
     return { ok: false, why: PERSONAL_CONNECTIONS_OFF };
   }
   const login = await servingLogin(own.projectId, connection);
   if (!login) {
-    return { ok: false, why: `${connection.label} is not connected. Connect it from [Personal → Connectors](/dashboard/connectors).` };
+    return { ok: false, why: `${connection.label} is not connected. Connect it in [Personal connectors](/dashboard/connectors).` };
   }
   return { ok: true, tokenId: login.row.id, orgId: own.projectId, values: login.values };
 }

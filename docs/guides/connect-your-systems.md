@@ -6,6 +6,12 @@ ranks what to connect from evidence, asks at most one question, connects each
 system by login or by a key typed inline, checks each one before moving on,
 and ends with what each connected system unlocks.
 
+It connects **team connectors**, the shared systems the workspace's agents use;
+its eyebrow says so. A request for someone's own account is a **personal
+connector** and gets one line pointing to Personal connectors instead of the
+walk (`services/connect/connectorKindRouting.ts`); see
+[personal-connections.md](personal-connections.md).
+
 It never leaves the conversation (principle 5). Every step shows why it is
 offered (principle 10). Nothing in it names a vendor: the list, how each
 system connects and the mail evidence all come from the platform and connector

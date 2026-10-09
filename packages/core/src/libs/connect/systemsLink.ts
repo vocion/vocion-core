@@ -102,5 +102,5 @@ export function connectSystemsAsk(names: { app?: string | null; named?: readonly
     const list = named.length === 1 ? named[0]! : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
     return `Help me connect ${list}`;
   }
-  return names.app ? `Help me connect the systems ${names.app} uses` : 'Help me connect the systems this workspace needs';
+  return names.app ? `Help me connect the team connectors ${names.app} uses` : 'Help me connect the team connectors this workspace needs';
 }

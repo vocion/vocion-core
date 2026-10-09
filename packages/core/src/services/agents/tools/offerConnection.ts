@@ -1,5 +1,6 @@
 import type { RuntimeContext } from '../types';
 import type { Card } from '@/libs/cards/card';
+import type { ConnectorKind } from '@/libs/connect/connectorKinds';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { newCardId } from '@/libs/cards/card';
@@ -8,10 +9,12 @@ import { connectOptionFor } from '@/libs/connect/registry';
 import { connectStartHref } from '@/libs/connect/returnTo';
 import { howToConnectFor, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
+import { connectKindCheck } from '@/services/connect/connectorKindRouting';
 import { connectorHasLiveSource, newestLiveCredential } from '@/services/connect/createSourceOnLogin';
 import { loginCannotServe } from '@/services/connect/loginCannotServe';
 import { memberWorkspace } from '@/services/WorkspaceAccessService';
 import { withArticle } from '@/utils/withArticle';
+import { CONNECTOR_KIND_FIELD } from './connectSystems';
 
 /**
  * The existing Sources add flow for one connector, carrying a way back to
@@ -62,12 +65,21 @@ function pasteBody(paste: { credential: string; access: readonly string[]; getIt
  * @param input - The connector slug and one sentence on why.
  * @param input.connector - Connector slug.
  * @param input.why - The agent's reason, for its own words above the card; not drawn on it.
+ * @param input.kind
  * @returns The text the model reads.
  */
-export async function offerConnection(ctx: RuntimeContext, input: { connector: string; why: string }): Promise<string> {
+export async function offerConnection(ctx: RuntimeContext, input: { connector: string; why: string; kind?: ConnectorKind }): Promise<string> {
   const connector = getConnector(input.connector);
   if (!connector) {
     return `Refused: there is no connector "${input.connector}". Call list_capabilities for the connector slugs.`;
+  }
+  // A team connector is offered here; the other kind, or any offer in a
+  // Personal workspace, gets one line pointing to the right page instead.
+  if (ctx.workspaceKind === 'personal' || input.kind === 'personal') {
+    const decision = await connectKindCheck(ctx, [connector.slug], input.kind);
+    if (!decision.proceed) {
+      return decision.reply;
+    }
   }
   const name = connector.name ?? connector.slug;
   // The OAuth start route is admin-only (403 otherwise), so a card for anyone
@@ -75,7 +87,7 @@ export async function offerConnection(ctx: RuntimeContext, input: { connector: s
   // no user or no membership fails safe to the refusal.
   const membership = ctx.userId ? await memberWorkspace(ctx.userId, ctx.orgId) : null;
   if (membership?.accountRole !== 'admin') {
-    return `Only a workspace admin can connect ${name}. Ask an admin to connect it from Sources.`;
+    return `${name} is a team connector, and only a workspace admin connects team connectors. Ask an admin to connect it in Team connectors.`;
   }
   // A source whose login was revoked or expired is not connected: fall through and offer the login again.
   if (await connectorHasLiveSource(ctx.orgId, connector.slug)) {
@@ -186,11 +198,12 @@ function connectedWording(name: string, href: string, settingsAfterLogin: readon
  */
 export function offerConnectionTool(ctx: RuntimeContext) {
   return tool(
-    async (input: { connector: string; why: string }) => offerConnection(ctx, input),
+    async (input: { connector: string; why: string; kind?: ConnectorKind }) => offerConnection(ctx, input),
     {
       name: 'offer_connection',
-      description: 'Show the person a one-tap card to connect one tool (GitHub, Jira, Slack…) to this workspace. It opens the connect flow and comes back to this conversation. Use when the person asks to connect a tool, or a missing connection is what blocks the work; once per connector.',
+      description: 'Show the person a one-tap card to connect one team connector (GitHub, Jira, Slack…) — a shared system this workspace\'s agents use. It opens the connect flow and comes back to this conversation. Use when the person asks to connect a tool, or a missing connection is what blocks the work; once per connector. Say which kind it is and why in your line above the card.',
       schema: z.object({
+        kind: CONNECTOR_KIND_FIELD,
         connector: z.string().min(1).describe('Connector slug from list_capabilities, e.g. "github".'),
         why: z.string().min(1).max(200).describe('One sentence on what connecting it lets this workspace do.'),
       }),

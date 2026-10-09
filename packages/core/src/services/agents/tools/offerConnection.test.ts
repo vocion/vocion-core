@@ -279,15 +279,37 @@ describe('offer_connection', () => {
     const emit = vi.fn();
     const out = String(await offerConnectionTool(ctxWith(emit, 'usr-member')).invoke({ connector: 'github', why: 'x' }));
 
-    expect(out).toMatch(/^Only a workspace admin can connect .+\. Ask an admin to connect it from Sources\.$/);
+    expect(out).toMatch(/^.+ is a team connector, and only a workspace admin connects team connectors\. Ask an admin to connect it in Team connectors\.$/);
     expect(emit).not.toHaveBeenCalled();
   });
 
   it('fails safe: no user, or a stranger to the account, gets no card', async () => {
     const emit = vi.fn();
 
-    expect(String(await offerConnectionTool(ctxWith(emit, null)).invoke({ connector: 'github', why: 'x' }))).toMatch(/^Only a workspace admin/);
-    expect(String(await offerConnectionTool(ctxWith(emit, 'usr-nobody')).invoke({ connector: 'github', why: 'x' }))).toMatch(/^Only a workspace admin/);
+    expect(String(await offerConnectionTool(ctxWith(emit, null)).invoke({ connector: 'github', why: 'x' }))).toMatch(/is a team connector, and only a workspace admin connects team connectors/);
+    expect(String(await offerConnectionTool(ctxWith(emit, 'usr-nobody')).invoke({ connector: 'github', why: 'x' }))).toMatch(/is a team connector, and only a workspace admin connects team connectors/);
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('offer_connection and the two kinds', () => {
+  it('never offers the person\'s own Gmail as a team connector: one line pointing to Personal connectors, no card', async () => {
+    const emit = vi.fn();
+
+    const out = String(await offerConnectionTool(ctxWith(emit)).invoke({ connector: 'gmail', why: 'So your assistant can read your inbox.', kind: 'personal' }));
+
+    expect(out).toMatch(/^Your own Gmail is a personal connector — only your personal assistant reads it/);
+    expect(out).toContain('Personal connectors');
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('never offers a team system from a Personal workspace', async () => {
+    const emit = vi.fn();
+    const personal = { ...ctxWith(emit), workspaceKind: 'personal' } as RuntimeContext;
+
+    const out = String(await offerConnectionTool(personal).invoke({ connector: 'hubspot', why: 'x' }));
+
+    expect(out).toMatch(/^HubSpot is a team connector — your team's agents use it, and an admin connects it\./);
     expect(emit).not.toHaveBeenCalled();
   });
 });

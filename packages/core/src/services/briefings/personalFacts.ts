@@ -117,7 +117,7 @@ async function readMeetings(input: { userId: string; personalOrgId: string; from
     if (isBrokenConnection(error)) {
       const { reportBrokenConnection } = await import('@/services/personal/urgent');
       await reportBrokenConnection({ orgId: input.personalOrgId, userId: input.userId, connector: 'google-calendar' });
-      return { status: 'unavailable', why: 'Your Google Calendar connection stopped working. Connect it again from [Personal → Connectors](/dashboard/connectors).' };
+      return { status: 'unavailable', why: 'Your Google Calendar connection stopped working. Connect it again from [Personal connectors](/dashboard/connectors).' };
     }
     return { status: 'unavailable', why: 'Your calendar could not be read just now.' };
   }

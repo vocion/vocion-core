@@ -3,7 +3,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
  * The assistant's own-systems tools, two people at once.
  *
  * Alex and Cass are in the same Org, and each connected their own Google,
- * Slack and GitHub from Personal → Connectors. Every vendor call below is
+ * Slack and GitHub from Personal connectors. Every vendor call below is
  * recorded with the token it carried, so each test can say exactly whose
  * credential reached the vendor: Alex's turn spends Alex's grant, Cass's
  * spends Cass's, and a turn that names the other person's workspace, a
@@ -204,7 +204,7 @@ describe('two people, each with their own credential', () => {
     for (const name of ['mail_search', 'slack_dm_search', 'github_my_work']) {
       const answer = await call(crossed, name, name === 'github_my_work' ? {} : { query: 'x' });
 
-      expect(answer).toContain('only read from your own Personal workspace');
+      expect(answer).toContain('only your personal assistant reads it, from your own Personal workspace');
     }
 
     expect(calls).toEqual([]);
@@ -228,7 +228,7 @@ describe('two people, each with their own credential', () => {
     const answer = await call(ctxFor(doraHome, DORA), 'calendar_today');
 
     expect(answer).toContain('Google Calendar is not connected');
-    expect(answer).toContain('Personal → Connectors');
+    expect(answer).toContain('Personal connectors');
     expect(calls).toEqual([]);
 
     await db.delete(apiTokenSchema).where(eq(apiTokenSchema.orgId, doraHome));

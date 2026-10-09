@@ -51,9 +51,16 @@ describe('the opening hint (founder, 2026-10-09)', () => {
     expect(broken.score).toBeGreaterThan(quiet.score);
     expect(busy.score).toBeGreaterThan(broken.score);
     expect(busy.label).toBe('Reconnect HubSpot →');
-    expect(busy.reason).toMatch(/stopped working/);
-    expect(busy.action).toEqual({ kind: 'send', prompt: 'Help me reconnect HubSpot' });
+    expect(busy.reason).toMatch(/^The HubSpot team connector stopped working/);
+    expect(busy.action).toEqual({ kind: 'send', prompt: 'Help me reconnect the HubSpot team connector' });
     expect(quiet.label).toBe('Connect HubSpot →');
+  });
+
+  it('names a personal connector as personal', () => {
+    const own = openingHints(input({ connectors: [{ slug: 'gmail', name: 'Gmail', kind: 'personal', state: 'expired', recentTouches: 0, href: '/x' }] }))[0]!;
+
+    expect(own.reason).toBe('The Gmail personal connector stopped working.');
+    expect(own.action).toEqual({ kind: 'send', prompt: 'Help me reconnect the Gmail personal connector' });
   });
 
   it('boosts a system agents tried and failed to use this week, and says so', () => {

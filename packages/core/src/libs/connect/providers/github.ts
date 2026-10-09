@@ -21,7 +21,7 @@
  * to keep; `request` means an organization member asked an owner to approve
  * and nothing exists yet; `cancel` is a person changing their mind.
  *
- * A person's OWN GitHub (`audience: 'personal'`, Personal → Connectors) is a
+ * A person's OWN GitHub (`audience: 'personal'`, Personal connectors) is a
  * different flow on the same callback: the person authorizes an OAuth client
  * as themselves (`personalLoginClient('github')`: `GITHUB_PERSONAL_CLIENT_*`,
  * else the GitHub App's own client) and the user token IS the credential,

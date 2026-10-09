@@ -22,6 +22,9 @@
  * (`chat.hint_*`, `services/adoption/events.ts`) can tune them.
  */
 
+import type { ConnectorKind } from '@/libs/connect/connectorKinds';
+import { CONNECTOR_KIND_ONE } from '@/libs/connect/connectorKinds';
+
 export const HINT_TYPES = ['setup', 'connector', 'attention', 'next', 'capability'] as const;
 export type HintType = (typeof HINT_TYPES)[number];
 
@@ -78,6 +81,8 @@ export type HintInput = {
   connectors: Array<{
     slug: string;
     name: string;
+    /** Team (the workspace's shared systems) or personal (the person's own); team when absent. */
+    kind?: ConnectorKind;
     state: 'broken' | 'expired' | 'incomplete' | 'needed';
     /** The app that needs it, for `needed`. */
     neededBy?: string;
@@ -184,12 +189,16 @@ function setupCandidate(input: HintInput): OpeningHint | null {
   return best;
 }
 
+const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 function connectorCandidate(input: HintInput): OpeningHint | null {
   let best: OpeningHint | null = null;
   for (const c of input.connectors) {
     const stateBoost = c.state === 'broken' || c.state === 'expired' ? 1.25 : c.state === 'incomplete' ? 1 : 0.9;
     const score = BASE.connector * stateBoost * (1 + 0.1 * Math.min(c.recentTouches, 5));
     const verb = c.state === 'broken' || c.state === 'expired' ? 'Reconnect' : c.state === 'incomplete' ? 'Finish connecting' : 'Connect';
+    // The kind, named the way every surface names it (`connectorKinds.ts`).
+    const what = `the ${c.name} ${CONNECTOR_KIND_ONE[c.kind ?? 'team'].replace(/^an? /, '')}`;
     let hint: OpeningHint;
     if (input.person.isAdmin) {
       hint = {
@@ -197,10 +206,10 @@ function connectorCandidate(input: HintInput): OpeningHint | null {
         type: 'connector',
         label: `${verb} ${c.name} →`,
         reason: c.state === 'broken' || c.state === 'expired'
-          ? `The ${c.name} connection stopped working${c.touchNote ? ` — ${c.touchNote}` : c.recentTouches > 0 ? ', and the team has needed it this week' : ''}.`
-          : c.state === 'needed' ? (c.touchNote ? `${c.touchNote}.` : `${c.neededBy ?? 'An installed app'} reads from ${c.name}.`) : `The ${c.name} connection was started and not finished.`,
+          ? `${capitalise(what)} stopped working${c.touchNote ? ` — ${c.touchNote}` : c.recentTouches > 0 ? ', and the team has needed it this week' : ''}.`
+          : c.state === 'needed' ? (c.touchNote ? `${c.touchNote}.` : `${c.neededBy ?? 'An installed app'} reads from ${c.name}.`) : `${capitalise(what)} was started and not finished.`,
         score,
-        action: { kind: 'send', prompt: `Help me ${verb.toLowerCase()} ${c.name}` },
+        action: { kind: 'send', prompt: `Help me ${verb.toLowerCase()} ${what}` },
       };
     } else if (c.recentTouches > 0) {
       // A member cannot connect it; say so only when it is getting in their way.
@@ -208,9 +217,9 @@ function connectorCandidate(input: HintInput): OpeningHint | null {
         key: `connector:${c.slug}`,
         type: 'connector',
         label: `Ask an admin to ${verb.toLowerCase()} ${c.name} →`,
-        reason: `The team needed ${c.name} this week and the connection isn't working.`,
+        reason: `The team needed ${c.name} this week and ${what} isn't working.`,
         score: score * 0.6,
-        action: { kind: 'send', prompt: `Ask an admin to ${verb.toLowerCase()} ${c.name}.` },
+        action: { kind: 'send', prompt: `Ask an admin to ${verb.toLowerCase()} ${what}.` },
       };
     } else {
       continue;
