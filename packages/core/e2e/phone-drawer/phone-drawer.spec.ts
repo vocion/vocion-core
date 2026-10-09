@@ -105,22 +105,27 @@ test('the workspace picker scrolls by touch inside the drawer', async () => {
   expect(await list.evaluate(el => el.scrollTop)).toBe(0);
 
   // A real touch drag, not a scrollTop write: the scroll lock only ever
-  // refused touch and wheel events. The popover zooms in, so wait for it to
-  // settle, and drag again until the list moves: on the CI box the first
-  // gesture can land before the lock's listeners are attached (2026-10-09).
-  // With the lock swallowing touches, no number of drags moves it.
+  // refused touch and wheel events. Raw touch points through the browser's
+  // input pipeline (`Input.dispatchTouchEvent`), so the page's touchmove
+  // listeners see them exactly as a finger's; the synthesized scroll gesture
+  // did not scroll on CI's Linux Chromium at all (2026-10-09). The popover
+  // zooms in, so wait for it to settle first.
   await list.evaluate(el => Promise.all(el.closest('[data-slot="popover-content"]')?.getAnimations({ subtree: true }).map(a => a.finished) ?? []));
   const cdp = await page.context().newCDPSession(page);
+  const drag = async () => {
+    const box = (await list.boundingBox())!;
+    const x = Math.round(box.x + box.width / 2);
+    const from = Math.round(box.y + box.height * 0.8);
+    const to = Math.round(box.y + box.height * 0.2);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: from }] });
+    for (let i = 1; i <= 10; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: Math.round(from + ((to - from) * i) / 10) }] });
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
 
   await expect(async () => {
-    const box = (await list.boundingBox())!;
-    await cdp.send('Input.synthesizeScrollGesture', {
-      x: Math.round(box.x + box.width / 2),
-      y: Math.round(box.y + box.height * 0.75),
-      yDistance: -Math.round(box.height / 2),
-      gestureSourceType: 'touch',
-      speed: 600,
-    });
+    await drag();
 
     expect(await list.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
   }).toPass({ timeout: 15_000 });
