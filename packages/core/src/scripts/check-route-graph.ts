@@ -51,8 +51,20 @@ export const FORBIDDEN_REACH: ReadonlyArray<{ from: string; to: string }> = [
  * Raise it deliberately, with a reason, never to make a red check green:
  * first look for the edge that put a large graph under a widely imported
  * module.
+ *
+ * Raised to 196,500 on 2026-10-09, with that look taken. main stood at
+ * 195,057 after the effort-levels change (#1294): the growth is ordinary
+ * modules reached through the agent tool registry, which 186 of the 275
+ * routes reach (via `app/api/v1/_shared.ts` → `writeApi` → `ReviewService` →
+ * `AgentService`, and `WorkflowService` → `AgentService`), so each new module
+ * there costs about 186. No single edge is to blame: cutting any one edge on
+ * the heaviest route (`dashboard/agents/[slug]`) saves at most 40 modules,
+ * because the server graph reaches the hub by many paths. The rule that
+ * catches a real blow-up — a hot module reaching the whole server
+ * (`FORBIDDEN_REACH`) — is unchanged. The structural fix is to stop the API
+ * write path reaching the agent loop at all, which is its own change.
  */
-export const REACH_BUDGET = 195_000;
+export const REACH_BUDGET = 196_500;
 
 /** File names Next treats as a route entry under `app/`. */
 const ENTRY_FILE = /^(?:page|route|layout|template|default|loading|error|not-found)\.tsx?$/;
