@@ -29,7 +29,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { SidebarProvider, SidebarTrigger } = await import('@/components/ui/sidebar');
-const { OrgBrandProvider } = await import('@/features/branding/BrandContext');
+const { BrandChromeProvider, OrgBrandProvider } = await import('@/features/branding/BrandContext');
 const { AppSidebar } = await import('./AppSidebar');
 
 const APPS: AppNav[] = [
@@ -40,30 +40,32 @@ const SESSION = {
   expires: '2999-01-01T00:00:00.000Z',
 };
 
-function Shell({ fresh, branded = false }: { fresh: boolean; branded?: boolean }) {
+function Shell({ fresh, branded = false, lead = 'org' }: { fresh: boolean; branded?: boolean; lead?: 'org' | 'vocion' }) {
   return (
     <OrgBrandProvider value={branded ? { name: 'Northwind', logo: {}, mark: {}, accent: null, headingFont: null, poweredBy: true } : null}>
-      <SessionProvider session={SESSION}>
-        <NextIntlClientProvider locale="en" messages={en}>
-          <SidebarProvider>
-            <SidebarTrigger />
-            <AppSidebar
-              isAdmin
-              needsYouCount={4}
-              apps={APPS}
-              workspacePages={[{ title: 'Wiki', url: '/dashboard/p/wiki', section: 'Pages' }]}
-              gettingStarted={{ steps: [{ id: 'connect', done: true }, { id: 'app', done: true }, { id: 'hire', done: false }, { id: 'invite', done: false }, { id: 'brand', done: false }], done: 2, total: 5, fresh }}
-            />
-          </SidebarProvider>
-        </NextIntlClientProvider>
-      </SessionProvider>
+      <BrandChromeProvider value={branded && lead === 'org' ? { lead: 'org', footer: 'powered-by' } : { lead: 'vocion', footer: 'vocion-wordmark' }}>
+        <SessionProvider session={SESSION}>
+          <NextIntlClientProvider locale="en" messages={en}>
+            <SidebarProvider>
+              <SidebarTrigger />
+              <AppSidebar
+                isAdmin
+                needsYouCount={4}
+                apps={APPS}
+                workspacePages={[{ title: 'Wiki', url: '/dashboard/p/wiki', section: 'Pages' }]}
+                gettingStarted={{ steps: [{ id: 'connect', done: true }, { id: 'app', done: true }, { id: 'hire', done: false }, { id: 'invite', done: false }, { id: 'brand', done: false }], done: 2, total: 5, fresh }}
+              />
+            </SidebarProvider>
+          </NextIntlClientProvider>
+        </SessionProvider>
+      </BrandChromeProvider>
     </OrgBrandProvider>
   );
 }
 
-async function openDrawer(fresh = false, branded = false) {
+async function openDrawer(fresh = false, branded = false, lead: 'org' | 'vocion' = 'org') {
   await page.viewport(390, 844);
-  await render(<Shell fresh={fresh} branded={branded} />);
+  await render(<Shell fresh={fresh} branded={branded} lead={lead} />);
   await page.getByRole('button', { name: 'Toggle Sidebar' }).click();
 
   await expect.element(page.getByRole('dialog')).toBeVisible();
@@ -137,6 +139,14 @@ describe('the footer of a branded install', () => {
 
     expect(powered.top).toBeGreaterThanOrEqual(user.bottom - 1);
     expect(user.top).toBeGreaterThanOrEqual(content.bottom - 1);
+    expect(page.getByTestId('vocion-wordmark').elements()).toHaveLength(0);
+  });
+
+  it('where Vocion leads (Cloud), the footer is Vocion\'s wordmark instead — never both', async () => {
+    await openDrawer(true, true, 'vocion');
+
+    await expect.element(page.getByTestId('vocion-wordmark')).toBeVisible();
+    expect(page.getByTestId('powered-by-vocion').elements()).toHaveLength(0);
   });
 });
 

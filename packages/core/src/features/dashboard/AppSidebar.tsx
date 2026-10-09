@@ -17,8 +17,8 @@ import { LetterTile } from '@/components/ui/letter-tile';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
-import { useOrgBrand } from '@/features/branding/BrandContext';
-import { PoweredByVocion } from '@/features/branding/OrgLogo';
+import { useBrandChrome } from '@/features/branding/BrandContext';
+import { PoweredByVocion, VocionWordmark } from '@/features/branding/OrgLogo';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { checklistApplies, GettingStartedChecklist } from '@/features/dashboard/GettingStartedChecklist';
 import { iconByName } from '@/features/dashboard/iconByName';
@@ -134,7 +134,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   gettingStarted?: GettingStartedState | null;
 }) => {
   const t = useTranslations('DashboardLayout');
-  const orgBrand = useOrgBrand();
+  const chrome = useBrandChrome();
   const { state, isMobile } = useSidebar();
   const collapsed = state === 'collapsed';
   const [view, setView] = useState<NavView>('work');
@@ -565,13 +565,16 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
           )
         : nav}
 
-      {/* The footer: who is signed in, and under an Org's own logo a small
-          "Powered by Vocion" (removed only by an extension that white-labels,
-          `branding.whiteLabel`). A sibling of the scrolling nav above, never
-          on top of it: the nav scrolls, the footer stays. */}
+      {/* The footer: who is signed in, then one quiet line for the brand that
+          does not lead the install (`libs/branding/chrome.ts`, never both):
+          Vocion's wordmark where Vocion leads (Cloud), "Powered by Vocion"
+          where the Org does (removed only by an extension that
+          white-labels, `branding.whiteLabel`). A sibling of the scrolling nav
+          above, never on top of it: the nav scrolls, the footer stays. */}
       <SidebarFooter data-testid="sidebar-footer" className="shrink-0 border-t border-sidebar-border/60 px-3 pt-2 pb-3 group-data-[collapsible=icon]:hidden">
         <SidebarUser />
-        {orgBrand?.poweredBy && <PoweredByVocion />}
+        {chrome.footer === 'vocion-wordmark' && <VocionWordmark className="px-2 pt-1" />}
+        {chrome.footer === 'powered-by' && <PoweredByVocion />}
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

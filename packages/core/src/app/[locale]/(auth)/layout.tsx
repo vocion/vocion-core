@@ -1,21 +1,23 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
-import { OrgBrandProvider } from '@/features/branding/BrandContext';
+import { BrandChromeProvider, OrgBrandProvider } from '@/features/branding/BrandContext';
 import { OrgBrandStyle } from '@/features/branding/OrgBrandStyle';
 import { AuthProviders } from '@/features/navigation/AuthProviders';
 import { auth } from '@/libs/Auth';
 import { brandTitle } from '@/libs/branding/orgBrand';
 import { titlePrefix } from '@/libs/envLabel';
 import { WORKSPACE_HEADER } from '@/libs/links';
-import { brandViewForRequest } from '@/services/branding/OrgBrandService';
+import { brandChromeForRequest, brandViewForRequest } from '@/services/branding/OrgBrandService';
 
 /**
- * The tab an Org's people see: "Northwind · Vocion", and the Org's mark as
- * the favicon when its brand has one. Unbranded, nothing changes.
+ * The tab follows the install's lead brand (`libs/branding/chrome.ts`): on a
+ * branded single-Org install, "Northwind · Vocion" and the Org's mark as the
+ * favicon; on Vocion Cloud, Vocion's own title and favicon whichever Org is
+ * open. Unbranded, nothing changes.
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const brand = await brandViewForRequest().catch(() => null);
-  if (!brand) {
+  const [brand, chrome] = await Promise.all([brandViewForRequest().catch(() => null), brandChromeForRequest().catch(() => null)]);
+  if (!brand || chrome?.lead !== 'org') {
     return {};
   }
   return {
@@ -46,13 +48,15 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function AuthLayout(props: {
   children: React.ReactNode;
 }) {
-  const [requestHeaders, session, brand] = await Promise.all([headers(), auth(), brandViewForRequest().catch(() => null)]);
+  const [requestHeaders, session, brand, chrome] = await Promise.all([headers(), auth(), brandViewForRequest().catch(() => null), brandChromeForRequest().catch(() => ({ lead: 'vocion' as const, footer: 'vocion-wordmark' as const }))]);
   const slug = requestHeaders.get(WORKSPACE_HEADER.slug)?.trim() || null;
 
   return (
     <AuthProviders session={session} workspaceSlug={slug}>
       <OrgBrandStyle brand={brand} />
-      <OrgBrandProvider value={brand}>{props.children}</OrgBrandProvider>
+      <OrgBrandProvider value={brand}>
+        <BrandChromeProvider value={chrome}>{props.children}</BrandChromeProvider>
+      </OrgBrandProvider>
     </AuthProviders>
   );
 }

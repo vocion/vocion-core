@@ -99,6 +99,9 @@ export const Env = createEnv({
      * which reads this variable; it is declared here so the value is checked.
      */
     VOCION_ORGS: z.enum(['single', 'multi']).default('single'),
+    // Which brand leads the app chrome (`libs/branding/chrome.ts`): auto = Vocion on a
+    // multi-Org server, the Org on a single-Org one; or force `vocion` / `org`.
+    VOCION_LEAD_BRAND: z.enum(['auto', 'vocion', 'org']).optional(),
     /**
      * Outbound email (`libs/mail`). Ships dark: nothing is sent unless
      * VOCION_MAIL_ENABLED is exactly '1'. The transport is Resend; the
@@ -231,6 +234,7 @@ export const Env = createEnv({
     VOCION_ALLOW_QUEUE_RESET: process.env.VOCION_ALLOW_QUEUE_RESET,
     VOCION_ENFORCE_WORKSPACE_ACCESS: process.env.VOCION_ENFORCE_WORKSPACE_ACCESS,
     VOCION_ORGS: process.env.VOCION_ORGS,
+    VOCION_LEAD_BRAND: process.env.VOCION_LEAD_BRAND,
     VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,

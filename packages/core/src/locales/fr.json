@@ -75,7 +75,8 @@
     "app_elsewhere": "dans un autre espace de travail",
     "pick_workspace": "Choisir un espace de travail",
     "app_not_in_workspace": "{app} n'est pas dans cet espace de travail. Choisissez ci-dessus un espace qui l'a, ou ajoutez-la depuis la marketplace.",
-    "brand": "Marque"
+    "brand": "Marque",
+    "lead_mark_home": "Accueil {brand}"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",

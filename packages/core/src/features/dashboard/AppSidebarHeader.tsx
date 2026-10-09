@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useBrandChrome, useOrgBrand } from '@/features/branding/BrandContext';
+import { LeadMark } from '@/features/branding/OrgLogo';
 import { Breadcrumb } from '@/features/dashboard/Breadcrumb';
 import { AgentSurfaceButton } from '@/features/dashboard/chat/AgentSurfaceButton';
 import { openCommandPalette } from '@/features/dashboard/commandPaletteEvent';
@@ -55,6 +57,9 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
   const { data: session } = useSession();
   const tl = useTranslations('DashboardLayout');
   const user = session?.user;
+  const orgBrand = useOrgBrand();
+  const chrome = useBrandChrome();
+  const leadLabel = tl('lead_mark_home', { brand: chrome.lead === 'org' && orgBrand ? orgBrand.name : 'Vocion' });
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   // A page with a name of its own (the full-page chat, named by its thread)
@@ -106,6 +111,13 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
       </Suspense>
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="-ml-1 size-11 text-muted-foreground sm:size-8" />
+        {/* The install's lead brand, small, at the bar's leading edge — the
+            one brand this region shows (`libs/branding/chrome.ts`): Vocion's
+            mark on Vocion Cloud, the Org's on its own branded install. It
+            goes home. */}
+        <Link href="/dashboard" aria-label={leadLabel} data-testid="lead-mark-home" className="-ml-1 grid size-11 shrink-0 place-items-center rounded-lg transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none sm:size-8">
+          <LeadMark brand={orgBrand} lead={chrome.lead} />
+        </Link>
         {/* WHICH INSTANCE THIS IS. The favicon and the page title already say
             it, and neither survives a screenshot: a phone screenshot crops
             the tab strip away entirely, so a preview screenshot and a

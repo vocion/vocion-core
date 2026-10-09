@@ -84,3 +84,44 @@ export function PoweredByVocion({ className }: { className?: string }) {
     </span>
   );
 }
+
+/**
+ * Vocion's own name, quietly — the drawer footer's line when Vocion leads the
+ * install (Vocion Cloud), where an Org's logo sits in the switcher above it.
+ * @param props - Classes.
+ * @param props.className - Extra classes.
+ */
+export function VocionWordmark({ className }: { className?: string }) {
+  return (
+    <span data-testid="vocion-wordmark" className={cn('inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-tight text-muted-foreground', className)}>
+      {/* eslint-disable-next-line next/no-img-element */}
+      <img src={VOCION_PRIMARY_MARK} alt="" aria-hidden className="h-3 w-auto" />
+      Vocion
+    </span>
+  );
+}
+
+/**
+ * The install's lead brand as a small mark, ~20px — the top bar's leading
+ * edge, next to the sidebar toggle (`libs/branding/chrome.ts`): the Org's
+ * mark where the Org leads, Vocion's where Vocion does.
+ * @param props - The brand, who leads, and classes.
+ * @param props.brand - The Org's brand view, or null.
+ * @param props.lead - Whose mark leads.
+ * @param props.className - Extra classes.
+ */
+export function LeadMark({ brand, lead, className }: { brand: Pick<OrgBrandView, 'name' | 'mark' | 'logo'> | null; lead: 'vocion' | 'org'; className?: string }) {
+  const own = lead === 'org' ? (brand?.mark.light ? brand.mark : brand?.logo.light ? brand.logo : null) : null;
+  const light = own?.light ?? VOCION_PRIMARY_MARK;
+  const dark = own?.dark && own.dark !== light ? own.dark : null;
+  return (
+    <span data-testid="lead-mark" data-lead={own ? 'org' : 'vocion'} className={cn('inline-flex h-5 shrink-0 items-center', className)}>
+      {/* eslint-disable-next-line next/no-img-element */}
+      <img src={light} alt="" aria-hidden className={cn('h-5 max-w-16 w-auto object-contain', dark && 'dark:hidden')} draggable={false} />
+      {dark && (
+        // eslint-disable-next-line next/no-img-element
+        <img src={dark} alt="" aria-hidden className="hidden h-5 w-auto max-w-16 object-contain dark:block" draggable={false} />
+      )}
+    </span>
+  );
+}
