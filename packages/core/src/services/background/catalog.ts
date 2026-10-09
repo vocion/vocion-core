@@ -24,6 +24,7 @@ export const JOB = {
   orgReview: 'org.review',
   personalRhythmSweep: 'personal.rhythm-sweep',
   personalRhythm: 'personal.rhythm',
+  mailThreadStateBackfill: 'mail.thread-state-backfill',
 } as const;
 
 const twice = { attempts: 2, intervalSeconds: 10, backoff: 2 };
@@ -175,3 +176,21 @@ defineJob<{ userId: string; accountId: string; kind: 'brief' | 'wrap'; day: stri
   const out = await deliverPersonalBrief(input);
   return out.delivered ? { delivered: true, briefingId: out.briefingId, conversationId: out.conversationId } : { delivered: false, reason: out.reason };
 }, { retry: twice });
+
+/**
+ * Thread state for mail synced before it existed (`services/mail/threadLabeller.ts`):
+ * one Gmail source, the last `windowDays`, batch by batch as durable steps, so
+ * a restart resumes after the last finished batch. Idempotent; charged to
+ * `platform:retrieval.state` as it goes. Started by
+ * `npm run mail:backfill-thread-state -- --apply --job`.
+ */
+defineJob<{ orgId: string; sourceId: number; windowDays?: number }>(JOB.mailThreadStateBackfill, async (input, ctx) => {
+  const { planThreadStateBackfill, runThreadStateBackfill } = await import('@/services/mail/threadLabeller');
+  const { logger } = await import('@/libs/Logger');
+  const plan = await ctx.step('plan', () => planThreadStateBackfill({ orgId: input.orgId, sourceId: input.sourceId, windowDays: input.windowDays }));
+  if (!plan) {
+    return { skipped: 'no such Gmail source, or the mailbox could not be read' };
+  }
+  logger.info(`thread-state backfill ${plan.sourceSlug} (${plan.orgId}): ${plan.threadIds.length} threads in ${plan.windowDays} days, ${plan.alreadyLabelled} already labelled, at most ${plan.maxLabels} labels (~${(plan.maxCents / 100).toFixed(2)} USD)`);
+  return runThreadStateBackfill(plan, { step: ctx.step, sleep: ctx.sleep, log: line => logger.info(line) });
+}, { whole: true });

@@ -82,6 +82,7 @@
     "objects:backfill-bodies": "dotenv -c -- tsx src/scripts/backfill-record-bodies.ts",
     "objects:backfill-names": "dotenv -c -- tsx src/scripts/backfill-record-names.ts",
     "sources:backfill-revisits": "dotenv -c -- tsx src/scripts/backfill-processor-revisits.ts",
+    "mail:backfill-thread-state": "dotenv -c -- tsx src/scripts/backfill-thread-state.ts",
     "release:relink": "dotenv -c -- tsx src/scripts/relink-release.ts",
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
     "user:create:e2e": "dotenv -c -- tsx tests/support/create-e2e-user.ts",

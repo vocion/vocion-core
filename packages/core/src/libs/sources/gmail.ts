@@ -335,6 +335,53 @@ export async function liveThreadFactsSince(opts: {
 }
 
 /**
+ * The mailbox, and every thread with mail in or out after `after` — the set a
+ * thread-state backfill works through (`services/mail/threadLabeller.ts`).
+ * Ids only; one list call per page.
+ * @param opts - Whose mailbox and from when.
+ * @param opts.orgId - The workspace the credential belongs to.
+ * @param opts.credentials - The stored Gmail credential.
+ * @param opts.after - The window's start.
+ * @param opts.limit - At most this many threads.
+ * @param opts.baseUrl - The API root.
+ */
+export async function windowThreadIds(opts: { orgId: string; credentials: Record<string, unknown> | undefined; after: Date; limit?: number; baseUrl?: string }): Promise<{ mailbox: string; threadIds: string[] } | null> {
+  const baseUrl = opts.baseUrl ?? 'https://gmail.googleapis.com/gmail/v1';
+  const token = await resolveGoogleAccessToken(opts.credentials, opts.orgId);
+  const headers = { authorization: `Bearer ${token}` };
+  const mailbox = await mailboxAddress(baseUrl, headers);
+  if (!mailbox) {
+    return null;
+  }
+  const after = Math.floor(opts.after.getTime() / 1000);
+  const limit = opts.limit ?? 20_000;
+  const refs = [
+    ...await listMessageRefs(baseUrl, headers, `in:inbox after:${after}`, limit),
+    ...await listMessageRefs(baseUrl, headers, `in:sent after:${after}`, limit),
+  ];
+  return { mailbox, threadIds: [...new Set(refs.map(r => r.threadId).filter((t): t is string => !!t))].slice(0, limit) };
+}
+
+/**
+ * The facts of the given threads, read by headers — a backfill batch.
+ * @param opts - Whose mailbox and which threads.
+ * @param opts.orgId - The workspace the credential belongs to.
+ * @param opts.credentials - The stored Gmail credential.
+ * @param opts.mailbox - The owner's address.
+ * @param opts.threadIds - The threads.
+ * @param opts.baseUrl - The API root.
+ */
+export async function threadFactsFor(opts: { orgId: string; credentials: Record<string, unknown> | undefined; mailbox: string; threadIds: string[]; baseUrl?: string }): Promise<{ facts: Facts[]; failed: number }> {
+  const baseUrl = opts.baseUrl ?? 'https://gmail.googleapis.com/gmail/v1';
+  const token = await resolveGoogleAccessToken(opts.credentials, opts.orgId);
+  let failed = 0;
+  const facts = await readThreadFacts(baseUrl, { authorization: `Bearer ${token}` }, opts.threadIds, opts.mailbox, () => {
+    failed += 1;
+  });
+  return { facts, failed };
+}
+
+/**
  * The state documents for the threads a sync touched: each thread read once
  * (headers and snippets), its facts worked out, a label reused or bought, and
  * one document yielded per thread (`mailThreadState.ts`). Problems are reported
