@@ -162,10 +162,10 @@ test('an admin invites an address; the mailed link is accepted with a password; 
 
   const dialog = page.getByTestId('invite-dialog');
   await dialog.getByLabel('Email').fill(dana);
-  // This server sends no mail, so the dialog makes a link to share…
+  // This server sends no mail, so the dialog says so and makes a link to share…
   await dialog.getByRole('button', { name: 'Create link' }).click();
 
-  await expect(dialog.getByText(`Link for ${dana}`)).toBeVisible();
+  await expect(dialog.getByText(`Email not sent to ${dana}:`)).toBeVisible();
 
   // …and the dev mail sink holds exactly the mail that would have gone.
   const mail = await waitForMail(dana, since);
@@ -271,7 +271,7 @@ test('expired and revoked invites are refused, by the form and by the provider',
   await page.getByTestId('invite-dialog').getByLabel('Email').fill(rev);
   await page.getByTestId('invite-dialog').getByRole('button', { name: 'Create link' }).click();
 
-  await expect(page.getByTestId('invite-dialog').getByText(`Link for ${rev}`)).toBeVisible();
+  await expect(page.getByTestId('invite-dialog').getByText(`Email not sent to ${rev}:`)).toBeVisible();
 
   const link = /Join E2E Accounts Northwind: (\S+)/.exec((await waitForMail(rev, since)).text ?? '')?.[1];
   await page.getByRole('button', { name: 'Done' }).click();
@@ -327,7 +327,7 @@ test('a signed-in member invited by another Org hears it in the app and joins fr
   await admin.getByTestId('invite-dialog').getByLabel('Email').fill(IDA.email);
   await admin.getByTestId('invite-dialog').getByRole('button', { name: 'Create link' }).click();
 
-  await expect(admin.getByTestId('invite-dialog').getByText(`Link for ${IDA.email}`)).toBeVisible();
+  await expect(admin.getByTestId('invite-dialog').getByText(`Email not sent to ${IDA.email}:`)).toBeVisible();
 
   await admin.context().close();
 
