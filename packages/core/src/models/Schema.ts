@@ -319,6 +319,15 @@ export const projectSchema = pgTable(
      * missions and ingested mail on every deploy).
      */
     kind: text('kind').$type<'shared' | 'personal'>().default('shared').notNull(),
+    /**
+     * When the workspace was archived; NULL = active. An archived workspace is
+     * never where a person lands by default or by "last active": the landing
+     * falls back to the active workspace they used most recently
+     * (`WorkspaceAccessService.resolveActiveWorkspace`), and the switcher keeps
+     * it behind "show empty" with the seed rows. A link that names it still
+     * opens it.
+     */
+    archivedAt: timestamp('archived_at', { mode: 'date' }),
     /** Set iff `kind = 'personal'`: the person the workspace belongs to. */
     ownerUserId: text('owner_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
     /**

@@ -71,7 +71,7 @@ async function workspaceFromReferer(userId: string, referer: string | null, last
  * there is nothing picked and the caller falls back to the default.
  * @param userId - The signed-in person, to resolve a Referer's slug for.
  */
-async function requestedWorkspaceId(userId: string): Promise<string | undefined> {
+async function requestedWorkspace(userId: string): Promise<{ id: string; named: boolean } | undefined> {
   let requestHeaders: Awaited<ReturnType<typeof headers>>;
   let cookie: string | undefined;
   try {
@@ -83,9 +83,13 @@ async function requestedWorkspaceId(userId: string): Promise<string | undefined>
   }
   const fromUrl = requestHeaders.get(WORKSPACE_HEADER.projectId)?.trim();
   if (fromUrl) {
-    return fromUrl;
+    return { id: fromUrl, named: true };
   }
-  return (await workspaceFromReferer(userId, requestHeaders.get('referer'), cookie)) ?? cookie;
+  const fromPage = await workspaceFromReferer(userId, requestHeaders.get('referer'), cookie);
+  if (fromPage) {
+    return { id: fromPage, named: true };
+  }
+  return cookie ? { id: cookie, named: false } : undefined;
 }
 
 /**
@@ -118,7 +122,9 @@ async function requestedWorkspaceId(userId: string): Promise<string | undefined>
  * @param userId - The signed-in person.
  */
 export async function resolveTenancyForUser(userId: string): Promise<Tenancy> {
-  const active = await resolveActiveWorkspace(userId, await requestedWorkspaceId(userId));
+  const requested = await requestedWorkspace(userId);
+  // Only a workspace the URL named opens archived; the remembered one does not.
+  const active = await resolveActiveWorkspace(userId, requested?.id, null, { named: requested?.named ?? false });
   if (!active) {
     return { accountId: null, projectId: null, role: null, workspaceRole: null };
   }

@@ -14,6 +14,8 @@ export type SwitcherProject = {
   name: string;
   description?: string | null;
   agentCount?: number;
+  /** Archived: hidden with the empty ones unless asked for, or unless it is the current one. */
+  archived?: boolean;
 };
 
 /** An Org (`tenant_account`) the person belongs to, as the switcher labels it. */
@@ -106,10 +108,11 @@ export function accountLine(workspaceName: string | null | undefined, accountNam
 
 /**
  * A project with no agents is a seed/empty row — hidden unless asked for.
+ * An archived one is hidden the same way: nobody works there now.
  * @param p
  */
 export function isEmptyProject(p: SwitcherProject): boolean {
-  return (p.agentCount ?? 0) === 0;
+  return (p.agentCount ?? 0) === 0 || p.archived === true;
 }
 
 /**

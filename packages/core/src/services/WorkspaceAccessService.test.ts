@@ -16,6 +16,7 @@ const { db } = await import('@/libs/DB');
 const { eq } = await import('drizzle-orm');
 const {
   accountMembershipSchema,
+  conversationSchema,
   groupProjectGrantSchema,
   projectMemberSchema,
   projectSchema,
@@ -87,6 +88,7 @@ const idsFor = async (userId: string) => (await accessibleProjects(userId)).map(
 
 describe('workspace access', () => {
   beforeEach(async () => {
+    await db.delete(conversationSchema);
     await db.delete(groupProjectGrantSchema);
     await db.delete(userGroupMemberSchema);
     await db.delete(userGroupSchema);
@@ -230,7 +232,7 @@ describe('workspace access', () => {
     });
 
     it('lets a workspace choose the account only for someone who is a member of it', async () => {
-      expect(await memberWorkspace(ALEX, KESTREL_DEALS)).toEqual({ projectId: KESTREL_DEALS, slug: 'deals', accountId: OTHER_ACCOUNT, accountRole: 'admin', kind: 'shared' });
+      expect(await memberWorkspace(ALEX, KESTREL_DEALS)).toEqual({ projectId: KESTREL_DEALS, slug: 'deals', accountId: OTHER_ACCOUNT, accountRole: 'admin', kind: 'shared', archived: false });
       expect(await memberWorkspace(BRIT, KESTREL_DEALS)).toBeNull();
     });
 
@@ -250,6 +252,36 @@ describe('workspace access', () => {
 
       expect(active?.accountId).toBe(ACCOUNT);
       expect(active?.projectId).not.toBeNull();
+    });
+  });
+
+  describe('an archived workspace (founder, 2026-10-08: the phone opened on "Archived · …")', () => {
+    const archive = (id: string) => db.update(projectSchema).set({ archivedAt: new Date() }).where(eq(projectSchema.id, id));
+
+    it('is never the default landing: the active one used most recently is', async () => {
+      await archive(REVENUE);
+      await db.insert(conversationSchema).values({ orgId: FACTORY, projectId: FACTORY, agentSlug: 'lead', title: 'Plan', createdBy: CASS });
+
+      const active = await resolveActiveWorkspace(CASS);
+
+      expect(active?.projectId).toBe(FACTORY);
+    });
+
+    it('lands on an active one when nothing was used yet, never the archived oldest', async () => {
+      const [oldest] = await db.select({ id: projectSchema.id }).from(projectSchema).where(eq(projectSchema.kind, 'shared')).orderBy(projectSchema.createdAt, projectSchema.id).limit(1);
+      await archive(oldest!.id);
+
+      const active = await resolveActiveWorkspace(CASS);
+
+      expect(active?.projectId).not.toBe(oldest!.id);
+      expect(active?.projectId).not.toBeNull();
+    });
+
+    it('is never restored as the remembered "last" workspace, but opens when the URL names it', async () => {
+      await archive(DELIVERY);
+
+      expect((await resolveActiveWorkspace(CASS, DELIVERY))?.projectId).not.toBe(DELIVERY);
+      expect((await resolveActiveWorkspace(CASS, DELIVERY, null, { named: true }))?.projectId).toBe(DELIVERY);
     });
   });
 
