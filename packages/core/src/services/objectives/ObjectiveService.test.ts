@@ -15,7 +15,7 @@ vi.mock('@/services/plugins/setupState', () => ({ setupStateForOrg: vi.fn(async 
 
 const { db } = await import('@/libs/DB');
 const { conversationSchema, projectSchema, tenantAccountSchema } = await import('@/models/Schema');
-const { currentObjective, setObjectiveState, startedSetups, startSetupObjective } = await import('./ObjectiveService');
+const { currentObjective, keepForLater, setObjectiveState, setupScopeOf, startedSetups, startSetupObjective } = await import('./ObjectiveService');
 const { eq } = await import('drizzle-orm');
 
 const ACCT = 'acct-obj-northwind';
@@ -120,5 +120,26 @@ describe('the next visit', () => {
 
     expect(Object.fromEntries(await startedSetups(FACTORY, PAT))).toEqual({ 'software-factory': mine });
     expect((await startedSetups(OTHER, PAT)).size).toBe(0);
+  });
+});
+
+describe('what a running setup needs', () => {
+  it('names the plugin\'s required connectors while it runs, and keeps extras for later', async () => {
+    const id = await conversation(FACTORY, DANA);
+
+    expect(await setupScopeOf(FACTORY, id)).toBeNull();
+
+    await startSetupObjective({ orgId: FACTORY, conversationId: id });
+
+    expect(await setupScopeOf(FACTORY, id)).toEqual({ plugin: 'software-factory', name: 'Software Factory', connectors: ['github'] });
+
+    await keepForLater(FACTORY, id, [{ key: 'plugin:wiki', label: 'Turn on Wiki' }]);
+
+    expect((await currentObjective(FACTORY, id))!.later).toEqual([{ key: 'plugin:wiki', label: 'Turn on Wiki' }]);
+
+    await setObjectiveState(FACTORY, id, 'stopped');
+
+    expect(await setupScopeOf(FACTORY, id)).toBeNull();
+    expect(await setupScopeOf(OTHER, id)).toBeNull();
   });
 });

@@ -35,6 +35,7 @@ const view: ObjectiveView = {
   done: 1,
   total: 3,
   current: 1,
+  later: [],
 };
 
 describe('the objective\'s line', () => {
@@ -115,5 +116,14 @@ describe('the objective\'s line', () => {
     for (const id of ['objective-line', 'objective-stop']) {
       expect((await page.getByTestId(id).element() as HTMLElement).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  it('names optional extras as Later, under the steps — never as steps', async () => {
+    await render(<ObjectiveStrip view={{ ...view, later: [{ key: 'plugin:wiki', label: 'Turn on Wiki' }, { key: 'plugin:red-team', label: 'Turn on Red team' }] }} onStop={() => {}} onResume={() => {}} />);
+    await page.getByTestId('objective-line').click();
+
+    expect(page.getByTestId('objective-step').elements()).toHaveLength(3);
+    expect(page.getByTestId('objective-later-item').elements().map(e => e.textContent)).toEqual(['Turn on Wiki', 'Turn on Red team']);
+    await expect.element(page.getByTestId('objective-progress')).toHaveTextContent('2 of 3');
   });
 });

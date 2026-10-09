@@ -271,6 +271,21 @@ come back.
   <name> →", scored above a plain setup hint. It opens the conversation where
   the objective stands (`?conversation=<id>`). The same dismissal hides it.
 
+- **A setup step waits for its person.** A setup Decision, and any question
+  asked in a conversation mid-objective, gets no clock: no "Default in 23h",
+  no default that applies itself. A clock runs only where a policy set one
+  (the asker's `dueAt`; `waitsForPerson`, `libs/needsYou/deadlines.ts`).
+- **Only the steps the objective needs.** Mid-objective, `propose_setup` docks
+  only the connections the plugin's setup declares. Anything else (turning
+  on Wiki or a Red team, another system, a hire) is kept on the objective as
+  an optional **Later** extra, listed under its steps and offered once it is
+  set up, never docked as a step of it.
+- **Activity lines say what was done for the person.** "Asked you to connect
+  Jira", "Checked what setup is left", never "Ran the offer connection"
+  (`personFacingStepLabels`, `libs/chat/stepLabels.ts`).
+  `libs/chat/activityLines.test.ts` fails if any core tool's line says its own
+  name back.
+
 Code: `libs/objectives/objective.ts` (pure), `services/objectives/ObjectiveService.ts`,
 `routers/Objectives.ts` (`objectives.current | stop | resume`),
 `chat/objectives/ObjectiveStrip.tsx`.

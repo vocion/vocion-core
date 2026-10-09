@@ -386,6 +386,43 @@ async function stepCard(ctx: RuntimeContext, step: SetupStep, admin: boolean): P
 }
 
 /**
+ * What an optional extra is called, in the "Later" list: "Turn on Wiki",
+ * "Connect Jira", "Hire a designer".
+ * @param step - The step kept for later.
+ */
+async function extraLabel(step: SetupStep): Promise<string> {
+  const id = step.id ?? '';
+  switch (step.kind) {
+    case 'plugin': {
+      const { loadPlugin } = await import('@/libs/workspace/plugins');
+      try {
+        return `Turn on ${loadPlugin(id).manifest.name}`;
+      } catch {
+        return `Turn on ${id}`;
+      }
+    }
+    case 'connect': {
+      const { getConnector } = await import('@/libs/sources/registry');
+      return `Connect ${getConnector(id)?.name ?? id}`;
+    }
+    case 'app': {
+      const { safeListApps } = await import('@/libs/workspace/apps');
+      return `Add ${safeListApps().find(a => a.id === id)?.name ?? id}`;
+    }
+    case 'hire': {
+      const { getCatalogEntry } = await import('@/services/CatalogService');
+      return `Hire ${getCatalogEntry(id)?.name ?? id}`;
+    }
+    case 'template':
+      return `Start from ${id.split('/').pop() ?? id}`;
+    case 'invite':
+      return 'Invite teammates';
+    case 'brand':
+      return 'Make it yours';
+  }
+}
+
+/**
  * Put the plan in front of the person, one card per step.
  * @param ctx - The turn.
  * @param input - The steps.
@@ -399,6 +436,31 @@ export async function proposeSetup(ctx: RuntimeContext, input: { steps: SetupSte
   const shown: string[] = [];
   const skipped: string[] = [];
   const seen = new Set<string>();
+  // MID-OBJECTIVE, ONLY WHAT IT NEEDS (founder, 2026-10-09: "setup my software
+  // factory" docked "Turn on Wiki" and "Turn on Red team" as steps). While the
+  // conversation is setting a plugin up, the plan shows only the connections
+  // that plugin's setup declares; everything else is kept on the objective as
+  // an optional "Later" extra — listed under its steps, never docked.
+  const scope = typeof ctx.conversationId === 'number'
+    ? await import('@/services/objectives/ObjectiveService').then(m => m.setupScopeOf(ctx.orgId, ctx.conversationId!)).catch(() => null)
+    : null;
+  let later: Array<{ key: string; label: string }> = [];
+  if (scope) {
+    const needed = new Set(scope.connectors);
+    const inScope = (s: SetupStep) => s.kind === 'connect' && !!s.id && needed.has(s.id);
+    later = await Promise.all(input.steps.filter(s => !inScope(s)).map(async s => ({ key: `${s.kind}:${s.id ?? ''}`, label: await extraLabel(s) })));
+    input = { steps: input.steps.filter(inScope) };
+    if (later.length > 0) {
+      const { keepForLater } = await import('@/services/objectives/ObjectiveService');
+      await keepForLater(ctx.orgId, ctx.conversationId!, later).catch(() => {});
+    }
+    if (input.steps.length === 0) {
+      return [
+        `Showed no cards: setting up ${scope.name} needs ${scope.connectors.length > 0 ? `only ${scope.connectors.join(', ')} connected, and the records it names` : 'only the records it names'}.`,
+        ...(later.length > 0 ? [`Kept for later, under its steps: ${later.map(l => l.label).join('; ')}. Offer them once ${scope.name} is set up, if the person wants them — not now.`] : []),
+      ].join('\n');
+    }
+  }
   // Two or more systems to connect are one step: "Connect your systems", the
   // walk-through that connects and verifies them one at a time
   // (`connect_system`), in the place of the first of them in the plan.
@@ -442,6 +504,9 @@ export async function proposeSetup(ctx: RuntimeContext, input: { steps: SetupSte
   lines.push(shown.length > 0 ? `Showed ${shown.length} card${shown.length === 1 ? '' : 's'}: ${shown.join('; ')}.` : 'Showed no cards.');
   if (skipped.length > 0) {
     lines.push(`Not offered: ${skipped.join('; ')}.`);
+  }
+  if (scope && later.length > 0) {
+    lines.push(`Kept for later, under its steps (not needed to set up ${scope.name}): ${later.map(l => l.label).join('; ')}. Offer them once it is set up, if the person wants them — not now.`);
   }
   lines.push('Nothing has run: the person accepts each card, and each can be undone. Never say a step is done until its run says so.');
   return lines.join('\n');

@@ -134,7 +134,49 @@ const VENDORS: Record<string, string> = { hubspot: 'HubSpot', apollo: 'Apollo', 
  */
 export type StepLabelHints = {
   restSources?: ReadonlyArray<{ slug: string; prefix: string; name: string }>;
+  /** A connector's name as a person reads it ("GitHub" for `github`); the slug, capitalised, without it. */
+  connectorName?: (slug: string) => string;
 };
+
+/**
+ * WHAT A STEP DID FOR THE PERSON, for the steps that ask them something or set
+ * something up — read from the call's arguments, said as the outcome they
+ * see: "Asked you to connect Jira", never "Ran the offer connection"
+ * (founder, 2026-10-09). Deterministic, so the model half never gets them:
+ * these are the lines a person reads beside the card they are about.
+ * @param tool - The raw tool name.
+ * @param args - The call's arguments.
+ * @param hints - What the workspace knows (connector names).
+ * @returns The pair, or null for any other tool.
+ */
+export function personFacingStepLabels(tool: string, args: Record<string, unknown> | undefined, hints?: StepLabelHints): StepLabels | null {
+  const nameOf = (slug: string) => hints?.connectorName?.(slug) ?? (slug.charAt(0).toUpperCase() + slug.slice(1));
+  const names = (list: unknown) => (Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string' && x.length > 0).map(nameOf) : []);
+  const and = (xs: string[]) => (xs.length <= 1 ? xs[0] ?? '' : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  switch (tool) {
+    case 'offer_connection': {
+      const what = typeof args?.connector === 'string' && args.connector ? nameOf(args.connector) : 'a system';
+      return { running: `Asking you to connect ${what}…`, done: `Asked you to connect ${what}` };
+    }
+    case 'connect_system': {
+      const named = names(args?.named);
+      const what = named.length > 0 ? and(named) : 'your systems';
+      return { running: `Asking you to connect ${what}…`, done: `Asked you to connect ${what}` };
+    }
+    case 'describe_setup':
+      return { running: 'Checking what setup is left…', done: 'Checked what setup is left' };
+    case 'setup_options':
+      return { running: 'Looking at what this workspace could add…', done: 'Looked at what this workspace could add' };
+    case 'propose_setup':
+      return { running: 'Putting the next setup step in front of you…', done: 'Put the next setup step in front of you' };
+    case 'file_ask':
+      return { running: 'Asking you a question…', done: 'Asked you a question' };
+    case 'request_human_review':
+      return { running: 'Asking for your decision…', done: 'Asked for your decision' };
+    default:
+      return null;
+  }
+}
 
 /**
  * The REST source a tool name belongs to, by its prefix; the longest prefix
@@ -173,8 +215,13 @@ function humanise(words: string[]): [running: string, done: string] {
  * asked, which is the one thing a generic name cannot say.
  * @param tool - The raw tool name, e.g. `hubspot_get_contact`.
  * @param hints - What the workspace knows: its REST sources and their prefixes.
+ * @param args
  */
-export function fallbackStepLabels(tool: string, hints?: StepLabelHints): StepLabels {
+export function fallbackStepLabels(tool: string, hints?: StepLabelHints, args?: Record<string, unknown>): StepLabels {
+  const facing = personFacingStepLabels(tool, args, hints);
+  if (facing) {
+    return facing;
+  }
   const known = KNOWN[tool];
   if (known) {
     return known;
@@ -190,8 +237,14 @@ export function fallbackStepLabels(tool: string, hints?: StepLabelHints): StepLa
     vendor = VENDORS[words.shift()!];
   }
   const verbEntry = words.length > 0 ? VERBS[words[0]!] : undefined;
-  const [running, done] = verbEntry ?? ['Running', 'Ran'];
-  const rest = verbEntry ? words.slice(1) : words;
+  // A name with no verb we know would read back as the tool's own words
+  // ("Ran the offer connection"): say the plain act instead, and let the
+  // model half name it better when it can.
+  if (!verbEntry) {
+    return vendor ? { running: `Working in ${vendor}…`, done: `Worked in ${vendor}` } : { running: 'Working on it…', done: 'Worked on it' };
+  }
+  const [running, done] = verbEntry;
+  const rest = words.slice(1);
   const objectWords = rest.join(' ');
   const object = [vendor, objectWords].filter(Boolean).join(' ');
   const noun = object ? ` the ${object}` : '';
@@ -274,7 +327,22 @@ const OUTCOME_WORDS = /\b(?:found|successfully|succeeded|confirmed|verified that
  * describing the act rather than its result.
  * @param candidate - Whatever the model returned, parsed.
  */
-export function isSafeStepLabels(candidate: unknown): candidate is StepLabels {
+/**
+ * Whether a label says a tool's own name back — "offer_connection", "offer
+ * connection" — instead of what it did for the person.
+ * @param label - The label.
+ * @param tool - The raw tool name.
+ */
+export function echoesToolName(label: string, tool: string): boolean {
+  const words = tool.split(/[-_]/).filter(Boolean).map(w => w.toLowerCase());
+  if (words.length === 0) {
+    return false;
+  }
+  const said = label.toLowerCase();
+  return said.includes(tool.toLowerCase()) || (words.length > 1 && said.includes(words.join(' ')));
+}
+
+export function isSafeStepLabels(candidate: unknown, tool?: string): candidate is StepLabels {
   if (!candidate || typeof candidate !== 'object') {
     return false;
   }
@@ -282,7 +350,7 @@ export function isSafeStepLabels(candidate: unknown): candidate is StepLabels {
   if (typeof running !== 'string' || typeof done !== 'string') {
     return false;
   }
-  const ok = (s: string) => s.trim().length >= 3 && s.trim().length <= 60 && !OUTCOME_WORDS.test(s) && !/[{}[\]<>]/.test(s);
+  const ok = (s: string) => s.trim().length >= 3 && s.trim().length <= 60 && !OUTCOME_WORDS.test(s) && !/[{}[\]<>]/.test(s) && !(tool && echoesToolName(s, tool));
   return ok(running) && ok(done) && !/…\s*$/.test(done);
 }
 

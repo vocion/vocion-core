@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { objectiveView, progressLine, readObjective, setupObjectiveFor } from './objective';
+import { objectiveView, progressLine, readObjective, setupObjectiveFor, withLater } from './objective';
 
 /**
  * Context mid-objective (founder, 2026-10-09): one line that says what the
@@ -61,5 +61,20 @@ describe('which plugin a setup objective is about', () => {
     expect(setupObjectiveFor(setups)).toBeNull();
     expect(setupObjectiveFor([setups[0]!, setups[2]!])).toBe('software-factory');
     expect(setupObjectiveFor([setups[2]!])).toBeNull();
+  });
+});
+
+describe('optional extras, kept for later', () => {
+  it('keeps each once, reads them back, and never counts them as steps', () => {
+    const kept = withLater(withLater(running, [{ key: 'plugin:wiki', label: 'Turn on Wiki' }]), [{ key: 'plugin:wiki', label: 'Turn on Wiki' }, { key: 'plugin:red-team', label: 'Turn on Red team' }]);
+
+    expect(kept.later).toEqual([{ key: 'plugin:wiki', label: 'Turn on Wiki' }, { key: 'plugin:red-team', label: 'Turn on Red team' }]);
+    expect(readObjective(kept)!.later).toHaveLength(2);
+    expect(withLater(kept, [])).toBe(kept);
+
+    const view = objectiveView(12, kept, { name: 'Software Factory', steps: STEPS })!;
+
+    expect(view.total).toBe(3);
+    expect(view.later.map(x => x.label)).toEqual(['Turn on Wiki', 'Turn on Red team']);
   });
 });

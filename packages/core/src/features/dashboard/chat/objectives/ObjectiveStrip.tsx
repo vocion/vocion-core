@@ -55,6 +55,15 @@ export function ObjectiveStrip({ view, onStop, onResume }: { view: ObjectiveView
               </li>
             );
           })}
+          {view.later.length > 0 && (
+            // Optional extras for after it: named, never steps of it.
+            <li className="mt-1.5 border-t border-border/50 pt-1.5" data-testid="objective-later">
+              <span className="text-[11px] font-medium tracking-[0.04em] uppercase">Later, if you want</span>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {view.later.map(x => <li key={x.key} data-testid="objective-later-item" className="truncate">{x.label}</li>)}
+              </ul>
+            </li>
+          )}
         </ol>
       )}
       <div className="flex items-center gap-1 pr-1 pl-3">

@@ -79,6 +79,13 @@ for (const device of [
       await expect(page.getByTestId('objective-progress')).toHaveText('1 of 3');
       await expect(page.getByTestId('objective-stop')).toBeVisible();
 
+      // A setup step waits for its person: no "Default in 23h" under it.
+      await expect(card.getByTestId('decision-deadline')).toHaveCount(0);
+
+      // What the lead did, said as what it did for the person, never a tool's name.
+      await expect(page.getByText(/Checked what setup is left/).first()).toBeVisible();
+      await expect(page.getByText(/describe setup|describe_setup|file ask|file_ask/i)).toHaveCount(0);
+
       // One line, just above the one Decision.
       const lineBox = (await strip.boundingBox())!;
       const cardBox = (await card.boundingBox())!;
