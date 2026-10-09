@@ -11,6 +11,7 @@ import {
   businessObjectSchema,
   businessObjectTypeSchema,
   conversationSchema,
+  goalSchema,
   workerRunSchema,
 } from '@/models/Schema';
 
@@ -60,6 +61,7 @@ const NOUN_TABLES = {
   conversation: conversationSchema,
   artifact: artifactSchema,
   automation: automationRunSchema,
+  goal: goalSchema,
 } as const;
 
 /**

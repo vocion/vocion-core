@@ -993,7 +993,13 @@ export async function runAgentDeep(opts: {
   // The envelope rides on the message like the clock, so the cached prompt
   // prefix is the same at every level.
   const effortLine = envelope && effortDecision ? `\n${effortMod.effortNote(envelope, effortDecision, { canConsult: true })}` : '';
-  const userContent = await composeUserContent(`${clock}${effortLine}\n\n${opts.message}`, opts.attachments ?? []);
+  // The person's active goals here, from the last reading — context the lead
+  // brings up only when the turn bears on one (`GoalService.goalsTurnNote`).
+  // On the turn like the clock: per person, so never in the cached prompt.
+  const goalsNote = boundCtx.userId && !boundCtx.missionRunId
+    ? await import('./objectives/GoalService').then(m => m.goalsTurnNote({ orgId: opts.orgId, userId: boundCtx.userId!, personal: boundCtx.workspaceKind === 'personal' })).catch(() => '')
+    : '';
+  const userContent = await composeUserContent(`${clock}${effortLine}${goalsNote ? `\n${goalsNote}` : ''}\n\n${opts.message}`, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,

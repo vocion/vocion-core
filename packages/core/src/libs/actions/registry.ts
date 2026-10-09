@@ -25,6 +25,7 @@ import { githubOpenPullAction } from './github-pull';
 import { githubRerunFailedJobsAction } from './github-rerun';
 import { githubRevertPullAction } from './github-revert';
 import { gmailSendAction } from './gmail-send';
+import { goalCreateAction } from './goal-create';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { meSetPhoneAction } from './me-set-phone';
@@ -132,6 +133,7 @@ registerAction(objectsRenameAction);
 // A person keeps their own mobile number from chat, so a text from it is theirs (`me-set-phone.ts`).
 registerAction(meSetPhoneAction);
 registerAction(viewSaveAction);
+registerAction(goalCreateAction);
 // Start the build: approve the plan, queue the engineer on the task contract.
 registerAction(factoryDispatchAction);
 registerAction(factoryApprovePlanAction);

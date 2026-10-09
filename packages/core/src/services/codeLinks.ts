@@ -21,6 +21,7 @@ export async function hrefForCode(orgId: string, resolved: ResolvedCode): Promis
     conversation: `/dashboard/chat/${resolved.id}`,
     artifact: `/dashboard/artifacts/${resolved.id}`,
     automation: '/dashboard/automation/runs',
+    goal: `/dashboard/goals/${resolved.id}`,
   }[resolved.kind];
   const { workspaceSlug } = await recordLinksForOrg(orgId);
   return workspaceSlug ? workspaceUrl(workspaceSlug, path) : path;
