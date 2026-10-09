@@ -274,3 +274,25 @@ export function describeCardState(s: CardStateInput, time: (iso: string) => stri
       return { label: s.status, tone: 'muted' };
   }
 }
+
+function comparable(s: string): string {
+  return s.toLowerCase().replace(/…$/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * The line under a card's title, or null when it would only say the title
+ * again: a title cut from the start of its rationale, or a rationale that is
+ * the title. The founder's card read the same sentence twice, once cut short
+ * (2026-10-08).
+ * @param title - The card's title.
+ * @param rationale - Why the agent proposed it.
+ */
+export function subtitleFor(title: string, rationale: string | undefined): string | null {
+  const why = rationale?.trim();
+  if (!why) {
+    return null;
+  }
+  const a = comparable(title);
+  const b = comparable(why);
+  return a && (b.startsWith(a) || a.startsWith(b)) ? null : why;
+}
