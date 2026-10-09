@@ -8,9 +8,9 @@
  * him visiting a settings page, start each due delivery once, and skip one
  * the server slept through. A delivery must store his brief as a briefing in
  * his Personal workspace — what waits on him in the order to take it — post
- * one assistant message linking to it, and raise its suggested actions as one
- * Decision, recommended first — and only once a day, even when he already
- * asked for his day from the Briefings page.
+ * one assistant message linking to it, with its suggested actions as pills
+ * under that message (never a Decision card) — and only once a day, even when
+ * he already asked for his day from the Briefings page.
  */
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -195,8 +195,8 @@ describe('the delivery — one brief on Briefings, one message in chat', () => {
     // Oldest first: the order to take them.
     expect(text.indexOf('Contoso Supply renewal quote')).toBeLessThan(text.indexOf('Bellwater Hall date'));
     expect(text).toContain('**Revenue Team** — 1 decision taken');
-    // The actions are the Decision's to draw; the brief only says where they are.
-    expect(text).toContain('The 2 things to do first are waiting in Decisions.');
+    // The actions are the pills' to draw; the brief only says where they are.
+    expect(text).toContain('The 2 things to start on are offered under your brief in chat.');
     expect(text).not.toContain('Approve the Contoso Supply renewal quote');
   });
 
@@ -212,16 +212,19 @@ describe('the delivery — one brief on Briefings, one message in chat', () => {
     expect(messages[0]!.content).not.toContain('## Waiting on you');
   });
 
-  it('puts the suggested actions in one Decision, recommended first — raised after the message, so the chat is never empty under it', async () => {
+  it('offers the suggested actions as pills under the message — never a Decision card (founder, 2026-10-09: "doesn\'t trap them in cards")', async () => {
     const out = await brief();
+    const conversationId = out.delivered ? out.conversationId : 0;
+    const [message] = await messagesOf(conversationId);
+    const pills = (message!.runsJson ?? []).find(r => r.type === 'suggestions');
 
-    const [ask] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, home), eq(askSchema.conversationId, out.delivered ? out.conversationId : 0)));
-
-    expect(ask).toMatchObject({ kind: 'ruling', ownerUserId: ALEX, status: 'open', allowOther: true });
-    expect(ask!.options.map(o => [o.label, o.recommended ?? false])).toEqual([
-      ['Approve the Contoso Supply renewal quote', true],
-      ['Pick the Bellwater Hall date', false],
-    ]);
+    expect(pills).toMatchObject({ type: 'suggestions', items: [
+      { label: 'Approve the Contoso Supply renewal quote', prompt: 'Approve the Contoso Supply renewal quote' },
+      { label: 'Pick the Bellwater Hall date', prompt: 'Pick the Bellwater Hall date' },
+    ] });
+    expect(message!.content).toContain('The 2 things I would start on are below.');
+    // A suggestion is never an ask: nothing was raised on this conversation.
+    expect(await db.select().from(askSchema).where(and(eq(askSchema.orgId, home), eq(askSchema.conversationId, conversationId)))).toHaveLength(0);
   });
 
   it('is delivered once a day, however many times it is started', async () => {
@@ -257,9 +260,10 @@ describe('the delivery — one brief on Briefings, one message in chat', () => {
   it('still goes out when the writer cannot answer: the oldest decisions become the actions', async () => {
     const out = await deliverPersonalBrief({ userId: ALEX, accountId: ACCOUNT, kind: 'brief', day: '2026-10-09', timeZone: TZ, now: MORNING }, async () => null);
 
-    const [ask] = await db.select().from(askSchema).where(and(eq(askSchema.orgId, home), eq(askSchema.conversationId, out.delivered ? out.conversationId : 0)));
+    const [message] = await messagesOf(out.delivered ? out.conversationId : 0);
+    const pills = (message!.runsJson ?? []).find(r => r.type === 'suggestions') as { items: Array<{ label: string }> } | undefined;
 
-    expect(ask!.options[0]).toMatchObject({ label: 'Take “Send the Contoso Supply renewal quote?”', recommended: true });
+    expect(pills!.items[0]).toMatchObject({ label: 'Take “Send the Contoso Supply renewal quote?”' });
   });
 
   it('a brief with a connected calendar lists today\'s meetings with a line of context each', async () => {

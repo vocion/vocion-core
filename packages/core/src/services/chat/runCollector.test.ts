@@ -154,3 +154,17 @@ describe('RunCollector — Decisions and Done receipts', () => {
     ]);
   });
 });
+
+describe('the follow-ups a turn ended with', () => {
+  it('are kept after the text, one set per turn, so a reload draws the same pills', () => {
+    const c = new RunCollector();
+    c.onTextDelta('The quote went out.');
+    c.onSuggestions([{ label: 'Old', prompt: 'Old' }]);
+    c.onSuggestions([{ label: 'Draft the reply to Dana', prompt: 'Draft the reply to Dana' }]);
+
+    expect(c.finalise().runs).toEqual([
+      { type: 'text', text: 'The quote went out.' },
+      { type: 'suggestions', items: [{ label: 'Draft the reply to Dana', prompt: 'Draft the reply to Dana' }] },
+    ]);
+  });
+});

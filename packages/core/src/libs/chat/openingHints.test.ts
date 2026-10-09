@@ -72,6 +72,20 @@ describe('the opening hint (founder, 2026-10-09)', () => {
     expect(top!.score).toBeGreaterThan(openingHints(input({ connectors: [untried] }))[0]!.score);
   });
 
+  it('offers up to three pills when each clears the bar, one per type; usually one', () => {
+    const close = input({
+      connectors: [{ slug: 'crm', name: 'HubSpot', state: 'broken', recentTouches: 0, href: '/x' }],
+      waiting: [{ kind: 'approval', ageHours: 30, blocksRun: true }, { kind: 'approval', ageHours: 30, blocksRun: true }],
+      next: { key: 'briefing', label: 'What needs my attention today?', prompt: 'Walk me through the latest briefing', reason: 'A new briefing came in this week.', weight: 1.9 },
+    });
+    const three = openingHints(close);
+
+    expect(three.map(h => h.type)).toEqual(['connector', 'attention', 'next']);
+    expect(three.every(h => h.score >= three[0]!.score * 0.85)).toBe(true);
+    // One far ahead stands alone.
+    expect(openingHints(input({ apps: [factory] }))).toHaveLength(1);
+  });
+
   it('scales attention by count, what blocks a run, and age; an FYI is quieter', () => {
     const fyi = openingHints(input({ waiting: [{ kind: 'fyi', ageHours: 1, blocksRun: false }, { kind: 'fyi', ageHours: 1, blocksRun: false }] }))[0]!;
     const blocking = openingHints(input({ waiting: [{ kind: 'approval', ageHours: 30, blocksRun: true }, { kind: 'fyi', ageHours: 1, blocksRun: false }] }))[0]!;

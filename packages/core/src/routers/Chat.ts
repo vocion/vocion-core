@@ -28,7 +28,7 @@ export const suggestions = os
 export const hintEvent = os
   .input(z.object({
     event: z.enum(['shown', 'clicked', 'dismissed']),
-    hints: z.array(z.object({ key: z.string().min(1).max(120), type: z.string().min(1).max(20), score: z.number().optional(), rank: z.number().int().min(1).max(2).optional() })).min(1).max(2),
+    hints: z.array(z.object({ key: z.string().min(1).max(120), type: z.string().min(1).max(20), score: z.number().optional(), rank: z.number().int().min(1).max(3).optional() })).min(1).max(3),
   }))
   .handler(async ({ input }) => {
     const actor = await guardAuth();

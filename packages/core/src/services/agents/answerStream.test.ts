@@ -156,3 +156,32 @@ describe('answerStreamer', () => {
     expect(b.thinking).toBe('');
   });
 });
+
+describe('a <suggest> block at the end of the reply (follow-up pills)', () => {
+  it('is held back whole, even split across tokens, and handed over — never streamed as text', () => {
+    const s = new AnswerStreamer();
+    const chunks = ['The quote went out to Dana.\n\n<sug', 'gest>\nDraft the re', 'ply to Dana\nShow who\'s waiting on me\n</sugg', 'est>'];
+    let answer = '';
+    const suggest: string[] = [];
+    for (const c of chunks) {
+      const r = s.push(c);
+      answer += r.answer;
+      suggest.push(...r.suggest);
+    }
+    const t = s.flush();
+    answer += t.answer;
+    suggest.push(...t.suggest);
+
+    expect(answer.trim()).toBe('The quote went out to Dana.');
+    expect(suggest).toEqual(['\nDraft the reply to Dana\nShow who\'s waiting on me\n']);
+  });
+
+  it('a block cut off by the end of the stream is still suggestions, never text', () => {
+    const s = new AnswerStreamer();
+    const a = s.push('Done.\n<suggest>\nDraft the reply');
+    const t = s.flush();
+
+    expect((a.answer + t.answer).trim()).toBe('Done.');
+    expect([...a.suggest, ...t.suggest]).toEqual(['\nDraft the reply']);
+  });
+});

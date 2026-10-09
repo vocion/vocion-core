@@ -172,6 +172,20 @@ export class RunCollector {
     this.runs.push({ type: 'receipt', receipt });
   }
 
+  /**
+   * The follow-ups the reply ended with — one set per turn, the last wins,
+   * kept after the text so a reload draws the same pills.
+   * @param items - The pills.
+   */
+  onSuggestions(items: Extract<ConversationRun, { type: 'suggestions' }>['items']): void {
+    this.runs = this.runs.filter(r => r.type !== 'suggestions');
+    if (items.length === 0) {
+      return;
+    }
+    this.flushText();
+    this.runs.push({ type: 'suggestions', items });
+  }
+
   onCard(card: CardRunInput): void {
     // Written once: the route tees a card when it is first seen AND again
     // when the auto-filed copy is written to the stream (finding 18).

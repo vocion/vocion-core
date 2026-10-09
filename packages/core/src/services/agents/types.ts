@@ -377,6 +377,12 @@ export type AgentEvent
      */
     | { type: 'effort_result'; level: 'quick' | 'standard' | 'deep'; chosenBy: 'person' | 'agent' | 'auto'; reason?: string; elapsedMs: number; modelCalls: number; toolCalls: number; cents: number; ceilingHit: 'time' | 'cost' | null; next: 'quick' | 'standard' | 'deep' | null }
     /**
+     * Up to three follow-ups the agent wrote at the end of its reply
+     * (`libs/chat/suggestions.ts`): pills under the answer that send the
+     * person's next message. Never a card.
+     */
+    | { type: 'suggestions'; items: import('@/libs/chat/suggestions').Suggestion[] }
+    /**
      * The workspace chose the agent for this turn because nobody named one
      * (`services/agents/router.ts`). First frame of such a turn: the client
      * attributes the reply to the chosen agent ("via Wiki researcher") and

@@ -54,7 +54,9 @@ export type AgentRun
     /** A person's answer to a Decision — on a `decision` row (keys or a click) or the user row whose words answered it. */
     | { type: 'decision_answer'; id: number; question: string; answer: import('@/libs/decisions/decision').DecisionAnswer; line: string; via?: string }
     /** Something done inside the trust bar, said once, with Undo only where the kind has one. */
-    | { type: 'receipt'; receipt: import('@/libs/decisions/receipt').DoneReceipt };
+    | { type: 'receipt'; receipt: import('@/libs/decisions/receipt').DoneReceipt }
+    /** Up to three follow-ups under the answer (`libs/chat/suggestions.ts`): pills that send the next message. */
+    | { type: 'suggestions'; items: import('@/libs/chat/suggestions').Suggestion[] };
 
 /**
  * A person's answer to a Decision, as the transcript draws it: a quiet line
@@ -292,6 +294,8 @@ export type ChatMessage = {
   decisionAnswer?: DecisionAnswerReceipt;
   /** Done receipts for what this turn did inside the trust bar — Undo only where the kind has one. */
   receipts?: import('@/libs/decisions/receipt').DoneReceipt[];
+  /** Up to three follow-ups the agent wrote under this answer (`libs/chat/suggestions.ts`): pills, shown on the latest answer only. */
+  suggestions?: import('@/libs/chat/suggestions').Suggestion[];
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];

@@ -126,3 +126,12 @@ describe('an unclear instruction, several paths, a setup step', () => {
     ]);
   });
 });
+
+describe('a suggestion is never a Decision card (founder, 2026-10-09: "doesn\'t trap them in cards")', () => {
+  it('raises nothing for the follow-ups a turn ended with', async () => {
+    const out = await escalate({ type: 'suggestions', items: [{ label: 'Draft the reply to Dana', prompt: 'Draft the reply to Dana' }] }, turn);
+
+    expect(decisionOf(out)).toBeNull();
+    expect(await db.select().from(askSchema)).toHaveLength(0);
+  });
+});

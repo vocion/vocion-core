@@ -37,9 +37,16 @@ const CLOSE = '</scratch>';
 const CALL_TAGS = ['recommend_action', 'propose_action'] as const;
 type CallTag = (typeof CALL_TAGS)[number];
 
-type Mode = 'answer' | 'scratch' | CallTag;
+/**
+ * FOLLOW-UPS (`libs/chat/suggestions.ts`): a `<suggest>` block at the end of
+ * the reply is held back whole like a call, and handed over as `suggest` —
+ * the pills under the answer, never its text.
+ */
+const SUGGEST = 'suggest';
 
-export type StreamedText = { answer: string; thinking: string; closed: boolean; calls: Array<{ tag: CallTag; body: string }> };
+type Mode = 'answer' | 'scratch' | CallTag | typeof SUGGEST;
+
+export type StreamedText = { answer: string; thinking: string; closed: boolean; calls: Array<{ tag: CallTag; body: string }>; suggest: string[] };
 
 /**
  * The longest suffix of `buf` that is a proper prefix of `tag` — the piece
@@ -57,7 +64,7 @@ function partialTagTail(buf: string, tag: string): number {
 }
 
 /** Every tag that opens a held block in answer mode, with the mode it opens. */
-const OPENERS: Array<{ tag: string; mode: Mode }> = [{ tag: OPEN, mode: 'scratch' }, ...CALL_TAGS.map(t => ({ tag: `<${t}>`, mode: t as Mode }))];
+const OPENERS: Array<{ tag: string; mode: Mode }> = [{ tag: OPEN, mode: 'scratch' }, ...CALL_TAGS.map(t => ({ tag: `<${t}>`, mode: t as Mode })), { tag: `<${SUGGEST}>`, mode: SUGGEST }];
 
 export class AnswerStreamer {
   private buf = '';
@@ -86,6 +93,7 @@ export class AnswerStreamer {
     let thinking = '';
     let closed = false;
     const calls: StreamedText['calls'] = [];
+    const suggest: string[] = [];
     let progressed = true;
     while (progressed) {
       progressed = false;
@@ -143,7 +151,11 @@ export class AnswerStreamer {
         const close = `</${tag}>`;
         const idx = this.buf.indexOf(close);
         if (idx !== -1) {
-          calls.push({ tag, body: this.callBody + this.buf.slice(0, idx) });
+          if (tag === SUGGEST) {
+            suggest.push(this.callBody + this.buf.slice(0, idx));
+          } else {
+            calls.push({ tag, body: this.callBody + this.buf.slice(0, idx) });
+          }
           this.callBody = '';
           this.buf = this.buf.slice(idx + close.length);
           this.mode = 'answer';
@@ -155,7 +167,11 @@ export class AnswerStreamer {
         this.buf = this.buf.slice(this.buf.length - hold);
         if (final) {
           // Cut off by the end of the stream: still a call, and never text.
-          calls.push({ tag, body: this.callBody });
+          if (tag === SUGGEST) {
+            suggest.push(this.callBody);
+          } else {
+            calls.push({ tag, body: this.callBody });
+          }
           this.callBody = '';
           this.mode = 'answer';
         }
@@ -184,6 +200,6 @@ export class AnswerStreamer {
       }
       break;
     }
-    return { answer, thinking, closed, calls };
+    return { answer, thinking, closed, calls, suggest };
   }
 }

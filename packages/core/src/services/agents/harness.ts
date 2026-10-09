@@ -41,6 +41,7 @@ import { tool as makeTool } from '@langchain/core/tools';
 import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { SUGGEST_INSTRUCTION } from '@/libs/chat/suggestions';
 import { db } from '@/libs/DB';
 import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
@@ -461,7 +462,11 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     // How this agent talks: its `voice:` (YAML, then a person's override), composed once here (`libs/agents/voice.ts`).
     voiceSection,
     'CITATIONS: tool output that carries a bracketed number — search_knowledge hits rendered as "[3] **title** [source]", and a briefing returned as "[4] Latest … briefing" — is a citable source. When a sentence states a fact you took from one, cite it inline with that number immediately after the claim, e.g. "He owns healthcare-IT at Kestrel [3]." Use the exact numbers you were given (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Not every sentence needs a marker — your own synthesis, judgement and sequencing do not. But ANY concrete claim about the reader\'s world does: a meeting and its time, a dollar amount, a deal stage, a date, a person\'s name, how long something has been waiting. Those are the claims a reader needs to check, and an uncited one is indistinguishable from an invented one.',
-  ].join(' ');
+    // Up to three follow-ups as pills under the answer, written in the same
+    // reply — no second call (`libs/chat/suggestions.ts`). Not for an agent
+    // a person turned down to keep quiet.
+    readInitiative(row.initiative) === 'low' ? '' : SUGGEST_INSTRUCTION,
+  ].filter(Boolean).join(' ');
   // THE ACTIONS, ONCE (2026-10-04): recommend_action and propose_action each
   // carried the whole registry — every id, description and input field,
   // ~13k characters — in their own descriptions, so every model call paid

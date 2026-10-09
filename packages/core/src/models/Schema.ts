@@ -1919,6 +1919,7 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     | { type: 'decision'; id: number; question: string; state?: string }
     | { type: 'decision_answer'; id: number; question: string; answer: { kind: 'option'; optionIds: string[] } | { kind: 'free_text'; text: string } | { kind: 'skip' }; line: string; via?: string }
     | { type: 'receipt'; receipt: { runId: number; actionId: string; label: string; undoable: boolean; href?: string; status?: 'done' | 'undone' } }
+    | { type: 'suggestions'; items: Array<{ label: string; prompt: string; deeper?: true }> }
   >>(),
   /**
    * Cited/pulled source documents for this assistant turn — so inline `[n]`

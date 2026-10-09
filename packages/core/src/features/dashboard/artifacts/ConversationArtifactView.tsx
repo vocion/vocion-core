@@ -278,6 +278,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                       // too, not only in the dock (it never loaded on /chat/<id>).
                       conversationId={props.conversationId}
                       blocks={[workBlock(session), decisionBlock(session)]}
+                      onSuggestion={session.sendSuggestion}
                     />
                   )}
               {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}

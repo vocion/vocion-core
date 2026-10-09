@@ -15,6 +15,7 @@ import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { lastAnswerOf } from '@/libs/chat/lastAnswer';
 import { appendRecordLinks } from '@/libs/chat/recordLinks';
 import { stripScratch } from '@/libs/chat/scratch';
+import { parseSuggestions, stripSuggestBlocks } from '@/libs/chat/suggestions';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
@@ -390,6 +391,21 @@ export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<st
 }
 
 /**
+ * Hand the follow-ups the reply ended with to the person as one typed event
+ * (`libs/chat/suggestions.ts`): the last `<suggest>` block wins, and none
+ * means no event. No model call: the agent wrote them in its own reply.
+ * @param bodies - Every `<suggest>` block's text, in order.
+ * @param emit - The turn's emit.
+ */
+function emitSuggestions(bodies: readonly string[], emit: (event: AgentEvent) => void): void {
+  const last = [...bodies].reverse().find(b => b.trim());
+  const items = last ? parseSuggestions(last) : [];
+  if (items.length > 0) {
+    emit({ type: 'suggestions', items });
+  }
+}
+
+/**
  * Run a turn on a harness that is NOT this process, and still apply the
  * end-of-turn guarantees.
  *
@@ -417,6 +433,7 @@ async function runOutOfProcess(
   // A call written as text never shows as text here either; the other loops
   // hold no tools in this process to run it with, so it is said, not dropped.
   const heldCalls: import('./agents/textToolCalls').TextCall[] = [];
+  const suggestBodies: string[] = [];
   const gated = (event: AgentEvent): void => {
     if (event.type === 'tool_error') {
       failures.push({ tool: event.tool, message: event.message });
@@ -426,8 +443,9 @@ async function runOutOfProcess(
       return;
     }
     if (event.type === 'response_delta') {
-      const { answer, thinking, calls } = streamer.push(event.delta);
+      const { answer, thinking, calls, suggest } = streamer.push(event.delta);
       heldCalls.push(...calls);
+      suggestBodies.push(...suggest);
       if (thinking) {
         emit({ type: 'thinking_delta', delta: thinking });
       }
@@ -442,6 +460,8 @@ async function runOutOfProcess(
   const result = await run(gated);
   const tail = streamer.flush();
   heldCalls.push(...tail.calls);
+  suggestBodies.push(...tail.suggest);
+  emitSuggestions(suggestBodies, emit);
   if (tail.thinking) {
     emit({ type: 'thinking_delta', delta: tail.thinking });
   }
@@ -462,7 +482,7 @@ async function runOutOfProcess(
     conversationId: opts.conversationId,
     deliverable: opts.deliverable,
     request: opts.message,
-    response: stripScratch(result.response),
+    response: stripSuggestBlocks(stripScratch(result.response)),
     toolCalls: result.toolCalls,
     history: (opts.conversationHistory ?? []).map(t => ({ role: t.role, content: t.content })),
     failures,
@@ -1016,6 +1036,8 @@ export async function runAgentDeep(opts: {
   // to the trace as reasoning, so raw data never dumps into the answer. No
   // post-run buffering.
   const answerStreamer = new AnswerStreamer();
+  // The follow-ups the reply ended with (`libs/chat/suggestions.ts`): the last block wins.
+  const suggestBodies: string[] = [];
   // Tool calls the model wrote as text (`<recommend_action>{…}</recommend_action>`),
   // held back by the streamer and executed as the real tool after the loop
   // (`services/agents/textToolCalls.ts`, conversation 355).
@@ -1221,8 +1243,9 @@ export async function runAgentDeep(opts: {
           }
           if (isLead && text) {
             leadNs = nsFor(ev);
-            const { answer, thinking: scratch, closed, calls } = answerStreamer.push(text);
+            const { answer, thinking: scratch, closed, calls, suggest } = answerStreamer.push(text);
             textCalls.push(...calls);
+            suggestBodies.push(...suggest);
             routeScratch(scratch, closed);
             if (answer) {
               answeredSinceTool = true;
@@ -1365,6 +1388,7 @@ export async function runAgentDeep(opts: {
     {
       const held = answerStreamer.flush();
       textCalls.push(...held.calls);
+      suggestBodies.push(...held.suggest);
       routeScratch(held.thinking, false);
       if (held.answer) {
         finalText += held.answer;
@@ -1535,11 +1559,13 @@ export async function runAgentDeep(opts: {
   // thinking to its last character, and its reasoning node closes with it.
   const tail = answerStreamer.flush();
   textCalls.push(...tail.calls);
+  suggestBodies.push(...tail.suggest);
   routeScratch(tail.thinking, true);
   if (tail.answer) {
     finalText += tail.answer;
     emit({ type: 'response_delta', delta: tail.answer });
   }
+  emitSuggestions(suggestBodies, emit);
   finalText = normalizeAnswerHtml(finalText).trim();
   // A TOOL CALL WRITTEN AS TEXT IS STILL THE CALL (conversation 355). The
   // streamer held every block back; any that reached the text another way is

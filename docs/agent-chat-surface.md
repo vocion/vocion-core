@@ -59,6 +59,33 @@ never hide truth*).
   progress. Polled every 10 s while anything runs, and again when a turn
   lands.
 
+- §2.4 — **Follow-ups as pills, never cards** (2026-10-09, founder: *"Check
+  out chat gpt does up to 3 suggestions. If they are really valuable. And
+  doesn't trap them in cards."*).
+  - **Under an answer.** The agent may end its reply with a `<suggest>` block,
+    one short next message per line, at most three (`SUGGEST_INSTRUCTION`,
+    `libs/chat/suggestions.ts`; not for a `low`-initiative agent). The
+    streamer holds the block back like a scratch block (`answerStream.ts`), so
+    it never shows as words, and the turn hands the lines over as one typed
+    `suggestions` event, kept on the turn as a `suggestions` run: no second
+    model call, no added latency. Zero is common.
+  - **What they look like.** Quiet text pills (`SuggestionPills.tsx`) on the
+    latest answer only, gone the moment the person sends anything. Tapping one
+    sends its words as the person's message (chips are prompts). The line
+    `Dig deeper` becomes "Dig deeper →", shown only when the turn ran below
+    Deep; it moves the thread to Deep and asks again.
+  - **By the composer.** The opening hint offers up to three pills, each
+    clearing the ranker's floor and 85% of the top one, one per type
+    (`openingHints`, `MAX_HINTS`); usually 0 or 1. Both use one pill shape
+    (`PROMPT_PILL_CLASS`): wraps, never truncated, 44px on a phone, Tab then
+    Enter.
+  - **Cards are for consent.** A Decision card is reserved for what an agent
+    wants to DO that needs a yes (approve a send, connect a system, allow an
+    action) or a real question with options. A suggestion is never one:
+    `escalate` raises nothing for a `suggestions` event, `file_ask` says so in
+    its guide, and the morning brief's suggested actions moved from a
+    Decision to pills under its message.
+
 - §2.2 — **Asking another workspace** (2026-10-07). A person's own assistant
   (their personal workspace's lead, `templates/personal/agents/assistant.yaml`)
   reaches the shared workspaces they can act in with `ask_workspace`. The ask

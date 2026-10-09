@@ -90,7 +90,7 @@ export type PersonalBrief = {
   workspaces: PersonalBriefWorkspace[];
   /** Workspaces that could not be read, said in the brief rather than dropped. */
   unavailable: Array<{ workspace: InboxWorkspace; reason: string }>;
-  /** Up to {@link MAX_ACTIONS} things to do first; raised as one Decision on delivery, never rendered twice. */
+  /** Up to {@link MAX_ACTIONS} things to do first; pills under the delivered message, never a card, never rendered twice. */
   actions: SuggestedAction[];
   /** One sentence: the brief's own summary, for the chat message and the push. */
   lead: string;
@@ -137,7 +137,7 @@ export type PersonalBriefParts = Pick<PersonalBrief, 'waiting' | 'workspaces' | 
   facts?: PersonalFacts;
   /** The writer's lines, or null when it was not asked or could not answer. */
   written?: WriterOutput | null;
-  /** How many suggested actions are waiting as a Decision. */
+  /** How many suggested actions are offered as pills under the delivered message. */
   actions?: number;
 };
 
@@ -287,7 +287,7 @@ export function renderPersonalBrief(p: PersonalBriefParts): string {
     out.push('', `Could not read ${unavailable.map(u => `${u.workspace.name} (${u.reason})`).join(', ')}; what is above leaves them out.`);
   }
   if (p.actions && p.actions > 0) {
-    out.push('', p.actions === 1 ? 'One thing to do first is waiting in Decisions.' : `The ${p.actions} things to do first are waiting in Decisions.`);
+    out.push('', p.actions === 1 ? 'One thing to start on is offered under your brief in chat.' : `The ${p.actions} things to start on are offered under your brief in chat.`);
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

@@ -481,6 +481,7 @@ function ChatShellInner({
                     onCitationClick={(_n, messageId) => openSources(messageId)}
                     onFeedback={session.handleFeedback}
                     onBuildCard={session.buildFromCard}
+                    onSuggestion={session.sendSuggestion}
                     autonomy={session.autonomy}
                     conversationId={session.conversationId}
                   />

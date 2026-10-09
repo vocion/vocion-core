@@ -110,8 +110,15 @@ const DAY = 24 * 60 * 60 * 1000;
 /** Below this, a hint is not worth the space. */
 export const HINT_FLOOR = 25;
 
-/** A second hint must score at least this share of the top one. */
+/** Another hint must score at least this share of the top one. */
 export const SECOND_HINT_SHARE = 0.85;
+
+/**
+ * At most this many pills by the composer (founder, 2026-10-09: "chat gpt
+ * does up to 3 suggestions. If they are really valuable"): each clears the
+ * floor and the share of the top one, each a different type. Usually 0 or 1.
+ */
+export const MAX_HINTS = 3;
 
 /** How long a dismissed item stays hidden. */
 export const DISMISS_DAYS = 7;
@@ -305,9 +312,18 @@ export function openingHints(input: HintInput): OpeningHint[] {
     .map(h => ({ ...h, score: Math.round(h.score * DISMISS_TYPE_DECAY ** recent(h.type) * 10) / 10 }))
     .filter(h => h.score >= HINT_FLOOR)
     .sort((a, b) => b.score - a.score);
-  const [top, second] = candidates;
+  const [top, ...rest] = candidates;
   if (!top) {
     return [];
   }
-  return second && second.type !== top.type && second.score >= top.score * SECOND_HINT_SHARE ? [top, second] : [top];
+  const shown = [top];
+  for (const h of rest) {
+    if (shown.length === MAX_HINTS) {
+      break;
+    }
+    if (h.score >= top.score * SECOND_HINT_SHARE && !shown.some(s => s.type === h.type)) {
+      shown.push(h);
+    }
+  }
+  return shown;
 }
