@@ -292,8 +292,13 @@ export async function recommendConnections(ctx: { orgId: string; userId: string 
   const question = needsQuestion
     ? { question: 'Which of these do you use?', options: candidates.slice(0, Math.max(QUESTION_OPTIONS, candidates.filter(c => c.recommended).length)).map(c => c.connector) }
     : null;
-  // Without a question, the walk is what the evidence put forward.
-  const walked = needsQuestion ? candidates : candidates.filter(c => c.recommended || named.has(c.connector) || appScope !== null);
+  // Without a question, the walk is exactly what the person scoped: the
+  // systems they named, or the app's. Evidence ranks a plan nobody scoped; it
+  // never adds a system to one that was (2026-10-09: "setup my software
+  // factory" walked GitHub, then Gmail, Calendar and Drive on the person's
+  // mail host, and HubSpot where the Org used it — none of them the
+  // factory's). Everything else stays a later "connect my tools".
+  const walked = needsQuestion ? candidates : candidates.filter(c => named.has(c.connector) || appScope !== null);
 
   return {
     candidates: walked,

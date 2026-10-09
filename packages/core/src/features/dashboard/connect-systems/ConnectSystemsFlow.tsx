@@ -1,7 +1,7 @@
 'use client';
 
 import type { ViewAnswer } from './ConnectSystemsView';
-import type { FlowEvent, FlowState } from './flow';
+import type { FlowEvent, FlowResume, FlowState } from './flow';
 import type { ConnectPlanInput, ConnectVerification } from '@/libs/connect/systemsPlan';
 import type { ConfigFieldValue } from '@/libs/sources/configFields';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
@@ -9,7 +9,7 @@ import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
 import { client } from '@/libs/Orpc';
 import { buildConfigFromFields, describeMissingFields, initialFieldValues } from '@/libs/sources/configFields';
 import { ConnectSystemsView } from './ConnectSystemsView';
-import { INITIAL, reduce, summaryLine } from './flow';
+import { INITIAL, reduce, resumeOf, summaryLine } from './flow';
 import { announceConnectSystemsFinished } from './launch';
 import { openLoginWindow, reasonInWords } from './loginWindow';
 
@@ -34,6 +34,10 @@ export type ConnectSystemsFlowProps = {
   onSomethingElse?: (text: string) => void;
   /** How long a first sync is waited on before the walk moves on and lets it finish in the background. */
   verifyBudgetMs?: number;
+  /** Where it was before a reload or a trip away: it picks up there. */
+  resume?: FlowResume | null;
+  /** Where it is now, each time that changes, for the surface to keep. */
+  onProgress?: (where: FlowResume) => void;
 };
 
 const VERIFY_EVERY_MS = 1500;
@@ -46,7 +50,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'That did not work. Try again.';
 }
 
-export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, verifyBudgetMs = 12_000 }: ConnectSystemsFlowProps) {
+export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, verifyBudgetMs = 12_000, resume = null, onProgress }: ConnectSystemsFlowProps) {
   const [state, dispatch] = useReducer((s: FlowState, e: FlowEvent) => reduce(s, e), INITIAL);
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [configValues, setConfigValues] = useState<Record<string, ConfigFieldValue>>({});
@@ -57,12 +61,30 @@ export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, 
     stateRef.current = state;
   });
 
+  // Read once, at the start: a resumed walk picks up where it was, and only then.
+  const resumeRef = useRef(resume);
   const load = useCallback(() => {
     void client.connectSystems.plan(input)
-      .then(plan => dispatch({ type: 'loaded', plan }))
+      .then((plan) => {
+        dispatch({ type: 'loaded', plan, resume: resumeRef.current });
+        resumeRef.current = null;
+      })
       .catch((e: unknown) => dispatch({ type: 'load_failed', reason: messageOf(e) }));
   }, [input]);
   useEffect(load, [load]);
+
+  // Where it is, kept by the surface so a reload or the drawer never loses it.
+  const where = resumeOf(state);
+  const whereKey = where ? JSON.stringify(where) : null;
+  const onProgressRef = useRef(onProgress);
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+  });
+  useEffect(() => {
+    if (whereKey) {
+      onProgressRef.current?.(JSON.parse(whereKey) as FlowResume);
+    }
+  }, [whereKey]);
 
   const current = state.phase === 'walk' ? state.queue[state.index]! : null;
   const stepAt = state.phase === 'walk' ? state.step.at : null;

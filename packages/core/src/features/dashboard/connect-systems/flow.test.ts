@@ -6,7 +6,7 @@
 import type { FlowState } from './flow';
 import type { ConnectCandidate, ConnectPlan } from '@/libs/connect/systemsPlan';
 import { describe, expect, it } from 'vitest';
-import { INITIAL, progressOf, reduce, summaryLine } from './flow';
+import { INITIAL, progressOf, reduce, resumeOf, summaryLine } from './flow';
 
 function candidate(connector: string, method: ConnectCandidate['method']['kind'] = 'key'): ConnectCandidate {
   const methods: Record<string, ConnectCandidate['method']> = {
@@ -130,5 +130,50 @@ describe('the walk-through', () => {
   it('says why when nothing can be connected here, and when everything already is', () => {
     expect(reduce(INITIAL, { type: 'loaded', plan: plan({ refused: 'Only a workspace admin can connect a source' }) }).phase).toBe('refused');
     expect(reduce(INITIAL, { type: 'loaded', plan: plan({ candidates: [] }) }).phase).toBe('nothing');
+  });
+});
+
+/**
+ * A reload, or Review in the drawer and back, mid-walk (founder, 2026-10-09,
+ * at "3 of 5"): the walk picks up where it was, never back at the first system.
+ */
+describe('a walk picked up again', () => {
+  it('keeps what each system came to and resumes at the first one still open', () => {
+    let s = reduce(INITIAL, { type: 'loaded', plan: plan() });
+    s = reduce(s, { type: 'later' });
+    s = reduce(s, { type: 'skip' });
+    const kept = resumeOf(s)!;
+
+    expect(kept).toEqual({ picked: ['alpha', 'beta', 'gamma'], outcomes: { alpha: 'later', beta: 'skipped' } });
+
+    const again = walkOf(reduce(INITIAL, { type: 'loaded', plan: plan(), resume: kept }));
+
+    expect(progressOf(again)).toEqual({ index: 2, total: 3 });
+    expect(again.queue[again.index]!.connector).toBe('gamma');
+    expect(again.outcomes).toEqual({ alpha: 'later', beta: 'skipped' });
+  });
+
+  it('walks the same systems after the question, without asking it again', () => {
+    const resumed = walkOf(reduce(INITIAL, {
+      type: 'loaded',
+      plan: plan({ question: { question: 'Which of these do you use?', options: ['alpha', 'beta', 'gamma'] } }),
+      resume: { picked: ['alpha', 'gamma'], outcomes: { alpha: 'skipped' } },
+    }));
+
+    expect(resumed.phase).toBe('walk');
+    expect(resumed.queue.map(c => c.connector)).toEqual(['alpha', 'gamma']);
+    expect(progressOf(resumed)).toEqual({ index: 1, total: 2 });
+  });
+
+  it('drops a system that connected meanwhile, and goes to the summary when nothing is left', () => {
+    const s = reduce(INITIAL, { type: 'loaded', plan: plan({ candidates: [candidate('beta')] }), resume: { picked: ['alpha', 'beta'], outcomes: { beta: 'later' } } });
+
+    expect(s.phase).toBe('summary');
+  });
+
+  it('asks the question as before when it was never answered', () => {
+    const s = reduce(INITIAL, { type: 'loaded', plan: plan({ question: { question: 'Which of these do you use?', options: ['alpha'] } }), resume: { outcomes: {} } });
+
+    expect(s.phase).toBe('question');
   });
 });

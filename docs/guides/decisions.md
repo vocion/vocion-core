@@ -204,11 +204,22 @@ proposal is now. No turn is written in the person's name.
   unless the person started that flow, and what waits on them elsewhere — a Needs
   you question with no conversation, a proposal filed from none
   (`DecisionService.waitingElsewhere`) — is the one soft, dismissible chip,
-  "3 things waiting on you →", to Review (`WaitingNudge`). Once a conversation is
-  under way they queue in its dock behind its own, under "Waiting on you",
-  answered where they live with no turn; the dock says once what the answer did.
+  "3 things waiting on you →", to Review (`WaitingNudge`). **What waits
+  elsewhere never docks by itself** (`dockPlan`, 2026-10-09: a tracker review
+  docked 400ms after "setup my software factory" and came back between setup
+  steps, beside the lead's own question — "two prompts in different areas").
+  In a conversation under way it is the same chip, shown only while nothing of
+  the conversation's own is docked and no turn runs; tapping it docks the queue
+  there under "Waiting on you", answered where it lives with no turn; the dock
+  says once what the answer did.
   On a phone everything pinned above the composer is capped at a quarter of the
-  screen and scrolls inside (`PINNED_MAX_CLASS`).
+  screen (and a short screen — a phone on its side — at 45%) and scrolls inside
+  (`PINNED_MAX_CLASS`); a docked card keeps its question and its Submit pinned
+  while its middle scrolls, its why is one line, every control is 44px, and a
+  new card opens on its question. "Connect your systems" keeps its place across
+  a reload or a trip through the drawer while its Decision is open
+  (`connect-systems/walkMemory.ts`), and walks only what the person scoped — the
+  systems they named, or the app's — never what evidence adds to it.
 - **The past turn** — a Decision a call raised and a Done line it produced are
   replayed with that call's result on the next turn (`chat/historyTools.ts`), so
   the agent binds the answer to the call that asked and never asks twice.

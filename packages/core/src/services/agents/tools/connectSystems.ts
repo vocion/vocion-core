@@ -26,8 +26,8 @@ import { connectSystemsHref } from '@/libs/connect/systemsLink';
 export const CONNECT_SYSTEM_TOOL = 'connect_system';
 
 const InputSchema = z.object({
-  named: z.array(z.string().min(1).max(80)).max(20).optional().describe('Connector slugs (from list_capabilities) of systems the person named, in their order. Leave out when they named none ("what should I connect?").'),
-  app: z.string().min(1).max(80).optional().describe('An app id, to walk only the systems that app reads ("connect the systems GTM uses").'),
+  named: z.array(z.string().min(1).max(80)).max(20).optional().describe('Connector slugs (from list_capabilities) of systems the person named in their own words, in their order — each one is shown to them as "You named it", so never a system you inferred. Leave out when they named none ("what should I connect?").'),
+  app: z.string().min(1).max(80).optional().describe('An app id, to walk only the systems that app reads ("connect the systems GTM uses", "set up my software factory"). Setting up an app always passes its id.'),
 });
 type Input = z.infer<typeof InputSchema>;
 

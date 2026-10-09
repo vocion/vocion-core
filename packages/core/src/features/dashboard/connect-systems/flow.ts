@@ -31,8 +31,11 @@ export type FlowState
     | { phase: 'walk'; plan: ConnectPlan; queue: ConnectCandidate[]; index: number; step: StepPhase; outcomes: Record<string, ConnectOutcome>; previews: Record<string, string | null> }
     | { phase: 'summary'; plan: ConnectPlan; queue: ConnectCandidate[]; outcomes: Record<string, ConnectOutcome>; previews: Record<string, string | null> };
 
+/** Where a walk was before a reload or a trip away (`walkMemory.ts`): the systems it is over, and what each came to. */
+export type FlowResume = { picked?: string[]; outcomes: Record<string, ConnectOutcome> };
+
 export type FlowEvent
-  = | { type: 'loaded'; plan: ConnectPlan }
+  = | { type: 'loaded'; plan: ConnectPlan; resume?: FlowResume | null }
     | { type: 'load_failed'; reason: string }
     | { type: 'answered'; connectors: string[] }
     | { type: 'connect' }
@@ -59,6 +62,37 @@ function walk(plan: ConnectPlan, queue: ConnectCandidate[]): FlowState {
     return { phase: 'summary', plan, queue, outcomes: {}, previews: {} };
   }
   return { phase: 'walk', plan, queue, index: 0, step: { at: 'choose' }, outcomes: {}, previews: {} };
+}
+
+/**
+ * The walk picked up where it was: over the same systems (those still to
+ * connect), each one already settled kept, at the first one that is not.
+ * @param plan - The plan, read again.
+ * @param resume - Where it was.
+ */
+function resumed(plan: ConnectPlan, resume: FlowResume): FlowState {
+  const picked = resume.picked ? new Set(resume.picked) : null;
+  const queue = picked ? plan.candidates.filter(c => picked.has(c.connector)) : plan.candidates;
+  const outcomes: Record<string, ConnectOutcome> = {};
+  for (const c of queue) {
+    const o = resume.outcomes[c.connector];
+    if (o) {
+      outcomes[c.connector] = o;
+    }
+  }
+  const index = queue.findIndex(c => !outcomes[c.connector]);
+  if (index === -1) {
+    return { phase: 'summary', plan, queue, outcomes, previews: {} };
+  }
+  return { phase: 'walk', plan, queue, index, step: { at: 'choose' }, outcomes, previews: {} };
+}
+
+/**
+ * What to keep of a walk so a reload resumes it, or null before it is walking.
+ * @param s - The state.
+ */
+export function resumeOf(s: FlowState): FlowResume | null {
+  return s.phase === 'walk' || s.phase === 'summary' ? { picked: s.queue.map(c => c.connector), outcomes: s.outcomes } : null;
 }
 
 /**
@@ -89,6 +123,9 @@ export function reduce(s: FlowState, e: FlowEvent): FlowState {
     }
     if (e.plan.candidates.length === 0) {
       return { phase: 'nothing', plan: e.plan };
+    }
+    if (e.resume && (e.resume.picked || !e.plan.question)) {
+      return resumed(e.plan, e.resume);
     }
     return e.plan.question ? { phase: 'question', plan: e.plan } : walk(e.plan, e.plan.candidates);
   }

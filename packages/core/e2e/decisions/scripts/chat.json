@@ -1,6 +1,44 @@
 {
   "turns": [
     {
+      "match": "answered] which repositories should the factory include?",
+      "steps": [],
+      "reply": "Including the Northwind API. The factory maps it next."
+    },
+    {
+      "match": "setup my software factory",
+      "steps": [
+        {
+          "tool": "file_ask",
+          "args": {
+            "title": "Which repositories should the factory include?",
+            "body": "GitHub grants two repositories. The factory builds only the ones you name.",
+            "kind": "ruling",
+            "options": [
+              {
+                "id": "api",
+                "label": "Northwind API",
+                "description": "Requests land as changes to northwind/api.",
+                "recommended": true
+              },
+              {
+                "id": "portal",
+                "label": "Northwind Portal",
+                "description": "Requests land as changes to the customer portal."
+              },
+              {
+                "id": "both",
+                "label": "Both",
+                "description": "One product, two repositories."
+              }
+            ],
+            "confidence": 0.9
+          }
+        }
+      ],
+      "reply": "One question first."
+    },
+    {
       "match": "file a question on the Needs you queue",
       "steps": [
         {

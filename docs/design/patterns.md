@@ -1243,10 +1243,12 @@ Claude Code's prompt, on the same card:
   "Stop ×" go back a step or stop, in place of folding). There is no second
   docked card.
 - **Warm start** (`chat/emptyChat.ts`). On an empty chat nothing docks unless
-  the person started it; what waits elsewhere is the one soft chip to Review
-  (`WaitingNudge`), and queues in the dock once the conversation is under way.
+  the person started it; what waits elsewhere is the one soft chip
+  (`WaitingNudge`), never a card on its own — in a conversation under way it
+  docks there only when the person taps the chip (`dockPlan`).
   On a phone the composer's pinned slot is capped at a quarter of the viewport
-  and scrolls inside (`PINNED_MAX_CLASS`).
+  (45% on a short screen) and scrolls inside (`PINNED_MAX_CLASS`); the docked
+  card's question and Submit stay pinned, and its controls are 44px.
 - **A look.** An option whose effect has a picture (a drafted brand) draws it
   under the why (`decision-look`), from a renderer named on the option; a
   renderer the client does not know draws nothing.

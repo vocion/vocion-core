@@ -1,5 +1,6 @@
 'use client';
 
+import type { FlowResume } from './flow';
 import type { ConnectPlanInput } from '@/libs/connect/systemsPlan';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -18,6 +19,8 @@ export type ConnectSystemsLaunch = {
   input: ConnectPlanInput;
   /** The Decision that offered it, which the walk answers when it finishes. */
   decisionId?: number;
+  /** Where it was, when it is picked up again after a reload or a trip away. */
+  resume?: FlowResume | null;
 };
 
 /**

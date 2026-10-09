@@ -500,8 +500,10 @@ export function useChatSession({
   const emptyChipsLoading = false;
   const emptyGreeting = greeting ?? { workspace: workspaceName };
   // Neutral composer (the ChatComposer default, "Ask anything…") — and, with
-  // a Decision docked above it, the other way to answer: in their own words.
-  const composerPlaceholder = openDecisions.length > 0 || waitingDecisions.length > 0 ? 'Or reply directly…' : undefined;
+  // this conversation's own Decision docked above it, the other way to answer:
+  // in their own words. What waits elsewhere is not read from the composer
+  // (only this conversation's own is, `answersFirst`), so it never says so.
+  const composerPlaceholder = openDecisions.length > 0 ? 'Or reply directly…' : undefined;
   const isStreaming = phase !== 'idle';
   /**
    * The same answer as `isStreaming`, readable SYNCHRONOUSLY.

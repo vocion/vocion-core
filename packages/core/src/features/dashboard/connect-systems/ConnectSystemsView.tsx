@@ -60,9 +60,9 @@ function why(c: ConnectCandidate): string {
 function connectLabel(c: ConnectCandidate): { label: string; consequence: string } {
   switch (c.method.kind) {
     case 'login':
-      return { label: `Log in with ${c.method.providerLabel}`, consequence: 'Opens their login in a small window, then checks it works' };
+      return { label: `Log in with ${c.method.providerLabel}`, consequence: 'Opens the login in a small window, then checks it works' };
     case 'key':
-      return { label: `Paste ${c.method.credentialLabel.toLowerCase().startsWith('a') ? 'an' : 'a'} ${c.method.credentialLabel}`, consequence: 'Goes straight to the vault, then checks it works' };
+      return { label: `Paste ${/^[aeiou]/i.test(c.method.credentialLabel) ? 'an' : 'a'} ${c.method.credentialLabel}`, consequence: 'Goes straight to the vault, then checks it works' };
     case 'page':
       return { label: 'Open its connect form', consequence: 'Its full form opens in a small window; this checks it when you are back' };
   }
