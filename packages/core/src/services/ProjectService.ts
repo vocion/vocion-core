@@ -27,6 +27,8 @@ export type ProjectSummary = {
   kind: 'shared' | 'personal';
   /** Agents registered in the project — 0 means "nothing lives here yet" (the switcher hides those by default). */
   agentCount: number;
+  /** Archived: the switcher hides it with the empty ones, and nothing lands on it by default. */
+  archived?: boolean;
 };
 
 /** An account a user belongs to — the switcher's eyebrow and its group headings. */
@@ -65,6 +67,7 @@ const summaryColumns = {
   // Qualified by hand: inside the subquery drizzle would render `"id"`, which
   // resolves to agent.id (integer), not project.id.
   agentCount: sql<number>`(select count(*)::int from "agent" a where a."org_id" = "project"."id")`.as('agent_count'),
+  archived: sql<boolean>`("project"."archived_at" is not null)`.as('archived'),
 };
 
 /**

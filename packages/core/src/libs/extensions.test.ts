@@ -12,7 +12,6 @@ import {
   extensionPage,
   extensionRouters,
   extensions,
-  extensionScopesSwitcherToOrg,
   extensionWhiteLabel,
   slotComponents,
 } from './extensions';
@@ -28,9 +27,8 @@ describe('core with no extension built in', () => {
     expect(slotComponents('spend.stats')).toEqual([]);
   });
 
-  it('keeps the single-Org rule and lists every workspace in the switcher', () => {
+  it('keeps the single-Org rule', () => {
     expect(extensionAllowsMultiOrg()).toBe(false);
-    expect(extensionScopesSwitcherToOrg()).toBe(false);
   });
 
   it('keeps "Powered by Vocion": white-labelling is not core', () => {
@@ -39,6 +37,6 @@ describe('core with no extension built in', () => {
 
   it('puts nothing in the sidebar', () => {
     expect(clientExtensions()).toEqual([]);
-    expect(navSlotComponents('nav.aboveWorkspaceSwitcher')).toEqual([]);
+    expect(navSlotComponents('nav.workspacePicker.org')).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import type { SwitcherAccount, SwitcherProject, SwitcherScope } from './workspaceSwitch';
+import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
 import type { AppSummary, AppWorkspace } from '@/features/navigation/apps';
 import type { OrgsMode } from '@/services/OrgPolicy';
 import { useEffect, useState } from 'react';
@@ -15,8 +15,6 @@ export type WorkspaceDirectory = {
   account: { id: string; name: string } | null;
   /** The deployment's Org mode (`services/OrgPolicy.ts`); `single` shows no Org anywhere. */
   orgsMode: OrgsMode;
-  /** Which workspaces the switcher lists: every one, or the current Org's (an extension asked). */
-  switcherScope: SwitcherScope;
   /** The apps the person has in at least one workspace (the core app always). */
   apps: AppSummary[];
   /** Per app, the workspaces that have it. */
@@ -39,12 +37,12 @@ export function useWorkspaceDirectory(): WorkspaceDirectory | null {
     ])
       .then(([r, a]) => {
         if (!cancelled) {
-          setData({ projects: r.projects, accounts: r.accounts, account: r.account ? { id: r.account.id, name: r.account.name } : null, orgsMode: r.orgsMode, switcherScope: r.switcherScope, apps: a.apps, workspacesByApp: a.workspacesByApp });
+          setData({ projects: r.projects, accounts: r.accounts, account: r.account ? { id: r.account.id, name: r.account.name } : null, orgsMode: r.orgsMode, apps: a.apps, workspacesByApp: a.workspacesByApp });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setData({ projects: [], accounts: [], account: null, orgsMode: 'single', switcherScope: 'all', apps: [], workspacesByApp: {} });
+          setData({ projects: [], accounts: [], account: null, orgsMode: 'single', apps: [], workspacesByApp: {} });
         }
       });
     return () => {

@@ -121,7 +121,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Getting started checklist. Null for a personal one; a failed read hides
   // the checklist rather than the page.
   const gettingStartedRead = orgId
-    ? gettingStartedFor(orgId).then(s => (s ? { steps: s.steps, done: s.done, total: s.total } : null)).catch(() => null)
+    ? gettingStartedFor(orgId).then(s => (s ? { steps: s.steps, done: s.done, total: s.total, fresh: s.fresh } : null)).catch(() => null)
     : Promise.resolve(null);
   const agents = await agentsRead;
   const waiting = await waitingRead;

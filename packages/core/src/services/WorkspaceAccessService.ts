@@ -37,7 +37,7 @@
 import type { SQL } from 'drizzle-orm';
 import type { WorkspaceRole } from '@/services/authz';
 import process from 'node:process';
-import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
   accountMembershipSchema,
@@ -147,7 +147,23 @@ export type MemberWorkspace = {
   accountRole: 'admin' | 'member';
   /** `'personal'` only ever for the person's OWN personal workspace: anyone else's is not returned. */
   kind: 'shared' | 'personal';
+  /** Archived: opened when a link names it, never landed on by default or by "last active". */
+  archived?: boolean;
 };
+
+/**
+ * Most recently used first: the workspace where this person last had a
+ * conversation, then the oldest, then by id, so the order never changes
+ * between requests. What a fallback landing is ordered by.
+ * @param userId - The person landing.
+ */
+function mostRecentlyUsedFirst(userId: string): SQL[] {
+  return [
+    sql`(select max(coalesce(c."updated_at", c."created_at")) from "conversation" c where c."project_id" = "project"."id" and c."created_by" = ${userId}) desc nulls last`,
+    asc(projectSchema.createdAt),
+    asc(projectSchema.id),
+  ];
+}
 
 /**
  * A workspace, when it sits in an account this person belongs to; otherwise
@@ -168,7 +184,7 @@ export type MemberWorkspace = {
  */
 export async function memberWorkspace(userId: string, projectId: string): Promise<MemberWorkspace | null> {
   const [row] = await db
-    .select({ projectId: projectSchema.id, slug: projectSchema.slug, accountId: projectSchema.accountId, accountRole: accountMembershipSchema.role, kind: projectSchema.kind })
+    .select({ projectId: projectSchema.id, slug: projectSchema.slug, accountId: projectSchema.accountId, accountRole: accountMembershipSchema.role, kind: projectSchema.kind, archivedAt: projectSchema.archivedAt })
     .from(projectSchema)
     .innerJoin(accountMembershipSchema, and(
       eq(accountMembershipSchema.accountId, projectSchema.accountId),
@@ -176,7 +192,11 @@ export async function memberWorkspace(userId: string, projectId: string): Promis
     ))
     .where(and(eq(projectSchema.id, projectId), visibleWorkspace(userId)))
     .limit(1);
-  return row ? { ...row, accountRole: row.accountRole as 'admin' | 'member' } : null;
+  if (!row) {
+    return null;
+  }
+  const { archivedAt, ...rest } = row;
+  return { ...rest, accountRole: row.accountRole as 'admin' | 'member', archived: archivedAt !== null };
 }
 
 /**
@@ -228,6 +248,13 @@ export type ActiveWorkspace = {
  * 3. No workspace on any account: their first account in that order, with a
  *    null project — the onboarding state.
  *
+ * An ARCHIVED workspace is never landed on by default (2, 3) or as the
+ * remembered "last active" one: only a pick the request's own URL named
+ * (`named`) opens it. Otherwise the landing is the active workspace the person
+ * used most recently (their latest conversation), then the oldest — on
+ * 2026-10-08 the founder's phone opened on an archived seed workspace because
+ * it was the oldest on the account.
+ *
  * The picked id is untrusted: on `/api/` routes it arrives in a header the
  * caller controls. It can only choose an account the person is a member of,
  * because `memberWorkspace` finds nothing otherwise.
@@ -235,13 +262,15 @@ export type ActiveWorkspace = {
  * @param pickedProjectId - The workspace the request names, unchecked.
  * @param preferredAccountId - With no usable pick, look in this account first
  *  (a just-accepted invite's). Ignored when it is not one of theirs.
+ * @param opts - Where the pick came from.
+ * @param opts.named - The request's URL named the pick (not a remembered cookie), so an archived workspace may open.
  * @returns Where they are, or null for a person in no account.
  */
-export async function resolveActiveWorkspace(userId: string, pickedProjectId?: string | null, preferredAccountId?: string | null): Promise<ActiveWorkspace | null> {
+export async function resolveActiveWorkspace(userId: string, pickedProjectId?: string | null, preferredAccountId?: string | null, opts: { named?: boolean } = {}): Promise<ActiveWorkspace | null> {
   const pickedId = pickedProjectId?.trim();
   const picked = pickedId ? await memberWorkspace(userId, pickedId) : null;
   const enforced = enforcementEnabled();
-  if (picked) {
+  if (picked && (!picked.archived || opts.named)) {
     const workspaceRole = await roleInMemberWorkspace(userId, picked);
     if (workspaceRole) {
       return { accountId: picked.accountId, accountRole: picked.accountRole, projectId: picked.projectId, workspaceRole };
@@ -279,8 +308,8 @@ async function firstWorkspaceOnAccounts(userId: string, searchOrder: readonly Me
   const oldestPerAccount = await db
     .selectDistinctOn([projectSchema.accountId], { id: projectSchema.id, accountId: projectSchema.accountId, kind: projectSchema.kind })
     .from(projectSchema)
-    .where(and(inArray(projectSchema.accountId, searchOrder.map(m => m.accountId)), visibleWorkspace(userId)))
-    .orderBy(asc(projectSchema.accountId), asc(projectSchema.createdAt), asc(projectSchema.id));
+    .where(and(inArray(projectSchema.accountId, searchOrder.map(m => m.accountId)), visibleWorkspace(userId), isNull(projectSchema.archivedAt)))
+    .orderBy(asc(projectSchema.accountId), ...mostRecentlyUsedFirst(userId));
   for (const membership of searchOrder) {
     const first = oldestPerAccount.find(p => p.accountId === membership.accountId);
     if (first) {
@@ -309,8 +338,8 @@ async function firstHeldWorkspace(userId: string, searchOrder: readonly Membersh
   const oldestFirst = await db
     .select({ id: projectSchema.id, accountId: projectSchema.accountId })
     .from(projectSchema)
-    .where(inArray(projectSchema.id, [...roleById.keys()]))
-    .orderBy(asc(projectSchema.createdAt), asc(projectSchema.id));
+    .where(and(inArray(projectSchema.id, [...roleById.keys()]), isNull(projectSchema.archivedAt)))
+    .orderBy(...mostRecentlyUsedFirst(userId));
   for (const membership of searchOrder) {
     const held = oldestFirst.find(p => p.accountId === membership.accountId);
     const role = held ? roleById.get(held.id) : undefined;

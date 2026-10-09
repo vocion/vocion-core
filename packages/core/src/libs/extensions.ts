@@ -21,18 +21,19 @@
  * | `pages` | `/dashboard/ext/<page>/...` |
  * | `slots` | `<ExtensionSlot>`: `system.actions` (System page title bar), `spend.stats` (spend page figures) |
  * | `orgs.multiOrg` | `services/OrgPolicy.ts`: lifts the single-Org rule |
- * | `orgs.scopeWorkspaceSwitcher` | `projects.list`: the workspace switcher lists the current Org's workspaces only |
  * | `signInProviders` | `libs/identity/signInProviders.ts`: more "Continue with …" ways in, under core's invite-only rules |
  * | `branding.whiteLabel` | `services/branding/OrgBrandService.ts`: drops the "Powered by Vocion" mark from sign-in and the sidebar |
  *
  * Client-side pieces (a component in the sidebar) cannot come from this list,
  * because it imports server code. They come from `@vocion/enterprise/client`
- * through `libs/clientExtensions.ts`; their types are here.
+ * through `libs/clientExtensions.ts`; their types are here. The one client
+ * seam today is `nav.workspacePicker.org`: an Org's group header inside the
+ * one workspace picker (`features/dashboard/nav/WorkspaceSwitcher.tsx`).
  */
 
 import type { ComponentType, ReactNode } from 'react';
 import type { WorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
-import type { WorkspaceSwitcherTargetPath } from '@/features/dashboard/nav/workspaceSwitch';
+import type { SwitcherAccount, WorkspaceSwitcherTargetPath } from '@/features/dashboard/nav/workspaceSwitch';
 import type { SignInProviderDescriptor } from '@/libs/identity/signInProviders';
 import { extensions as built } from '@vocion/enterprise/index';
 
@@ -98,7 +99,11 @@ export type VocionExtension = {
   orgs?: {
     /** True lifts the single-Org rule: several Orgs on the server, a person in several. */
     multiOrg?: () => boolean;
-    /** True makes the workspace switcher list only the current Org's workspaces. */
+    /**
+     * @deprecated Ignored. The one workspace picker lists every Org's
+     * workspaces, grouped by Org; kept so an extension built before that
+     * still compiles.
+     */
     scopeWorkspaceSwitcher?: boolean;
   };
   /**
@@ -118,7 +123,7 @@ export type VocionExtension = {
   };
 };
 
-/** What a component in the sidebar's nav slot receives. */
+/** What a component in the retired `nav.aboveWorkspaceSwitcher` slot received. */
 export type NavSlotProps = {
   /** What the sidebar loaded for its switcher; null while loading. */
   directory: WorkspaceDirectory | null;
@@ -128,13 +133,46 @@ export type NavSlotProps = {
   collapsed: boolean;
 };
 
+/** What an Org's group header inside the one workspace picker receives. */
+export type PickerOrgProps = {
+  /** The Org this header heads. */
+  org: SwitcherAccount;
+  /** Whether it is the Org this session is in. */
+  current: boolean;
+  /** Closes the picker: call it before navigating, or when the pick changes nothing. */
+  close: () => void;
+  /** What the sidebar loaded for the picker. */
+  directory: WorkspaceDirectory;
+  /** The page a switch to a workspace lands on, as the picker computes it. */
+  targetPath: WorkspaceSwitcherTargetPath;
+};
+
+/** Each client-side place an extension can add to, and what its components receive. */
+export type NavSlotPropsByName = {
+  /**
+   * An Org's group header inside the one workspace picker, which lists every
+   * Org's workspaces under its Org on a multi-Org deployment. The first
+   * extension's component draws it; without one, the header is the Org's name.
+   * A header that is a control carries `role="option"`, so the picker's arrow
+   * keys reach it.
+   */
+  'nav.workspacePicker.org': PickerOrgProps;
+  /**
+   * @deprecated No longer rendered. A second switcher above the workspace
+   * picker read as two switchers (founder, 2026-10-08); the Org belongs
+   * inside the picker, as `nav.workspacePicker.org`. Kept so an extension
+   * built before that still compiles.
+   */
+  'nav.aboveWorkspaceSwitcher': NavSlotProps;
+};
+
 /** The client-side places an extension can add to. */
-export type NavSlotName = 'nav.aboveWorkspaceSwitcher';
+export type NavSlotName = keyof NavSlotPropsByName;
 
 /** The client half of an extension, exported by `@vocion/enterprise/client`. */
 export type VocionClientExtension = {
   name: string;
-  navSlots?: Partial<Record<NavSlotName, ComponentType<NavSlotProps>[]>>;
+  navSlots?: { [K in NavSlotName]?: ComponentType<NavSlotPropsByName[K]>[] };
 };
 
 /** Every extension built into this app, in the order the package lists them. Empty without one. */
@@ -188,11 +226,6 @@ export function extensionAllowsMultiOrg(): boolean {
       return false;
     }
   });
-}
-
-/** Whether an extension asks the workspace switcher to list only the current Org's workspaces. */
-export function extensionScopesSwitcherToOrg(): boolean {
-  return extensions().some(e => e.orgs?.scopeWorkspaceSwitcher === true);
 }
 
 /** Every sign-in provider extensions add, in extension order. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardLink, cardShown, describeActionEffect, describeCardState, readRecommendedAction } from './recommendedAction';
+import { cardLink, cardShown, describeActionEffect, describeCardState, readRecommendedAction, subtitleFor } from './recommendedAction';
 
 /**
  * On 2026-09-15 two `client.review.propose` calls 400'd with "Invalid input:
@@ -195,5 +195,19 @@ describe('in-app links on a card', () => {
 
   it('cardShown leaves keys that were not set absent', () => {
     expect(cardShown({})).toEqual({});
+  });
+});
+
+describe('the line under a card\'s title (founder, 2026-10-08: the same sentence twice)', () => {
+  const why = 'The operating intent names this as one of three repositories in the factory scope and states its reliability bar.';
+
+  it('is dropped when the title is that line cut short, or the line itself', () => {
+    expect(subtitleFor('The operating intent names this as one of three repositories in the…', why)).toBeNull();
+    expect(subtitleFor(why, why)).toBeNull();
+  });
+
+  it('stays when it says something the title does not', () => {
+    expect(subtitleFor('Track the Northwind upload service', why)).toBe(why);
+    expect(subtitleFor('Track the Northwind upload service', undefined)).toBeNull();
   });
 });

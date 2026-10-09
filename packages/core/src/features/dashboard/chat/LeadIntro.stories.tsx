@@ -5,11 +5,9 @@ import fr from '@/locales/fr.json';
 import { LeadIntro, NoAgentsYet } from './LeadIntro';
 
 /**
- * A new workspace opens on its lead: who it is, one sentence on what it will
- * do, and three starters — "Set up this workspace with me", "Connect a
- * system", "Start from a template" — each of which sends the lead that ask.
- * It replaced a blank page and "Apply a workspace or add one under Manage →
- * Teams & agents" (2026-10-08).
+ * A new workspace opens on its lead, as lightly as any empty chat: the mark,
+ * the lead's one-line hello, and one soft chip by the composer, "Set up this
+ * workspace →", which starts the setup interview (2026-10-08).
  *
  * Shown at the two rail widths that matter, with the composer's ground under
  * it so the spacing reads true, in English and French; and the rare
@@ -24,7 +22,7 @@ function Pane({ width, locale = 'en', variant = 'intro' }: { width: number; loca
     <NextIntlClientProvider locale={locale} messages={locale === 'fr' ? fr : en}>
       <div style={{ width }} className="flex h-[520px] flex-col overflow-hidden rounded-xl border border-border bg-background">
         {variant === 'intro'
-          ? <LeadIntro leadName="Workspace lead" workspace="Northwind Support" onPick={() => {}} />
+          ? <LeadIntro firstName="Sam" onPick={() => {}} />
           : <NoAgentsYet />}
         {/* Stand-in for the composer, so the gap above it is the real one. */}
         <div className="mx-3 mb-3 h-[52px] shrink-0 rounded-2xl border border-border" aria-hidden />

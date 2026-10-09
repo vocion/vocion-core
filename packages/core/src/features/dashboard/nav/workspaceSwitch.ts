@@ -14,6 +14,8 @@ export type SwitcherProject = {
   name: string;
   description?: string | null;
   agentCount?: number;
+  /** Archived: hidden with the empty ones unless asked for, or unless it is the current one. */
+  archived?: boolean;
 };
 
 /** An Org (`tenant_account`) the person belongs to, as the switcher labels it. */
@@ -21,13 +23,6 @@ export type SwitcherAccount = { id: string; name: string; slug: string };
 
 /** The page a switch to `p` lands on, given the page the person is on. */
 export type WorkspaceSwitcherTargetPath = (p: SwitcherProject, pathname: string) => string;
-
-/**
- * Which workspaces the switcher lists: every one the person can open (`all`,
- * core's own behaviour), or only the current Org's (`org`, when an extension
- * asks — `orgs.scopeWorkspaceSwitcher` in `libs/extensions.ts`).
- */
-export type SwitcherScope = 'all' | 'org';
 
 /** One heading's worth of the switcher list. */
 export type AccountGroup<T extends SwitcherProject> = { account: SwitcherAccount; projects: T[] };
@@ -113,10 +108,11 @@ export function accountLine(workspaceName: string | null | undefined, accountNam
 
 /**
  * A project with no agents is a seed/empty row — hidden unless asked for.
+ * An archived one is hidden the same way: nobody works there now.
  * @param p
  */
 export function isEmptyProject(p: SwitcherProject): boolean {
-  return (p.agentCount ?? 0) === 0;
+  return (p.agentCount ?? 0) === 0 || p.archived === true;
 }
 
 /**
@@ -202,7 +198,8 @@ export function projectAccent(slug: string): string {
 
 /**
  * The workspaces in one Org (`tenant_account`), in the order given. A
- * workspace with no Org on it (a story) stays.
+ * workspace with no Org on it (a story) stays. An extension's Org header
+ * reads it to find where picking that Org lands.
  * @param projects - Every workspace the person can open.
  * @param orgId - The Org's `tenant_account.id` (NOT a code `orgId`, which is a workspace).
  */

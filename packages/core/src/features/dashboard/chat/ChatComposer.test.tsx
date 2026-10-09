@@ -431,9 +431,15 @@ describe('one alignment rule above the box (2026-09-16)', () => {
     const column = form.closest('.max-w-3xl')!;
 
     // One column owns the left edge; no child carries padding of its own.
+    // The stack sits in one unpadded box, which caps its height on a phone.
     expect(column.contains(chip)).toBe(true);
     expect(column.contains(tag)).toBe(true);
-    expect(chip.parentElement).toBe(column);
+
+    const pinned = chip.parentElement!;
+
+    expect(pinned.dataset.testid).toBe('composer-above');
+    expect(pinned.parentElement).toBe(column);
+    expect(getComputedStyle(pinned).paddingLeft).toBe('0px');
   });
 });
 

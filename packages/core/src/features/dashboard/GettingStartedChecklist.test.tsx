@@ -34,6 +34,11 @@ describe('GettingStartedChecklist', () => {
 
     // The mount read lands: one step done.
     await expect.element(page.getByTestId('getting-started-count')).toHaveTextContent('Getting started · 1 of 5');
+    // One slim row; the steps open beneath it only when asked.
+    expect(page.getByTestId('getting-started-app').elements()).toHaveLength(0);
+
+    await page.getByRole('button', { name: /Getting started/ }).click();
+
     await expect.element(page.getByTestId('getting-started-app')).toHaveAttribute('href', '/dashboard/apps');
     // Connecting opens "Connect your systems" docked above the composer.
     await expect.element(page.getByTestId('getting-started-connect')).toHaveAttribute('href', '/dashboard/chat?objective=connect-systems');
@@ -48,8 +53,10 @@ describe('GettingStartedChecklist', () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
-  it('applies only while a step is left', () => {
+  it('applies only while a step is left, and only on a new workspace (never an established one)', () => {
     expect(checklistApplies(none)).toBe(true);
+    expect(checklistApplies({ ...none, fresh: true })).toBe(true);
+    expect(checklistApplies({ ...none, fresh: false })).toBe(false);
     expect(checklistApplies({ ...none, done: 4 })).toBe(true);
     expect(checklistApplies({ ...none, done: 5 })).toBe(false);
     expect(checklistApplies(null)).toBe(false);

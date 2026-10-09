@@ -2,7 +2,7 @@ import type { SwitcherAccount, SwitcherProject } from './workspaceSwitch';
 import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import en from '@/locales/en.json';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
@@ -12,10 +12,11 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 /**
- * The collapsed sidebar shows the switcher as a bare avatar, with no Org
- * line under it, so on a multi-Org deployment its label is the only place the
- * Org can show (vocion-core#128): two "Support" workspaces in two Orgs must
- * not read the same. A single-Org install (the default) never names an Org.
+ * ONE control says where you are (founder, 2026-10-08: "Double switcher").
+ * On a multi-Org deployment it reads "Org › Workspace", so two "Support"
+ * workspaces in two Orgs never read the same (vocion-core#128), and just the
+ * workspace when it shares its Org's name. A single-Org install (the default)
+ * never names an Org.
  */
 
 const ACCOUNTS: SwitcherAccount[] = [
@@ -51,16 +52,10 @@ function renderCollapsed(accounts: SwitcherAccount[], orgsMode: 'single' | 'mult
 }
 
 describe('WorkspaceSwitcher, collapsed', () => {
-  it('names the account next to the workspace when the person is in two', async () => {
+  it('names the Org before the workspace on a multi-Org deployment', async () => {
     await renderCollapsed(ACCOUNTS);
 
-    await expect.element(page.getByRole('button', { name: 'Support · Contoso' })).toBeInTheDocument();
-  });
-
-  it('shows the workspace alone for a person in one account', async () => {
-    await renderCollapsed([ACCOUNTS[1]!]);
-
-    await expect.element(page.getByRole('button', { name: 'Support', exact: true })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Contoso › Support' })).toBeInTheDocument();
   });
 
   it('never names an Org on a single-Org install', async () => {
@@ -75,9 +70,9 @@ describe('WorkspaceSwitcher, collapsed', () => {
  * @param accounts - The accounts the person is in.
  * @param projects - The workspaces it lists.
  * @param orgsMode - The deployment's Org mode.
- * @param scope - Which workspaces to list (`org` when an extension asks).
+ * @param extra - More props (an extension's Org header).
  */
-function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], orgsMode: 'single' | 'multi' = 'multi', scope: 'all' | 'org' = 'all') {
+function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], orgsMode: 'single' | 'multi' = 'multi', extra: Partial<React.ComponentProps<typeof WorkspaceSwitcher>> = {}) {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider>
@@ -88,13 +83,28 @@ function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], or
           activeId="p-contoso-support"
           defaultOpen
           orgsMode={orgsMode}
-          scope={scope}
           navigate={() => {}}
+          {...extra}
         />
       </SidebarProvider>
     </NextIntlClientProvider>,
   );
 }
+
+describe('WorkspaceSwitcher, one Org with a same-name workspace', () => {
+  it('reads as the workspace alone', async () => {
+    const northwind: SwitcherAccount = { id: 'acct-northwind', name: 'Northwind', slug: 'northwind' };
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider>
+          <WorkspaceSwitcher account={northwind} accounts={[northwind]} orgsMode="multi" projects={[{ id: 'p-nw', slug: 'northwind', name: 'Northwind', agentCount: 1, accountId: 'acct-northwind' }]} activeId="p-nw" navigate={() => {}} />
+        </SidebarProvider>
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByTestId('workspace-switcher-where')).toHaveTextContent(/^Northwind$/);
+  });
+});
 
 describe('WorkspaceSwitcher, open', () => {
   const contosoOps: SwitcherProject = { id: 'p-contoso-ops', slug: 'ops', name: 'Ops', agentCount: 1, accountId: 'acct-contoso' };
@@ -115,13 +125,34 @@ describe('WorkspaceSwitcher, open', () => {
     expect(page.getByText('Contoso', { exact: true }).elements()).toHaveLength(0);
   });
 
-  it('lists only the current Org\'s workspaces, ungrouped, when an extension scopes it to the Org', async () => {
-    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps], 'multi', 'org');
+  it('is one control reading "Org › Workspace", and draws an extension\'s Org header inside the one picker', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps], 'multi', {
+      renderOrgHeader: (org, { current }) => <button type="button" role="option" aria-selected={current}>{`Org: ${org.name}`}</button>,
+    });
 
-    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
-    // Contoso's Support and Ops; the other Org's Support is not offered.
-    expect(page.getByRole('option').elements()).toHaveLength(2);
-    expect(page.getByRole('group').elements()).toHaveLength(0);
+    // One switch control, not an Org switcher stacked over a workspace switcher.
+    expect(page.getByRole('button', { name: /switch/i }).elements()).toHaveLength(1);
+    await expect.element(page.getByTestId('workspace-switcher-where')).toHaveTextContent('Contoso›Support');
+    await expect.element(page.getByRole('group', { name: 'Org: Metacto' })).toBeVisible();
+    await expect.element(page.getByRole('group', { name: 'Org: Contoso' }).getByRole('option', { name: /Ops/ })).toBeVisible();
+  });
+
+  it('moves through the picker with the arrow keys, from the search box', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps]);
+
+    await page.getByRole('textbox', { name: 'Search workspaces' }).click();
+    await userEvent.keyboard('{ArrowDown}');
+    const options = page.getByRole('option').elements();
+
+    expect(document.activeElement).toBe(options[0]);
+
+    await userEvent.keyboard('{ArrowDown}');
+
+    expect(document.activeElement).toBe(options[1]);
+
+    await userEvent.keyboard('{End}');
+
+    expect(document.activeElement).toBe(options.at(-1));
   });
 
   it('groups a two-account person\'s workspaces under each account\'s name', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { amountLabel, confidenceLabel, describeActionRun, firstSentence, humaniseField, recordTitle } from './describeActionRun';
+import { amountLabel, confidenceLabel, describeActionRun, humaniseField, recordTitle } from './describeActionRun';
 
 const base = { id: 1, invokedBy: 'agent:revenue-lead' as string | null };
 
@@ -99,17 +99,32 @@ describe('describeActionRun', () => {
     expect(d.subline).toBe('Email draft › recommended by follow-up-coordinator');
   });
 
-  it('unknown action: rationale first sentence, then the action id spelled out; no record', () => {
-    const withRationale = describeActionRun({
+  it('unknown action: the title its payload gives itself, short, then the action spelled out; never the rationale', () => {
+    const rationale = 'The operating intent names this as one of three repositories in the factory scope and states its reliability bar. Filing it keeps the scope honest.';
+    const titled = describeActionRun({
       ...base,
       actionId: 'objects.propose_candidate',
-      input: {},
-      proposal: { rationale: 'Two follow-up events look like the same conference. Merge them.', agentSlug: 'event-debrief-specialist' },
+      input: { objectType: 'request', title: 'Track the Northwind upload service as a factory repository' },
+      proposal: { rationale, agentSlug: 'event-debrief-specialist' },
     });
 
-    expect(withRationale.title).toBe('Two follow-up events look like the same conference.');
-    expect(withRationale.subline).toBe('Objects propose candidate › recommended by event-debrief-specialist');
-    expect(withRationale.record).toBeNull();
+    expect(titled.title).toBe('Track the Northwind upload service as a factory repository');
+    expect(titled.rationale).toBe(rationale);
+    expect(titled.subline).toBe('Objects propose candidate › recommended by event-debrief-specialist');
+    expect(titled.record).toBeNull();
+
+    // Only a rationale: the action spelled out, and the rationale stays the why.
+    const untitled = describeActionRun({ ...base, actionId: 'objects.propose_candidate', input: {}, proposal: { rationale } });
+
+    expect(untitled.title).toBe('Objects propose candidate');
+    expect(untitled.title).not.toContain('operating intent');
+
+    // A long title is cut at a word, at most 70 characters.
+    const long = describeActionRun({ ...base, actionId: 'objects.propose_candidate', input: { title: 'Add the Kestrel Capital quarterly reliability review to the factory scope and keep it there' }, proposal: null });
+
+    expect(long.title.length).toBeLessThanOrEqual(70);
+    expect(long.title.endsWith('…')).toBe(true);
+    expect(long.title).not.toMatch(/\s…$/);
 
     const bare = describeActionRun({ id: 2, actionId: 'qc.flag', input: null, proposal: null, invokedBy: 'token:abc' });
 
@@ -125,10 +140,9 @@ describe('describeActionRun', () => {
 });
 
 describe('labels', () => {
-  it('formats fields, sentences, amounts and confidence for a row', () => {
+  it('formats fields, amounts and confidence for a row', () => {
     expect(humaniseField('hs_next_step')).toBe('Next step');
     expect(humaniseField('custom_field_x')).toBe('Custom field x');
-    expect(firstSentence('First thing. Second thing.')).toBe('First thing.');
     expect(amountLabel(12500, 'USD')).toBe('$12,500');
     expect(amountLabel(null, null)).toBe('—');
     expect(confidenceLabel(0.874)).toBe('87%');

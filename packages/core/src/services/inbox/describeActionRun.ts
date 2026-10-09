@@ -8,10 +8,12 @@
  * the decision sheet and the tests all agree on what an item IS.
  *
  * Every action id gets a describer; anything unknown falls back to the
- * proposal's rationale, then to the action id spelled out.
+ * title its payload gives itself, then to the action id spelled out, never
+ * to its rationale, which is the why under the title.
  */
 
 import { looksLikeManualInput } from '@/libs/actions/manual';
+import { shortTitle } from '@/libs/cards/title';
 
 export type ActionRunLike = {
   id: number;
@@ -135,17 +137,6 @@ export function valueLabel(value: unknown): string {
   }
   const s = typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
-}
-
-/**
- * The first sentence of a paragraph, for a fallback title.
- * @param text
- */
-export function firstSentence(text: string): string {
-  const trimmed = text.trim();
-  const m = trimmed.match(/^(.+?[.!?])(\s|$)/);
-  const s = (m?.[1] ?? trimmed).trim();
-  return s.length > 120 ? `${s.slice(0, 117)}…` : s;
 }
 
 /**
@@ -320,7 +311,7 @@ function describeHandoff(run: ActionRunLike): ActionDescription {
   const actionKind = humaniseActionId(run.actionId);
   const riskClass = str(input.riskClass);
   return {
-    title: str(input.title) || actionKind,
+    title: ownTitle(input) ?? actionKind,
     subline: [actionKind + (riskClass ? ` · ${riskClass}` : ''), 'by hand', agentSlug ? `recommended by ${agentSlug}` : null].filter(Boolean).join(' › '),
     actionKind,
     record: null,
@@ -334,12 +325,29 @@ function describeHandoff(run: ActionRunLike): ActionDescription {
   };
 }
 
+/**
+ * The title a payload gives itself (`title`, then `name`, then `subject`),
+ * cut short — or null when it names nothing.
+ * @param input - The action's input.
+ */
+function ownTitle(input: Record<string, unknown>): string | null {
+  const own = str(input.title) || str(input.name) || str(input.subject);
+  return own ? shortTitle(own) : null;
+}
+
+/**
+ * Any other action: the title its payload gives itself, else the action
+ * spelled out. NEVER the rationale's first sentence: that drew a card titled
+ * with the first 120 characters of a paragraph over the same paragraph
+ * (founder, 2026-10-08). The rationale is the why under the title.
+ * @param run - The run to describe.
+ */
 function describeFallback(run: ActionRunLike): ActionDescription {
   const rationale = str(run.proposal?.rationale);
   const agentSlug = agentOf(run);
   const actionKind = humaniseActionId(run.actionId);
   return {
-    title: rationale ? firstSentence(rationale) : actionKind,
+    title: ownTitle(rec(run.input)) ?? actionKind,
     subline: [actionKind, agentSlug ? `recommended by ${agentSlug}` : null].filter(Boolean).join(' › '),
     actionKind,
     record: null,

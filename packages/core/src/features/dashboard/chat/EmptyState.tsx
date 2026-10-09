@@ -1,145 +1,101 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { useEffect, useState } from 'react';
+import { useOrgBrand } from '@/features/branding/BrandContext';
+import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
+import { greetingFor, isReturning, LAST_SEEN_KEY } from './emptyChat';
 
 /**
- * Empty state — "insert quarter, shoot aliens".
+ * Empty state: a mark and one warm line, and nothing else.
  *
- * The chat home: a small org eyebrow, one greeting headline ("Ask Revenue"
- * on the workspace view; "Ask Founder GTM Lead" once a specific agent/team
- * is picked — the parent shell decides), and a quiet chip cloud. No glyphs,
- * no product copy, no instructional labels — the composer below is the whole
- * invitation. Chips fire `onPick(prompt)` which the parent shell auto-sends.
+ * "Chat should always start with a much warmer intro with very little on the
+ * chat screen. Not jump right to big asks. Maybe a soft nudge or chip. If
+ * that." (founder, 2026-10-08), with the Claude iOS app's empty chat as the
+ * reference: one small mark centred, one short personal line in a serif
+ * face, the composer at the bottom, whitespace everywhere else.
  *
- * Layout (2026-09-15): one left-aligned column pinned to the BOTTOM of the
- * pane, ~28px above the composer. It floated dead-centre in a tall rail
- * before, which put the invitation as far from the box you type in as the
- * geometry allowed. The headline is one size down and one colour — the
- * two-tone "Ask <Workspace>" split the eye between an instruction and a name.
+ * So: the Org's own mark (Vocion's when it has none), and ONE line varied by
+ * the time and by whether the person is coming back ("Good evening, Sam.",
+ * "Welcome back, Sam."). No heading naming the workspace, no starter chips,
+ * no cards, no lists. The one thing that may join it is a soft nudge the
+ * surface passes in, only when something is actually waiting, tucked at the
+ * bottom by the composer rather than in the centre (`emptyChat.ts`).
  *
- * Chips stay quiet and all one height: the top two ranked suggestions show,
- * the rest expand in place behind a ghost "More" at the end of the row. The
- * cloud reserves two pill rows so chips fading in (or the loading shimmer
- * swapping out) never shift the composer.
- *
- * On a short pane (a phone in landscape, a split rail) the headline steps
- * aside and the chips ARE the empty state — they are the actionable half.
+ * The same on a phone and a desktop. The pane scrolls on its own if a very
+ * short screen cannot hold it, and there the mark steps aside.
  */
 
-export type EmptyStateSuggestion = {
-  label: string;
-  prompt: string;
-};
+const DEFAULT_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || VOCION_PRIMARY_MARK;
 
 export type EmptyStateProps = {
-  /** Org eyebrow + the name the headline asks about (workspace or agent). */
-  greeting?: { eyebrow?: string; workspace: string };
-  suggestions?: EmptyStateSuggestion[];
-  /** True while a picked agent's chips are being synthesized server-side. */
-  suggestionsLoading?: boolean;
-  onPick: (prompt: string) => void;
-  /** Optional interactive title (the agent-switcher caret) replacing the plain name. */
-  titleSlot?: ReactNode;
-  /** Disables the suggestion chips — e.g. while the session is still hydrating. */
-  disabled?: boolean;
+  /** The person's first name, for the line. Null or omitted greets without a name. */
+  firstName?: string | null;
+  /** The one soft nudge by the composer (what waits on the person), when there is one. */
+  nudge?: ReactNode;
+  /** The hour the line is for (0–23). Default: the person's clock now. */
+  hour?: number;
+  /** Whether the person is coming back after a while. Default: read from this browser. */
+  returning?: boolean;
+  /** The one line, when the surface has its own (a new workspace's lead saying hello). Default: the time-and-return greeting. */
+  line?: string;
 };
 
+function readReturning(): boolean {
+  try {
+    const last = Number(globalThis.localStorage?.getItem(LAST_SEEN_KEY) ?? '');
+    return isReturning(Number.isFinite(last) && last > 0 ? last : null, Date.now());
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Chips visible before the "More" caret — exactly the two constant-label
- * anchors ("What should I do?" / "What can you do?", per Chris 2026-07-20).
- * The engine ranks them first; everything more specific expands in place.
+ * The mark and the line.
+ * @param props - See {@link EmptyStateProps}.
+ * @param props.firstName - The person's first name.
+ * @param props.nudge - The one soft nudge, when something waits.
+ * @param props.hour - The hour the line is for.
+ * @param props.returning - Whether the person is coming back after a while.
+ * @param props.line - The one line, when the surface has its own.
  */
-const VISIBLE_CHIPS = 2;
-
-/** The cap once "More" is tapped — still two wrapped rows at rail widths. */
-const EXPANDED_CHIPS = 5;
-
-/**
- * Small quiet pill — one height (36px) for every chip, "More" included, so
- * the cloud reads as one row of equals rather than a ragged mix. A hairline
- * and a neutral hover: an amber wash on every hover made a nudge shout.
- * Staggered 150ms fade-in; no layout shift, because the cloud reserves its
- * height.
- */
-const chipClass = 'flex h-9 pointer-coarse:h-10 max-w-full shrink-0 items-center truncate rounded-full border border-border bg-background px-3.5 text-[13px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground animate-in fade-in fill-mode-both duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background disabled:hover:text-muted-foreground';
-
-export function EmptyState({ greeting, suggestions = [], suggestionsLoading = false, onPick, titleSlot, disabled = false }: EmptyStateProps) {
-  const [expanded, setExpanded] = useState(false);
-  const workspace = greeting?.workspace ?? 'your workspace';
-
-  // Two rows of chips is the cap: the cloud is a nudge, not a menu. Expanded
-  // shows the rest up to `EXPANDED_CHIPS`, which still wraps inside two rows
-  // at the widths the rail actually opens at.
-  const visible = expanded ? suggestions.slice(0, EXPANDED_CHIPS) : suggestions.slice(0, VISIBLE_CHIPS);
-  const hiddenCount = suggestions.length - VISIBLE_CHIPS;
+export function EmptyState({ firstName, nudge, hour, returning, line: ownLine }: EmptyStateProps) {
+  const t = useTranslations('Chat');
+  const brand = useOrgBrand();
+  // Read once, before this visit is written, so a return reads as one.
+  const [cameBack] = useState(() => returning ?? readReturning());
+  useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(LAST_SEEN_KEY, String(Date.now()));
+    } catch {
+      // Blocked storage: every visit greets by the time of day, which is fine.
+    }
+  }, []);
+  const line = ownLine ?? greetingFor({ hour: hour ?? new Date().getHours(), returning: cameBack, firstName }, (key, values) => t(key, values));
+  const markLight = brand?.mark.light ?? DEFAULT_MARK;
+  const markDark = brand?.mark.light ? brand.mark.dark : undefined;
 
   return (
-    // Bottom-aligned: the invitation sits just above the box it invites you
-    // to type in, not in the middle of whatever height the rail happens to be.
-    <div className="flex min-h-0 flex-1 flex-col justify-end overflow-y-auto px-4 pb-7 sm:px-6">
-      <div className="mx-auto w-full max-w-md">
-        {/* Short pane: the chips are the empty state. */}
-        <div className="[@media(max-height:560px)]:hidden">
-          {greeting?.eyebrow && (
-            <p className="mb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-              {greeting.eyebrow}
-            </p>
-          )}
-
-          <h2 className="font-display text-xl font-light tracking-tight text-foreground sm:text-2xl">
-            Ask
-            {' '}
-            {titleSlot ?? workspace}
-          </h2>
-        </div>
-
-        {/* Chip cloud — left-aligned wrapping row, one pill row reserved.
-            The block is bottom-anchored now, so a shimmer → chips swap moves
-            the headline, never the composer; reserving two rows only added a
-            dead band between the chips and the box. */}
-        {(suggestionsLoading || suggestions.length > 0) && (
-          <div className="mt-4 flex min-h-9 w-full flex-wrap content-start items-start gap-2">
-            {suggestionsLoading
-              ? (
-                  <>
-                    <div className="h-9 w-44 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
-                    <div className="h-9 w-32 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
-                  </>
-                )
-              : (
-                  <>
-                    {visible.map((s, i) => (
-                      <button
-                        key={s.prompt}
-                        type="button"
-                        onClick={() => onPick(s.prompt)}
-                        disabled={disabled}
-                        style={{ animationDelay: `${i * 40}ms` }}
-                        className={chipClass}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                    {hiddenCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setExpanded(e => !e)}
-                        aria-label={expanded ? 'Show fewer suggestions' : `Show ${hiddenCount} more suggestions`}
-                        className="flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-[13px] text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground pointer-coarse:h-10"
-                      >
-                        {expanded ? 'Less' : 'More'}
-                        {expanded
-                          ? <ChevronUp className="size-3.5" aria-hidden="true" />
-                          : <ChevronDown className="size-3.5" aria-hidden="true" />}
-                      </button>
-                    )}
-                  </>
-                )}
-          </div>
+    <div data-testid="chat-empty-state" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 sm:px-6">
+      <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+        {/* eslint-disable-next-line next/no-img-element */}
+        <img src={markLight} alt="" aria-hidden data-testid="chat-empty-mark" className={`size-9 select-none [@media(max-height:480px)]:hidden ${markDark ? 'dark:hidden' : ''}`} draggable={false} />
+        {markDark && (
+          // eslint-disable-next-line next/no-img-element
+          <img src={markDark} alt="" aria-hidden className="hidden size-9 select-none dark:block [@media(max-height:480px)]:hidden" draggable={false} />
         )}
+        {/* The time and the return are the person's clock and browser, which the server does not know. */}
+        <h2
+          className="mt-4 text-[1.75rem] leading-tight font-normal tracking-tight text-foreground/90 sm:text-[2rem]"
+          style={{ fontFamily: 'var(--font-source-serif-4), Georgia, "Times New Roman", serif' }}
+          data-testid="chat-greeting"
+          suppressHydrationWarning
+        >
+          {line}
+        </h2>
       </div>
+      {nudge && <div className="flex shrink-0 justify-center pb-3">{nudge}</div>}
     </div>
   );
 }

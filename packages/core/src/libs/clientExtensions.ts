@@ -5,7 +5,7 @@
  */
 
 import type { ComponentType } from 'react';
-import type { NavSlotName, NavSlotProps, VocionClientExtension } from '@/libs/extensions';
+import type { NavSlotName, NavSlotPropsByName, VocionClientExtension } from '@/libs/extensions';
 import { clientExtensions as built } from '@vocion/enterprise/client';
 
 /** Every client extension, in the order the package lists them. Empty without one. */
@@ -17,6 +17,6 @@ export function clientExtensions(): readonly VocionClientExtension[] {
  * The components extensions put in one sidebar slot, in extension order.
  * @param name - The slot.
  */
-export function navSlotComponents(name: NavSlotName): ComponentType<NavSlotProps>[] {
-  return clientExtensions().flatMap(e => e.navSlots?.[name] ?? []);
+export function navSlotComponents<K extends NavSlotName>(name: K): ComponentType<NavSlotPropsByName[K]>[] {
+  return clientExtensions().flatMap(e => (e.navSlots?.[name] ?? []) as ComponentType<NavSlotPropsByName[K]>[]);
 }

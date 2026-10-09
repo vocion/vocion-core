@@ -164,3 +164,19 @@ describe('a card links to the record it is about', () => {
     expect(document.querySelector('[data-testid="recommended-action-state"]')).toBeNull();
   });
 });
+
+describe('a card\'s copy (founder, 2026-10-08)', () => {
+  it('reads a short title, never says it twice, and shows no raw confidence', async () => {
+    actionStatus.mockResolvedValue({ id: 51, status: 'pending' });
+    const why = 'The operating intent names this as one of three repositories in the factory scope and states its reliability bar, so it belongs on the board.';
+    await render(<TooltipProvider><RecommendedActionCard rec={{ ...rec, actionId: 'objects.propose_candidate', runId: 51, label: why, rationale: why, confidence: 0.72 }} /></TooltipProvider>);
+
+    const card = page.getByTestId('recommended-action-card');
+
+    await expect.element(card).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('72%');
+    // The title is cut at a word, and the rationale it was cut from is not drawn under it.
+    expect(page.getByTestId('recommended-action-why').elements()).toHaveLength(0);
+    expect(card.element().textContent).not.toContain('belongs on the board');
+  });
+});

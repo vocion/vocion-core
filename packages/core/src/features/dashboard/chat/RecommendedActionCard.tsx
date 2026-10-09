@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { alreadySettled, useSingleFlight } from '@/features/review/decideOnce';
 import { ResultLinks } from '@/features/review/ResultLinks';
 import { cardDedupKey } from '@/libs/actions/cardDedupKey';
+import { shortTitle } from '@/libs/cards/title';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
@@ -18,7 +19,7 @@ import { useRecordCardDecision } from './cards/CardDecisions';
 import { isSetupCard, SetupCard } from './cards/SetupCard';
 import { ConnectLinkCard, isConnectLinkCard } from './ConnectLinkCard';
 import { DEFER_DAYS, deferredLine, deferUntil } from './deferral';
-import { describeActionEffect, describeCardState } from './recommendedAction';
+import { describeActionEffect, describeCardState, subtitleFor } from './recommendedAction';
 import { answerInput, rulingChoices } from './rulingChoices';
 import { TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
@@ -338,7 +339,6 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
     }
   }, [rec.runId, phase.runId]);
 
-  const pct = rec.confidence !== undefined ? Math.round(rec.confidence * 100) : null;
   const isEmail = rec.actionId === 'gmail.send';
   const to = str(rec.input.to);
   const subject = str(rec.input.subject);
@@ -441,7 +441,10 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
   // and "Waiting on you" rows go — the buttons say both. Once chosen, the
   // state line comes back: "You chose X · Undo".
   const pendingRuling = Boolean(choices) && canApprove && !draft && !deferredUntil && (status === null || status === 'pending');
-  const title = choices ? str(rec.input.title).trim() || rec.label : rec.label;
+  // A short action, and a line under it only when that line says something
+  // the title does not. Confidence is the review detail's, not the card's.
+  const title = shortTitle(choices ? str(rec.input.title).trim() || rec.label : rec.label);
+  const why = subtitleFor(title, rec.rationale);
   const reviewHref = phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal';
   const decideInReviewIcon = (
     <Tooltip>
@@ -473,7 +476,7 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
 
   return (
     <div data-testid="recommended-action-card" data-run-status={status ?? undefined} data-draft={draft ? 'needed' : undefined} className={`mt-2.5 flex flex-col overflow-hidden rounded-xl border bg-card ${done ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border'}`}>
-      {/* Header — compact: label + confidence, rationale clamped */}
+      {/* Header — compact: a short title, its why clamped */}
       <div className="flex items-start gap-2 px-3 pt-2.5">
         <span className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full ${done ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-brand-amber-tint text-brand-amber-deep'}`}>
           {done ? <Check className="size-3.5" aria-hidden /> : isEmail ? <Mail className="size-3.5" aria-hidden /> : <Sparkles className="size-3.5" aria-hidden />}
@@ -484,27 +487,8 @@ function ActionCard({ rec, canApprove = true, onProposed }: CardProps) {
               ? <Link href={rec.href} className="hover:underline" data-testid="recommended-action-title-link">{title}</Link>
               : title}
           </div>
-          {rec.rationale && <p className={`mt-0.5 ${pendingRuling ? 'line-clamp-1' : 'line-clamp-2'} text-xs break-words text-muted-foreground`} data-testid="recommended-action-why">{rec.rationale}</p>}
+          {why && <p className={`mt-0.5 ${pendingRuling ? 'line-clamp-1' : 'line-clamp-2'} text-xs break-words text-muted-foreground`} data-testid="recommended-action-why">{why}</p>}
         </div>
-        {pct !== null && !pendingRuling && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                  pct >= 85
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : pct >= 60
-                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                      : 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
-                }`}
-              >
-                {pct}
-                %
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Agent confidence from grounding</TooltipContent>
-          </Tooltip>
-        )}
       </div>
 
       {/* Draft preview — one compact block: to→subject line + 2-line body */}

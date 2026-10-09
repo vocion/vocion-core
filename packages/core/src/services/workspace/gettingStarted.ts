@@ -23,7 +23,21 @@ import { and, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { connectorOfSource } from '@/libs/sources/connectorOf';
 import { WORKSPACE_LEAD_SLUG } from '@/libs/workspace/workspaceLead';
-import { accountMembershipSchema, agentSchema, inviteSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
+import { accountMembershipSchema, agentSchema, conversationSchema, inviteSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
+
+/** How long a workspace counts as new. */
+export const FRESH_DAYS = 14;
+
+/**
+ * Whether a workspace is new enough to be shown how to get started.
+ * @param input - What the workspace has.
+ * @param input.createdAt - When it was created.
+ * @param input.hasActivity - It has a conversation in it.
+ * @param input.now - Now.
+ */
+export function isFreshWorkspace(input: { createdAt: Date; hasActivity: boolean; now: Date }): boolean {
+  return !input.hasActivity || input.now.getTime() - input.createdAt.getTime() < FRESH_DAYS * 24 * 60 * 60 * 1000;
+}
 
 export const GETTING_STARTED_STEPS = ['connect', 'app', 'hire', 'invite', 'brand'] as const;
 export type GettingStartedStep = (typeof GETTING_STARTED_STEPS)[number];
@@ -35,6 +49,13 @@ export type GettingStarted = {
   done: number;
   /** How many there are. */
   total: number;
+  /**
+   * A NEW workspace: created in the last {@link FRESH_DAYS} days, or with no
+   * conversation in it yet. Only a new one shows the sidebar's Getting started
+   * row; an established workspace never does, whatever is left undone
+   * (founder, 2026-10-08, on Metacto's drawer).
+   */
+  fresh: boolean;
   /** What is behind each, for the lead to read: connected connector slugs, plugins on, agents hired, people in the account. */
   detail: { connected: string[]; plugins: string[]; agents: string[]; members: number; invites: number };
 };
@@ -60,14 +81,14 @@ export async function connectedConnectors(orgId: string): Promise<string[]> {
  */
 export async function gettingStartedFor(orgId: string): Promise<GettingStarted | null> {
   const [project] = await db
-    .select({ kind: projectSchema.kind, accountId: projectSchema.accountId, enabledPlugins: projectSchema.enabledPlugins })
+    .select({ kind: projectSchema.kind, accountId: projectSchema.accountId, enabledPlugins: projectSchema.enabledPlugins, createdAt: projectSchema.createdAt })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
   if (!project || project.kind === 'personal') {
     return null;
   }
-  const [connected, agents, [members], [invites], [org]] = await Promise.all([
+  const [connected, agents, [members], [invites], [org], [activity]] = await Promise.all([
     connectedConnectors(orgId),
     db
       .select({ slug: agentSchema.slug })
@@ -85,6 +106,11 @@ export async function gettingStartedFor(orgId: string): Promise<GettingStarted |
       .select({ branded: sql<boolean>`${tenantAccountSchema.brand} is not null` })
       .from(tenantAccountSchema)
       .where(eq(tenantAccountSchema.id, project.accountId)),
+    db
+      .select({ id: conversationSchema.id })
+      .from(conversationSchema)
+      .where(eq(conversationSchema.projectId, orgId))
+      .limit(1),
   ]);
   const plugins = project.enabledPlugins ?? [];
   const memberCount = Number(members?.n ?? 0);
@@ -101,6 +127,7 @@ export async function gettingStartedFor(orgId: string): Promise<GettingStarted |
     steps,
     done: steps.filter(s => s.done).length,
     total: steps.length,
+    fresh: isFreshWorkspace({ createdAt: project.createdAt, hasActivity: activity !== undefined, now: new Date() }),
     detail: { connected, plugins, agents: agents.map(a => a.slug), members: memberCount, invites: inviteCount },
   };
 }

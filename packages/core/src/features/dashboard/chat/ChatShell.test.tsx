@@ -85,13 +85,14 @@ beforeEach(() => {
 });
 
 describe('ChatShell', () => {
-  it('names the workspace on the empty state once boot settles, never the agent (§9.10)', async () => {
-    // The surface has one identity and it is the workspace: the greeting is
-    // "Ask <workspace>", and the lead agent that actually answers is not
-    // named anywhere on the page. This test used to assert the opposite.
+  it('opens on one warm line once boot settles: no "Ask <workspace>" heading, never the agent (§9.10)', async () => {
+    // The surface has one identity and it is the workspace, which says hello
+    // without naming itself or the lead agent that actually answers (founder,
+    // 2026-10-08: no "ASK NOCO" heading).
     await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} />));
 
-    await expect.element(page.getByText('GTM Workspace').first()).toBeInTheDocument();
+    await expect.element(page.getByTestId('chat-greeting')).toBeInTheDocument();
+    expect(page.getByText(/Ask GTM Workspace/).elements()).toHaveLength(0);
     expect(page.getByText('GTM Orchestrator').elements()).toHaveLength(0);
   });
 
@@ -109,26 +110,30 @@ describe('ChatShell', () => {
     expect(page.getByRole('menuitem', { name: /Pipeline Analyst/ }).elements()).toHaveLength(0);
   });
 
-  it('draws what waits in the review queue as cards above the composer, with Approve on each (Jamie, 2026-10-07)', async () => {
-    // A proposal filed outside this thread — a sweep, a mission — used to
-    // live only on the queue page. It is the same run here: Approve on the
-    // card is `review.decideAction` on it.
+  it('starts warm: what waits in the review queue is one soft chip to Review, never cards (founder, 2026-10-08)', async () => {
+    // Jamie's waiting proposals (2026-10-07) opened every new chat as a big
+    // card carousel the founder could not scroll past on a phone. An empty
+    // conversation now says how many, once, and Review holds the cards.
     const waiting = {
       cards: [{ id: 'run:7763', kind: 'action', state: 'filed' as const, runId: 7763, actionId: 'objects.propose_candidate', input: { objectType: 'product', title: 'Northwind Traders' }, label: 'Create product: Northwind Traders', agentSlug: 'product-manager' }],
       more: 2,
     };
-    await render(wrap(<ChatShell agents={AGENTS} pendingDecisions={waiting} />));
+    await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} pendingDecisions={waiting} />));
 
-    const block = page.getByTestId('waiting-on-you');
+    await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/^(Good (morning|afternoon|evening)|Welcome back)\.$/);
 
-    await expect.element(block).toBeInTheDocument();
-    await expect.element(block.getByText('Create product: Northwind Traders')).toBeInTheDocument();
-    await expect.element(block.getByRole('button', { name: 'Approve' })).toBeVisible();
-    await expect.element(block.getByRole('link', { name: '2 more in the review queue' })).toHaveAttribute('href', '/dashboard/inbox');
+    const nudge = page.getByTestId('waiting-nudge');
 
-    await block.getByRole('button', { name: 'Approve' }).click();
+    await expect.element(nudge.getByRole('link', { name: '3 things waiting on you' })).toHaveAttribute('href', '/dashboard/inbox');
+    expect(page.getByTestId('waiting-on-you').elements()).toHaveLength(0);
+    expect(page.getByTestId('recommended-action-card').elements()).toHaveLength(0);
+    expect(page.getByText('Create product: Northwind Traders').elements()).toHaveLength(0);
 
-    expect(vi.mocked(client.review.decideAction).mock.calls[0]![0]).toMatchObject({ id: 7763, decision: 'approve' });
+    // Dismissible: gone for this browser session.
+    await nudge.getByRole('button', { name: 'Not now' }).click();
+
+    expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
+    expect(sessionStorage.getItem('vocion:waiting-nudge-dismissed')).toBe('1');
   });
 
   it('draws nothing for an empty queue', async () => {
@@ -136,6 +141,7 @@ describe('ChatShell', () => {
 
     await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
     expect(page.getByTestId('waiting-on-you').elements()).toHaveLength(0);
+    expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
   });
 
   it('shows an empty state instead of crashing when there are no agents', async () => {
@@ -162,20 +168,20 @@ describe('ChatShell', () => {
     });
     vi.mocked(client.chatWidget.getState).mockReturnValue(getStatePromise as never);
 
-    await render(wrap(<ChatShell agents={AGENTS} suggestions={[{ label: 'Try this', prompt: 'Do the thing' }]} />));
+    await render(wrap(<ChatShell agents={AGENTS} />));
 
     // Boot is still in flight — the skeleton stands in for the transcript, so
-    // there are no suggestion chips to click yet, and Send is not armed, so a
+    // there is no greeting yet, and Send is not armed, so a
     // message can't be sent (and then silently discarded when the restored
     // transcript lands). The BOX itself never locks (2026-09-15): people type
     // their thought while the app catches up.
     await expect.element(page.getByPlaceholder('Ask anything…')).not.toBeDisabled();
     await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
-    expect(page.getByRole('button', { name: 'Try this' }).elements()).toHaveLength(0);
+    expect(page.getByTestId('chat-greeting').elements()).toHaveLength(0);
 
     resolveGetState(null);
 
-    await expect.element(page.getByRole('button', { name: 'Try this' })).not.toBeDisabled();
+    await expect.element(page.getByTestId('chat-greeting')).toBeInTheDocument();
   });
 
   it('keeps the workspace crumb for a new chat, and names the page by its thread once there is one', async () => {
