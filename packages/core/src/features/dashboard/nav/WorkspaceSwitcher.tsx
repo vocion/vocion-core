@@ -287,14 +287,16 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
             {loading
               ? <span className="block h-3.5 w-28 animate-pulse rounded bg-muted" />
               : (
-                  <span className="block truncate text-[13px] leading-tight">
+                  // The Org gives way first: in a narrow column "Nor… › Support"
+                  // still says where you are; "Northwind ›…" did not.
+                  <span className="flex min-w-0 items-baseline overflow-hidden text-[13px] leading-tight">
                     {orgLine && (
                       <>
-                        <span className="text-muted-foreground">{orgLine}</span>
-                        <span className="mx-1 text-muted-foreground/60" aria-hidden>›</span>
+                        <span className="min-w-[2ch] shrink truncate text-muted-foreground">{orgLine}</span>
+                        <span className="mx-1 shrink-0 text-muted-foreground/60" aria-hidden>›</span>
                       </>
                     )}
-                    <span className="font-medium text-foreground">{name}</span>
+                    <span className="max-w-full min-w-0 shrink-0 truncate font-medium text-foreground">{name}</span>
                   </span>
                 )}
           </span>

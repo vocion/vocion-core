@@ -120,7 +120,7 @@ export function GettingStartedChecklist({ initial, onDismiss, live = true }: Get
           aria-controls="getting-started-steps"
           className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
         >
-          <span className="relative h-1 w-8 shrink-0 overflow-hidden rounded-full bg-surface-soft" aria-hidden>
+          <span className="relative h-1 w-4 shrink-0 overflow-hidden rounded-full bg-surface-soft" aria-hidden>
             <span className="absolute inset-y-0 left-0 rounded-full bg-action" style={{ width: `${pct}%` }} />
           </span>
           <span className="truncate" data-testid="getting-started-count">{t('checklist_title', { done: state.done, total: state.total })}</span>
