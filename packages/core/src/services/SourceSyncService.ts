@@ -43,7 +43,7 @@ import { getProcessor, listProcessorSlugs } from '@/libs/processors/registry';
 import { DEFAULT_RUNS_ON, MAX_PROCESSOR_ATTEMPTS } from '@/libs/processors/types';
 import { processorRefOf } from '@/libs/sources/processor';
 import { getConnector } from '@/libs/sources/registry';
-import { DEFAULT_CRAWL_POLITENESS } from '@/libs/sources/robots';
+import { crawlPoliteness } from '@/libs/sources/robots';
 import { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import { BudgetExceededError } from '@/services/BudgetService';
 import {
@@ -1159,7 +1159,7 @@ export async function runSync(opts: {
       credentials,
       since,
       cursor,
-      politeness: DEFAULT_CRAWL_POLITENESS,
+      politeness: crawlPoliteness(),
       onProgress: (e) => {
         // Errors the connector reports while fetching, counted alongside the
         // ones ingestion reports. Both end up in the same total.
