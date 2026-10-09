@@ -49,6 +49,11 @@ export function DetailPage(props: {
   'data-testid'?: string;
 }) {
   const { title, crumbs } = props;
+  // Where the top bar carries the trail, these are for a phone, under which
+  // the H1 already names the record: a last crumb the title already says is
+  // dropped rather than read twice.
+  const leaf = crumbs.at(-1)?.label;
+  const shown = props.crumbsInShell && leaf && crumbs.length > 1 && title.includes(leaf) ? crumbs.slice(0, -1) : crumbs;
   const section = crumbs.length >= 2 ? crumbs[crumbs.length - 2]!.label : undefined;
   useEffect(() => {
     const prev = document.title;
@@ -64,12 +69,12 @@ export function DetailPage(props: {
     <div data-pattern="detail-page" data-testid={props['data-testid']} className={cn('@container relative flex flex-col', props.className)}>
       <header className="border-b border-rule pb-5" data-pattern="detail-header">
         <nav aria-label="Breadcrumb" data-in-shell={props.crumbsInShell ? 'true' : undefined} className={cn('flex min-w-0 flex-wrap items-center gap-1 text-[12px] text-muted-foreground', props.crumbsInShell && 'sm:hidden')}>
-          {crumbs.map((c, i) => (
+          {shown.map((c, i) => (
             <span key={`${c.href ?? ''}|${c.label}`} className="flex min-w-0 items-center gap-1">
               {i > 0 && <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" aria-hidden />}
               {c.href
                 ? <Link href={c.href} className="truncate transition hover:text-foreground">{c.label}</Link>
-                : <span className={cn('truncate', i === crumbs.length - 1 && 'text-foreground/80')}>{c.label}</span>}
+                : <span className={cn('truncate', i === shown.length - 1 && 'text-foreground/80')}>{c.label}</span>}
             </span>
           ))}
         </nav>
