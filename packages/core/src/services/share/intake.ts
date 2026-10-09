@@ -7,7 +7,7 @@
  * content-addressed store (design principle 7, one noun). What differs from
  * the chat composer is the intake rule:
  *
- *   - images, PDFs and text files follow `acceptUpload` exactly, so anything
+ *   - images, PDFs, Office files and text files follow `acceptUpload` exactly, so anything
  *     shared can ride into a chat turn as a chip;
  *   - videos are accepted too. No model in the fleet reads a video, so a
  *     video is kept as a workspace file and named in the seeded chat prompt
@@ -76,7 +76,7 @@ export function acceptShare(file: { name: string; type: string; size: number }):
   }
   const verdict = acceptUpload(file);
   if (!verdict.ok) {
-    return { ok: false, reason: verdict.reason.replace('can be attached', 'and videos (MP4, MOV) can be shared') };
+    return { ok: false, reason: verdict.reason };
   }
   return { ok: true, accepted: verdict.accepted };
 }

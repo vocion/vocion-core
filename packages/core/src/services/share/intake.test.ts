@@ -42,11 +42,11 @@ describe('acceptShare', () => {
     expect(acceptShare({ name: 'huge.jpg', type: 'image/jpeg', size: 6 * MB }).ok).toBe(false);
   });
 
-  it('names videos in the refusal for a type it cannot keep', () => {
+  it('refuses a type it cannot keep in one plain line, with the move that works', () => {
     const r = acceptShare({ name: 'photo.heic', type: 'image/heic', size: MB });
 
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.reason).toContain('videos (MP4, MOV) can be shared');
+    expect(!r.ok && r.reason).toBe('Vocion can\'t read .heic files yet. Export it as JPEG or PNG.');
   });
 });
 

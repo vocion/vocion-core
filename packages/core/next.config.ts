@@ -78,7 +78,11 @@ const baseConfig: NextConfig = {
   // DBOS and PGlite ship data files and native-ish loaders that break when
   // bundled; externalizing keeps them real node_modules dependencies, which
   // `output: standalone` traces into the runtime image.
-  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse'],
+  // The attachment readers (services/chat/convert.ts) are external for the
+  // build's sake: SheetJS alone is ~7 MB of JavaScript, and compiling it into
+  // every route that reaches the upload or the agent's tools would cost
+  // build memory for code that runs only when a file arrives (#1300).
+  serverExternalPackages: ['@dbos-inc/dbos-sdk', '@electric-sql/pglite', 'playwright', 'playwright-core', 'pdf-parse', 'xlsx', 'fflate', 'postal-mime', '@kenjiuno/msgreader'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   experimental: {
     // `next build` starts one worker per CPU, less one, to collect page data

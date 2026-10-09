@@ -1,7 +1,7 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, DecisionAnswerReceipt, IndexedDocument, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnEffort, TurnModel } from './types';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, DecisionAnswerReceipt, IndexedDocument, PendingUpload, RecommendedAction, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnEffort, TurnModel } from './types';
 import type { VersionWritten } from '@/features/dashboard/versions/versionEvents';
 import type { ConversationTitleSource } from '@/libs/chat/threadTitle';
 import type { DecisionAnswer, DecisionView } from '@/libs/decisions/decision';
@@ -18,6 +18,7 @@ import { announceVersionWritten } from '@/features/dashboard/versions/versionEve
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
+import { MAX_ATTACHMENTS, refusalFor } from '@/libs/chat/attachmentFormats';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { linkRecordMentions } from '@/libs/chat/recordMentions';
 import { firstMessageTitle } from '@/libs/chat/threadTitle';
@@ -27,7 +28,7 @@ import { answerLine, decisionAnswerWire, decisionKey } from '@/libs/decisions/de
 import { readDoneReceipt } from '@/libs/decisions/receipt';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
-import { uploadAttachments } from './attachmentUpload';
+import { shrinkImage, uploadAttachments } from './attachmentUpload';
 import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
@@ -380,10 +381,20 @@ export function useChatSession({
   // (032 §2.1 rule 5). Travels with the next message, then clears.
   const [pastedText, setPastedText] = useState<string | null>(null);
   // Files attached to the next message — already uploaded, already artifacts;
-  // these are the chips. `uploading` counts the batches still in flight so the
-  // composer can show it and hold Send until they land.
+  // these are the chips. `pendingUploads` are the ones still going up, each a
+  // chip with a progress bar; Send waits for them to land.
   const [attachments, setAttachments] = useState<ChatAttachment[]>(initialAttachments ?? []);
-  const [uploading, setUploading] = useState(0);
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  // Keys the person dismissed (×) while their batch was still going up.
+  const dismissedUploadsRef = useRef(new Set<string>());
+  const uploadBatchesRef = useRef(new Map<string, { keys: string[]; abort: AbortController }>());
+  const uploading = pendingUploads.length;
+  // Read by `attachFiles` to keep a message under the file cap without
+  // re-creating the callback on every chip.
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const pendingRef = useRef(pendingUploads);
+  pendingRef.current = pendingUploads;
   const [attachError, setAttachError] = useState<string | null>(null);
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   // The Decisions this conversation is waiting on, oldest first — the first
@@ -1779,29 +1790,89 @@ export function useChatSession({
    * failure too. Nothing here waits for the turn — the person keeps typing.
    */
   const attachFiles = useCallback(async (files: File[]) => {
-    const picked = files.filter(f => f.size > 0);
-    if (picked.length === 0) {
+    // Checked here first, with the server's own rule and words, so a file
+    // that cannot come along is said at once instead of after its upload.
+    const refusedHere: string[] = [];
+    const room = MAX_ATTACHMENTS - attachmentsRef.current.length - pendingRef.current.length;
+    const accepted: File[] = [];
+    for (const f of files) {
+      const why = refusalFor(f);
+      if (why) {
+        refusedHere.push(why);
+      } else if (accepted.length >= room) {
+        refusedHere.push(`A message can carry up to ${MAX_ATTACHMENTS} files; ${f.name} was left off.`);
+      } else {
+        accepted.push(f);
+      }
+    }
+    setAttachError(refusedHere.length > 0 ? refusedHere.join(' ') : null);
+    if (accepted.length === 0) {
       return;
     }
-    setUploading(n => n + 1);
-    setAttachError(null);
+    const picked = await Promise.all(accepted.map(shrinkImage));
+    const batchKey = `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    const keys = picked.map((_, i) => `${batchKey}-${i}`);
+    const abort = new AbortController();
+    uploadBatchesRef.current.set(batchKey, { keys, abort });
+    setPendingUploads(prev => [...prev, ...picked.map((f, i) => ({ key: keys[i]!, name: f.name, bytes: f.size, progress: 0 }))]);
+    // One request per batch (uploads count against the chat rate limit), so
+    // each chip's bar is its share of the bytes sent: files go up in order.
+    const ends = picked.reduce<number[]>((acc, f) => [...acc, (acc.at(-1) ?? 0) + f.size], []);
+    const starts = [0, ...ends.slice(0, -1)];
+    const onProgress = (sent: number, total: number) => {
+      const scale = ends.at(-1)! / Math.max(1, total);
+      const at = sent * scale;
+      setPendingUploads(prev => prev.map((p) => {
+        const i = keys.indexOf(p.key);
+        return i < 0 ? p : { ...p, progress: Math.max(0, Math.min(1, (at - starts[i]!) / Math.max(1, picked[i]!.size))) };
+      }));
+    };
     try {
-      const { attachments: added, refused } = await uploadAttachments(picked, conversationIdRef.current);
-      if (added.length > 0) {
-        setAttachments(prev => [...prev, ...added.filter(a => !prev.some(p => p.id === a.id))]);
+      const { attachments: added, refused } = await uploadAttachments(picked, conversationIdRef.current, { onProgress, signal: abort.signal });
+      // A chip dismissed mid-upload stays dismissed: its file is kept as the
+      // person's artifact, like any removed chip, but not attached.
+      const dismissed = new Set(keys.filter(k => dismissedUploadsRef.current.has(k)).map(k => picked[keys.indexOf(k)]!.name));
+      const kept = added.filter(a => !dismissed.has(a.title));
+      if (kept.length > 0) {
+        setAttachments(prev => [...prev, ...kept.filter(a => !prev.some(p => p.id === a.id))]);
       }
       if (refused.length > 0) {
-        setAttachError(refused.join(' '));
+        setAttachError(prev => [prev, ...refused].filter(Boolean).join(' '));
       }
     } catch (err) {
-      setAttachError((err as Error).message || 'The upload failed.');
+      if ((err as Error).name !== 'AbortError') {
+        setAttachError((err as Error).message || 'The upload failed. Try again.');
+      }
     } finally {
-      setUploading(n => Math.max(0, n - 1));
+      uploadBatchesRef.current.delete(batchKey);
+      for (const k of keys) {
+        dismissedUploadsRef.current.delete(k);
+      }
+      setPendingUploads(prev => prev.filter(p => !keys.includes(p.key)));
     }
   }, []);
 
   const removeAttachment = useCallback((id: number) => {
     setAttachments(prev => prev.filter(a => a.id !== id));
+  }, []);
+
+  /**
+   * × on a chip still going up. The last file of its batch cancels the
+   * request outright; otherwise the chip goes now and its file is left off
+   * when the batch lands.
+   */
+  const cancelUpload = useCallback((key: string) => {
+    for (const [batch, entry] of uploadBatchesRef.current) {
+      if (!entry.keys.includes(key)) {
+        continue;
+      }
+      dismissedUploadsRef.current.add(key);
+      if (entry.keys.every(k => dismissedUploadsRef.current.has(k))) {
+        entry.abort.abort();
+        uploadBatchesRef.current.delete(batch);
+      }
+    }
+    setPendingUploads(prev => prev.filter(p => p.key !== key));
   }, []);
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
@@ -2286,8 +2357,11 @@ export function useChatSession({
     setPastedText,
     /** Files attached to the next message — uploaded, chips showing. */
     attachments,
-    /** Upload batches in flight. */
+    /** Files still going up. */
     uploading,
+    /** The chips with progress bars, one per file still going up. */
+    pendingUploads,
+    cancelUpload,
     /** Why the last attach did not fully land, for the line above the box. */
     attachError,
     clearAttachError: () => setAttachError(null),

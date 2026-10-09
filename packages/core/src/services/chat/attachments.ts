@@ -1,32 +1,39 @@
 /**
- * Files a person puts into a chat turn — an image, a PDF, a text file.
+ * Files a person puts into a chat turn — an image, a PDF, an Office file, an
+ * email, a text file.
  *
  * One noun, no new store (design principle 7): an upload is an ARTIFACT of
  * kind `file`, authored by a human, saved by the same content-addressed
  * store the agent's own files use and served by the same authenticated
  * route. What this module adds is the part that is specific to a turn:
  *
- *   - which files are accepted, and how big (`acceptUpload`);
+ *   - which files are accepted, and how big (`acceptUpload`, with the formats
+ *     and the plain-language refusals in `libs/chat/attachmentFormats.ts`);
  *   - what the model receives (`composeUserContent`): an image travels as an
- *     image block; a PDF or text file travels as its TEXT, extracted once at
- *     upload and stored on the artifact's spec, inlined under the message
- *     with the filename on it. Text, not a document block, because the
- *     workspace's agents run on three vendors and text is the one shape all
- *     of them read the same way;
+ *     image block; every other file travels as TEXT, converted once at upload
+ *     (`./convert.ts`) and stored on the artifact's spec, inlined under the
+ *     message with the filename on it. A spreadsheet is summarised — columns,
+ *     row count, first rows — and the header names the file's id, which
+ *     `read_attachment` takes to read, filter or count every row of the
+ *     stored original. Text, not a document block, because the workspace's
+ *     agents run on three vendors and text is the one shape all of them read
+ *     the same way;
  *   - how a later turn knows the file was there (`historyMarker`): the
  *     persisted user message stays the words the person typed, and the
- *     history replay appends `[Attached: report.pdf]` so the agent knows to
- *     ask rather than guess. The full text is not replayed — it would swamp
- *     the context on every later turn for a file read once.
+ *     history replay appends `[Attached: report.pdf (file #12)]` so the agent
+ *     can read it again rather than guess. The full text is not replayed — it
+ *     would swamp the context on every later turn for a file read once.
  *
  * Nothing here decides anything the model should: a file is inlined whole up
  * to a cap, and past the cap the text says it was cut and by how much.
  */
 
 import type { Buffer } from 'node:buffer';
+import type { Conversion } from './convert';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { ATTACHMENT_FORMATS, formatBytes, formatOf, refusalFor } from '@/libs/chat/attachmentFormats';
 import { artifactsDir } from '@/libs/tools/artifacts/store';
 
 /** What the composer chip and the transcript show — mirrors `features/dashboard/chat/types.ts`. */
@@ -47,33 +54,13 @@ export type LoadedAttachment = ChatAttachment & {
   filename?: string;
 };
 
-/** Files at or over this many bytes are refused. */
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-/** Images are sent to the model inline; the vendors cap them around here. */
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-/** How many files one message may carry. */
-export const MAX_ATTACHMENTS = 10;
+export { MAX_ATTACHMENTS, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES } from '@/libs/chat/attachmentFormats';
 /** How much extracted text one document may put in front of the model. */
 export const MAX_DOCUMENT_CHARS = 120_000;
 /** And how much all of a turn's documents may, together. */
 export const MAX_TURN_CHARS = 200_000;
 
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
-const TEXT_TYPES = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/html']);
-const EXT_TYPES: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-  pdf: 'application/pdf',
-  txt: 'text/plain',
-  md: 'text/markdown',
-  markdown: 'text/markdown',
-  csv: 'text/csv',
-  json: 'application/json',
-  html: 'text/html',
-};
+const IMAGE_TYPES = new Set(ATTACHMENT_FORMATS.filter(f => f.kind === 'image').map(f => f.contentType));
 
 export type AcceptedUpload = {
   contentType: string;
@@ -82,65 +69,56 @@ export type AcceptedUpload = {
 };
 
 /**
- * Decide whether a file may be attached, and as what. The browser's
- * `type` is trusted when it is one we know; otherwise the extension
- * decides, because browsers report `application/octet-stream` for `.md`
- * and friends. Anything else is refused with the reason.
+ * Decide whether a file may be attached, and as what. The extension decides
+ * first and the reported type second (`formatOf`), because browsers report
+ * `application/octet-stream` for `.md`, `.msg` and friends. A refusal is one
+ * plain sentence for the person — never a MIME type
+ * (`libs/chat/attachmentFormats.ts`).
  * @param file - Name, reported type and size.
  * @param file.name
  * @param file.type
  * @param file.size
  */
 export function acceptUpload(file: { name: string; type: string; size: number }): { ok: true; accepted: AcceptedUpload } | { ok: false; reason: string } {
-  const ext = path.extname(file.name).slice(1).toLowerCase();
-  const reported = file.type.split(';')[0]!.trim().toLowerCase();
-  const contentType = IMAGE_TYPES.has(reported) || TEXT_TYPES.has(reported) || reported === 'application/pdf'
-    ? reported
-    : EXT_TYPES[ext];
-  if (!contentType) {
-    return { ok: false, reason: `${file.name}: images (PNG, JPEG, WebP, GIF), PDFs and text files (TXT, MD, CSV, JSON, HTML) can be attached; this is ${reported || `.${ext}` || 'an unknown type'}.` };
+  const refusal = refusalFor(file);
+  const format = formatOf(file);
+  if (refusal || !format) {
+    return { ok: false, reason: refusal ?? `Vocion can't read ${file.name}.` };
   }
-  if (file.size <= 0) {
-    return { ok: false, reason: `${file.name} is empty.` };
-  }
-  const kind: AcceptedUpload['kind'] = IMAGE_TYPES.has(contentType) ? 'image' : 'document';
-  if (kind === 'image' && file.size > MAX_IMAGE_BYTES) {
-    return { ok: false, reason: `${file.name} is ${mb(file.size)}; an image may be up to ${mb(MAX_IMAGE_BYTES)}.` };
-  }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return { ok: false, reason: `${file.name} is ${mb(file.size)}; a file may be up to ${mb(MAX_UPLOAD_BYTES)}.` };
-  }
-  const resolvedExt = ext || Object.entries(EXT_TYPES).find(([, t]) => t === contentType)?.[0] || 'bin';
-  return { ok: true, accepted: { contentType, ext: resolvedExt, kind } };
-}
-
-function mb(n: number): string {
-  return `${(n / (1024 * 1024)).toFixed(n >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return { ok: true, accepted: { contentType: format.contentType, ext: format.ext, kind: format.kind } };
 }
 
 /**
- * The text of a document, for the model. PDFs go through `pdf-parse`; text
- * files are decoded as UTF-8. A PDF with no extractable text (a scan) yields
- * an empty string, and the caller says so rather than sending nothing.
+ * Read an upload once, for the model: a PDF's or text file's text, a
+ * spreadsheet summarised sheet by sheet, a document with its headings, a deck
+ * slide by slide, an email's headers and body (`./convert.ts`). Office files
+ * also report their shape — sheets with row counts and columns, or a slide
+ * count — which is stored on the artifact so a later tool call can name a
+ * sheet without parsing the file again.
  * @param data - The file's bytes.
- * @param contentType - Its resolved type.
+ * @param file - Its name and resolved type.
+ * @param file.name
+ * @param file.contentType
  */
-export async function extractText(data: Buffer, contentType: string): Promise<string> {
-  if (contentType === 'application/pdf') {
-    const { PDFParse } = await import('pdf-parse');
-    const parser = new PDFParse({ data: new Uint8Array(data) });
-    try {
-      const result = await parser.getText();
-      return normalise(result.text);
-    } finally {
-      await parser.destroy().catch(() => {});
-    }
+export async function convertUpload(data: Buffer, file: { name: string; contentType: string }): Promise<Conversion> {
+  const format = formatOf({ name: file.name, type: file.contentType });
+  if (!format || format.kind === 'image') {
+    return { text: '' };
   }
-  return normalise(data.toString('utf8'));
+  const { convertForModel } = await import('./convert');
+  return convertForModel(data, format);
 }
 
-function normalise(text: string): string {
-  return text.replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+/**
+ * The text of a document, for the model — `convertUpload` without the shape.
+ * A PDF with no extractable text (a scan) yields an empty string, and the
+ * caller says so rather than sending nothing.
+ * @param data - The file's bytes.
+ * @param contentType - Its resolved type.
+ * @param name - Its name, which settles the format when the type is shared (a CSV and a TSV).
+ */
+export async function extractText(data: Buffer, contentType: string, name = ''): Promise<string> {
+  return (await convertUpload(data, { name, contentType })).text;
 }
 
 /**
@@ -154,8 +132,10 @@ function normalise(text: string): string {
  * @param opts.bytes - Size.
  * @param opts.url - Authenticated URL.
  * @param opts.text - Extracted text, for documents.
+ * @param opts.sheets - A spreadsheet's sheets: names, row counts, columns.
+ * @param opts.slides - A deck's slide count.
  */
-export function uploadSpec(opts: { filename: string; originalName: string; contentType: string; bytes: number; url: string; text?: string }): Record<string, unknown> {
+export function uploadSpec(opts: { filename: string; originalName: string; contentType: string; bytes: number; url: string; text?: string; sheets?: Conversion['sheets']; slides?: number }): Record<string, unknown> {
   return {
     filename: opts.filename,
     originalName: opts.originalName,
@@ -164,6 +144,10 @@ export function uploadSpec(opts: { filename: string; originalName: string; conte
     url: opts.url,
     uploaded: true,
     ...(opts.text !== undefined ? { text: opts.text.slice(0, MAX_DOCUMENT_CHARS * 2) } : {}),
+    // The shape, without the data: sheet names, row counts and columns. The
+    // rows stay in the stored original, which `read_attachment` reads.
+    ...(opts.sheets ? { sheets: opts.sheets.slice(0, 50).map(s => ({ name: s.name, rows: s.rows, columns: s.columns.slice(0, 200) })) } : {}),
+    ...(opts.slides !== undefined ? { slides: opts.slides } : {}),
   };
 }
 
@@ -233,14 +217,14 @@ export async function composeUserContent(
     if (a.kind === 'document') {
       const text = a.text ?? '';
       if (!text.trim()) {
-        parts.push(`--- attached: ${a.title} (${a.contentType}) ---\n(no text could be extracted from this file — a scanned PDF, or an empty file)`);
+        parts.push(`--- attached: ${a.title} (${describe(a)}) ---\n(no text could be extracted from this file — a scanned PDF, or an empty file)`);
         continue;
       }
       const allowed = Math.min(MAX_DOCUMENT_CHARS, budget);
       const cut = text.length > allowed;
       const body = cut ? text.slice(0, allowed) : text;
       budget -= body.length;
-      parts.push(`--- attached: ${a.title} (${a.contentType}, ${a.bytes} bytes${cut ? `, first ${body.length.toLocaleString('en-US')} of ${text.length.toLocaleString('en-US')} characters — the rest was cut` : ''}) ---\n${body}`);
+      parts.push(`--- attached: ${a.title} (${describe(a)}${cut ? `, first ${body.length.toLocaleString('en-US')} of ${text.length.toLocaleString('en-US')} characters — the rest was cut` : ''}) ---\n${body}`);
       continue;
     }
     const bytes = a.filename ? await readImage(a.filename) : null;
@@ -261,6 +245,17 @@ export async function composeUserContent(
 }
 
 /**
+ * How the header under the message names a file for the model: what it is,
+ * how big, and how to read all of it. The id is what `read_attachment`
+ * takes, so a summarised sheet or a cut document is one call from whole.
+ * @param a - A loaded upload.
+ */
+function describe(a: LoadedAttachment): string {
+  const label = formatOf({ name: a.title, type: a.contentType })?.label ?? a.contentType;
+  return `${label}, ${formatBytes(a.bytes)}, file #${a.id}; read_attachment(id: ${a.id}) reads, filters or counts the whole file`;
+}
+
+/**
  * The text-only form of the same composition, for a harness that takes a
  * string (the AWS-managed harness) — images become a note, documents inline.
  * @param message - The person's message.
@@ -276,11 +271,12 @@ export async function composeUserText(message: string, attachments: LoadedAttach
 
 /**
  * What a LATER turn's history says about a message that carried files: the
- * names, not the contents.
+ * names and ids, not the contents — the id is enough for `read_attachment`
+ * to read the file again when a later question needs it.
  * @param attachments - The message's uploads.
  */
-export function historyMarker(attachments: ReadonlyArray<{ title: string }>): string {
-  return attachments.length === 0 ? '' : `\n\n[Attached: ${attachments.map(a => a.title).join(', ')}]`;
+export function historyMarker(attachments: ReadonlyArray<{ title: string; id?: number }>): string {
+  return attachments.length === 0 ? '' : `\n\n[Attached: ${attachments.map(a => (a.id ? `${a.title} (file #${a.id})` : a.title)).join(', ')}]`;
 }
 
 /**
@@ -325,7 +321,9 @@ export async function attachmentsForWire(
   const out: WireAttachment[] = [];
   for (const a of attachments) {
     if (a.kind === 'document') {
-      out.push({ title: a.title, contentType: a.contentType, text: a.text ?? '' });
+      // The container's loop writes its own header from title and type, so the
+      // way to the whole file rides at the top of the text.
+      out.push({ title: a.title, contentType: a.contentType, text: a.text ? `(${describe(a)})\n${a.text}` : '' });
       continue;
     }
     const bytes = a.filename ? await readImage(a.filename) : null;
