@@ -4,8 +4,9 @@
  * The generator reads the route handlers themselves rather than a
  * hand-maintained list, so these types describe *what can be learned from a
  * route file*: its methods, the parameters its doc comment names, the error
- * codes it actually emits. Anything that cannot be read out of the source is
- * deliberately absent — a spec that guesses is worse than one that is thin.
+ * codes it actually emits, and the shape of each success body as its type
+ * declares it. Anything that cannot be read out of the source is deliberately
+ * absent — a spec that guesses is worse than one that is thin.
  */
 
 /** The HTTP methods a Next.js route file may export, lowercased for OpenAPI. */
@@ -41,6 +42,12 @@ export type DocumentedResponse = {
    * would try to parse them.
    */
   contentType: string | null;
+  /**
+   * The shape of a JSON success body, read from the type of what the handler
+   * passes `NextResponse.json`. Null for an error (it is the shared envelope),
+   * for a body that is not JSON, and when the type could not be read.
+   */
+  bodySchema: Record<string, unknown> | null;
 };
 
 /** Everything the generator could learn about one exported handler. */
