@@ -108,6 +108,12 @@ async function readMeetings(input: { userId: string; personalOrgId: string; from
     events = await calendarEvents({ orgId: cal.orgId, values: cal.values }, input.from.toISOString(), input.to.toISOString());
   } catch (error) {
     logger.warn('rhythm: calendar read failed', { orgId: input.personalOrgId, errorName: error instanceof Error ? error.name : 'unknown' });
+    const { isBrokenConnection } = await import('@/libs/personal/broken');
+    if (isBrokenConnection(error)) {
+      const { reportBrokenConnection } = await import('@/services/personal/urgent');
+      await reportBrokenConnection({ orgId: input.personalOrgId, userId: input.userId, connector: 'google-calendar' });
+      return { status: 'unavailable', why: 'Your Google Calendar connection stopped working. Connect it again from [Personal → Connectors](/dashboard/connectors).' };
+    }
     return { status: 'unavailable', why: 'Your calendar could not be read just now.' };
   }
   const meetings: Meeting[] = events

@@ -5327,6 +5327,19 @@ export const personalRhythmSchema = pgTable(
     nextWrapAt: timestamp('next_wrap_at', { mode: 'date' }),
     lastBriefAt: timestamp('last_brief_at', { mode: 'date' }),
     lastWrapAt: timestamp('last_wrap_at', { mode: 'date' }),
+    /**
+     * Where the brief and urgent items also reach the person beyond the app
+     * (0204, docs/guides/push-to-you.md): any of `slack`, `sms`, `email`.
+     * Empty = in the app only, the default.
+     */
+    pushChannels: jsonb('push_channels').$type<string[]>().default([]).notNull(),
+    /** `brief_and_urgent` (default) or `urgent`: whether the morning brief pushes too. */
+    pushMode: text('push_mode').$type<'brief_and_urgent' | 'urgent'>().default('brief_and_urgent').notNull(),
+    /** Quiet hours, `HH:MM` in the person's zone; both null = none. Nothing pushes inside them. */
+    quietStart: text('quiet_start'),
+    quietEnd: text('quiet_end'),
+    /** Urgent items older than this have been pushed (or were waiting before push was on). */
+    urgentSeenAt: timestamp('urgent_seen_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
   },
   table => [

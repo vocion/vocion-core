@@ -163,7 +163,10 @@ defineJob<{ orgId: string }>(JOB.orgReview, async (input) => {
 defineJob(JOB.personalRhythmSweep, async () => {
   const { sweepRhythms } = await import('@/services/personal/rhythm/schedule');
   const out = await sweepRhythms();
-  return { made: out.made, started: out.started.length, skipped: out.skipped, inactive: out.inactive };
+  // What is urgent for the people who push (docs/guides/push-to-you.md).
+  const { sweepUrgent } = await import('@/services/personal/urgent');
+  const urgent = await sweepUrgent();
+  return { made: out.made, started: out.started.length, skipped: out.skipped, inactive: out.inactive, urgentPushed: urgent.pushed };
 }, { retry: twice });
 
 defineJob<{ userId: string; accountId: string; kind: 'brief' | 'wrap'; day: string; timeZone: string }>(JOB.personalRhythm, async (input) => {

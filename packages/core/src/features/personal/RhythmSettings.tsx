@@ -10,6 +10,13 @@ import { client } from '@/libs/Orpc';
 type Rhythm = Awaited<ReturnType<typeof client.personal.rhythm>>;
 type OrgBriefs = Awaited<ReturnType<typeof client.personal.orgBriefs>>;
 
+/** The channels a push can take beyond the app, in the order they are offered. */
+const PUSH = [
+  { id: 'slack', label: 'Slack DM' },
+  { id: 'sms', label: 'Text message' },
+  { id: 'email', label: 'Email' },
+] as const;
+
 /**
  * When the next one arrives, in the person's zone: "Fri, Oct 10, 7:30 AM".
  * @param at - The instant.
@@ -105,6 +112,48 @@ export function RhythmSettings() {
           />
         ))}
       </ListRows>
+
+      <div className="mt-8" data-testid="push-to-you">
+        <h3 className="text-sm font-medium">Push to you</h3>
+        <p className="mt-0.5 mb-3 text-xs text-muted-foreground">Beyond the app, with a link straight to the item and a one-tap stop in every message. Urgent: an approval holding up a run, or one of your connections breaking.</p>
+        <ListRows>
+          {PUSH.map((p) => {
+            const on = rhythm.pushChannels.includes(p.id);
+            const why = rhythm.available[p.id];
+            return (
+              <ListRow
+                key={p.id}
+                data-testid={`push-${p.id}`}
+                title={p.label}
+                subline={<Subline separator="·" segments={[why ?? (on ? 'On' : 'Off')]} />}
+                actionsAlways
+                actions={<Switch on={on} label={p.label} disabled={Boolean(why) && !on} onChange={next => void save({ pushChannels: next ? [...rhythm.pushChannels, p.id] : rhythm.pushChannels.filter(c => c !== p.id) })} />}
+              />
+            );
+          })}
+          <ListRow
+            data-testid="push-mode"
+            title="Brief and urgent"
+            subline={<Subline separator="·" segments={[rhythm.pushMode === 'urgent' ? 'Off: only urgent items push' : 'Your morning brief pushes too']} />}
+            actionsAlways
+            actions={<Switch on={rhythm.pushMode === 'brief_and_urgent'} label="Push the morning brief too" onChange={on => void save({ pushMode: on ? 'brief_and_urgent' : 'urgent' })} />}
+          />
+          <ListRow
+            data-testid="push-quiet"
+            title="Quiet hours"
+            subline={<Subline separator="·" segments={[rhythm.quietStart && rhythm.quietEnd ? `Nothing pushes ${rhythm.quietStart}–${rhythm.quietEnd}; urgent items wait until then` : 'None']} />}
+            actionsAlways
+            actions={(
+              <span className="flex items-center gap-1.5">
+                <Input type="time" aria-label="Quiet hours start" className="h-8 w-[6.5rem]" value={rhythm.quietStart ?? ''} onChange={e => void save({ quietStart: e.target.value || null })} />
+                <span className="text-xs text-muted-foreground">to</span>
+                <Input type="time" aria-label="Quiet hours end" className="h-8 w-[6.5rem]" value={rhythm.quietEnd ?? ''} onChange={e => void save({ quietEnd: e.target.value || null })} />
+              </span>
+            )}
+          />
+        </ListRows>
+      </div>
+
       {org?.canChange && (
         <div className="mt-4 flex items-start justify-between gap-4 border-t border-border/60 pt-4" data-testid="org-briefs">
           <div className="space-y-0.5">

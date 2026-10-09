@@ -68,10 +68,12 @@ export const rhythmRoute = os
     const { getRhythm, setRhythm } = await import('@/services/personal/rhythm/schedule');
     const { isValidTimeZone } = await import('@/libs/time/zone');
     const current = await getRhythm(userId, accountId);
+    const { pushChannelsAvailable } = await import('@/services/personal/push');
+    const available = await pushChannelsAvailable(userId);
     if (!current.zoneChosen && isValidTimeZone(input.browserTimeZone)) {
-      return setRhythm(userId, accountId, { timeZone: input.browserTimeZone });
+      return { ...(await setRhythm(userId, accountId, { timeZone: input.browserTimeZone })), available };
     }
-    return current;
+    return { ...current, available };
   });
 
 export const setRhythmRoute = os
@@ -81,6 +83,10 @@ export const setRhythmRoute = os
     briefOn: z.boolean().optional(),
     wrapOn: z.boolean().optional(),
     timeZone: z.string().max(64).optional(),
+    pushChannels: z.array(z.enum(['slack', 'sms', 'email'])).max(3).optional(),
+    pushMode: z.enum(['brief_and_urgent', 'urgent']).optional(),
+    quietStart: z.string().max(5).nullable().optional(),
+    quietEnd: z.string().max(5).nullable().optional(),
   }))
   .handler(async ({ input }) => {
     const { userId, accountId } = await guardAuth();
@@ -92,7 +98,8 @@ export const setRhythmRoute = os
     if (problem) {
       throw ApiError.badRequest(problem);
     }
-    return setRhythm(userId, accountId, input);
+    const { pushChannelsAvailable } = await import('@/services/personal/push');
+    return { ...(await setRhythm(userId, accountId, input)), available: await pushChannelsAvailable(userId) };
   });
 
 /** The Org's daily-brief switch and daily cap, and whether this person may change them. */

@@ -22,11 +22,13 @@ import type { RuntimeContext } from '../types';
 import type { PersonalCredential } from '@/services/personal/connections';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { isBrokenConnection } from '@/libs/personal/broken';
 import { githubMyWork, githubRead, parseGithubRef, usableGithubToken } from '@/libs/personal/github';
 import { calendarEvents, driveRead, driveSearch, mailDraftReply, mailRead, mailSearch } from '@/libs/personal/google';
 import { slackDmSearch } from '@/libs/personal/slack';
 import { DEFAULT_TIME_ZONE, formatDateTime, startOfDay } from '@/libs/time/zone';
 import { personalCredential } from '@/services/personal/connections';
+import { reportBrokenConnection } from '@/services/personal/urgent';
 import { dayWindow, renderCalendar } from './calendarEvents';
 
 /**
@@ -47,12 +49,20 @@ function couldNot(what: string, error: unknown): string {
  * @param connector - The connection's connector slug.
  * @param body - What to do with the credential.
  */
-async function withOwn(ctx: RuntimeContext, connector: string, body: (cred: Extract<PersonalCredential, { ok: true }>) => Promise<string>): Promise<string> {
+async function withOwn(ctx: RuntimeContext, connector: string, body: (cred: Extract<PersonalCredential, { ok: true }>, fail: (what: string, error: unknown) => string) => Promise<string>): Promise<string> {
   const cred = await personalCredential({ orgId: ctx.orgId, userId: ctx.userId ?? '', connector });
   if (!cred.ok) {
     return cred.why;
   }
-  return body(cred);
+  // A failure that only reconnecting fixes is also told to the person, once a
+  // day, where they chose to hear it (`services/personal/urgent.ts`).
+  const fail = (what: string, error: unknown): string => {
+    if (isBrokenConnection(error)) {
+      void reportBrokenConnection({ orgId: cred.orgId, userId: ctx.userId ?? '', connector });
+    }
+    return couldNot(what, error);
+  };
+  return body(cred, fail);
 }
 
 /**
@@ -66,7 +76,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   const tz = () => ctx.timeZone ?? DEFAULT_TIME_ZONE;
 
   const mail_search = tool(
-    async ({ query, max }) => withOwn(ctx, 'gmail', async (cred) => {
+    async ({ query, max }) => withOwn(ctx, 'gmail', async (cred, fail) => {
       try {
         const hits = await mailSearch({ orgId: cred.orgId, values: cred.values }, query, max ?? 10);
         if (hits.length === 0) {
@@ -74,7 +84,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
         }
         return [`${hits.length} message(s) matched "${query}", newest first (read live from your Gmail):`, ...hits.map(h => `- ${h.unread ? '[unread] ' : ''}${h.subject} — from ${h.from} · ${h.date} · message_id ${h.id} · thread_id ${h.threadId}\n  ${h.snippet}`)].join('\n');
       } catch (error) {
-        return couldNot('search your mail', error);
+        return fail('search your mail', error);
       }
     }),
     {
@@ -88,7 +98,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const mail_read = tool(
-    async ({ thread_id, message_id }) => withOwn(ctx, 'gmail', async (cred) => {
+    async ({ thread_id, message_id }) => withOwn(ctx, 'gmail', async (cred, fail) => {
       if (!thread_id && !message_id) {
         return 'Pass thread_id or message_id.';
       }
@@ -99,7 +109,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
         }
         return `${thread.title} (thread_id ${thread.threadId}, read live)${thread.truncated ? ' — long thread, cut to its first part' : ''}\n\n${thread.content}`;
       } catch (error) {
-        return couldNot('read that thread', error);
+        return fail('read that thread', error);
       }
     }),
     {
@@ -113,7 +123,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const mail_draft_reply = tool(
-    async ({ thread_id, message_id, body, to, cc }) => withOwn(ctx, 'gmail', async (cred) => {
+    async ({ thread_id, message_id, body, to, cc }) => withOwn(ctx, 'gmail', async (cred, fail) => {
       if (!thread_id && !message_id) {
         return 'Pass the thread_id or message_id of the mail to reply to.';
       }
@@ -124,7 +134,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
         }
         return `Draft written to your Gmail Drafts — NOT sent. To: ${draft.to} · Subject: ${draft.subject} · draft ${draft.draftId}. Open Drafts to review and send it yourself: ${draft.link}. Tell the person it is a draft waiting for them, never that it was sent.`;
       } catch (error) {
-        return couldNot('write the draft', error);
+        return fail('write the draft', error);
       }
     }),
     {
@@ -140,19 +150,19 @@ export function personalConnectionTools(ctx: RuntimeContext) {
     },
   );
 
-  const calendarIn = async (cred: Extract<PersonalCredential, { ok: true }>, timeMin: string, timeMax: string, label: string): Promise<string> => {
+  const calendarIn = async (cred: Extract<PersonalCredential, { ok: true }>, fail: (what: string, error: unknown) => string, timeMin: string, timeMax: string, label: string): Promise<string> => {
     try {
       const events = await calendarEvents({ orgId: cred.orgId, values: cred.values }, timeMin, timeMax);
       return renderCalendar(events, new Date(), label, tz());
     } catch (error) {
-      return couldNot('read your calendar', error);
+      return fail('read your calendar', error);
     }
   };
 
   const calendar_today = tool(
-    async () => withOwn(ctx, 'google-calendar', async (cred) => {
+    async () => withOwn(ctx, 'google-calendar', async (cred, fail) => {
       const { timeMin, timeMax, label } = dayWindow(undefined, new Date(), tz());
-      return calendarIn(cred, timeMin, timeMax, label);
+      return calendarIn(cred, fail, timeMin, timeMax, label);
     }),
     {
       name: 'calendar_today',
@@ -162,7 +172,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const calendar_range = tool(
-    async ({ from, to }) => withOwn(ctx, 'google-calendar', async (cred) => {
+    async ({ from, to }) => withOwn(ctx, 'google-calendar', async (cred, fail) => {
       const zone = tz();
       const start = startOfDay(from, zone);
       const endDay = dayWindow(to ?? from, new Date(), zone);
@@ -172,7 +182,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
       if (new Date(endDay.timeMax).getTime() - start.getTime() > 31 * 86_400_000) {
         return 'Read at most 31 days at a time.';
       }
-      return calendarIn(cred, start.toISOString(), endDay.timeMax, `${formatDateTime(start, zone)} to the end of ${to ?? from} (${zone})`);
+      return calendarIn(cred, fail, start.toISOString(), endDay.timeMax, `${formatDateTime(start, zone)} to the end of ${to ?? from} (${zone})`);
     }),
     {
       name: 'calendar_range',
@@ -185,7 +195,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const drive_search = tool(
-    async ({ query, max }) => withOwn(ctx, 'drive', async (cred) => {
+    async ({ query, max }) => withOwn(ctx, 'drive', async (cred, fail) => {
       try {
         const files = await driveSearch({ orgId: cred.orgId, values: cred.values }, query, max ?? 10);
         if (files.length === 0) {
@@ -193,7 +203,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
         }
         return [`${files.length} file(s) matched "${query}", newest first (read live from your Drive):`, ...files.map(f => `- ${f.link ? `[${f.name}](${f.link})` : f.name} · ${f.mimeType} · modified ${f.modified ?? 'unknown'}${f.owner ? ` · owner ${f.owner}` : ''} · file_id ${f.id}`)].join('\n');
       } catch (error) {
-        return couldNot('search your Drive', error);
+        return fail('search your Drive', error);
       }
     }),
     {
@@ -207,7 +217,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const drive_read = tool(
-    async ({ file_id }) => withOwn(ctx, 'drive', async (cred) => {
+    async ({ file_id }) => withOwn(ctx, 'drive', async (cred, fail) => {
       try {
         const file = await driveRead({ orgId: cred.orgId, values: cred.values }, file_id);
         if (!file.ok) {
@@ -215,7 +225,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
         }
         return `${file.link ? `[${file.name}](${file.link})` : file.name} (read live)${file.truncated ? ' — long file, cut to its first part' : ''}\n\n${file.text}`;
       } catch (error) {
-        return couldNot('read that file', error);
+        return fail('read that file', error);
       }
     }),
     {
@@ -226,7 +236,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const slack_dm_search = tool(
-    async ({ query, max }) => withOwn(ctx, 'slack', async (cred) => {
+    async ({ query, max }) => withOwn(ctx, 'slack', async (cred, fail) => {
       const token = typeof cred.values.token === 'string' ? cred.values.token : '';
       try {
         const hits = await slackDmSearch(token, query, max ?? 10);
@@ -235,7 +245,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
         }
         return [`${hits.length} direct message(s) matched "${query}", newest first (read live, as you):`, ...hits.map(h => `- ${h.from}${h.with ? ` in ${h.with}` : ''} · ${h.at ? formatDateTime(new Date(h.at), tz()) : 'undated'}${h.link ? ` · ${h.link}` : ''}\n  ${h.text.replace(/\s+/g, ' ')}`)].join('\n');
       } catch (error) {
-        return couldNot('search your Slack DMs', error);
+        return fail('search your Slack DMs', error);
       }
     }),
     {
@@ -249,7 +259,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const github_my_work = tool(
-    async () => withOwn(ctx, 'github', async (cred) => {
+    async () => withOwn(ctx, 'github', async (cred, fail) => {
       try {
         const token = await usableGithubToken({ orgId: cred.orgId, tokenId: cred.tokenId, values: cred.values });
         const work = await githubMyWork(token);
@@ -259,7 +269,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
         ];
         return ['Read live from GitHub, as you.', '', ...section('REVIEWS ASKED OF YOU', work.reviewRequested), '', ...section('YOUR OPEN PULL REQUESTS', work.authoredPulls), '', ...section('OPEN ISSUES ASSIGNED TO YOU', work.assignedIssues)].join('\n');
       } catch (error) {
-        return couldNot('read your GitHub', error);
+        return fail('read your GitHub', error);
       }
     }),
     {
@@ -270,7 +280,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
   );
 
   const github_read = tool(
-    async ({ ref }) => withOwn(ctx, 'github', async (cred) => {
+    async ({ ref }) => withOwn(ctx, 'github', async (cred, fail) => {
       const parsed = parseGithubRef(ref);
       if (!parsed) {
         return 'Name it as owner/repo#123 or paste its GitHub link.';
@@ -285,7 +295,7 @@ export function personalConnectionTools(ctx: RuntimeContext) {
           ...(t.comments.length > 0 ? ['', `LATEST COMMENTS (${t.comments.length}):`, ...t.comments.map(c => `- ${c.author ?? 'someone'} · ${formatDateTime(new Date(c.at), tz())}: ${c.body.replace(/\s+/g, ' ')}`)] : []),
         ].join('\n');
       } catch (error) {
-        return couldNot('read that from GitHub', error);
+        return fail('read that from GitHub', error);
       }
     }),
     {

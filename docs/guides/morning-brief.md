@@ -113,6 +113,10 @@ message.
   wrap is ready →") and opens that conversation. That is the hint ranker's
   `next` candidate, given an `href`.
 
+## Push
+
+The morning brief can also push to a Slack DM, a text or an email, with a link straight to it, along with urgent items. See [Push to you](push-to-you.md).
+
 ## When it goes out
 
 - **The sweep.** `personal.rhythm-sweep` runs every five minutes on the durable
