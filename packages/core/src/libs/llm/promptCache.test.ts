@@ -24,7 +24,7 @@ import type { ChatBedrockConverse } from '@langchain/aws';
  */
 import type { BaseMessage } from '@langchain/core/messages';
 import process from 'node:process';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cachedThroughPrefix,
@@ -33,9 +33,13 @@ import {
   DEFAULT_CACHE_CONTROL,
   MINIMUM_CACHEABLE_TOKENS,
   minimumCacheableTokens,
+  prefixCacheTtl,
   promptCacheAllowed,
+  tapOneHourCacheWrites,
   withCacheControl,
+  withLongLivedPrefix,
 } from './promptCache';
+import { ONE_HOUR_CACHE_WRITE_KEY, oneHourCacheWritesOf } from './usage';
 
 /** The three ways a LangChain chat model can be asked to produce a turn. */
 const ENTRY_POINTS = ['_generate', '_streamResponseChunks', '_streamChatModelEvents'] as const;
@@ -120,6 +124,7 @@ beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = 'not-a-real-key';
   process.env.AWS_REGION = 'us-east-1';
   delete process.env.VOCION_PROMPT_CACHE;
+  delete process.env.VOCION_PROMPT_CACHE_PREFIX_TTL;
 });
 
 afterEach(() => {
@@ -288,5 +293,172 @@ describe('cachedThroughPrefix', () => {
 
     expect(messages[1]?.content).toBe('shared head this document');
     expect(callOptions).toEqual({});
+  });
+});
+
+/** A system message the way deepagents' breakpoint middleware leaves it: blocks, the last one marked with no TTL. */
+function markedSystem(): SystemMessage {
+  return new SystemMessage({ content: [
+    { type: 'text', text: 'You are the Northwind revenue lead.' },
+    { type: 'text', text: 'Approved learnings for Kestrel Capital follow.', cache_control: { type: 'ephemeral' } },
+  ] as never });
+}
+
+/**
+ * The cache marks on a message's content blocks, in order.
+ * @param message
+ */
+function marksOf(message: BaseMessage): unknown[] {
+  return (message.content as Array<{ cache_control?: unknown }>).map(b => b.cache_control);
+}
+
+describe('prefixCacheTtl', () => {
+  it('holds the fixed prefix for an hour unless told otherwise', () => {
+    expect(prefixCacheTtl()).toBe('1h');
+  });
+
+  it('goes back to five minutes on VOCION_PROMPT_CACHE_PREFIX_TTL=5m', () => {
+    process.env.VOCION_PROMPT_CACHE_PREFIX_TTL = ' 5M ';
+
+    expect(prefixCacheTtl()).toBe('5m');
+  });
+});
+
+describe('withLongLivedPrefix', () => {
+  it('gives the system prompt\'s unmarked-TTL breakpoint the one-hour TTL', () => {
+    const [system, human] = withLongLivedPrefix([markedSystem(), new HumanMessage('What is waiting on me?')], '1h');
+
+    expect(marksOf(system!)).toEqual([undefined, { type: 'ephemeral', ttl: '1h' }]);
+    expect(human!.content).toBe('What is waiting on me?');
+  });
+
+  it('leaves a breakpoint that already names its TTL alone', () => {
+    const own = new SystemMessage({ content: [{ type: 'text', text: 'Extract venues.', cache_control: DEFAULT_CACHE_CONTROL }] as never });
+
+    expect(withLongLivedPrefix([own], '1h')[0]).toBe(own);
+  });
+
+  it('never marks a system message that comes after the conversation started', () => {
+    // A one-hour point after a five-minute one is refused by the vendor.
+    const late = markedSystem();
+    const messages = [new HumanMessage('hi'), late];
+
+    expect(withLongLivedPrefix(messages, '1h')).toBe(messages);
+  });
+
+  it('changes nothing, and hands back the same array, on five minutes', () => {
+    const messages = [markedSystem()];
+
+    expect(withLongLivedPrefix(messages, '5m')).toBe(messages);
+  });
+
+  it('does not mutate the message it was handed', () => {
+    const system = markedSystem();
+    withLongLivedPrefix([system], '1h');
+
+    expect(marksOf(system)).toEqual([undefined, { type: 'ephemeral' }]);
+  });
+});
+
+describe('tapOneHourCacheWrites', () => {
+  /**
+   * A raw vendor stream: an async iterable with the `controller` both
+   * LangChain stream paths abort through.
+   * @param events - The raw events to replay.
+   */
+  function rawStream(events: unknown[]) {
+    const controller = new AbortController();
+    return {
+      controller,
+      async* [Symbol.asyncIterator]() {
+        yield* events;
+      },
+    };
+  }
+
+  it('follows a message_start that wrote one-hour entries with one event carrying the count', async () => {
+    const start = { type: 'message_start', message: { usage: { input_tokens: 12, cache_creation: { ephemeral_1h_input_tokens: 36_000, ephemeral_5m_input_tokens: 900 } } } };
+    const seen: unknown[] = [];
+    for await (const event of tapOneHourCacheWrites(rawStream([start, { type: 'message_stop' }]))) {
+      seen.push(event);
+    }
+
+    expect(seen).toEqual([start, { type: 'vocion_cache_creation_1h', ephemeral_1h_input_tokens: 36_000 }, { type: 'message_stop' }]);
+  });
+
+  it('adds nothing when no one-hour entry was written, and keeps the controller', async () => {
+    const stream = rawStream([{ type: 'message_start', message: { usage: { input_tokens: 12 } } }]);
+    const tapped = tapOneHourCacheWrites(stream);
+    const seen: unknown[] = [];
+    for await (const event of tapped) {
+      seen.push(event);
+    }
+
+    expect(seen).toHaveLength(1);
+    expect((tapped as unknown as { controller: AbortController }).controller).toBe(stream.controller);
+  });
+});
+
+describe('cachingChatAnthropic against a scripted vendor', () => {
+  /**
+   * A model whose SDK client is a fake that records the request and replays a
+   * raw Anthropic event stream, so the whole LangChain conversion runs for real.
+   * @param events - The raw events the vendor "sends".
+   */
+  function scriptedModel(events: unknown[]) {
+    const requests: Array<Record<string, unknown>> = [];
+    const client = {
+      messages: {
+        create: async (request: Record<string, unknown>) => {
+          requests.push(request);
+          return {
+            controller: new AbortController(),
+            async* [Symbol.asyncIterator]() {
+              yield* events;
+            },
+          };
+        },
+      },
+    };
+    const model = new CachingChatAnthropic({ model: 'claude-sonnet-5', apiKey: 'not-a-real-key', streaming: true, createClient: () => client as never });
+    return { model, requests };
+  }
+
+  const turn = [
+    { type: 'message_start', message: { id: 'msg_fixture', model: 'claude-sonnet-5', usage: { input_tokens: 40, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 37_000, cache_creation: { ephemeral_1h_input_tokens: 36_500, ephemeral_5m_input_tokens: 500 } } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Two replies are owed: Northwind and Kestrel Capital.' } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 14 } },
+    { type: 'message_stop' },
+  ];
+
+  it('sends the system breakpoint on the one-hour TTL and the request-level one on five minutes', async () => {
+    const { model, requests } = scriptedModel(turn);
+    for await (const _event of model._streamChatModelEvents([markedSystem(), new HumanMessage('What do I owe replies to?')], {} as never)) {
+      // drained
+    }
+    const [request] = requests;
+
+    expect((request!.system as Array<{ cache_control?: unknown }>).at(-1)!.cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
+    expect(request!.cache_control).toEqual(DEFAULT_CACHE_CONTROL);
+  });
+
+  it('carries the one-hour write count onto the finished message, and swallows the tap\'s own event', async () => {
+    const { model } = scriptedModel(turn);
+    const events: Array<{ event: string; name?: string; responseMetadata?: Record<string, unknown> }> = [];
+    for await (const event of model._streamChatModelEvents([markedSystem(), new HumanMessage('What do I owe replies to?')], {} as never)) {
+      events.push(event as never);
+    }
+
+    expect(events.some(e => e.event === 'provider' && e.name === 'vocion_cache_creation_1h')).toBe(false);
+    expect(events.find(e => e.event === 'message-finish')!.responseMetadata).toMatchObject({ [ONE_HOUR_CACHE_WRITE_KEY]: 36_500 });
+  });
+
+  it('reports the one-hour writes on the message a plain invoke returns', async () => {
+    const { model } = scriptedModel(turn);
+    const message = await model.invoke([markedSystem(), new HumanMessage('What do I owe replies to?')]);
+
+    expect(oneHourCacheWritesOf(message)).toBe(36_500);
   });
 });

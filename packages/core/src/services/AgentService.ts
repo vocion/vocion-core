@@ -877,6 +877,7 @@ export async function runAgentDeep(opts: {
             outputTokens: turn.outputTokens,
             cacheReadTokens: turn.cacheReadTokens,
             cacheWriteTokens: turn.cacheWriteTokens,
+            cacheWrite1hTokens: turn.cacheWrite1hTokens,
           },
         });
       } finally {
@@ -1619,7 +1620,7 @@ export async function runAgentDeep(opts: {
     emit({ type: 'turn_records', records: turnRecords });
   }
 
-  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
+  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length }, metadata: { usage: runUsageSummary(usage) } });
 
   // The turn is over the moment the answer is: say so BEFORE telemetry.
   //
@@ -1720,6 +1721,28 @@ export async function runAgentDeep(opts: {
   };
 }
 
+/**
+ * A run's usage as the trace carries it, so a turn's cost and its cache hit
+ * rate read off the trace itself instead of being summed over its generations
+ * by hand. `cacheHitRate` is the share of the input side served from the
+ * prompt cache: the number that says whether caching is working for this
+ * agent, and the one to watch when a prompt change silently moves volatile
+ * content ahead of a breakpoint.
+ * @param usage - The run's total.
+ */
+export function runUsageSummary(usage: RunUsage): Record<string, number | string> {
+  return {
+    model: usage.model,
+    modelCalls: usage.turns,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheWriteTokens: usage.cacheWriteTokens,
+    cacheHitRate: usage.inputTokens > 0 ? Math.round((usage.cacheReadTokens / usage.inputTokens) * 1000) / 1000 : 0,
+    cents: Math.round(usage.cents * 10_000) / 10_000,
+  };
+}
+
 /** Token usage of one `runAgentDeep` call, summed over its model turns. */
 export type RunUsage = {
   /** The id the provider reported on the last turn (`unknown` if it named none). */
@@ -1775,6 +1798,7 @@ export function addTurnToRunUsage(usage: RunUsage, turn: LangfuseTurnUsage): voi
     outputTokens: turn.outputTokens,
     cacheReadTokens: turn.cacheReadTokens,
     cacheWriteTokens: turn.cacheWriteTokens,
+    cacheWrite1hTokens: turn.cacheWrite1hTokens,
   });
   usage.cents = usage.microCents / 1_000_000;
 }
