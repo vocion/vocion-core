@@ -815,7 +815,7 @@ export async function runAgentDeep(opts: {
       turnMessage: opts.message,
       timeZone: opts.timeZone,
     },
-    { modelOverride },
+    { modelOverride, handOff: handOffGuard },
   );
   const boundCtx = compiled.ctx;
 
@@ -1322,7 +1322,7 @@ export async function runAgentDeep(opts: {
             turnMessage: opts.message,
             timeZone: opts.timeZone,
           },
-          { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider } },
+          { modelOverride: { ...(modelOverride ?? {}), model: fallback, provider }, handOff: handOffGuard },
         );
         graphMessages = null;
         await runGraph(input);
@@ -1346,7 +1346,13 @@ export async function runAgentDeep(opts: {
       const soFar = normalizeAnswerHtml(finalText).trim();
       const empty = soFar.length === 0 && toolCallLog.length === 0;
       const owedAct = personTurn && !empty && textCalls.length === 0 && turn.writes === 0 && ['change', 'file', 'decide'].includes(intent.asks);
-      if (!refused && (empty || owedAct)) {
+      // ENDED WHERE IT ASKED, CLEANLY. The graph stopped itself before the
+      // model call that would have followed a card (`createHandOffMiddleware`):
+      // the card is the next move, so no continuation pass either.
+      if (handOffGuard.stopped) {
+        console.warn('agent turn: ended at a card a person acts on', { orgId: opts.orgId, agentSlug: opts.agentSlug, cards: handOffGuard.handedOff, toolCalls: toolCallLog.length, textChars: finalText.length, clean: !handOffGuard.signal.aborted });
+      }
+      if (!refused && !handOffGuard.stopped && (empty || owedAct)) {
         console.warn(`agent turn: ${empty ? 'returned nothing' : 'an act was asked for and nothing was written'}, continuing once`, { orgId: opts.orgId, agentSlug: opts.agentSlug, toolCalls: toolCallLog.length, asks: intent.asks });
         emit({ type: 'status', label: empty ? 'Looking up what it needs' : 'Doing what you asked' });
         if (soFar.length > 0) {
@@ -1365,7 +1371,7 @@ export async function runAgentDeep(opts: {
       // on thinking (MCP turns 667 and 675, 2026-09-25: two reasoning nodes,
       // zero characters, twice). The words are not coming from that
       // configuration: compile once more with thinking off and run again.
-      const stillEmpty = normalizeAnswerHtml(finalText).trim().length === 0 && toolCallLog.length === 0 && emittedCards.length === 0;
+      const stillEmpty = !handOffGuard.stopped && normalizeAnswerHtml(finalText).trim().length === 0 && toolCallLog.length === 0 && emittedCards.length === 0;
       if (stillEmpty && !thoughtOnlyRetried && !refused) {
         thoughtOnlyRetried = true;
         console.warn('agent turn: thought and said nothing; once more without thinking', { orgId: opts.orgId, agentSlug: opts.agentSlug });
@@ -1386,7 +1392,7 @@ export async function runAgentDeep(opts: {
           // A ModelOverride names its model; without one the provider lookup
           // trims undefined and the turn dies (MCP turn, 2026-09-25 04:26Z,
           // finding 25). The retry keeps the model the turn already chose.
-          { modelOverride: { ...(modelOverride ?? {}), model: modelOverride?.model ?? chatModelOptionsFor(harness ?? {}).model ?? resolvedModelId('main'), ...((modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider) ? { provider: modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider } : {}), thinking: 'off' } },
+          { modelOverride: { ...(modelOverride ?? {}), model: modelOverride?.model ?? chatModelOptionsFor(harness ?? {}).model ?? resolvedModelId('main'), ...((modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider) ? { provider: modelOverride?.provider ?? chatModelOptionsFor(harness ?? {}).provider } : {}), thinking: 'off' }, handOff: handOffGuard },
         );
         await runGraph({
           ...input,
