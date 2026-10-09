@@ -51,8 +51,8 @@ async function shot(page: Page, info: TestInfo, name: string) {
  * @param id - The option's id.
  */
 async function keyFor(page: Page, id: string): Promise<string> {
-  const ids = await page.getByTestId('docked-decision-options').locator('[role="option"]').evaluateAll(els => els.map(el => el.getAttribute('data-testid')));
-  const index = ids.indexOf(`docked-option-${id}`);
+  const ids = await page.getByTestId('decision-options').locator('[role="option"]').evaluateAll(els => els.map(el => el.getAttribute('data-testid')));
+  const index = ids.indexOf(`decision-option-${id}`);
 
   expect(index, `${id} is offered`).toBeGreaterThanOrEqual(0);
 
@@ -84,10 +84,10 @@ test('from the Connectors page: one question, a login in its own window and a ke
   await page.keyboard.press('Enter');
 
   // The one question, docked above the composer.
-  const card = page.getByTestId('docked-decision');
+  const card = page.getByTestId('decision-card');
 
   await expect(card).toContainText('Which of these do you use?');
-  await expect(page.getByTestId('docked-decision-options')).toBeFocused();
+  await expect(page.getByTestId('decision-options')).toBeFocused();
 
   await page.keyboard.press(await keyFor(page, 'hubspot'));
   await page.keyboard.press(await keyFor(page, 'granola'));
@@ -96,7 +96,7 @@ test('from the Connectors page: one question, a login in its own window and a ke
 
   // One at a time, with the progress line.
   await expect(card).toContainText('Connect HubSpot?');
-  await expect(page.getByTestId('docked-decision-progress')).toHaveText(' · 1 of 2');
+  await expect(page.getByTestId('decision-queue')).toHaveText(' · 1 of 2');
 
   await shot(page, info, '03-step-login');
   const popup = page.waitForEvent('popup');
@@ -106,7 +106,7 @@ test('from the Connectors page: one question, a login in its own window and a ke
 
   // Verified before moving on: the next system is up.
   await expect(card).toContainText('Connect Granola?');
-  await expect(page.getByTestId('docked-decision-progress')).toHaveText(' · 2 of 2');
+  await expect(page.getByTestId('decision-queue')).toHaveText(' · 2 of 2');
 
   await page.keyboard.press('Enter');
   const field = page.getByTestId('connect-field-token');
@@ -139,7 +139,7 @@ test('from the Connectors page: one question, a login in its own window and a ke
   expect(sources.sources.map(s => s.kind)).toEqual(expect.arrayContaining(['hubspot', 'granola']));
 });
 
-test('from chat: connect_system docks the walk-through; Later and Esc stop it, and the card keeps the summary', async ({ page }, info) => {
+test('from chat: connect_system is one Decision that opens the walk; Later and Esc stop it, and Done answers it with the summary', async ({ page }, info) => {
   await signIn(page);
   await page.goto('/dashboard/chat?new=1');
   const composer = page.getByRole('textbox', { name: /Ask anything/ }).last();
@@ -149,17 +149,17 @@ test('from chat: connect_system docks the walk-through; Later and Esc stop it, a
   await composer.fill('connect my tools');
   await page.getByRole('button', { name: 'Send message' }).last().click();
 
-  // The agent really called connect_system: its card is in the thread and the walk is docked.
-  await expect(page.getByTestId('connect-systems-card')).toBeVisible();
-
-  const card = page.getByTestId('docked-decision');
+  // The agent really called connect_system: its Decision opened the walk at
+  // once, and the walk is the one docked card.
+  const card = page.getByTestId('decision-card');
 
   await expect(card).toContainText('Connect Jira?');
-  await expect(page.getByTestId('docked-decision-progress')).toHaveText(' · 1 of 2');
+  await expect(card).toHaveCount(1);
+  await expect(page.getByTestId('decision-queue')).toHaveText(' · 1 of 2');
 
   await shot(page, info, '06-chat-card');
   // 2 is Later; then Esc stops the walk where it stands.
-  await page.getByTestId('docked-decision-options').focus();
+  await page.getByTestId('decision-options').focus();
   await page.keyboard.press('2');
   await page.keyboard.press('Enter');
 
@@ -171,21 +171,24 @@ test('from chat: connect_system docks the walk-through; Later and Esc stop it, a
 
   await page.keyboard.press('Enter');
 
-  // The summary is written onto the card, and a reload reads it from there.
+  // Done answered the Decision — typed, on the person's side, with what
+  // happened — and a reload reads it from the conversation.
   const summary = 'Nothing connected · later: Jira, Notion.';
 
-  await expect(page.getByTestId('connect-systems-card-summary')).toHaveText(summary);
+  await expect(page.getByTestId('decision-answer').last()).toContainText(summary);
+  await expect(page.getByTestId('decision-card')).toHaveCount(0);
 
   await page.reload();
 
-  await expect(page.getByTestId('connect-systems-card-summary')).toHaveText(summary);
-  await expect(page.getByTestId('docked-decision')).toHaveCount(0);
+  await expect(page.getByTestId('decision-answer').last()).toContainText(summary);
+  await expect(page.getByTestId('decision-answer').last()).toContainText('Connect your systems');
+  await expect(page.getByTestId('decision-card')).toHaveCount(0);
 });
 
 test('a failed check stays on the system with its reason and Try again first', async ({ page }, info) => {
   await signIn(page);
   await page.goto('/dashboard/chat?objective=connect-systems&named=notion');
-  const card = page.getByTestId('docked-decision');
+  const card = page.getByTestId('decision-card');
 
   await expect(card).toContainText('Connect Notion?');
 
@@ -199,7 +202,7 @@ test('a failed check stays on the system with its reason and Try again first', a
 
   await expect(card).toContainText('Notion did not connect');
   await expect(card).toContainText('Notion refused the key: it is not valid.');
-  await expect(page.getByTestId('docked-option-retry')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('decision-option-retry')).toHaveAttribute('aria-selected', 'true');
 
   await shot(page, info, '07-failed');
   // Later, and the walk ends on its summary.
@@ -222,9 +225,9 @@ test('from an app\'s page: one move connects the systems that app reads, and the
   await link.focus();
   await page.keyboard.press('Enter');
 
-  const card = page.getByTestId('docked-decision');
+  const card = page.getByTestId('decision-card');
 
-  await expect(page.getByTestId('docked-decision-eyebrow')).toContainText('Connect the systems GTM uses');
+  await expect(page.getByTestId('decision-eyebrow')).toContainText('Connect the systems GTM uses');
   // Scoped to one app: no question, straight to the first system.
   await expect(card).not.toContainText('Which of these do you use?');
 

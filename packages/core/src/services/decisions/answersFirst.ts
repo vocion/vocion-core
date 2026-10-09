@@ -62,7 +62,7 @@ export async function answersFirst(opts: {
       return { kind: 'refused', status: 404, message: 'No such decision in this conversation' };
     }
     try {
-      const answered = await answerDecision({ orgId: opts.orgId, conversationId: opts.conversationId, id: typed.id, answer: typed.answer, by: opts.userId, via: 'card' });
+      const answered = await answerDecision({ orgId: opts.orgId, conversationId: opts.conversationId, id: typed.id, subject: typed.subject, answer: typed.answer, by: opts.userId, via: 'card' });
       return { kind: 'answered', source: 'card', answered };
     } catch (err) {
       if (err instanceof DecisionError) {
@@ -74,7 +74,7 @@ export async function answersFirst(opts: {
   if (opts.conversationId === null || !opts.message.trim()) {
     return { kind: 'none', open: null };
   }
-  const open = (await openDecisions(opts.orgId, opts.conversationId))[0] ?? null;
+  const open = (await openDecisions(opts.orgId, opts.conversationId, opts.userId))[0] ?? null;
   if (!open) {
     return { kind: 'none', open: null };
   }
@@ -85,7 +85,7 @@ export async function answersFirst(opts: {
     return { kind: 'none', open };
   }
   try {
-    const answered = await answerDecision({ orgId: opts.orgId, conversationId: opts.conversationId, id: open.id, answer, by: opts.userId, via: 'composer' });
+    const answered = await answerDecision({ orgId: opts.orgId, conversationId: opts.conversationId, id: open.id, subject: open.subject, answer, by: opts.userId, via: 'composer' });
     return { kind: 'answered', source: 'composer', answered };
   } catch (err) {
     // Answered somewhere else a moment ago, or not an answer after all: the

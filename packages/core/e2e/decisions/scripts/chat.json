@@ -32,6 +32,59 @@
       "reply": ""
     },
     {
+      "match": "The person, latest message: add the software factory app",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": true,
+            "quote": "add the software factory app"
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "answered] send the follow-up to northwind?",
+      "steps": [],
+      "reply": "Holding the follow-up; nothing went out."
+    },
+    {
+      "match": "add the software factory app",
+      "steps": [
+        {
+          "tool": "recommend_action",
+          "args": {
+            "action_id": "app.install",
+            "action_input": {
+              "app": "software-factory"
+            },
+            "label": "Add Software Factory",
+            "rationale": "Customer requests become fixes the asker hears about.",
+            "suggested_decision": "approve"
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
+      "match": "send the northwind follow-up",
+      "steps": [
+        {
+          "tool": "request_human_review",
+          "args": {
+            "name": "send-followup",
+            "question": "Send the follow-up to Northwind?",
+            "payload": {
+              "to": "pat@northwind.example",
+              "subject": "Next steps on the viewer export"
+            }
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
       "match": "build the viewer export",
       "steps": [
         {

@@ -58,7 +58,7 @@ describe('a proposal that waits on a person', () => {
       source: { agentSlug: 'product-manager', tool: 'file_repo' },
     });
     expect(card!.card.actions[0]).toMatchObject({ label: 'Approve', actionId: 'objects.propose_candidate', input: { objectType: 'repo' } });
-    expect(out).toContain('as a card in this conversation');
+    expect(out).toContain('as a decision docked above their composer');
     expect(out).not.toContain('open the review queue page');
   });
 

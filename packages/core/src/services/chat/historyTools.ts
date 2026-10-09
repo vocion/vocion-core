@@ -37,6 +37,12 @@ export type RunEntry = {
   outcome?: string;
   /** Why it failed, when it did. */
   error?: string;
+  /** A Decision this turn raised (`type: 'decision'`): its id. */
+  id?: number;
+  /** …and its question. */
+  question?: string;
+  /** What ran inside the trust bar (`type: 'receipt'`). */
+  receipt?: { runId?: number; label?: string; undoable?: boolean };
 };
 
 /** One stored turn as the loop replays it — a person's or the agent's words, plus what the agent's turn did. */
@@ -94,6 +100,15 @@ export function historyMessages(turn: HistoryTurn): HistoryMessage[] {
     } else if (r.type === 'card' && typeof r.label === 'string') {
       calls.push({ id, name: 'recommend_action', args: { label: r.label, action_id: r.actionId, ...args(r.input) } });
       results.push({ role: 'tool', toolCallId: id, name: 'recommend_action', content: cardResult(r) });
+    } else {
+      // A Decision the call raised, or what it ran inside the trust bar, is
+      // part of that call's result — the model binds the person's answer
+      // (which comes back as its own message, by id) to the call that asked.
+      const said = decisionResult(r);
+      const last = results[results.length - 1];
+      if (said && last && last.role === 'tool') {
+        last.content = `${last.content}\n${said}`;
+      }
     }
   });
   if (calls.length === 0) {
@@ -104,6 +119,21 @@ export function historyMessages(turn: HistoryTurn): HistoryMessage[] {
     out.push({ role: 'assistant', content: turn.content, toolCalls: [] });
   }
   return out;
+}
+
+/**
+ * What a Decision or a Done receipt on a stored turn says on replay, or null
+ * for any other entry.
+ * @param r - The entry.
+ */
+function decisionResult(r: RunEntry): string | null {
+  if (r.type === 'decision' && typeof r.id === 'number') {
+    return `[Raised as decision #${r.id}: "${(r.question ?? '').slice(0, 160)}". It is docked above the person's composer; their answer comes back as its own message naming #${r.id}. Do not ask it again.]`;
+  }
+  if (r.type === 'receipt' && r.receipt && typeof r.receipt.runId === 'number') {
+    return `[Ran inside the trust bar as run #${r.receipt.runId}: "${(r.receipt.label ?? '').slice(0, 160)}". It is done${r.receipt.undoable ? '; Undo is on its line' : ''} — do not run it again.]`;
+  }
+  return null;
 }
 
 function refusedCall(output: unknown): boolean {

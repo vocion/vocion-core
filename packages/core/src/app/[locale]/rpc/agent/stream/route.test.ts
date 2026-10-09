@@ -333,31 +333,31 @@ describe('agent stream route — the ending it writes down', () => {
   });
 });
 
-describe('agent stream route — a card is never lost', () => {
-  it('a card reaches the wire and the row even when auto-filing it fails', async () => {
+describe('agent stream route — a recommendation reaches the person as a Decision, never a card', () => {
+  it('outside the trust bar it docks as an approval whose Approve runs it as the person — even when filing fails', async () => {
     vi.mocked(runAgentDeep).mockImplementation(putsUpACard);
     const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
 
     const events = await eventsFromTurn(conv.id, 'seven customers lost uploads');
 
-    const card = events.find(e => e.type === 'card') as { card: { title: string; kind: string; runId?: number; state: string } } | undefined;
+    expect(events.some(e => e.type === 'card' || e.type === 'card_update' || e.type === 'recommended_action')).toBe(false);
 
-    expect(card?.card).toMatchObject({ title: 'File this as a request', kind: 'action', state: 'proposed' });
-    expect(card?.card.runId).toBeUndefined();
-    // …and then says it was not filed, and why, rather than promising
-    // (conversation 349, card_378208d4).
-    expect(events.filter(e => e.type === 'card_update')).toEqual([expect.objectContaining({ state: 'unfiled', reason: 'proposal store unavailable' })]);
+    const raised = events.find(e => e.type === 'decision') as { decision: { id: number; kind: string; question: string; state: string; options: Array<{ id: string; hasEffect?: boolean; recommended?: boolean }> } } | undefined;
 
+    expect(raised?.decision).toMatchObject({ kind: 'approval', question: 'File this as a request', state: 'open' });
+    expect(raised?.decision.options).toEqual([
+      expect.objectContaining({ id: 'approve', hasEffect: true, recommended: true }),
+      expect.objectContaining({ id: 'reject' }),
+    ]);
+
+    // The turn that raised it keeps it on its row; the next turn replays it.
     const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
 
-    expect(assistant?.runsJson).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'card', label: 'File this as a request', actionId: 'objects.propose_candidate', state: 'unfiled', reason: 'proposal store unavailable' }),
-    ]));
-    // Written down once, not once per path.
-    expect((assistant?.runsJson ?? []).filter(r => r.type === 'card')).toHaveLength(1);
+    expect(assistant?.runsJson).toContainEqual({ type: 'decision', id: raised!.decision.id, question: 'File this as a request', state: 'open' });
+    expect((assistant?.runsJson ?? []).filter(r => r.type === 'card')).toHaveLength(0);
   });
 
-  it('a card that files gets its proposal id as an update, after it is already on screen and on the row', async () => {
+  it('inside the trust bar it just ran: one Done receipt, Undo only where the kind has one, no question', async () => {
     const { fileRecommendation } = await import('@/services/chat/autoPropose');
     vi.mocked(fileRecommendation).mockResolvedValueOnce({ runId: 3691, status: 'done', ref: { type: 'request', id: 126 } });
     vi.mocked(runAgentDeep).mockImplementation(putsUpACard);
@@ -365,15 +365,12 @@ describe('agent stream route — a card is never lost', () => {
 
     const events = await eventsFromTurn(conv.id, 'seven customers lost uploads');
 
-    const order = events.filter(e => e.type === 'card' || e.type === 'card_update' || e.type === 'done').map(e => e.type);
-
-    expect(order).toEqual(['card', 'card_update', 'done']);
-    // Done-for-you: it ran, and the record it created rides with it (finding 24).
-    expect(events.find(e => e.type === 'card_update')).toMatchObject({ runId: 3691, state: 'decided', ref: { type: 'request', id: 126 } });
+    expect(events.some(e => e.type === 'decision')).toBe(false);
+    expect(events.find(e => e.type === 'receipt')).toMatchObject({ receipt: { runId: 3691, actionId: 'objects.propose_candidate', label: 'File this as a request', undoable: false } });
 
     const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
 
-    expect((assistant?.runsJson ?? []).find(r => r.type === 'card')).toMatchObject({ kind: 'action', label: 'File this as a request', runId: 3691, state: 'decided', ref: { type: 'request', id: 126 } });
+    expect(assistant?.runsJson).toContainEqual({ type: 'receipt', receipt: expect.objectContaining({ runId: 3691 }) });
   });
 });
 

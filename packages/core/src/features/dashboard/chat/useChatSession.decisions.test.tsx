@@ -15,7 +15,7 @@ vi.mock('@/libs/Orpc', () => ({
     chatWidget: { getState: vi.fn(), setState: vi.fn(), setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })) },
     chat: { suggestions: vi.fn(async () => []) },
     artifacts: { get: vi.fn() },
-    decisions: { open: vi.fn(async () => []) },
+    decisions: { open: vi.fn(async () => []), waiting: vi.fn(async () => []) },
     conversations: { intake: vi.fn(), get: vi.fn(), create: vi.fn(), list: vi.fn(async () => []), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(async () => ({})), feedback: vi.fn(async () => ({})) },
   },
 }));
@@ -144,5 +144,43 @@ describe('a Decision in the chat session', () => {
     expect(result.current.messages).toHaveLength(3);
     expect(result.current.answeringDecisionId).toBeNull();
     expect(result.current.isStreaming).toBe(false);
+  });
+
+  it('an answer given while the agent is still replying is held — never dropped — and goes as soon as the turn lands', async () => {
+    resumeThread();
+    const second: DecisionView = { ...repo, id: 42, question: 'Ship it this week?', options: [{ id: 'yes', label: 'Yes', recommended: true }, { id: 'no', label: 'No' }] };
+    vi.mocked(client.decisions.open).mockResolvedValue([repo, second] as never);
+    let release: () => void = () => {};
+    const slow = () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'response_delta', delta: 'Building in the portal.' })}\n\n`));
+        release = () => {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', response: 'Building in the portal.' })}\n\n`));
+          controller.close();
+        };
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => (fetchMock.mock.calls.length === 1 ? slow() : answeredStream()));
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(result.current.openDecisions).toHaveLength(2));
+
+    await act(async () => {
+      result.current.answerDecision(repo, { kind: 'option', optionIds: ['portal'] });
+    });
+    await vi.waitFor(() => expect(result.current.isStreaming).toBe(true));
+    await act(async () => {
+      result.current.answerDecision(second, { kind: 'option', optionIds: ['yes'] });
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.answeringDecisionId).toBe(42);
+
+    await act(async () => release());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(String(fetchMock.mock.calls[1]![1]!.body));
+
+    expect(body.message).toBe('');
+    expect(body.decision_answer).toMatchObject({ id: 42, option_ids: ['yes'] });
   });
 });

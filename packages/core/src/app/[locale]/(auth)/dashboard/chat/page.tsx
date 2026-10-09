@@ -3,11 +3,10 @@ import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { parseConversationParam } from '@/features/dashboard/chat/resumeRule';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { connectReturnPrompt } from '@/libs/connect/returnTo';
+import { connectReturnOutcome } from '@/libs/connect/returnTo';
 import { connectSystemsInputOf } from '@/libs/connect/systemsLink';
 import { listArtifactsByIds } from '@/services/ArtifactService';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
-import { listPendingDecisions } from '@/services/chat/pendingDecisions';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
 import { workspaceGreeting } from '@/services/chat/workspaceLabel';
 import { parseAttachParam } from '@/services/share/intake';
@@ -59,12 +58,10 @@ export default async function ChatPage(props: {
   // Dynamic empty-state chips: urgency (recent brief / review queue) first,
   // then team capabilities across agents. Falls back to capability chips when
   // no live urgency data exists (the pre-F1 default).
-  // The review queue's open proposals, drawn as cards on this surface so a
-  // decision never needs the queue page (Jamie, 2026-10-07). Loaded beside
-  // the chips: both are one query over this workspace.
-  const [chips, pendingDecisions] = orgId
-    ? await Promise.all([buildWorkspaceChips({ orgId, agents, coordinatorSlug }), listPendingDecisions(orgId)])
-    : [[], undefined];
+  // What waits on the person is read by the chat itself and docked above the
+  // composer (`decisions.waiting`), so a decision never needs the queue page
+  // (Jamie, 2026-10-07).
+  const chips = orgId ? await buildWorkspaceChips({ orgId, agents, coordinatorSlug }) : [];
 
   // `?attach=<ids>` — files the phone's share sheet already uploaded
   // (`/api/mobile/share`) start in the composer as chips. Only this
@@ -86,10 +83,9 @@ export default async function ChatPage(props: {
         greeting={greeting}
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
         initialComposerValue={seededPrompt}
-        connectReturnPrompt={seededPrompt ? undefined : connectReturnPrompt({ connect, reason, source, connector }) ?? undefined}
+        connectReturn={seededPrompt ? null : connectReturnOutcome({ connect, reason, source, connector })}
         initialAttachments={initialAttachments.length > 0 ? initialAttachments : undefined}
         conversationId={parseConversationParam(conversation)}
-        pendingDecisions={pendingDecisions}
         // `?new=1` — ⌘⇧O or the palette from a page with no chat surface: start
         // a fresh thread instead of resuming this browser session's.
         startNew={startNew === '1'}

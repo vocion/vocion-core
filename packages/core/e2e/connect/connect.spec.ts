@@ -67,6 +67,24 @@ function reachesVendor(url: string): boolean {
 }
 
 /**
+ * Press a connector's Connect on the Connectors page. The catalog folds past a
+ * screenful ("Show 7 more"), so the connector may be behind it.
+ * @param page - The browser page.
+ * @param name - The connector's name.
+ */
+async function openConnect(page: Page, name: string) {
+  const connect = page.getByRole('button', { name: `Connect ${name}` });
+  const more = page.getByRole('button', { name: /^Show \d+ more/ });
+
+  await expect(connect.or(more).first()).toBeVisible();
+
+  if (!(await connect.isVisible())) {
+    await more.click();
+  }
+  await connect.click();
+}
+
+/**
  * Sign in and land on the dashboard.
  * @param page - The browser page.
  */
@@ -173,7 +191,7 @@ async function acceptDialog(dialog: Dialog): Promise<void> {
 test('GitHub from the Connectors page: log in, the credential field is filled and masked, name the repository, save once', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect GitHub' }).click();
+  await openConnect(page, 'GitHub');
 
   // Before the login the box has a real input to paste into, not a dashed guide.
   await expect(page.getByLabel('Personal access token', { exact: true })).toBeVisible();
@@ -210,7 +228,7 @@ test('GitHub from the Connectors page: log in, the credential field is filled an
 test('HubSpot, with no HubSpot app set up on this server: paste only, one key in the add box and one Save make the connected source and list the key', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect HubSpot' }).click();
+  await openConnect(page, 'HubSpot');
 
   // Paste only: inputs and guidance, never a login button.
   await expect(page.getByRole('link', { name: /Log in with/ })).toHaveCount(0);
@@ -263,7 +281,7 @@ test('a key saved on Developers: the Connectors form shows only its tail until S
   await expect(page.getByRole('row').filter({ hasText: 'Granola key' })).toBeVisible();
 
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect Granola' }).click();
+  await openConnect(page, 'Granola');
   const stored = page.getByTestId('connect-stored-text');
 
   // The page carries the masked tail, never the key.
@@ -365,7 +383,7 @@ test('a HubSpot login app saved through /api/v1: it replaces the Developers one,
 test('Slack from the Connectors page: the login makes the source itself and the add form does not reopen', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect Slack' }).click();
+  await openConnect(page, 'Slack');
 
   await expect(page.getByRole('link', { name: 'Log in with Slack' })).toHaveAttribute('data-brand', 'slack');
 
@@ -392,7 +410,7 @@ for (const login of LOGIN_IS_ENOUGH) {
   test(`${login.name} from the Connectors page: the ${login.providerLabel} login wears its brand and makes the source itself`, async ({ page }) => {
     await signIn(page);
     await page.goto('/dashboard/connectors');
-    await page.getByRole('button', { name: `Connect ${login.name}` }).click();
+    await openConnect(page, login.name);
 
     const button = page.getByRole('link', { name: `Log in with ${login.providerLabel}` });
 
@@ -406,7 +424,7 @@ for (const login of LOGIN_IS_ENOUGH) {
   });
 }
 
-test('in chat: a refused login keeps the card, now saying Try again with the dated attempt, even when the card is pressed while its reply is still being written', async ({ page }) => {
+test('in chat: a refused login keeps the setup step docked and says on it why — nothing is answered, nothing said for the person', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/chat');
   const box = page.locator('textarea').last();
@@ -414,31 +432,29 @@ test('in chat: a refused login keeps the card, now saying Try again with the dat
   await box.fill('connect jira');
   await page.getByRole('button', { name: 'Send message' }).last().click();
 
-  // Before the Connectors-page refusal below, so the card is born with no
-  // attempt on it and Try again can only come from this login.
-  const card = page.getByTestId('recommended-action-card').filter({ hasText: 'Connect Jira' });
+  // The connect card is a setup Decision docked above the composer; its
+  // option opens the login.
+  const step = page.getByRole('dialog', { name: 'Connect Jira' });
 
-  // The script holds the reply 3 seconds after the card appears. Pressed as
-  // soon as it can be: the button waits for the reply to be saved, or the
-  // login would come back before the card exists to note the attempt on.
-  await expect(card.getByRole('link', { name: 'Connect Jira' })).toHaveAttribute('data-brand', 'atlassian', { timeout: 120_000 });
+  await expect(step.getByTestId('decision-option-opens').first()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
 
-  await card.getByRole('link', { name: 'Connect Jira' }).click();
+  await step.getByRole('listbox').focus();
+  await page.keyboard.press('Enter');
 
   await expect.poll(() => requested(/\/dashboard\/chat\?conversation=\d+&connect=error&reason=access_denied/)).toBe(true);
+  await expect(page.getByRole('dialog', { name: 'Connect Jira' }).getByRole('alert')).toContainText('didn\'t work (access_denied)', { timeout: 60_000 });
+  await expect(page.getByText(/Connecting jira didn't work .* What should I try\?/)).toHaveCount(0);
 
   await page.reload();
 
-  await expect(card.getByRole('link', { name: 'Try again' })).toBeVisible({ timeout: 60_000 });
-  await expect(card.getByTestId('connect-last-attempt')).toHaveText(
-    /^Last attempt [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2}\s[AP]M: .+ denied access$/,
-  );
+  await expect(page.getByRole('dialog', { name: 'Connect Jira' })).toBeVisible({ timeout: 60_000 });
 });
 
 test('a refused login lands with connect=error and says when and why under Jira', async ({ page }) => {
   await signIn(page);
   await page.goto('/dashboard/connectors');
-  await page.getByRole('button', { name: 'Connect Jira' }).click();
+  await openConnect(page, 'Jira');
   await page.getByRole('link', { name: /Log in with/ }).click();
 
   await expect.poll(() => requested(/\/dashboard\/connectors\?.*connect=error&reason=access_denied/)).toBe(true);
@@ -450,7 +466,7 @@ test('a refused login lands with connect=error and says when and why under Jira'
   );
 });
 
-test('in chat: the card logs in, the conversation carries on once by itself, and a reload does not repeat it', async ({ page }) => {
+test('in chat: the setup step logs in, the step is answered typed, the conversation carries on once, and a reload does not repeat it', async ({ page }) => {
   await signIn(page);
 
   // The GitHub login from the first case is revoked, so GitHub is not
@@ -467,22 +483,26 @@ test('in chat: the card logs in, the conversation carries on once by itself, and
   await box.fill('connect github');
   await page.getByRole('button', { name: 'Send message' }).last().click();
 
-  const card = page.getByTestId('recommended-action-card');
+  const step = page.getByRole('dialog', { name: 'Connect GitHub' });
 
-  await expect(card.getByText('Connect GitHub').first()).toBeVisible({ timeout: 120_000 });
-  await expect(card).not.toContainText(/approve/i);
+  await expect(step.getByTestId('decision-option-opens').first()).toBeVisible({ timeout: 120_000 });
+  await expect(step).not.toContainText(/approve/i);
+  await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
 
-  await card.getByRole('link', { name: 'Connect GitHub' }).click();
+  await step.getByRole('listbox').focus();
+  await page.keyboard.press('Enter');
 
   await expect(page).toHaveURL(/\/dashboard\/chat\?conversation=\d+/);
   await expect(page.getByText('Which repositories should I watch?')).toBeVisible({ timeout: 120_000 });
-  await expect(page.getByText('I connected github. What\'s next?')).toHaveCount(1);
+  // Typed, on the person's side, never their words.
+  await expect(page.getByTestId('decision-answer').last()).toContainText('Connect GitHub');
+  await expect(page.getByText('I connected github. What\'s next?')).toHaveCount(0);
 
   await page.reload();
 
   await expect(page.getByText('Which repositories should I watch?')).toBeVisible();
-  await expect(page.getByText('I connected github. What\'s next?')).toHaveCount(1);
   await expect(page.getByText('Which repositories should I watch?')).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: 'Connect GitHub' })).toHaveCount(0);
 });
 
 test('no login reached a real vendor', () => {

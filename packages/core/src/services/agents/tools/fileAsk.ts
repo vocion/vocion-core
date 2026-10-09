@@ -117,7 +117,7 @@ async function raiseHere(
   }
 }
 
-const KIND_GUIDE = 'approval (approve, reject or mark done), input (you need a value or a decision only they have), ruling (choose between options), credential (paste a secret; the value never travels through the ask), merge (a PR for a person to merge), recommendation (you recommend an outcome; they authorise), gate (a run may not continue without a yes)';
+const KIND_GUIDE = 'approval (approve, reject or mark done), input (you need a value or a decision only they have), ruling (choose between options), credential (paste a secret; the value never travels through the ask), merge (a PR for a person to merge), recommendation (you recommend an outcome; they authorise), gate (a run may not continue without a yes), signoff (an artifact you made, for them to approve, revise with a note, or discard — name it in object_refs as { type: "artifact", id }), setup (one step of setting something up)';
 
 export function fileAskTool(ctx: RuntimeContext) {
   return tool(

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import type { DecisionView } from '@/libs/decisions/decision';
+import { NextIntlClientProvider } from 'next-intl';
 import { useState } from 'react';
+import { NORTHWIND_FIELDS } from '@/features/branding/northwind.fixture';
 import { DecisionAnswerLine } from './DecisionAnswerLine';
 import { DecisionCard } from './DecisionCard';
 import { DecisionDock } from './DecisionDock';
@@ -41,13 +43,73 @@ const approval: DecisionView = {
   ...repo,
   id: 43,
   kind: 'approval',
-  question: 'Send the renewal follow-up to Kestrel Capital?',
+  question: 'Send the renewal follow-up to Kestrel Capital',
   body: 'Drafted from yesterday\'s call. An email cannot be unsent.',
-  options: [{ id: 'approve', label: 'Approve', consequence: 'Sends it now from your mailbox.', recommended: true }, { id: 'reject', label: 'Reject', consequence: 'Nothing is sent; the draft stays.' }],
-  allowOther: false,
+  preview: 'To: ops@kestrel.example\nSubject: Renewal terms\n\nHi Pat — thanks for the time yesterday. The renewal terms we discussed are attached; the price holds through March.\n\nDana',
+  options: [{ id: 'approve', label: 'Allow once', consequence: 'Sends it now from your mailbox — it cannot be unsent.', recommended: true }, { id: 'reject', label: 'Deny', consequence: 'Nothing is sent; the draft stays.' }],
 };
 const several: DecisionView = { ...repo, id: 44, question: 'Which areas should this sprint cover?', body: null, multiple: true, options: [{ id: 'uploads', label: 'Uploads' }, { id: 'exports', label: 'Exports' }, { id: 'billing', label: 'Billing' }] };
 const deadline: DecisionView = { ...repo, id: 45, deadline: { at: new Date(Date.now() + 2 * 86_400_000).toISOString(), defaultLabel: 'Northwind API' } };
+const connect: DecisionView = {
+  ...repo,
+  id: 46,
+  kind: 'setup',
+  question: 'Connect GitHub',
+  body: 'So the fixes and their pull requests are in view.',
+  options: [
+    { id: 'connect:github', label: 'Connect GitHub', consequence: 'Opens the sign-in, then brings you back here.', recommended: true, href: '/api/connect/github/start?connector=github' },
+    { id: 'paste:github', label: 'Paste a token', consequence: 'Opens the token form, then brings you back here.', href: '/dashboard/connectors?add=github&paste=1' },
+  ],
+};
+const setupStep: DecisionView = {
+  ...repo,
+  id: 47,
+  kind: 'setup',
+  question: 'Hire Reporting Analyst',
+  body: 'Owns the Friday report on open tickets.',
+  options: [{ id: 'do', label: 'Hire', consequence: 'Runs it as you, now.', recommended: true, hasEffect: true }],
+  href: '/dashboard/agents/reporting-analyst',
+};
+const proposal: DecisionView = {
+  ...repo,
+  id: 5016,
+  subject: 'proposal',
+  kind: 'approval',
+  question: 'Move Northwind to Negotiation',
+  body: 'They signed the LOI on Tuesday.',
+  preview: 'deal #4410\ndealstage → negotiation',
+  options: [
+    { id: 'approve', label: 'Allow once', consequence: 'Runs it as you, this once — with Undo.', recommended: true },
+    { id: 'always', label: 'Always allow "update a HubSpot record" in Northwind Support', consequence: 'Runs it now, and moves this kind to Execute within bounds: next time it runs without asking.' },
+    { id: 'reject', label: 'Deny', consequence: 'Nothing runs; the agent revises from your no.' },
+  ],
+  agentSlug: 'revenue-lead',
+  href: '/dashboard/inbox/proposal-5016',
+  hrefLabel: 'Details',
+};
+const brand: DecisionView = {
+  ...repo,
+  id: 49,
+  kind: 'setup',
+  question: 'Make it yours: Northwind',
+  body: 'Read from northwind.example (90% sure).',
+  options: [
+    { id: 'do', label: 'Use this brand', consequence: 'Runs it as you, now — with Undo.', recommended: true, hasEffect: true, look: { renderer: 'brand', data: { ...NORTHWIND_FIELDS, logos: { wordmark: NORTHWIND_FIELDS.logos.wordmark, mark: NORTHWIND_FIELDS.logos.mark } } } },
+    { id: 'adjust', label: 'Adjust', consequence: 'Opens its settings with this draft, to change it first.', href: '/dashboard/brand' },
+  ],
+};
+const signoff: DecisionView = {
+  ...repo,
+  id: 48,
+  kind: 'signoff',
+  question: 'Sign off the Kestrel Capital renewal proposal?',
+  body: 'Six pages, priced per opening, checked against the brief.',
+  options: [
+    { id: 'approve', label: 'Sign off', consequence: 'It is final and goes to the client folder.', recommended: true },
+    { id: 'reject', label: 'Discard', consequence: 'The draft is set aside.' },
+  ],
+  href: '/dashboard/artifacts/31',
+};
 
 /**
  * A card with its answers shown under it, as the surface receives them.
@@ -91,6 +153,8 @@ const meta: Meta<typeof Card> = {
   title: 'Chat/DecisionCard',
   component: Card,
   parameters: { layout: 'centered' },
+  // "Details" and a Done line's record are in-app links.
+  decorators: [Story => <NextIntlClientProvider locale="en"><Story /></NextIntlClientProvider>],
 };
 
 export default meta;
@@ -171,3 +235,49 @@ export const Dock: StoryObj<typeof DecisionDock> = {
     </div>
   ),
 };
+
+/** A setup step that connects a tool: its options open the sign-in or the token form. */
+export const SetupConnect: Story = { args: { decision: connect } };
+export const SetupConnectDark: Story = { args: { decision: connect, dark: true } };
+
+/** A setup step one action does: choosing it runs that action as the person, with Undo. */
+export const SetupStep: Story = { args: { decision: setupStep, total: 4 } };
+export const SetupStepDark: Story = { args: { decision: setupStep, total: 4, dark: true } };
+
+/** A proposal waiting on approval is its own approval Decision, with Details. */
+export const Proposal: Story = { args: { decision: proposal } };
+export const ProposalDark: Story = { args: { decision: proposal, dark: true } };
+
+/** Signing off a deliverable: the artifact one move away. */
+export const Signoff: Story = { args: { decision: signoff } };
+export const SignoffDark: Story = { args: { decision: signoff, dark: true } };
+
+/**
+ * The dock queue: this conversation's own first, then what waits elsewhere,
+ * and the line saying what the last answer from the queue did.
+ * @param props - The story.
+ * @param props.dark - Draw it in dark mode.
+ */
+function Waiting({ dark = false }: { dark?: boolean }) {
+  return (
+    <div className={dark ? 'dark' : ''}>
+      <div className="w-[640px] bg-background p-6 text-foreground">
+        <DecisionDock
+          decisions={[]}
+          waiting={[{ ...proposal, conversationId: null }, { ...repo, conversationId: null }]}
+          onAnswer={() => {}}
+          agentName={() => 'Revenue lead'}
+          notice={{ line: 'Chose No · Archive the Q3 board?', receipt: { runId: 9, actionId: 'objects.archive', label: 'Archive the Q3 board? — No', undoable: false } }}
+          onDismissNotice={() => {}}
+        />
+      </div>
+    </div>
+  );
+}
+
+export const WaitingElsewhere: StoryObj<typeof Waiting> = { render: () => <Waiting /> };
+export const WaitingElsewhereDark: StoryObj<typeof Waiting> = { render: () => <Waiting dark /> };
+
+/** "Make it yours": the drafted brand on the app's own chrome, then Use this brand or Adjust. */
+export const MakeItYours: Story = { args: { decision: brand, total: 5 } };
+export const MakeItYoursDark: Story = { args: { decision: brand, total: 5, dark: true } };

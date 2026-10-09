@@ -11,14 +11,16 @@ vi.mock('./AuthGuards', () => ({ guardAuth: vi.fn() }));
 vi.mock('@/services/connect/createSourceWithCredential', () => ({ createSourceWithCredential: vi.fn() }));
 vi.mock('@/services/connect/recommendations', () => ({ recommendConnections: vi.fn(async () => ({ candidates: [] })) }));
 vi.mock('@/services/connect/verifyConnection', () => ({ verifyConnection: vi.fn(async () => ({ state: 'verified', preview: 'Found 3 documents', checks: [] })) }));
-vi.mock('@/services/ConversationService', () => ({ getConversation: vi.fn(), markCardRun: vi.fn(async () => true) }));
+vi.mock('@/services/ConversationService', () => ({ getConversation: vi.fn() }));
+vi.mock('@/services/connect/settleWalk', () => ({ settleConnectSystems: vi.fn(async () => ({ settled: true })) }));
 vi.mock('@/libs/Logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 const { guardAuth } = await import('./AuthGuards');
 const { createSourceWithCredential } = await import('@/services/connect/createSourceWithCredential');
 const { recommendConnections } = await import('@/services/connect/recommendations');
 const { verifyConnection } = await import('@/services/connect/verifyConnection');
-const { getConversation, markCardRun } = await import('@/services/ConversationService');
+const { getConversation } = await import('@/services/ConversationService');
+const { settleConnectSystems } = await import('@/services/connect/settleWalk');
 const { logger } = await import('@/libs/Logger');
 const { finishConnectionsRoute, planConnectionsRoute, saveConnectionKeyRoute, verifyConnectionRoute } = await import('./ConnectSystems');
 
@@ -98,15 +100,15 @@ describe('tenant scoping', () => {
   it('writes the summary only onto a conversation this workspace and person can see', async () => {
     vi.mocked(getConversation).mockResolvedValue(null as never);
 
-    await expect(call(finishConnectionsRoute, { conversationId: 7, cardId: 'card_1', summary: 'Connected Slack.' })).rejects.toBeTruthy();
+    await expect(call(finishConnectionsRoute, { conversationId: 7, decisionId: 31, summary: 'Connected Slack.' })).rejects.toBeTruthy();
     expect(getConversation).toHaveBeenCalledWith({ orgId: ORG, id: 7, viewerId: 'usr-cs-dana' });
-    expect(markCardRun).not.toHaveBeenCalled();
+    expect(settleConnectSystems).not.toHaveBeenCalled();
   });
 
-  it('marks the card decided with the summary as its line', async () => {
+  it('answers the walk\'s Decision with the summary as what happened, in the session\'s workspace', async () => {
     vi.mocked(getConversation).mockResolvedValue({ id: 7 } as never);
 
-    await expect(call(finishConnectionsRoute, { conversationId: 7, cardId: 'card_1', summary: 'Connected Slack.' })).resolves.toEqual({ marked: true });
-    expect(markCardRun).toHaveBeenCalledWith(expect.objectContaining({ orgId: ORG, conversationId: 7, cardId: 'card_1', patch: expect.objectContaining({ state: 'decided', body: 'Connected Slack.' }) }));
+    await expect(call(finishConnectionsRoute, { conversationId: 7, decisionId: 31, summary: 'Connected Slack.' })).resolves.toEqual({ settled: true });
+    expect(settleConnectSystems).toHaveBeenCalledWith({ orgId: ORG, userId: 'usr-cs-dana', conversationId: 7, decisionId: 31, summary: 'Connected Slack.' });
   });
 });

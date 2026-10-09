@@ -6,12 +6,12 @@ import { ADMIN, seedOnboarding } from './support/seed';
 
 /**
  * A new workspace, set up by chat: it opens on its lead, the lead interviews
- * (three questions) and proposes a plan as one-click cards, and each card the
- * person presses runs as their action, with Undo, while the sidebar's Getting
- * started checklist counts it.
+ * (three questions) and proposes a plan as setup steps docked above the
+ * composer, one at a time; each step the person takes runs as their action,
+ * with Undo, while the sidebar's Getting started checklist counts it.
  *
  * The model is scripted (`scripts/chat.json`): it really calls `setup_options`
- * and `propose_setup`, so the cards, the actions behind them, the undo and the
+ * and `propose_setup`, so the steps, the actions behind them, the undo and the
  * checklist are all real. Start the server the way `npm run e2e:onboarding`
  * does:
  *   VOCION_LLM_PROVIDER=scripted VOCION_LLM_SCRIPT=e2e/onboarding/scripts/chat.json
@@ -50,6 +50,17 @@ async function openChat(page: Page): Promise<void> {
   await page.waitForURL(/\/dashboard/);
   await page.goto(`/w/${workspace.slug}/dashboard/chat`);
   await page.waitForURL(/\/dashboard\/chat/);
+}
+
+/**
+ * Open the Getting started row, which starts folded to one line.
+ * @param page - The browser page.
+ */
+async function openChecklist(page: Page): Promise<void> {
+  const row = page.getByRole('button', { name: /Getting started/ });
+  if ((await row.getAttribute('aria-expanded')) !== 'true') {
+    await row.click();
+  }
 }
 
 /**
@@ -93,7 +104,7 @@ test('a new workspace opens on its lead\'s one-line hello, one setup chip and a 
   await shot(page, '01-lead-intro');
 });
 
-test('the lead interviews, proposes the plan as one-click cards, and each runs as the person\'s action with Undo', async ({ page }) => {
+test('the lead interviews, proposes the plan as docked setup steps, and each runs as the person\'s action with Undo', async ({ page }) => {
   await openChat(page);
   await page.getByTestId('lead-intro').getByRole('button', { name: 'Set up this workspace' }).click();
 
@@ -111,36 +122,58 @@ test('the lead interviews, proposes the plan as one-click cards, and each runs a
 
   await say(page, 'GitHub. Ana should be here too: ana@northwind.example');
 
-  const plan = page.getByTestId('setup-plan');
+  // The plan is a queue of setup steps docked above the composer, one at a
+  // time, each saying why — the same Decision every other ask is.
+  const dock = page.getByTestId('decision-dock');
+  const step = (name: string) => dock.getByRole('dialog', { name });
+  const idle = () => expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
 
-  await expect(plan).toBeVisible({ timeout: 120_000 });
-  await expect(plan.getByTestId('setup-card')).toHaveCount(3);
-  await expect(plan).toContainText('Add Software Factory');
-  await expect(plan).toContainText('Connect GitHub');
-  await expect(plan).toContainText('Hire Reporting Analyst');
-  await expect(plan).toContainText('Invite ana@northwind.example');
-  await expect(plan).toContainText('Owns the Friday report on open tickets.');
+  await expect(step('Add Software Factory')).toBeVisible({ timeout: 120_000 });
+  await expect(dock.getByTestId('decision-queue')).toHaveText(/1 of 4/);
+  await expect(dock).toContainText('Customer requests become fixes the asker hears about.');
+
+  await idle();
 
   await shot(page, '03-setup-plan');
 
-  // Each card runs as the person's action, with Undo, and the checklist counts it.
-  const app = plan.getByTestId('setup-card').filter({ hasText: 'Add Software Factory' });
-  await app.getByRole('button', { name: 'Add' }).click();
+  // Enter takes the step: it runs as the person's action, with Undo, and the
+  // checklist counts it.
+  await step('Add Software Factory').getByRole('listbox').focus();
+  await page.keyboard.press('Enter');
 
-  await expect(app).toHaveAttribute('data-step-state', 'done', { timeout: 60_000 });
-  await expect(app.getByTestId('setup-card-undo')).toBeVisible();
-  await expect(app.getByTestId('setup-card-open')).toHaveText('Open Software Factory');
+  const added = page.getByTestId('done-receipts').locator('li').filter({ hasText: 'Add Software Factory' });
+
+  await expect(added).toBeVisible({ timeout: 60_000 });
+  await expect(added.getByRole('button', { name: 'Undo' })).toBeVisible();
+
+  await openChecklist(page);
+
   await expect(page.getByTestId('getting-started-app')).toHaveAttribute('data-done', 'true');
 
-  const hire = plan.getByTestId('setup-card').filter({ hasText: 'Hire Reporting Analyst' });
-  await hire.getByRole('button', { name: 'Hire' }).click();
+  await idle();
 
-  await expect(hire).toHaveAttribute('data-step-state', 'done', { timeout: 60_000 });
+  // Connecting is a step too; not now — Skip leaves it, nothing runs.
+  await expect(step('Connect GitHub')).toBeVisible();
 
-  const invite = plan.getByTestId('setup-card').filter({ hasText: 'Invite ana@northwind.example' });
-  await invite.getByRole('button', { name: 'Invite' }).click();
+  await step('Connect GitHub').getByTestId('decision-skip').click();
+  await idle();
 
-  await expect(invite).toHaveAttribute('data-step-state', 'done', { timeout: 60_000 });
+  await expect(step('Hire Reporting Analyst')).toBeVisible({ timeout: 60_000 });
+  await expect(step('Hire Reporting Analyst')).toContainText('Owns the Friday report on open tickets.');
+
+  await step('Hire Reporting Analyst').getByRole('listbox').focus();
+  await page.keyboard.press('Enter');
+
+  // The next step is taken as soon as it shows — while the agent may still be
+  // replying to the last: the answer is held and goes when that turn lands.
+  await expect(step('Invite ana@northwind.example')).toBeVisible({ timeout: 60_000 });
+
+  await step('Invite ana@northwind.example').getByRole('listbox').focus();
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByTestId('done-receipts').locator('li').filter({ hasText: 'Hire Reporting Analyst' })).toBeVisible({ timeout: 60_000 });
+
+  await expect(page.getByTestId('done-receipts').locator('li').filter({ hasText: 'Invite ana@northwind.example' })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('getting-started-hire')).toHaveAttribute('data-done', 'true');
   await expect(page.getByTestId('getting-started-invite')).toHaveAttribute('data-done', 'true');
 
@@ -148,29 +181,25 @@ test('the lead interviews, proposes the plan as one-click cards, and each runs a
   const branded = (await page.getByTestId('getting-started-brand').getAttribute('data-done')) === 'true' ? 1 : 0;
 
   await expect(page.getByTestId('getting-started-count')).toHaveText(`Getting started · ${3 + branded} of 5`);
+  await expect(dock).toHaveCount(0);
+
+  await idle();
 
   await shot(page, '04-steps-done');
 
   // Undo is one move from where it says Done, and the checklist follows.
-  await app.getByTestId('setup-card-undo').click();
+  await added.getByRole('button', { name: 'Undo' }).click();
 
-  await expect(app).toHaveAttribute('data-step-state', 'undone', { timeout: 60_000 });
+  await expect(added).toContainText('Undone', { timeout: 60_000 });
   await expect(page.getByTestId('getting-started-app')).toHaveAttribute('data-done', 'false');
   await expect(page.getByTestId('getting-started-count')).toHaveText(`Getting started · ${2 + branded} of 5`);
 
-  // A reload draws each step as what it became, not as a button again — once
-  // the server has finished writing the turns down (their rows are `running`
-  // until then, and a reload in that window says "Still answering…").
-  await expect.poll(async () => {
-    await page.reload();
+  // A reload draws each step as what it became, not as a button again.
+  await page.reload();
 
-    await expect(page.getByTestId('setup-plan')).toBeVisible({ timeout: 60_000 });
-
-    return page.getByText('Still answering…').count();
-  }, { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }).toBe(0);
-
-  await expect(page.getByTestId('setup-card').filter({ hasText: 'Hire Reporting Analyst' })).toHaveAttribute('data-step-state', 'done', { timeout: 60_000 });
-  await expect(page.getByTestId('setup-card').filter({ hasText: 'Add Software Factory' })).toHaveAttribute('data-step-state', 'undone');
+  await expect(page.getByTestId('done-receipts').locator('li').filter({ hasText: 'Hire Reporting Analyst' })).toContainText('Done', { timeout: 60_000 });
+  await expect(page.getByTestId('done-receipts').locator('li').filter({ hasText: 'Add Software Factory' })).toContainText('Undone');
+  await expect(page.getByTestId('decision-dock')).toHaveCount(0);
 
   await shot(page, '05-after-reload');
 });

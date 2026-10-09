@@ -33,7 +33,6 @@ import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from '@/
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { ConversationDecisions } from '@/features/dashboard/chat/decisions/DecisionDock';
-import { HitlGate } from '@/features/dashboard/chat/HitlGate';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
 import { ModelControl } from '@/features/dashboard/chat/ModelControl';
 import { QuotedPassage } from '@/features/dashboard/chat/QuotedPassage';
@@ -278,9 +277,6 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                       conversationId={props.conversationId}
                     />
                   )}
-              {session.pendingHitl && (
-                <HitlGate gate={session.pendingHitl} onApprove={session.handleApproveHitl} onReject={session.handleRejectHitl} disabled={session.isStreaming} />
-              )}
               {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
               <ChatComposer
                 above={<ConversationDecisions session={session} />}

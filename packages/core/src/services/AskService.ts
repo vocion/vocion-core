@@ -139,6 +139,14 @@ export function normaliseOptions(raw: unknown): AskOption[] {
       if (act && typeof act === 'object' && typeof act.id === 'string' && act.id.trim()) {
         option.action = { id: act.id.trim(), input: act.input && typeof act.input === 'object' && !Array.isArray(act.input) ? act.input as Record<string, unknown> : {} };
       }
+      // A link option opens an in-app flow (a login, a token form); only an
+      // in-app path is kept, so an option can never send a person off-site.
+      if (typeof o.href === 'string' && /^\/(?!\/)/.test(o.href) && !o.href.includes('\\')) {
+        option.href = o.href;
+      }
+      if (typeof o.look === 'string' && /^[a-z][a-z0-9-]{0,39}$/.test(o.look) && option.action) {
+        option.look = o.look;
+      }
       if (o.confidence !== undefined && o.confidence !== null) {
         if (typeof o.confidence !== 'number' || Number.isNaN(o.confidence) || o.confidence < 0 || o.confidence > 1) {
           throw new AskError('VALIDATION_FAILED', `option "${id}" confidence must be a number between 0 and 1`, 400);

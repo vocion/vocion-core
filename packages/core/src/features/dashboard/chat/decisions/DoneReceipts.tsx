@@ -3,6 +3,7 @@
 import type { DoneReceipt } from '@/libs/decisions/receipt';
 import { Check, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
+import { announceSetupChanged } from '@/features/dashboard/setupChanged';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -31,6 +32,8 @@ export function DoneReceipts({ receipts }: { receipts: DoneReceipt[] }) {
     try {
       await client.review.undoAction({ id: runId });
       setUndo(prev => ({ ...prev, [runId]: 'undone' }));
+      // Something was taken back: a setup step may be undone (the checklist re-reads).
+      announceSetupChanged();
     } catch {
       setUndo(prev => ({ ...prev, [runId]: 'failed' }));
     }
@@ -41,7 +44,9 @@ export function DoneReceipts({ receipts }: { receipts: DoneReceipt[] }) {
         const state = r.status === 'undone' ? 'undone' : undo[r.runId];
         return (
           <li key={r.runId} className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground" data-testid={`done-receipt-${r.runId}`} data-undoable={r.undoable}>
-            <Check className="size-3.5 shrink-0 text-[var(--brand-pass)]" aria-hidden />
+            {state === 'undone'
+              ? <RotateCcw className="size-3.5 shrink-0" aria-hidden />
+              : <Check className="size-3.5 shrink-0 text-[var(--brand-pass)]" aria-hidden />}
             <span className="shrink-0 font-medium text-foreground/85">{state === 'undone' ? 'Undone' : 'Done'}</span>
             <span aria-hidden>·</span>
             {r.href

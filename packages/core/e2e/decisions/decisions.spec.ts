@@ -150,3 +150,48 @@ test('an answer typed in the composer is read against the open Decision before i
 
   await shot(page, 'after-05-answered-in-words');
 });
+
+test('what the person told it to do just runs: no card, one Done line named as they saw it, and its Undo takes it back', async ({ page }) => {
+  await signIn(page);
+  await freshChat(page);
+  await say(page, 'add the software factory app');
+
+  const done = page.getByTestId('done-receipts').locator('li').filter({ hasText: 'Add Software Factory' });
+
+  await expect(done).toContainText('Done', { timeout: 120_000 });
+  await expect(page.getByRole('dialog', { name: 'Add Software Factory' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
+
+  await shot(page, 'after-06-done-as-told');
+  await done.getByRole('button', { name: 'Undo' }).click();
+
+  await expect(done).toContainText('Undone', { timeout: 60_000 });
+  await expect(done.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+
+  // Read back, it still says what it is now.
+  await page.reload();
+
+  await expect(page.getByTestId('done-receipts').locator('li').filter({ hasText: 'Add Software Factory' })).toContainText('Undone', { timeout: 60_000 });
+});
+
+test('the approval gate is the same card, asked as a permission prompt: the payload shown, Esc denies, typed', async ({ page }) => {
+  await signIn(page);
+  await freshChat(page);
+  await say(page, 'send the northwind follow-up');
+
+  const card = page.getByRole('dialog', { name: 'Send the follow-up to Northwind?' });
+
+  await expect(card).toBeVisible({ timeout: 120_000 });
+  await expect(card.getByTestId('decision-preview')).toContainText('pat@northwind.example');
+  await expect(card.getByRole('option').first()).toContainText('Allow once');
+  await expect(card.getByTestId('decision-key-hints')).toContainText('Esc deny');
+  await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
+
+  await shot(page, 'after-07-gate');
+  await card.getByRole('listbox').focus();
+  await page.keyboard.press('Escape');
+
+  await expect(page.getByText('Holding the follow-up; nothing went out.').last()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByTestId('decision-answer').last()).toContainText('Chose Deny');
+  await expect(card).toHaveCount(0);
+});

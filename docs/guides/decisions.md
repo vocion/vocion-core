@@ -67,8 +67,10 @@ the effect's kind has an undo.
 
 ## When an agent raises one
 
-The escalation rule (step 1 lands the Done receipt and in-turn questions and
-choices; step 2 moves approvals and every other card onto it):
+The escalation rule, in one place (`services/decisions/escalate.ts`, called
+from the chat route for every producer event that used to draw a card —
+`recommend_action`, the card backstop, `propose_action`, "Draft needed",
+`offer_connection`, `propose_setup`, `request_human_review`):
 
 - **Inside the trust bar and reversible** → just do it, and say so in one line
   under the turn: a **Done receipt**, with Undo *only* where the action's kind
@@ -76,7 +78,26 @@ choices; step 2 moves approvals and every other card onto it):
   nothing else.
 - **An unclear instruction** → one *question* Decision.
 - **Several viable paths** → a *choice* Decision, with the recommendation first.
-- **Outside the trust bar** → an *approval* Decision.
+- **Outside the trust bar** → an *approval* Decision, asked as a permission
+  prompt (below). A proposal waiting on approval **is** its own approval: the
+  pending `action_run`, read as a Decision, answered through Review's own
+  `decide` path — never a second row.
+- **A step of setting up** → a *setup* Decision: "Add Software Factory" runs its
+  one action as the person, with Undo; "Connect GitHub" has options that **open**
+  the sign-in or the token form (in-app links), and the step is answered, typed,
+  when the person lands back in the conversation (`useAnswerOnConnectReturn`). A
+  refused login keeps the step docked and says why on it.
+- **Connect your systems** (`connect_system`) → one *setup* Decision whose
+  option opens the docked walk-through; while the walk runs it **is** the docked
+  card, each step drawn by the same Decision card, and Done answers the Decision
+  with what happened (`services/connect/settleWalk.ts`).
+- **A step whose effect has a picture** ("Make it yours", `propose_brand`) → a
+  *setup* Decision whose option carries its **look** — the card kind declares it
+  (`CardKindDescriptor.look`), the option keeps it (`AskOption.look`), and the
+  card draws the drafted brand on the app's own chrome above the options
+  (`chat/decisions/looks.tsx`). "Adjust" opens its settings with the draft.
+- **A deliverable to sign off** → a *signoff* Decision: Sign off, Discard, or
+  "Revise — say what to change…" in their own words.
 - **Nobody is here** (a mission, an automation) → the Decision goes to Needs you
   with its deadline and default.
 
@@ -91,6 +112,45 @@ conversation — and a person who says "put it on the queue" gets it on Needs yo
 A Slack or email thread reads only words, so there the agent asks in one
 numbered line until those channels draw the Decision as a numbered message
 (step 4 below).
+
+### An approval is a permission prompt
+
+Modelled on Claude Code's: one card, the same component, no second approval UI.
+
+```text
+REVENUE LEAD ASKS
+Allow Revenue lead to move Northwind to Negotiation?
+They signed the LOI on Tuesday.
+┌──────────────────────────────┐
+│ deal #4410                   │   ← the exact payload: the email as it will go
+│ dealstage → negotiation      │     out, the fields a record update sets, the
+└──────────────────────────────┘     command (`services/decisions/preview.ts`)
+ 1  Allow once      Recommended  Runs it as you, this once — with Undo.
+ 2  Always allow "update a HubSpot record" in Northwind Support
+                                 Runs it now, and moves this kind to Execute within bounds.
+ 3  Deny                         Nothing runs; the agent revises from your no.
+ 4  Something else…
+```
+
+- **Allow once** is recommended and preselected; `⌘↵` takes it whatever is
+  highlighted. **Deny** is `Esc`.
+- **Always allow** is the trust ladder's own promotion
+  (`autonomy/AutonomyService.promote`), offered only where the ladder would take
+  it **for this person**: they are an admin, the next rung is earned on the
+  alignment evidence, and that rung automates (`services/decisions/alwaysAllow.ts`).
+  Anywhere else it is not on the card; sent anyway, it is refused and nothing
+  moves. Choosing it promotes the kind, then runs this one as Allow once; the
+  agent hears "Always allow".
+- **Something else…** is their words back to the agent (on a proposal, a
+  rejection with their note, which the proposer revises from).
+
+### A Done line says what its run is now
+
+A receipt is stored with its turn, but Undo happens later — on the line, on
+Review, in another tab. A transcript read back stamps each receipt with its run's
+status (`services/decisions/liveReceipts.ts`): an undone run reads **Undone**,
+with no second Undo. A run the person told the agent to do in so many words
+(read by the consent judge) runs at once and its line is named as they saw it.
 
 ## How it is answered — answers first
 
@@ -112,6 +172,10 @@ judged **against it, before it is routed or intent-read**
   asker as a free-text answer. A genuinely new topic routes as it always did, and
   the agent that answers it is told the Decision is still waiting, so it is never
   asked twice.
+
+- **While the agent is still replying** to the last answer, the next card is
+  live: an answer given then is **held** and goes the moment that turn lands —
+  never dropped, never blocked.
 
 Either way the answer goes to **the agent that asked**, as a typed decision event
 it binds by id:
@@ -136,6 +200,18 @@ proposal is now. No turn is written in the person's name.
 - **Chat** — docked above the composer on every surface that has one (the chat
   page, the rail, a conversation's artifact view), one at a time, "1 of 3" when
   more wait, folded to one line with Esc. Opening a thread docks what it waits on.
+  **An empty chat opens warm** (#1264, `chat/emptyChat.ts`): no docked card
+  unless the person started that flow, and what waits on them elsewhere — a Needs
+  you question with no conversation, a proposal filed from none
+  (`DecisionService.waitingElsewhere`) — is the one soft, dismissible chip,
+  "3 things waiting on you →", to Review (`WaitingNudge`). Once a conversation is
+  under way they queue in its dock behind its own, under "Waiting on you",
+  answered where they live with no turn; the dock says once what the answer did.
+  On a phone everything pinned above the composer is capped at a quarter of the
+  screen and scrolls inside (`PINNED_MAX_CLASS`).
+- **The past turn** — a Decision a call raised and a Done line it produced are
+  replayed with that call's result on the next turn (`chat/historyTools.ts`), so
+  the agent binds the answer to the call that asked and never asks twice.
 - **Needs you** — every Decision is an ask, so it is listed there today with its
   deadline and default. The card's `list` variant is the row it moves to.
 - **Slack and email** — the same Decision as a numbered message, answered by

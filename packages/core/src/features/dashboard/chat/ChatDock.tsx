@@ -1,7 +1,6 @@
 'use client';
 
 import type { AgentSurfaceRequest } from './agentSurface';
-import type { CardDecision } from './cards/CardDecisions';
 import type { AgentOption } from './types';
 import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import type { PageContext } from '@/services/chat/pageContext';
@@ -16,21 +15,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useViewportBelow } from '@/components/ui/useMobile';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
-import { ConnectSystemsFlow } from '@/features/dashboard/connect-systems/ConnectSystemsFlow';
-import { useConnectSystems } from '@/features/dashboard/connect-systems/launch';
 import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
 import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
 import { closePreview, openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
-import { client } from '@/libs/Orpc';
 import { setLiveSources } from '@/libs/preview/liveSources';
 import { parseSourcesRefId, sourcesPreviewRef } from '@/libs/preview/sourcesRef';
 import { pageShowsRecord, recordFromPath, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, followExcludeOf } from './agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
-import { CardDecisionProvider } from './cards/CardDecisions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -38,7 +33,6 @@ import { hasChangeIntent } from './composerTags';
 import { ConversationDecisions } from './decisions/DecisionDock';
 import { RAIL_SET_EVENT } from './dockState';
 import { EmptyState } from './EmptyState';
-import { HitlGate } from './HitlGate';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
@@ -292,20 +286,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
   const firstName = usePersonFirstName();
-  // "Connect your systems", started by its card in this thread, docked above this composer.
-  const connectWalk = useConnectSystems();
   // The record the page beside the rail is about — it refreshes itself, so
   // the turn's follow chips leave it out (Chris, 2026-09-29).
   const pageRecord = useMemo(() => followExcludeOf(effectiveContext?.record ?? (effectiveContext?.path ? recordFromPath(effectiveContext.path) : null) ?? (scopeRef ? scopeRefToRecord(scopeRef) : null)), [effectiveContext, scopeRef]);
-  // A card's decision is recorded on the card in THIS conversation (backlog 025) — never as a user turn.
-  const recordCardDecision = useCallback((d: CardDecision) => {
-    if (session.conversationId === null) {
-      return;
-    }
-    void client.conversations.recordCardDecision({ id: session.conversationId, ...d }).catch((err: unknown) => {
-      console.warn('card decision was not written to the conversation', err);
-    });
-  }, [session.conversationId]);
   const queueProps = useComposerQueueProps(session);
   const asideRef = useRef<HTMLElement | null>(null);
   const openSources = useCallback((messageId?: number) => {
@@ -617,24 +600,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       ? [{ key: 'pointer', afterIndex: -1, node: <SequencePointer run={run} guided={guided} /> }]
       : [];
 
-  // The approval gate joins the transcript blocks instead of sitting above the
-  // composer (Chris, 2026-09-24: "show inline instead of sticky to the compose
-  // bar"). It goes last so a guided card and a gate raised in the same turn
-  // read in the order they happened.
-  const blocks = session.pendingHitl
-    ? [...cardBlocks, {
-        key: 'hitl-gate',
-        afterIndex: session.messages.length,
-        node: (
-          <HitlGate
-            gate={session.pendingHitl}
-            onApprove={session.handleApproveHitl}
-            onReject={session.handleRejectHitl}
-            disabled={session.isStreaming}
-          />
-        ),
-      }]
-    : cardBlocks;
+  // An approval gate is a Decision docked above the composer, like every other one.
+  const blocks = cardBlocks;
 
   const autonomyCopy = {
     ask: t('autonomy_ask'),
@@ -749,26 +716,24 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                     )
               )
             : (
-                <CardDecisionProvider value={recordCardDecision}>
-                  <MessageList
-                    messages={session.messages}
-                    agentName={session.workspaceName}
-                    agents={agents}
-                    streaming={session.isStreaming}
-                    activity={session.activity}
-                    // The rail's second pane is the preview pane: a turn's
-                    // sources open there, beside the thread (Chris,
-                    // 2026-09-29: "clicking source … doesn't do anything").
-                    pageRecord={pageRecord}
-                    onShowSources={openSources}
-                    onCitationClick={(_n, messageId) => openSources(messageId)}
-                    blocks={blocks}
-                    onFeedback={session.handleFeedback}
-                    onBuildCard={session.buildFromCard}
-                    autonomy={session.autonomy}
-                    conversationId={session.conversationId}
-                  />
-                </CardDecisionProvider>
+                <MessageList
+                  messages={session.messages}
+                  agentName={session.workspaceName}
+                  agents={agents}
+                  streaming={session.isStreaming}
+                  activity={session.activity}
+                  // The rail's second pane is the preview pane: a turn's
+                  // sources open there, beside the thread (Chris,
+                  // 2026-09-29: "clicking source … doesn't do anything").
+                  pageRecord={pageRecord}
+                  onShowSources={openSources}
+                  onCitationClick={(_n, messageId) => openSources(messageId)}
+                  blocks={blocks}
+                  onFeedback={session.handleFeedback}
+                  onBuildCard={session.buildFromCard}
+                  autonomy={session.autonomy}
+                  conversationId={session.conversationId}
+                />
               )}
 
         {/* The cards have scrolled up behind newer turns: one click brings
@@ -791,15 +756,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         <ChatComposer
           above={(
             <>
-              {connectWalk.active && (
-                <ConnectSystemsFlow
-                  key={connectWalk.active.key}
-                  input={connectWalk.active.input}
-                  card={connectWalk.active.cardId && session.conversationId !== null ? { conversationId: session.conversationId, cardId: connectWalk.active.cardId } : null}
-                  onClose={connectWalk.close}
-                  onSomethingElse={text => void session.sendMessage(text)}
-                />
-              )}
               <ConversationDecisions session={session} />
               {comments && (
                 <CommentChips

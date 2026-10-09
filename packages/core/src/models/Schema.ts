@@ -4543,6 +4543,18 @@ export type AskOption = {
    * effect: the exact typed action it runs.
    */
   action?: { id: string; input: Record<string, unknown> };
+  /**
+   * Choosing it OPENS this in-app path instead of answering — a login, a
+   * token form. The Decision stays open; the flow it opens answers it on its
+   * way back (`libs/decisions/decision.ts`).
+   */
+  href?: string;
+  /**
+   * The option's effect has a picture worth showing before it runs (a drafted
+   * brand on the app's own chrome): the UI renderer that draws its action's
+   * input, by name (`features/dashboard/chat/decisions/looks.tsx`).
+   */
+  look?: string;
 };
 
 /**
@@ -4559,7 +4571,11 @@ export type AskObjectRef = { type: string; id: string };
  * sits under the service's import graph, and a static import back into it
  * is a cycle. `AskService` re-exports both.
  */
-export const ASK_KINDS = ['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate'] as const;
+/*
+ * `signoff`: an artifact a person approves, revises with a note, or discards.
+ * `setup`: one step of setting something up (connect a tool, pick its repos).
+ */
+export const ASK_KINDS = ['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate', 'signoff', 'setup'] as const;
 export type AskKind = typeof ASK_KINDS[number];
 export const ASK_RISKS = ['low', 'medium', 'high'] as const;
 export type AskRisk = typeof ASK_RISKS[number];

@@ -85,7 +85,7 @@ export type Card = z.infer<typeof CardSchema>;
 /** What a kind declares: how its payload is checked and what draws it. */
 /** The kind a step of a workspace's setup plan is drawn as (`propose_setup`, `SetupCard.tsx`). */
 export const SETUP_CARD_KIND = 'setup';
-/** The kind "Connect your systems" is offered as (`connect_system`, `ConnectSystemsCard.tsx`): its link starts the walk-through. */
+/** The kind "Connect your systems" is offered as (`connect_system`): a setup Decision whose option starts the walk-through (`services/decisions/escalate.ts`). */
 export const CONNECT_SYSTEMS_CARD_KIND = 'connect-systems';
 
 /**
@@ -101,6 +101,12 @@ export type CardKindDescriptor = {
   renderer: string;
   /** Extra checks on the card beyond `CardSchema`; a kind with none accepts any well-formed card. */
   refine?: (card: Card) => string | null;
+  /**
+   * The card's one action has a picture of its effect (a drafted brand): as a
+   * Decision, its option carries this look, and the card's link is the other
+   * way to take it ("Adjust") — `services/decisions/escalate.ts`.
+   */
+  look?: string;
 };
 
 const KINDS = new Map<string, CardKindDescriptor>();
@@ -140,7 +146,7 @@ registerCardKind({ kind: SETUP_CARD_KIND, renderer: 'setup', refine: c => (c.act
 // opens the docked walk-through, which runs on its own RPCs.
 registerCardKind({ kind: CONNECT_SYSTEMS_CARD_KIND, renderer: 'connect-systems', refine: c => (c.href && c.actions.length === 0 ? null : 'a connect-systems card names its walk-through (href) and runs no action itself') });
 // A drafted brand: one action (apply it) and where to adjust it.
-registerCardKind({ kind: BRAND_CARD_KIND, renderer: 'brand', refine: c => (c.actions.length !== 1 ? 'a brand card offers exactly one action' : c.href ? null : 'a brand card names where to adjust it (href)') });
+registerCardKind({ kind: BRAND_CARD_KIND, renderer: 'brand', look: 'brand', refine: c => (c.actions.length !== 1 ? 'a brand card offers exactly one action' : c.href ? null : 'a brand card names where to adjust it (href)') });
 
 export type CardCheck = { ok: true; card: Card } | { ok: false; reason: string };
 

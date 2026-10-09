@@ -7,6 +7,7 @@ vi.mock('@/libs/Orpc', () => ({
     chat: { suggestions: vi.fn() },
     artifacts: { get: vi.fn() },
     conversations: { intake: vi.fn(), get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(async () => ({})), feedback: vi.fn(async () => ({})) },
+    decisions: { open: vi.fn(async () => []), waiting: vi.fn(async () => []), answer: vi.fn(), build: vi.fn() },
   },
 }));
 
@@ -114,6 +115,31 @@ describe('useChatSession', () => {
     expect(result.current.messages[2]!.status).toBeUndefined();
   });
 
+  it('a reload while the turn\'s row still says running waits for it to land — an answered Decision then the empty turn never sits there', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 7, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '7');
+    const rows = (status: string) => ({
+      id: 7,
+      orgId: 'org_1',
+      agentSlug: 'orchestrator',
+      title: 'Connect GitHub',
+      messageCount: 2,
+      answering: status === 'running',
+      messages: [
+        { id: 1, conversationId: 7, role: 'decision', content: '[decision #2 answered] Connect GitHub', runsJson: [{ type: 'decision_answer', id: 2, question: 'Connect GitHub', line: 'Connect GitHub', answer: { kind: 'option', optionIds: ['connect:github'] }, via: 'card' }], createdAt: new Date() },
+        { id: 2, conversationId: 7, role: 'assistant', content: status === 'running' ? '' : 'Which repositories should I watch?', runsJson: null, createdAt: new Date(), status },
+      ],
+    });
+    vi.mocked(client.conversations.get).mockResolvedValueOnce(rows('running') as never).mockResolvedValue(rows('complete') as never);
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+
+    await vi.waitFor(() => expect(result.current.messages[1]).toMatchObject({ status: 'running' }));
+    await vi.waitFor(() => expect(result.current.messages[1]).toMatchObject({ status: 'complete', content: 'Which repositories should I watch?' }), { timeout: 8000 });
+
+    expect(result.current.messages).toHaveLength(2);
+  });
+
   it('renders the cards a turn put up from the row after a reload, with their filed proposal (backlog 025)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 8, updatedAt: new Date(), railWidth: null, railOpen: null });
     sessionStorage.setItem('vocion:chat:session:orchestrator', '8');
@@ -136,7 +162,8 @@ describe('useChatSession', () => {
 
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    expect(result.current.messages[1]?.recommendations).toEqual([{ id: 'card_1', kind: 'action', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, label: 'File this as a request', runId: 3691, state: 'filed' }]);
+    // A card is not drawn anymore; its record is read back as one line under the turn.
+    expect(result.current.messages[1]?.recommendations).toEqual([{ id: 'card_1', actionId: 'objects.propose_candidate', input: { objectType: 'request' }, label: 'File this as a request', runId: 3691, state: 'filed' }]);
   });
 
   it('resumes the thread the URL names (`?conversation=<id>`) even on a fresh session', async () => {
@@ -226,53 +253,33 @@ describe('useChatSession', () => {
     expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentSlug: '__search__', agentName: 'Search only' });
   });
 
-  it('Build it hands a card to the intake\'s owner as the person\'s words, with the card\'s facts', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
-    vi.mocked(client.conversations.intake).mockResolvedValue({ typeSlug: 'request', label: 'Request', ownerSlug: 'specialist' });
-    vi.mocked(client.artifacts.get).mockResolvedValue({ id: 41, spec: { type: 'Feature idea', fields: [{ k: 'Why', v: 'The site markets request links; none can be made.' }, { k: 'Owner', v: null }] } } as never);
+  it('Build it is a Decision the person takes with their press — typed, to the intake\'s owner, never their words', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 12, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '12');
+    vi.mocked(client.conversations.get).mockResolvedValue({ id: 12, orgId: 'org_1', agentSlug: 'orchestrator', title: 'Ideas', messageCount: 1, messages: [{ id: 1, conversationId: 12, role: 'assistant', content: 'Three ideas.', runsJson: null, createdAt: new Date() }] } as never);
+    vi.mocked(client.decisions.build).mockResolvedValue({ id: 77, kind: 'approval', question: 'Build "Request link creator UI"', options: [{ id: 'build', label: 'Build it', recommended: true }], allowOther: false, multiple: false, state: 'open', agentSlug: 'specialist', ownerUserId: 'usr-dana', conversationId: 12 } as never);
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
     vi.stubGlobal('fetch', fetchMock);
 
     const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
-    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+    await vi.waitFor(() => expect(result.current.conversationId).toBe(12));
 
     await act(async () => {
       await result.current.buildFromCard({ id: 41, title: 'Request link creator UI' });
     });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
+    expect(client.decisions.build).toHaveBeenCalledWith({ conversationId: 12, artifactId: 41 });
+
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
 
     // The owner answers this one turn; the thread stays with its agent.
     expect(body.agent_slug).toBe('specialist');
-    expect(body.message).toBe('Build it: **Request link creator UI**. File it as a request and start the build.\n\n- Why: The site markets request links; none can be made.');
-    expect(result.current.agent.slug).toBe('orchestrator');
-  });
-
-  it('Build it names the owner even when the chat is already with it, so the router cannot hand it back to the thread\'s agent', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
-    // The intake is read once per page and shared, so this owner matches the earlier test's.
-    vi.mocked(client.conversations.intake).mockResolvedValue({ typeSlug: 'request', label: 'Request', ownerSlug: 'specialist' });
-    vi.mocked(client.artifacts.get).mockResolvedValue({ id: 42, spec: { fields: [] } } as never);
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    // The chat is already with the owner: it opens on the lead.
-    const agents = [{ ...AGENTS[1]!, role: 'lead' as const }, { ...AGENTS[0]!, role: 'specialist' as const }];
-    const { result, act } = await renderHook(() => useChatSession({ agents }));
-    await vi.waitFor(() => expect(result.current.booted).toBe(true));
-
-    expect(result.current.agent.slug).toBe('specialist');
-
-    await act(async () => {
-      await result.current.buildFromCard({ id: 42, title: 'Library search and filters' });
-    });
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-
-    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
-
-    expect(body.agent_slug).toBe('specialist');
+    expect(body.decision_answer).toEqual({ id: 77, option_ids: ['build'] });
+    expect(body.message).toBe('');
     expect(body.route).toBeUndefined();
+    expect(result.current.agent.slug).toBe('orchestrator');
+    expect(result.current.messages.some(m => m.role === 'user' && m.content.includes('Build it'))).toBe(false);
   });
 
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {
@@ -492,65 +499,14 @@ describe('useChatSession', () => {
     });
   });
 
-  it('a link card keeps its why and its href live and after a reload (#1080)', async () => {
-    const why = 'So the factory can read Northwind\'s repos.';
-    const href = '/dashboard/connectors?add=github&returnTo=%2Fdashboard%2Fchat';
-    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
-    vi.mocked(client.conversations.create).mockResolvedValue({ id: 32 } as never);
-    const encoder = new TextEncoder();
-    const card = { id: 'card_link', kind: 'link', title: 'Connect GitHub', actions: [], source: { agentSlug: 'workspace-lead' }, rationale: why, href, hrefLabel: 'Connect GitHub', state: 'proposed' };
-    const frames = [`data: ${JSON.stringify({ type: 'card', card })}\n\n`, 'data: {"type":"done","response":"ok"}\n\n'];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      body: new ReadableStream<Uint8Array>({
-        start(controller) {
-          for (const f of frames) {
-            controller.enqueue(encoder.encode(f));
-          }
-          controller.close();
-        },
-      }),
-    }));
-
-    const live = await renderHook(() => useChatSession({ agents: AGENTS }));
-    await vi.waitFor(() => expect(live.result.current.booted).toBe(true));
-    await live.result.current.sendMessage('set up');
-    await vi.waitFor(() => expect(live.result.current.messages).toHaveLength(2));
-
-    expect(live.result.current.messages[1]!.recommendations![0]).toMatchObject({ label: 'Connect GitHub', rationale: why, href, hrefLabel: 'Connect GitHub' });
-
-    // The same card as the run ledger stores it, read back on reload.
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 9, updatedAt: new Date(), railWidth: null, railOpen: null });
-    sessionStorage.setItem('vocion:chat:session:orchestrator', '9');
-    vi.mocked(client.conversations.get).mockResolvedValue({
-      id: 9,
-      orgId: 'org_1',
-      agentSlug: 'orchestrator',
-      title: 'Connect GitHub',
-      messageCount: 1,
-      messages: [
-        { id: 3, conversationId: 9, role: 'assistant', content: 'Connect it.', runsJson: [{ type: 'card', id: 'card_link', kind: 'link', label: 'Connect GitHub', actionId: '', rationale: why, href, hrefLabel: 'Connect GitHub', state: 'proposed' }], createdAt: new Date(), status: 'complete' },
-      ],
-    } as never);
-
-    const reloaded = await renderHook(() => useChatSession({ agents: AGENTS }));
-    await vi.waitFor(() => expect(reloaded.result.current.messages).toHaveLength(1));
-
-    expect(reloaded.result.current.messages[0]!.recommendations![0]).toMatchObject({ label: 'Connect GitHub', rationale: why, href, hrefLabel: 'Connect GitHub' });
-  });
-
-  /**
-   * A recommendation with no `actionId` reached the card and fired
-   * `review.propose` with `undefined`, which came back 400 twice on
-   * 2026-09-15. The payload is checked where it arrives instead.
-   */
-  it('never turns a malformed recommended_action into a card', async () => {
+  it('draws no raw card, recommendation or gate: each reaches the person as the Decision it is', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
     vi.mocked(client.conversations.create).mockResolvedValue({ id: 31 } as never);
     const encoder = new TextEncoder();
     const frames = [
-      'data: {"type":"recommended_action","recommendation":{"input":{"to":"someone"},"label":"Send it"}}\n\n',
       'data: {"type":"recommended_action","recommendation":{"actionId":"gmail.send","label":"Send the follow-up","input":{}}}\n\n',
+      `data: ${JSON.stringify({ type: 'card', card: { id: 'card_link', kind: 'link', title: 'Connect GitHub', actions: [], source: {}, href: '/dashboard/connectors?add=github', state: 'proposed' } })}\n\n`,
+      'data: {"type":"hitl_gate","gate":{"name":"send","question":"Send it?"}}\n\n',
       'data: {"type":"done","response":"ok"}\n\n',
     ];
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -570,18 +526,9 @@ describe('useChatSession', () => {
     await result.current.sendMessage('what is owed?');
 
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
-    const assistant = result.current.messages[1]!;
 
-    // Only the valid one became a card.
-    expect(assistant.recommendations).toHaveLength(1);
-    expect(assistant.recommendations![0]).toMatchObject({ actionId: 'gmail.send' });
-
-    // The invalid one is visible as a failed step, with a reason.
-    const failed = (assistant.runs ?? []).filter(r => r.type === 'tool' && r.state === 'error');
-
-    expect(failed).toHaveLength(1);
-    expect(failed[0]).toMatchObject({ name: 'recommend_action' });
-    expect((failed[0] as { output?: string }).output).toMatch(/named no action/);
+    expect(result.current.messages[1]!.recommendations).toBeUndefined();
+    expect('pendingHitl' in result.current).toBe(false);
   });
 
   /**

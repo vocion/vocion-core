@@ -13,7 +13,6 @@ import {
   latestConversationForScope,
   listConversations,
   listMessages,
-  markCardRun,
   renameConversation,
   searchConversations,
   setConversationAutonomy,
@@ -54,11 +53,14 @@ export const get = os
     // memory of the live stream.
     const chips = artifactChipsByMessage(messages, produced);
     const { answeringIn } = await import('@/libs/streams/buffer');
+    // A Done line says what its run is now: one undone since reads Undone.
+    const { withLiveReceipts } = await import('@/services/decisions/liveReceipts');
+    const live = await withLiveReceipts(orgId, messages);
     return {
       ...conv,
       // Whether a turn is running for it now: a client waits for a reply only then.
       answering: answeringIn(orgId, input.id),
-      messages: messages.map(m => ({
+      messages: live.map(m => ({
         ...m,
         attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact),
         artifacts: chips.get(m.id) ?? [],
@@ -211,51 +213,4 @@ export const setAutonomy = os
       throw ApiError.notFound({ id: input.id });
     }
     return { id: row.id, autonomy: row.autonomy };
-  });
-
-/**
- * A person decided a card (backlog 025) — recorded ON THE CARD, never as a
- * turn they did not type.
- *
- * This used to append a USER message ("Approved the card …") so the model
- * could bind the decision; the transcript then showed words the person never
- * wrote, and the next turn routed and intent-read them like any other line.
- * The decision is a fact about the card: its run on the turn that drew it
- * carries the state, who decided, when, and — on a card whose options are
- * typed (A/B/C/D) — which option. The next turn's history replays the card as
- * what its proposal is now (`historyTools.withLiveCardState`), so the model
- * still binds it, by id.
- */
-export const recordCardDecision = os
-  .input(z.object({
-    id: z.number().int().positive(),
-    cardId: z.string().min(1),
-    label: z.string().min(1),
-    action: z.enum(['approve', 'reject', 'defer', 'undo']),
-    runId: z.number().int().optional(),
-    /** The typed option chosen, on a card that offers several. */
-    optionId: z.string().min(1).max(80).optional(),
-    /**
-     * Accepted from callers that still send it (a setup card sent `false`):
-     * no card decision writes a turn for the person anymore, whatever it says.
-     */
-    turn: z.boolean().optional(),
-  }))
-  .handler(async ({ input }) => {
-    const { orgId, userId } = await guardAuth();
-    const conversation = await getConversation({ orgId, id: input.id, viewerId: userId });
-    if (!conversation) {
-      throw ApiError.notFound({ id: input.id });
-    }
-    const state = input.action === 'defer' ? 'deferred' : 'decided';
-    // The card itself remembers the run it became, so a reload draws the run
-    // (done, Undo) where the button was, rather than the button again.
-    const becameRun = input.runId !== undefined && (input.action === 'approve' || input.action === 'reject');
-    const marked = await markCardRun({
-      orgId,
-      conversationId: input.id,
-      cardId: input.cardId,
-      patch: { state, ...(becameRun ? { runId: input.runId } : {}), decision: { action: input.action, at: new Date().toISOString(), ...(userId ? { by: userId } : {}), ...(input.optionId ? { option: input.optionId } : {}) } },
-    }).catch(() => false);
-    return { id: null, marked, recorded: marked };
   });

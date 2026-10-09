@@ -21,11 +21,11 @@ import { Link } from '@/libs/I18nNavigation';
 import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
+import { CardHistory } from './decisions/CardHistory';
 import { DoneReceipts } from './decisions/DoneReceipts';
 import { liveWorkIndex, segmentTurn } from './interleave';
 import { classifyDashboardLink, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
-import { RecommendedActionStack } from './RecommendedActionStack';
 import { ScratchFold } from './ScratchFold';
 import { SelfUpdateChips } from './SelfUpdateChips';
 import { turnFailure } from './turnFailure';
@@ -569,10 +569,10 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               <LiveLine text={bottomLine} elapsed={elapsed} />
             </div>
           )}
-          {/* One card renders directly; several become the in-chat triage
-              stepper (skip / save-for-later / queue-all). */}
+          {/* A card an earlier turn put up, as the record it is now: what
+              it was and what became of it. Deciding happens in the dock. */}
           {(message.recommendations?.length ?? 0) > 0 && (
-            <RecommendedActionStack recs={message.recommendations!} replyInProgress={streaming} />
+            <CardHistory recs={message.recommendations!} />
           )}
           {/* What the turn made and what it set moving, in one row: the
               artifacts, then each run, record or ask its steps started,
