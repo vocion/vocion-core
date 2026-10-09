@@ -142,7 +142,7 @@ test('from the Connectors page: one question, a login in its own window and a ke
 test('from chat: connect_system is one Decision that opens the walk; Later and Esc stop it, and Done answers it with the summary', async ({ page }, info) => {
   await signIn(page);
   await page.goto('/dashboard/chat?new=1');
-  const composer = page.getByRole('textbox', { name: /Ask anything/ }).last();
+  const composer = page.getByRole('textbox', { name: /^Ask / }).last();
 
   await expect(composer).toBeEnabled();
 

@@ -32,6 +32,7 @@ import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
 import { ConversationDecisions } from './decisions/DecisionDock';
 import { RAIL_SET_EVENT } from './dockState';
+import { composerAsk, teamLine, teamOf } from './emptyChat';
 import { EmptyState } from './EmptyState';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
@@ -49,7 +50,7 @@ import {
   writeCollapsed,
   writeStoredRailWidth,
 } from './railState';
-import { hasWorkspaceAgents, parseSearchCommand } from './routing';
+import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
 import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
@@ -286,6 +287,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
   const firstName = usePersonFirstName();
+  // YOUR TEAM IS HERE: the empty conversation's centre, and who the composer asks.
+  const team = useMemo(() => teamOf(agents, defaultAgentSlug(agents)).members, [agents]);
+  const askPlaceholder = composerAsk(team, (key, values) => t(key, values));
   // The record the page beside the rail is about — it refreshes itself, so
   // the turn's follow chips leave it out (Chris, 2026-09-29).
   const pageRecord = useMemo(() => followExcludeOf(effectiveContext?.record ?? (effectiveContext?.path ? recordFromPath(effectiveContext.path) : null) ?? (scopeRef ? scopeRefToRecord(scopeRef) : null)), [effectiveContext, scopeRef]);
@@ -708,10 +712,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             ? (
                 // A workspace on its first day opens on its lead (`LeadIntro`).
                 wantsLeadIntro(agents)
-                  ? <LeadIntro firstName={firstName} onPick={session.handlePickSuggestion} disabled={!session.booted} />
+                  ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} disabled={!session.booted} />
                   : (
                       <EmptyState
                         firstName={firstName}
+                        team={team}
+                        secondLine={teamLine({ workspace: session.workspaceName, members: team }, (key, values) => t(key, values))}
                       />
                     )
               )
@@ -830,7 +836,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           {...queueProps}
           {...tagProps}
           onStop={session.handleStop}
-          placeholder={session.composerPlaceholder}
+          placeholder={session.composerPlaceholder ?? askPlaceholder}
           commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
           // A highlighted passage is something to send on its own.
           armed={(comments?.open.length ?? 0) > 0 || Boolean(effectiveContext?.selection?.text)}

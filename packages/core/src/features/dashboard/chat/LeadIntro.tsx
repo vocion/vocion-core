@@ -1,5 +1,6 @@
 'use client';
 
+import type { TeamMember } from './emptyChat';
 import type { AgentOption } from './types';
 import { ArrowRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -15,7 +16,7 @@ import { SEARCH_ONLY_SLUG } from './routing';
  * Every shared workspace starts with a workspace lead
  * (`services/workspace/workspaceLead.ts`), and while it is the only agent
  * there the chat opens on it. The same light layout as every empty
- * conversation (`EmptyState`): the mark, and the lead's one-line hello ("Hi
+ * conversation (`EmptyState`): the lead at the centre, and its one-line hello ("Hi
  * Sam, I'm the workspace lead. Whenever you're ready, I can help set this
  * up."), with ONE soft chip by the composer, "Set up this workspace →",
  * which sends the lead the ask and starts the setup interview. The three
@@ -35,6 +36,8 @@ export function wantsLeadIntro(agents: readonly AgentOption[]): boolean {
 export type LeadIntroProps = {
   /** The person's first name, for the hello. */
   firstName?: string | null;
+  /** The team at the centre: here only the lead. */
+  team?: readonly TeamMember[];
   /** Sends the setup ask to the lead — the same path a suggestion chip takes. */
   onPick: (prompt: string) => void;
   /** Holds the chip while the session is still hydrating. */
@@ -45,16 +48,18 @@ export type LeadIntroProps = {
  * The lead's hello and the one setup chip.
  * @param props - See {@link LeadIntroProps}.
  * @param props.firstName - The person's first name.
+ * @param props.team - The team at the centre (the lead).
  * @param props.onPick - Sends the setup ask.
  * @param props.disabled - Holds the chip while hydrating.
  */
-export function LeadIntro({ firstName, onPick, disabled = false }: LeadIntroProps) {
+export function LeadIntro({ firstName, team, onPick, disabled = false }: LeadIntroProps) {
   const t = useTranslations('Onboarding');
   const line = firstName ? t('lead_hello_named', { name: firstName }) : t('lead_hello');
   return (
     <div data-testid="lead-intro" className="flex min-h-0 flex-1 flex-col">
       <EmptyState
         line={line}
+        team={team}
         nudge={(
           <button
             type="button"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstNameOf, greetingFor, isReturning, mayDockCard, partOfDay, waitingNudgeCount } from './emptyChat';
+import { composerAsk, firstNameOf, greetingFor, isReturning, mayDockCard, partOfDay, teamLine, teamOf, waitingNudgeCount } from './emptyChat';
 
 /**
  * How a conversation starts, as one rule every surface reads (founder,
@@ -44,5 +44,27 @@ describe('how a conversation starts', () => {
     expect(firstNameOf('sam@northwind.example')).toBeNull();
     expect(firstNameOf('  ')).toBeNull();
     expect(firstNameOf(undefined)).toBeNull();
+  });
+});
+
+describe('your team is here (founder, 2026-10-09)', () => {
+  const t = (key: string, values?: Record<string, string>) => `${key}${values ? ` ${JSON.stringify(values)}` : ''}`;
+  const lead = { slug: 'lead', name: 'Workspace lead' };
+  const analyst = { slug: 'analyst', name: 'Pipeline Analyst' };
+
+  it('puts the lead first and leaves out the virtual search entry', () => {
+    expect(teamOf([analyst, { slug: '__search__', name: 'Search only' }, lead], 'lead').members.map(m => m.slug)).toEqual(['lead', 'analyst']);
+    expect(teamOf([], 'lead')).toEqual({ lead: null, members: [] });
+  });
+
+  it('asks the team, or the one agent by name', () => {
+    expect(composerAsk([lead, analyst], t)).toBe('ask_team');
+    expect(composerAsk([lead], t)).toBe('ask_agent {"name":"Workspace lead"}');
+  });
+
+  it('says the team is on it, or the one agent is', () => {
+    expect(teamLine({ workspace: 'Northwind', members: [lead, analyst] }, t)).toBe('team_on_it {"workspace":"Northwind"}');
+    expect(teamLine({ workspace: 'Personal', members: [{ slug: 'assistant', name: 'Assistant' }] }, t)).toBe('agent_on_it {"name":"Assistant"}');
+    expect(teamLine({ workspace: 'Northwind', members: [] }, t)).toBeNull();
   });
 });

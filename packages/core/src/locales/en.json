@@ -240,7 +240,12 @@
     "waiting_nudge": "{count, plural, one {# thing waiting on you} other {# things waiting on you}}",
     "waiting_nudge_dismiss": "Not now",
     "welcome_back_named": "Welcome back, {name}.",
-    "welcome_back": "Welcome back."
+    "welcome_back": "Welcome back.",
+    "team_on_it": "{workspace}'s team is on it.",
+    "agent_on_it": "{name} is on it.",
+    "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
+    "ask_team": "Ask the team…",
+    "ask_agent": "Ask {name}…"
   },
   "Onboarding": {
     "starter_setup_prompt": "Set up this workspace with me.",

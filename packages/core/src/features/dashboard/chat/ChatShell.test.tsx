@@ -89,15 +89,18 @@ beforeEach(() => {
 });
 
 describe('ChatShell', () => {
-  it('opens on one warm line once boot settles: no "Ask <workspace>" heading, never the agent (§9.10)', async () => {
-    // The surface has one identity and it is the workspace, which says hello
-    // without naming itself or the lead agent that actually answers (founder,
-    // 2026-10-08: no "ASK NOCO" heading).
+  it('opens on the team, two short lines and "Ask the team…": no "Ask <workspace>" heading (founder, 2026-10-09)', async () => {
+    // "Your team is here": the centre is the workspace's agents, lead first,
+    // with a caption that opens the team; the lines say the team is on it.
     await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} />));
 
     await expect.element(page.getByTestId('chat-greeting')).toBeInTheDocument();
+    await expect.element(page.getByTestId('chat-greeting-team')).toHaveTextContent('GTM Workspace\'s team is on it.');
+    await expect.element(page.getByTestId('team-caption')).toHaveTextContent('GTM Orchestrator · 2 agents');
+    await expect.element(page.getByTestId('team-caption')).toHaveAttribute('href', '/dashboard/teams');
+    expect(page.getByTestId('team-member').elements()).toHaveLength(1);
+    await expect.element(page.getByPlaceholder('Ask the team…')).toBeInTheDocument();
     expect(page.getByText(/Ask GTM Workspace/).elements()).toHaveLength(0);
-    expect(page.getByText('GTM Orchestrator').elements()).toHaveLength(0);
   });
 
   it('has no agent picker: the surface speaks as the workspace; New chat is an icon, and ⋯ never lists an agent (§9.10)', async () => {
@@ -145,7 +148,7 @@ describe('ChatShell', () => {
   it('draws no dock when nothing waits', async () => {
     await render(wrap(<ChatShell agents={AGENTS} />));
 
-    await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
+    await expect.element(page.getByPlaceholder('Ask the team…')).toBeInTheDocument();
     expect(page.getByTestId('waiting-nudge').elements()).toHaveLength(0);
     expect(page.getByTestId('decision-dock').elements()).toHaveLength(0);
   });
@@ -181,7 +184,7 @@ describe('ChatShell', () => {
     // message can't be sent (and then silently discarded when the restored
     // transcript lands). The BOX itself never locks (2026-09-15): people type
     // their thought while the app catches up.
-    await expect.element(page.getByPlaceholder('Ask anything…')).not.toBeDisabled();
+    await expect.element(page.getByPlaceholder('Ask the team…')).not.toBeDisabled();
     await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
     expect(page.getByTestId('chat-greeting').elements()).toHaveLength(0);
 
@@ -193,7 +196,7 @@ describe('ChatShell', () => {
   it('keeps the workspace crumb for a new chat, and names the page by its thread once there is one', async () => {
     await render(wrap(<ChatShell agents={AGENTS} />));
 
-    await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
+    await expect.element(page.getByPlaceholder('Ask the team…')).toBeInTheDocument();
     await expect.element(page.getByTestId('crumb')).toBeInTheDocument();
     expect(page.getByTestId('chat-title').elements()).toHaveLength(0);
   });
@@ -285,7 +288,7 @@ describe('ChatShell', () => {
     vi.stubGlobal('fetch', fetchSpy);
     await render(wrap(<ChatShell agents={AGENTS} />));
 
-    await expect.element(page.getByPlaceholder('Ask anything…')).toBeInTheDocument();
+    await expect.element(page.getByPlaceholder('Ask the team…')).toBeInTheDocument();
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(replaceUrl).not.toHaveBeenCalled();

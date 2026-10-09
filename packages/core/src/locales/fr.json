@@ -240,7 +240,12 @@
     "waiting_nudge": "{count, plural, one {# élément vous attend} other {# éléments vous attendent}}",
     "waiting_nudge_dismiss": "Plus tard",
     "welcome_back_named": "Bon retour, {name}.",
-    "welcome_back": "Bon retour."
+    "welcome_back": "Bon retour.",
+    "team_on_it": "L’équipe {workspace} s’en occupe.",
+    "agent_on_it": "{name} s’en occupe.",
+    "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
+    "ask_team": "Demandez à l’équipe…",
+    "ask_agent": "Demandez à {name}…"
   },
   "Onboarding": {
     "starter_setup_prompt": "Configure cet espace de travail avec moi.",

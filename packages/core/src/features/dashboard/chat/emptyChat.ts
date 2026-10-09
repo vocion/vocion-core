@@ -114,3 +114,45 @@ export function greetingFor(input: { hour: number; returning: boolean; firstName
   const part = partOfDay(input.hour);
   return name ? t('greeting_named', { part, name }) : t('greeting', { part });
 }
+
+/** One agent as the empty conversation draws it. */
+export type TeamMember = { slug: string; name: string; accent?: string | null };
+
+/** How many agents the cluster draws before "+N". */
+export const TEAM_SHOWN = 4;
+
+/**
+ * The workspace's team for an empty conversation: its lead first, then the
+ * rest in the order the surface lists them, never the virtual search entry.
+ * @param agents - The surface's agents.
+ * @param leadSlug - The agent a fresh conversation opens with.
+ */
+export function teamOf(agents: ReadonlyArray<TeamMember & { slug: string }>, leadSlug: string): { lead: TeamMember | null; members: TeamMember[] } {
+  const real = agents.filter(a => a.slug !== '__search__');
+  const lead = real.find(a => a.slug === leadSlug) ?? real[0] ?? null;
+  const members = lead ? [lead, ...real.filter(a => a.slug !== lead.slug)] : real;
+  return { lead, members };
+}
+
+/**
+ * Who the composer asks: the team, or the one agent by name when it is alone.
+ * @param members - The team, lead first.
+ * @param t - The surface's translator (`Chat` messages).
+ */
+export function composerAsk(members: readonly TeamMember[], t: (key: 'ask_team' | 'ask_agent', values?: Record<string, string>) => string): string {
+  return members.length === 1 ? t('ask_agent', { name: members[0]!.name }) : t('ask_team');
+}
+
+/**
+ * The second line under the greeting: the team is on it, or the one agent is.
+ * @param input - What the line knows.
+ * @param input.workspace - The workspace's short name.
+ * @param input.members - The team, lead first.
+ * @param t - The surface's translator (`Chat` messages).
+ */
+export function teamLine(input: { workspace: string; members: readonly TeamMember[] }, t: (key: 'team_on_it' | 'agent_on_it', values?: Record<string, string>) => string): string | null {
+  if (input.members.length === 0) {
+    return null;
+  }
+  return input.members.length === 1 ? t('agent_on_it', { name: input.members[0]!.name }) : t('team_on_it', { workspace: input.workspace });
+}
