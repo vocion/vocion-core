@@ -94,7 +94,7 @@
   --color-action-foreground: var(--action-foreground);
   --shadow-pop: var(--shadow-pop);
 
-  /* Typography stack — wired in app/[locale]/layout.tsx via next/font. */
+  /* Typography stack — the self-hosted faces of styles/fonts.css. */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   /* Display face collapses onto the body face in the app (B-034b §1) — Outfit
      stays on the marketing site, which loads it separately. */
