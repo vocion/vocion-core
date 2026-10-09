@@ -15,4 +15,13 @@ describe('the link into "Connect your systems"', () => {
     expect(connectSystemsInputOf({ app: 'gtm' })).toBeNull();
     expect(connectSystemsInputOfHref('/dashboard/chat')).toBeNull();
   });
+
+  it('carries the lead\'s line for each step, one clean line per system', () => {
+    const href = connectSystemsHref({ app: 'software-factory', say: { 'github': 'The factory reads your pull requests here.', 'bad slug': 'dropped', 'jira': '  two\nlines  ' } });
+    const back = connectSystemsInputOfHref(href)!;
+
+    expect(back.say).toEqual({ github: 'The factory reads your pull requests here.', jira: 'two lines' });
+    expect(connectSystemsInputOfHref(connectSystemsHref({ say: { github: 'x'.repeat(400) } }))!.say!.github).toHaveLength(240);
+    expect(connectSystemsInputOfHref(connectSystemsHref({ say: { github: '   ' } }))).toEqual({});
+  });
 });

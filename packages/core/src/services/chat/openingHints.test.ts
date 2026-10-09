@@ -38,4 +38,18 @@ describe('loadOpeningHints', () => {
 
     expect(await loadOpeningHints({ orgId: ORG, userId: 'usr-dana', isAdmin: true, leadSpoken: 'Ava' })).toEqual([]);
   });
+
+  it('offers to connect a system the agents tried and failed to use this week', async () => {
+    const { noteConnectionNeeded } = await import('@/services/connect/triedAndFailed');
+    for (let i = 0; i < 3; i++) {
+      await noteConnectionNeeded({ orgId: ORG, userId: 'usr-dana', agentSlug: 'support-lead' }, 'slack_post', 'No Slack source is connected in this workspace.');
+    }
+    // A failure that was not for want of a connection is not counted.
+    await noteConnectionNeeded({ orgId: ORG, userId: 'usr-dana', agentSlug: 'support-lead' }, 'slack_post', 'Slack answered 429.');
+    await db.insert(userActivityEventSchema).values(Array.from({ length: 6 }, () => ({ orgId: ORG, projectId: ORG, userId: 'usr-dana', eventType: 'chat.conversation_created' })));
+
+    const [top] = await loadOpeningHints({ orgId: ORG, userId: 'usr-dana', isAdmin: true, leadSpoken: 'Ava' });
+
+    expect(top).toMatchObject({ type: 'connector', label: 'Connect Slack →', reason: 'Agents tried to use Slack 3 times this week and couldn\'t.' });
+  });
 });

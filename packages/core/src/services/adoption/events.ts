@@ -201,6 +201,18 @@ export const ADOPTION_EVENTS = {
    * still counts humans only for per-user metrics. `folder` is the top-level
    * folder (`wiki`), so a plugin's output can be counted without a new event.
    */
+  /**
+   * A tool call could not run because a system is not connected, or its
+   * connection stopped working (`libs/connect/connectionNeeded.ts`): what
+   * agents tried and failed, read by the connect plan's evidence and the
+   * opening hint's connector boost. Written during anyone's turn, a
+   * schedule's included.
+   */
+  'agent.connection_needed': {
+    agent: true,
+    system: true,
+    meta: z.object({ connector: z.string().max(80), tool: z.string().max(120) }),
+  },
   'artifact.created': {
     agent: true,
     system: true,

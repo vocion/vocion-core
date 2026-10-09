@@ -44,6 +44,23 @@ function personsConversation(ctx: RuntimeContext): ctx is RuntimeContext & { con
   return typeof ctx.conversationId === 'number' && !!ctx.userId && ctx.userId !== 'mcp' && ctx.userId !== 'scheduled' && ctx.missionRunId === undefined;
 }
 
+/**
+ * Each system this workspace could still connect, as one line of facts: why
+ * it is on the list (an app needs it, agents tried and failed for want of
+ * it, …) and what connecting it unlocks. Best effort: none on failure.
+ * @param ctx - The turn.
+ */
+async function systemFacts(ctx: RuntimeContext): Promise<Map<string, string>> {
+  try {
+    const { recommendConnections } = await import('@/services/connect/recommendations');
+    const { evidenceLine, unlockLine } = await import('@/libs/connect/systemsPlan');
+    const plan = await recommendConnections({ orgId: ctx.orgId, userId: ctx.userId });
+    return new Map(plan.candidates.map(c => [c.connector, `${c.evidence.map(evidenceLine).join('; ') || 'no evidence beyond the setup step'}; unlocks ${unlockLine(c, 'connected')}`]));
+  } catch {
+    return new Map();
+  }
+}
+
 export function describeSetupTool(ctx: RuntimeContext) {
   return tool(
     async (input: { plugin?: string }) => {
@@ -59,12 +76,19 @@ export function describeSetupTool(ctx: RuntimeContext) {
       if (personsConversation(ctx)) {
         tracking = await startSetupObjective({ orgId: ctx.orgId, conversationId: ctx.conversationId, plugin: input?.plugin ?? null }).catch(() => null);
       }
+      // Each unconnected system's facts — what needs it, what agents tried
+      // and failed, what it unlocks — so the lead can word every step of the
+      // walk (`connect_system`'s `steps`), not only the first.
+      const facts = await systemFacts(ctx);
       const blocks = setups.map((p) => {
         const lines = [`${p.name} (${p.plugin}) — ${p.complete ? 'set up' : `${p.steps.filter(s => !s.done).length} of ${p.steps.length} step${p.steps.length === 1 ? '' : 's'} remaining`}`];
         for (const step of p.steps) {
           if (step.kind === 'connector') {
             const { href, how } = connectorStepHref(step, ctx.conversationId);
             lines.push(`  [${step.done ? 'done' : 'todo'}] ${step.label}${step.sources && step.sources.length > 0 ? ` (source${step.sources.length === 1 ? '' : 's'}: ${step.sources.join(', ')})` : ''}${step.done ? '' : ` — ${how}; link: ${href}`}`);
+            if (!step.done && facts.has(step.slug)) {
+              lines.push(`    facts (${step.slug}): ${facts.get(step.slug)}`);
+            }
           } else {
             lines.push(`  [${step.done ? 'done' : 'todo'}] ${step.label}${step.done ? '' : ` — file it with the file_${step.slug} tool when the person has said what it is, or they create it on the record's page`}`);
           }

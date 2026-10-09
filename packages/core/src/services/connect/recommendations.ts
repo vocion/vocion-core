@@ -42,7 +42,7 @@ import { knowledgeSourceSchema, projectSchema, userSchema } from '@/models/Schem
 export const CONNECT_POPUP_RETURN = '/dashboard/connect/done';
 
 /** How much each kind of evidence weighs. Named beats everything; an app's need beats a hint. */
-export const EVIDENCE_WEIGHT = { named: 100, appNeeded: 60, appReads: 25, mail: 40, org: 15, orgEach: 5 } as const;
+export const EVIDENCE_WEIGHT = { named: 100, appNeeded: 60, appReads: 25, mail: 40, org: 15, orgEach: 5, tried: 30, triedEach: 5 } as const;
 
 /** The score at which a system is recommended (preselected). */
 const RECOMMEND_AT = 35;
@@ -210,6 +210,8 @@ export function scoreOf(evidence: ConnectEvidence[]): number {
       score += e.needed ? EVIDENCE_WEIGHT.appNeeded : EVIDENCE_WEIGHT.appReads;
     } else if (e.kind === 'mail') {
       score += EVIDENCE_WEIGHT.mail;
+    } else if (e.kind === 'tried') {
+      score += EVIDENCE_WEIGHT.tried + EVIDENCE_WEIGHT.triedEach * Math.min(Math.max(0, e.times - 1), 4);
     } else {
       score += EVIDENCE_WEIGHT.org + EVIDENCE_WEIGHT.orgEach * Math.max(0, e.workspaces - 1);
     }
@@ -231,11 +233,14 @@ export async function recommendConnections(ctx: { orgId: string; userId: string 
   const all = connectableConnectors();
   const known = new Set(all.map(c => c.slug));
   const { listAppOffers } = await import('@/services/AppCatalogService');
-  const [connected, peers, offers, user] = await Promise.all([
+  const { triedAndFailed } = await import('./triedAndFailed');
+  const [connected, peers, offers, user, tried] = await Promise.all([
     connectedHere(ctx.orgId),
     orgPeerConnectors(ctx.orgId),
     listAppOffers(ctx.orgId).catch(() => [] as AppOffer[]),
     ctx.userId ? db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, ctx.userId)).limit(1).then(r => r[0] ?? null) : Promise.resolve(null),
+    // What agents tried and failed this week, for want of each system.
+    triedAndFailed(ctx.orgId).catch(() => new Map<string, { times: number }>()),
   ]);
   const [apps, mail] = await Promise.all([appsReading(offers), mailEvidence(user?.email, deps.resolveMx)]);
   const named = new Set((input.named ?? []).filter(slug => known.has(slug)));
@@ -262,6 +267,10 @@ export async function recommendConnections(ctx: { orgId: string; userId: string 
     const n = peers.get(slug) ?? 0;
     if (n > 0) {
       out.push({ kind: 'org', workspaces: n });
+    }
+    const t = tried.get(slug)?.times ?? 0;
+    if (t > 0) {
+      out.push({ kind: 'tried', times: t });
     }
     return out;
   };

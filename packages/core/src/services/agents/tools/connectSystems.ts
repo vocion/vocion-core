@@ -30,6 +30,10 @@ const InputSchema = z.object({
   title: z.string().min(3).max(90).optional().describe('The card\'s question, in your words for this person now ("Connect GitHub so the factory can read your repos?"). Compose it from the facts below; leave out only to use a plain default.'),
   why: z.string().min(3).max(240).optional().describe('One or two lines on why these systems matter to this person now, from the live facts (what is installed, what failed, what the team tried). Leave out to show none.'),
   app: z.string().min(1).max(80).optional().describe('An app id, to walk only the systems that app reads ("connect the systems GTM uses", "set up my software factory"). Setting up an app always passes its id.'),
+  steps: z.array(z.object({
+    connector: z.string().min(1).max(80).describe('The connector slug of one system in the walk.'),
+    why: z.string().min(3).max(240).describe('One line for that system\'s step, in your words for this person now: why it matters to them, from its facts (describe_setup lists each system\'s facts: what needs it, what agents tried and failed, what it unlocks).'),
+  })).max(20).optional().describe('Your line for each system\'s step, so every step of the walk leads with your words, not only the first. A system you leave out shows its evidence instead.'),
 });
 type Input = z.infer<typeof InputSchema>;
 
@@ -54,6 +58,9 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
   // template is only the fallback (founder, 2026-10-09: "not hard coded
   // bullshit that gets stale").
   const title = input.title?.trim() || (plan.scope ? `Connect the systems ${plan.scope.appName} uses` : 'Connect your systems');
+  // Every step's line, for the systems actually walked.
+  const walked = new Set(plan.candidates.map(c => c.connector));
+  const say = Object.fromEntries((input.steps ?? []).filter(s => walked.has(s.connector) && s.why.trim()).map(s => [s.connector, s.why.trim()]));
   const card: Card = {
     id: newCardId(),
     kind: CONNECT_SYSTEMS_CARD_KIND,
@@ -61,7 +68,7 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
     ...(input.why?.trim() ? { body: input.why.trim() } : {}),
     actions: [],
     source: { agentSlug: ctx.agentSlug, tool: CONNECT_SYSTEM_TOOL },
-    href: connectSystemsHref(input),
+    href: connectSystemsHref({ named: input.named, app: input.app, say }),
     hrefLabel: 'Start',
     state: 'proposed',
   };
@@ -78,6 +85,11 @@ export async function connectSystem(ctx: RuntimeContext, input: Input): Promise<
     // for the one line you say before the card, in your own words.
     ...plan.candidates.map(c => `- ${c.name}: ${c.evidence.map(evidenceLine).join('; ') || 'no evidence beyond the request'}; unlocks ${unlockLine(c, 'connected')}.`),
   ];
+  const voiced = plan.candidates.filter(c => say[c.connector]).map(c => c.name);
+  const unvoiced = plan.candidates.filter(c => !say[c.connector]).map(c => c.name);
+  if (voiced.length > 0) {
+    lines.push(`Your lines lead the steps for ${voiced.join(', ')}.${unvoiced.length > 0 ? ` ${unvoiced.join(', ')} show${unvoiced.length === 1 ? 's' : ''} its evidence.` : ''}`);
+  }
   if (plan.connected.length > 0) {
     lines.push(`Already connected: ${plan.connected.map(c => c.name).join(', ')}.`);
   }

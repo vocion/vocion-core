@@ -23,6 +23,7 @@
 import type { HintInput, HintType, OpeningHint } from '@/libs/chat/openingHints';
 import { and, count, desc, eq, gte, inArray, like, lte } from 'drizzle-orm';
 import { HINT_TYPES, openingHints } from '@/libs/chat/openingHints';
+import { triedLine } from '@/libs/connect/connectionNeeded';
 import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
@@ -51,7 +52,7 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
   const now = input.now ?? new Date();
   const since30 = new Date(now.getTime() - 30 * DAY);
 
-  const [project, setups, credentials, waiting, brief, activity, dismissals, started, rhythm] = await Promise.all([
+  const [project, setups, credentials, waiting, brief, activity, dismissals, started, rhythm, tried] = await Promise.all([
     db.select({ createdAt: projectSchema.createdAt }).from(projectSchema).where(eq(projectSchema.id, input.orgId)).limit(1).then(r => r[0] ?? null).catch(() => null),
     import('@/services/plugins/setupState').then(m => m.setupStateForOrg(input.orgId)).catch(() => []),
     import('@/services/SourceCredentialService').then(m => m.credentialStatusForOrg(input.orgId)).catch(() => null),
@@ -69,6 +70,8 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
       .limit(1)
       .then(r => r[0] ?? null)
       .catch(() => null),
+    // What agents tried and failed this week for want of a connection.
+    import('@/services/connect/triedAndFailed').then(m => m.triedAndFailed(input.orgId, now)).catch(() => new Map<string, { times: number }>()),
   ]);
 
   const countOf = (type: string) => Number(activity.find(a => a.type === type)?.n ?? 0);
@@ -84,15 +87,33 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
       href: connectSystemsHref({ app: s.plugin }),
       resume: started.has(s.plugin) ? { conversationId: started.get(s.plugin)! } : null,
     })),
-    connectors: Object.entries(credentials?.byConnectorSlug ?? {})
-      .filter(([, status]) => status.broken !== null || !status.connected)
-      .map(([slug, status]) => ({
-        slug,
-        name: connectorName(slug),
-        state: status.broken === 'expired' ? 'expired' as const : status.broken ? 'broken' as const : 'incomplete' as const,
-        recentTouches: 0,
-        href: connectSystemsHref({ named: [slug] }),
-      })),
+    connectors: [
+      ...Object.entries(credentials?.byConnectorSlug ?? {})
+        .filter(([, status]) => status.broken !== null || !status.connected)
+        .map(([slug, status]) => {
+          const times = tried.get(slug)?.times ?? 0;
+          return {
+            slug,
+            name: connectorName(slug),
+            state: status.broken === 'expired' ? 'expired' as const : status.broken ? 'broken' as const : 'incomplete' as const,
+            // The ranker's connector boost: failed calls that needed it this week.
+            recentTouches: times,
+            ...(times > 0 ? { touchNote: triedLine(times).replace(/^./, c => c.toLowerCase()) } : {}),
+            href: connectSystemsHref({ named: [slug] }),
+          };
+        }),
+      // Never connected at all, and agents keep needing it.
+      ...[...tried.entries()]
+        .filter(([slug]) => !credentials?.byConnectorSlug?.[slug] && getConnector(slug))
+        .map(([slug, t]) => ({
+          slug,
+          name: connectorName(slug),
+          state: 'needed' as const,
+          recentTouches: t.times,
+          touchNote: triedLine(t.times, connectorName(slug)),
+          href: connectSystemsHref({ named: [slug] }),
+        })),
+    ],
     waiting: waiting.map(d => ({
       kind: d.kind === 'approval' || d.kind === 'signoff' ? 'approval' as const : d.kind === 'question' || d.kind === 'choice' || d.kind === 'setup' ? 'ask' as const : 'fyi' as const,
       ageHours: d.createdAt ? (now.getTime() - new Date(d.createdAt).getTime()) / (60 * 60 * 1000) : 0,

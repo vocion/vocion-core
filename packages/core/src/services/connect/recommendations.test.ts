@@ -203,3 +203,25 @@ describe('scoreOf', () => {
     expect(mail).toBeGreaterThan(org);
   });
 });
+
+describe('what agents tried and failed (2026-10-09)', () => {
+  it('puts a system agents needed this week on the list, with the count, and ranks it up', async () => {
+    const { userActivityEventSchema } = await import('@/models/Schema');
+    const now = Date.now();
+    await db.insert(userActivityEventSchema).values([
+      ...[1, 2, 3].map(i => ({ orgId: SALES, userId: DANA, agentSlug: 'pipeline-lead', eventType: 'agent.connection_needed', metadata: { connector: 'slack', tool: 'post_message' }, createdAt: new Date(now - i * 60_000) })),
+      // Older than a week, and another workspace: neither counts.
+      { orgId: SALES, userId: DANA, agentSlug: 'pipeline-lead', eventType: 'agent.connection_needed', metadata: { connector: 'slack', tool: 'post_message' }, createdAt: new Date(now - 8 * 24 * 60 * 60 * 1000) },
+      { orgId: SUPPORT, userId: DANA, agentSlug: 'support-lead', eventType: 'agent.connection_needed', metadata: { connector: 'slack', tool: 'post_message' }, createdAt: new Date(now) },
+    ]);
+
+    const plan = await recommendConnections({ orgId: SALES, userId: DANA }, {}, { resolveMx: noMail });
+    const slack = plan.candidates.find(c => c.connector === 'slack')!;
+
+    expect(slack.evidence).toContainEqual({ kind: 'tried', times: 3 });
+    expect(slack.score).toBe(scoreOf([{ kind: 'tried', times: 3 }]));
+    expect(scoreOf([{ kind: 'tried', times: 3 }])).toBe(EVIDENCE_WEIGHT.tried + 2 * EVIDENCE_WEIGHT.triedEach);
+    // Ahead of a system only the Org's other workspaces use.
+    expect(plan.question!.options.indexOf('slack')).toBeLessThan(plan.question!.options.indexOf('jira'));
+  });
+});

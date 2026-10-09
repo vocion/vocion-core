@@ -27,6 +27,7 @@ import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { versionLinksDelta } from '@/libs/versions/versionRef';
 import { agentSchema } from '@/models/Schema';
 import { flatHistory, historyMessages, withLiveCardState } from '@/services/chat/historyTools';
+import { noteConnectionNeeded } from '@/services/connect/triedAndFailed';
 import { composeAnswerWithModel, evidenceBlock, runAnswerBackstop } from './agents/answerBackstop';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
@@ -1227,6 +1228,11 @@ export async function runAgentDeep(opts: {
           // LangGraph's ToolNode catches a throwing tool and hands back an
           // error ToolMessage, so a failure arrives as an ordinary end event.
           // Read the status, or the failure reaches nobody.
+          // A call that could not run for want of a connection is what agents
+          // tried and failed (`services/connect/triedAndFailed.ts`).
+          if (tool !== 'task' && !PLUMBING.has(tool)) {
+            void noteConnectionNeeded({ orgId: opts.orgId, userId: opts.userId, agentSlug: opts.agentSlug }, tool, outputFull);
+          }
           if (toolResultStatus(ev.data?.output) === 'error') {
             const message = toolErrorMessage(outputFull);
             failures.push({ tool, message });
@@ -1262,6 +1268,8 @@ export async function runAgentDeep(opts: {
           failures.push({ tool, message });
           if (tool === 'task') {
             failedDelegations.push({ name: tracer.delegateName(toolNodeId(nsFor(ev))) ?? 'the specialist', message });
+          } else {
+            void noteConnectionNeeded({ orgId: opts.orgId, userId: opts.userId, agentSlug: opts.agentSlug }, tool, message);
           }
           emit({ type: 'tool_error', tool, message });
           // On the turn's log as a failed call, so the owed-change pass sees

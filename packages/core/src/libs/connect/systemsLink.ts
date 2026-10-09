@@ -12,6 +12,19 @@ import type { ConnectPlanInput } from './systemsPlan';
 export const CONNECT_SYSTEMS_OBJECTIVE = 'connect-systems';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/;
+/** The longest line a step carries from the lead. */
+const SAY_MAX = 240;
+/** A step's line, as the query carries it: `say.<connector>`. */
+const SAY_PREFIX = 'say.';
+
+/**
+ * A step line safe to carry: one line, trimmed, at most `SAY_MAX` characters.
+ * @param text - The lead's words.
+ */
+function cleanSay(text: string): string {
+  // eslint-disable-next-line no-control-regex -- strip control characters from words carried in a link
+  return text.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, SAY_MAX);
+}
 
 /**
  * The chat link that starts the walk-through.
@@ -25,6 +38,14 @@ export function connectSystemsHref(input: ConnectPlanInput = {}): string {
   const named = (input.named ?? []).filter(s => SLUG.test(s));
   if (named.length > 0) {
     params.set('named', named.join(','));
+  }
+  // The lead's line for each step travels with the walk, so every step — not
+  // only the first — leads with words composed for this person now.
+  for (const [slug, text] of Object.entries(input.say ?? {})) {
+    const line = SLUG.test(slug) ? cleanSay(text) : '';
+    if (line) {
+      params.set(`${SAY_PREFIX}${slug}`, line);
+    }
   }
   return `/dashboard/chat?${params.toString()}`;
 }
@@ -41,7 +62,16 @@ export function connectSystemsInputOf(params: URLSearchParams | Record<string, s
   }
   const app = get('app');
   const named = (get('named') ?? '').split(',').map(s => s.trim()).filter(s => SLUG.test(s));
-  return { ...(app && SLUG.test(app) ? { app } : {}), ...(named.length > 0 ? { named } : {}) };
+  const keys = params instanceof URLSearchParams ? [...params.keys()] : Object.keys(params);
+  const say: Record<string, string> = {};
+  for (const key of keys) {
+    const slug = key.startsWith(SAY_PREFIX) ? key.slice(SAY_PREFIX.length) : '';
+    const line = SLUG.test(slug) ? cleanSay(get(key) ?? '') : '';
+    if (line) {
+      say[slug] = line;
+    }
+  }
+  return { ...(app && SLUG.test(app) ? { app } : {}), ...(named.length > 0 ? { named } : {}), ...(Object.keys(say).length > 0 ? { say } : {}) };
 }
 
 /**

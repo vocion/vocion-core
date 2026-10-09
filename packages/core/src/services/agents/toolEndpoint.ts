@@ -21,6 +21,7 @@ import type { AgentEvent } from './types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
+import { noteConnectionNeeded } from '@/services/connect/triedAndFailed';
 import { verifyClaim } from './claims';
 import { runtimeContextForAgent } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
@@ -86,11 +87,16 @@ export async function executeToolCall(opts: {
       opts.ns ? ({ metadata: { checkpoint_ns: opts.ns } } as never) : undefined,
     );
     const output = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    // A call that could not run for want of a connection is what agents
+    // tried and failed — the same record the in-process loop writes.
+    void noteConnectionNeeded({ orgId: claim.orgId, userId: claim.userId, agentSlug: claim.agentSlug }, opts.tool, output);
     return { ok: true, output, events };
   } catch (err) {
     // Tool errors return 200-shaped tool failures upstream (the model
     // should see them and recover); transport-level 500 is reserved for
     // our own bugs. Mirror the in-process behavior: message as output.
-    return { ok: true, output: `Tool error: ${(err as Error).message ?? 'unknown'}`, events };
+    const message = (err as Error).message ?? 'unknown';
+    void noteConnectionNeeded({ orgId: claim.orgId, userId: claim.userId, agentSlug: claim.agentSlug }, opts.tool, message);
+    return { ok: true, output: `Tool error: ${message}`, events };
   }
 }
