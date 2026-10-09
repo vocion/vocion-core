@@ -44,6 +44,7 @@ import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
 import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
+import { isSeededLead, leadName } from '@/libs/workspace/leadName';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { readInitiative } from '@/services/agents/initiative';
@@ -51,6 +52,7 @@ import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { enabledPluginsForOrg } from '@/services/PluginService';
 import { mountWiki } from '@/services/wiki/WikiService';
+import { leadWorkspaceLabelFor } from '@/services/workspace/leadNaming';
 import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentService';
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
@@ -367,6 +369,19 @@ export async function buildAgentDefinition(orgId: string, agentSlug: string): Pr
     const leadless = roster.leadlessTeams;
     const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
     systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
+  }
+
+  // WHO THE SEEDED LEAD IS: its role named for the workspace ("Revenue lead"),
+  // and its given name when an Org set one, computed from the workspace's
+  // current name so a rename reaches the next turn. Never "workspace lead"
+  // (founder, 2026-10-09; `libs/workspace/leadName.ts`).
+  const leadLabel = isSeededLead(row.slug) ? await leadWorkspaceLabelFor(orgId).catch(() => null) : null;
+  if (leadLabel) {
+    const n = leadName({ agentName: row.name, workspaceLabel: leadLabel });
+    const who = n.given
+      ? `Who you are: your name is ${n.given}, and you are the ${n.role}. Introduce yourself as "${n.given}, the ${n.role}" — never as a "workspace lead".`
+      : `Who you are: you are the ${n.role}. Introduce yourself as "the ${n.role}" — never as a "workspace lead".`;
+    systemPrompt = [systemPrompt, who].filter(Boolean).join('\n\n');
   }
 
   // THE CLOCK (CORE, all agents).

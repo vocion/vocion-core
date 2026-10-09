@@ -1,7 +1,7 @@
 # Agent — `agents/<slug>.yaml`
 
 An agent is an LLM orchestrator: a name, a system prompt, and a list of what it
-is allowed to reach. Agents are the front door of a workspace — a workspace lead
+is allowed to reach. Agents are the front door of a workspace — a lead
 consults team leads, and team leads consult their specialists.
 
 | | |
@@ -60,9 +60,9 @@ fast model (the `classifier` role) reads the message against the roster: each
 active agent's slug, name, `description` and `handles`, the record types it
 answers for (`x-owner`) and files (`objectTypes`), its `harness.grantTools` and
 its skills. It returns `{ chosen, confidence, reason }`, checked against the
-roster, and code routes on it; below a confidence of 0.5 the workspace lead
+roster, and code routes on it; below a confidence of 0.5 the workspace's lead
 answers — `lead:` in `workspace.yaml`, else the first active agent. A new
-shared workspace starts with a generic workspace lead core seeds into it
+shared workspace starts with a generic workspace's lead core seeds into it
 (`templates/workspace/agents/workspace-lead.yaml`), which stays the lead until
 the workspace names its own — see
 [Getting started in a new workspace](../guides/getting-started-in-a-workspace.md). Meaning is

@@ -28,8 +28,37 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+const TEAM = ['Revenue lead', 'Pipeline Analyst', 'Deal Desk', 'Renewals', 'Inbound', 'Hiring'].map((name, i) => ({ slug: `a${i}`, name, accent: null }));
+
+describe('EmptyState, your team is here (founder, 2026-10-09)', () => {
+  it('centres the team, lead first and larger, four dots then +N, and a caption that opens the team', async () => {
+    await renderIt(<EmptyState firstName="Sam" hour={20} returning={false} team={TEAM} secondLine="Northwind's team is on it." />);
+
+    await expect.element(page.getByTestId('team-lead')).toBeVisible();
+    expect(page.getByTestId('team-member').elements()).toHaveLength(3);
+    await expect.element(page.getByTestId('team-more')).toHaveTextContent('+2');
+    await expect.element(page.getByRole('link', { name: 'Revenue lead · 6 agents' })).toHaveAttribute('href', '/dashboard/teams');
+    await expect.element(page.getByTestId('chat-greeting-team')).toHaveTextContent('Northwind\'s team is on it.');
+    expect(page.getByTestId('chat-empty-mark').elements()).toHaveLength(0);
+  });
+
+  it('shows only the lead when it is alone, captioned by its name', async () => {
+    await renderIt(<EmptyState hour={9} returning={false} team={TEAM.slice(0, 1)} />);
+
+    expect(page.getByTestId('team-member').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('team-caption')).toHaveTextContent(/^Revenue lead$/);
+  });
+
+  it('greets in Vocion\'s own sans display face, never a serif', async () => {
+    await renderIt(<EmptyState hour={9} returning={false} team={TEAM} />);
+    const face = getComputedStyle(page.getByTestId('chat-greeting').element()).fontFamily;
+
+    expect(face).not.toMatch(/Georgia|Times|Source Serif/i);
+  });
+});
+
 describe('EmptyState', () => {
-  it('says good evening by first name, under the mark, and nothing else', async () => {
+  it('says good evening by first name, under the mark when there is no team, and nothing else', async () => {
     await renderIt(<EmptyState firstName="Sam" hour={20} returning={false} />);
 
     await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/^Good evening, Sam\.$/);

@@ -23,6 +23,7 @@ import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { ConversationDecisions } from './decisions/DecisionDock';
+import { composerAsk, teamLine, teamOf } from './emptyChat';
 import { EmptyState } from './EmptyState';
 import { LeadIntro, NoAgentsYet, wantsLeadIntro } from './LeadIntro';
 import { MessageList } from './MessageList';
@@ -249,6 +250,9 @@ function ChatShellInner({
   const waitingCount = session.waitingDecisions.length;
   const nudge = waitingCount > 0 ? <WaitingNudge count={waitingCount} /> : null;
   const firstName = usePersonFirstName();
+  // YOUR TEAM IS HERE: the empty conversation's centre, and who the composer asks.
+  const team = useMemo(() => teamOf(agents, defaultAgentSlug(agents)).members, [agents]);
+  const askPlaceholder = composerAsk(team, (key, values) => t(key, values));
   // Arriving on the page (⌘⇧L, the sidebar, a link) focuses the composer once
   // the saved thread has settled; keyboard-only never has to click the box.
   useEffect(() => {
@@ -409,10 +413,12 @@ function ChatShellInner({
                               never cards: an empty conversation starts warm
                               (`emptyChat.ts`, founder 2026-10-08). */}
                           {wantsLeadIntro(agents)
-                            ? <LeadIntro firstName={firstName} onPick={session.handlePickSuggestion} />
+                            ? <LeadIntro firstName={firstName} team={team} onPick={session.handlePickSuggestion} />
                             : (
                                 <EmptyState
                                   firstName={firstName}
+                                  team={team}
+                                  secondLine={teamLine({ workspace: agents.find(a => a.workspaceLabel)?.workspaceLabel ?? session.workspaceName, members: team }, (key, values) => t(key, values))}
                                   nudge={nudge}
                                 />
                               )}
@@ -470,7 +476,7 @@ function ChatShellInner({
             {...queueProps}
             {...tagProps}
             onStop={session.handleStop}
-            placeholder={session.composerPlaceholder}
+            placeholder={session.messages.length === 0 && session.openDecisions.length === 0 ? askPlaceholder : (session.composerPlaceholder ?? askPlaceholder)}
             commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
             pastedText={session.pastedText}
             onPasteText={session.setPastedText}

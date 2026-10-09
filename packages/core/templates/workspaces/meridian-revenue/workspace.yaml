@@ -5,7 +5,7 @@ orgId: proj_meridian_revenue
 name: Meridian Outdoor — Revenue
 description: >-
   Sample revenue workspace for Meridian Outdoor Supply, a fictional
-  mid-market outdoor-equipment B2B. Four teams under one workspace lead —
+  mid-market outdoor-equipment B2B. Four teams under one workspace's lead —
   loaded by the "Load the sample revenue workspace" button on /dashboard/teams.
 lead: revenue-director
 # accountableUser is deliberately omitted: teams.seedSample injects the seeding

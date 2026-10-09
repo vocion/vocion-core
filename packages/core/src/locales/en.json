@@ -82,7 +82,6 @@
   },
   "Teams": {
     "title_bar_description": "Who works for you, by team, with each team’s lead agent and the person accountable for it.",
-    "workspace_lead_badge": "Workspace Lead",
     "workspace_lead_description": "Runs the whole workspace — briefs you by consulting the team leads.",
     "accountable_label": "Accountable:",
     "owner_inherited": "{name} (workspace default)",
@@ -93,13 +92,13 @@
     "ask_quarter_prompt": "How's the quarter going?",
     "view_profile": "View profile",
     "consults_partial": "Consults {consulted} of {total} teams — a team without a lead can't be reached yet.",
-    "no_workspace_lead_title": "No workspace lead yet",
-    "no_workspace_lead_body": "Name a workspace lead to get one agent that runs the whole workspace and briefs you.",
+    "no_workspace_lead_title": "No lead yet",
+    "no_workspace_lead_body": "Name a lead to get one agent that runs the whole workspace and briefs you.",
     "no_workspace_lead_hint": "Set lead: in workspace.yaml, or load the sample workspace.",
     "agent_count": "{count, plural, =1 {1 agent} other {# agents}}",
     "lead_label": "Lead",
     "team_lead_role": "{team} Team Lead",
-    "no_lead_warning": "No lead agent — this team can't be consulted by the workspace lead yet.",
+    "no_lead_warning": "No lead agent — this team can't be consulted by the workspace's lead yet.",
     "choose_lead": "Choose a lead",
     "view_team": "View team",
     "ungrouped_title": "Not on a team yet",
@@ -123,7 +122,7 @@
     "boundary_gated": "{count, plural, =1 {1 skill waits} other {# skills wait}} for your approval — drafted, never sent alone",
     "boundary_review_link": "Open the review queue",
     "boundary_none": "This team has no skills wired yet.",
-    "rail_lead_missing": "No lead agent yet — this team can't be consulted by the workspace lead.",
+    "rail_lead_missing": "No lead agent yet — this team can't be consulted by the workspace's lead.",
     "rail_lead_missing_hint": "Set lead: in this team's file, under the hood below.",
     "members_title": "Agents on this team",
     "members_description": "The lead is the team's front door — it coordinates the others.",
@@ -240,7 +239,13 @@
     "waiting_nudge": "{count, plural, one {# thing waiting on you} other {# things waiting on you}}",
     "waiting_nudge_dismiss": "Not now",
     "welcome_back_named": "Welcome back, {name}.",
-    "welcome_back": "Welcome back."
+    "welcome_back": "Welcome back.",
+    "team_on_it": "{workspace}'s team is on it.",
+    "agent_on_it": "{name} is on it.",
+    "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
+    "ask_team": "Ask the team…",
+    "ask_agent": "Ask {name}…",
+    "named_lead_and_team_on_it": "{name} and the team are on it."
   },
   "Onboarding": {
     "starter_setup_prompt": "Set up this workspace with me.",
@@ -268,9 +273,11 @@
     "step_brand_prompt": "Brand this workspace from our website: ",
     "step_state_done": "done",
     "step_state_todo": "not done yet",
-    "lead_hello_named": "Hi {name}, I'm the workspace lead. Whenever you're ready, I can help set this up.",
-    "lead_hello": "Hi, I'm the workspace lead. Whenever you're ready, I can help set this up.",
-    "setup_chip": "Set up this workspace"
+    "setup_chip": "Set up this workspace",
+    "lead_self": "I'm the {role}",
+    "lead_self_named": "I'm {given}, the {role}",
+    "lead_hello_person": "Hi {name}, {self}. Whenever you're ready, I can help set this up.",
+    "lead_hello_anyone": "Hi, {self}. Whenever you're ready, I can help set this up."
   },
   "Inbox": {
     "title": "Review queue",

@@ -258,7 +258,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
         risk: 'low',
         options: [
           { id: 'reply-myself', label: 'I will reply myself', description: 'Nothing else happens; the mail stays in the conversation.' },
-          { id: 'let-agent-answer', label: 'Let the workspace lead answer', description: 'Runs one agent turn on this mail and replies from the mailbox.', recommended: true },
+          { id: 'let-agent-answer', label: 'Let the lead answer', description: 'Runs one agent turn on this mail and replies from the mailbox.', recommended: true },
           { id: 'ignore', label: 'Ignore', description: 'Close without a reply.' },
         ],
         contextUrl: `/dashboard/chat?conversation=${conv.id}`,

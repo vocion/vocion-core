@@ -7,7 +7,7 @@ product sold to field-service companies. Every number here is sample
 flavor and lives only in prompts, descriptions, and the sample corpus
 under `data/`.
 
-Where `meridian-revenue` shows the *org shape* (a workspace lead
+Where `meridian-revenue` shows the *org shape* (a lead
 consulting team leads), this one shows the **human-in-the-loop shape**:
 two workflows whose middle step is an `approve` gate, a trust ladder
 that ships entirely disabled, a standing mission pinned at autonomy
@@ -15,7 +15,7 @@ level 1, and two read-only agents that cannot propose anything at all.
 
 ## Shape
 
-- **Workspace lead:** `support-director` (`lead:` in `workspace.yaml`).
+- **Lead:** `support-director` (`lead:` in `workspace.yaml`).
 - **Three teams, flat:** Frontline (teal), Escalations (amber), Service
   Quality (violet). Each has a lead plus specialists; specialists are one
   level deep via `parent:`.

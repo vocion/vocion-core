@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { eq } from 'drizzle-orm';
 import { getTranslations } from 'next-intl/server';
 import { BrandSettingsLive } from '@/features/branding/BrandSettingsLive';
+import { LeadNameControl } from '@/features/dashboard/LeadNameControl';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { auth } from '@/libs/Auth';
 import { decodeDraft } from '@/libs/branding/draft';
@@ -10,6 +11,7 @@ import { db } from '@/libs/DB';
 import { extensionWhiteLabel } from '@/libs/extensions';
 import { tenantAccountSchema } from '@/models/Schema';
 import { getOrgBrand } from '@/services/branding/OrgBrandService';
+import { seededLeadNameFor } from '@/services/workspace/leadNaming';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
@@ -43,6 +45,7 @@ export default async function BrandPage(props: { searchParams: Promise<{ draft?:
   const { draft } = await props.searchParams;
   const brand = await getOrgBrand(accountId);
   const drafted = decodeDraft(draft);
+  const lead = session?.user?.projectId ? await seededLeadNameFor(session.user.projectId) : null;
 
   return (
     <>
@@ -53,6 +56,12 @@ export default async function BrandPage(props: { searchParams: Promise<{ draft?:
         orgName={orgName}
         poweredBy={!extensionWhiteLabel()}
       />
+      {/* "Make it yours" also offers the workspace's lead a first name, optional. */}
+      {lead && (
+        <section className="mt-8 border-t border-border/70 pt-6" data-testid="brand-lead-name">
+          <LeadNameControl role={lead.role} given={lead.given} />
+        </section>
+      )}
     </>
   );
 }

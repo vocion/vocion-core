@@ -87,7 +87,7 @@ describe('ensureWorkspaceLead', () => {
 
     const [agent] = await agentsOf(SUPPORT);
 
-    expect(agent).toMatchObject({ slug: WORKSPACE_LEAD_SLUG, name: 'Workspace lead', role: 'lead', active: 'true', projectId: SUPPORT });
+    expect(agent).toMatchObject({ slug: WORKSPACE_LEAD_SLUG, name: 'Lead', role: 'lead', active: 'true', projectId: SUPPORT });
     expect(agent?.skillSlugs).toEqual([WORKSPACE_SETUP_SKILL]);
     expect(agent?.harnessConfig).toMatchObject({ grantTools: ['setup_options', 'propose_setup', 'propose_brand'] });
 

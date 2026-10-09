@@ -5,9 +5,10 @@ import { EmptyState } from './EmptyState';
 import { WaitingNudge } from './WaitingNudge';
 
 /**
- * The chat home: a mark and one warm line, the composer at the bottom, and
- * whitespace between (founder, 2026-10-08, after the Claude iOS app's empty
- * chat). One soft chip by the composer only when something waits.
+ * The chat home: the workspace's team at the centre, two short lines in
+ * Vocion's own face, the composer at the bottom and whitespace between
+ * (founder, 2026-10-09, "Your team is here"). One soft chip by the composer
+ * only when something waits.
  *
  * Shown at the 320px rail minimum and a roomy 680px, with the composer's
  * ground under it so the spacing reads true.
@@ -29,7 +30,13 @@ const meta: Meta<typeof Pane> = {
   title: 'Chat/EmptyState',
   component: Pane,
   parameters: { layout: 'centered' },
-  args: { firstName: 'Sam', hour: 19, returning: false },
+  args: {
+    firstName: 'Sam',
+    hour: 19,
+    returning: true,
+    team: ['Revenue lead', 'Pipeline Analyst', 'Deal Desk', 'Renewals', 'Inbound', 'Hiring'].map((name, i) => ({ slug: `a${i}`, name, accent: null })),
+    secondLine: 'Northwind\'s team is on it.',
+  },
 };
 
 export default meta;
@@ -42,8 +49,8 @@ export const NarrowRail: Story = { args: { width: 320 } };
 /** A wide pane: still one mark and one line. */
 export const WidePane: Story = { args: { width: 680 } };
 
-/** Coming back after a while. */
-export const WelcomeBack: Story = { args: { width: 480, returning: true } };
+/** Only the lead: a new workspace, or a personal one with its assistant. */
+export const LeadAlone: Story = { args: { width: 480, team: [{ slug: 'lead', name: 'Revenue lead' }], secondLine: null, line: 'Hi Sam, I\'m the Revenue lead. Whenever you\'re ready, I can help set this up.' } };
 
 /** Something waits on the person: one soft chip by the composer, never cards. */
 export const WithNudge: Story = { args: { width: 480, nudge: <WaitingNudge count={3} /> } };

@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@orpc/server';
 import { extensionRouters } from '@/libs/extensions';
-import { setVoice as setAgentVoiceRoute } from './Agents';
+import { setVoice as setAgentVoiceRoute, setLeadName as setLeadNameRoute } from './Agents';
 import {
   adoptionAgentDetailRoute,
   adoptionAgentsRoute,
@@ -221,6 +221,7 @@ export const router = {
   },
   agents: {
     setVoice: setAgentVoiceRoute,
+    setLeadName: setLeadNameRoute,
   },
   automations: {
     pause: pauseAutomationRoute,

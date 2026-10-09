@@ -20,7 +20,7 @@ settings, and a `brand.yaml` the server already has.
 
 ## Make it yours: from the chat
 
-Ask the workspace lead, in your own words: *"Brand this workspace from
+Ask the workspace's lead, in your own words: *"Brand this workspace from
 northwind.example"*. It is also the last step of the **Getting started**
 checklist, **Make it yours: logo and colours**, which opens the chat with the
 ask written.

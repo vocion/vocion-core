@@ -1,11 +1,13 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { TeamMember } from './emptyChat';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { useOrgBrand } from '@/features/branding/BrandContext';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 import { greetingFor, isReturning, LAST_SEEN_KEY } from './emptyChat';
+import { TeamCluster } from './TeamCluster';
 
 /**
  * Empty state: a mark and one warm line, and nothing else.
@@ -16,9 +18,10 @@ import { greetingFor, isReturning, LAST_SEEN_KEY } from './emptyChat';
  * reference: one small mark centred, one short personal line in a serif
  * face, the composer at the bottom, whitespace everywhere else.
  *
- * So: the Org's own mark (Vocion's when it has none), and ONE line varied by
- * the time and by whether the person is coming back ("Good evening, Sam.",
- * "Welcome back, Sam."). No heading naming the workspace, no starter chips,
+ * So: the workspace's team at the centre (`TeamCluster`; the Org's mark only
+ * when there is no agent to show), and one or two short lines in Vocion's own
+ * display face, varied by the time and by a return ("Welcome back, Sam." /
+ * "Northwind's team is on it."). No heading naming the workspace, no starter chips,
  * no cards, no lists. The one thing that may join it is a soft nudge the
  * surface passes in, only when something is actually waiting, tucked at the
  * bottom by the composer rather than in the centre (`emptyChat.ts`).
@@ -40,7 +43,18 @@ export type EmptyStateProps = {
   returning?: boolean;
   /** The one line, when the surface has its own (a new workspace's lead saying hello). Default: the time-and-return greeting. */
   line?: string;
+  /** The workspace's agents, lead first: the centre of the screen. Empty or omitted, the Org's mark stands in. */
+  team?: readonly TeamMember[];
+  /** A second short line under the greeting ("Northwind's team is on it."). */
+  secondLine?: string | null;
 };
+
+/**
+ * Vocion's own display face: the Org's heading face when its brand names one,
+ * else Outfit, the face vocion.ai's headings use. Never a serif (founder,
+ * 2026-10-09: the serif "looks too much like Claude").
+ */
+const DISPLAY_FACE = 'var(--org-font-heading, var(--font-outfit, var(--font-sans)))';
 
 function readReturning(): boolean {
   try {
@@ -59,8 +73,10 @@ function readReturning(): boolean {
  * @param props.hour - The hour the line is for.
  * @param props.returning - Whether the person is coming back after a while.
  * @param props.line - The one line, when the surface has its own.
+ * @param props.team - The workspace's agents, lead first.
+ * @param props.secondLine - A second short line under the greeting.
  */
-export function EmptyState({ firstName, nudge, hour, returning, line: ownLine }: EmptyStateProps) {
+export function EmptyState({ firstName, nudge, hour, returning, line: ownLine, team = [], secondLine }: EmptyStateProps) {
   const t = useTranslations('Chat');
   const brand = useOrgBrand();
   // Read once, before this visit is written, so a return reads as one.
@@ -79,21 +95,32 @@ export function EmptyState({ firstName, nudge, hour, returning, line: ownLine }:
   return (
     <div data-testid="chat-empty-state" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 sm:px-6">
       <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-        {/* eslint-disable-next-line next/no-img-element */}
-        <img src={markLight} alt="" aria-hidden data-testid="chat-empty-mark" className={`size-9 select-none [@media(max-height:480px)]:hidden ${markDark ? 'dark:hidden' : ''}`} draggable={false} />
-        {markDark && (
-          // eslint-disable-next-line next/no-img-element
-          <img src={markDark} alt="" aria-hidden className="hidden size-9 select-none dark:block [@media(max-height:480px)]:hidden" draggable={false} />
-        )}
+        {team.length > 0
+          ? <TeamCluster members={team} />
+          : (
+              <>
+                {/* eslint-disable-next-line next/no-img-element */}
+                <img src={markLight} alt="" aria-hidden data-testid="chat-empty-mark" className={`size-9 select-none [@media(max-height:480px)]:hidden ${markDark ? 'dark:hidden' : ''}`} draggable={false} />
+                {markDark && (
+                // eslint-disable-next-line next/no-img-element
+                  <img src={markDark} alt="" aria-hidden className="hidden size-9 select-none dark:block [@media(max-height:480px)]:hidden" draggable={false} />
+                )}
+              </>
+            )}
         {/* The time and the return are the person's clock and browser, which the server does not know. */}
         <h2
-          className="mt-4 text-[1.75rem] leading-tight font-normal tracking-tight text-foreground/90 sm:text-[2rem]"
-          style={{ fontFamily: 'var(--font-source-serif-4), Georgia, "Times New Roman", serif' }}
+          className="mt-5 max-w-md text-[1.6rem] leading-tight font-normal tracking-tight text-balance text-foreground sm:text-[1.85rem]"
+          style={{ fontFamily: DISPLAY_FACE }}
           data-testid="chat-greeting"
           suppressHydrationWarning
         >
           {line}
         </h2>
+        {secondLine && (
+          <p className="mt-1.5 max-w-md text-[1.05rem] leading-snug text-balance text-muted-foreground" style={{ fontFamily: DISPLAY_FACE }} data-testid="chat-greeting-team">
+            {secondLine}
+          </p>
+        )}
       </div>
       {nudge && <div className="flex shrink-0 justify-center pb-3">{nudge}</div>}
     </div>

@@ -53,7 +53,7 @@ const { ChatComposer } = await import('./ChatComposer');
 const PHONE = { width: 390, height: 844 };
 
 const AGENTS = [
-  { slug: 'lead', name: 'Workspace lead', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
+  { slug: 'lead', name: 'Revenue lead', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
   { slug: 'analyst', name: 'Pipeline Analyst', icon: 'bot' as const, placeholder: 'Ask…', role: 'specialist' as const },
 ];
 
@@ -81,12 +81,13 @@ describe('an empty chat on a phone', () => {
     await render(<Shell />);
 
     await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent(/^(Good (morning|afternoon|evening)|Welcome back)\.$/);
-    await expect.element(page.getByTestId('chat-empty-mark')).toBeVisible();
+    await expect.element(page.getByTestId('team-cluster')).toBeVisible();
 
     // The only buttons in the empty pane are the chip's own dismiss: no starters.
     const empty = page.getByTestId('chat-empty-state');
 
     expect(empty.getByRole('button').elements().map(b => b.getAttribute('data-testid'))).toEqual(['waiting-nudge-dismiss']);
+    await expect.element(page.getByPlaceholder('Ask the team…')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/Ask Northwind/i);
     await expect.element(page.getByTestId('waiting-nudge')).toHaveTextContent('3 things waiting on you');
 

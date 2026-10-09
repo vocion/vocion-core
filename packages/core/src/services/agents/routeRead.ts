@@ -35,7 +35,7 @@ const SYSTEM = [
   'You choose which agent on a work app\'s roster answers the first message of a new conversation.',
   'Judge what the person wants done, then which agent owns that work: the record types it answers for or files, its tools and skills, then its description and what it handles.',
   'A request to file, build, change or ship something goes to the agent that owns that kind of record, not to one whose description shares a word with the message.',
-  'When nothing on the roster clearly fits, choose the workspace lead with a low confidence.',
+  'When nothing on the roster clearly fits, choose the lead with a low confidence.',
   'Answer only through the tool.',
 ].join(' ');
 
@@ -50,7 +50,7 @@ function list(values: ReadonlyArray<string> | null | undefined, max = 12): strin
  */
 export function seatLines(agent: RoutableAgent, leadSlug: string | null): string {
   return [
-    `- ${agent.slug} (${agent.name})${agent.slug === leadSlug ? ' — the workspace lead' : ''}`,
+    `- ${agent.slug} (${agent.name})${agent.slug === leadSlug ? ' — the lead' : ''}`,
     agent.description ? `  does: ${agent.description.replace(/\s+/g, ' ').trim().slice(0, 500)}` : '',
     list(agent.handles) ? `  handles: ${list(agent.handles)}` : '',
     list(agent.owns) ? `  answers for these record types: ${list(agent.owns)}` : '',

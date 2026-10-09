@@ -571,17 +571,18 @@ describe('ChatDock', () => {
 });
 
 describe('ChatDock speaks as the workspace (§9.10)', () => {
-  it('unscoped: the header says Chat — never the workspace name, never the lead agent — and the composer stays neutral', async () => {
+  it('unscoped: the header says Chat, never the workspace or an agent; the empty chat shows the team and the composer asks it (founder, 2026-10-09)', async () => {
     localStorage.setItem(COLLAPSE_KEY, '0');
     const agents = [{ ...AGENTS[0]!, workspaceName: 'Revenue' }];
     await render(wrap(<ChatDock agents={agents} scopeLabel="Everything" />));
 
-    await expect.element(page.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask anything…');
+    // "Your team is here": a lone agent is asked by name, and stands at the centre.
+    await expect.element(page.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask RevOps Lead…');
+    await expect.element(page.getByTestId('team-caption')).toHaveTextContent('RevOps Lead');
 
     // "Chat" is the title; the sidebar already names the workspace, and the lead agent's name is nowhere.
     await expect.element(page.getByText('Chat', { exact: true })).toBeVisible();
 
-    expect(page.getByText('RevOps Lead').query()).toBeNull();
     expect(page.getByText(/^Direct ·/).query()).toBeNull();
     expect(page.getByText('Message RevOps Lead', { exact: false }).query()).toBeNull();
   });
@@ -594,7 +595,8 @@ describe('ChatDock speaks as the workspace (§9.10)', () => {
     await vi.waitFor(() => expect(page.getByText('Rowan Pike', { exact: true }).elements().length).toBeGreaterThan(0));
     await vi.waitFor(() => expect(page.getByText('Revenue', { exact: true }).elements().length).toBeGreaterThan(0));
 
-    expect(page.getByText('RevOps Lead').query()).toBeNull();
+    // The agent is named only where the empty chat shows its team, never as who the sheet is.
+    expect(page.getByText('RevOps Lead').elements().every(el => el.closest('[data-testid="chat-empty-state"]'))).toBe(true);
   });
 
   it('says "Chat" for a new thread and names the thread once there is one — renamed in place', async () => {

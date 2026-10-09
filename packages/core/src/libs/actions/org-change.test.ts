@@ -107,7 +107,7 @@ describe('the proposal path', () => {
     await agent('scout', OTHER);
     const check = (agentSlug: string) => orgChangeAction.precheck!({ orgId: ORG, proposedBy: 'agent:org-review' }, orgChangeAction.inputSchema.parse({ change: { kind: 'retire_agent', agentSlug }, headline: 'h', reason: 'r', evidence }));
 
-    expect(await check('chief')).toContain('is the workspace lead');
+    expect(await check('chief')).toContain('is this workspace\'s lead');
     expect(await check('gone')).toContain('already inactive');
     expect(await check('scout')).toBe('no agent "scout" in this workspace');
   });

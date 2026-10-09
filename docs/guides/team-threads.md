@@ -61,7 +61,7 @@ and still has no outcome (the lead's turn failed) ends **failed**, saying why.
 
 The members come from the registry, never from a list the model typed: the same
 roster the lead delegates to (`agents/delegationRoster.ts`) — a team lead's own
-team and registered children; the workspace lead's team leads. The opener may
+team and registered children; the workspace's lead's team leads. The opener may
 name members to narrow it; a name the lead cannot reach is returned as
 `notAssigned`, never silently dropped. A lead with no one to ask is refused in
 words.

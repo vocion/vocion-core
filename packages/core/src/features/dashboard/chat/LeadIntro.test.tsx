@@ -18,7 +18,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 
 const { LeadIntro, NoAgentsYet, wantsLeadIntro } = await import('./LeadIntro');
 
-const lead: AgentOption = { slug: 'workspace-lead', name: 'Workspace lead', icon: 'bot', role: 'lead', placeholder: 'Message Workspace lead…' };
+const lead: AgentOption = { slug: 'workspace-lead', name: 'Revenue lead', icon: 'bot', role: 'lead', placeholder: 'Message Revenue lead…' };
 const search: AgentOption = { slug: '__search__', name: 'Search only', icon: 'search', placeholder: 'Search…' };
 
 describe('LeadIntro', () => {
@@ -26,17 +26,29 @@ describe('LeadIntro', () => {
     const onPick = vi.fn();
     await render(
       <NextIntlClientProvider locale="en" messages={en}>
-        <LeadIntro firstName="Sam" onPick={onPick} />
+        <LeadIntro firstName="Sam" team={[{ slug: 'workspace-lead', name: 'Revenue lead', leadRole: 'Revenue lead', leadLabel: 'Revenue lead' }]} onPick={onPick} />
       </NextIntlClientProvider>,
     );
 
-    await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent('Hi Sam, I\'m the workspace lead. Whenever you\'re ready, I can help set this up.');
+    // Named for the workspace, never "workspace lead" (founder, 2026-10-09).
+    await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent('Hi Sam, I\'m the Revenue lead. Whenever you\'re ready, I can help set this up.');
     // One chip, no starters.
     expect(page.getByRole('button').elements()).toHaveLength(1);
 
     await page.getByRole('button', { name: 'Set up this workspace' }).click();
 
     expect(onPick).toHaveBeenCalledWith('Set up this workspace with me.');
+  });
+
+  it('says its given name when the Org gave it one', async () => {
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <LeadIntro firstName="Sam" team={[{ slug: 'workspace-lead', name: 'Ava', givenName: 'Ava', leadRole: 'Revenue lead', leadLabel: 'Ava · Revenue lead' }]} onPick={() => {}} />
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByTestId('chat-greeting')).toHaveTextContent('Hi Sam, I\'m Ava, the Revenue lead. Whenever you\'re ready, I can help set this up.');
+    await expect.element(page.getByTestId('team-caption')).toHaveTextContent('Ava · Revenue lead');
   });
 
   it('opens only while the seeded lead is the whole team', () => {

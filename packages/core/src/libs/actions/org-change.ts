@@ -224,7 +224,7 @@ export const orgChangeAction: Action<typeof orgChangeInput> = {
           return `${agent.name} is already inactive — there is nothing to retire`;
         }
         if (await workspaceLead(ctx.orgId) === change.agentSlug) {
-          return `${agent.name} is the workspace lead, which answers every message nobody addressed — name a new lead in workspace.yaml before retiring it`;
+          return `${agent.name} is this workspace's lead, which answers every message nobody addressed — name a new lead in workspace.yaml before retiring it`;
         }
         return undefined;
       }

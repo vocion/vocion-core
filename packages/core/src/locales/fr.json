@@ -82,7 +82,6 @@
   },
   "Teams": {
     "title_bar_description": "Qui travaille pour vous, par équipe, avec l’agent responsable de chaque équipe et la personne qui en répond.",
-    "workspace_lead_badge": "Workspace Lead",
     "workspace_lead_description": "Runs the whole workspace — briefs you by consulting the team leads.",
     "accountable_label": "Accountable:",
     "owner_inherited": "{name} (workspace default)",
@@ -93,13 +92,13 @@
     "ask_quarter_prompt": "How's the quarter going?",
     "view_profile": "View profile",
     "consults_partial": "Consults {consulted} of {total} teams — a team without a lead can't be reached yet.",
-    "no_workspace_lead_title": "No workspace lead yet",
-    "no_workspace_lead_body": "Name a workspace lead to get one agent that runs the whole workspace and briefs you.",
+    "no_workspace_lead_title": "Pas encore de responsable",
+    "no_workspace_lead_body": "Nommez un responsable : un agent qui pilote tout l’espace de travail et vous fait le point.",
     "no_workspace_lead_hint": "Set lead: in workspace.yaml, or load the sample workspace.",
     "agent_count": "{count, plural, =1 {1 agent} other {# agents}}",
     "lead_label": "Lead",
     "team_lead_role": "{team} Team Lead",
-    "no_lead_warning": "No lead agent — this team can't be consulted by the workspace lead yet.",
+    "no_lead_warning": "Pas d’agent responsable — le responsable de l’espace ne peut pas encore consulter cette équipe.",
     "choose_lead": "Choose a lead",
     "view_team": "View team",
     "ungrouped_title": "Not on a team yet",
@@ -123,7 +122,7 @@
     "boundary_gated": "{count, plural, =1 {1 skill waits} other {# skills wait}} for your approval — drafted, never sent alone",
     "boundary_review_link": "Open the review queue",
     "boundary_none": "This team has no skills wired yet.",
-    "rail_lead_missing": "No lead agent yet — this team can't be consulted by the workspace lead.",
+    "rail_lead_missing": "Pas encore d’agent responsable — le responsable de l’espace ne peut pas consulter cette équipe.",
     "rail_lead_missing_hint": "Set lead: in this team's file, under the hood below.",
     "members_title": "Agents on this team",
     "members_description": "The lead is the team's front door — it coordinates the others.",
@@ -240,7 +239,13 @@
     "waiting_nudge": "{count, plural, one {# élément vous attend} other {# éléments vous attendent}}",
     "waiting_nudge_dismiss": "Plus tard",
     "welcome_back_named": "Bon retour, {name}.",
-    "welcome_back": "Bon retour."
+    "welcome_back": "Bon retour.",
+    "team_on_it": "L’équipe {workspace} s’en occupe.",
+    "agent_on_it": "{name} s’en occupe.",
+    "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
+    "ask_team": "Demandez à l’équipe…",
+    "ask_agent": "Demandez à {name}…",
+    "named_lead_and_team_on_it": "{name} et l’équipe s’en occupent."
   },
   "Onboarding": {
     "starter_setup_prompt": "Configure cet espace de travail avec moi.",
@@ -268,9 +273,11 @@
     "step_brand_prompt": "Applique notre marque à cet espace à partir de notre site : ",
     "step_state_done": "fait",
     "step_state_todo": "pas encore fait",
-    "lead_hello_named": "Bonjour {name}, je suis le responsable de l’espace de travail. Quand vous voulez, je peux vous aider à le configurer.",
-    "lead_hello": "Bonjour, je suis le responsable de l’espace de travail. Quand vous voulez, je peux vous aider à le configurer.",
-    "setup_chip": "Configurer cet espace de travail"
+    "setup_chip": "Configurer cet espace de travail",
+    "lead_self": "je suis le {role}",
+    "lead_self_named": "je suis {given}, le {role}",
+    "lead_hello_person": "Bonjour {name}, {self}. Quand vous voulez, je peux vous aider à configurer cet espace.",
+    "lead_hello_anyone": "Bonjour, {self}. Quand vous voulez, je peux vous aider à configurer cet espace."
   },
   "Inbox": {
     "title": "File de revue",

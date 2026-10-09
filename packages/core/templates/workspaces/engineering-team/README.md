@@ -13,7 +13,7 @@ flavour and lives only in prompts, descriptions, and the corpus under
 
 ## Shape
 
-- **Workspace lead:** `engineering-lead` (`lead:` in `workspace.yaml`) —
+- **Lead:** `engineering-lead` (`lead:` in `workspace.yaml`) —
   answers "can we ship, and what is in the way" by consulting the four
   specialists.
 - **One team, flat:** `engineering`. The entity model is one level deep

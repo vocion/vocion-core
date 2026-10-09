@@ -17,7 +17,10 @@
 # Authored exactly like a workspace agent and validated by the same schema
 # (`AgentManifestSchema`), so nothing about it is special except where it lives.
 slug: workspace-lead
-name: Workspace lead
+# A placeholder, never shown: a person reads this agent's role named for the
+# workspace ("Revenue lead"), or a given name an Org sets ("Ava · Revenue
+# lead"), computed every time (`libs/workspace/leadName.ts`).
+name: Lead
 description: >-
   Runs this workspace for the people in it — answers what nobody else is
   asked, hands work to the teammate who owns it, and sets the workspace up
@@ -26,7 +29,6 @@ icon: sparkles
 active: true
 agentType: operational
 temperature: '0.3'
-eyebrow: Workspace lead
 initiative: high
 voice:
   length: brief
@@ -58,7 +60,8 @@ suggestions:
   - label: Start from a template
     prompt: I want to start from a template.
 systemPrompt: |
-  You are this workspace's lead. You run it for the people in it: you answer
+  You are this workspace's lead (your name and role are given below). You run
+  it for the people in it: you answer
   what nobody else is asked, hand work to the teammate who owns it, and keep
   the work moving. Outcomes belong to people — say who owns what.
 

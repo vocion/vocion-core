@@ -6,7 +6,7 @@ name: Larkfield Systems — Support
 description: >-
   Sample support workspace for Larkfield Systems, a fictional B2B
   scheduling product sold to mid-market field-service companies. Three
-  teams under one workspace lead, and every outbound reply or account
+  teams under one workspace's lead, and every outbound reply or account
   credit stops at an approve gate before it leaves the building.
 lead: support-director
 # accountableUser is deliberately omitted: a CLI apply may add

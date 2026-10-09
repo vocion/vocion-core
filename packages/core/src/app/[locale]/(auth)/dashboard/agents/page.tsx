@@ -8,9 +8,11 @@ import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHead
 import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
+import { isSeededLead } from '@/libs/workspace/leadName';
 import { listCorePackAgents } from '@/libs/workspace/reader';
 import { readInitiative } from '@/services/agents/initiative';
 import { listAgentHierarchy } from '@/services/AgentService';
+import { agentNamer } from '@/services/workspace/leadNaming';
 
 /**
  * Agents — the front door. The main page shows LEAD agents only (the ones you
@@ -41,21 +43,23 @@ export default async function AgentsPage(props: {
 
   // The roster and the applied-workspace sha are independent reads — fetch them
   // together so the page waits for the slower one, not for their sum.
-  const [hierarchy, sha] = orgId
-    ? await Promise.all([listAgentHierarchy(orgId), getCurrentWorkspaceSha(orgId)])
-    : [[], null];
+  const [hierarchy, sha, namer] = orgId
+    ? await Promise.all([listAgentHierarchy(orgId), getCurrentWorkspaceSha(orgId), agentNamer(orgId)])
+    : [[], null, null];
+  // The workspace's own lead reads "<Workspace> lead", never "Workspace lead".
+  const nameOf = (a: { slug: string; name: string }) => namer?.name(a) ?? a.name;
 
   // Activated agents → clickable lead cards (the existing behavior).
   const activatedCards: AgentCard[] = hierarchy.map(({ primary, specialists }) => ({
     slug: primary.slug,
-    name: primary.name,
+    name: nameOf(primary),
     description: primary.description ?? null,
     icon: primary.icon ?? null,
     accent: primary.accent ?? null,
-    eyebrow: primary.eyebrow ?? null,
+    eyebrow: (namer && isSeededLead(primary.slug) ? namer.role : primary.eyebrow) ?? null,
     initiative: readInitiative(primary.initiative),
     skillCount: (primary.skillSlugs ?? []).length,
-    specialists: specialists.map(s => ({ slug: s.slug, name: s.name })),
+    specialists: specialists.map(s => ({ slug: s.slug, name: nameOf(s) })),
     activated: true,
   }));
 

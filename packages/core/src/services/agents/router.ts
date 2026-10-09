@@ -15,7 +15,7 @@
  *      description and handles, the record types it answers for and files,
  *      its tools and skills — and returns `{ chosen, confidence, reason }`
  *      (`routeFirstTurn`, `routeRead.ts`). Code routes on those fields; below
- *      {@link ROUTE_CONFIDENCE_BAR} the workspace lead answers.
+ *      {@link ROUTE_CONFIDENCE_BAR} the lead answers.
  *
  * The keyword scorer below (`chooseAgent`) is only the fallback for step 4,
  * when the model read fails, times out ({@link ROUTE_READ_TIMEOUT_MS}) or
@@ -309,8 +309,8 @@ export function chooseAgent(opts: { agents: RoutableAgent[]; message: string; le
       chosen: lead,
       defaulted: true,
       reason: best.score > 0
-        ? `No agent's handles or description matched the message well enough (best was ${best.slug} at ${best.score}, the bar is ${MIN_ROUTE_SCORE}); the workspace lead answers.`
-        : 'Nothing in the message matched what any agent handles; the workspace lead answers.',
+        ? `No agent's handles or description matched the message well enough (best was ${best.slug} at ${best.score}, the bar is ${MIN_ROUTE_SCORE}); the lead answers.`
+        : 'Nothing in the message matched what any agent handles; the lead answers.',
       candidates,
       surface: opts.surface,
       at,
@@ -325,7 +325,7 @@ export function chooseAgent(opts: { agents: RoutableAgent[]; message: string; le
     ? (INITIATIVE_RANK[best.initiative] > INITIATIVE_RANK[runnerUp.initiative]
         ? ` Tied with ${runnerUp.slug}; ${best.slug} has more initiative (${best.initiative} over ${runnerUp.initiative}).`
         : best.slug === lead
-          ? ` Tied with ${runnerUp.slug}; ${best.slug} is the workspace lead.`
+          ? ` Tied with ${runnerUp.slug}; ${best.slug} is the lead.`
           : ` Tied with ${runnerUp.slug}; ${best.slug} sorts first.`)
     : '';
   return {
@@ -529,7 +529,7 @@ export function routableFromRow(row: Pick<AgentRow, 'slug' | 'name' | 'descripti
 /** The model read `routeFirstTurn` routes on (`routeRead.ts`); a seam for tests. */
 export type RouteReader = (input: { orgId: string; message: string; agents: RoutableAgent[]; leadSlug: string | null; intake?: { label: string; ownerSlug: string } | null; signal?: AbortSignal }) => Promise<{ chosen: string; confidence: number; reason: string }>;
 
-/** Below this confidence the model is guessing, and the workspace lead answers. */
+/** Below this confidence the model is guessing, and the lead answers. */
 export const ROUTE_CONFIDENCE_BAR = 0.5;
 /** How long the first turn waits for the model read before the keyword fallback decides. */
 export const ROUTE_READ_TIMEOUT_MS = 2_500;
@@ -625,7 +625,7 @@ export async function routeFirstTurn(
     return {
       chosen: lead,
       defaulted: true,
-      reason: `The model leaned to ${picked.slug} at ${confidence} (the bar is ${ROUTE_CONFIDENCE_BAR}): ${read.reason} Too unsure, so the workspace lead answers.`,
+      reason: `The model leaned to ${picked.slug} at ${confidence} (the bar is ${ROUTE_CONFIDENCE_BAR}): ${read.reason} Too unsure, so the lead answers.`,
       candidates: [candidate],
       surface: opts.surface,
       at,

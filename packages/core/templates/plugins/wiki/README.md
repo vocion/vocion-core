@@ -68,7 +68,7 @@ contract is in [`docs/entities/workspace-manifest.md`](../../../../../docs/entit
 
 The researcher shows in the chat agent picker like every agent (its
 `suggestions` are the chips on an empty chat) and, as the team's lead, is the
-wiki agent the workspace lead consults. In chat and over MCP the **router**
+wiki agent the workspace's lead consults. In chat and over MCP the **router**
 sends it the questions it `handles` — `wiki`, `standing rules`, `research`,
 `plan`, `decision` — when nobody names an agent; its `initiative: high` takes
 a tie against another agent (`services/agents/router.ts`; the decision is

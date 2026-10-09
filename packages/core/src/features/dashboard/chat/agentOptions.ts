@@ -1,6 +1,7 @@
 import type { AgentOption } from './types';
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { isSeededLead, leadName, leadWorkspaceLabel } from '@/libs/workspace/leadName';
 import { projectSchema, tenantAccountSchema } from '@/models/Schema';
 import { groupAgentHierarchy, listAgents } from '@/services/AgentService';
 
@@ -81,17 +82,29 @@ export async function loadChatAgentContext(orgId: string): Promise<ChatAgentCont
     Number(b.primary.slug === coordinatorSlug) - Number(a.primary.slug === coordinatorSlug));
   const ordered = orderedHierarchy.flatMap(({ primary, specialists }) => [primary, ...specialists]);
 
+  // The seeded lead is named for the workspace ("Revenue lead"), or by the
+  // given name an Org set ("Ava"), never "Workspace lead" (`leadName.ts`).
+  const workspaceLabel = leadWorkspaceLabel(workspace?.accountName, workspace?.projectName);
+  const named = (agent: { slug: string; name: string }) => {
+    if (!isSeededLead(agent.slug)) {
+      return { name: agent.name };
+    }
+    const n = leadName({ agentName: agent.name, workspaceLabel });
+    return { name: n.short, leadLabel: n.label, leadRole: n.role, ...(n.given ? { givenName: n.given } : {}) };
+  };
+
   const agents: AgentOption[] = [
     ...ordered.map(agent => ({
       slug: agent.slug,
-      name: agent.name,
+      ...named(agent),
+      workspaceLabel,
       icon: 'bot' as const,
       role: (agent.role === 'lead' ? 'lead' : 'specialist') as 'lead' | 'specialist',
       parentSlug: agent.parentAgentSlug ?? undefined,
       eyebrow: agent.eyebrow ?? undefined,
       description: agent.description ?? undefined,
       suggestions: agent.suggestions ?? [],
-      placeholder: `Message ${agent.name}…`,
+      placeholder: `Message ${named(agent).name}…`,
       ...(agent.accent ? { accent: agent.accent } : {}),
       ...(workspace?.projectName ? { workspaceName: workspace.projectName } : {}),
     })),

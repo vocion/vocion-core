@@ -19,6 +19,7 @@ import { agentAccent } from '@/libs/agentAccents';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceLead, listTeamAgents, listTeams } from '@/services/TeamService';
+import { agentNamer } from '@/services/workspace/leadNaming';
 
 /**
  * Teams — the org-chart hero (F1). One screen answers "who works for me
@@ -43,15 +44,23 @@ export default async function TeamsPage(props: {
   setRequestLocale(locale);
   const { orgId } = await auth();
 
-  const [workspace, teams, agents] = orgId
-    ? await Promise.all([getWorkspaceLead(orgId), listTeams(orgId), listTeamAgents(orgId)])
-    : [{ lead: null, leadAgentSlug: null, accountable: null } satisfies WorkspaceLeadView, [], []];
+  const [rawWorkspace, rawTeams, rawAgents, namer] = orgId
+    ? await Promise.all([getWorkspaceLead(orgId), listTeams(orgId), listTeamAgents(orgId), agentNamer(orgId)])
+    : [{ lead: null, leadAgentSlug: null, accountable: null } satisfies WorkspaceLeadView, [], [], null];
+  // The workspace's own lead reads "<Workspace> lead" (or "Ava · Revenue
+  // lead"), never "Workspace lead" (`libs/workspace/leadName.ts`).
+  const named = <T extends { slug: string; name: string }>(a: T): T => (namer ? { ...a, name: namer.name(a) } : a);
+  const workspace = { ...rawWorkspace, lead: rawWorkspace.lead ? named(rawWorkspace.lead) : null };
+  const teams = rawTeams.map(team => ({ ...team, lead: team.lead ? named(team.lead) : null, members: team.members.map(named) }));
+  const agents: TeamAgent[] = (rawAgents as TeamAgent[]).map(a => named(a));
+  const leadRole = namer?.role ?? '';
 
   const ungrouped = ungroupedAgents(agents, teams, workspace.leadAgentSlug);
 
   return (
     <TeamsScreen
       workspace={workspace}
+      leadRole={leadRole}
       teams={teams}
       ungrouped={ungrouped}
     />
@@ -62,11 +71,13 @@ export default async function TeamsPage(props: {
  * Sync wrapper so the page body can use `useTranslations` (RSC-safe) —
  * the async page above only awaits data.
  * @param root0
- * @param root0.workspace - Workspace lead + default owner.
+ * @param root0.workspace - The workspace's lead + default owner.
+ * @param root0.leadRole - The lead's role, named for the workspace.
  * @param root0.teams - Resolved team views.
  * @param root0.ungrouped - Agents on no team (never dropped).
  */
-function TeamsScreen({ workspace, teams, ungrouped }: {
+function TeamsScreen({ workspace, leadRole, teams, ungrouped }: {
+  leadRole: string;
   workspace: WorkspaceLeadView;
   teams: TeamView[];
   ungrouped: TeamAgent[];
@@ -87,7 +98,7 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
       )}
 
       {workspace.lead
-        ? <WorkspaceLeadBand workspace={workspace} teams={teams} />
+        ? <WorkspaceLeadBand workspace={workspace} role={leadRole} teams={teams} />
         : teams.length > 0 && <NoWorkspaceLeadCallout />}
 
       {empty
@@ -111,14 +122,15 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
 
 /**
  * The workspace-lead band — the org chart's top box and the lead's
- * everyday front door. Label set B (mock walkthrough): the band badge
- * says "Workspace Lead", distinct from the per-team "Team Lead" role
- * labels below it.
+ * everyday front door. The band badge names the role for the workspace
+ * ("Revenue lead"), distinct from the per-team "Team Lead" role labels below
+ * it; never "Workspace lead" (founder, 2026-10-09).
  * @param root0
- * @param root0.workspace - Workspace lead + default owner.
+ * @param root0.workspace - The workspace's lead + default owner.
+ * @param root0.role - The lead's role, named for the workspace.
  * @param root0.teams - Team views (for consult coverage).
  */
-function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView; teams: TeamView[] }) {
+function WorkspaceLeadBand({ workspace, role, teams }: { workspace: WorkspaceLeadView; role: string; teams: TeamView[] }) {
   const t = useTranslations('Teams');
   const lead = workspace.lead!;
   const coverage = consultCoverage(teams);
@@ -133,7 +145,7 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
         <div className="flex flex-wrap items-center gap-2.5">
           <h2 className="text-lg leading-tight font-semibold">{lead.name}</h2>
           <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/80">
-            {t('workspace_lead_badge')}
+            {role}
           </span>
         </div>
 

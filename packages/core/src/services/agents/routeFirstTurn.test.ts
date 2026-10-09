@@ -89,7 +89,7 @@ describe('the reference case: "file it and build it" goes to the seat that owns 
     const prompt = humanText(seen);
 
     expect(prompt).toContain(MESSAGE);
-    expect(prompt).toContain('- northwind-lead (Northwind lead) — the workspace lead');
+    expect(prompt).toContain('- northwind-lead (Northwind lead) — the lead');
     expect(prompt).toMatch(/- product-manager \(Product manager\)[\s\S]*answers for these record types: request[\s\S]*reads and files records of type: request, architecture_plan[\s\S]*granted tools: product_access[\s\S]*skills: triage-request/);
   });
 });
