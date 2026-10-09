@@ -255,6 +255,15 @@ describe('at the deadline', () => {
     expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'applied' });
   });
 
+  it('leaves a never-auto proposal the agent advised against for a person', async () => {
+    const run = await propose(ORG, 'objects.propose_candidate', 'reject', { objectType: 'event-candidate', title: 'Baby Time' });
+
+    await toDeadline();
+
+    expect(actions.rejectAction).not.toHaveBeenCalled();
+    expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/held at approval by the platform/) });
+  });
+
   it('releases a reversible, low-risk proposal and stamps it as applied by default', async () => {
     const run = await propose(ORG, 'ask.file', 'approve', { title: 'Ask the board', kind: 'approval' });
 

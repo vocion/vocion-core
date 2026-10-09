@@ -278,7 +278,9 @@ async function factsFor(row: DecisionClock, subject: Subject): Promise<DefaultFa
 
   if (subject.kind === 'proposal') {
     if (row.defaultOption === 'reject') {
-      return { ...base, inert: true, neverAuto: false, heldForPerson: null, rung: DEFAULT_RUNG, riskTier: 'low', reversible: false };
+      const action = getAction(subject.run.actionId);
+      const neverAuto = action ? isNeverAuto(action) : false;
+      return { ...base, inert: true, neverAuto, heldForPerson: null, rung: DEFAULT_RUNG, riskTier: 'low', reversible: false };
     }
     return judgeAction(subject.run.actionId, subject.run.input ?? {}, 'low');
   }
