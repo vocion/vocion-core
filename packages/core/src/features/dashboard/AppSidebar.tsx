@@ -10,14 +10,15 @@ import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { PluginNav } from '@/features/navigation/pluginNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
 import { ArrowLeft, FileText, PanelsTopLeft, Settings2 } from 'lucide-react';
+import { SessionContext } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import { LetterTile } from '@/components/ui/letter-tile';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { useOrgBrand } from '@/features/branding/BrandContext';
-import { OrgLogo, PoweredByVocion } from '@/features/branding/OrgLogo';
+import { PoweredByVocion } from '@/features/branding/OrgLogo';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/chat/cards/SetupCard';
 import { checklistApplies, GettingStartedChecklist } from '@/features/dashboard/GettingStartedChecklist';
@@ -34,8 +35,7 @@ import { appOwningPath, resolveActiveApp, workspaceSwitchPath } from '@/features
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
 import { groupEnabledSurfaces } from '@/features/navigation/surfaces';
-import { usePathname, useRouter } from '@/libs/I18nNavigation';
-import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
+import { Link, usePathname, useRouter } from '@/libs/I18nNavigation';
 
 /**
  * Dashboard left sidebar — the app rail (Vocion 5.0) and, beside it, the
@@ -85,13 +85,9 @@ type NavView = 'work' | 'manage';
 const PAGES_MAX = 7;
 const INVITE_CARD = 'invite-card';
 const GETTING_STARTED_CARD = 'getting-started';
-// The sidebar shows the MARK + wordmark as text (ElevenLabs pattern): never the
-// lockup SVG (its descriptor is unreadable at 24px) and never the tagline —
-// both stay on sign-in, where `VocionLogo` renders them. An Org with a brand
-// (`services/branding`) wears its own logo instead, with a small "Powered by
-// Vocion" in the footer.
-const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || VOCION_PRIMARY_MARK;
-const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
+// ONE logo (founder, 2026-10-08): the Org's mark is the switcher's avatar in
+// the header; the rail carries no second one. An Org with a brand
+// (`services/branding`) has a small "Powered by Vocion" in the footer.
 
 /** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
 export type WorkspaceNavPage = {
@@ -139,7 +135,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
 }) => {
   const t = useTranslations('DashboardLayout');
   const orgBrand = useOrgBrand();
-  const { state } = useSidebar();
+  const { state, isMobile } = useSidebar();
   const collapsed = state === 'collapsed';
   const [view, setView] = useState<NavView>('work');
   const prefs = useNavPrefs();
@@ -303,7 +299,6 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   // unpins win (`resolveWorkPins`).
   const workDefaults = useMemo(() => [...new Set([...DEFAULT_WORK_PINS, ...pluginWorkspace.map(i => i.url), ...(pluginNav?.pinnedByDefault ?? [])])], [pluginWorkspace, pluginNav]);
   const workPins = resolveWorkPins({ pins: prefs.pins, dismissed: prefs.dismissed, defaults: workDefaults });
-  const workspaceItems = [...workCore, ...applyPins(workOptional, workPins), ...withoutPins(workOptional, workPins)];
   const workShown = workCore.length + applyPins(workOptional, workPins).length;
   // Unpinning a default records the choice; everything else is a plain toggle.
   const toggleWorkPin = (url: string) => {
@@ -359,6 +354,23 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     [unpinnedPages, secondaryUrls],
   );
   const primaryPageCount = pagesPrimaryFirst.filter(i => !secondaryUrls.has(i.url)).length;
+
+  // NO ONE-ROW SECTIONS (founder, 2026-10-08): a section that would hold one
+  // row — Pages with only the Wiki, Pinned with one pin, a surface heading
+  // with one item — is a row in the main list instead, before More.
+  const pagesFolded = pagesPrimaryFirst.length === 1 && primaryPageCount === 1;
+  const folded: PinnableItem[] = [
+    ...(pinned.length === 1 ? pinned : []),
+    ...(pagesFolded ? pagesPrimaryFirst : []),
+    ...appSections.filter(section => section.items.length === 1).map(section => ({ ...section.items[0]!, origin: 'work' as const, pinnable: false as const })),
+  ];
+  // A phone has no rail: the other apps this workspace has are rows under More.
+  const mobileApps: PinnableItem[] = isMobile
+    ? railApps.filter(a => a.href && a.id !== activeAppId).map(a => ({ title: a.name, url: a.href!, icon: iconByName(a.icon), origin: 'work' as const, pinnable: false as const }))
+    : [];
+  const mainItems = [...workCore, ...applyPins(workOptional, workPins), ...folded, ...withoutPins(workOptional, workPins), ...mobileApps];
+  const mainShown = workShown + folded.length;
+  const mainPins = useMemo(() => [...new Set([...workPins, ...prefs.pins])], [workPins, prefs.pins]);
   const manageGroup = (section: { label: string; items: PinnableItem[] }) => (
     <PinnableNav
       key={section.label}
@@ -412,34 +424,18 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   const headerApp = view === 'manage' ? railApps.find(a => a.core) : activeApp;
   const nav = (
     <>
-      {/* Every app's nav opens with the workspace picker. */}
+      {/* The header is the one switcher: the Org's mark, then the
+          workspace (founder, 2026-10-08: one logo, no "Workforce" row). An
+          app other than the core one still names itself under it, so the
+          nav says which app it is. */}
       <SidebarHeader className="pt-4 pb-1 group-data-[collapsible=icon]:px-0">
-        {orgBrand
-          ? (
-              // The Org's own logo, at the top of the nav (the rail carries
-              // its mark). Hidden in the icon rail, where the mark is enough.
-              <div data-testid="org-brand-row" className="flex min-w-0 items-center px-2 pb-2 group-data-[collapsible=icon]:hidden">
-                <OrgLogo brand={orgBrand} size="sm" />
-              </div>
-            )
-          : railApps.length === 0 && (
-            // No rail (a story, or a catalogue that failed to read): the brand
-            // sits here, as it did before the rail.
-            <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-              {/* eslint-disable-next-line next/no-img-element */}
-              <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
-              {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
-            </div>
-          )}
-        {/* The app's own header: its mark on its tint and its name, so the
-            nav says which app it is without a tooltip (front doors). */}
-        {headerApp && (
-          <div data-testid="app-header" className="flex items-center gap-2 px-2 pb-1.5 group-data-[collapsible=icon]:hidden">
+        <div className="px-0 group-data-[collapsible=icon]:px-0">{picker}</div>
+        {headerApp && !headerApp.core && (
+          <div data-testid="app-header" className="flex items-center gap-2 px-2 pt-1.5 group-data-[collapsible=icon]:hidden">
             <LetterTile name={headerApp.name} icon={iconByName(headerApp.icon)} tint={headerApp.tint} size="sm" />
             <span className="truncate text-[13px] font-semibold text-foreground">{headerApp.name}</span>
           </div>
         )}
-        <div className="px-0 group-data-[collapsible=icon]:px-0">{picker}</div>
       </SidebarHeader>
 
       <SidebarContent>
@@ -448,20 +444,22 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
           : view === 'work'
             ? (
                 <>
-                  {/* WORKSPACE — the permanent Vocion pages. */}
+                  {/* The main list — no section label: Chat, Review, the
+                      pinned work rows, any one-row section folded in (a lone
+                      Wiki is a row here, not a "Pages" section of one), then
+                      More, and on a phone the apps (there is no rail). */}
                   <PinnableNav
-                    label={t('main_section_label')}
-                    items={workspaceItems}
-                    pins={workPins}
+                    items={mainItems}
+                    pins={mainPins}
                     onTogglePin={toggleWorkPin}
-                    max={workShown}
+                    max={mainShown}
                     moreLabel={t('more')}
                     pinLabel={t('pin')}
                     unpinLabel={t('unpin')}
                   />
 
                   {/* PINNED — this person's pins, in pin order, draggable. */}
-                  {pinned.length > 0 && (
+                  {pinned.length > 1 && (
                     <PinnableNav
                       label={t('pinned')}
                       items={pinned}
@@ -481,19 +479,21 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                       a six-page workspace showed all six with equal weight.
                       They are sorted last and the cut is made just above them,
                       so ordinary overflow still applies to everything else. */}
-                  <PinnableNav
-                    label={t('pages')}
-                    items={pagesPrimaryFirst}
-                    pins={prefs.pins}
-                    onTogglePin={prefs.togglePin}
-                    max={Math.min(PAGES_MAX, primaryPageCount)}
-                    {...pinLabels}
-                  />
+                  {!pagesFolded && (
+                    <PinnableNav
+                      label={t('pages')}
+                      items={pagesPrimaryFirst}
+                      pins={prefs.pins}
+                      onTogglePin={prefs.togglePin}
+                      max={Math.min(PAGES_MAX, primaryPageCount)}
+                      {...pinLabels}
+                    />
+                  )}
 
                   {/* Named sections no app owns: the workspace's surfaces and
                       plugin sections that belong to no app manifest, one group
                       per heading. An app's own sections are in that app. */}
-                  {appSections.map(section => (
+                  {appSections.filter(section => section.items.length > 1).map(section => (
                     <AppSidebarNav key={`app:${section.label}`} label={section.label} items={section.items} moreLabel={t('more')} />
                   ))}
 
@@ -548,34 +548,31 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
 
   return (
     <Sidebar {...props}>
-      {railApps.length > 0
+      {railApps.length > 0 && !isMobile
         ? (
             <div className="flex min-h-0 flex-1">
               <AppRail
                 apps={railApps}
                 activeId={view === 'manage' ? coreAppNav?.id : activeAppId}
                 onPick={pickApp}
-                brandMark={orgBrand?.mark.light ?? BRAND_MARK}
-                brandMarkDark={orgBrand?.mark.dark}
                 label={t('apps')}
                 addLabel={t('add_app')}
                 addHref="/dashboard/apps"
                 elsewhereLabel={t('app_elsewhere')}
               />
-              <div className="flex min-w-0 flex-1 flex-col">{nav}</div>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">{nav}</div>
             </div>
           )
         : nav}
 
-      {/* The © / attribution line lives in the account menu now (B-034b §3).
-          Under an Org's own logo, the one attribution kept in the sidebar is
-          a small "Powered by Vocion" — removed only by an extension that
-          white-labels the app (`branding.whiteLabel`). */}
-      {orgBrand?.poweredBy && (
-        <SidebarFooter className="px-4 pt-1 pb-3 group-data-[collapsible=icon]:hidden">
-          <PoweredByVocion />
-        </SidebarFooter>
-      )}
+      {/* The footer: who is signed in, and under an Org's own logo a small
+          "Powered by Vocion" (removed only by an extension that white-labels,
+          `branding.whiteLabel`). A sibling of the scrolling nav above, never
+          on top of it: the nav scrolls, the footer stays. */}
+      <SidebarFooter data-testid="sidebar-footer" className="shrink-0 border-t border-sidebar-border/60 px-3 pt-2 pb-3 group-data-[collapsible=icon]:hidden">
+        <SidebarUser />
+        {orgBrand?.poweredBy && <PoweredByVocion />}
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
@@ -609,5 +606,32 @@ function ManageWorkspaceRow({ label, collapsed, onOpen }: { label: string; colla
       </TooltipTrigger>
       <TooltipContent side="right" collisionPadding={8} hidden={!collapsed}>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * Who is signed in, at the foot of the nav: initials, then the name, opening
+ * the profile. Reads the session's context, so a story with no session shows
+ * nothing rather than throwing.
+ */
+function SidebarUser() {
+  const session = use(SessionContext);
+  const { isMobile, setOpenMobile } = useSidebar();
+  const user = session?.data?.user;
+  if (!user) {
+    return null;
+  }
+  const name = user.name || user.email || '';
+  const initials = (user.name ?? '').split(' ').map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || (user.email?.[0] ?? '?').toUpperCase();
+  return (
+    <Link
+      href="/dashboard/profile"
+      data-testid="sidebar-user"
+      onClick={() => isMobile && setOpenMobile(false)}
+      className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-[13px] text-sidebar-foreground transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
+    >
+      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-soft text-[11px] font-medium text-muted-foreground" aria-hidden>{initials}</span>
+      <span className="truncate">{name}</span>
+    </Link>
   );
 }

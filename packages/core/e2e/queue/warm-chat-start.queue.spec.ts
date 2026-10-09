@@ -45,6 +45,15 @@ const RATIONALE = 'The operating intent names this as one of three repositories 
 
 const PHONE = { width: 390, height: 844 };
 
+/** An established workspace: a second agent besides the seeded lead (`support/seed-warm-start-agent.ts`). */
+function seedAgent(): void {
+  try {
+    execFileSync('npx', ['dotenv', '-c', '--', 'npx', 'tsx', 'e2e/queue/support/seed-warm-start-agent.ts', '--email', ADMIN.email], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    throw new Error(`seed-warm-start-agent failed: ${String((error as { stderr?: unknown }).stderr ?? error).trim().split('\n').at(-1)}`);
+  }
+}
+
 function createBootstrapAdmin(): void {
   try {
     execFileSync(
@@ -59,6 +68,7 @@ function createBootstrapAdmin(): void {
 
 test('a new chat on a phone is a warm hello and one soft chip, never the cards', async ({ page }) => {
   createBootstrapAdmin();
+  seedAgent();
   await page.setViewportSize(PHONE);
 
   await page.goto('/sign-in');
@@ -77,6 +87,8 @@ test('a new chat on a phone is a warm hello and one soft chip, never the cards',
     const proposed = await api.post('/api/v1/reviews/propose', {
       data: {
         actionId: 'objects.propose_candidate',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'A repository the factory already names.',
         input: { objectType: OBJECT_TYPE.slug, title, fields: { title }, dedupOn: ['title'] },
         agentSlug: 'ingestion-lead',
         confidence: 0.72,

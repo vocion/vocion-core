@@ -12,6 +12,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { useOrgBrand } from '@/features/branding/BrandContext';
 import { navSlotComponents } from '@/libs/clientExtensions';
 import { usePathname } from '@/libs/I18nNavigation';
 import { routing } from '@/libs/I18nRouting';
@@ -91,6 +92,11 @@ export type WorkspaceSwitcherProps = {
   side?: 'top' | 'bottom';
   /** The app this picker belongs to: the chip wears its tint (front doors, `libs/tints.ts`). */
   tint?: Tint;
+  /**
+   * The Org's own mark, when it has a brand: the chip's avatar, the one logo
+   * in the sidebar (founder, 2026-10-08). Without one, the workspace's initial.
+   */
+  logo?: { light: string; dark?: string } | null;
 };
 
 /**
@@ -232,15 +238,26 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   const initial = (name || 'W').charAt(0).toUpperCase();
   const accent = active ? projectAccent(active.slug) : 'oklch(0.7 0 0)';
 
-  const avatar = (
-    <span
-      className={cn('grid size-7 shrink-0 place-items-center rounded-lg text-[12px] font-semibold text-white', loading && 'animate-pulse bg-muted text-transparent')}
-      style={loading ? undefined : { background: accent }}
-      aria-hidden
-    >
-      {initial}
-    </span>
-  );
+  const avatar = props.logo && !loading
+    ? (
+        <span className="grid size-7 shrink-0 place-items-center" aria-hidden data-testid="workspace-switcher-logo">
+          {/* eslint-disable-next-line next/no-img-element */}
+          <img src={props.logo.light} alt="" className={cn('max-h-7 max-w-7 object-contain', props.logo.dark && 'dark:hidden')} draggable={false} />
+          {props.logo.dark && (
+            // eslint-disable-next-line next/no-img-element
+            <img src={props.logo.dark} alt="" className="hidden max-h-7 max-w-7 object-contain dark:block" draggable={false} />
+          )}
+        </span>
+      )
+    : (
+        <span
+          className={cn('grid size-7 shrink-0 place-items-center rounded-lg text-[12px] font-semibold text-white', loading && 'animate-pulse bg-muted text-transparent')}
+          style={loading ? undefined : { background: accent }}
+          aria-hidden
+        >
+          {initial}
+        </span>
+      );
 
   const trigger = props.collapsed
     ? (
@@ -374,6 +391,7 @@ export function WorkspaceSwitcherLive(props: {
 }) {
   const { data: session } = useSession();
   const { state } = useSidebar();
+  const brand = useOrgBrand();
   const data = props.directory;
   // An extension's Org header, inside this one picker; the first one wins.
   const OrgHeader = navSlotComponents('nav.workspacePicker.org')[0];
@@ -401,6 +419,7 @@ export function WorkspaceSwitcherLive(props: {
       targetPath={props.targetPath}
       side="bottom"
       tint={props.tint}
+      logo={brand?.mark.light ? { light: brand.mark.light, dark: brand.mark.dark } : null}
     />
   );
 }

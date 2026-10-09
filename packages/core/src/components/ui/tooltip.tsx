@@ -16,7 +16,35 @@
  */
 
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import * as React from 'react';
 import { cn } from '@/utils/Helpers';
+
+/**
+ * WHEN A TOOLTIP MAY OPEN: on a real hover with a fine pointer
+ * (`(hover: hover) and (pointer: fine)`), or on keyboard focus
+ * (`:focus-visible`). Never on touch, and never on focus that a drawer or
+ * dialog moved there when it opened: on a phone, opening the sidebar drawer
+ * landed focus on a rail button and its tooltip ("Software Factory · in
+ * another workspace") covered the switcher (founder, 2026-10-08).
+ *
+ * Radix opens on any pointer move that is not touch and on any focus; the
+ * trigger records why it is asking, and the root refuses an open it was not
+ * asked for by one of the two allowed causes. A tooltip whose `open` the
+ * caller controls is left to the caller.
+ */
+const TooltipGate = React.createContext<React.MutableRefObject<boolean> | null>(null);
+
+function finePointerHover(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+}
+
+function focusVisible(el: Element): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
 
 function TooltipProvider({
   delayDuration = 0,
@@ -32,19 +60,73 @@ function TooltipProvider({
 }
 
 function Tooltip({
+  open: openProp,
+  defaultOpen,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+  const allowedRef = React.useRef(false);
+  const [open, setOpen] = React.useState(defaultOpen ?? false);
+  const controlled = openProp !== undefined;
+  const change = React.useCallback((next: boolean) => {
+    if (next && !allowedRef.current) {
+      return;
+    }
+    setOpen(next);
+    onOpenChange?.(next);
+  }, [onOpenChange]);
   return (
     <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+      <TooltipGate value={allowedRef}>
+        <TooltipPrimitive.Root
+          data-slot="tooltip"
+          open={controlled ? openProp : open}
+          onOpenChange={controlled ? onOpenChange : change}
+          {...props}
+        />
+      </TooltipGate>
     </TooltipProvider>
   );
 }
 
 function TooltipTrigger({
+  onPointerMove,
+  onPointerLeave,
+  onFocus,
+  onBlur,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+  const allowedRef = React.use(TooltipGate);
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onPointerMove={(e) => {
+        if (allowedRef) {
+          allowedRef.current = e.pointerType === 'mouse' && finePointerHover();
+        }
+        onPointerMove?.(e);
+      }}
+      onPointerLeave={(e) => {
+        if (allowedRef) {
+          allowedRef.current = false;
+        }
+        onPointerLeave?.(e);
+      }}
+      onFocus={(e) => {
+        if (allowedRef) {
+          allowedRef.current = focusVisible(e.currentTarget);
+        }
+        onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        if (allowedRef) {
+          allowedRef.current = false;
+        }
+        onBlur?.(e);
+      }}
+      {...props}
+    />
+  );
 }
 
 function TooltipContent({

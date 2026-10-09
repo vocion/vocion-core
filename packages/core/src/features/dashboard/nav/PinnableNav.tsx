@@ -3,7 +3,7 @@
 import type { PinnableItem } from './navPins';
 import { ChevronRight, GripVertical, Pin, PinOff } from 'lucide-react';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { PendingIcon } from '@/components/patterns/PendingIcon';
 import {
   DropdownMenu,
@@ -27,6 +27,12 @@ const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
  * dragged to reorder (HTML5 drag, no dependency). An item with `tabs` (a
  * combined page) reveals them as sub-rows while that page is open, so each
  * tab keeps its own pin — one row in the section otherwise.
+ *
+ * No pin icon sits on a row by default (founder, 2026-10-08: the phone
+ * drawer was "overstuffed"). On a desktop it shows on hover or keyboard
+ * focus; on a phone, where there is no hover, a long press on the row opens
+ * a small menu with Pin / Unpin. A group may have no label: the main list
+ * reads as the drawer's own list, not a section.
  * @param props
  * @param props.label
  * @param props.items
@@ -40,7 +46,7 @@ const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
  * @param props.reorderable
  */
 export function PinnableNav(props: {
-  label: string;
+  label?: string;
   items: PinnableItem[];
   pins: string[];
   onTogglePin: (url: string) => void;
@@ -56,6 +62,32 @@ export function PinnableNav(props: {
   const { toggleSidebar, isMobile } = useSidebar();
   const pathname = usePathname();
   const [dragging, setDragging] = useState<string | null>(null);
+  // Phone: a long press on a row opens its pin menu, and the tap that ends it does not navigate.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const cancelPress = () => {
+    if (pressTimer.current) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  };
+  const pressHandlers = (url: string) => (isMobile
+    ? {
+        onPointerDown: () => {
+          longPressed.current = false;
+          cancelPress();
+          pressTimer.current = setTimeout(() => {
+            longPressed.current = true;
+            setMenuFor(url);
+          }, 500);
+        },
+        onPointerUp: cancelPress,
+        onPointerLeave: cancelPress,
+        onPointerCancel: cancelPress,
+        onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+      }
+    : {});
   const { shown, more } = splitOverflow(props.items, props.max ?? 7);
 
   if (props.items.length === 0) {
@@ -74,7 +106,7 @@ export function PinnableNav(props: {
   return (
     <SidebarGroup>
       <SidebarGroupContent>
-        <SidebarGroupLabel>{props.label}</SidebarGroupLabel>
+        {props.label && <SidebarGroupLabel>{props.label}</SidebarGroupLabel>}
         <SidebarMenu>
           {shown.map((item, index) => (
             <SidebarMenuItem
@@ -92,13 +124,19 @@ export function PinnableNav(props: {
                 asChild
                 tooltip={item.title}
                 isActive={isNavItemActive(pathname, item.url)}
-                onClick={() => {
+                onClick={(e) => {
+                  if (longPressed.current) {
+                    e.preventDefault();
+                    longPressed.current = false;
+                    return;
+                  }
                   if (isMobile) {
                     toggleSidebar();
                   }
                 }}
+                {...(item.pinnable !== false ? pressHandlers(item.url) : {})}
               >
-                <Link href={item.url}>
+                <Link href={item.url} className="[-webkit-touch-callout:none]">
                   {props.reorderable
                     ? <GripVertical className="hidden text-muted-foreground/40 group-hover/menu-item:block" aria-hidden />
                     : null}
@@ -113,7 +151,23 @@ export function PinnableNav(props: {
                     </SidebarMenuBadge>
                   )
                 : null}
-              {item.pinnable !== false && (
+              {item.pinnable !== false && isMobile && (
+                <DropdownMenu open={menuFor === item.url} onOpenChange={open => setMenuFor(open ? item.url : null)}>
+                  <DropdownMenuTrigger asChild>
+                    <span className="pointer-events-none absolute inset-0" aria-hidden data-testid="pin-menu-anchor" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="bottom" align="end" collisionPadding={12}>
+                    <DropdownMenuItem
+                      onSelect={() => props.onTogglePin(item.url)}
+                      data-testid="pin-menu-toggle"
+                    >
+                      {pinIcon(item.url)}
+                      {`${pinTitle(item.url)}: ${item.title}`}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              {item.pinnable !== false && !isMobile && (
                 <SidebarMenuAction
                   showOnHover
                   title={pinTitle(item.url)}

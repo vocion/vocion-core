@@ -32,5 +32,5 @@ export const gettingStarted = os.handler(async () => {
   const { orgId } = await guardAuth();
   const { gettingStartedFor } = await import('@/services/workspace/gettingStarted');
   const state = await gettingStartedFor(orgId);
-  return state ? { steps: state.steps, done: state.done, total: state.total } : null;
+  return state ? { steps: state.steps, done: state.done, total: state.total, fresh: state.fresh } : null;
 });
