@@ -215,7 +215,7 @@ describe('the note field is how you approve with direction', () => {
   it('leaves plain Approve / Reject while it is empty', async () => {
     render(sheet([ask(565, 'Draft email to amy@northwind.example', { isEmail: true, draft: true })], { works: { 565: emailWork }, inputs: { 565: EMAIL_INPUT } }));
 
-    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Approve → draft');
+    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Create draft in Gmail');
     expect(page.getByTestId('decide-send-back').elements()).toHaveLength(0);
   });
 

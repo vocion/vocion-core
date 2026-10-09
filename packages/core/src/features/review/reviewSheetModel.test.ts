@@ -136,13 +136,13 @@ describe('planDecision — the note field is the missing "approve with direction
   it('leaves plain Approve / Reject when the field is empty', () => {
     const plan = planDecision({ note: '', edited: false, isEmail: true, draft: false });
 
-    expect(plan.primary).toEqual({ id: 'approve', label: 'Approve & send', shortcut: 'a' });
+    expect(plan.primary).toEqual({ id: 'approve', label: 'Send', shortcut: 'a' });
     expect(plan.secondary.map(v => v.id)).toEqual(['reject']);
     expect(plan.carriesNote).toBe(false);
   });
 
   it('says a draft writes a draft on the verb itself', () => {
-    expect(planDecision({ note: '', edited: false, isEmail: true, draft: true }).primary.label).toBe('Approve → draft');
+    expect(planDecision({ note: '', edited: false, isEmail: true, draft: true }).primary.label).toBe('Create draft in Gmail');
     expect(planDecision({ note: '', edited: false }).primary.label).toBe('Approve');
   });
 

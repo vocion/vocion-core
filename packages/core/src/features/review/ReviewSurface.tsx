@@ -6,7 +6,7 @@ import type { Crumb } from '@/components/patterns';
 import type { ActionRevision } from '@/libs/actions/revisions';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContent, ReviewContentEdit } from '@/libs/actions/types';
-import { AlarmClock, Ban, Check, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
+import { AlarmClock, Ban, Check, Loader2, Pencil, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
   ConfidenceMeter,
@@ -22,11 +22,15 @@ import { toast } from '@/components/ui/toast';
 import { rulingChoices } from '@/features/dashboard/chat/rulingChoices';
 import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
+import { restatesLabel } from '@/libs/actions/restatesLabel';
 import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { nounCode } from '@/libs/codes';
+import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { contentKindEditable, contentKindRenderer } from './contentKinds';
 import { approvableItems, isChecked, walkApplies, walkCount } from './contentWalk';
+import { ExecutionFailure } from './ExecutionFailure';
+import { OutboundMessageArtifact } from './OutboundMessageArtifact';
 import { shortcutFor } from './reviewShortcuts';
 import { showLearnedToast } from './showLearnedToast';
 import { useReviewDecision } from './useReviewDecision';
@@ -654,9 +658,12 @@ export function ReviewSurface(props: {
   // A decision that lands is announced HERE: the hook reports the outcome,
   // this says what happened, and the surface around it moves on.
   const landed = useRef(false);
+  /** What the last approve's execution returned — the receipt's link and its undo. */
+  const executed = useRef<Record<string, unknown> | null>(null);
   const d = useReviewDecision(run, {
-    onDecided: (outcome) => {
+    onDecided: (outcome, result) => {
       landed.current = true;
+      executed.current = result ?? null;
       props.onDecided?.(outcome);
     },
     onRegenerated: props.onRegenerated,
@@ -684,6 +691,12 @@ export function ReviewSurface(props: {
   const [justChanged, setJustChanged] = useState<Record<string, number>>({});
 
   const content = card.content ?? [];
+  // A card that puts one message in front of someone reads as that message
+  // (`OutboundMessageArtifact`), not as a tab strip of one. Anything else —
+  // or an outbound card that somehow carries more than its one item — keeps
+  // the tabs.
+  const outbound = card.outbound && content.length === 1 && content[0]!.id === card.outbound.contentId ? card.outbound : null;
+  const sequence = !outbound ? card.sequence ?? null : null;
   // Read the KEYS off the run, not off the hook's working copy: the copy is
   // seeded in an effect, so deriving the tabs from it would open the screen on
   // Why for one paint and leave a fields-only type there.
@@ -706,7 +719,7 @@ export function ReviewSurface(props: {
   // Evidence are always built — Evidence last.
   const before = (props.extraTabs ?? []).filter(x => x.first);
   const after = (props.extraTabs ?? []).filter(x => !x.first);
-  const itemTabs = content.map(item => ({ id: `item-${item.id}`, label: (item as { tabLabel?: string }).tabLabel ?? item.label }));
+  const itemTabs = (outbound ? [] : content).map(item => ({ id: `item-${item.id}`, label: (item as { tabLabel?: string }).tabLabel ?? item.label }));
   /**
    * The name a send is known by on screen — "Day 3" — for anything naming one.
    * @param item - The content item.
@@ -775,7 +788,7 @@ export function ReviewSurface(props: {
       if (!landed.current) {
         // A failed execution is NOT a completed decision: the surface stays
         // with the error on it and the primary becomes Retry.
-        toast.error(`${verbLabel}ed, but it failed to run · ${card.title}`, { description: `${approveVerb} again to retry.` });
+        toast.error(`Approved, but it did not go through · ${card.title}`, { description: 'What went wrong, and the fix, are on the card.' });
         return;
       }
       if (decision === 'done') {
@@ -786,9 +799,35 @@ export function ReviewSurface(props: {
         toast.success(`Recorded as not done · ${card.title}`, { description: 'Declined after approval; your note says what was found.' });
         return;
       }
-      toast.success(`${pastTense(verbLabel)} · ${card.title}`, {
-        description: decision === 'approve' ? (card.nextAction ?? 'Executing now.') : 'Nothing runs; the agent learns from it.',
-      });
+      if (decision === 'approve' && outbound) {
+        // The receipt of a message: what happened, where it is, and the way
+        // back while there is one ("Draft created. Open in Gmail →  Undo").
+        const result = executed.current ?? {};
+        const link = typeof result.link === 'string' && /^https:\/\//.test(result.link) ? result.link : null;
+        const undoable = outbound.mode === 'draft' && typeof result.draftId === 'string';
+        toast.success(outbound.doneLabel, {
+          description: card.title,
+          duration: 10_000,
+          ...(link ? { link: { label: `${outbound.openLabel ?? `Open in ${outbound.system}`} →`, href: link } } : {}),
+          ...(undoable
+            ? {
+                action: {
+                  label: 'Undo',
+                  onClick: () => {
+                    void client.review
+                      .undoAction({ id: run.id })
+                      .then(() => toast.success('Draft deleted', { description: `Removed from ${outbound.system}.` }))
+                      .catch((err: unknown) => toast.error('Could not undo that', { description: err instanceof Error ? err.message : String(err) }));
+                  },
+                },
+              }
+            : {}),
+        });
+      } else {
+        toast.success(`${pastTense(verbLabel)} · ${card.title}`, {
+          description: decision === 'approve' ? (card.nextAction ?? 'Executing now.') : 'Nothing runs; the agent learns from it.',
+        });
+      }
       showLearnedToast({ decision, actionId: run.actionId, runId: run.id, hasNote: d.note.trim().length > 0, undoable: isSelfUpdate(run.actionId) });
     } catch (err) {
       toast.error(`Could not ${verbLabel.toLowerCase()} · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });
@@ -908,7 +947,21 @@ export function ReviewSurface(props: {
     void approveItem(walkStep.item.id);
   };
 
-  // The keyboard decides too: a / d / s, never while you are typing.
+  /**
+   * Edit, on a message: put the cursor at the end of the copy. The copy is
+   * editable in place already; this is the obvious way into it from the bar
+   * and from `e`.
+   */
+  const editMessage = () => {
+    const field = document.querySelector<HTMLElement>('[data-testid="outbound-body"] [contenteditable="true"], [data-testid="outbound-body"] textarea');
+    if (!field) {
+      return;
+    }
+    field.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    field.focus();
+  };
+
+  // The keyboard decides too: a / d / s (and e on a message), never while you are typing.
   useEffect(() => {
     if (!decidable) {
       return;
@@ -927,6 +980,9 @@ export function ReviewSurface(props: {
       } else if (action === 'snooze' && !awaitingExecution) {
         e.preventDefault();
         setSnoozeOpen(o => !o);
+      } else if (action === 'edit' && outbound && !props.guided) {
+        e.preventDefault();
+        editMessage();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -954,6 +1010,31 @@ export function ReviewSurface(props: {
   ];
 
   const agent = run.invokedBy?.replace('agent:', '');
+  /**
+   * The short Why a message carries: one or two sentences of evidence, never
+   * the title again, never the same sentence twice. The rationale, the reason
+   * for the suggestion and the presenter's own case are often one sentence
+   * written three ways; each is kept only if it says something the title and
+   * the ones before it did not. Nothing left, and no citation, means no Why.
+   */
+  const outboundWhy = (() => {
+    if (!outbound) {
+      return null;
+    }
+    const lines: string[] = [];
+    for (const candidate of [run.proposal?.rationale, run.proposal?.suggestedDecisionReason, card.recommendation?.detail, card.summary]) {
+      const line = candidate?.trim();
+      if (!line || restatesLabel(line, title) || restatesLabel(line, card.title) || lines.some(l => restatesLabel(line, l) || l.includes(line))) {
+        continue;
+      }
+      lines.push(line);
+    }
+    const evidence = run.proposal?.evidence ?? [];
+    if (lines.length === 0 && evidence.length === 0) {
+      return null;
+    }
+    return { lines: lines.slice(0, 2), evidence };
+  })();
   const alignmentRate = run.alignment && run.alignment.n > 0 ? run.alignment.agreementRate : null;
   // Said once. Most presenters build the recommendation's detail and the
   // summary out of the same sentence the run already carries as its
@@ -1121,10 +1202,14 @@ export function ReviewSurface(props: {
     if (id === 'evidence') {
       return (
         <div data-testid="evidence-pane">
-          <Section eyebrow="Citations">
-            <EvidenceRefs sources={run.proposal?.evidence ?? []} empty="No citations recorded." />
-          </Section>
-          {readOnlyFields.length > 0 && (
+          {/* A message's citations are in its Why, and its To and Cc are in
+              its header: said once each. */}
+          {!outbound && (
+            <Section eyebrow="Citations">
+              <EvidenceRefs sources={run.proposal?.evidence ?? []} empty="No citations recorded." />
+            </Section>
+          )}
+          {!outbound && readOnlyFields.length > 0 && (
             <Section eyebrow="Details">
               <FactList facts={readOnlyFields.map(f => ({ label: f.label, value: f.value, href: f.href }))} />
             </Section>
@@ -1148,13 +1233,14 @@ export function ReviewSurface(props: {
                 card.system ? { label: 'System', value: card.system } : null,
                 // The recommendation is said once, under the decision header,
                 // on a card that has one; these three rows are for the rest.
-                agent && !brief ? { label: 'Recommended by', value: agent } : null,
+                // A message says who suggests it, and how sure, in its Why.
+                agent && !brief && !outbound ? { label: 'Recommended by', value: agent } : null,
                 // Confidence lives on the meta row beside the recommendation it
                 // scores; with no recommendation to anchor it, it reads here.
-                !brief && !card.recommendation && run.proposal?.confidence !== undefined
+                !brief && !outbound && !card.recommendation && run.proposal?.confidence !== undefined
                   ? { label: card.confidenceSubject ?? 'Recommendation', value: <ConfidenceMeter value={run.proposal.confidence} label={card.confidenceSubject ?? 'Recommendation'} /> }
                   : null,
-                !brief && run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
+                !brief && !outbound && run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
                 { label: 'Run', value: nounCode('action', run.id) },
                 handoff ? { label: 'Who runs it', value: <span data-testid="who-runs-it">{whoRunsIt}</span> } : null,
                 alignmentRate !== null && run.alignment
@@ -1227,6 +1313,10 @@ export function ReviewSurface(props: {
       // thing a decision bar must never do.
       className="min-h-svh"
       crumbs={props.crumbs}
+      // The dashboard's top bar already says where this is from `sm` up; a
+      // second breadcrumb under it read twice (Chris, 2026-10-09, proposal
+      // 8017). A phone has no top-bar crumbs, so it keeps these.
+      crumbsInShell
       title={title}
       subtitle={subtitle}
       actions={(
@@ -1252,7 +1342,9 @@ export function ReviewSurface(props: {
               primary={{
                 // One word, and the walk is what it does: Approve until every
                 // send carries a check, then the card's own verb.
-                'label': choices ? choices[0]!.label : walkStep ? 'Approve' : d.execError ? `Retry ${approveVerb}` : approveVerb,
+                // A failed run keeps its verb: the card says what went wrong
+                // and how to fix it, and pressing it again is the retry.
+                'label': choices ? choices[0]!.label : walkStep ? 'Approve' : approveVerb,
                 'onClick': pressPrimary,
                 'disabled': heldPrimary,
                 'busy': d.busy,
@@ -1267,6 +1359,9 @@ export function ReviewSurface(props: {
                     { 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'data-testid': 'decide-snooze' },
                   ]
                 : [
+                    ...(outbound && !props.guided && contentKindEditable(content[0]!.kind)
+                      ? [{ 'label': 'Edit', 'onClick': editMessage, 'disabled': d.held, 'icon': Pencil, 'shortcut': 'e', 'data-testid': 'decide-edit' }]
+                      : []),
                     // A hand-off's verbs keep their words on a phone: Reject and
                     // Snooze as icons alone read as two mystery buttons beside
                     // Approve on the first one Chris met there.
@@ -1298,6 +1393,24 @@ export function ReviewSurface(props: {
           )
         : undefined}
     >
+      {/* A sequence names what it queues before its steps: which sequence,
+          for whom, from which inbox. */}
+      {sequence && (
+        <dl data-testid="sequence-enrolment" className="flex flex-wrap gap-x-10 gap-y-3 border-b border-rule py-4">
+          {[
+            { label: 'Sequence', value: sequence.name },
+            { label: 'Contact', value: sequence.contact },
+            { label: 'Sender inbox', value: sequence.sender },
+            { label: 'Queued in', value: sequence.system },
+          ].map(f => (
+            <div key={f.label} className="min-w-[104px]">
+              <dt className="text-[12px] text-muted-foreground">{f.label}</dt>
+              <dd className="mt-0.5 text-sm break-words">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
       {/* First thing on the card: what approving does, the facts that settle
           it, and the recommendation — before any tab. */}
       {brief && <DecisionHeader headline={card.headline!} badges={card.badges ?? []} recommendation={recommendationLine} />}
@@ -1325,13 +1438,9 @@ export function ReviewSurface(props: {
               <p className="mt-0.5 text-[13px] text-muted-foreground">The copy on the card is unchanged. Fix what it names, or word the instruction differently, and regenerate again.</p>
             </Notice>
           )}
-          {d.execError && (
-            <Notice tone="red" icon={<TriangleAlert className="size-4" aria-hidden />} testid="execution-failed-banner">
-              <p className="font-medium text-brand-fail">The approval did not go through</p>
-              <p className="mt-0.5 text-[13px] break-words text-muted-foreground">{d.execError}</p>
-              <p className="mt-0.5 text-[13px] text-muted-foreground">{`Fix the cause if it names one, then ${approveVerb} again to retry.`}</p>
-            </Notice>
-          )}
+          {/* A plain sentence and the fix; the vendor's own words behind
+              Details, never in the main view (#1286's three levels). */}
+          {d.execError && <ExecutionFailure error={d.execError} actionId={run.actionId} approveVerb={approveVerb} />}
           {props.hold && (
             <Notice tone="amber" icon={<Ban className="size-4" aria-hidden />} testid="primary-held">
               <span className="font-medium">{`${approveVerb} is held.`}</span>
@@ -1341,13 +1450,72 @@ export function ReviewSurface(props: {
         </div>
       )}
 
+      {/* One message, as the message: its Why, the thread it answers, who it
+          goes to, the copy and the signature. No tab strip of one. */}
+      {outbound && (() => {
+        const item = content[0]!;
+        const Renderer = contentKindRenderer(item.kind);
+        const editable = contentKindEditable(item.kind) && !props.guided && decidable;
+        const edit = d.contentEdits[item.id];
+        const why = outboundWhy && (
+          <section data-testid="outbound-why" aria-label="Why" className="flex items-start gap-2.5 border-b border-rule pb-3">
+            <Sparkles className="mt-0.5 size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+            <div className="min-w-0 flex-1">
+              {outboundWhy.lines.length > 0 && (
+                <p className="max-w-3xl text-[14px] leading-relaxed break-words text-foreground/85">
+                  <span className="font-medium text-foreground">Why: </span>
+                  {outboundWhy.lines.join(' ')}
+                </p>
+              )}
+              {outboundWhy.evidence.length > 0 && <EvidenceRefs sources={outboundWhy.evidence} className="mt-1" />}
+              {recommendationLine && <p className="mt-1 text-[12px] text-muted-foreground" data-testid="outbound-why-suggestion">{recommendationLine}</p>}
+            </div>
+          </section>
+        );
+        const artifact = (
+          <OutboundMessageArtifact
+            outbound={outbound}
+            item={item}
+            edit={edit}
+            onEdit={editable ? patch => d.editContent(item.id, patch) : undefined}
+            disabled={d.held}
+            why={why}
+          >
+            <Renderer item={item} edit={edit} onEdit={editable ? patch => d.editContent(item.id, patch) : undefined} changed={Boolean(justChanged[item.id])} disabled={d.held} />
+          </OutboundMessageArtifact>
+        );
+        return (
+          <div className="pt-4" data-testid="review-outbound">
+            {d.canRegenerate || historyFor(item.id).length > 0
+              ? (
+                  <ItemPane
+                    key={item.id}
+                    item={item}
+                    label={item.label}
+                    editable={editable}
+                    disabled={d.held}
+                    canRegenerate={d.canRegenerate}
+                    regenerating={d.regenerating}
+                    onRegenerate={instruction => void regenerate(instruction, item.id)}
+                    actions={props.itemActions?.(item, item.label)}
+                    edited={edit !== undefined && (edit.subject !== undefined || edit.body !== undefined)}
+                    history={historyFor(item.id)}
+                  >
+                    {artifact}
+                  </ItemPane>
+                )
+              : artifact}
+          </div>
+        );
+      })()}
+
       {tabIds.length > 0 && (
         <Tabs value={active} onValueChange={setTab} className="pt-4">
           {/* How far through the walk you are, over the row it is about. A card
             that does not walk shows no count rather than "1 of 1". */}
           {walks && (
             <div className="flex items-baseline justify-between gap-3 pb-2">
-              <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Review content</h2>
+              <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{sequence ? 'Steps' : 'Review content'}</h2>
               <span className="text-[13px] text-muted-foreground tabular-nums" data-testid="walk-count">
                 {`${count.approved} of ${count.total} approved`}
               </span>
@@ -1356,7 +1524,7 @@ export function ReviewSurface(props: {
           {/* The one real ceiling: a long sequence scrolls the tab row rather
             than wrapping it, so the panes below never shift down a line. */}
           <div className="-mx-1 overflow-x-auto px-1">
-            <TabsList variant="line" className="w-max" data-testid="review-tabs">
+            <TabsList variant="line" className={cn('w-max', sequence && 'h-auto! items-stretch')} data-testid="review-tabs" data-timeline={sequence ? 'true' : undefined}>
               {tabIds.map((id) => {
                 const label = id === 'changes'
                   ? 'Changes'
@@ -1370,9 +1538,18 @@ export function ReviewSurface(props: {
                 const item = content.find(c => `item-${c.id}` === id);
                 const checked = item !== undefined && checkedIds.has(item.id);
                 return (
-                  <TabsTrigger key={id} value={id} data-testid={`tab-${id}`} data-approved={checked ? 'true' : undefined}>
+                  <TabsTrigger key={id} value={id} data-testid={`tab-${id}`} data-approved={checked ? 'true' : undefined} className={cn(sequence && item && 'h-auto items-start py-2')}>
                     {checked && <Check className="mr-1.5 inline size-3.5 align-[-2px] text-brand-pass" data-testid={`tab-check-${item.id}`} aria-label="approved" />}
-                    {label}
+                    {/* A sequence's tab strip is its timeline: the step, when it
+                        goes, and what it says, one under the other. */}
+                    {sequence && item && item.kind === 'email'
+                      ? (
+                          <span className="flex flex-col items-start text-left">
+                            <span>{label}</span>
+                            {item.subject && <span className="max-w-[13rem] truncate text-[12px] font-normal text-muted-foreground">{item.subject}</span>}
+                          </span>
+                        )
+                      : label}
                   </TabsTrigger>
                 );
               })}
@@ -1415,7 +1592,7 @@ export function ReviewSurface(props: {
           has an empty strip and these are the whole screen, which is why
           they render here rather than in a tab that would be the only one. */}
       <div data-testid="review-dossier">
-        {renderPane('why')}
+        {!outbound && renderPane('why')}
         {renderPane('evidence')}
       </div>
     </DetailPage>

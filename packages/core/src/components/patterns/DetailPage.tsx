@@ -32,6 +32,7 @@ export type Crumb = { label: string; href?: string };
  * @param props.aside - The right column (`<RightColumn>`). Drops under the content below `@3xl`.
  * @param props.children - The sections.
  * @param props.bar - The `<StickyActionBar>`, rendered after the columns so it spans the page.
+ * @param props.crumbsInShell - The dashboard's top bar shows the same trail from `sm` up, so these show on a phone only.
  * @param props.className
  */
 export function DetailPage(props: {
@@ -43,6 +44,7 @@ export function DetailPage(props: {
   'aside'?: ReactNode;
   'children': ReactNode;
   'bar'?: ReactNode;
+  'crumbsInShell'?: boolean;
   'className'?: string;
   'data-testid'?: string;
 }) {
@@ -61,7 +63,7 @@ export function DetailPage(props: {
     // actually has — beside an open conversation rail, not the whole shell.
     <div data-pattern="detail-page" data-testid={props['data-testid']} className={cn('@container relative flex flex-col', props.className)}>
       <header className="border-b border-rule pb-5" data-pattern="detail-header">
-        <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-1 text-[12px] text-muted-foreground">
+        <nav aria-label="Breadcrumb" data-in-shell={props.crumbsInShell ? 'true' : undefined} className={cn('flex min-w-0 flex-wrap items-center gap-1 text-[12px] text-muted-foreground', props.crumbsInShell && 'sm:hidden')}>
           {crumbs.map((c, i) => (
             <span key={`${c.href ?? ''}|${c.label}`} className="flex min-w-0 items-center gap-1">
               {i > 0 && <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" aria-hidden />}
@@ -89,7 +91,7 @@ export function DetailPage(props: {
           their own row; and the cluster may shrink, so its own truncating
           labels truncate instead of pushing.
         */}
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className={cn('mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3', props.crumbsInShell && 'sm:mt-0')}>
           <div className="min-w-0 flex-1 basis-80">
             <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.01em] text-balance">{title}</h1>
             {props.subtitle && <p className="mt-1 text-sm text-muted-foreground">{props.subtitle}</p>}

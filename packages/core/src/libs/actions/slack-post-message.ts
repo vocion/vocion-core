@@ -106,6 +106,9 @@ export const slackPostMessageAction: Action<typeof slackPostMessageInput> = {
       headline: `Approving posts this message to ${where} now. Undo deletes the post.`,
       badges: [{ label: 'Slack' }, { label: 'Reversible' }],
       contentHeading: { label: 'Message' },
+      // The same outbound artifact an email draft reads as: where it goes,
+      // the copy, and the Why — a channel in place of addresses.
+      outbound: { channel: 'chat', mode: 'send', system: 'Slack', to: [where], contentId: 'message', doneLabel: 'Posted' },
       content: [{ kind: 'message' as const, id: 'message', label: 'Message', body: input.text }],
       fields: [
         { label: 'Channel', value: where },
