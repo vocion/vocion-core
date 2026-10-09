@@ -86,7 +86,7 @@ export type PersonalFacts = {
  */
 export function hasNothingToSay(f: PersonalFacts): boolean {
   const meetings = f.meetings.status === 'read' ? f.meetings.items.length : 0;
-  const waiting = f.waiting.decisions.filter(d => d.yours).length + f.waiting.followUps.length;
+  const waiting = f.waiting.decisions.filter(d => d.yours).length + f.waiting.followUps.length + (f.waiting.views ?? []).reduce((n, v) => n + v.total, 0);
   return meetings === 0 && waiting === 0 && f.team.length === 0 && f.doneToday.length === 0 && f.finishedToday.length === 0;
 }
 

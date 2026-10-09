@@ -80,6 +80,20 @@ function renderEvent(ev: CalEvent): string {
   ].filter(Boolean).join('\n');
 }
 
+/**
+ * How many attendees are from outside the organiser's domain. Addresses only:
+ * structure, not meaning.
+ * @param organizer - The organiser's address.
+ * @param attendees - The attendees' addresses.
+ */
+export function externalAttendees(organizer: string | null, attendees: string[]): number {
+  const home = organizer?.split('@')[1]?.toLowerCase();
+  if (!home) {
+    return 0;
+  }
+  return attendees.filter(a => a.includes('@') && !a.endsWith('.calendar.google.com') && a.split('@')[1]!.toLowerCase() !== home).length;
+}
+
 export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchema> = {
   slug: 'google-calendar',
   name: 'Google Calendar',
@@ -139,6 +153,9 @@ export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchem
             attendees: (ev.attendees ?? []).map(a => a.email).filter(Boolean),
             zoomMeetingId: zoomMeetingIdOf(ev),
             recurring: !!ev.recurringEventId,
+            // State for "meetings to prepare for" (`libs/retrieval/facets.ts`):
+            // how many attendees are from outside the organiser's domain.
+            facets: { external_attendees: externalAttendees(ev.organizer?.email ?? null, (ev.attendees ?? []).map(a => a.email ?? '')) },
           },
         };
       }

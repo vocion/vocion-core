@@ -1,0 +1,65 @@
+{
+  "$comment": "Core saved views (services/state/state.ts). Data, not code: each is a stored query_state query, seeded as a `core` row and copied when a person tailors one. `$me` is the person asking; dates may be relative (-14d, +24h, now).",
+  "views": [
+    {
+      "slug": "owed-replies",
+      "name": "Email replies I owe",
+      "description": "Email threads where the other side wrote last and is waiting on my answer, longest-waiting first.",
+      "query": { "sets": ["mail.thread"], "filter": { "reply_state": "needs_my_reply", "mailbox": "$me", "last_inbound_at": { "since": "-30d" } }, "sort": { "facet": "last_inbound_at", "dir": "asc" }, "limit": 25 }
+    },
+    {
+      "slug": "awaiting-their-reply",
+      "name": "Waiting on their reply",
+      "description": "Email threads where I wrote last more than 3 days ago and have heard nothing back.",
+      "query": { "sets": ["mail.thread"], "filter": { "reply_state": "waiting_on_them", "mailbox": "$me", "last_outbound_at": { "since": "-30d", "until": "-3d" } }, "sort": { "facet": "last_outbound_at", "dir": "asc" }, "limit": 25 }
+    },
+    {
+      "slug": "meetings-needing-prep",
+      "name": "Meetings to prepare for",
+      "description": "Meetings in the next 24 hours with someone from outside the company.",
+      "query": { "sets": ["calendar.event"], "filter": { "start": { "since": "now", "until": "+24h" }, "external_attendees": { "gt": 0 } }, "sort": { "facet": "start", "dir": "asc" }, "limit": 15 }
+    },
+    {
+      "slug": "stale-deals",
+      "name": "Stale deals",
+      "description": "Open deals with no change in the CRM for 14 days.",
+      "query": { "sets": ["crm.deal"], "filter": { "stage": { "not": ["closedwon", "closedlost"] }, "updated_at": { "until": "-14d" } }, "sort": { "facet": "updated_at", "dir": "asc" }, "limit": 25 }
+    },
+    {
+      "slug": "my-overdue-tasks",
+      "name": "My overdue tasks",
+      "description": "Issues assigned to me that are past their due date and not done.",
+      "query": { "sets": ["tasks.issue"], "filter": { "assignee": "$me", "completed": false, "due": { "until": "now" } }, "sort": { "facet": "due", "dir": "asc" }, "limit": 25 }
+    },
+    {
+      "slug": "prs-awaiting-my-review",
+      "name": "Pull requests awaiting my review",
+      "description": "Open pull requests where my review is requested.",
+      "query": { "sets": ["code.pull_request"], "filter": { "state": "open", "requested_reviewers": "$me" }, "sort": { "facet": "updated_at", "dir": "asc" }, "limit": 25 }
+    },
+    {
+      "slug": "slack-mentions",
+      "name": "Slack mentions of me",
+      "description": "Slack messages that mention me in the last 7 days. Matches a mention by my Slack member id, so save your own copy with it as `slack_member` if none come back.",
+      "query": { "sets": ["chat.message"], "filter": { "mentions": "$me", "updated_at": { "since": "-7d" } }, "sort": { "facet": "updated_at", "dir": "desc" }, "limit": 25 }
+    },
+    {
+      "slug": "approvals-waiting-on-me",
+      "name": "Approvals waiting on me",
+      "description": "Decisions in the review queue that are mine to make: asks, approvals and proposed actions.",
+      "query": { "sets": ["vocion.decision"], "limit": 25 }
+    },
+    {
+      "slug": "overdue-invoices",
+      "name": "Overdue invoices",
+      "description": "Invoices past their due date with a balance still owed.",
+      "query": { "sets": ["finance.invoice"], "filter": { "due": { "until": "now" }, "balance": { "gt": 0 } }, "sort": { "facet": "due", "dir": "asc" }, "limit": 25 }
+    },
+    {
+      "slug": "broken-connections",
+      "name": "Broken connections",
+      "description": "Connected systems whose last sync failed, with the reason.",
+      "query": { "sets": ["vocion.connection"], "limit": 25 }
+    }
+  ]
+}

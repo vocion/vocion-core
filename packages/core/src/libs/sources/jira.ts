@@ -87,6 +87,7 @@ type JiraIssue = {
     status?: { name?: string; statusCategory?: { key?: string } };
     issuetype?: { name?: string };
     assignee?: { displayName?: string; emailAddress?: string } | null;
+    duedate?: string | null;
     created?: string;
     updated?: string;
   };
@@ -416,6 +417,7 @@ function issueToDoc(baseUrl: string, issue: JiraIssue, includeDescription: boole
       statusCategory,
       completed: statusCategory === 'done' && !notDoneStatuses.includes(status),
       assignee: f.assignee?.emailAddress ?? f.assignee?.displayName ?? null,
+      due: f.duedate ?? null,
       created: f.created,
       updated: f.updated,
     },
@@ -526,7 +528,7 @@ export const jiraConnector: SourceConnector<typeof jiraConfigSchema> = {
     }
 
     // Issues — cursor pagination on the current search endpoint.
-    const fields = ['summary', 'status', 'issuetype', 'assignee', 'created', 'updated'];
+    const fields = ['summary', 'status', 'issuetype', 'assignee', 'duedate', 'created', 'updated'];
     if (cfg.includeDescription) {
       fields.push('description');
     }
