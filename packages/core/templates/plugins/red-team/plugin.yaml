@@ -44,3 +44,8 @@ actionGates:
     # Serious findings send the draft back to the agent that wrote it this many
     # times; after that a person decides, with the findings on the card.
     returns: 1
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: Red-team our latest outgoing message

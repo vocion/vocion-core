@@ -41,3 +41,9 @@ recommend:
     - a person asks the same research question twice, or wants a plan written down as options and a decision
     - the repo already has markdown pages describing how the workspace works, and nobody reads them
   connectors: []
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: What does our wiki say about how we work?
+  - label: Add what we decided today to the wiki

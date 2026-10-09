@@ -23,3 +23,8 @@ recommend:
     - the same client or deal comes up across several conversations and nothing collects it
     - a deal reaches a proposal or negotiation stage in the CRM
   connectors: [hubspot, zoom, gmail, drive, granola]
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: What changed in our data rooms this week?

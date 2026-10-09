@@ -17,3 +17,8 @@ recommend:
     - a new workspace is empty and the person says what kind of company it is
     - somebody asks for a team of agents with goals, measures and a budget already set
   connectors: []
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: How is the company doing this week?

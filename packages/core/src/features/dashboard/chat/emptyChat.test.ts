@@ -119,3 +119,12 @@ describe('what a conversation docks', () => {
     expect(dockPlan({ ...base, messageCount: 0, own: ['x'] }).own).toEqual([]);
   });
 });
+
+describe('the composer asks a person\'s own assistant by name (2026-10-09)', () => {
+  const t = (key: string, values?: Record<string, string>) => (key === 'ask_agent' ? `Ask ${values?.name}…` : key === 'ask_assistant' ? 'Ask your assistant…' : 'Ask the team…');
+
+  it('"Ask your assistant…" until named, then "Ask Ziggy…"', () => {
+    expect(composerAsk([{ slug: 'assistant', name: 'Assistant', personal: true }], t)).toBe('Ask your assistant…');
+    expect(composerAsk([{ slug: 'assistant', name: 'Ziggy', givenName: 'Ziggy', personal: true }], t)).toBe('Ask Ziggy…');
+  });
+});

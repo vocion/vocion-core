@@ -51,3 +51,9 @@ notifications:
     body: '{events} events in the last hour on {project}. Cause: {cause} — {why}'
     record: {type: incident, id: '{incidentId}'}
     dedupe: 'incident:{incidentId}'
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: Is anything broken in production?
+    needs: {connectors: [sentry]}

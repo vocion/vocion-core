@@ -65,9 +65,11 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // after a client fetch shows every page as running for a moment first, and
   // the one state this must never misreport is "stopped".
   let pause: WorkspacePauseView | null = null;
+  // A person's own workspace: nothing team-only (inviting people) is offered there.
+  let personalWorkspace = false;
   if (orgId) {
     const [project] = await db
-      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces, enabledPlugins: projectSchema.enabledPlugins, pausedAt: projectSchema.pausedAt })
+      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, kind: projectSchema.kind, enabledSurfaces: projectSchema.enabledSurfaces, enabledPlugins: projectSchema.enabledPlugins, pausedAt: projectSchema.pausedAt })
       .from(projectSchema)
       .where(eq(projectSchema.id, orgId))
       .limit(1);
@@ -76,6 +78,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     enabledSurfaces = (project?.enabledSurfaces ?? []).filter(isSurfaceId);
     enabledPlugins = project?.enabledPlugins ?? [];
     workspace = project ? { slug: project.slug, name: project.name } : null;
+    personalWorkspace = project?.kind === 'personal';
     if (project?.pausedAt) {
       const held = await readWorkspacePauseWithName(orgId);
       pause = held && { byName: held.by.name ?? held.by.id, when: formatPauseTime(held.at), note: held.note };
@@ -179,6 +182,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         workspacePages={byApp.core.pages}
         apps={byApp.apps}
         gettingStarted={gettingStarted}
+        personalWorkspace={personalWorkspace}
       />
       <SidebarInset className="md:min-h-0 md:overflow-hidden">
         <ShellBarActionsProvider>

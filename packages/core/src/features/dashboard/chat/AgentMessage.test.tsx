@@ -153,7 +153,7 @@ describe('a tool error is inspectable, one tap under the step that failed (2026-
     await expect.element(step).toBeVisible();
     // The message a person reads carries neither the tenant id nor the slug:
     // this failure is the empty-workspace state, which has its own sentence.
-    await expect.element(step.getByText(/has no agents yet/)).toBeVisible();
+    await expect.element(step.getByText(/isn't ready yet/)).toBeVisible();
     expect((await step.element()).textContent).not.toContain('proj-2df61364');
     expect((await step.element()).textContent).not.toContain('__search__');
   });

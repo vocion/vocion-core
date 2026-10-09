@@ -28,10 +28,89 @@ import { triedLine } from '@/libs/connect/connectionNeeded';
 import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { briefingSchema, conversationSchema, projectSchema, userActivityEventSchema } from '@/models/Schema';
+import { briefingSchema, conversationSchema, projectSchema, tenantAccountSchema, userActivityEventSchema } from '@/models/Schema';
 import { briefingHref, DELIVERY_SCOPE_PREFIX } from '@/services/briefings/links';
 
 const DAY = 24 * 60 * 60 * 1000;
+
+type Starter = NonNullable<HintInput['starters']>[number];
+
+/**
+ * The first asks this workspace can actually answer now, read from its state
+ * (founder, 2026-10-09: "dynamic based on what's enabled in a workspace").
+ *
+ * - A Personal workspace: its person's own connections. With nothing
+ *   connected, connecting comes first ("Connect my Gmail and calendar"),
+ *   then what needs no connection ("What's waiting on me across <Org>?",
+ *   "Set up my morning brief"). With Gmail connected, the mail asks ("What
+ *   emails do I owe replies to?"), and with a calendar the day's meetings.
+ * - A shared workspace: each enabled plugin's declared `starters`, those
+ *   whose needed connectors are live.
+ * @param input - Where, who, and what is connected.
+ * @param input.orgId - The workspace.
+ * @param input.userId - The person.
+ * @param input.credentials - The workspace's connection status, when read.
+ */
+export async function starterInputs(input: { orgId: string; userId: string; credentials: { byConnectorSlug?: Record<string, { connected: boolean; broken: unknown }> } | null }): Promise<Starter[]> {
+  const [project] = await db
+    .select({ kind: projectSchema.kind, enabledPlugins: projectSchema.enabledPlugins, orgName: tenantAccountSchema.name })
+    .from(projectSchema)
+    .innerJoin(tenantAccountSchema, eq(tenantAccountSchema.id, projectSchema.accountId))
+    .where(eq(projectSchema.id, input.orgId))
+    .limit(1);
+  if (!project) {
+    return [];
+  }
+  if (project.kind === 'personal') {
+    const { listPersonalConnections, ownPersonalWorkspace, personalConnectionsAllowed } = await import('@/services/personal/connections');
+    const own = await ownPersonalWorkspace(input.orgId, input.userId);
+    if (!own) {
+      return [];
+    }
+    const [allowed, connections] = await Promise.all([personalConnectionsAllowed(own.accountId), listPersonalConnections(own)]);
+    const has = (c: string) => connections.some(x => x.connector === c && x.connectedAt);
+    const org = project.orgName?.trim() || 'your workspaces';
+    const out: Starter[] = [];
+    if (has('gmail')) {
+      out.push({ key: 'personal:owed-replies', label: 'What emails do I owe replies to?', prompt: 'What emails do I owe replies to?', reason: 'Your Gmail is connected: I can see which threads wait on you.', weight: 1.3 });
+    }
+    if (has('google-calendar')) {
+      out.push({ key: 'personal:prep-meetings', label: 'Prep me for today\'s meetings', prompt: 'Prep me for today\'s meetings', reason: 'Your calendar is connected: each meeting with what to have ready.', weight: 1.2 });
+    }
+    if (allowed && !has('gmail') && !has('google-calendar')) {
+      out.push({ key: 'personal:connect-mail', label: 'Connect my Gmail and calendar', prompt: 'Help me connect my Gmail and calendar', reason: 'With your mail and calendar I can say what you owe and prep your day.', weight: 1.3 });
+    }
+    out.push({ key: 'personal:waiting', label: `What's waiting on me across ${org}?`, prompt: `What's waiting on me across ${org}?`, reason: `What waits on you in every ${org} workspace you are in, in the order to take it.`, weight: 1.2 });
+    if (!has('gmail')) {
+      out.push({ key: 'personal:morning-brief', label: 'Set up my morning brief', prompt: 'Set up my morning brief', reason: 'One short brief each morning: your meetings, what waits on you, what moved.', weight: 1.1 });
+    }
+    // In the order above, close together: they are one set of first asks.
+    return out.slice(0, 3).map((st, i) => ({ ...st, weight: 1.3 - 0.05 * i }));
+  }
+  const { loadPlugin } = await import('@/libs/workspace/plugins');
+  const live = new Set(Object.entries(input.credentials?.byConnectorSlug ?? {}).filter(([, st]) => st.connected && !st.broken).map(([slug]) => slug));
+  if (input.credentials === null || Object.keys(input.credentials?.byConnectorSlug ?? {}).length === 0) {
+    const { connectedConnectors } = await import('@/services/workspace/gettingStarted');
+    for (const c of await connectedConnectors(input.orgId).catch(() => [])) {
+      live.add(c);
+    }
+  }
+  const out: Starter[] = [];
+  for (const slug of project.enabledPlugins ?? []) {
+    let manifest: ReturnType<typeof loadPlugin>['manifest'] | null = null;
+    try {
+      manifest = loadPlugin(slug).manifest;
+    } catch {
+      continue;
+    }
+    for (const [i, s] of (manifest.starters ?? []).entries()) {
+      if (s.needs.connectors.every(c => live.has(c))) {
+        out.push({ key: `${slug}:${i}`, label: s.label, prompt: s.prompt ?? s.label, reason: `${manifest.name} is on here${s.needs.connectors.length > 0 ? ` and ${s.needs.connectors.join(', ')} is connected` : ''}.`, weight: 1 - i * 0.05 });
+      }
+    }
+  }
+  return out;
+}
 
 /**
  * A connector's name as a person reads it.
@@ -78,6 +157,7 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
     import('@/services/connect/triedAndFailed').then(m => m.triedAndFailed(input.orgId, now)).catch(() => new Map<string, { times: number }>()),
   ]);
 
+  const starters = await starterInputs({ orgId: input.orgId, userId: input.userId, credentials }).catch(() => []);
   const countOf = (type: string) => Number(activity.find(a => a.type === type)?.n ?? 0);
   const hintInput: HintInput = {
     now,
@@ -135,6 +215,7 @@ export async function loadOpeningHints(input: { orgId: string; userId: string; i
       : brief
         ? { key: 'briefing', label: 'What needs my attention today?', prompt: `Walk me through the latest briefing ("${brief.title}") — the headline, what's at risk, and the moves that matter most today.`, reason: 'A new briefing came in this week.' }
         : null,
+    starters,
     dismissed: dismissals.flatMap((d) => {
       const meta = d.metadata as { key?: unknown; type?: unknown } | null;
       return typeof meta?.key === 'string' && HINT_TYPES.includes(meta.type as HintType) ? [{ key: meta.key, type: meta.type as HintType, at: d.at }] : [];

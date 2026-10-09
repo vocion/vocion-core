@@ -1,6 +1,7 @@
 import type { AgentOption } from './types';
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { assistantName, isPersonalAssistant } from '@/libs/workspace/assistantName';
 import { isSeededLead, leadName, leadWorkspaceLabel } from '@/libs/workspace/leadName';
 import { projectSchema, tenantAccountSchema } from '@/models/Schema';
 import { groupAgentHierarchy, listAgents } from '@/services/AgentService';
@@ -44,13 +45,22 @@ export type ChatAgentContext = {
  */
 export async function loadChatAgentContext(orgId: string): Promise<ChatAgentContext> {
   let dbAgents = await listAgents(orgId);
-  // A shared workspace with nobody in it gets its workspace lead now
-  // (`services/workspace/workspaceLead.ts`): one made before the lead existed
-  // heals the first time anyone opens chat, instead of opening on a blank page.
-  // A failure leaves the roster as it was, and the empty state says so.
+  // A workspace with nobody in it gets its first agent now: a Personal
+  // workspace its person's assistant (`personalAssistant.ts`), a shared one
+  // its workspace lead (`workspaceLead.ts`). One that never had it, or lost
+  // it, heals the first time anyone opens chat instead of opening on an empty
+  // state (Metacto, 2026-10-09). A failure leaves the roster as it was, and
+  // the empty state offers Retry.
   if (dbAgents.length === 0) {
-    const { ensureWorkspaceLead } = await import('@/services/workspace/workspaceLead');
-    if (await ensureWorkspaceLead(orgId).catch(() => false)) {
+    const [{ ensurePersonalAssistant }, { ensureWorkspaceLead }] = await Promise.all([
+      import('@/services/workspace/personalAssistant'),
+      import('@/services/workspace/workspaceLead'),
+    ]);
+    const seeded = await ensurePersonalAssistant(orgId).catch((error: unknown) => {
+      console.error('chat: could not seed the personal assistant', { orgId, error: error instanceof Error ? error.message : String(error) });
+      return false;
+    }) || await ensureWorkspaceLead(orgId).catch(() => false);
+    if (seeded) {
       dbAgents = await listAgents(orgId);
     }
   }
@@ -61,6 +71,7 @@ export async function loadChatAgentContext(orgId: string): Promise<ChatAgentCont
   const [workspace] = await db
     .select({
       projectName: projectSchema.name,
+      projectKind: projectSchema.kind,
       accountName: tenantAccountSchema.name,
       leadAgentSlug: projectSchema.leadAgentSlug,
     })
@@ -85,7 +96,14 @@ export async function loadChatAgentContext(orgId: string): Promise<ChatAgentCont
   // The seeded lead is named for the workspace ("Revenue lead"), or by the
   // given name an Org set ("Ava"), never "Workspace lead" (`leadName.ts`).
   const workspaceLabel = leadWorkspaceLabel(workspace?.accountName, workspace?.projectName);
+  const personal = workspace?.projectKind === 'personal';
   const named = (agent: { slug: string; name: string }) => {
+    // A person's own assistant: "your personal assistant on Metacto" until
+    // they name it, then that name ("Ziggy") — `assistantName.ts`.
+    if (personal && isPersonalAssistant(agent.slug)) {
+      const n = assistantName({ agentName: agent.name, orgName: workspace?.accountName });
+      return { name: n.given ?? 'Assistant', leadRole: n.role, personal: true as const, ...(n.given ? { givenName: n.given } : {}) };
+    }
     if (!isSeededLead(agent.slug)) {
       return { name: agent.name };
     }

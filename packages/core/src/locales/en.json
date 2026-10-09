@@ -252,12 +252,11 @@
     "team_caption": "{lead} · {count, plural, one {# agent} other {# agents}}",
     "ask_team": "Ask the team…",
     "ask_agent": "Ask {name}…",
-    "named_lead_and_team_on_it": "{name} and the team are on it."
+    "named_lead_and_team_on_it": "{name} and the team are on it.",
+    "ask_assistant": "Ask your assistant…"
   },
   "Onboarding": {
     "starter_setup_prompt": "Set up this workspace with me.",
-    "no_agents": "This workspace has no agents yet.",
-    "no_agents_cta": "Hire one from the agent catalog.",
     "plan_eyebrow": "Setup plan",
     "accept": "Accept",
     "open": "Open",
@@ -284,7 +283,13 @@
     "lead_self": "I'm the {role}",
     "lead_self_named": "I'm {given}, the {role}",
     "lead_hello_person": "Hi {name}, {self}. Whenever you're ready, I can help set this up.",
-    "lead_hello_anyone": "Hi, {self}. Whenever you're ready, I can help set this up."
+    "lead_hello_anyone": "Hi, {self}. Whenever you're ready, I can help set this up.",
+    "assistant_self": "your {role}",
+    "assistant_hello_person": "Hi {name} — I'm {self}.",
+    "assistant_hello_anyone": "Hi — I'm {self}.",
+    "agents_unavailable": "Your assistant isn't ready yet.",
+    "agents_unavailable_shared": "This workspace's lead isn't ready yet.",
+    "agents_retry": "Retry"
   },
   "Inbox": {
     "title": "Review queue",

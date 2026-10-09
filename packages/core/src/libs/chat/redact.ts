@@ -77,15 +77,15 @@ export function hasInternalIds(text: string): boolean {
 
 /**
  * The one sentence an empty workspace is allowed to produce, everywhere —
- * written for the person in it, not for whoever deploys the product. A shared
- * workspace is seeded with its lead (`services/workspace/workspaceLead.ts`),
- * so this is the rare case: no agent could be seeded, or every one retired.
+ * written for the person in it, not for whoever deploys the product. Every
+ * workspace is seeded with its first agent — a shared one its lead
+ * (`workspaceLead.ts`), a Personal one its person's assistant
+ * (`personalAssistant.ts`) — and the chat page seeds it again on every load,
+ * so this is the rare case where that failed just now. Calm, and never a
+ * link to go hire someone (founder, 2026-10-09).
  */
 export const NO_AGENTS_MESSAGE
-  = 'This workspace has no agents yet. Hire one from the agent catalog to get started.';
-
-/** Where that sentence sends the person: the agents they can hire. */
-export const NO_AGENTS_HREF = '/dashboard/hire';
+  = 'Your agent isn\'t ready yet. Try again in a moment.';
 
 /**
  * Is this failure really "the workspace is empty"?

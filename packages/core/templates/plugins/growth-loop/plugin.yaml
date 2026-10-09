@@ -53,3 +53,8 @@ recommend:
     - a person wants to know what a channel or a theme has cost against what it returned
     - the team keeps needing a role nobody has, and adding one is a conversation rather than a decision with a budget
   connectors: []
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: 'What should we brief next, from the evidence?'

@@ -25,7 +25,7 @@
 import type { ConnectorKind } from '@/libs/connect/connectorKinds';
 import { CONNECTOR_KIND_ONE } from '@/libs/connect/connectorKinds';
 
-export const HINT_TYPES = ['setup', 'connector', 'attention', 'next', 'capability'] as const;
+export const HINT_TYPES = ['setup', 'connector', 'attention', 'next', 'capability', 'starter'] as const;
 export type HintType = (typeof HINT_TYPES)[number];
 
 /** What clicking a hint does: send the ask in chat, or open a page or flow. */
@@ -103,6 +103,17 @@ export type HintInput = {
   next?: { key: string; label: string; prompt: string; reason: string; href?: string; weight?: number } | null;
   /** This person's dismissals in the last 30 days. */
   dismissed: Array<{ key: string; type: HintType; at: Date }>;
+  /**
+   * STARTERS — first asks that fit what this workspace can actually do now
+   * (founder, 2026-10-09: "better default recommendation chips … dynamic
+   * based on what's enabled"): the Personal assistant's, read from the
+   * person's own connections ("Connect my Gmail and calendar" until they
+   * have; "What emails do I owe replies to?" once they do), and each enabled
+   * app's own (`starters` in its plugin manifest, offered only when what it
+   * needs is connected). Several may show at once; `weight` orders them.
+   * Present, they replace the generic tour ("What can the team do?").
+   */
+  starters?: Array<{ key: string; label: string; prompt: string; reason: string; weight?: number }>;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -129,7 +140,7 @@ const RESUME_BOOST = 1.8;
 /** Each dismissal of a type in the last 30 days multiplies that type's weight by this. */
 const DISMISS_TYPE_DECAY = 0.8;
 
-const BASE: Record<HintType, number> = { setup: 80, connector: 85, attention: 40, next: 50, capability: 70 };
+const BASE: Record<HintType, number> = { setup: 80, connector: 85, attention: 40, next: 50, capability: 70, starter: 70 };
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -280,7 +291,25 @@ function nextCandidate(input: HintInput): OpeningHint | null {
   };
 }
 
+function starterCandidates(input: HintInput): OpeningHint[] {
+  const { messagesSent } = input.person;
+  // A first ask matters most before the person has their own habits here.
+  const decay = messagesSent >= 20 ? 0.5 : messagesSent >= 5 ? 0.8 : 1;
+  return (input.starters ?? []).map(s => ({
+    key: `starter:${s.key}`,
+    type: 'starter' as const,
+    label: s.label.endsWith('→') ? s.label : `${s.label} →`,
+    reason: s.reason,
+    score: BASE.starter * (s.weight ?? 1) * decay,
+    action: { kind: 'send' as const, prompt: s.prompt },
+  }));
+}
+
 function capabilityCandidate(input: HintInput): OpeningHint | null {
+  // A workspace with starters fitted to it says what it can do in them.
+  if ((input.starters?.length ?? 0) > 0) {
+    return null;
+  }
   const { sessions, messagesSent } = input.person;
   const decay = sessions <= 1 ? 1 : sessions === 2 ? 0.7 : sessions === 3 ? 0.45 : 0.15;
   let score = BASE.capability * decay;
@@ -307,7 +336,7 @@ function capabilityCandidate(input: HintInput): OpeningHint | null {
 export function openingHints(input: HintInput): OpeningHint[] {
   const recent = (type: HintType) => input.dismissed.filter(d => d.type === type && input.now.getTime() - d.at.getTime() < 30 * DAY).length;
   const hidden = new Set(input.dismissed.filter(d => input.now.getTime() - d.at.getTime() < DISMISS_DAYS * DAY).map(d => d.key));
-  const candidates = [setupCandidate(input), connectorCandidate(input), attentionCandidate(input), nextCandidate(input), capabilityCandidate(input)]
+  const candidates = [setupCandidate(input), connectorCandidate(input), attentionCandidate(input), nextCandidate(input), capabilityCandidate(input), ...starterCandidates(input)]
     .filter((h): h is OpeningHint => h !== null && !hidden.has(h.key))
     .map(h => ({ ...h, score: Math.round(h.score * DISMISS_TYPE_DECAY ** recent(h.type) * 10) / 10 }))
     .filter(h => h.score >= HINT_FLOOR)
@@ -321,7 +350,8 @@ export function openingHints(input: HintInput): OpeningHint[] {
     if (shown.length === MAX_HINTS) {
       break;
     }
-    if (h.score >= top.score * SECOND_HINT_SHARE && !shown.some(s => s.type === h.type)) {
+    // One per type, except starters: they are several first asks by design.
+    if (h.score >= top.score * SECOND_HINT_SHARE && (h.type === 'starter' || !shown.some(s => s.type === h.type))) {
       shown.push(h);
     }
   }

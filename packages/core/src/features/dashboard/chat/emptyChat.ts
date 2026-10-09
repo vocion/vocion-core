@@ -159,6 +159,8 @@ export type TeamMember = {
   givenName?: string;
   /** The seeded lead: its role ("Revenue lead"). */
   leadRole?: string;
+  /** A person's own assistant in their Personal workspace (`assistantName.ts`). */
+  personal?: true;
 };
 
 /** How many agents the cluster draws before "+N". */
@@ -182,8 +184,13 @@ export function teamOf(agents: ReadonlyArray<TeamMember & { slug: string }>, lea
  * @param members - The team, lead first.
  * @param t - The surface's translator (`Chat` messages).
  */
-export function composerAsk(members: readonly TeamMember[], t: (key: 'ask_team' | 'ask_agent', values?: Record<string, string>) => string): string {
-  return members.length === 1 ? t('ask_agent', { name: members[0]!.name }) : t('ask_team');
+export function composerAsk(members: readonly TeamMember[], t: (key: 'ask_team' | 'ask_agent' | 'ask_assistant', values?: Record<string, string>) => string): string {
+  const only = members.length === 1 ? members[0]! : null;
+  if (only?.personal) {
+    // "Ask Ziggy…" once named; "Ask your assistant…" until then.
+    return only.givenName ? t('ask_agent', { name: only.givenName }) : t('ask_assistant');
+  }
+  return only ? t('ask_agent', { name: only.name }) : t('ask_team');
 }
 
 /**

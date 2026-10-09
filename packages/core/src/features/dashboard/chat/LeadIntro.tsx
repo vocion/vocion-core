@@ -4,8 +4,8 @@ import type { TeamMember } from './emptyChat';
 import type { AgentOption } from './types';
 import { ArrowRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { NO_AGENTS_HREF } from '@/libs/chat/redact';
-import { Link } from '@/libs/I18nNavigation';
+import { useRouter } from '@/libs/I18nNavigation';
+import { onlyThePersonalAssistant } from '@/libs/workspace/assistantName';
 import { onlyTheSeededLead } from '@/libs/workspace/workspaceLead';
 import { EmptyState } from './EmptyState';
 import { SEARCH_ONLY_SLUG } from './routing';
@@ -30,7 +30,8 @@ import { SEARCH_ONLY_SLUG } from './routing';
  * @param agents - The surface's agents, virtual entries included.
  */
 export function wantsLeadIntro(agents: readonly AgentOption[]): boolean {
-  return onlyTheSeededLead(agents.filter(a => a.slug !== SEARCH_ONLY_SLUG).map(a => a.slug));
+  const slugs = agents.filter(a => a.slug !== SEARCH_ONLY_SLUG).map(a => a.slug);
+  return onlyTheSeededLead(slugs) || (onlyThePersonalAssistant(slugs) && agents.some(a => a.personal));
 }
 
 export type LeadIntroProps = {
@@ -44,6 +45,12 @@ export type LeadIntroProps = {
   disabled?: boolean;
   /** A setup the person started and left ("Resume setting up … →"): the one chip, in place of the setup chip. */
   hint?: React.ReactNode;
+  /**
+   * A Personal workspace: the person's own assistant says hello as itself —
+   * "Hi Chris — I'm your personal assistant on Metacto." — and the opening
+   * hints (`hint`) are its starters; no setup chip, nothing when none.
+   */
+  personal?: boolean;
 };
 
 /**
@@ -54,9 +61,19 @@ export type LeadIntroProps = {
  * @param props.onPick - Sends the setup ask.
  * @param props.disabled - Holds the chip while hydrating.
  * @param props.hint - A setup to resume, in place of the setup chip.
+ * @param props.personal
  */
-export function LeadIntro({ firstName, team, onPick, disabled = false, hint = null }: LeadIntroProps) {
+export function LeadIntro({ firstName, team, onPick, disabled = false, hint = null, personal = false }: LeadIntroProps) {
   const t = useTranslations('Onboarding');
+  if (personal) {
+    const me = team?.[0];
+    const self = me?.givenName ?? t('assistant_self', { role: me?.leadRole ?? 'personal assistant' });
+    return (
+      <div data-testid="lead-intro" data-personal="true" className="flex min-h-0 flex-1 flex-col">
+        <EmptyState line={firstName ? t('assistant_hello_person', { name: firstName, self }) : t('assistant_hello_anyone', { self })} team={team?.slice(0, 1)} nudge={hint} />
+      </div>
+    );
+  }
   // The lead says who it is by its role ("the Revenue lead"), with its given
   // name when the Org set one — never "workspace lead" (`leadName.ts`).
   const lead = team?.[0];
@@ -87,21 +104,30 @@ export function LeadIntro({ firstName, team, onPick, disabled = false, hint = nu
 }
 
 /**
- * What the chat says in a workspace with no agent at all — a workspace whose
- * lead could not be seeded, or whose every agent was retired. Said before a
- * turn runs, with the one next step, in words for the person rather than for
- * whoever deploys the product.
+ * What the chat says in the rare moment a workspace shows no agent at all —
+ * its first agent could not be seeded on this load (`loadChatAgentContext`
+ * tries every time). One calm line and Retry, never a link to go hire
+ * someone (founder, 2026-10-09: "I get an ugly text message asking me to go
+ * hire agents, but I don't want to yet"). Retry reloads the page, which tries
+ * the seeding again.
+ * @param props - The state.
+ * @param props.personal - The person's own workspace: it is their assistant that is not ready.
  */
-export function NoAgentsYet() {
+export function NoAgentsYet({ personal = false }: { personal?: boolean }) {
   const t = useTranslations('Onboarding');
+  const router = useRouter();
   return (
-    <div data-testid="no-agents-state" className="flex min-h-0 flex-1 flex-col justify-end px-4 pb-7 sm:px-6">
-      <p className="mx-auto w-full max-w-md text-[15px] leading-relaxed text-foreground/80">
-        {t('no_agents')}
-        {' '}
-        <Link href={NO_AGENTS_HREF} className="font-medium text-brand-amber-deep underline underline-offset-2">
-          {t('no_agents_cta')}
-        </Link>
+    <div data-testid="no-agents-state" role="status" className="flex min-h-0 flex-1 flex-col justify-end px-4 pb-7 sm:px-6">
+      <p className="mx-auto flex w-full max-w-md flex-wrap items-center gap-x-2 gap-y-1 text-[14px] leading-relaxed text-muted-foreground">
+        {personal ? t('agents_unavailable') : t('agents_unavailable_shared')}
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          data-testid="agents-retry"
+          className="inline-flex min-h-8 items-center rounded-full border border-border/70 px-3 text-[13px] text-foreground transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none max-md:min-h-11"
+        >
+          {t('agents_retry')}
+        </button>
       </p>
     </div>
   );

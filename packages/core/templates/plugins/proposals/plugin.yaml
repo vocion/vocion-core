@@ -22,3 +22,9 @@ recommend:
     - a deal reaches a proposal stage and nothing is drafting the document
     - a document is being rewritten in chat as prose when the client will read it as a PDF
   connectors: [hubspot, drive]
+
+# First asks offered by the composer once this plugin is on (`libs/chat/openingHints.ts`),
+# each only when what it needs is connected.
+starters:
+  - label: Which engagements are ready for a proposal?
+    needs: {connectors: [hubspot]}

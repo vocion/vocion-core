@@ -454,6 +454,19 @@ export const PluginManifestSchema = z.object({
    * of one is queued or run. See {@link ActionGateSchema}.
    */
   actionGates: z.array(ActionGateSchema).optional(),
+  /**
+   * First asks a person could send once this plugin is on — offered as pills
+   * by the composer of an empty conversation (`libs/chat/openingHints.ts`),
+   * ranked with the workspace's other hints, and only when what each needs
+   * is connected. The words are the person's: a pill sends `prompt` (or the
+   * label) as their message. At most three; a plugin with nothing worth a
+   * first tap declares none.
+   */
+  starters: z.array(z.object({
+    label: z.string().min(3).max(60),
+    prompt: z.string().min(3).max(240).optional(),
+    needs: z.object({ connectors: z.array(z.string().min(1)).default([]) }).default({ connectors: [] }),
+  })).max(3).optional(),
 });
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 

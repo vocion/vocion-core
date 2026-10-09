@@ -12,8 +12,10 @@ import '@/styles/global.css';
  * developer copy anywhere.
  */
 
+const refresh = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
+  useRouter: () => ({ refresh, push: vi.fn() }),
 }));
 
 const { LeadIntro, NoAgentsYet, wantsLeadIntro } = await import('./LeadIntro');
@@ -58,14 +60,49 @@ describe('LeadIntro', () => {
     expect(wantsLeadIntro([search])).toBe(false);
   });
 
-  it('the no-agent state speaks to the person, with the one next step', async () => {
+  it('the no-agent state is one calm line with Retry — never "no agents yet", never a hire link (founder, 2026-10-09)', async () => {
     await render(
       <NextIntlClientProvider locale="en" messages={en}>
-        <NoAgentsYet />
+        <NoAgentsYet personal />
       </NextIntlClientProvider>,
     );
 
-    await expect.element(page.getByTestId('no-agents-state')).toHaveTextContent('This workspace has no agents yet. Hire one from the agent catalog.');
-    await expect.element(page.getByTestId('no-agents-state')).not.toHaveTextContent(/apply a workspace|manage →/i);
+    await expect.element(page.getByTestId('no-agents-state')).toHaveTextContent('Your assistant isn\'t ready yet.');
+    expect(document.body.textContent).not.toMatch(/no agents yet|Hire one|agent catalog/i);
+    expect(page.getByRole('link').elements()).toHaveLength(0);
+
+    await page.getByTestId('agents-retry').click();
+
+    expect(refresh).toHaveBeenCalled();
+  });
+});
+
+describe('a Personal workspace opens on its person\'s own assistant (founder, 2026-10-09)', () => {
+  const assistant: AgentOption = { slug: 'assistant', name: 'Assistant', icon: 'bot', placeholder: '', personal: true, leadRole: 'personal assistant on Metacto' };
+  const search: AgentOption = { slug: '__search__', name: 'Search only', icon: 'search', placeholder: '' };
+
+  it('is the warm start, with one avatar and its own hello', async () => {
+    expect(wantsLeadIntro([assistant, search])).toBe(true);
+
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <LeadIntro firstName="Chris" team={[{ slug: 'assistant', name: 'Assistant', personal: true, leadRole: 'personal assistant on Metacto' }]} onPick={vi.fn()} personal hint={<span data-testid="starter">Connect my Gmail and calendar</span>} />
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByTestId('lead-intro')).toHaveTextContent('Hi Chris — I\'m your personal assistant on Metacto.');
+    await expect.element(page.getByTestId('starter')).toBeVisible();
+    // Its starters, not the shared workspace's setup chip.
+    expect(page.getByTestId('lead-intro-setup').elements()).toHaveLength(0);
+  });
+
+  it('once named, it is that name', async () => {
+    await render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <LeadIntro firstName="Chris" team={[{ slug: 'assistant', name: 'Ziggy', givenName: 'Ziggy', personal: true, leadRole: 'personal assistant on Metacto' }]} onPick={vi.fn()} personal />
+      </NextIntlClientProvider>,
+    );
+
+    await expect.element(page.getByTestId('lead-intro')).toHaveTextContent('Hi Chris — I\'m Ziggy.');
   });
 });

@@ -86,6 +86,24 @@ describe('the opening hint (founder, 2026-10-09)', () => {
     expect(openingHints(input({ apps: [factory] }))).toHaveLength(1);
   });
 
+  it('offers several starters at once, fitted to the workspace, in place of the generic tour', () => {
+    const hints = openingHints(input({
+      person: { isAdmin: true, sessions: 1, messagesSent: 0 },
+      starters: [
+        { key: 'a', label: 'What emails do I owe replies to?', prompt: 'What emails do I owe replies to?', reason: 'Gmail is connected.', weight: 1.3 },
+        { key: 'b', label: 'Prep me for today\'s meetings', prompt: 'Prep me for today\'s meetings', reason: 'Calendar is connected.', weight: 1.25 },
+        { key: 'c', label: 'What\'s waiting on me across Northwind?', prompt: 'What\'s waiting on me across Northwind?', reason: 'Every workspace.', weight: 1.2 },
+      ],
+    }));
+
+    expect(hints.map(h => [h.type, h.label])).toEqual([
+      ['starter', 'What emails do I owe replies to? →'],
+      ['starter', 'Prep me for today\'s meetings →'],
+      ['starter', 'What\'s waiting on me across Northwind? →'],
+    ]);
+    expect(openingHints(input({ person: { isAdmin: true, sessions: 1, messagesSent: 0 } }))[0]!.type).toBe('capability');
+  });
+
   it('scales attention by count, what blocks a run, and age; an FYI is quieter', () => {
     const fyi = openingHints(input({ waiting: [{ kind: 'fyi', ageHours: 1, blocksRun: false }, { kind: 'fyi', ageHours: 1, blocksRun: false }] }))[0]!;
     const blocking = openingHints(input({ waiting: [{ kind: 'approval', ageHours: 30, blocksRun: true }, { kind: 'fyi', ageHours: 1, blocksRun: false }] }))[0]!;
