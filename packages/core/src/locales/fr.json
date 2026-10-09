@@ -744,5 +744,29 @@
     "detail_not_granted": "non accordé à l'application",
     "detail_not_listed": "accordé, absent de la liste de cette connexion",
     "detail_not_granted_fix": "{count, plural, one {Un dépôt listé par cette connexion n'est pas dans l'installation, la synchronisation ne peut donc pas le lire.} other {# dépôts listés par cette connexion ne sont pas dans l'installation, la synchronisation ne peut donc pas les lire.}} Ajoutez-les chez le fournisseur, ou retirez-les de la liste."
+  },
+  "WorkspacesPage": {
+    "title": "Tous les espaces",
+    "description": "Votre espace personnel, puis chaque espace que vous pouvez ouvrir.",
+    "search": "Rechercher un espace",
+    "new_workspace": "Nouvel espace",
+    "agents": "{count, plural, one {# agent} other {# agents}}",
+    "active": "actif {ago}",
+    "empty": "Vide",
+    "current": "Actuel",
+    "waiting": "{count} vous attendent",
+    "show_archived": "Afficher les archivés ({count})",
+    "hide_archived": "Masquer les archivés",
+    "archived": "Archivés",
+    "no_match": "Aucun espace ne correspond.",
+    "none": "Aucun espace pour l’instant.",
+    "loading": "Chargement…",
+    "new_title": "Nouvel espace",
+    "new_description": "Son responsable vous aidera à le configurer dans le chat.",
+    "new_in_org": "Dans {org}",
+    "new_name": "Nom",
+    "new_create": "Créer",
+    "new_cancel": "Annuler",
+    "new_failed": "Impossible de le créer : {reason}"
   }
 }

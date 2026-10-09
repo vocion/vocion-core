@@ -13,6 +13,7 @@
 import type { SQL } from 'drizzle-orm';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { workspaceDisplayName } from '@/libs/workspaceName';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
 import { accessibleProjectIds, effectiveRole, enforcementEnabled, resolveActiveWorkspace, visibleWorkspace } from '@/services/WorkspaceAccessService';
 
@@ -29,7 +30,22 @@ export type ProjectSummary = {
   agentCount: number;
   /** Archived: the switcher hides it with the empty ones, and nothing lands on it by default. */
   archived?: boolean;
+  /**
+   * True when the stored name was only an address (a slug, an id, or the
+   * `Project <id>` a backfill wrote) and `name` was recovered from it
+   * (`libs/workspaceName.ts`). A list ranks these below real workspaces.
+   */
+  placeholder?: boolean;
 };
+
+/**
+ * A summary as a person reads it: never a raw slug or id for a name.
+ * @param p - As selected.
+ */
+function readable<T extends { id: string; slug: string; name: string }>(p: T): T & { placeholder?: boolean } {
+  const shown = workspaceDisplayName(p);
+  return shown.placeholder ? { ...p, name: shown.name, placeholder: true } : p;
+}
 
 /** An account a user belongs to — the switcher's eyebrow and its group headings. */
 export type AccountSummary = { id: string; name: string; slug: string };
@@ -120,11 +136,11 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
     .innerJoin(accountMembershipSchema, membershipInProjectAccount(userId))
     .where(visibleWorkspace(userId));
   if (!enforcementEnabled()) {
-    return all;
+    return all.map(readable);
   }
   // The switcher shows what a person holds, not what the account owns.
   const reachable = new Set(await accessibleProjectIds(userId));
-  return all.filter(p => reachable.has(p.id));
+  return all.filter(p => reachable.has(p.id)).map(readable);
 }
 
 /**
@@ -184,7 +200,7 @@ export async function resolveProjectForUser(
     // difference between them is itself a disclosure.
     return null;
   }
-  return project;
+  return readable(project);
 }
 
 /**

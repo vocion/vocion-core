@@ -19,6 +19,8 @@ export type SwitcherProject = {
   agentCount?: number;
   /** Archived: never listed, unless it is the current one. */
   archived?: boolean;
+  /** Its stored name was only an address and was recovered (`libs/workspaceName.ts`): listed below the real ones. */
+  placeholder?: boolean;
 };
 
 /** An Org (`tenant_account`) the person belongs to, as the switcher labels it. */
@@ -121,12 +123,14 @@ export function accountLine(workspaceName: string | null | undefined, accountNam
  */
 export function filterProjects<T extends SwitcherProject>(projects: T[], opts: { query?: string; activeId?: string | null }): T[] {
   const q = (opts.query ?? '').trim().toLowerCase();
-  return projects.filter((p) => {
+  const kept = projects.filter((p) => {
     if (p.archived === true && p.id !== opts.activeId) {
       return false;
     }
     return q === '' || p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q);
   });
+  // A placeholder never outranks a real workspace; otherwise the order is kept.
+  return [...kept.filter(p => !p.placeholder), ...kept.filter(p => p.placeholder)];
 }
 
 /**

@@ -361,6 +361,14 @@ export default defineConfig<ChromaticConfig>({
       timeout: projectTimeout(240 * 1000, 120 * 1000),
       use: { ...devices['iPhone 14'], browserName: 'chromium' as const },
     },
+    // The All workspaces page on a phone: order, search, keyboard, opening a
+    // row. Self-seeding. Run with: npx playwright test --project=all-workspaces
+    {
+      name: 'all-workspaces',
+      testDir: './e2e/all-workspaces',
+      timeout: projectTimeout(180 * 1000, 90 * 1000),
+      use: { ...devices['iPhone 14'], browserName: 'chromium' as const },
+    },
     {
       name: 'credentials',
       testDir: './e2e/credentials',
