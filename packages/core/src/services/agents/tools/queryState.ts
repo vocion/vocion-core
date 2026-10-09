@@ -168,7 +168,8 @@ export function queryStateTool(ctx: RuntimeContext) {
     {
       name: 'query_state',
       // The one way to state questions: loaded from day one, never behind tool search (`toolTiers.ts`).
-      metadata: { alwaysLoaded: true },
+      // A read that does not change within a turn: a repeat is answered from the first (turn evidence).
+      metadata: { alwaysLoaded: true, turnMemo: true },
       description: [
         'What is in a given STATE right now, read from the records and the synced index in one call: email replies owed or awaited, meetings to prepare for, stale deals, overdue tasks, reviews requested, overdue invoices, Slack mentions, decisions waiting on the person, broken connections. Use it for any "what do I need to…", "what is waiting / overdue / stale / next" question instead of searching for phrases.',
         `Run a saved VIEW by slug (core views: ${views}; the person and workspace may have more — list: true shows them), or compose a query: sets (kinds) + filter (facets) + sort.`,

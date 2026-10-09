@@ -580,4 +580,10 @@ export type RuntimeContext = {
    * (`compileAgentForRequest`), so one turn's numbers are only ever its own.
    */
   citationSeq: { current: number };
+  /**
+   * What this turn has already searched for and found (`runtimeContext.ts`, turn evidence):
+   * shared by the lead's tools and every teammate's, so a repeat search is
+   * answered from memory and a consult starts from what the lead has.
+   */
+  evidence?: import('./runtimeContext').TurnEvidence;
 };
