@@ -140,13 +140,11 @@ export function defaultVerdict(f: DefaultFacts): DefaultVerdict {
   if (f.escalations < 1) {
     return { mode: 'hold', reason: 'nobody has been told about it yet', basis: null };
   }
-  // Before inert: a kind the platform holds is a person's call either way. A
-  // candidate the agent advised against is still a record someone should see.
-  if (f.neverAuto) {
-    return { mode: 'hold', reason: 'held at approval by the platform: a person decides', basis: null };
-  }
   if (f.inert) {
     return { mode: 'apply', reason: 'nothing runs: it was turned down as the agent advised', basis: 'inert' };
+  }
+  if (f.neverAuto) {
+    return { mode: 'hold', reason: 'held at approval by the platform: a person decides', basis: null };
   }
   if (f.heldForPerson) {
     return { mode: 'hold', reason: f.heldForPerson, basis: null };

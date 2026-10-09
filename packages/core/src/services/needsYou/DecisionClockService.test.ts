@@ -255,13 +255,22 @@ describe('at the deadline', () => {
     expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'applied' });
   });
 
-  it('leaves a never-auto proposal the agent advised against for a person', async () => {
+  it('leaves a candidate the agent advised against for a person to decline', async () => {
     const run = await propose(ORG, 'objects.propose_candidate', 'reject', { objectType: 'event-candidate', title: 'Baby Time' });
 
     await toDeadline();
 
     expect(actions.rejectAction).not.toHaveBeenCalled();
-    expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/held at approval by the platform/) });
+    expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'held', outcomeReason: expect.stringMatching(/a person decides what is declined/) });
+  });
+
+  it('still turns down a never-auto send the agent advised against: only a kind that asks keeps its declines', async () => {
+    const run = await propose(ORG, 'gmail.send', 'reject', { to: 'buyer@acme.example', subject: 'Hello', body: 'Hi' });
+
+    await toDeadline();
+
+    expect(actions.rejectAction).toHaveBeenCalledWith(run.id, ORG, expect.stringMatching(/Declined by default/), { reviewedBy: DEFAULT_DECIDER });
+    expect(await clockOf('proposal', run.id)).toMatchObject({ status: 'applied' });
   });
 
   it('releases a reversible, low-risk proposal and stamps it as applied by default', async () => {

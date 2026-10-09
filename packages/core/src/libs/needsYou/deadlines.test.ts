@@ -86,13 +86,6 @@ describe('defaultVerdict', () => {
     expect(verdict.reason).toMatch(reason);
   });
 
-  it('holds a never-auto kind even when declining it would run nothing', () => {
-    const verdict = defaultVerdict({ ...BASE, defaultOption: 'reject', inert: true, neverAuto: true });
-
-    expect(verdict.mode).toBe('hold');
-    expect(verdict.reason).toMatch(/held at approval by the platform/);
-  });
-
   it('holds a never-auto kind even when its rung would automate', () => {
     expect(defaultVerdict({ ...BASE, neverAuto: true, rung: 'autonomous' }).mode).toBe('hold');
   });

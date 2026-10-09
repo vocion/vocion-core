@@ -970,6 +970,9 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   // autonomy gate must hold it for a human. Also on ActionService's
   // never-auto list: no trust rule can clear a candidate unreviewed.
   external: true,
+  // The agent advising against a candidate is a reading of it, not a decision:
+  // a person still sees it before it is declined.
+  declineNeedsPerson: true,
 
   // Per candidate, never per page. Values are normalised so casing and
   // punctuation drift between two extractions cannot split one thing in two.
