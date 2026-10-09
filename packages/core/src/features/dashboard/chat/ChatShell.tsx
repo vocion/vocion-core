@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { InlineTitle } from '@/components/ui/inline-title';
 import { ShellBarActionsPortal, ShellBarTitlePortal } from '@/features/dashboard/ShellBarActions';
+import { useDeclarePinTarget } from '@/features/pins/PinControls';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { openPreview, useOpenPreviewRef } from '@/features/preview/previewState';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
@@ -213,6 +214,13 @@ function ChatShellInner({
     };
   }, [intent, pathname]);
   const session = useChatSession({ agents, initialComposerValue, initialAttachments, suggestions, greeting, resumeConversationId: conversationId, pageContext });
+  // The thread on screen is what "Pin this chat", ⌘⇧P and ⌘K's "Pin this" pin:
+  // the page's address does not always say which thread is open.
+  const threadPin = session.conversationId !== null ? { id: session.conversationId, title: session.conversationTitle || 'Conversation' } : null;
+  useDeclarePinTarget(
+    threadPin ? { kind: 'conversation', id: String(threadPin.id) } : null,
+    threadPin ? { title: threadPin.title, href: `/dashboard/chat/${threadPin.id}` } : undefined,
+  );
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
@@ -406,6 +414,7 @@ function ChatShellInner({
         <ChatHeaderActions
           onNewChat={startNewChat}
           onCopy={session.messages.length > 0 ? () => transcriptOf(session.messages, session.workspaceName) : null}
+          pin={threadPin}
           history={{
             recent: session.recentChats,
             currentId: session.conversationId,

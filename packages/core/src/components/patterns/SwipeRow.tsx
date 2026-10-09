@@ -221,8 +221,10 @@ export function SwipeRow({ swipe, children }: { swipe: RowSwipe; children: React
  * Undo window. The way in for anyone who does not swipe — a screen reader, a
  * switch, a person who never found the gesture. Hidden from `sm` up, where
  * the inline buttons are.
+ * @param root0
+ * @param root0.extra
  */
-export function SwipeMenu() {
+export function SwipeMenu({ extra }: { extra?: ReactNode } = {}) {
   const ctx = use(SwipeContext);
   if (!ctx) {
     return null;
@@ -233,7 +235,7 @@ export function SwipeMenu() {
     .map(a => ({ label: a.label, icon: a.icon, onClick: () => trigger(a) }));
   return (
     <span className="shrink-0 sm:hidden">
-      <RowMenu items={items} label={`Actions: ${swipe.subject}`} />
+      <RowMenu items={items} label={`Actions: ${swipe.subject}`} extra={extra} />
     </span>
   );
 }

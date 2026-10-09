@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { stashChatAbout } from '@/features/dashboard/chat/agentSurface';
+import { PinButton } from '@/features/pins/PinControls';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { openInChatTarget } from './headerRules';
@@ -328,6 +329,8 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
       return props.shareHref
         ? <SharePicker artifactId={props.artifactId} title={props.title} dashboardHref={props.shareHref} className="size-7" />
         : null;
+    case 'pin':
+      return <PinButton target={{ kind: 'artifact', id: String(props.artifactId) }} title={props.title} href={`/dashboard/artifacts/${props.artifactId}`} className="size-7 rounded [&>svg]:size-3.5" />;
     case 'chat':
       return <OpenInChat artifactId={props.artifactId} title={props.title} conversationId={props.conversationId ?? null} />;
     case 'pdf':

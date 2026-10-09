@@ -125,7 +125,7 @@ import {
   start as startMissionRoute,
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
-import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, setPins as setNavPins } from './Nav';
+import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, pin as navPin, unpin as navUnpin, setPins as setNavPins } from './Nav';
 import { currentRoute as currentObjectiveRoute, resumeRoute as resumeObjectiveRoute, stopRoute as stopObjectiveRoute } from './Objectives';
 import { connectionsRoute as personalConnectionsRoute, createFeedRoute as personalCreateFeedRoute, disconnectRoute as personalDisconnectRoute, orgBriefsRoute as personalOrgBriefsRoute, orgReachRoute as personalOrgReachRoute, revokeFeedRoute as personalRevokeFeedRoute, rhythmRoute as personalRhythmRoute, setOrgBriefsRoute as personalSetOrgBriefsRoute, setOrgReachRoute as personalSetOrgReachRoute, setPolicyRoute as personalSetPolicyRoute, setRhythmRoute as personalSetRhythmRoute, voicesRoute as personalVoicesRoute } from './Personal';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
@@ -286,6 +286,8 @@ export const router = {
     getPrefs: getNavPrefs,
     gettingStarted: navGettingStarted,
     setPins: setNavPins,
+    pin: navPin,
+    unpin: navUnpin,
     dismiss: dismissNavPrompt,
   },
   teams: {

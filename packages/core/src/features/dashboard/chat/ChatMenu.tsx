@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { PinMenuItem } from '@/features/pins/PinControls';
 import { Link } from '@/libs/I18nNavigation';
 import { chatHotkeyLabel } from './chatHotkeys';
 
@@ -32,9 +33,11 @@ import { chatHotkeyLabel } from './chatHotkeys';
 export type ChatMenuProps = {
   /** The thread as plain text, built only when someone asks for it. Absent on a surface with nothing to copy yet. */
   onCopy?: (() => string) | null;
+  /** The open thread, when there is one: "Pin to sidebar" / "Unpin" for it. */
+  pin?: { id: number; title: string } | null;
 };
 
-export function ChatMenu({ onCopy }: ChatMenuProps) {
+export function ChatMenu({ onCopy, pin }: ChatMenuProps) {
   const t = useTranslations('Chat');
   const [copied, setCopied] = useState(false);
   // TAKING THE ANSWER WITH YOU.
@@ -74,6 +77,8 @@ export function ChatMenu({ onCopy }: ChatMenuProps) {
         <TooltipContent side="bottom" align="end" collisionPadding={8}>{t('chat_options')}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" collisionPadding={8} className="w-56">
+        {/* Pin this chat (founder, 2026-10-09): the thread on screen, kept in the sidebar. */}
+        {pin && <PinMenuItem target={{ kind: 'conversation', id: String(pin.id) }} title={pin.title} href={`/dashboard/chat/${pin.id}`} />}
         {onCopy && (
           <DropdownMenuItem
             data-testid="copy-conversation"

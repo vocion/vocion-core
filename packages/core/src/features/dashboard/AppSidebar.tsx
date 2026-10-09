@@ -24,7 +24,7 @@ import { checklistApplies, GettingStartedChecklist } from '@/features/dashboard/
 import { iconByName } from '@/features/dashboard/iconByName';
 import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
 import { AppRail } from '@/features/dashboard/nav/AppRail';
-import { applyPins, defaultPinDismissal, resolveWorkPins, withoutPins } from '@/features/dashboard/nav/navPins';
+import { applyPins, defaultPinDismissal, keyOf, resolveWorkPins, withoutPins } from '@/features/dashboard/nav/navPins';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { useWorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
@@ -36,7 +36,9 @@ import { appOwningPath, resolveActiveApp, workspaceSwitchPath } from '@/features
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
 import { groupEnabledSurfaces } from '@/features/navigation/surfaces';
+import { PIN_KIND_ICON } from '@/features/pins/PinControls';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { PINNED_SHOWN } from '@/libs/pins/pinTarget';
 
 /**
  * Dashboard left sidebar — the app rail (Vocion 5.0) and, beside it, the
@@ -349,8 +351,17 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     })),
   })), [viewer, label]);
 
-  const pinnable = useMemo(() => [...pageItems, ...manageItems], [pageItems, manageItems]);
+  // Pinned objects — a chat, a doc, a wiki page, a data room, a view, a
+  // record — read live by the server as this person (`services/pins`): a
+  // deleted one, or one they can no longer open, is simply not in the list.
+  const objectItems = useMemo<PinnableItem[]>(
+    () => prefs.objects.map(o => ({ title: o.title, url: o.href, pinKey: o.key, icon: PIN_KIND_ICON[o.kind], origin: 'object' as const })),
+    [prefs.objects],
+  );
+  const pinnable = useMemo(() => [...pageItems, ...manageItems, ...objectItems], [pageItems, manageItems, objectItems]);
   const pinned = applyPins(pinnable, prefs.pins);
+  // A drag or a Move lands among the rows the person sees, never among hidden pins.
+  const movePinned = (key: string, toIndex: number) => prefs.movePin(key, toIndex, pinned.map(keyOf));
   const unpinnedPages = withoutPins(pageItems, prefs.pins);
   const pagesPrimaryFirst = useMemo(
     () => [...unpinnedPages].sort((a, b) => Number(secondaryUrls.has(a.url)) - Number(secondaryUrls.has(b.url))),
@@ -389,6 +400,24 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   );
 
   const pinLabels = { moreLabel: t('more_pages'), pinLabel: t('pin'), unpinLabel: t('unpin') };
+  // The Pinned group: about eight rows, then "More…"; reorder by drag, by
+  // Alt+↑/↓ on a focused row, or from a row's ⋯.
+  const pinnedGroup = (
+    <PinnableNav
+      label={t('pinned')}
+      items={pinned}
+      pins={prefs.pins}
+      onTogglePin={prefs.togglePin}
+      onMovePin={movePinned}
+      max={PINNED_SHOWN}
+      reorderable
+      {...pinLabels}
+      moreLabel={t('pinned_more')}
+      moveUpLabel={t('pin_move_up')}
+      moveDownLabel={t('pin_move_down')}
+      rowMenuLabel={t('pinned_options')}
+    />
+  );
 
   const manageRow = (
     <div className="px-2 pb-1 group-data-[collapsible=icon]:px-0">
@@ -462,18 +491,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                   />
 
                   {/* PINNED — this person's pins, in pin order, draggable. */}
-                  {pinned.length > 1 && (
-                    <PinnableNav
-                      label={t('pinned')}
-                      items={pinned}
-                      pins={prefs.pins}
-                      onTogglePin={prefs.togglePin}
-                      onMovePin={prefs.movePin}
-                      max={99}
-                      reorderable
-                      {...pinLabels}
-                    />
-                  )}
+                  {pinned.length > 1 && pinnedGroup}
 
                   {/* PAGES — the workspace's own pages. A page that declared
                       itself `nav.secondary` sits under "More" however few pages
@@ -538,9 +556,7 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                   </div>
                   {/* MANAGE — who works for you + the shapes their work takes.
                       Every row is pinnable into the WORK view's Pinned group. */}
-                  {pinned.length > 0 && (
-                    <PinnableNav label={t('pinned')} items={pinned} pins={prefs.pins} onTogglePin={prefs.togglePin} onMovePin={prefs.movePin} max={99} reorderable {...pinLabels} />
-                  )}
+                  {pinned.length > 0 && pinnedGroup}
                   {manageSections.map(manageGroup)}
                   <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />
                 </>

@@ -51,9 +51,9 @@ describe('NavPrefService', () => {
     expect(prefs.pins).toEqual(['/dashboard/teams']);
   });
 
-  it('caps at 40 pins', async () => {
-    const many = Array.from({ length: 45 }, (_, i) => `/p/${i}`);
+  it('caps at 60 pins (sections and objects together)', async () => {
+    const many = Array.from({ length: 65 }, (_, i) => `/p/${i}`);
 
-    expect((await setNavPins({ orgId: ORG, userId: 'u1', pins: many })).pins).toHaveLength(40);
+    expect((await setNavPins({ orgId: ORG, userId: 'u1', pins: many })).pins).toHaveLength(60);
   });
 });

@@ -5,6 +5,7 @@ import { BookOpen, ChevronLeft, ChevronRight, History, Pencil, Search } from 'lu
 import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PinButton } from '@/features/pins/PinControls';
 import { Link } from '@/libs/I18nNavigation';
 import { filterWikiPages, orderWikiPages, rewriteWikiLink, wikiHome, wikiNeighbours, wikiSections } from '@/libs/wiki/reading';
 import { cn } from '@/utils/Helpers';
@@ -47,6 +48,12 @@ function formatDate(d: Date): string {
 function authorLabel(kind: string): string {
   return kind === 'agent' ? 'an agent' : kind === 'human' ? 'a person' : kind === 'system' ? 'the workspace' : kind;
 }
+
+/**
+ * `/dashboard/p/wiki` → `wiki`: the page a wiki lives on.
+ * @param base
+ */
+const pageSlugOf = (base: string) => base.split('/').filter(Boolean).pop() ?? '';
 
 export function WikiView({ base, pages, current, guideHref, editBase }: Props) {
   const editHref = (page: WikiReadingPage) => `${editBase}/${page.id}`;
@@ -138,6 +145,13 @@ export function WikiView({ base, pages, current, guideHref, editBase }: Props) {
               </span>
               {current.tags.map(t => <span key={t} className="rounded-full border border-rule px-2 py-px font-mono text-[10.5px]">{t}</span>)}
               <span className="ml-auto flex items-center gap-3">
+                {/* The page on its own (home is the wiki page itself, pinned from its nav row). */}
+                <PinButton
+                  target={isHome ? { kind: 'page', id: pageSlugOf(base) } : { kind: 'wiki', id: `${pageSlugOf(base)}/${current.slug}` }}
+                  title={current.title}
+                  href={isHome ? base : `${base}/${current.slug}`}
+                  className="size-6 [&>svg]:size-3.5"
+                />
                 <Link href={editHref(current)} className="inline-flex items-center gap-1 hover:text-foreground">
                   <Pencil className="size-3.5" aria-hidden />
                   Edit

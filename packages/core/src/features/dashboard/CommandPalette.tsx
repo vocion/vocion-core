@@ -1,17 +1,21 @@
 'use client';
 
 import type { PaletteCodeHit, PaletteConversation, PaletteEntity, PaletteRow } from '@/features/dashboard/palette/paletteGroups';
-import { BookOpen, Bot, Compass, Hash, Loader, LogOut, MessageSquare, MessagesSquare, Moon, Network, PanelLeft, PanelRight, Plus, Search, Sparkles, Sun } from 'lucide-react';
+import { BookOpen, Bot, Compass, Hash, Loader, LogOut, MessageSquare, MessagesSquare, Moon, Network, PanelLeft, PanelRight, Pin, Plus, Search, Sparkles, Sun } from 'lucide-react';
 import { signOut } from 'next-auth/react';
+import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut } from '@/components/ui/command';
+import { toast } from '@/components/ui/toast';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { focusAgentComposer, requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { COMMAND_PALETTE_EVENT } from '@/features/dashboard/commandPaletteEvent';
+import { pinPath, pinTarget, unpinKey, usePin } from '@/features/dashboard/nav/useNavPrefs';
 import { buildPaletteGroups, codeRowValue, paletteFilter } from '@/features/dashboard/palette/paletteGroups';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
+import { useCurrentPinTarget } from '@/features/pins/PinControls';
 import { parseCode } from '@/libs/codes';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -43,6 +47,46 @@ export function CommandPalette({ isAdmin = false, enabledPlugins, agents = [] }:
   const pathname = usePathname();
   const { setTheme, resolvedTheme } = useTheme();
   const { toggleSidebar } = useSidebar();
+  const t = useTranslations('DashboardLayout');
+  // What "this" is: the thing the page is about, when it is pinnable.
+  const here = useCurrentPinTarget();
+  const { pinned: herePinned, key: hereKey } = usePin(here?.target ?? null);
+  // A keyboard pin has no button to change, so it says what it did, with Undo.
+  const togglePinHere = async () => {
+    if (!here || !hereKey) {
+      return;
+    }
+    const { target, known } = here;
+    if (herePinned) {
+      await unpinKey(hereKey);
+      toast.success(t('unpinned'), { action: { label: 'Undo', onClick: () => void pinTarget(target, known) } });
+      return;
+    }
+    // A declared thing pins as itself; a page read from its path is checked by the server.
+    const res = known ? await pinTarget(target, known) : await pinPath(pathname);
+    if (res.ok) {
+      toast.success(t('pinned'), { action: { label: 'Undo', onClick: () => void unpinKey(hereKey) } });
+    } else {
+      toast.error(res.error ?? t('pin_this'));
+    }
+  };
+  const togglePinRef = useRef(togglePinHere);
+  useEffect(() => {
+    togglePinRef.current = togglePinHere;
+  });
+
+  // ⌘⇧P pins (or unpins) the thing on screen, from anywhere on the page.
+  useEffect(() => {
+    function onPinKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.key.toLowerCase() !== 'p' || e.defaultPrevented) {
+        return;
+      }
+      e.preventDefault();
+      void togglePinRef.current();
+    }
+    window.addEventListener('keydown', onPinKey);
+    return () => window.removeEventListener('keydown', onPinKey);
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -134,7 +178,8 @@ export function CommandPalette({ isAdmin = false, enabledPlugins, agents = [] }:
     conversations,
     codeHit,
     themeIsDark: resolvedTheme === 'dark',
-  }), [query, isAdmin, enabledPlugins, agents, teams, missions, conversations, codeHit, resolvedTheme]);
+    pinHere: here ? { pinned: herePinned, pinLabel: t('pin_this'), unpinLabel: t('unpin_this') } : null,
+  }), [query, isAdmin, enabledPlugins, agents, teams, missions, conversations, codeHit, resolvedTheme, here, herePinned, t]);
 
   const close = () => {
     setOpen(false);
@@ -205,6 +250,10 @@ export function CommandPalette({ isAdmin = false, enabledPlugins, agents = [] }:
       case 'sign-out':
         close();
         void signOut({ callbackUrl: '/sign-in' });
+        return;
+      case 'pin-this':
+        close();
+        void togglePinHere();
     }
   };
 
@@ -267,6 +316,7 @@ function RowIcon({ row }: { row: PaletteRow }) {
     case 'toggle-theme': return row.label.includes('light') ? <Sun /> : <Moon />;
     case 'docs': return <BookOpen />;
     case 'sign-out': return <LogOut />;
+    case 'pin-this': return <Pin />;
     default: return <Search />;
   }
 }

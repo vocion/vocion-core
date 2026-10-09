@@ -9,6 +9,7 @@ import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { RoomKnowledge } from '@/features/dashboard/rooms/RoomKnowledge';
 import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
+import { PinButton } from '@/features/pins/PinControls';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { artifactHref } from '@/libs/tools/artifacts/url';
@@ -94,6 +95,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
         )}
         actions={(
           <div className="flex items-center gap-2">
+            <PinButton target={{ kind: 'room', id: String(room.id) }} title={room.title} href={roomHref(room.id)} />
             <a href={`/api/v1/rooms/${room.id}/export`} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground hover:bg-surface-hover" data-room-export>
               <Download className="size-3.5" aria-hidden />
               Download context

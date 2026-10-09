@@ -40,6 +40,7 @@ export default async function DataRoomsPage(props: { params: Promise<{ locale: s
                     href={roomHref(r.id)}
                     icon={FolderOpen}
                     title={r.title}
+                    pin={{ target: { kind: 'room', id: String(r.id) }, title: r.title }}
                     subline={<Subline segments={[m.client, anchor ? `${anchor.system ? `${anchor.system} ` : ''}${anchor.type}` : null, m.stage, m.status ? `${m.status.slice(0, 90)}${m.status.length > 90 ? '…' : ''}` : null]} />}
                     columns={(
                       <>

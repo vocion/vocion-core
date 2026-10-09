@@ -1,6 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -24,9 +25,10 @@ export type RowMenuItem
  * @param props
  * @param props.items - Links or actions, in order.
  * @param props.label - What the control is called for a screen reader and the tooltip.
+ * @param props.extra - Items that carry their own state (Pin to sidebar / Unpin), first in the menu.
  */
-export function RowMenu({ items, label = 'More' }: { items: RowMenuItem[]; label?: string }) {
-  if (items.length === 0) {
+export function RowMenu({ items, label = 'More', extra }: { items: RowMenuItem[]; label?: string; extra?: ReactNode }) {
+  if (items.length === 0 && !extra) {
     return null;
   }
   return (
@@ -47,6 +49,7 @@ export function RowMenu({ items, label = 'More' }: { items: RowMenuItem[]; label
         <TooltipContent>{label}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end">
+        {extra}
         {items.map((item) => {
           const Icon = item.icon;
           return 'href' in item
