@@ -134,3 +134,53 @@ describe('the answer pass continues the real conversation (conversation 384)', (
     expect(calls).toEqual(['recommend_action']);
   });
 });
+
+describe('the source check', () => {
+  const answer = 'Jamie Smith at Contoso wants pricing for 40 seats by Friday [1]. Their budget is $80,000. Pat Lee asked for a call next week [2].';
+  const sources = [
+    { n: 1, title: 'Pricing for the managed service', source: 'gmail', snippet: 'Could you send pricing for 40 seats? We decide Friday.' },
+    { n: 2, title: 'Re: Agents for your field team', source: 'gmail', snippet: 'Interesting. Could we talk next week?' },
+  ];
+
+  it('reads the answer against the snippets it cited', async () => {
+    const { groundingPrompt } = await import('./answerBackstop');
+    const prompt = groundingPrompt(answer, sources);
+
+    expect(prompt).toContain('[1] Pricing for the managed service (gmail) — Could you send pricing for 40 seats?');
+    expect(prompt).toContain('ANSWER:\nJamie Smith');
+  });
+
+  it('keeps only flags whose quote is in the answer, typed', async () => {
+    const { parseGroundingFlags } = await import('./answerBackstop');
+    const flags = parseGroundingFlags(JSON.stringify({ flags: [
+      { quote: 'Their budget is $80,000', kind: 'amount', issue: 'unsupported' },
+      { quote: 'They signed last week', kind: 'date', issue: 'unsupported' },
+      { quote: 'Pat Lee asked for a call next week', kind: 'weird', issue: 'uncited' },
+    ] }), answer);
+
+    expect(flags).toEqual([
+      { quote: 'Their budget is $80,000', kind: 'amount', issue: 'unsupported' },
+      { quote: 'Pat Lee asked for a call next week', kind: 'other', issue: 'uncited' },
+    ]);
+    expect(parseGroundingFlags('not json', answer)).toEqual([]);
+  });
+
+  it('marks rather than rewrites, and never fails the turn', async () => {
+    const { checkGrounding, groundingStep } = await import('./answerBackstop');
+    const checked = await checkGrounding({ orgId: 'org-grounding', answer, sources, model: async () => ({ text: '{"flags":[{"quote":"Their budget is $80,000","kind":"amount","issue":"unsupported"}]}' }) });
+
+    expect(checked).toMatchObject({ ran: true, flags: [{ quote: 'Their budget is $80,000' }] });
+
+    const step = groundingStep(checked.flags);
+
+    expect(step.label).toBe('Checked the answer against its sources');
+    expect(step.detail).toBe('1 unverified');
+    expect(step.resultDetail).toContain('not in the sources');
+
+    const broken = await checkGrounding({ orgId: 'org-grounding', answer, sources, model: async () => {
+      throw new Error('no key');
+    } });
+
+    expect(broken).toMatchObject({ ran: false, flags: [] });
+  });
+});

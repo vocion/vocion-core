@@ -1697,7 +1697,23 @@ export async function runAgentDeep(opts: {
     ceilingHit: ceilings.reached(),
     next: effortMod.nextLevel(effortDecision.level),
   };
-  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length }, metadata: { usage: runUsageSummary(usage), ...(effortResult ? { effort: effortResult } : {}) } });
+  // THE SOURCE CHECK (`agents/answerBackstop.ts`): a person's turn that cited
+  // sources has its answer read against them by a small model, and any
+  // specific the sources do not carry lands as a step on the turn, marked
+  // unverified. Marked, never rewritten: the answer has streamed, and an
+  // agent's words are not edited after it writes them.
+  let grounding: { ran: boolean; flags: import('./agents/answerBackstop').GroundingFlag[]; ms: number } | null = null;
+  if (effortDecision && boundCtx.evidence && boundCtx.evidence.sources.size > 0 && normalizeAnswerHtml(finalText).trim().length > 0) {
+    const { checkGrounding, groundingStep } = await import('./agents/answerBackstop');
+    grounding = await checkGrounding({ orgId: opts.orgId, answer: finalText, sources: [...boundCtx.evidence.sources.values()], now: clock });
+    console.warn('agent turn: answer source check', { orgId: opts.orgId, agentSlug: opts.agentSlug, ran: grounding.ran, flags: grounding.flags.length, ms: grounding.ms, sources: boundCtx.evidence.sources.size });
+    if (grounding.flags.length > 0) {
+      const step = groundingStep(grounding.flags);
+      const now = Date.now();
+      emit({ type: 'trace_node', id: `source-check-${trace.id}`, actor: { id: 'lead', kind: 'lead', name: compiled.agentRow.name ?? compiled.agentRow.slug ?? 'Assistant' }, kind: 'tool', status: 'done', tool: 'source_check', startedAt: now - grounding.ms, endedAt: now, ...step } as never);
+    }
+  }
+  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length }, metadata: { usage: runUsageSummary(usage), ...(effortResult ? { effort: effortResult } : {}), ...(grounding ? { grounding: { ran: grounding.ran, ms: grounding.ms, flags: grounding.flags } } : {}) } });
   if (effortResult) {
     emit({ type: 'effort_result', ...effortResult });
   }

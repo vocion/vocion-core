@@ -253,7 +253,7 @@ export async function runtimeContextForAgent(
  *     and the teammate is told not to repeat them.
  */
 
-export type EvidenceSource = { n: number; title: string; source: string; documentId?: string; link?: string; at?: string };
+export type EvidenceSource = { n: number; title: string; source: string; documentId?: string; link?: string; at?: string; snippet?: string };
 export type EvidenceSearch = { query: string; key: string; numbers: number[]; output: string; hits: number };
 
 export type TurnEvidence = {
@@ -301,7 +301,7 @@ export function searchKey(tool: string, args: Record<string, unknown>): string {
  * @param ev - The ledger.
  * @param documents - The event's documents, each with its citation number.
  */
-export function noteSources(ev: TurnEvidence, documents: ReadonlyArray<{ citationIndex?: number; semantic_identifier?: string; source_type?: string; document_id?: string; link?: string; updated_at?: string }>): void {
+export function noteSources(ev: TurnEvidence, documents: ReadonlyArray<{ citationIndex?: number; semantic_identifier?: string; source_type?: string; document_id?: string; link?: string; updated_at?: string; blurb?: string }>): void {
   for (const d of documents) {
     if (typeof d.citationIndex === 'number' && !ev.sources.has(d.citationIndex)) {
       ev.sources.set(d.citationIndex, {
@@ -311,6 +311,8 @@ export function noteSources(ev: TurnEvidence, documents: ReadonlyArray<{ citatio
         ...(d.document_id ? { documentId: d.document_id } : {}),
         ...(d.link ? { link: d.link } : {}),
         ...(d.updated_at ? { at: d.updated_at } : {}),
+        // What the turn read of it, for the answer's source check (`answerBackstop.ts`).
+        ...(d.blurb ? { snippet: d.blurb.replace(/\s+/g, ' ').trim().slice(0, 400) } : {}),
       });
     }
   }
