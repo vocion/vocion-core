@@ -1,7 +1,7 @@
 /**
  * LIVE: a consult over the fictional inbox on a real model, measuring what the
  * turn re-reads — input tokens, tool calls, repeats — for the evidence
- * hand-off, the search memo and compact results (`turnEvidence.ts`). Prints
+ * hand-off, the search memo and compact results (`runtimeContext.ts`, turn evidence). Prints
  * one `EVIDENCE_LIVE` line. Opt-in, like every vendor-calling test:
  *
  *   LIVE_MODEL_E2E=1 LIVE_ANTHROPIC_API_KEY=… LIVE_OPENAI_API_KEY=… \

@@ -18,8 +18,8 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { describeFacets, validateFacetFilter } from '@/libs/retrieval/facets';
 import { search } from '@/services/RetrievalService';
+import { repeatNote, searchKey } from '../runtimeContext';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
-import { repeatNote, searchKey } from '../turnEvidence';
 
 /** Hits shown when the agent's search config names no number: enough to judge, few enough to re-read every step. */
 export const DEFAULT_SHOWN_HITS = 8;
@@ -44,7 +44,7 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       }
       const sinceDate = since && !Number.isNaN(Date.parse(since)) ? new Date(since) : undefined;
       // The same search twice in one turn — by the lead or a teammate it
-      // consulted — is answered from the first (`turnEvidence.ts`).
+      // consulted — is answered from the first (`runtimeContext.ts`, turn evidence).
       const key = searchKey('search_knowledge', { query, source_types, metadata_filters, facets, since });
       const prior = ctx.evidence?.searches.get(key);
       if (prior) {

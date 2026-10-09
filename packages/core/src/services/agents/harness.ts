@@ -62,9 +62,8 @@ import { deriveDelegationRoster } from './delegationRoster';
 import { createLegworkThinkingMiddleware, legworkConfig, stepThinkingDiffers } from './effort';
 import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
-import { agentScope, runtimeContextFromScope } from './runtimeContext';
+import { agentScope, createEvidenceHandoffMiddleware, createLookupMemoMiddleware, runtimeContextFromScope } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
-import { createEvidenceHandoffMiddleware, createLookupMemoMiddleware } from './turnEvidence';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of agent blueprints — never of per-request state          */

@@ -1,5 +1,5 @@
 /**
- * Turn evidence (`turnEvidence.ts`): a repeated search is answered from the
+ * Turn evidence (`runtimeContext.ts`): a repeated search is answered from the
  * first, a source keeps its number, hits are snippets, and a consult starts
  * from what the turn already has. Regression for trace c126f3ca, where one
  * person's name was searched three times and the consult re-ran the lead's
@@ -14,7 +14,7 @@ vi.mock('@/services/RetrievalService', () => ({ search: vi.fn() }));
 
 const { search } = await import('@/services/RetrievalService');
 const { searchKnowledgeTool } = await import('./tools/searchKnowledge');
-const { createEvidenceHandoffMiddleware, evidenceBlock, newTurnEvidence, noteSources, searchKey } = await import('./turnEvidence');
+const { createEvidenceHandoffMiddleware, evidenceBlock, newTurnEvidence, noteSources, searchKey } = await import('./runtimeContext');
 const { runtimeContextFromScope } = await import('./runtimeContext');
 
 const hit = (documentId: number, title: string, content: string): SearchHit => ({
@@ -114,7 +114,7 @@ describe('the consult hand-off', () => {
 describe('the lookup memo', () => {
   it('answers a repeated read from the first, only for tools that declare it', async () => {
     const { ToolMessage } = await import('@langchain/core/messages');
-    const { createLookupMemoMiddleware } = await import('./turnEvidence');
+    const { createLookupMemoMiddleware } = await import('./runtimeContext');
     const ev = newTurnEvidence();
     let runs = 0;
     const handler = async (r: { toolCall: { id: string; name: string } }) => {

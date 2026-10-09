@@ -581,9 +581,9 @@ export type RuntimeContext = {
    */
   citationSeq: { current: number };
   /**
-   * What this turn has already searched for and found (`turnEvidence.ts`):
+   * What this turn has already searched for and found (`runtimeContext.ts`, turn evidence):
    * shared by the lead's tools and every teammate's, so a repeat search is
    * answered from memory and a consult starts from what the lead has.
    */
-  evidence?: import('./turnEvidence').TurnEvidence;
+  evidence?: import('./runtimeContext').TurnEvidence;
 };

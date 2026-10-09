@@ -261,7 +261,7 @@ export function waitingOnMeTools(ctx: RuntimeContext) {
     },
     {
       name: 'waiting_on_me',
-      // A read that does not change within a turn: a repeat is answered from the first (`turnEvidence.ts`).
+      // A read that does not change within a turn: a repeat is answered from the first (`runtimeContext.ts`, turn evidence).
       metadata: { turnMemo: true },
       description: [
         'What is waiting on the person you are talking to, read from the records: decisions on them in the review queue (asks, approvals, proposed actions), follow-ups they owe on asks they raised, email replies they owe from their own mailbox, and their unread mentions and notices — each with a link and how long it has waited, in the order to take it.',
