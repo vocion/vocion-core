@@ -134,6 +134,14 @@ Scripts and CI snippets copied from a Linux runner often wrap a command in
 fails with `command not found` and reads as the wrapped command failing. Use
 `gtimeout` (`brew install coreutils`) or drop the wrapper locally.
 
+## Exports used by extensions
+
+Some of core's exports are imported by the enterprise extension, which is
+built into core but tested outside this repository. Treat those exports as
+public API: don't remove, rename, or turn them type-only without coordinating
+the change. The list is in
+[docs/guides/extensions.md](docs/guides/extensions.md#exports-an-extension-imports).
+
 ## Before you push
 
 Run these locally (the pre-commit hook also handles auto-fix + type check +
