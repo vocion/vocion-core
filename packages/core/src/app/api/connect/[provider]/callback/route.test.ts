@@ -11,6 +11,8 @@ vi.mock('@/libs/Env', () => ({ Env: env }));
 // The workspace's own login app, when a test saves one; none by default.
 vi.mock('@/libs/connect/loginClient', () => ({ LOGIN_CLIENT_ID_KEY: 'loginClientId', loginClientForCallback: vi.fn(async () => null) }));
 
+vi.mock('@/services/personal/connections', () => ({ ownPersonalWorkspace: vi.fn(async () => null), personalConnectGate: vi.fn() }));
+
 const exchange = vi.fn();
 const missingAccessFor = vi.fn((): string | null => null);
 vi.mock('@/libs/connect/registry', () => {
@@ -37,6 +39,7 @@ const { approveLoginCard, completeLogin, recordFailedLogin } = await import('@/s
 const { createSourceWhenNoConfigNeeded } = await import('@/services/connect/createSourceOnLogin');
 const { loginClientForCallback } = await import('@/libs/connect/loginClient');
 const { TokenRequestError } = await import('@/libs/connect/tokenRequest');
+const { ownPersonalWorkspace, personalConnectGate } = await import('@/services/personal/connections');
 const { GET } = await import('./route');
 
 const admin = {
@@ -354,5 +357,39 @@ describe('GET /api/connect/[provider]/callback', () => {
     const res = await GET(request(), context());
 
     expect(landing(res)).toEqual({ path: '/dashboard/connectors', add: 'github', connect: 'ok', connector: 'github' });
+  });
+});
+
+describe('GET /api/connect/[provider]/callback, in a person\'s own Personal workspace', () => {
+  const member = { ...admin, role: 'member' as const };
+  const personalPayload = { v: 1 as const, provider: 'slack', orgId: 'org_1', connectorSlug: 'slack', userId: 'user_1', nonce: 'n', exp: 1 };
+
+  beforeEach(() => {
+    vi.mocked(clerkAuth).mockResolvedValue(member);
+    vi.mocked(verifyState).mockReturnValue({ ok: true, payload: personalPayload });
+    vi.mocked(ownPersonalWorkspace).mockResolvedValue({ projectId: 'org_1', accountId: 'acct_1' });
+    vi.mocked(personalConnectGate).mockResolvedValue({ ok: true, accountId: 'acct_1', connection: { connector: 'slack', provider: 'slack', label: 'Slack DMs', unlocks: '', tools: [] } });
+    exchange.mockResolvedValue({ ok: true, credentials: { token: 'xoxp-1', kind: 'user' }, displayName: 'Slack — Northwind' });
+    vi.mocked(completeLogin).mockResolvedValue({ ok: true, tokenId: 'tok_9', linkedSourceIds: [] });
+  });
+
+  it('stores a member\'s own login with the personal access, and makes no source', async () => {
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toMatchObject({ connect: 'ok' });
+    expect(exchange).toHaveBeenCalledWith(expect.objectContaining({ audience: 'personal' }));
+    expect(completeLogin).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org_1', userId: 'user_1', connectorSlug: 'slack' }));
+    expect(createSourceWhenNoConfigNeeded).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the Org turned personal connections off since the login started, and stores nothing', async () => {
+    vi.mocked(personalConnectGate).mockResolvedValue({ ok: false, status: 403, reason: 'personal_off', error: 'off' });
+
+    const res = await GET(request(), context());
+
+    expect(landing(res)).toMatchObject({ connect: 'error', reason: 'personal_off' });
+    expect(exchange).not.toHaveBeenCalled();
+    expect(completeLogin).not.toHaveBeenCalled();
+    expect(recordFailedLogin).not.toHaveBeenCalled();
   });
 });

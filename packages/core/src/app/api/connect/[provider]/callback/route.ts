@@ -11,6 +11,11 @@
  * connector's sources to it, and records the dated attempt. A chat card the
  * login came from is marked approved by the person who logged in.
  *
+ * In a person's own personal workspace the admin check is the personal gate
+ * instead (`personalConnectGate`), the exchange asks for the personal access
+ * (`audience: 'personal'`), and no source is made: a personal connection is
+ * read live by the person's own assistant and never synced.
+ *
  * Nothing is written, not even an attempt, until every state, org, person and
  * admin check has passed: a crafted or expired state leaves no trace. Nothing
  * the vendor sent is logged or echoed verbatim; a refusal reaches the landing
@@ -30,6 +35,7 @@ import { pkceVerifierFor, stateIssuedAt, verifyState } from '@/libs/connect/stat
 import { TokenRequestError } from '@/libs/connect/tokenRequest';
 import { approveLoginCard, completeLogin, recordFailedLogin } from '@/services/connect/completeLogin';
 import { createSourceWhenNoConfigNeeded, loginMakesItsSource } from '@/services/connect/createSourceOnLogin';
+import { ownPersonalWorkspace, personalConnectGate } from '@/services/personal/connections';
 
 type Landing = { source?: string; connector?: string; returnTo?: string | null };
 type ChatCard = { conversationId: number; cardId: string };
@@ -96,11 +102,13 @@ async function approveCard(orgId: string, userId: string, provider: ConnectProvi
  * @param done - What `completeLogin` needs.
  * @param issuedAt - When the login's state was signed.
  * @param landing - Where to land.
+ * @param personal
  */
-async function storeAndLand(request: NextRequest, origin: string, done: Parameters<typeof completeLogin>[0], issuedAt: Date, landing: Landing) {
+async function storeAndLand(request: NextRequest, origin: string, done: Parameters<typeof completeLogin>[0], issuedAt: Date, landing: Landing, personal = false) {
   const { orgId, userId, provider, connectorSlug, card } = done;
-  // A connector that makes its own source approves the card only once that source exists.
-  const makesSource = loginMakesItsSource(connectorSlug);
+  // A connector that makes its own source approves the card only once that
+  // source exists. A personal login makes none: the person's assistant reads it live.
+  const makesSource = !personal && loginMakesItsSource(connectorSlug);
   let outcome: Awaited<ReturnType<typeof completeLogin>>;
   try {
     outcome = await completeLogin(makesSource ? { ...done, card: undefined } : done);
@@ -116,6 +124,9 @@ async function storeAndLand(request: NextRequest, origin: string, done: Paramete
   if (!outcome.ok) {
     console.error('[connect] login not finished', { provider: provider.id, connector: connectorSlug, reason: outcome.reason });
     return failAndLand(request, origin, { orgId, userId, provider, connectorSlug, card, reason: outcome.reason, stateIssuedAt: issuedAt }, landing);
+  }
+  if (personal) {
+    return landAt(request, origin, { ok: true }, landing);
   }
   // A connector that needs no picks has its source now; one that does is finished in chat or on the Connectors form.
   const made = await createSourceWhenNoConfigNeeded({ orgId, userId, connector: connectorSlug, linkedSourceIds: outcome.linkedSourceIds });
@@ -167,9 +178,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   if (userId !== payload.userId) {
     return landAt(req, origin, { ok: false, reason: 'wrong_person' }, early);
   }
-  if (role !== 'admin') {
+  // The person's own workspace: the personal gate stands in for the admin check.
+  const personal = (await ownPersonalWorkspace(orgId, userId)) !== null;
+  if (personal) {
+    const gate = await personalConnectGate({ orgId, userId, connectorSlug: payload.connectorSlug ?? '' });
+    if (!gate.ok) {
+      return landAt(req, origin, { ok: false, reason: gate.reason }, early);
+    }
+  } else if (role !== 'admin') {
     return landAt(req, origin, { ok: false, reason: 'not_admin' }, early);
   }
+  const audience = personal ? 'personal' as const : undefined;
 
   // Every check on who is asking has passed: from here a failure is recorded.
   const issuedAt = stateIssuedAt(payload);
@@ -211,7 +230,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   try {
     // The state verified above, so it is the string the start derived the PKCE challenge from.
     const codeVerifier = provider.pkce && rawState ? pkceVerifierFor(rawState) : undefined;
-    exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id), ...(codeVerifier ? { codeVerifier } : {}), ...(client ? { client } : {}) });
+    exchanged = await provider.exchange({ query, redirectUri: callbackUri(origin, provider.id), ...(codeVerifier ? { codeVerifier } : {}), ...(client ? { client } : {}), ...(audience ? { audience } : {}) });
   } catch (error) {
     // The vendor timed out, refused the connection or sent something unreadable. Nothing was stored.
     console.error('[connect] vendor exchange threw', {
@@ -228,7 +247,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   // A consent screen that lets the person untick a scope (Google's does) can
   // hand back a login that cannot read this connector. Stored, it would make a
   // source that fails every sync, so it is a failed attempt to retry instead.
-  if (provider.missingAccessFor?.(exchanged.credentials, connectorSlug)) {
+  if (provider.missingAccessFor?.(exchanged.credentials, connectorSlug, audience)) {
     console.error('[connect] login lacks the connector\'s access', { provider: provider.id, connector: connectorSlug });
     return failAndLand(req, origin, { orgId, userId, provider, connectorSlug, reason: 'missing_access', card, stateIssuedAt: issuedAt }, landing);
   }
@@ -238,5 +257,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     { orgId, userId, provider, connectorSlug, sourceSlug: source?.slug, exchanged: { credentials: client ? { ...exchanged.credentials, [LOGIN_CLIENT_ID_KEY]: client.clientId } : exchanged.credentials, displayName: exchanged.displayName }, card },
     issuedAt,
     landing,
+    personal,
   );
 }

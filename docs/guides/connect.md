@@ -148,6 +148,12 @@ All of them are optional. A provider with no env set is not offered, and its
 connector keeps its paste form. Step-by-step setup for each vendor's app is in
 [login-apps.md](login-apps.md).
 
+A person's **own** Gmail, Calendar, Drive, Slack DMs and GitHub connect on the
+same routes from their Personal workspace, with no admin, on apps configured
+apart from these (`GOOGLE_PERSONAL_CLIENT_*`, `SLACK_PERSONAL_CLIENT_*`,
+`GITHUB_PERSONAL_CLIENT_*`, each with a fallback). See
+[personal-connections.md](personal-connections.md).
+
 Before going live with each vendor:
 
 - **Google.** Gmail and Drive read scopes are restricted: Google verifies the

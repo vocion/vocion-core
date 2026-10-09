@@ -154,6 +154,21 @@ export const Env = createEnv({
     GITHUB_APP_CLIENT_SECRET: z.string().optional(),
     GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
     GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+    /**
+     * The vendor apps a person's OWN connections run on (Personal →
+     * Connectors, docs/guides/personal-connections.md), separate from the
+     * workspace connectors' apps above so an install can put personal mail on
+     * an Internal-type Google app while shared sources use another. Each pair
+     * falls back: Google to the sign-in client (`AUTH_GOOGLE_*`), then
+     * `GOOGLE_OAUTH_*`; Slack to `SLACK_CLIENT_*`; GitHub to
+     * `GITHUB_APP_CLIENT_*` (`libs/connect/serverClients.ts`).
+     */
+    GOOGLE_PERSONAL_CLIENT_ID: z.string().optional(),
+    GOOGLE_PERSONAL_CLIENT_SECRET: z.string().optional(),
+    SLACK_PERSONAL_CLIENT_ID: z.string().optional(),
+    SLACK_PERSONAL_CLIENT_SECRET: z.string().optional(),
+    GITHUB_PERSONAL_CLIENT_ID: z.string().optional(),
+    GITHUB_PERSONAL_CLIENT_SECRET: z.string().optional(),
     HUBSPOT_CLIENT_ID: z.string().optional(),
     HUBSPOT_CLIENT_SECRET: z.string().optional(),
     NOTION_CLIENT_ID: z.string().optional(),
@@ -236,6 +251,12 @@ export const Env = createEnv({
     GITHUB_APP_CLIENT_SECRET: process.env.GITHUB_APP_CLIENT_SECRET,
     GOOGLE_OAUTH_CLIENT_ID: process.env.GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    GOOGLE_PERSONAL_CLIENT_ID: process.env.GOOGLE_PERSONAL_CLIENT_ID,
+    GOOGLE_PERSONAL_CLIENT_SECRET: process.env.GOOGLE_PERSONAL_CLIENT_SECRET,
+    SLACK_PERSONAL_CLIENT_ID: process.env.SLACK_PERSONAL_CLIENT_ID,
+    SLACK_PERSONAL_CLIENT_SECRET: process.env.SLACK_PERSONAL_CLIENT_SECRET,
+    GITHUB_PERSONAL_CLIENT_ID: process.env.GITHUB_PERSONAL_CLIENT_ID,
+    GITHUB_PERSONAL_CLIENT_SECRET: process.env.GITHUB_PERSONAL_CLIENT_SECRET,
     HUBSPOT_CLIENT_ID: process.env.HUBSPOT_CLIENT_ID,
     HUBSPOT_CLIENT_SECRET: process.env.HUBSPOT_CLIENT_SECRET,
     NOTION_CLIENT_ID: process.env.NOTION_CLIENT_ID,

@@ -20,11 +20,21 @@
  * `setup_action` says how they got here: `install` and `update` carry an id
  * to keep; `request` means an organization member asked an owner to approve
  * and nothing exists yet; `cancel` is a person changing their mind.
+ *
+ * A person's OWN GitHub (`audience: 'personal'`, Personal → Connectors) is a
+ * different flow on the same callback: the person authorizes an OAuth client
+ * as themselves (`personalLoginClient('github')`: `GITHUB_PERSONAL_CLIENT_*`,
+ * else the GitHub App's own client) and the user token IS the credential,
+ * stored for their assistant's reads. A GitHub App's user token may expire
+ * and carry a refresh token; both are kept (`libs/personal/github.ts` renews).
  */
 
 import type { ConnectProvider } from '../provider';
+import type { LoginClient } from '../serverClients';
 import { appJwt, GITHUB_APP_ENV, githubAppConfig, installationToken } from '@/libs/github/app';
 import { GITHUB_API_URL, nextPageUrl } from '@/libs/github/client';
+import { PERSONAL_GITHUB_SCOPES } from '@/libs/personal/connections';
+import { personalLoginClient } from '../serverClients';
 
 type Installation = {
   id: number;
@@ -113,18 +123,104 @@ async function userCanSeeInstallation(userToken: string, installationId: string,
   return 'no';
 }
 
+/**
+ * When a user token stops being good, five minutes early, as the stored
+ * logins say it (`loginGrant.grantExpiresAt`, not imported: it reaches the
+ * database, and this provider is read by pages that do not).
+ * @param expiresIn - GitHub's `expires_in`, seconds; eight hours when absent.
+ */
+function expiresAtOf(expiresIn: unknown): string {
+  const seconds = typeof expiresIn === 'number' && expiresIn > 0 ? expiresIn : 8 * 3600;
+  return new Date(Date.now() + seconds * 1000 - 5 * 60 * 1000).toISOString();
+}
+
+/**
+ * A person's own GitHub login: the code traded for their user token, and the
+ * login it belongs to. GitHub's refusal stays a short code.
+ * @param input - The callback's query, its URL and the client it ran on.
+ * @param input.query - The callback's query.
+ * @param input.redirectUri - The callback URL the code was issued for.
+ * @param input.client - The OAuth client the login ran on.
+ */
+async function personalExchange(input: { query: Record<string, string>; redirectUri: string; client: LoginClient | null }): Promise<
+  | { ok: true; credentials: Record<string, unknown>; displayName: string }
+  | { ok: false; reason: string }
+> {
+  if (input.query.error) {
+    return { ok: false, reason: /^[\w.-]{1,64}$/.test(input.query.error) ? input.query.error : 'login_refused' };
+  }
+  const code = (input.query.code ?? '').trim();
+  if (!code) {
+    return { ok: false, reason: 'missing_code' };
+  }
+  if (!input.client) {
+    return { ok: false, reason: 'not_configured' };
+  }
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: { 'accept': 'application/json', 'content-type': 'application/json', 'user-agent': 'vocion-github-app' },
+    body: JSON.stringify({ client_id: input.client.clientId, client_secret: input.client.clientSecret, code, redirect_uri: input.redirectUri }),
+  });
+  if (!res.ok) {
+    return { ok: false, reason: 'code_refused' };
+  }
+  const body = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; error?: string };
+  if (typeof body.access_token !== 'string' || !body.access_token || body.error) {
+    return { ok: false, reason: 'code_refused' };
+  }
+  const me = await fetch(`${GITHUB_API_URL}/user`, { headers: { ...HEADERS, authorization: `Bearer ${body.access_token}` } });
+  if (!me.ok) {
+    return { ok: false, reason: 'github_unavailable' };
+  }
+  const login = ((await me.json()) as { login?: string }).login;
+  if (!login) {
+    return { ok: false, reason: 'no_login' };
+  }
+  return {
+    ok: true,
+    credentials: {
+      token: body.access_token,
+      kind: 'user',
+      login,
+      scope: body.scope ?? null,
+      // A GitHub App's user token expires (8h) and comes with a refresh token; an OAuth app's does not.
+      ...(typeof body.refresh_token === 'string' && body.refresh_token
+        ? { refreshToken: body.refresh_token, expiresAt: expiresAtOf(body.expires_in) }
+        : {}),
+    },
+    displayName: `GitHub — ${login}`,
+  };
+}
+
 export const githubProvider: ConnectProvider = {
   id: 'github',
   connectorSlugs: ['github'],
   label: 'GitHub',
   requiredEnv: GITHUB_APP_ENV,
   configured: () => githubAppConfig() !== null,
-  authorizeUrl({ state }) {
+  personal: { configured: () => personalLoginClient('github') !== null },
+  authorizeUrl({ state, redirectUri, client, audience }) {
+    if (audience === 'personal') {
+      const app = client ?? personalLoginClient('github');
+      if (!app) {
+        throw new Error('GitHub login for a person is not set up: set GITHUB_PERSONAL_CLIENT_ID and GITHUB_PERSONAL_CLIENT_SECRET.');
+      }
+      const url = new URL('https://github.com/login/oauth/authorize');
+      url.searchParams.set('client_id', app.clientId);
+      url.searchParams.set('redirect_uri', redirectUri);
+      url.searchParams.set('scope', PERSONAL_GITHUB_SCOPES.join(' '));
+      url.searchParams.set('state', state);
+      url.searchParams.set('allow_signup', 'false');
+      return url.toString();
+    }
     const config = githubAppConfig();
     const slug = config?.slug ?? '';
     return `https://github.com/apps/${encodeURIComponent(slug)}/installations/new?state=${encodeURIComponent(state)}`;
   },
-  async exchange({ query, redirectUri }) {
+  async exchange({ query, redirectUri, client, audience }) {
+    if (audience === 'personal') {
+      return personalExchange({ query, redirectUri, client: client ?? personalLoginClient('github') });
+    }
     const action = query.setup_action ?? 'install';
     if (action === 'request') {
       return { ok: false, reason: 'installation_requested' };
@@ -189,6 +285,10 @@ export const githubProvider: ConnectProvider = {
     };
   },
   summarize: (credentials) => {
+    if (credentials.kind === 'user') {
+      const login = typeof credentials.login === 'string' ? credentials.login.trim() : '';
+      return login && typeof credentials.token === 'string' ? { account: `${login} (GitHub)` } : null;
+    }
     const account = typeof credentials.account === 'string' ? credentials.account.trim() : '';
     if (!account || typeof credentials.installationId !== 'string') {
       return null;

@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 // The server's env app, for every vendor: what a login made before workspace
 // login apps refreshes with. A test that needs the workspace's own app saves one.
-vi.mock('./serverClients', () => ({ serverLoginClient: (provider: string) => ({ clientId: `${provider}_server_client`, clientSecret: 'server_secret', owner: 'server' }) }));
+vi.mock('./serverClients', () => ({
+  serverLoginClient: (provider: string) => ({ clientId: `${provider}_server_client`, clientSecret: 'server_secret', owner: 'server' }),
+  serverLoginClients: (provider: string) => [{ clientId: `${provider}_server_client`, clientSecret: 'server_secret', owner: 'server' }],
+}));
 
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, knowledgeSourceSchema } = await import('@/models/Schema');

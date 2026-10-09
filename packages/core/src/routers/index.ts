@@ -127,6 +127,7 @@ import {
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, gettingStarted as navGettingStarted, setPins as setNavPins } from './Nav';
 import { currentRoute as currentObjectiveRoute, resumeRoute as resumeObjectiveRoute, stopRoute as stopObjectiveRoute } from './Objectives';
+import { connectionsRoute as personalConnectionsRoute, disconnectRoute as personalDisconnectRoute, setPolicyRoute as personalSetPolicyRoute } from './Personal';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { addApp as addAppRoute, list as listPluginsRoute, set as setPluginRoute } from './Plugins';
 import { getRoute as getPreviewRoute, statusRoute as previewStatusRoute } from './Preview';
@@ -239,6 +240,11 @@ export const router = {
     cancel: cancelMissionRoute,
     submitFeedback: submitMissionFeedbackRoute,
     promote: promoteMissionRoute,
+  },
+  personal: {
+    connections: personalConnectionsRoute,
+    disconnect: personalDisconnectRoute,
+    setPolicy: personalSetPolicyRoute,
   },
   profile: {
     get: getProfileRoute,

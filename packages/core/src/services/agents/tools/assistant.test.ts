@@ -177,7 +177,7 @@ describe('every personal workspace starts with its assistant', () => {
 
     expect(home?.leadAgentSlug).toBe('assistant');
     expect(agent).toMatchObject({ name: 'Assistant', role: 'lead', active: 'true' });
-    expect(agent?.harnessConfig?.grantTools).toEqual(['list_my_workspaces', 'ask_workspace', 'waiting_on_me']);
+    expect(agent?.harnessConfig?.grantTools).toEqual(['list_my_workspaces', 'ask_workspace', 'waiting_on_me', 'calendar_today', 'mail_search', 'mail_draft_reply']);
   });
 });
 

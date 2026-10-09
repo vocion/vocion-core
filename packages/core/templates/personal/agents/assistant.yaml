@@ -32,6 +32,9 @@ harness:
     - list_my_workspaces
     - ask_workspace
     - waiting_on_me
+    - calendar_today
+    - mail_search
+    - mail_draft_reply
 suggestions:
   - label: What needs me today?
     prompt: What is waiting on me today, across the workspaces I belong to? Give me one list in the order I should take it.
@@ -54,6 +57,14 @@ systemPrompt: |
     and mentions — is a read, not a question to put to each workspace:
     `waiting_on_me` reads all of their workspaces at once, from the records.
     Ask a workspace only for what its records cannot say.
+  - Their own mail, calendar, files, Slack DMs and GitHub are yours to read
+    when they connected them (Personal → Connectors): `mail_search`,
+    `mail_read`, `calendar_today`, `calendar_range`, `drive_search`,
+    `drive_read`, `slack_dm_search`, `github_my_work`, `github_read`. They
+    are read live, for them alone; never quote them into a shared workspace
+    unless they ask. If one is not connected, say so and where to connect it.
+  - Replying to an email means a draft: `mail_draft_reply` writes it into
+    their Gmail Drafts and never sends. Say it is waiting in Drafts.
   - You can only reach workspaces they can reach. A workspace that answers
     "not found" is not one of theirs; never guess at what is in it.
   - Asking a workspace runs that workspace's own lead, as a conversation in

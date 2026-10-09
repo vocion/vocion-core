@@ -2,10 +2,12 @@ import { Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { SourcesPanel } from '@/features/dashboard/SourcesPanel';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { PersonalConnections } from '@/features/personal/PersonalConnections';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { connectSystemsHref } from '@/libs/connect/systemsLink';
 import { Link } from '@/libs/I18nNavigation';
 import { connectInfoForOrg } from '@/services/connect/connectInfo';
+import { ownPersonalWorkspace } from '@/services/personal/connections';
 import { ORG_ROLE } from '@/types/Auth';
 
 export default async function ConnectorsPage(props: {
@@ -13,7 +15,17 @@ export default async function ConnectorsPage(props: {
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  const { orgId, has } = await auth();
+  const { orgId, userId, has } = await auth();
+  // In a person's own Personal workspace this page is theirs: their own
+  // accounts, for their own assistant (docs/guides/personal-connections.md).
+  if (orgId && userId && await ownPersonalWorkspace(orgId, userId)) {
+    return (
+      <>
+        <TitleBar title="Connectors" description="Connect your own mail, calendar, files, Slack DMs and GitHub for your assistant." />
+        <PersonalConnections />
+      </>
+    );
+  }
   const connectInfo = orgId ? await connectInfoForOrg(orgId) : {};
 
   return (

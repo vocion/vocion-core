@@ -84,3 +84,52 @@ describe('slack connect provider', () => {
     expect(slackProvider.summarize({ token: 'xoxb-1' })).toBeNull();
   });
 });
+
+describe('slack connect provider — a person\'s own DMs', () => {
+  beforeEach(() => {
+    env.SLACK_PERSONAL_CLIENT_ID = 'personal_1';
+    env.SLACK_PERSONAL_CLIENT_SECRET = 'personal_secret';
+  });
+
+  afterEach(() => {
+    env.SLACK_PERSONAL_CLIENT_ID = undefined;
+    env.SLACK_PERSONAL_CLIENT_SECRET = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('asks for user scopes only, on the personal app', () => {
+    const url = new URL(slackProvider.authorizeUrl({ state: 's', redirectUri: 'https://v.example/api/connect/slack/callback', connector: 'slack', audience: 'personal' }));
+
+    expect(url.searchParams.get('client_id')).toBe('personal_1');
+    expect(url.searchParams.get('user_scope')).toBe('im:read,im:history,mpim:read,mpim:history,search:read,users:read');
+    expect(url.searchParams.get('scope')).toBeNull();
+  });
+
+  it('falls back to the workspace Slack app when no personal one is set', () => {
+    env.SLACK_PERSONAL_CLIENT_ID = undefined;
+
+    const url = new URL(slackProvider.authorizeUrl({ state: 's', redirectUri: 'https://v.example/cb', connector: 'slack', audience: 'personal' }));
+
+    expect(url.searchParams.get('client_id')).toBe('client_1');
+  });
+
+  it('keeps the person\'s user token, never a bot token', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      access_token: 'xoxb-bot',
+      team: { id: 'T1', name: 'Northwind' },
+      authed_user: { id: 'U1', access_token: 'xoxp-user', scope: 'im:history,search:read' },
+    })));
+
+    const result = await slackProvider.exchange({ query: { code: 'c' }, redirectUri: 'https://v.example/cb', audience: 'personal' });
+
+    expect(result).toEqual({ ok: true, credentials: { token: 'xoxp-user', kind: 'user', userId: 'U1', teamId: 'T1', teamName: 'Northwind', scope: 'im:history,search:read' }, displayName: 'Slack — Northwind' });
+    expect(slackProvider.summarize(result.ok ? result.credentials : {})).toEqual({ account: 'You in Northwind (Slack)' });
+  });
+
+  it('refuses an answer with no user token', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true, access_token: 'xoxb-bot' })));
+
+    await expect(slackProvider.exchange({ query: { code: 'c' }, redirectUri: 'https://v.example/cb', audience: 'personal' })).resolves.toEqual({ ok: false, reason: 'no_token' });
+  });
+});

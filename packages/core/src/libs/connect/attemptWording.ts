@@ -35,6 +35,10 @@ export function connectFailureSummary(providerLabel: string, reason: string | nu
       return `${providerLabel} logged in, but its source could not be created. Add it from Connectors`;
     case 'missing_access':
       return `The ${providerLabel} login left out the access this connector reads. Try again and allow it`;
+    case 'personal_off':
+      return 'Your Org has turned off personal connections';
+    case 'not_personal':
+      return `${providerLabel} cannot be connected as one of your own accounts`;
     case 'store_failed':
       return `${providerLabel} logged in, but the credential couldn't be saved`;
     default:

@@ -105,3 +105,57 @@ describe('google connect provider', () => {
     );
   });
 });
+
+describe('google connect provider — a person\'s own login', () => {
+  beforeEach(() => {
+    for (const key of ['GOOGLE_PERSONAL_CLIENT_ID', 'GOOGLE_PERSONAL_CLIENT_SECRET', 'AUTH_GOOGLE_ID', 'AUTH_GOOGLE_SECRET', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET']) {
+      env[key] = undefined;
+    }
+  });
+
+  it('runs on the personal app, else the sign-in app, else the connectors\' app', () => {
+    const clientOf = () => new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector: 'gmail', audience: 'personal' })).searchParams.get('client_id');
+    env.GOOGLE_OAUTH_CLIENT_ID = 'connectors';
+    env.GOOGLE_OAUTH_CLIENT_SECRET = 'x';
+
+    expect(clientOf()).toBe('connectors');
+
+    env.AUTH_GOOGLE_ID = 'sign-in';
+    env.AUTH_GOOGLE_SECRET = 'x';
+
+    expect(clientOf()).toBe('sign-in');
+
+    env.GOOGLE_PERSONAL_CLIENT_ID = 'personal';
+    env.GOOGLE_PERSONAL_CLIENT_SECRET = 'x';
+
+    expect(clientOf()).toBe('personal');
+    expect(googleProvider.personal?.configured()).toBe(true);
+  });
+
+  it('is not offered when no Google app is set up anywhere', () => {
+    expect(googleProvider.personal?.configured()).toBe(false);
+  });
+
+  it('asks Gmail for read plus drafts, and Calendar and Drive for read only', () => {
+    env.GOOGLE_PERSONAL_CLIENT_ID = 'personal';
+    env.GOOGLE_PERSONAL_CLIENT_SECRET = 'x';
+    const scope = (connector: string) => new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector, audience: 'personal' })).searchParams.get('scope');
+
+    expect(scope('gmail')).toBe('https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose openid email');
+    expect(scope('google-calendar')).toBe('https://www.googleapis.com/auth/calendar.readonly openid email');
+    expect(scope('drive')).toBe('https://www.googleapis.com/auth/drive.readonly openid email');
+
+    // A workspace's Gmail stays read-only: drafts are only ever a person's own.
+    env.GOOGLE_OAUTH_CLIENT_ID = 'connectors';
+    env.GOOGLE_OAUTH_CLIENT_SECRET = 'x';
+
+    expect(new URL(googleProvider.authorizeUrl({ state: 's', redirectUri: CALLBACK, connector: 'gmail' })).searchParams.get('scope')).toBe('https://www.googleapis.com/auth/gmail.readonly openid email');
+  });
+
+  it('a personal Gmail login whose consent left out drafts is missing access', () => {
+    const readOnly = { scope: 'https://www.googleapis.com/auth/gmail.readonly openid email' };
+
+    expect(googleProvider.missingAccessFor?.(readOnly, 'gmail', 'personal')).toMatch(/doesn't include Gmail/);
+    expect(googleProvider.missingAccessFor?.(readOnly, 'gmail')).toBeNull();
+  });
+});

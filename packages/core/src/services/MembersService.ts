@@ -201,4 +201,9 @@ export async function removeMember(opts: { accountId: string; userId: string }):
       eq(accountMembershipSchema.accountId, opts.accountId),
       eq(accountMembershipSchema.userId, opts.userId),
     ));
+  // Their own connections (mail, calendar, Slack DMs …) leave with them: the
+  // grants are withdrawn at each vendor and deleted, not left behind in a
+  // personal workspace nobody can open any more.
+  const { forgetPersonalConnections } = await import('@/services/personal/connections');
+  await forgetPersonalConnections(opts.userId, opts.accountId);
 }

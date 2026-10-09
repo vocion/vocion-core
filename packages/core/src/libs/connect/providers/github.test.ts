@@ -184,3 +184,38 @@ describe('githubProvider', () => {
     expect(githubProvider.summarize({ token: 'github_pat_x' })).toBeNull();
   });
 });
+
+describe('github connect provider — a person\'s own GitHub', () => {
+  const client = { clientId: 'Ov23.personal', clientSecret: 'personal-secret', owner: 'server' as const };
+
+  it('sends the person to authorize as themselves, never to install the app', () => {
+    const url = new URL(githubProvider.authorizeUrl({ state: 'st.ate', redirectUri: 'https://v.example/api/connect/github/callback', connector: 'github', client, audience: 'personal' }));
+
+    expect(url.origin + url.pathname).toBe('https://github.com/login/oauth/authorize');
+    expect(url.searchParams.get('client_id')).toBe('Ov23.personal');
+    expect(url.searchParams.get('scope')).toBe('read:user repo');
+    expect(url.searchParams.get('state')).toBe('st.ate');
+  });
+
+  it('keeps the user token and the login it belongs to, with its refresh when GitHub issues one', async () => {
+    const { fetchMock } = githubApi({
+      'github.com/login/oauth/access_token': () => new Response(JSON.stringify({ access_token: 'ghu_person', refresh_token: 'ghr_person', expires_in: 28800, scope: '' })),
+      'api.github.com/user': () => new Response(JSON.stringify({ login: 'northwind-dev' })),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await githubProvider.exchange({ query: { code: 'c0de' }, redirectUri: 'https://v.example/cb', client, audience: 'personal' });
+
+    expect(result).toMatchObject({ ok: true, credentials: { token: 'ghu_person', kind: 'user', login: 'northwind-dev', refreshToken: 'ghr_person' }, displayName: 'GitHub — northwind-dev' });
+    expect(githubProvider.summarize(result.ok ? result.credentials : {})).toEqual({ account: 'northwind-dev (GitHub)' });
+  });
+
+  it('refuses a code GitHub will not trade', async () => {
+    const { fetchMock } = githubApi({
+      'github.com/login/oauth/access_token': () => new Response(JSON.stringify({ error: 'bad_verification_code' })),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(githubProvider.exchange({ query: { code: 'c0de' }, redirectUri: 'https://v.example/cb', client, audience: 'personal' })).resolves.toEqual({ ok: false, reason: 'code_refused' });
+  });
+});

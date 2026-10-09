@@ -259,6 +259,14 @@ export const tenantAccountSchema = pgTable(
      */
     requireMfa: boolean('require_mfa').default(false).notNull(),
     /**
+     * Whether members may connect their OWN accounts — mail, calendar, files,
+     * Slack DMs, GitHub — for their own assistant (0202, Personal →
+     * Connectors). On by default; an admin turns it off for the whole Org,
+     * which stops every personal connection from being made or used.
+     * Read and written through `services/personal/connections.ts`.
+     */
+    personalConnections: boolean('personal_connections').default(true).notNull(),
+    /**
      * The Org's brand (migration 0199) — the same guide a workspace's
      * brand.yaml is (`libs/workspace/brand.ts`), with its logos kept in the
      * media store. Worn by the sidebar, sign-in, the favicon and mail; a
