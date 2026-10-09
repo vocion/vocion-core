@@ -192,7 +192,7 @@ describe('ask_workspace', () => {
 
       expect(out.agentSlug).toBe('revenue-lead');
       expect(out.routing).toMatchObject({ chosen: 'revenue-lead', defaulted: true });
-      expect(out.routing!.reason).toMatch(/workspace lead answers/);
+      expect(out.routing!.reason).toMatch(/the lead answers/);
     } finally {
       await server.close();
     }
