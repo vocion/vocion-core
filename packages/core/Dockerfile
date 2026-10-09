@@ -23,7 +23,7 @@
 # ----------------------------------------------------------------------
 # Stage 1 — install dependencies
 # ----------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM public.ecr.aws/docker/library/node:20-alpine AS deps
 WORKDIR /app
 
 # Workspace structure: copy every package.json so npm ci sees the graph.
@@ -40,7 +40,7 @@ RUN apk add --no-cache libc6-compat python3 make g++ \
 # ----------------------------------------------------------------------
 # Stage 2 — build the app
 # ----------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM public.ecr.aws/docker/library/node:20-alpine AS builder
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -184,7 +184,7 @@ RUN cd .next/standalone/packages/core \
 # ----------------------------------------------------------------------
 # Stage 3 — runtime
 # ----------------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM public.ecr.aws/docker/library/node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
