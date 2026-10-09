@@ -31,7 +31,7 @@ const SHARED = 'proj-pct-revenue';
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
-  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.events.readonly',
   'https://www.googleapis.com/auth/drive.readonly',
   'openid',
   'email',

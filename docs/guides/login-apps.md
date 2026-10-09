@@ -202,7 +202,7 @@ Library**. Only the ones you will use:
 |---|---|
 | `gmail` | `https://www.googleapis.com/auth/gmail.readonly` |
 | `drive` | `https://www.googleapis.com/auth/drive.readonly` |
-| `google-calendar` | `https://www.googleapis.com/auth/calendar.readonly` |
+| `google-calendar` | `https://www.googleapis.com/auth/calendar.events.readonly` |
 | `ga4` | `https://www.googleapis.com/auth/analytics.readonly` |
 
 **4. Create the client** under **Google Auth platform → Clients → Create

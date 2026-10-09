@@ -1241,7 +1241,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       loginByConnector: {
         'gmail': { provider: 'google', access: ['https://www.googleapis.com/auth/gmail.readonly'], settingsAfterLogin: [] },
         'drive': { provider: 'google', access: ['https://www.googleapis.com/auth/drive.readonly'], settingsAfterLogin: [] },
-        'google-calendar': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.readonly'], settingsAfterLogin: [] },
+        'google-calendar': { provider: 'google', access: ['https://www.googleapis.com/auth/calendar.events.readonly'], settingsAfterLogin: [] },
         'ga4': { provider: 'google', access: ['https://www.googleapis.com/auth/analytics.readonly'], settingsAfterLogin: [{ key: 'propertyId', label: 'Analytics property' }] },
       },
       paste: {

@@ -4,7 +4,9 @@
  * did we meet about."
  *
  * Auth: same durable Google OAuth as gmail/drive (see googleAuth) with the
- * `calendar.readonly` scope. Incremental: when `ctx.since` is set, only
+ * `calendar.events.readonly` scope (events only; a
+ * non-primary `calendarId` still works, since the scope reads events on every
+ * calendar the account can see). Incremental: when `ctx.since` is set, only
  * events UPDATED at/after it are fetched (`updatedMin`); a full sync walks a
  * rolling window (`pastDays` back → `futureDays` ahead) so the index holds
  * recent history plus the upcoming schedule without unbounded growth.

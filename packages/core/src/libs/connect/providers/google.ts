@@ -34,7 +34,7 @@ const IDENTITY_SCOPES = ['openid', 'email'] as const;
 export const GOOGLE_LOGIN_SCOPES: Record<string, readonly string[]> = {
   'gmail': ['https://www.googleapis.com/auth/gmail.readonly'],
   'drive': ['https://www.googleapis.com/auth/drive.readonly'],
-  'google-calendar': ['https://www.googleapis.com/auth/calendar.readonly'],
+  'google-calendar': ['https://www.googleapis.com/auth/calendar.events.readonly'],
   'ga4': ['https://www.googleapis.com/auth/analytics.readonly'],
 };
 
@@ -92,13 +92,28 @@ async function fetchLoginEmail(accessToken: string): Promise<string | null> {
 }
 
 /**
- * Whether a space-separated scope string contains every scope in a list.
+ * Broader Google scopes that grant everything a narrower one does. A login
+ * made before Calendar narrowed to `calendar.events.readonly` holds
+ * `calendar.readonly`, which reads the same events and more, so it still
+ * serves the connector; nobody has to reconnect.
+ */
+const COVERED_BY: Readonly<Record<string, readonly string[]>> = {
+  'https://www.googleapis.com/auth/calendar.events.readonly': [
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/calendar',
+  ],
+};
+
+/**
+ * Whether a space-separated scope string grants every scope in a list,
+ * itself or through a broader scope that covers it ({@link COVERED_BY}).
  * @param granted - The bag's `scope`.
  * @param required - Scopes the connector needs.
  */
 function hasEveryScope(granted: string, required: readonly string[]): boolean {
   const grantedSet = new Set(granted.split(/\s+/).filter(Boolean));
-  return required.every(scope => grantedSet.has(scope));
+  return required.every(scope => grantedSet.has(scope) || (COVERED_BY[scope] ?? []).some(broader => grantedSet.has(broader)));
 }
 
 export const googleProvider: ConnectProvider = {
