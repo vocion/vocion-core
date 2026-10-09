@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { CompactFilters } from '@/components/patterns';
 
 /**
  * The run log's filter row.
@@ -10,6 +11,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
  * survives a reload. The automation list comes from the runs actually
  * recorded, never a hardcoded list — a newly authored automation appears here
  * the first time it runs.
+ *
+ * On a phone the row is one line of chips (`CompactFilters`): each filter
+ * that is on, removable, and a button that opens the same fields in a bottom
+ * sheet.
  * @param props
  * @param props.facets - Values present in the log.
  * @param props.facets.slugs
@@ -44,57 +49,75 @@ export function RunLogFilters({
   };
 
   const active = ['slug', 'status', 'kind', 'invokedBy', 'since'].filter(k => params.get(k) && k !== (pinnedSlug ? 'slug' : ''));
-  const select = 'rounded-md border border-input bg-background px-2 py-1 text-xs';
+  const LABELS: Record<string, string> = { slug: 'Automation', status: 'Status', kind: 'Kind', invokedBy: 'Invoked by', since: 'Since' };
 
   return (
-    <div className="mb-4 flex flex-wrap items-end gap-3">
-      {!pinnedSlug && (
-        <Field label="Automation">
-          <select className={select} value={params.get('slug') ?? ''} onChange={e => set('slug', e.target.value)}>
-            <option value="">all</option>
-            {facets.slugs.map(s => <option key={s} value={s}>{s}</option>)}
+    <>
+      <CompactFilters
+        className="mb-3"
+        active={active.map(k => ({ key: k, label: `${LABELS[k]}: ${params.get(k)}`, onRemove: () => set(k, '') }))}
+        sheet={{
+          count: active.length,
+          children: <div className="flex flex-col gap-3 [&_input]:h-10 [&_input]:text-base [&_select]:h-10 [&_select]:text-base">{fields('flex flex-col gap-3')}</div>,
+          footer: active.length > 0 && <button type="button" onClick={() => router.push(basePath)} className="text-sm text-muted-foreground hover:underline">Clear</button>,
+        }}
+      />
+      {fields('mb-4 hidden flex-wrap items-end gap-3 sm:flex')}
+    </>
+  );
+
+  function fields(className: string) {
+    const select = 'rounded-md border border-input bg-background px-2 py-1 text-xs';
+    return (
+      <div className={className}>
+        {!pinnedSlug && (
+          <Field label="Automation">
+            <select className={select} value={params.get('slug') ?? ''} onChange={e => set('slug', e.target.value)}>
+              <option value="">all</option>
+              {facets.slugs.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Status">
+          <select className={select} value={params.get('status') ?? ''} onChange={e => set('status', e.target.value)}>
+            <option value="">any</option>
+            {facets.statuses.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
-      )}
-      <Field label="Status">
-        <select className={select} value={params.get('status') ?? ''} onChange={e => set('status', e.target.value)}>
-          <option value="">any</option>
-          {facets.statuses.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </Field>
-      <Field label="Kind">
-        <select className={select} value={params.get('kind') ?? ''} onChange={e => set('kind', e.target.value)}>
-          <option value="">any</option>
-          {facets.kinds.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </Field>
-      <Field label="Invoked by">
-        <select className={select} value={params.get('invokedBy') ?? ''} onChange={e => set('invokedBy', e.target.value)}>
-          <option value="">any</option>
-          <option value="schedule">schedule</option>
-          <option value="test-run">test run</option>
-        </select>
-      </Field>
-      <Field label="Since (UTC)">
-        <input
-          type="date"
-          className={select}
-          value={params.get('since') ?? ''}
-          onChange={e => set('since', e.target.value)}
-        />
-      </Field>
-      {active.length > 0 && (
-        <button
-          type="button"
-          onClick={() => router.push(basePath)}
-          className="inline-flex items-center gap-1 pb-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <X className="size-3" />
-          Clear
-        </button>
-      )}
-    </div>
-  );
+        <Field label="Kind">
+          <select className={select} value={params.get('kind') ?? ''} onChange={e => set('kind', e.target.value)}>
+            <option value="">any</option>
+            {facets.kinds.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+        <Field label="Invoked by">
+          <select className={select} value={params.get('invokedBy') ?? ''} onChange={e => set('invokedBy', e.target.value)}>
+            <option value="">any</option>
+            <option value="schedule">schedule</option>
+            <option value="test-run">test run</option>
+          </select>
+        </Field>
+        <Field label="Since (UTC)">
+          <input
+            type="date"
+            className={select}
+            value={params.get('since') ?? ''}
+            onChange={e => set('since', e.target.value)}
+          />
+        </Field>
+        {active.length > 0 && (
+          <button
+            type="button"
+            onClick={() => router.push(basePath)}
+            className="inline-flex items-center gap-1 pb-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <X className="size-3" />
+            Clear
+          </button>
+        )}
+      </div>
+    );
+  }
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

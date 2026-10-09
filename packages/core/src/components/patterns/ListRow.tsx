@@ -1,8 +1,10 @@
 import type { LucideIcon } from 'lucide-react';
 import type { MouseEvent, ReactNode } from 'react';
+import type { RowSwipe } from './SwipeRow';
 import { ChevronRight } from 'lucide-react';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
+import { SwipeMenu, SwipeRow } from './SwipeRow';
 
 /**
  * ListRow — THE row. Every list in the dashboard renders its records through
@@ -62,7 +64,29 @@ export const COLUMN = {
 
 export type ColumnKind = keyof typeof COLUMN;
 
-const SUBLINE = 'mt-0.5 block truncate text-[13px] text-muted-foreground';
+/**
+ * The same widths from `sm` up, for a column kept on a phone (`always`): there
+ * it is a small trailing label as wide as its text, and the title gets the
+ * rest. Literal strings so Tailwind sees every class.
+ */
+const COLUMN_FROM_SM: Record<ColumnKind, string> = {
+  score: 'sm:w-32',
+  number: 'sm:w-16',
+  amount: 'sm:w-20',
+  date: 'sm:w-24',
+  status: 'sm:w-28',
+  chip: 'sm:w-24',
+  contents: 'sm:w-48',
+};
+
+/**
+ * On a phone the title and subline wrap to two lines each and are never cut
+ * at ten characters (Chris, 2026-10-09: "I can't read enough text on these rows
+ * to understand what they are"); from `sm` up they are one line, as before.
+ * `overflow-wrap: anywhere` so an unbroken id wraps instead of clipping.
+ */
+const TITLE = 'block line-clamp-2 text-sm font-medium text-foreground [overflow-wrap:anywhere] sm:line-clamp-1';
+const SUBLINE = 'mt-0.5 block line-clamp-2 text-[13px] text-muted-foreground [overflow-wrap:anywhere] sm:line-clamp-1';
 
 const ROW = 'group flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none';
 
@@ -97,6 +121,9 @@ export function Column(props: {
    *
    * One per row. Two growing columns share the leftover and neither is the
    * width its content asked for.
+   *
+   * On a phone it does not grow: the title has the width there, and the
+   * column is held to a short trailing fact (a count the content folds to).
    */
   grow?: boolean;
   children: ReactNode;
@@ -106,8 +133,12 @@ export function Column(props: {
     <span
       data-column={props.kind}
       className={cn(
-        'truncate text-[13px] text-muted-foreground tabular-nums',
-        props.grow ? 'min-w-0 flex-1' : cn('shrink-0', COLUMN[props.kind]),
+        'truncate text-muted-foreground tabular-nums',
+        props.grow
+          ? 'min-w-0 max-w-[5rem] shrink text-[13px] sm:max-w-none sm:flex-1'
+          : props.always
+            ? cn('w-auto max-w-[6rem] shrink-0 text-[12px] sm:max-w-none sm:text-[13px]', COLUMN_FROM_SM[props.kind])
+            : cn('shrink-0 text-[13px]', COLUMN[props.kind]),
         props.align === 'left' ? 'text-left' : 'text-right',
         props.mono && 'font-mono text-[12px]',
         !props.always && 'hidden sm:inline-block',
@@ -202,6 +233,14 @@ export type ListRowProps = {
    * visible beside it (`/gtm/proposals`, 2026-09-19).
    */
   'actionsAlways'?: boolean;
+  /**
+   * The row's yes and no as gestures on a phone: swipe right for `right`,
+   * left for `left`, each behind an Undo, and both in a ⋯ menu for anyone who
+   * does not swipe. Below `sm` the inline `actions` are hidden so the title
+   * has the width; from `sm` up they stay and nothing else changes. Needs a
+   * client caller (the verbs are functions). See `SwipeRow`.
+   */
+  'swipe'?: RowSwipe;
   /** Trailing chevron for navigational rows. Default: on when `href` is set. */
   'chevron'?: boolean;
   'className'?: string;
@@ -241,8 +280,11 @@ export function ListRow(props: ListRowProps) {
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">{props.title}</span>
-        {props.subline}
+        <span data-slot="row-title" className={TITLE}>{props.title}</span>
+        {/* Raw text gets the subline's type and spacing, as the prop promises. */}
+        {typeof props.subline === 'string' || typeof props.subline === 'number'
+          ? <span className={SUBLINE}>{props.subline}</span>
+          : props.subline}
       </span>
       {props.columns}
       {!props.columnsAside && chip}
@@ -254,6 +296,7 @@ export function ListRow(props: ListRowProps) {
       className={cn(
         'flex shrink-0 items-center gap-1 opacity-100 transition-opacity',
         !props.actionsAlways && 'sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100',
+        props.swipe && 'hidden sm:flex',
       )}
     >
       {props.actions}
@@ -267,10 +310,20 @@ export function ListRow(props: ListRowProps) {
       {props.columnsAside}
       {props.columnsAside && chip}
       {actions}
+      {props.swipe && <SwipeMenu />}
       {chevron && <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5" aria-hidden />}
     </>
   );
   const classes = cn(ROW, props.selected && 'bg-surface-soft', props.className);
+  const row = renderRow(props, { content, tail, classes, intercept, onSelect });
+  return props.swipe ? <SwipeRow swipe={props.swipe}>{row}</SwipeRow> : row;
+}
+
+function renderRow(
+  props: ListRowProps,
+  parts: { content: ReactNode; tail: ReactNode; classes: string; intercept?: (e: MouseEvent<HTMLElement>) => void; onSelect?: () => void },
+) {
+  const { content, tail, classes, intercept, onSelect } = parts;
 
   // A row with actions — or with a column that links somewhere of its own —
   // cannot put them inside its link: an anchor or a button nested in an anchor
@@ -278,7 +331,7 @@ export function ListRow(props: ListRowProps) {
   // hydration fails on it. The link covers the record (icon, title, inert
   // columns, chip); everything that clicks through to somewhere else sits
   // beside it.
-  if (props.href && (props.actions || props.columnsAside)) {
+  if (props.href && (props.actions || props.columnsAside || props.swipe)) {
     return (
       <div data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
         <Link href={props.href} onClick={intercept} aria-current={props.selected ? 'true' : undefined} aria-label={typeof props.title === 'string' ? props.title : undefined} className="flex min-w-0 flex-1 items-center gap-3 outline-none">

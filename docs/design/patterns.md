@@ -196,6 +196,49 @@ Lane 12   Lane 3   Lane 40      [🔍 Find…]  Sort ▾  ↓      trailing
   `useListUrlState`; a server-filtered list (Search) makes the same box
   navigate instead — same control, same place.
 
+### The header and the row on a phone
+
+> Chris, 2026-10-09, on the Review queue at 390px: "Header too tall. I can't
+> read enough text on these rows to understand what they are. Global fix."
+
+The header had taken 60% of the screen (title, summary, a scope toggle, a lane
+toggle, sort, search, "All filters") and each title was cut to ten characters
+by the ✓, ✗ and › beside it. Below `sm` the same components now draw:
+
+```
+Review queue                                   ← TitleBar: 18px, line under it in 12px
+5 decisions, oldest waiting 9d.
+[This workspace ▾] [Open 5 ▾] [⚙ 1] [Agent: deal-desk ×]   ← CompactFilters, ONE row
+─────────────────────────────────────────────────
+[▤] Create the tracking sheet for the         9d  ⋯
+    Northwind renewal                              ← title: two lines, never cut at 10
+    Input › asked by pipeline-analyst              ← subline: two lines
+```
+
+- **`TitleBar`** is compact on a phone (18px title, its one line clamped to two
+  in 12px, half the air beneath); desktop keeps the roomier block.
+- **`CompactFilters`** is the header's controls as ONE row of chips: a menu
+  chip per single-value choice (scope, lane), a button that opens a bottom
+  sheet with search, every filter and sort, and each filter that is on as a
+  removable chip. The row scrolls sideways; it never wraps. `ListToolbar`
+  renders it below `sm` from its own props, so every list on `ListToolbar`
+  gets it free; a page with its own controls (the Review queue, the run log,
+  Briefings' team picker) renders it directly and hides its desktop row
+  below `sm`.
+- **`ListRow`** wraps its title and its subline to two lines each on a phone
+  (one from `sm` up). A column kept on a phone (`always`) is a small trailing
+  label as wide as its text; a `grow` column stops growing there.
+- **`ListRow.swipe`** takes a row's yes and no off its width on a phone: swipe
+  right for `right`, left for `left`, each behind a five-second Undo (the verb
+  waits, so nothing has happened when Undo is tapped), and both in a ⋯ menu
+  for anyone who does not swipe. The inline buttons stay from `sm` up. The
+  whole row stays the tap target for the record.
+
+The rule is a test: `e2e/mobile-lists` opens every seeded list at 390×844 and
+fails when the first row starts below 35% of the screen, when a title is held
+to one line or has under ~150px a line (about 40 characters over two), or
+when a short title is clipped.
+
 ### The rule
 
 **A new page renders its rows through `ListRow`, or its PR says why not.**

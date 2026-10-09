@@ -1,6 +1,7 @@
 import type { ActivityItem, ActivityKind } from '@/services/ActivityService';
 import { Activity as ActivityIcon, AlertTriangle, CalendarClock, Compass, Database, GitBranch, Server, Wrench, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { Column, ListRow, ListRows, Subline } from '@/components/patterns';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -56,33 +57,33 @@ function statusTone(status: string): string {
 }
 
 function Row({ item }: { item: ActivityItem }) {
-  const Icon = KIND_META[item.kind].icon;
   const badge = runKindBadge(item.runKind);
   return (
-    <Link href={item.href} className="flex items-center gap-3 border-b border-border py-2.5 text-sm last:border-0 hover:bg-muted/40">
-      <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="truncate font-medium">{item.title}</span>
+    <ListRow
+      href={item.href}
+      icon={KIND_META[item.kind].icon}
+      title={(
+        <>
+          {item.title}
           {badge && (
-            <span className={`shrink-0 rounded-sm border px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase ${badge.tone}`}>
+            <span className={`ml-2 rounded-sm border px-1.5 py-px align-[1px] text-[10px] font-semibold tracking-wide uppercase ${badge.tone}`}>
               {badge.label}
             </span>
           )}
+        </>
+      )}
+      subline={<Subline separator="·" segments={[item.invokedBy ? `by ${item.invokedBy}` : null, item.detail]} />}
+      columns={(
+        <Column kind="date" always>
+          {item.at.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+        </Column>
+      )}
+      chip={(
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusTone(item.status)}`}>
+          {item.status.replaceAll('_', ' ')}
         </span>
-        {(item.detail || item.invokedBy) && (
-          <span className="block truncate text-xs text-muted-foreground">
-            {[item.invokedBy ? `by ${item.invokedBy}` : null, item.detail].filter(Boolean).join(' · ')}
-          </span>
-        )}
-      </span>
-      <span className="shrink-0 text-[11px] text-muted-foreground">
-        {item.at.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-      </span>
-      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${statusTone(item.status)}`}>
-        {item.status.replaceAll('_', ' ')}
-      </span>
-    </Link>
+      )}
+    />
   );
 }
 
@@ -140,19 +141,19 @@ export default async function ActivityPage(props: {
       )}
 
       {attention.length > 0 && (
-        <section className="mb-6 rounded-md border border-amber-500/40 bg-amber-500/5 p-5">
+        <section className="mb-6 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 sm:p-5">
           <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
             <AlertTriangle className="size-4 text-amber-600" />
             Needs attention
           </h2>
-          {attention.slice(0, 8).map(item => <Row key={item.key} item={item} />)}
+          <ListRows>{attention.slice(0, 8).map(item => <Row key={item.key} item={item} />)}</ListRows>
         </section>
       )}
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:mb-4 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden">
         <Link
           href="/dashboard/activity"
-          className={`rounded-full border px-3 py-1 text-xs font-medium transition ${!activeKind ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+          className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition ${!activeKind ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
         >
           All ·
           {' '}
@@ -162,7 +163,7 @@ export default async function ActivityPage(props: {
           <Link
             key={k}
             href={`/dashboard/activity?kind=${k}`}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${activeKind === k ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+            className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition ${activeKind === k ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
           >
             {KIND_META[k].label}
             {' '}
@@ -175,11 +176,11 @@ export default async function ActivityPage(props: {
 
       {activeKind === 'tool' && (facets.agents.length > 0 || facets.tools.length > 0) && (
         <div className="mb-4 space-y-2">
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <div className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 text-xs [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden">
             <span className="mr-1 text-muted-foreground">Agent:</span>
             <Link
               href={toolQuery({ tool })}
-              className={`rounded-full border px-2.5 py-0.5 font-medium transition ${!agent ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium whitespace-nowrap transition ${!agent ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
             >
               all
             </Link>
@@ -187,17 +188,17 @@ export default async function ActivityPage(props: {
               <Link
                 key={a}
                 href={toolQuery({ agent: a, tool })}
-                className={`rounded-full border px-2.5 py-0.5 font-mono transition ${agent === a ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono whitespace-nowrap transition ${agent === a ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
               >
                 {a}
               </Link>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <div className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 text-xs [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden">
             <span className="mr-1 text-muted-foreground">Tool:</span>
             <Link
               href={toolQuery({ agent })}
-              className={`rounded-full border px-2.5 py-0.5 font-medium transition ${!tool ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium whitespace-nowrap transition ${!tool ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
             >
               all
             </Link>
@@ -205,7 +206,7 @@ export default async function ActivityPage(props: {
               <Link
                 key={t}
                 href={toolQuery({ agent, tool: t })}
-                className={`rounded-full border px-2.5 py-0.5 font-mono transition ${tool === t ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-mono whitespace-nowrap transition ${tool === t ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
               >
                 {t}
               </Link>
@@ -224,9 +225,9 @@ export default async function ActivityPage(props: {
             />
           )
         : (
-            <div className="rounded-md border border-border px-5 py-2">
+            <ListRows>
               {feed.map(item => <Row key={item.key} item={item} />)}
-            </div>
+            </ListRows>
           )}
 
       <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">

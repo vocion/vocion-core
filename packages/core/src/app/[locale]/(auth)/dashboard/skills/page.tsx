@@ -1,15 +1,15 @@
 import type { Metadata } from 'next';
 import { eq } from 'drizzle-orm';
-import { ArrowRight, ScrollText, Zap } from 'lucide-react';
+import { ScrollText, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { Column, ListRow, ListRows } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
 import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { Link } from '@/libs/I18nNavigation';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { skillUsageCounts } from '@/services/ActivityService';
 
@@ -47,31 +47,19 @@ type RowData = {
 
 function Row({ r, uses, mountedBy }: { r: RowData; uses: number; mountedBy: string[] }) {
   return (
-    <Link
+    <ListRow
       href={`/dashboard/skills/${r.slug}`}
-      className="flex items-center gap-3 border-b border-border px-4 py-3 text-sm last:border-0 hover:bg-muted/40"
-    >
-      {r.kind === 'skill' ? <Zap className="size-4 shrink-0 text-muted-foreground" /> : <ScrollText className="size-4 shrink-0 text-muted-foreground" />}
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="truncate font-medium">{r.name}</span>
-          <OriginBadge origin={r.origin} />
-        </span>
-        <span className="block truncate text-xs text-muted-foreground">{r.description}</span>
-      </span>
-      {uses > 0 && (
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {uses}
-          {' '}
-          use
-          {uses === 1 ? '' : 's'}
-        </span>
+      icon={r.kind === 'skill' ? Zap : ScrollText}
+      title={r.name}
+      subline={r.description}
+      chip={<OriginBadge origin={r.origin} />}
+      columns={(
+        <>
+          <Column kind="number" always>{uses > 0 ? `${uses} use${uses === 1 ? '' : 's'}` : ''}</Column>
+          <Column kind="contents" mono>{mountedBy.join(', ') || 'unmounted'}</Column>
+        </>
       )}
-      <span className="hidden shrink-0 font-mono text-[11px] text-muted-foreground sm:block">
-        {mountedBy.join(', ') || 'unmounted'}
-      </span>
-      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-    </Link>
+    />
   );
 }
 
@@ -164,9 +152,9 @@ export default async function SkillsPage(props: { params: Promise<{ locale: stri
                   {' '}
                   {skills.length}
                 </h2>
-                <div className="overflow-hidden rounded-lg border border-border bg-background">
+                <ListRows>
                   {skills.map(r => <Row key={r.slug} r={r} uses={usage[r.slug] ?? 0} mountedBy={mountedBy(r.slug, r.kind)} />)}
-                </div>
+                </ListRows>
               </section>
               {playbooks.length > 0 && (
                 <section>
@@ -175,9 +163,9 @@ export default async function SkillsPage(props: { params: Promise<{ locale: stri
                     {' '}
                     {playbooks.length}
                   </h2>
-                  <div className="overflow-hidden rounded-lg border border-border bg-background">
+                  <ListRows>
                     {playbooks.map(r => <Row key={r.slug} r={r} uses={usage[r.slug] ?? 0} mountedBy={mountedBy(r.slug, r.kind)} />)}
-                  </div>
+                  </ListRows>
                 </section>
               )}
             </div>

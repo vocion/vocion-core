@@ -59,7 +59,7 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
   // row is the `proposal` kind, so the kind icon made them all identical.
   const KindIcon = actionIcon(item.actionId, meta.icon);
 
-  async function decide(verb: DecisionVerb) {
+  async function decide(verb: DecisionVerb): Promise<boolean> {
     setBusy(verb.id);
     setError(null);
     try {
@@ -70,14 +70,30 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
       }
       toast.success(`${verb.label} · ${item.title}`, { description: nextFor(item, verb) });
       router.refresh();
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       toast.error(`Could not ${verb.label.toLowerCase()} “${item.title}”`, { description: message });
+      return false;
     } finally {
       setBusy(null);
     }
   }
+
+  // On a phone the same verbs are gestures — swipe right for the yes, left
+  // for the no — each behind Undo, and in the row's ⋯ for anyone who does not
+  // swipe; the inline buttons would take the title's width (Chris,
+  // 2026-10-09). Desktop keeps the buttons.
+  const yes = verbs.find(v => v.tone !== 'danger');
+  const no = verbs.find(v => v.tone === 'danger');
+  const swipe = yes || no
+    ? {
+        subject: item.title,
+        right: yes && { label: yes.label, tone: 'pass' as const, icon: Check, run: () => decide(yes) },
+        left: no && { label: no.label, tone: 'fail' as const, icon: X, run: () => decide(no) },
+      }
+    : undefined;
 
   // Done for you → put it back. The other half of a run that executed
   // without a person (`libs/actions/autoAccept.ts`): one click, from the row
@@ -116,22 +132,25 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
       <ListRow
         href={item.href}
         icon={KindIcon}
+        swipe={swipe}
         title={(
-          <span className="flex min-w-0 items-center gap-2">
-            {agent && <span className="inline-flex shrink-0" title={agent.name}><AgentDot name={agent.name} accent={agent.accent} size="xs" decorative /></span>}
-            <span className="truncate font-normal" title={item.titleHint}>{item.title}</span>
+          // Inline, not a flex row: the title wraps to two lines on a phone
+          // (`ListRow`), and a line clamp only reaches text in the flow.
+          <span className="font-normal">
+            {agent && <span className="mr-1.5 inline-flex align-[-2px]" title={agent.name}><AgentDot name={agent.name} accent={agent.accent} size="xs" decorative /></span>}
+            <span title={item.titleHint}>{item.title}</span>
             {item.shape === 'sheet' && item.count !== undefined && (
               // The count is a label, not the title (Chris, 2026-09-16). Quiet
               // grey, beside the name, never in place of it.
               <span
-                className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[11px] font-normal text-muted-foreground tabular-nums"
+                className="ml-1.5 rounded-full bg-muted px-1.5 py-px text-[11px] font-normal text-muted-foreground tabular-nums"
                 title={`${item.count} ${item.kind === 'proposal' ? (item.count === 1 ? 'recommendation' : 'recommendations') : (item.count === 1 ? 'question' : 'questions')} waiting`}
               >
                 {item.count}
               </span>
             )}
             {item.risk && (
-              <span className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium tracking-wide uppercase sm:inline ${riskTone(item.risk)}`}>{item.risk}</span>
+              <span className={`ml-1.5 hidden rounded-full border px-1.5 py-px text-[10px] font-medium tracking-wide uppercase sm:inline ${riskTone(item.risk)}`}>{item.risk}</span>
             )}
           </span>
         )}
@@ -182,7 +201,7 @@ export function InboxRow({ item, tab, why, workspaceId, agent }: { item: InboxIt
         actions={(
           // A fixed width so the numeric columns land in the same place on
           // every row and under the list's own header labels.
-          <span className="flex w-[76px] items-center justify-end gap-0.5">
+          <span className="flex items-center justify-end gap-0.5 sm:w-[76px]">
             {undoable && (
               <button
                 type="button"

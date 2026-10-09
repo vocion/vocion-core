@@ -192,6 +192,16 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // Every list on a phone: the first record in the top 35% of a 390×844
+    // screen, titles wrapping rather than cut at ten characters, the header's
+    // controls in one row of chips. Self-seeding like `needs-you`.
+    // Run with: npx playwright test --project=mobile-lists
+    {
+      name: 'mobile-lists',
+      testDir: './e2e/mobile-lists',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+    },
     // The feedback-to-learning loop end to end. Self-seeding like `queue`.
     // Run with: npx playwright test --project=learning
     {

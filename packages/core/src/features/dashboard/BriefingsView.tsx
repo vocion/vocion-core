@@ -4,7 +4,7 @@ import type { BriefingV2 } from '@/services/briefings/document';
 import type { InboxItem } from '@/services/InboxService';
 import { Check, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ListEmpty, ListRow, ListRows } from '@/components/patterns';
+import { CompactFilters, ListEmpty, ListRow, ListRows } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
@@ -136,7 +136,22 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
   return (
     <div>
       {/* Team tabs — rollup first */}
-      <div className="mb-4 flex flex-wrap gap-1.5">
+      {groups.length > 1 && (
+        <CompactFilters
+          className="mb-3"
+          menus={[{
+            key: 'team',
+            label: 'Team',
+            value: String(active),
+            options: groups.map((grp, i) => ({ key: String(i), label: grp.teamName })),
+            onChange: (key) => {
+              setActive(Number(key));
+              setRegen('idle');
+            },
+          }]}
+        />
+      )}
+      <div className="mb-4 hidden flex-wrap gap-1.5 sm:flex">
         {groups.map((grp, i) => (
           <button
             key={grp.teamSlug ?? '__rollup__'}
@@ -158,7 +173,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
         <div className="min-w-0">
           {viewing && !viewing.document && (
             <>
-              <h2 className="truncate text-base font-semibold">{viewing.title}</h2>
+              <h2 className="line-clamp-2 text-base font-semibold sm:line-clamp-1">{viewing.title}</h2>
               <div className="text-xs text-muted-foreground">{[fmt(viewing.createdAt), viewing.publisher ? `by ${viewing.publisher}` : null].filter(Boolean).join(' · ')}</div>
             </>
           )}
@@ -172,9 +187,12 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
             </h2>
           )}
         </div>
-        <Button size="sm" variant="outline" onClick={() => void regenerate()} disabled={regen === 'assembling'}>
+        <Button size="sm" variant="outline" className="shrink-0" onClick={() => void regenerate()} disabled={regen === 'assembling'}>
           {regen === 'assembling' ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          {regen === 'assembling' ? `Refreshing… ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}` : 'Refresh briefing'}
+          {/* On a phone the verb is the icon; the title keeps the width. */}
+          <span className="sr-only sm:not-sr-only">
+            {regen === 'assembling' ? `Refreshing… ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}` : 'Refresh briefing'}
+          </span>
         </Button>
       </div>
       {regen === 'assembling' && (
