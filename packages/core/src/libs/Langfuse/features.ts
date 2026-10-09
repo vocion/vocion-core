@@ -44,6 +44,8 @@ export const FEATURES = {
   CHAT_CARDS: 'chat.cards',
   /** A thread's name, written by the classifier model after its first reply. */
   CHAT_TITLE: 'chat.title',
+  /** The answer's source check: specifics a turn states that its sources do not carry (`services/agents/answerBackstop.ts`). */
+  CHAT_GROUNDING: 'chat.grounding',
   /** Which agent answers a conversation's first turn, read by the classifier (`services/agents/routeRead.ts`). */
   CHAT_ROUTE: 'chat.route',
   /** OAuth token-refresh round-trips for Source plugins. */

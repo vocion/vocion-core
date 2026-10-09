@@ -227,3 +227,152 @@ export const composeAnswerWithModel: AnswerComposer = async ({ orgId, system, hu
   }
   return text;
 };
+
+/* ------------------------------------------------------------------ */
+/* The source check — specifics the answer states that its sources do  */
+/* not carry. Kept in this module (the answer's other backstop), not a  */
+/* module of its own: check:route-graph counts every module per route. */
+/* ------------------------------------------------------------------ */
+
+/**
+ * On a hard question the most-missed rubric fact was "no invented facts" — at
+ * every effort level, before and after thinking changes (#1305): an amount,
+ * a date or a promise the threads never held, stated as fact. The answer has
+ * already streamed by the time it can be checked, and an agent's words are
+ * never edited after it writes them (CLAUDE.md), so the check MARKS rather
+ * than rewrites: one small-model read of the answer against the snippets the
+ * turn cited, returning typed flags, which land as a step on the turn
+ * ("Checked the answer against its sources · 2 unverified") with each flagged
+ * quote and why — persisted with the trace, one tap from the claim.
+ */
+export type GroundingFlag = {
+  /** The answer's own words, verbatim. */
+  quote: string;
+  kind: 'name' | 'date' | 'amount' | 'promise' | 'other';
+  /** `unsupported`: no source says it. `uncited`: a source may, but the sentence names none. */
+  issue: 'unsupported' | 'uncited';
+};
+
+export type GroundingSource = { n: number; title: string; source: string; snippet?: string };
+
+export const GROUNDING_SYSTEM = [
+  'You check an assistant\'s answer against the sources it gathered. List only SPECIFIC claims about people, companies or records — names, dates and deadlines (including relative ones like "tomorrow" or "5 days ago", checked against NOW), amounts and quantities, commitments or promises made by anyone — that are either not supported by any source ("unsupported") or stated without a [n] citation although they come from a source ("uncited").',
+  'Ignore advice, judgement, ranking, tone, and anything the person asked for. Do not flag a claim a cited source supports. Quote the answer\'s exact words (at most 120 characters).',
+  'Answer with JSON only: {"flags": [{"quote": "...", "kind": "name" | "date" | "amount" | "promise" | "other", "issue": "unsupported" | "uncited"}]}. An empty list when everything checks out.',
+].join(' ');
+
+/** The most sources and characters the check reads. */
+const GROUNDING_SOURCES = 40;
+const GROUNDING_ANSWER_CHARS = 8_000;
+/** The most flags kept. */
+const GROUNDING_MAX_FLAGS = 8;
+
+/**
+ * The check's user message: the sources by number, then the answer.
+ * @param answer - The turn's answer.
+ * @param sources - What the turn cited, with what it read of each.
+ * @param now - The turn's clock line, so relative dates can be checked.
+ */
+export function groundingPrompt(answer: string, sources: GroundingSource[], now?: string): string {
+  return [
+    // Relative dates ("tomorrow", "5 days ago") are claims too, checkable only against today.
+    ...(now ? [`NOW: ${now}`, ''] : []),
+    'SOURCES:',
+    ...sources.slice(0, GROUNDING_SOURCES).map(s => `[${s.n}] ${s.title} (${s.source})${s.snippet ? ` — ${s.snippet}` : ''}`),
+    '',
+    'ANSWER:',
+    answer.slice(0, GROUNDING_ANSWER_CHARS),
+  ].join('\n');
+}
+
+/**
+ * The check's flags, kept only where the quote is really in the answer — a
+ * flag pointing at words the answer does not contain is the checker's own
+ * invention.
+ * @param raw - The model's reply.
+ * @param answer - The answer it checked.
+ */
+export function parseGroundingFlags(raw: string, answer: string): GroundingFlag[] {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { flags?: unknown };
+    const flat = answer.replace(/\s+/g, ' ');
+    return (Array.isArray(parsed.flags) ? parsed.flags : [])
+      .filter((f): f is GroundingFlag => !!f && typeof (f as GroundingFlag).quote === 'string')
+      .map(f => ({
+        quote: f.quote.replace(/\s+/g, ' ').trim().slice(0, 160),
+        kind: (['name', 'date', 'amount', 'promise'] as const).includes(f.kind as never) ? f.kind : 'other',
+        issue: f.issue === 'uncited' ? 'uncited' as const : 'unsupported' as const,
+      }))
+      .filter(f => f.quote.length >= 3 && flat.includes(f.quote))
+      .slice(0, GROUNDING_MAX_FLAGS);
+  } catch {
+    return [];
+  }
+}
+
+/** Test seam: one small-model call. */
+export type GroundingModel = (system: string, user: string) => Promise<{ text: string; response?: unknown }>;
+
+/** How long the check may take before the turn ends without it. */
+const GROUNDING_TIMEOUT_MS = 6_000;
+
+/**
+ * Check an answer against its sources. Never throws: no model, a slow one or
+ * an unreadable reply returns no flags and says it did not run.
+ * @param opts - The answer and its sources.
+ * @param opts.orgId - Whose key pays, and whose budget it lands on.
+ * @param opts.answer - The turn's answer.
+ * @param opts.sources - What the turn cited.
+ * @param opts.now - The turn's clock line.
+ * @param opts.model - Test seam.
+ */
+export async function checkGrounding(opts: { orgId: string; answer: string; sources: GroundingSource[]; now?: string; model?: GroundingModel }): Promise<{ ran: boolean; flags: GroundingFlag[]; ms: number }> {
+  const started = Date.now();
+  try {
+    const model = opts.model ?? await defaultGroundingModel(opts.orgId);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reply = await Promise.race([
+      model(GROUNDING_SYSTEM, groundingPrompt(opts.answer, opts.sources, opts.now)),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('source check timed out')), GROUNDING_TIMEOUT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    if (reply.response !== undefined) {
+      const { chargeModelCall } = await import('@/services/budget/chargeModelCall');
+      const { FEATURES } = await import('@/libs/Langfuse/features');
+      await chargeModelCall({ orgId: opts.orgId, feature: FEATURES.CHAT_GROUNDING, role: 'classifier', response: reply.response });
+    }
+    return { ran: true, flags: parseGroundingFlags(reply.text, opts.answer), ms: Date.now() - started };
+  } catch {
+    return { ran: false, flags: [], ms: Date.now() - started };
+  }
+}
+
+async function defaultGroundingModel(orgId: string): Promise<GroundingModel> {
+  const { buildChatModelForOrg } = await import('@/libs/llm/langchain');
+  const model = await buildChatModelForOrg('classifier', orgId, { temperature: 0, maxTokens: 800, streaming: false });
+  return async (system, user) => {
+    const response = await model.invoke([{ role: 'system', content: system }, { role: 'user', content: user }]);
+    const c = response.content;
+    const text = typeof c === 'string' ? c : Array.isArray(c) ? c.map(part => (part as { text?: string }).text ?? '').join('') : '';
+    return { text, response };
+  };
+}
+
+/**
+ * What the step on the turn says: how many claims the sources do not carry,
+ * and each one with why.
+ * @param flags - The check's flags.
+ */
+export function groundingStep(flags: GroundingFlag[]): { label: string; detail: string; resultDetail: string } {
+  return {
+    label: 'Checked the answer against its sources',
+    detail: `${flags.length} unverified`,
+    resultDetail: flags.map(f => `Unverified (${f.issue === 'uncited' ? 'no source cited' : 'not in the sources'}): “${f.quote}”`).join('\n'),
+  };
+}
