@@ -145,7 +145,7 @@ async function fromRecommendation(rec: RecommendedActionPayload, deps: Escalatio
     const filed = await deps.file(rec).catch(() => null);
     if (filed?.status === 'done') {
       const { actionIsUndoable } = await import('@/libs/actions/undoable');
-      return [{ type: 'receipt', receipt: { runId: filed.runId, actionId: rec.actionId, label: rec.label, undoable: actionIsUndoable(rec.actionId), ...(rec.href ? { href: rec.href } : {}) } }];
+      return [{ type: 'receipt', receipt: { runId: filed.runId, actionId: rec.actionId, label: rec.label, undoable: actionIsUndoable(rec.actionId, rec.input as Record<string, unknown> | null), ...(rec.href ? { href: rec.href } : {}) } }];
     }
     if (filed?.status === 'pending') {
       return proposalEvent(deps, filed.runId);

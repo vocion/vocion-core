@@ -442,10 +442,50 @@ async function unchangedSends(orgId: string, input: z.infer<typeof enrollInput>)
   return out;
 }
 
+/** The live thread a contact is in, as the refusal names it. */
+export type ActiveConversation = { threadId: string; subject: string; counterpart: string; lastMessageAt: string | null };
+
+/**
+ * The thread this contact is already in, from the mailbox's synced thread
+ * state, or null. Fails open: a mirror or index that cannot be read lets the
+ * enrolment through to the reviewer, who still decides it.
+ * @param orgId - The workspace.
+ * @param contactRef - The mirror ref, `contacts:<id>`.
+ */
+export async function activeConversationOf(orgId: string, contactRef: string): Promise<ActiveConversation | null> {
+  try {
+    const { contactEmailByRef } = await import('@/services/CrmRecordsService');
+    const email = (await contactEmailByRef(orgId, [contactRef])).get(contactRef);
+    if (!email) {
+      return null;
+    }
+    const { activeThreadWith } = await import('@/services/mail/replyThread');
+    const thread = await activeThreadWith(orgId, email);
+    return thread ? { threadId: thread.threadId, subject: thread.subject, counterpart: thread.counterpart || email, lastMessageAt: thread.lastMessageAt } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a sequence proposal for someone in a conversation is told: nothing
+ * was saved, why, and the reply to propose instead, filled in.
+ * @param contactName - Who.
+ * @param c - The thread they are in.
+ */
+export function conversationRefusal(contactName: string, c: ActiveConversation): string {
+  const when = c.lastMessageAt ? ` (last message ${c.lastMessageAt.slice(0, 10)})` : '';
+  const subject = /^\s*re\s*:/i.test(c.subject) ? c.subject : `Re: ${c.subject}`;
+  return [
+    `NOTHING WAS SAVED. ${contactName} is already in an active email thread, "${c.subject}"${when}. A sequence is for prospects who are not in a conversation.`,
+    `Reply in that thread instead: propose gmail.send with { threadId: "${c.threadId}", to: "${c.counterpart}", subject: "${subject}", draft: true } and one reply as the body.`,
+  ].join(' ');
+}
+
 export const personalizationEnrollAction: Action<typeof enrollInput> = {
   id: 'personalization.enroll',
   name: 'Enroll MQL in sequence',
-  description: 'Enroll a reviewed MQL into the recommended existing HubSpot sequence, carrying the approved personalized sends.',
+  description: 'Queue multi-touch outbound: enroll a reviewed MQL who is NOT in an active email thread into the recommended existing HubSpot sequence, carrying the approved personalized sends. Anyone already in a conversation is answered with gmail.send (a reply draft in their thread), never enrolled; a proposal for one is refused with the thread to reply in.',
   inputSchema: enrollInput,
   grant: 'enroll_lead',
   external: true,
@@ -468,6 +508,14 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
    * @param input
    */
   async precheck(ctx, input) {
+    // A PERSON IN A CONVERSATION IS ANSWERED, NOT ENROLLED. A single contact
+    // with a live thread in the mailbox gets a reply in that thread; queueing
+    // them into a sequence sends a cold "Step 1" to someone mid-conversation.
+    // Refused here, at the one door, with the thread to reply in.
+    const conversation = await activeConversationOf(ctx.orgId, input.contactRef);
+    if (conversation) {
+      return conversationRefusal(input.contactName, conversation);
+    }
     const rules = await voiceRulesFor(ctx.orgId);
     // Only the sends that CHANGED are judged. A scoped regenerate rewrites one
     // send and, by design, keeps the others word for word so a reviewer's
@@ -593,10 +641,14 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
         label: `Outreach · ${sends.length} ${sends.length === 1 ? 'send' : 'sends'}`,
         meta: span !== undefined && span > 0 ? `${span} days` : undefined,
       },
+      // The steps, as a timeline: "Step 1 · Day 0 · email". Each one is
+      // still its own editable item, so the walk and regenerate are as they were.
+      sequence: { name: input.sequenceName, contact: input.contactName, sender: effectiveSender, system: 'HubSpot' },
       content: sends.map(s => ({
         kind: 'email' as const,
         id: `send-${s.step}`,
-        label: s.day !== undefined ? `Day ${s.day}` : `Send ${s.step}`,
+        label: s.day !== undefined ? `Day ${s.day}` : `Step ${s.step}`,
+        tabLabel: [`Step ${s.step}`, s.day !== undefined ? `Day ${s.day}` : null, 'email'].filter(Boolean).join(' · '),
         subject: s.subject,
         body: s.body,
       })),
@@ -607,7 +659,7 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
         : [],
       // The lead's own page — the card and the research land on one URL.
       links: [{ label: 'View Research', href: hubspotId ? `/gtm/lead/${hubspotId}` : '/gtm/personalization' }],
-      verbs: { approve: 'Enroll', reject: 'Decline' },
+      verbs: { approve: 'Queue in HubSpot', reject: 'Decline' },
     };
   },
   // Edit-then-approve on the sends: the reviewer's version is what persists

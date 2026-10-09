@@ -338,6 +338,7 @@
     "shortcut_approve": "Approve",
     "shortcut_decline": "Decline",
     "shortcut_snooze": "Snooze",
+    "shortcut_edit": "Edit the message",
     "context_label": "Context for this decision",
     "context_contact": "Contact",
     "context_name": "Name",

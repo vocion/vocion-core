@@ -324,6 +324,28 @@ export async function contactUtmContentByRef(
   refs: string[],
   allowedSourceSlugs?: string[],
 ): Promise<Map<string, string>> {
+  return contactFieldByRef(orgId, refs, 'utmContent', allowedSourceSlugs);
+}
+
+/**
+ * Each contact's primary email, read from the mirror by ref — for a check
+ * that needs to know who a contact is in the mailbox (is this person already
+ * in a conversation?). Refs with no email are absent from the map.
+ * @param orgId
+ * @param refs - Mirror refs, `contacts:<id>`.
+ */
+export async function contactEmailByRef(orgId: string, refs: string[]): Promise<Map<string, string>> {
+  return contactFieldByRef(orgId, refs, 'primaryEmail');
+}
+
+/**
+ * One metadata field of each contact in the mirror, by ref.
+ * @param orgId
+ * @param refs - Mirror refs, `contacts:<id>`.
+ * @param key - The metadata key (alphanumeric; `meta()` inlines it).
+ * @param allowedSourceSlugs
+ */
+async function contactFieldByRef(orgId: string, refs: string[], key: 'utmContent' | 'primaryEmail', allowedSourceSlugs?: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const unique = [...new Set(refs)];
   if (unique.length === 0) {
@@ -334,7 +356,7 @@ export async function contactUtmContentByRef(
     return out;
   }
   const rows = await db
-    .select({ ref: knowledgeDocumentSchema.externalId, value: meta('utmContent') })
+    .select({ ref: knowledgeDocumentSchema.externalId, value: meta(key) })
     .from(knowledgeDocumentSchema)
     .where(and(
       eq(knowledgeDocumentSchema.orgId, orgId),

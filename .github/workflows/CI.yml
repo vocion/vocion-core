@@ -357,12 +357,15 @@ jobs:
     # PGlite accepts one connection, which made every seed script a spec
     # spawned wait about 10s for the app's pool to let go of it, and caused
     # the `Connection terminated unexpectedly` flake in e2e/credentials
-    # (#631). pgvector because a migration creates the `vector` extension.
-    # The test step runs in a container action, which joins this job's
+    # (#631). The image comes from AWS's public mirror of Docker Hub's
+    # official images, because unauthenticated Docker Hub pulls from shared
+    # runners hit its rate limit and failed every E2E shard. pgvector is
+    # installed into it below, because a migration creates the `vector`
+    # extension. The test step runs in a container action, which joins this job's
     # network, so it reaches the database by the service name, `postgres`.
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -374,6 +377,11 @@ jobs:
           --health-retries 30
 
     steps:
+      - name: Install pgvector into the database
+        run: |
+          docker exec ${{ job.services.postgres.id }} sh -c \
+            'apt-get update -qq && apt-get install -y -qq postgresql-16-pgvector >/dev/null'
+
       - uses: actions/checkout@v6
 
       - name: Set up Node.js environment

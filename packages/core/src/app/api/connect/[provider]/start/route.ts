@@ -1,5 +1,5 @@
 /**
- * GET /api/connect/[provider]/start?connector=<slug>|source=<slug>[&returnTo=/dashboard/...][&conversation=<id>&card=<id>]
+ * GET /api/connect/[provider]/start?connector=<slug>|source=<slug>[&access=<name>][&returnTo=/dashboard/...][&conversation=<id>&card=<id>]
  *
  * Sends a workspace admin to the vendor to log in (#1080). It can start from a
  * connector alone: the login is stored first and sources are linked to it
@@ -11,6 +11,12 @@
  * own account for a connector the personal list names, while their Org
  * allows it (`personalConnectGate`), on the personal app
  * (`personalLoginClient`) with the personal access (`audience: 'personal'`).
+ *
+ * `access` asks for more than the connector's own scopes, by a name the
+ * provider declares (`compose` for Gmail drafts). It is how a failed action's
+ * "Reconnect Gmail to allow drafts" asks for exactly what was missing
+ * (`libs/connect/permissionError.ts`), through whichever flow this workspace
+ * uses. A name the provider does not know asks for nothing extra.
  *
  * Fails closed on configuration: no AUTH_SECRET means no state can be signed,
  * and no NEXT_PUBLIC_APP_URL means no redirect_uri can be named honestly.
@@ -81,6 +87,16 @@ function cardFromQuery(params: URLSearchParams): { conversationId?: number; card
 }
 
 /**
+ * The extra access the query names, when it is a plain word. Anything else is
+ * dropped: it only ever selects from what a provider declares.
+ * @param params - The start route's query string.
+ */
+function accessFromQuery(params: URLSearchParams): { access?: string } {
+  const access = params.get('access')?.trim() ?? '';
+  return /^[a-z][\w-]{0,31}$/.test(access) ? { access } : {};
+}
+
+/**
  * Where the connect is sent back to, or a response naming what the server is
  * missing: the configured origin, and the secret that signs the state.
  */
@@ -135,7 +151,7 @@ async function startPersonal(req: NextRequest, input: { orgId: string; userId: s
     ...(client ? { loginClientId: client.clientId } : {}),
   });
   const codeChallenge = provider.pkce ? pkceChallengeFor(pkceVerifierFor(state)) : undefined;
-  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(where.origin, provider.id), connector: connectorSlug, audience: 'personal', ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);
+  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(where.origin, provider.id), connector: connectorSlug, audience: 'personal', ...accessFromQuery(req.nextUrl.searchParams), ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
@@ -196,5 +212,5 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     ...(client ? { loginClientId: client.clientId } : {}),
   });
   const codeChallenge = provider.pkce ? pkceChallengeFor(pkceVerifierFor(state)) : undefined;
-  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id), connector: target.connectorSlug, ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);
+  return NextResponse.redirect(provider.authorizeUrl({ state, redirectUri: callbackUri(origin, provider.id), connector: target.connectorSlug, ...accessFromQuery(req.nextUrl.searchParams), ...(codeChallenge ? { codeChallenge } : {}), ...(client ? { client } : {}) }), 302);
 }

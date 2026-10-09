@@ -22,6 +22,7 @@
     "adoption:backfill": "dotenv -c -- tsx src/scripts/backfill-adoption-events.ts",
     "personal-projects:backfill": "dotenv -c -- tsx src/scripts/backfill-personal-projects.ts",
     "voice:relint": "dotenv -c -- tsx src/scripts/relint-pending-enrolls.ts",
+    "sequences:audit": "dotenv -c -- tsx src/scripts/audit-misfiled-sequences.ts",
     "adoption:seed-demo": "dotenv -c -- tsx src/scripts/seed-adoption-demo.ts",
     "start": "next start",
     "build-stats": "cross-env ANALYZE=true npm run build",

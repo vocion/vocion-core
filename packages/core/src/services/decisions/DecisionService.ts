@@ -376,14 +376,14 @@ async function effectOf(row: Ask): Promise<AnsweredDecision['effect']> {
   }
   const { actionRunSchema } = await import('@/models/Schema');
   const [run] = await db
-    .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, status: actionRunSchema.status })
+    .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, status: actionRunSchema.status, input: actionRunSchema.input, result: actionRunSchema.result })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.orgId, row.orgId), eq(actionRunSchema.id, row.effectRunId)))
     .limit(1);
   if (!run) {
     return null;
   }
-  const { actionIsUndoable, actionLabel } = await import('@/libs/actions/undoable');
+  const { actionLabel, runIsUndoable } = await import('@/libs/actions/undoable');
   const chosen = row.options.find(o => o.id === row.decision);
   // The receipt names what was done: an approval or a setup step is its
   // question ("Add Software Factory"), never the bare verb on its button; a
@@ -391,7 +391,7 @@ async function effectOf(row: Ask): Promise<AnsweredDecision['effect']> {
   const label = row.kind === 'approval' || row.kind === 'gate' || row.kind === 'setup'
     ? row.title
     : chosen ? `${row.title} — ${chosen.label}` : actionLabel(run.actionId);
-  return { runId: run.id, actionId: run.actionId, status: run.status, undoable: run.status === 'done' && actionIsUndoable(run.actionId), label: label.slice(0, 200) };
+  return { runId: run.id, actionId: run.actionId, status: run.status, undoable: run.status === 'done' && runIsUndoable(run.actionId, run.result as Record<string, unknown> | null), label: label.slice(0, 200) };
 }
 
 /**

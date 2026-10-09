@@ -1,6 +1,6 @@
 import type { ActionDescription } from './describeActionRun';
 import { and, desc, eq, gt, inArray, isNull, lte, not, or, sql } from 'drizzle-orm';
-import { getAction } from '@/libs/actions/registry';
+import { runIsUndoable } from '@/libs/actions/undoable';
 import { db } from '@/libs/DB';
 import { actionRunSchema, reviewAssignmentSchema } from '@/models/Schema';
 import { resolveRecordLabels } from '@/services/records/recordLabel';
@@ -130,6 +130,7 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
       decidedBy: actionRunSchema.decidedBy,
       approvedByAgent: actionRunSchema.approvedByAgent,
       error: actionRunSchema.error,
+      result: actionRunSchema.result,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       assignedTo: reviewAssignmentSchema.assignedTo,
@@ -148,7 +149,7 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
     decidedAt: row.decidedAt ?? row.executedAt ?? null,
     decidedBy: row.decidedBy ?? null,
     approvedByAgent: row.approvedByAgent === true,
-    undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
+    undoable: row.status === 'done' && runIsUndoable(row.actionId, row.result as Record<string, unknown> | null),
     snoozedUntil: row.snoozedUntil ?? null,
     // A run the sweep closed carries its reason in `error` ("closed: … — link"): that IS its note.
     note: row.status === 'closed' ? (row.error ?? null) : (row.note ?? null),

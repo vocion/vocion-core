@@ -1,7 +1,7 @@
 import type { ThreadMessage } from './mailThreadState';
 import { describe, expect, it } from 'vitest';
 import { facetsMatch, validateFacetFilter } from '@/libs/retrieval/facets';
-import { fallbackLabel, parseLabel, priorFromMetadata, reuse, ruleLabel, threadFacts, threadStateDoc } from './mailThreadState';
+import { fallbackLabel, parseLabel, priorFromMetadata, recentMessagesOf, reuse, ruleLabel, threadFacts, threadStateDoc } from './mailThreadState';
 
 const OWNER = 'owner@metacto.example';
 const msg = (over: Partial<ThreadMessage> & Pick<ThreadMessage, 'id' | 'from'>): ThreadMessage => ({
@@ -82,5 +82,26 @@ describe('facet filters', () => {
     expect(validateFacetFilter({ mood: 'x' })[0]?.message).toContain('unknown facet');
     expect(validateFacetFilter({ last_inbound_at: 'yesterday' })[0]?.message).toContain('since');
     expect(validateFacetFilter({ reply_state: ['needs_my_reply', 'fyi'], category: 'sales' })).toEqual([]);
+  });
+});
+
+describe('recent messages, for the reply draft that answers the thread', () => {
+  const facts = threadFacts('t-1', [
+    { id: 'a', from: 'Dana Reyes <dana@kestrel.example>', to: 'me@northwind.example', date: new Date('2026-10-07T10:00:00.000Z'), subject: 'Phase 2', snippet: 'First.', bulk: false },
+    { id: 'b', from: 'me@northwind.example', to: 'dana@kestrel.example', date: new Date('2026-10-08T10:00:00.000Z'), subject: 'Re: Phase 2', snippet: 'Second (with brackets): fine.', bulk: false },
+  ], 'me@northwind.example')!;
+  const doc = threadStateDoc(facts, fallbackLabel(facts), { connector: 'gmail' });
+
+  it('are filed on the document as data, oldest first', () => {
+    expect(recentMessagesOf(doc.metadata as Record<string, unknown>)).toEqual([
+      { from: 'Dana Reyes <dana@kestrel.example>', at: '2026-10-07T10:00:00.000Z', snippet: 'First.' },
+      { from: 'me@northwind.example', at: '2026-10-08T10:00:00.000Z', snippet: 'Second (with brackets): fine.' },
+    ]);
+  });
+
+  it('are read back off the text of a document filed before the data was', () => {
+    const { recent: _recent, ...older } = doc.metadata as Record<string, unknown>;
+
+    expect(recentMessagesOf(older, doc.content)).toEqual(recentMessagesOf(doc.metadata as Record<string, unknown>));
   });
 });
