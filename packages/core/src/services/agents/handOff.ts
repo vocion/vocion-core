@@ -14,9 +14,20 @@
  * every card the same model step asked for still lands and the person sees
  * the words written before them. Only a person's turn is stopped: a mission
  * run has nobody waiting, and its cards queue for Review while it carries on.
+ *
+ * TWO WAYS TO STOP, and the clean one comes first. The graph ends on its own
+ * before the next model call ({@link createHandOffMiddleware}: a `beforeModel`
+ * hook that jumps to the end), so no request is ever started. The abort
+ * ({@link HandOffGateCallback}) stays as the backstop for a model call the
+ * middleware does not sit in front of. It used to be the only way, and an
+ * abort lands on a request already being built: on 2026-10-09 the turn itself
+ * ended 34 ms after the card went up, but the aborted call's span stayed open
+ * for 102 s before it settled as "Request was aborted", which made a 232 s turn
+ * read as 334 s in its trace and kept an HTTP request alive for nothing.
  */
 
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+import { createMiddleware } from 'langchain';
 
 /** The turn ended at a card a person has to act on. Not a failure. */
 export class TurnHandedOff extends Error {
@@ -71,17 +82,50 @@ export class HandOffGuard {
   }
 
   /**
+   * The graph is about to call the model again: with a card already in front
+   * of the person, the turn should end here instead. Records the stop WITHOUT
+   * aborting, because the caller (the middleware) ends the graph itself, and a
+   * graph that ends on its own leaves no request half-started.
+   * @returns True when the turn ends before this model call.
+   */
+  endsBeforeModelCall(): boolean {
+    if (!this.armedFor || this.cards.length === 0) {
+      return false;
+    }
+    this.stoppedAt ??= new TurnHandedOff([...this.cards]);
+    return true;
+  }
+
+  /**
    * Another model call is starting: with a card already in front of the
    * person, the turn ends here. Synchronous, so the abort lands before the
-   * call's request goes out.
+   * call's request goes out. The backstop for a call the middleware did not
+   * stop, such as a specialist's running beside the lead.
    */
   beforeModelCall(): void {
-    if (!this.armedFor || this.cards.length === 0 || this.stoppedAt) {
+    if (!this.armedFor || this.cards.length === 0 || this.controller.signal.aborted) {
       return;
     }
-    this.stoppedAt = new TurnHandedOff([...this.cards]);
+    this.stoppedAt ??= new TurnHandedOff([...this.cards]);
     this.controller.abort(this.stoppedAt);
   }
+}
+
+/**
+ * Ends the agent's graph before a model call that would follow a hand-off,
+ * so the turn finishes as an ordinary completed run: no aborted request, no
+ * span left open, and the turn's own end (persisting, `done`) is reached
+ * through the normal path.
+ * @param guard - The turn's guard.
+ */
+export function createHandOffMiddleware(guard: HandOffGuard) {
+  return createMiddleware({
+    name: 'VocionHandOffMiddleware',
+    beforeModel: {
+      canJumpTo: ['end'],
+      hook: () => (guard.endsBeforeModelCall() ? { jumpTo: 'end' as const } : undefined),
+    },
+  });
 }
 
 /**

@@ -29,6 +29,7 @@
 
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { SubAgent } from 'deepagents';
+import type { HandOffGuard } from './handOff';
 import type { FilingType } from './tools/fileRecord';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
@@ -56,6 +57,7 @@ import { leadWorkspaceLabelFor } from '@/services/workspace/leadNaming';
 import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentService';
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
+import { createHandOffMiddleware } from './handOff';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { agentScope, runtimeContextFromScope } from './runtimeContext';
 import { buildDomainTools } from './tools/registry';
@@ -581,12 +583,13 @@ function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: 
  * @param request - Who is asking, what they may read, where their events go.
  * @param opts - Per-request overrides.
  * @param opts.modelOverride - Run this one request on a named model instead of the agent's own.
+ * @param opts.handOff - The turn's hand-off guard: the graph ends on its own before a model call that would follow a card a person acts on (`handOff.ts`).
  */
 export async function compileAgentForRequest(
   orgId: string,
   agentSlug: string,
   request: AgentRequest,
-  opts: { modelOverride?: ModelOverride } = {},
+  opts: { modelOverride?: ModelOverride; handOff?: HandOffGuard } = {},
 ): Promise<CompiledAgentGraph> {
   // An overridden model is never cached: the cache is keyed on the agent, and
   // a blueprint holding the candidate model would answer the next ordinary
@@ -643,7 +646,7 @@ export async function compileAgentForRequest(
     // Approved learnings are injected into every model call's system message
     // (structural, not discoverable — see memoryDigest.ts). Safe to mount
     // unconditionally: it declares no required state fields.
-    middleware: [createMemoryDigestMiddleware()],
+    middleware: [createMemoryDigestMiddleware(), ...(opts.handOff ? [createHandOffMiddleware(opts.handOff)] : [])],
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
     ...(blueprint.hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
