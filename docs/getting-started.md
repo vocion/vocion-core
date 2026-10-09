@@ -267,7 +267,7 @@ description: >-
   quarter, assembled from the team leads.
 icon: compass
 accent: emerald
-eyebrow: Revenue · Workspace Lead
+eyebrow: Revenue lead
 agentType: mission
 suggestions:
   - label: How's the quarter?
@@ -380,7 +380,7 @@ systemPrompt: |
   that is not in the data.
 ```
 
-Now `revenue-director` (workspace lead) consults `revenue-lead` (team lead),
+Now `revenue-director` (workspace's lead) consults `revenue-lead` (team lead),
 which can hand work to `pipeline-analyst` (specialist). Applying this and
 opening `/dashboard/teams` shows the shape you just described.
 
@@ -867,7 +867,7 @@ References: [learning step](./entities/learning-step.md) ·
 ├── workspace.yaml                          # identity, lead, defaults
 ├── trust.yaml                              # what may auto-execute
 ├── agents/
-│   ├── revenue-director.yaml               # workspace lead
+│   ├── revenue-director.yaml               # workspace's lead
 │   ├── revenue-director.system-prompt.md
 │   ├── revenue-lead.yaml                   # team lead
 │   ├── revenue-lead.system-prompt.md

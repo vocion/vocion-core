@@ -336,6 +336,14 @@ export type AgentOption = {
   workspaceName?: string;
   /** The agent's authored `accent` — its `AgentDot` where a turn is attributed to it. */
   accent?: string;
+  /** The workspace's short name ("Revenue"; the Org's for a default project) — what the lead's role and the team line are named from. */
+  workspaceLabel?: string;
+  /** The seeded lead only: what a person reads for it ("Ava · Revenue lead", or "Revenue lead") — `libs/workspace/leadName.ts`. */
+  leadLabel?: string;
+  /** The seeded lead only: the given name an Org set ("Ava"), when it set one. */
+  givenName?: string;
+  /** The seeded lead only: its role, named for the workspace ("Revenue lead"). */
+  leadRole?: string;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

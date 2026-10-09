@@ -1,6 +1,8 @@
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
 import { AgentVoiceError, setAgentVoice } from '@/services/agents/agentVoice';
+import { setSeededLeadName } from '@/services/workspace/leadNaming';
+import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
@@ -30,4 +32,24 @@ export const setVoice = os.input(z.object({
     }
     throw e;
   }
+});
+
+/**
+ * Give the workspace's lead a first name ("Ava"), or clear it so the lead
+ * reads as its role ("Revenue lead"). Admins only: it is how the whole
+ * workspace addresses its lead. Set from the lead's profile and from Brand
+ * ("Make it yours").
+ */
+export const setLeadName = os.input(z.object({
+  name: z.string().max(80),
+})).handler(async ({ input }) => {
+  const { orgId, has } = await guardAuth();
+  if (!has({ role: ORG_ROLE.ADMIN })) {
+    throw new ORPCError('FORBIDDEN', { message: 'Only an admin can name the workspace\'s lead.' });
+  }
+  const named = await setSeededLeadName(orgId, input.name);
+  if (!named) {
+    throw ApiError.notFound();
+  }
+  return named;
 });

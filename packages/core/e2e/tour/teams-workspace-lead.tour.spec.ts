@@ -106,7 +106,7 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await expect(page.getByRole('heading', { name: 'Revenue Director' })).toBeVisible({ timeout: 30_000 });
 
   // ── Shot 3 — hold on the org chart: lead band on top, four teams flat beneath ──
-  await expect(page.getByText('Workspace Lead', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^\S.* lead$/).first()).toBeVisible();
 
   await page.getByRole('heading', { name: 'Revenue Director' }).hover();
   await dwell(page, 1500);

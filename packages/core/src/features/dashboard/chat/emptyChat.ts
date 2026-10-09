@@ -116,7 +116,18 @@ export function greetingFor(input: { hour: number; returning: boolean; firstName
 }
 
 /** One agent as the empty conversation draws it. */
-export type TeamMember = { slug: string; name: string; accent?: string | null };
+export type TeamMember = {
+  slug: string;
+  /** What the agent is called in a sentence; the seeded lead's is its given name or its role ("Ava", "Revenue lead"). */
+  name: string;
+  accent?: string | null;
+  /** The seeded lead: what a person reads for it ("Ava · Revenue lead"). */
+  leadLabel?: string;
+  /** The seeded lead: the given name an Org set, when it set one. */
+  givenName?: string;
+  /** The seeded lead: its role ("Revenue lead"). */
+  leadRole?: string;
+};
 
 /** How many agents the cluster draws before "+N". */
 export const TEAM_SHOWN = 4;
@@ -150,9 +161,14 @@ export function composerAsk(members: readonly TeamMember[], t: (key: 'ask_team' 
  * @param input.members - The team, lead first.
  * @param t - The surface's translator (`Chat` messages).
  */
-export function teamLine(input: { workspace: string; members: readonly TeamMember[] }, t: (key: 'team_on_it' | 'agent_on_it', values?: Record<string, string>) => string): string | null {
-  if (input.members.length === 0) {
+export function teamLine(input: { workspace: string; members: readonly TeamMember[] }, t: (key: 'team_on_it' | 'agent_on_it' | 'named_lead_and_team_on_it', values?: Record<string, string>) => string): string | null {
+  const lead = input.members[0];
+  if (!lead) {
     return null;
   }
-  return input.members.length === 1 ? t('agent_on_it', { name: input.members[0]!.name }) : t('team_on_it', { workspace: input.workspace });
+  if (input.members.length === 1) {
+    return t('agent_on_it', { name: lead.name });
+  }
+  // A lead with a given name speaks for the team: "Ava and the team are on it."
+  return lead.givenName ? t('named_lead_and_team_on_it', { name: lead.givenName }) : t('team_on_it', { workspace: input.workspace });
 }

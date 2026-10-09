@@ -717,7 +717,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                       <EmptyState
                         firstName={firstName}
                         team={team}
-                        secondLine={teamLine({ workspace: session.workspaceName, members: team }, (key, values) => t(key, values))}
+                        secondLine={teamLine({ workspace: agents.find(a => a.workspaceLabel)?.workspaceLabel ?? session.workspaceName, members: team }, (key, values) => t(key, values))}
                       />
                     )
               )

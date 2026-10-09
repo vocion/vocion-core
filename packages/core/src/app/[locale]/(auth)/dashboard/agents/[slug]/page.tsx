@@ -7,6 +7,7 @@ import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
 import { AgentVoiceControl } from '@/features/dashboard/AgentVoiceControl';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { authoredIcon } from '@/features/dashboard/iconByName';
+import { LeadNameControl } from '@/features/dashboard/LeadNameControl';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
@@ -18,6 +19,7 @@ import { hasBrandMark } from '@/libs/brands/catalog';
 import { Link } from '@/libs/I18nNavigation';
 import { sourceBrandLookup } from '@/libs/sources/sourceBrand';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { isSeededLead, leadGivenName } from '@/libs/workspace/leadName';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
@@ -28,6 +30,9 @@ import { listSkillFolders } from '@/services/playbooks/catalog';
 import { listSources } from '@/services/SourceSyncService';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 import { listWorkflows } from '@/services/WorkflowService';
+import { agentNamer } from '@/services/workspace/leadNaming';
+import { ORG_ROLE } from '@/types/Auth';
+import { requireOrganization } from '@/utils/Auth';
 
 /**
  * Agent profile — one readable page per teammate. A clean hero, then a
@@ -76,14 +81,19 @@ export default async function AgentDetailPage(props: {
     : null;
   const isLead = !agent.parentAgentSlug;
 
-  // Workspace lead (design §2c): when THIS agent is the project-level
-  // lead, its profile carries the "Workspace Lead" badge, the workspace
+  // The workspace's lead (design §2c): when THIS agent is the project-level
+  // lead, its profile carries the "<Workspace> lead" badge, the workspace
   // owner row, and a Consults rail of team leads — its reports are
   // teams, not specialists.
   const workspace = await getWorkspaceLead(orgId);
   const isWorkspaceLead = workspace.leadAgentSlug === slug;
   const teams = isWorkspaceLead ? await listTeams(orgId) : [];
-  const roleLabel = isWorkspaceLead ? 'Workspace Lead' : isLead ? 'Lead' : 'Specialist';
+  // The workspace's own lead is named for the workspace ("Revenue lead"),
+  // never "Workspace lead" (`libs/workspace/leadName.ts`).
+  const namer = await agentNamer(orgId);
+  const roleLabel = isWorkspaceLead ? namer.role : isLead ? 'Lead' : 'Specialist';
+  const displayName = namer.name(agent);
+  const canName = (await requireOrganization()).has({ role: ORG_ROLE.ADMIN });
 
   const allSkills = await listSkillFolders(orgId);
   const skillBySlug = new Map<string, SkillRow>(allSkills.map(s => [s.slug, s]));
@@ -124,20 +134,20 @@ export default async function AgentDetailPage(props: {
 
       {/* ── Hero — a single clean header, no nested boxes ─────────────── */}
       <header className="flex flex-col gap-5 border-b border-border pb-7 sm:flex-row sm:items-start sm:gap-5">
-        <AgentDot name={agent.name} accent={agent.accent} icon={authoredIcon(agent.icon)} size="xl" decorative />
+        <AgentDot name={displayName} accent={agent.accent} icon={authoredIcon(agent.icon)} size="xl" decorative />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight">{agent.name}</h1>
+            <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight">{displayName}</h1>
             {/* Airy pass (B-034b §4): outlined, not solid — the accent stays in the icon tile. */}
             <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/80">
               {roleLabel}
             </span>
-            <RecordContext record={recordRef('agent', agent.slug, agent.name)} />
+            <RecordContext record={recordRef('agent', agent.slug, displayName)} />
           </div>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            {agent.eyebrow && (
+            {agent.eyebrow && !isWorkspaceLead && (
               <span className="font-mono text-[11px] tracking-wide text-muted-foreground">{agent.eyebrow}</span>
             )}
             <span className="font-mono text-[11px] text-muted-foreground/70">{agent.slug}</span>
@@ -171,6 +181,12 @@ export default async function AgentDetailPage(props: {
         <aside className="order-2 flex flex-col gap-5 lg:sticky lg:top-24 lg:order-1 lg:self-start lg:border-r lg:border-border/70 lg:pr-6">
           {isWorkspaceLead && (
             <>
+              {/* An optional first name for the workspace's lead ("Ava"). */}
+              {isSeededLead(agent.slug) && canName && (
+                <RailGroup label="Name">
+                  <LeadNameControl role={namer.role} given={leadGivenName(agent.name)} />
+                </RailGroup>
+              )}
               <RailGroup label="Owner">
                 <OwnerChip accountable={workspace.accountable} />
               </RailGroup>

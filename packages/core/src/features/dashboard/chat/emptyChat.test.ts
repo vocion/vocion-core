@@ -66,5 +66,12 @@ describe('your team is here (founder, 2026-10-09)', () => {
     expect(teamLine({ workspace: 'Northwind', members: [lead, analyst] }, t)).toBe('team_on_it {"workspace":"Northwind"}');
     expect(teamLine({ workspace: 'Personal', members: [{ slug: 'assistant', name: 'Assistant' }] }, t)).toBe('agent_on_it {"name":"Assistant"}');
     expect(teamLine({ workspace: 'Northwind', members: [] }, t)).toBeNull();
+
+    // A lead with a given name speaks for the team; the composer still asks the team.
+    const ava = { slug: 'workspace-lead', name: 'Ava', givenName: 'Ava', leadLabel: 'Ava · Revenue lead' };
+
+    expect(teamLine({ workspace: 'Revenue', members: [ava, analyst] }, t)).toBe('named_lead_and_team_on_it {"name":"Ava"}');
+    expect(composerAsk([ava, analyst], t)).toBe('ask_team');
+    expect(composerAsk([ava], t)).toBe('ask_agent {"name":"Ava"}');
   });
 });

@@ -105,7 +105,7 @@ description: One line — the function it stands up.
 includes: # the card's list, in a person's words
   - A support team — a lead and three specialists, with you accountable
 plugins: [] # plugins it turns on as they ship — never copied
-lead: support-lead # becomes the workspace lead where there is none
+lead: support-lead # becomes the workspace's lead where there is none
 interview: # one to three questions
   - key: company
     question: What is the company called?

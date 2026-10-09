@@ -85,7 +85,7 @@ notifications, notifications and sign-in links go out in it:
 slug: daily-team-report
 name: Daily team report
 description: Every morning, the accountable human gets a read on what the team did and what is waiting on them.
-agent: ceo # the workspace lead — the schedule rolls up to a visible owner
+agent: ceo # the workspace's lead — the schedule rolls up to a visible owner
 when:
   schedule: '0 13 * * *' # 13:00 UTC ≈ 8–9am ET
 do:

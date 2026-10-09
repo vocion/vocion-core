@@ -1,4 +1,4 @@
-# F1 usage tour — Teams + Workspace Lead
+# F1 usage tour — Teams + Lead
 
 `teams-workspace-lead.tour.spec.ts` walks design.md's 8-shot storyboard as
 one cinematic Playwright spec with `video: 'on'` (the `tour` project in

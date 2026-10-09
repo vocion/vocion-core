@@ -69,7 +69,7 @@ Everything you author lives in a **workspace** — a git-backed directory of YAM
 
 | Entity | Path (inside `workspace/<org>/`) | Shape |
 |---|---|---|
-| **[Workspace manifest](./docs/entities/workspace-manifest.md)** | `workspace.yaml` | Org id, name, workspace lead, defaults, dashboard surfaces, base-pack pin |
+| **[Workspace manifest](./docs/entities/workspace-manifest.md)** | `workspace.yaml` | Org id, name, workspace's lead, defaults, dashboard surfaces, base-pack pin |
 | **[Agent](./docs/entities/agent.md)** | `agents/<slug>.yaml` + `<slug>.system-prompt.md` | LLM orchestrator: prompt, hierarchy, skills, sources, harness settings |
 | **[Team](./docs/entities/team.md)** | `teams/<slug>.yaml` | Agents grouped under a lead, with an accountable human |
 | **[Skill](./docs/entities/skill.md)** | `skills/<slug>/SKILL.md` | Frontmatter + markdown procedure, read on the model's judgement |

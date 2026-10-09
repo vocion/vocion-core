@@ -8,7 +8,7 @@ in agent descriptions and prompts — no structured KPI data (that's F3).
 
 ## Shape
 
-- Workspace lead: `revenue-director` (`lead:` in workspace.yaml).
+- Lead: `revenue-director` (`lead:` in workspace.yaml).
 - Four teams, flat: RevOps (indigo), Deal Desk (teal), Founder GTM
   (violet), Marketing (rose). Each has a lead + specialists.
 - Accountability: `workspace.yaml` deliberately omits `accountableUser` —

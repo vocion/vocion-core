@@ -12,7 +12,7 @@ import { TEAM_SHOWN } from './emptyChat';
  * agents, not a logo (founder, 2026-10-09: the calm start "looks too much
  * like Claude"). A small overlapping cluster of their `AgentDot`s, the lead
  * in front and a size larger, wearing the Org's accent as its ring; at most
- * four, then "+N". Under it, a quiet caption ("Workspace lead · 3 agents")
+ * four, then "+N". Under it, a quiet caption ("Ava · Revenue lead · 3 agents")
  * that opens the team. Only the lead when it is alone; a personal workspace's
  * assistant the same way. The dots settle in once, and not at all with
  * reduced motion; nothing loops.
@@ -28,7 +28,8 @@ export function TeamCluster({ members, href = '/dashboard/teams' }: { members: r
   }
   const rest = members.slice(1, TEAM_SHOWN);
   const more = members.length - 1 - rest.length;
-  const caption = members.length === 1 ? lead.name : t('team_caption', { lead: lead.name, count: members.length });
+  const leadLabel = lead.leadLabel ?? lead.name;
+  const caption = members.length === 1 ? leadLabel : t('team_caption', { lead: leadLabel, count: members.length });
   return (
     <div data-testid="team-cluster" className="flex flex-col items-center [@media(max-height:480px)]:hidden">
       <div className="flex items-center" aria-hidden>

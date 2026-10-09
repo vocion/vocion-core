@@ -34,7 +34,7 @@ const meta: Meta<typeof Pane> = {
     firstName: 'Sam',
     hour: 19,
     returning: true,
-    team: ['Workspace lead', 'Pipeline Analyst', 'Deal Desk', 'Renewals', 'Inbound', 'Hiring'].map((name, i) => ({ slug: `a${i}`, name, accent: null })),
+    team: ['Revenue lead', 'Pipeline Analyst', 'Deal Desk', 'Renewals', 'Inbound', 'Hiring'].map((name, i) => ({ slug: `a${i}`, name, accent: null })),
     secondLine: 'Northwind\'s team is on it.',
   },
 };
@@ -50,7 +50,7 @@ export const NarrowRail: Story = { args: { width: 320 } };
 export const WidePane: Story = { args: { width: 680 } };
 
 /** Only the lead: a new workspace, or a personal one with its assistant. */
-export const LeadAlone: Story = { args: { width: 480, team: [{ slug: 'lead', name: 'Workspace lead' }], secondLine: null, line: 'Hi Sam, I\'m the workspace lead. Whenever you\'re ready, I can help set this up.' } };
+export const LeadAlone: Story = { args: { width: 480, team: [{ slug: 'lead', name: 'Revenue lead' }], secondLine: null, line: 'Hi Sam, I\'m the Revenue lead. Whenever you\'re ready, I can help set this up.' } };
 
 /** Something waits on the person: one soft chip by the composer, never cards. */
 export const WithNudge: Story = { args: { width: 480, nudge: <WaitingNudge count={3} /> } };

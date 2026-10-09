@@ -1,6 +1,6 @@
 # Getting started in a new workspace
 
-A new shared workspace opens on its **workspace lead**, not on a blank page.
+A new shared workspace opens on its **workspace's lead**, not on a blank page.
 The lead introduces itself in one sentence and offers three ways in:
 
 - **Set up this workspace with me** — a short interview, then a plan.
@@ -17,7 +17,7 @@ This guide covers what each part does and where it lives in core. The
 tutorial for authoring a workspace as files is [Getting started — build an
 agent workforce from zero](../getting-started.md).
 
-## The workspace lead
+## The workspace's lead
 
 | | |
 |---|---|

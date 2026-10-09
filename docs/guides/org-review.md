@@ -31,7 +31,7 @@ otherwise), the `org.review` job:
 
    | Finding | When | Changes it can justify |
    |---|---|---|
-   | `idle` | no sign of work for `idleDays` (14); never the workspace lead, never an agent younger than the window | retire the agent |
+   | `idle` | no sign of work for `idleDays` (14); never the workspace's lead, never an agent younger than the window | retire the agent |
    | `spend` | at its daily cap while people agree with ≥ 80% of its work (raise the cap), or ≥ $5 spent while people agree with < 50% (cut it) — both need ≥ 5 decided recommendations | re-scope its budget; for poor return also retire it or adopt a rule |
    | `rejections` | one kind of proposal turned down ≥ 3 times and at least half the time, *and* people said why | adopt a standing rule |
    | `escalations` | ≥ 5 asks filed in 30 days, *and* some were answered | adopt a standing rule that answers it in advance |

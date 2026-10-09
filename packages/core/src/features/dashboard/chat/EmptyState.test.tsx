@@ -28,7 +28,7 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-const TEAM = ['Workspace lead', 'Pipeline Analyst', 'Deal Desk', 'Renewals', 'Inbound', 'Hiring'].map((name, i) => ({ slug: `a${i}`, name, accent: null }));
+const TEAM = ['Revenue lead', 'Pipeline Analyst', 'Deal Desk', 'Renewals', 'Inbound', 'Hiring'].map((name, i) => ({ slug: `a${i}`, name, accent: null }));
 
 describe('EmptyState, your team is here (founder, 2026-10-09)', () => {
   it('centres the team, lead first and larger, four dots then +N, and a caption that opens the team', async () => {
@@ -37,7 +37,7 @@ describe('EmptyState, your team is here (founder, 2026-10-09)', () => {
     await expect.element(page.getByTestId('team-lead')).toBeVisible();
     expect(page.getByTestId('team-member').elements()).toHaveLength(3);
     await expect.element(page.getByTestId('team-more')).toHaveTextContent('+2');
-    await expect.element(page.getByRole('link', { name: 'Workspace lead · 6 agents' })).toHaveAttribute('href', '/dashboard/teams');
+    await expect.element(page.getByRole('link', { name: 'Revenue lead · 6 agents' })).toHaveAttribute('href', '/dashboard/teams');
     await expect.element(page.getByTestId('chat-greeting-team')).toHaveTextContent('Northwind\'s team is on it.');
     expect(page.getByTestId('chat-empty-mark').elements()).toHaveLength(0);
   });
@@ -46,7 +46,7 @@ describe('EmptyState, your team is here (founder, 2026-10-09)', () => {
     await renderIt(<EmptyState hour={9} returning={false} team={TEAM.slice(0, 1)} />);
 
     expect(page.getByTestId('team-member').elements()).toHaveLength(0);
-    await expect.element(page.getByTestId('team-caption')).toHaveTextContent(/^Workspace lead$/);
+    await expect.element(page.getByTestId('team-caption')).toHaveTextContent(/^Revenue lead$/);
   });
 
   it('greets in Vocion\'s own sans display face, never a serif', async () => {

@@ -19,10 +19,10 @@ which base pack (if any) the workspace builds on.
 | `orgId` | string | yes | Id of the project (tenant) the workspace belongs to — auth.js (next-auth v5) session/org scoping, not Clerk. Templates ship a placeholder; `workspace:apply --project` resolves it to the live project. |
 | `name` | string | yes | Display name of the workspace. |
 | `description` | string | no | One-paragraph summary, shown in the dashboard. |
-| `lead` | slug | no | The workspace lead agent — the one that runs the whole workspace and consults the team leads. Applied to `project.leadAgentSlug`. Omit for no lead. |
+| `lead` | slug | no | The workspace's lead agent — the one that runs the whole workspace and consults the team leads. Applied to `project.leadAgentSlug`. Omit for no lead. |
 | `accountableUser` | email | no | Workspace-default accountable human. Resolved to a user id at apply and stored on `project.accountableUserId`. Teams without their own `accountableUser` inherit this at read time. |
 | `goal` | string | no | The workspace's top-line goal, one sentence. Stored on `project.goal`; the team report anchors every team's spend share and KPI progress under it. |
-| `mailbox` | object | no | Email as a chat surface. `mailbox: { enabled: true }` gives the workspace `<slug>@<VOCION_MAIL_DOMAIN>`; `address:` names one on that domain instead. Mail to it is answered by the workspace lead and threads into a conversation (`surface = email`); unknown senders become an `ask`. Stored on `project.mailboxAddress` / `mailboxEnabled`. Errors at apply if the deployment has no `VOCION_MAIL_DOMAIN` or the address is off it. See [the email guide](../guides/email.md). |
+| `mailbox` | object | no | Email as a chat surface. `mailbox: { enabled: true }` gives the workspace `<slug>@<VOCION_MAIL_DOMAIN>`; `address:` names one on that domain instead. Mail to it is answered by the workspace's lead and threads into a conversation (`surface = email`); unknown senders become an `ask`. Stored on `project.mailboxAddress` / `mailboxEnabled`. Errors at apply if the deployment has no `VOCION_MAIL_DOMAIN` or the address is off it. See [the email guide](../guides/email.md). |
 | `defaults.model` | string | no | Model every agent falls back to. |
 | `defaults.temperature` | string | no | Temperature every agent falls back to. |
 | `defaults.learningEagerness` | integer 0–10 | no (default `7`) | How eager this workspace is to improve itself. Moves the confidence bar for the class of actions that change what the system knows about how to work — today, adopting a rule from a correction a person made to an agent's work (`learning.adopt_rule`). `0` always asks; `7` puts the bar at 72%; `10` at 60%. It moves the bar, never the confidence, so a rule the model had to infer still asks at `10`. A trust rule naming `autoApproveAbove` for a kind wins over the dial for that kind. Stored on `project.learning_eagerness`. See [earned autonomy](../guides/earned-autonomy.md). |
@@ -43,7 +43,7 @@ orgId: proj_meridian_revenue
 name: Meridian Outdoor — Revenue
 description: >-
   Revenue workspace for Meridian Outdoor Supply. Four teams under one
-  workspace lead.
+  workspace's lead.
 lead: revenue-director
 accountableUser: ops@meridian.example
 goal: Every open deal has a next step, and the team is never surprised by its pipeline.

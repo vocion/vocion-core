@@ -7,7 +7,7 @@ description: >-
   merges duplicates and prunes what nobody reads. Graded on the wiki being
   written by the agents and trusted by the people.
 goal: Every standing fact the agents act on is on a page, and nothing else is.
-# The researcher leads: it is the wiki agent the workspace lead consults and
+# The researcher leads: it is the wiki agent the workspace's lead consults and
 # the one people talk to. The curator tends the pages on its cadence.
 lead: wiki-researcher
 # No accountableUser: inherits the workspace default.

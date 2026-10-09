@@ -162,7 +162,7 @@ agent is doing, and able to be talked back to.
     registered children, then every team's lead *and* members; a team lead
     gets its own members). No agent picker exists anywhere in chat; `?agent=`
     is accepted for old links and ignored; the stream route's default agent
-    is the workspace lead. Specialists appear only as attribution: a live
+    is the workspace's lead. Specialists appear only as attribution: a live
     "→ Proposal Writer · drafting the brief" row in the rail and a small
     "via Proposal Writer" eyebrow on a routed reply. Two power paths, both
     per turn and neither advertised in the header: `@agent` / `@team` in the
@@ -562,6 +562,6 @@ might read.
 | Deliverable contract | `libs/chat/deliverable.ts` (the type + the parse), `features/dashboard/chat/composerTags.ts` + `tagSearch.ts` (`@artifact` and the `(+)` list), `ChatComposer.tsx` (the `(+)`), `services/agents/deliverableBackstop.ts` + `AgentService#applyTurnGuarantees` (the guarantee) |
 | Persisted turn | `services/chat/runCollector.ts` — what a reloaded transcript says, including failed steps |
 | Recommendation boundary | `features/dashboard/chat/recommendedAction.ts` — a payload that cannot produce a valid `review.propose` never becomes a card |
-| Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing, `/search`, workspace chips), `services/agents/delegationRoster.ts` (roster, id-ordered; authored `subagents` win a slug collision in `harness.ts`), `rpc/agent/stream/route.ts` (server default = workspace lead; `context_refs` → `pageContext.ts`) |
+| Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing, `/search`, workspace chips), `services/agents/delegationRoster.ts` (roster, id-ordered; authored `subagents` win a slug collision in `harness.ts`), `rpc/agent/stream/route.ts` (server default = workspace's lead; `context_refs` → `pageContext.ts`) |
 | Entry function | `features/dashboard/chat/agentSurface.ts` |
 | Schema | migration `0094_conversation_feedback_search.sql` (+ `concurrent/0094_conversation_search_idx.sql`) |

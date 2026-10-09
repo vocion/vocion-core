@@ -54,7 +54,12 @@ export type LeadIntroProps = {
  */
 export function LeadIntro({ firstName, team, onPick, disabled = false }: LeadIntroProps) {
   const t = useTranslations('Onboarding');
-  const line = firstName ? t('lead_hello_named', { name: firstName }) : t('lead_hello');
+  // The lead says who it is by its role ("the Revenue lead"), with its given
+  // name when the Org set one — never "workspace lead" (`leadName.ts`).
+  const lead = team?.[0];
+  const role = lead?.leadRole ?? lead?.name ?? '';
+  const self = lead?.givenName ? t('lead_self_named', { given: lead.givenName, role }) : t('lead_self', { role });
+  const line = firstName ? t('lead_hello_person', { name: firstName, self }) : t('lead_hello_anyone', { self });
   return (
     <div data-testid="lead-intro" className="flex min-h-0 flex-1 flex-col">
       <EmptyState
