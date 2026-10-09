@@ -64,11 +64,13 @@ jobs:
       # The build's peak memory, measured, with a budget. A module count read
       # from source does not track it (src/scripts/check-route-graph.ts): the
       # deploy runners that build the image have a fixed ceiling, and v5.25.0
-      # crossed Metacto's (7.9 GB) with one route. Raise the budget
-      # deliberately, with a reason, after looking for what grew.
+      # crossed Metacto's (7.9 GB) with one route. On this runner (4 vCPU)
+      # the build peaked at 10,760 MB when the budget was set (#1300); the
+      # budget leaves about 7%. Raise it deliberately, with a reason, after
+      # looking for what grew.
       - name: Build memory
         env:
-          BUILD_PEAK_RSS_BUDGET_MB: '99999'
+          BUILD_PEAK_RSS_BUDGET_MB: '11500'
         run: |
           set -euo pipefail
           peak_mb=$(( $(awk -F': ' '/Maximum resident set size/{print $2}' "$RUNNER_TEMP/build-time.txt") / 1024 ))
