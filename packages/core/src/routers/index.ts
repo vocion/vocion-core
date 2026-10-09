@@ -160,6 +160,7 @@ import { scorecardAgentsRoute } from './Scorecard';
 import { reset as resetSetupRoute, state as setupStateRoute } from './Setup';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
+import { stopRoute as stopWorkRoute, forConversationRoute as workForConversationRoute } from './Work';
 import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimitive, resume as resumeWorkspaceRoute, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, pauseState as workspacePauseState, writeFile } from './Workspace';
 
 export const router = {
@@ -386,6 +387,11 @@ export const router = {
     build: buildDecisionRoute,
   },
   // What a conversation is in the middle of (`libs/objectives/objective.ts`).
+  // The long and background work behind a conversation (`services/work/WorkService.ts`).
+  work: {
+    forConversation: workForConversationRoute,
+    stop: stopWorkRoute,
+  },
   objectives: {
     current: currentObjectiveRoute,
     stop: stopObjectiveRoute,

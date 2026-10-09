@@ -33,3 +33,14 @@ describe('stepHeadline', () => {
     expect(stepHeadline([], 4)).toBe('Grounded in 4 sources');
   });
 });
+
+describe('a failed step is counted, not composed (2026-10-09)', () => {
+  it('says what the work was, then how many steps failed', () => {
+    expect(stepHeadline([
+      { kind: 'tool', status: 'done', label: 'Checked 3 workspaces' },
+      { kind: 'delegate', status: 'done', label: 'Kestrel answered' },
+      { kind: 'tool', status: 'error', label: 'Posted the summary to Slack — failed' },
+      { kind: 'tool', status: 'done', label: 'Drafted 2 replies' },
+    ])).toBe('Checked 3 workspaces, consulted Kestrel and drafted 2 replies · 1 failed');
+  });
+});

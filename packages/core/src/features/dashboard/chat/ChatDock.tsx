@@ -57,6 +57,7 @@ import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 import { usePersonFirstName } from './WaitingNudge';
+import { workBlock } from './work/RunningWork';
 
 function isPhoneViewport(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
@@ -736,7 +737,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   onShowSources={openSources}
                   onCitationClick={(_n, messageId) => openSources(messageId)}
                   // The Decision this thread waits on, as its latest item.
-                  blocks={[...blocks, decisionBlock(session)]}
+                  blocks={[...blocks, workBlock(session), decisionBlock(session)]}
                   onFeedback={session.handleFeedback}
                   onBuildCard={session.buildFromCard}
                   autonomy={session.autonomy}

@@ -180,6 +180,9 @@ export type TraceNodeKind = 'reason' | 'tool' | 'skill' | 'search' | 'delegate' 
 export type TraceNodeEvent = {
   type: 'trace_node';
   id: string;
+  /** When the step started and landed (ms since epoch), stamped by the emitter: a group says how long it took. */
+  startedAt?: number;
+  endedAt?: number;
   parentId?: string;
   actor: TraceActor;
   kind: TraceNodeKind;

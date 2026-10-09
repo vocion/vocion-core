@@ -320,3 +320,18 @@ describe('traceEmitter — a workspace\'s REST sources name their steps', () => 
     expect(draft[0]?.label).toBe('Preparing a recommendation');
   });
 });
+
+describe('every step is stamped with when it started and landed (2026-10-09)', () => {
+  it('stamps start on the start event and end on the landing, so the line can say how long', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    const before = Date.now();
+    const [start] = em.handle({ event: 'on_tool_start', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s9' }, data: { input: { input: '{"query":"Northwind renewal"}' } } });
+    const [end] = em.handle({ event: 'on_tool_end', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s9' }, data: { output: { content: '[1] **Northwind renewal** [gmail] dates' } } });
+
+    expect(start?.startedAt).toBeGreaterThanOrEqual(before);
+    expect(start?.endedAt).toBeUndefined();
+    expect(end?.endedAt).toBeGreaterThanOrEqual(start!.startedAt!);
+    // The landing does not re-stamp the start: the merge keeps the first one.
+    expect(end?.startedAt).toBeUndefined();
+  });
+});

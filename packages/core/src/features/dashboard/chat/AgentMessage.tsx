@@ -6,7 +6,7 @@ import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } fro
 import type { FollowExclude, TurnToolStep } from '@/libs/chat/turnFollowups';
 import type { TurnRecord } from '@/libs/factory/liveStatus';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AgentDot } from '@/components/ui/agent-dot';
@@ -15,7 +15,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { RecordMicrocard } from '@/features/dashboard/factory/WorkStatus';
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml, stripCardNotes } from '@/libs/chat/answerText';
-import { failureHeadline, failureOneLiner } from '@/libs/chat/redact';
 import { splitScratch } from '@/libs/chat/scratch';
 import { turnFollowups } from '@/libs/chat/turnFollowups';
 import { Link } from '@/libs/I18nNavigation';
@@ -279,26 +278,6 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // How this turn ended, read once: an explanation when it owes one, a quiet
   // line when it does not, nothing at all when it simply finished (#114).
   const endingMarker = turnEndingMarker(message.status);
-  // WHAT failed, not just THAT something did.
-  //
-  // The badge was a way in to the trace, which is right — but it opened the
-  // trace at the failed step, and a failure that arrives as a typed trace node
-  // has no row among the tool runs to open to. So a turn whose visible steps
-  // all succeeded showed a red "Tool error" that led nowhere. Chris,
-  // 2026-09-17: *"it shows a 'Tool error' with no diagnostic info."*
-  //
-  // The message now travels with the badge, so the diagnosis is one hover or
-  // one click away and never depends on another component rendering a row.
-  const toolErrorName = (erroredRun?.type === 'tool' ? erroredRun.name : undefined) ?? erroredNode?.label ?? 'A tool';
-  // What the reader sees is ONE line (`failureOneLiner`): never a stack trace,
-  // a bundle path or a minified name. The raw message stays on the step, where
-  // Copy details hands it to whoever debugs it.
-  const toolErrorRaw = (erroredRun?.type === 'tool' ? erroredRun.output : undefined)
-    ?? erroredNode?.resultDetail ?? erroredNode?.result ?? erroredNode?.detail ?? '';
-  const toolErrorDetail = hasToolError ? failureOneLiner(String(toolErrorRaw)) : '';
-  // "failed" said once: a failed step's label already carries it, and adding
-  // our own read "— failed failed" (2026-10-08). A generic name is no name.
-  const failureLabel = failureHeadline(toolErrorName);
   // Did the turn say ANYTHING? A tool that failed mid-answer leaves prose
   // around it and the badge is rightly a way in. A turn that failed outright
   // leaves an empty bubble, and then hiding the reason behind a tap means the
@@ -306,9 +285,6 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // no hover to fall back on. So the reason opens with it.
   const turnSaidSomething = Boolean(message.content?.trim()) || runs.some(r => r.type === 'text' && r.text?.trim());
   const endingNotice = turnEndingNotice(message.status, turnSaidSomething);
-  // Bumped by the badge; the work timeline opens to the failed step on change.
-  const [inspect, setInspect] = useState(0);
-  const [showError, setShowError] = useState(hasToolError && !turnSaidSomething);
   // The turn in the order it happened: passages of prose with the work that
   // fell between them rendered at that point, not hoisted to the top
   // (`interleave.ts`). A message with a typed trace renders the trace only —
@@ -402,42 +378,15 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               </TooltipContent>
             </Tooltip>
           )}
-          {/* The badge is the way IN to the failure, not a label over it: it
-              opens the trace at the failed step, which carries the message and
-              a Copy details block (CEO, 2026-09-16). */}
-          {hasToolError && (
-            <button
-              type="button"
-              data-testid="tool-error-badge"
-              onClick={() => {
-                setInspect(n => n + 1);
-                setShowError(v => !v);
-              }}
-              aria-expanded={showError}
-              title={toolErrorDetail || undefined}
-              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case transition hover:bg-[var(--brand-fail-bg)]"
-            >
-              <AlertCircle className="size-2.5 shrink-0" aria-hidden />
-              <span className="truncate">{failureLabel}</span>
-            </button>
-          )}
+          {/* No error badge on the message: a failed step says it failed, in
+              words, on its line, and the error itself lives one tap deeper,
+              in the step's detail (founder, 2026-10-09, after Claude Code). */}
           {!hasToolError && failure.retried && (
             <span data-testid="tool-retried-badge" className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] tracking-normal text-muted-foreground normal-case">
               {failure.retried.filed ? 'retried · filed' : 'retried · done'}
             </span>
           )}
         </div>
-        {hasToolError && showError && (
-          <div
-            data-testid="tool-error-detail"
-            className="mt-2 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
-          >
-            <div className="font-medium text-[var(--brand-fail)]">{failureLabel}</div>
-            <p className="mt-1 break-words whitespace-pre-wrap text-muted-foreground">
-              {toolErrorDetail}
-            </p>
-          </div>
-        )}
         <div className="mt-2 text-sm leading-relaxed">
           {segments.map(seg => (seg.kind === 'work'
             ? (
@@ -458,7 +407,6 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                         thinkingText={seg.index === firstWork ? message.thinkingText : undefined}
                         documents={seg.index === lastWork ? message.documents : undefined}
                         // The badge opens the group that holds the failure, not every group.
-                        inspect={seg.trace.some(n => n.status === 'error') || seg.runs.some(r => r.state === 'error') ? inspect : 0}
                         failureContext={{ turnId: message.id ?? null, conversationId: conversationId ?? null, at: timestamp ?? null }}
                       />
                     )

@@ -1,6 +1,19 @@
 {
   "turns": [
     {
+      "match": "The person, latest message: show me what you checked before the renewal",
+      "steps": [
+        {
+          "tool": "report_consent",
+          "args": {
+            "said": false,
+            "quote": null
+          }
+        }
+      ],
+      "reply": ""
+    },
+    {
       "match": "The person, latest message: help me finish setting up software factory",
       "steps": [
         {
@@ -136,6 +149,17 @@
         }
       ],
       "reply": "One question first."
+    },
+    {
+      "match": "show me what you checked before the renewal",
+      "steps": [
+        {
+          "tool": "describe_setup",
+          "args": {}
+        }
+      ],
+      "pauseBeforeReplyMs": 9000,
+      "reply": "Checked the setup; the Northwind renewal can go ahead once GitHub is connected."
     }
   ]
 }

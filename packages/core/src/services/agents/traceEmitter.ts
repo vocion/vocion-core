@@ -614,6 +614,15 @@ export class TraceEmitter {
   }
 
   handle(ev: RawStreamEvent): TraceNodeEvent[] {
+    // Every step says when it started and when it landed, so the folded line
+    // can say how long the work took ("… · 41s"), after a reload too.
+    const now = Date.now();
+    return this.handleEvent(ev).map(node => (node.status === 'start'
+      ? { ...node, startedAt: node.startedAt ?? now }
+      : node.status === 'done' || node.status === 'error' ? { ...node, endedAt: node.endedAt ?? now } : node));
+  }
+
+  private handleEvent(ev: RawStreamEvent): TraceNodeEvent[] {
     const ns = nsOf(ev);
     switch (ev.event) {
       case 'on_chat_model_stream': {
