@@ -52,6 +52,23 @@ export const MIN_NOTICE_MS = 60 * 60_000;
 /** A decision still waiting after its deadline is escalated again this often. */
 export const RE_ESCALATE_MS = 24 * 60 * 60_000;
 
+/**
+ * Whether an agent-advised decline of this proposal waits for a person at its
+ * deadline instead of applying on its own.
+ *
+ * `VOCION_HOLD_DECLINES` lists action ids or per-input policy keys, comma
+ * separated (`objects.propose_candidate.event-candidate`). An action id covers
+ * every key derived from it. For an installation whose agent proposes records
+ * for people to review: there the agent's "decline" is a reading of the record,
+ * and the review exists to catch the times it is wrong. Unset holds nothing.
+ * @param actionId - The proposal's action.
+ * @param policyKey - Its per-input key (`policyKeyForRun`), or the action id.
+ */
+export function declineHeldForPerson(actionId: string, policyKey: string): boolean {
+  const listed = (process.env.VOCION_HOLD_DECLINES ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  return listed.some(entry => entry === policyKey || entry === actionId);
+}
+
 const HOUR = 60 * 60_000;
 
 /**
