@@ -44,15 +44,29 @@ export type LeadName = {
   short: string;
 };
 
+/** Project names that say nothing about the workspace; its Org's name stands in. */
+const GENERIC_NAMES = new Set(['workspace', 'default', 'default project', 'project', 'general', 'main', 'my workspace']);
+
+/** Past this, a workspace's name is cut to its leading word. */
+const ROLE_WORKSPACE_WHOLE = 20;
+
 /**
- * The short workspace name a role is built from: the project's leading word
- * with the Org's prefix stripped, the Org's name for a generic project
- * ("Default project" → "Northwind"), cut at a sensible length.
+ * The workspace name a role is built from: the project's name with the Org's
+ * prefix stripped ("Northwind Field Ops" → "Field Ops"); the Org's name for a
+ * generic project ("Default project" → "Northwind"); a long name cut to its
+ * leading word, and a single long word cut with an ellipsis.
  * @param accountName - The Org's name.
  * @param projectName - The workspace's name.
  */
 export function leadWorkspaceLabel(accountName: string | null | undefined, projectName: string | null | undefined): string {
-  const label = workspaceGreeting(accountName, projectName).workspace;
+  const clean = (v: string | null | undefined) => (v ?? '').trim().replace(/\s+/g, ' ');
+  const account = clean(accountName);
+  const project = clean(projectName);
+  const stripped = account && project.toLowerCase().startsWith(`${account.toLowerCase()} `) ? project.slice(account.length).trim() : project;
+  if (!stripped || GENERIC_NAMES.has(stripped.toLowerCase()) || GENERIC_NAMES.has(stripped.split(' ')[0]!.toLowerCase())) {
+    return account || workspaceGreeting(accountName, projectName).workspace;
+  }
+  const label = stripped.length > ROLE_WORKSPACE_WHOLE ? stripped.split(' ')[0]! : stripped;
   return label.length > ROLE_WORKSPACE_MAX ? `${label.slice(0, ROLE_WORKSPACE_MAX - 1).trimEnd()}…` : label;
 }
 

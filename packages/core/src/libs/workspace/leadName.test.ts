@@ -14,7 +14,9 @@ describe('what a workspace\'s lead is called (founder, 2026-10-09)', () => {
 
   it('builds the role from the workspace\'s current short name: the Org\'s for a default project, cut when long', () => {
     expect(leadWorkspaceLabel('Northwind', 'Default project')).toBe('Northwind');
-    expect(leadWorkspaceLabel('Northwind', 'Northwind Revenue Operations')).toBe('Revenue');
+    expect(leadWorkspaceLabel('Northwind', 'Northwind Field Ops')).toBe('Field Ops');
+    expect(leadWorkspaceLabel('Northwind', 'Revenue')).toBe('Revenue');
+    expect(leadWorkspaceLabel('Northwind', 'Customer Success and Renewals')).toBe('Customer');
 
     const long = leadWorkspaceLabel('Kestrel', 'Supercalifragilisticexpialidociousness');
 
