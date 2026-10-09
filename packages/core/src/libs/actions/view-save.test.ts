@@ -12,7 +12,7 @@ vi.mock('@/services/chat/conversationChannel', () => ({
 const { db } = await import('@/libs/DB');
 const { stateViewSchema, userSchema } = await import('@/models/Schema');
 const { viewSaveAction } = await import('./view-save');
-const { viewBySlug } = await import('@/services/state/views');
+const { viewBySlug } = await import('@/services/state/state');
 
 const ORG = 'org-vsave';
 const ALEX = 'usr-vsave-alex';

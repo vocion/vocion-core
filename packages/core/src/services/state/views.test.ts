@@ -9,8 +9,8 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { stateQueryLogSchema, stateViewSchema, userSchema } = await import('@/models/Schema');
-const { briefViews, resetCoreViewSeed, savePersonView, viewBySlug, viewsFor } = await import('./views');
-const { noteQuery, REPEAT_THRESHOLD } = await import('./learnViews');
+const { briefViews, resetCoreViewSeed, savePersonView, viewBySlug, viewsFor } = await import('./state');
+const { noteQuery, REPEAT_THRESHOLD } = await import('./state');
 
 const ORG = 'org-views-own';
 const ALEX = 'usr-views-alex';

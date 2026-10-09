@@ -29,7 +29,7 @@
  */
 import type { RuntimeContext } from '../types';
 import type { CrossWorkspaceInbox, CrossWorkspaceItem, WorkspaceQueue } from '@/services/inbox/acrossWorkspaces';
-import type { StateRow } from '@/services/state/queryState';
+import type { StateRow } from '@/services/state/state';
 import { tool } from '@langchain/core/tools';
 import { and, desc, eq, gte, inArray, isNull, ne } from 'drizzle-orm';
 import { z } from 'zod';
@@ -41,8 +41,6 @@ import { askSchema, notificationSchema, userSchema } from '@/models/Schema';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { needsYouItems } from '@/services/InboxService';
-import { runStateQuery } from '@/services/state/queryState';
-import { briefViews, viewBySlug } from '@/services/state/views';
 import { actAs } from '@/services/workspace/actAs';
 
 /** How far back an answered-"other" ask still counts as a follow-up owed. */
@@ -55,7 +53,7 @@ type Place = Pick<WorkspaceQueue, 'id' | 'slug' | 'name' | 'accountSlug'>;
 
 export type FollowUp = { id: number; title: string; note: string | null; at: Date; workspace: Place; href: string };
 export type Mention = { id: number; title: string; body: string | null; at: Date; workspace: Place; href: string | null };
-/** One saved view's read, as a section of "what is waiting on me" (`services/state/views.ts`). */
+/** One saved view's read, as a section of "what is waiting on me" (`services/state/state.ts`). */
 export type ViewSection = { slug: string; name: string; description: string; rows: Array<StateRow & { workspace: Place }>; total: number };
 
 /** Rows named per view section; the full list is `query_state` with the view. */
@@ -159,6 +157,7 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
  */
 async function readViews(userId: string, places: Place[], accountId: string, now: Date): Promise<ViewSection[]> {
   try {
+    const [{ runStateQuery }, { briefViews, viewBySlug }] = await Promise.all([import('@/services/state/state'), import('@/services/state/state')]);
     const [person] = await db.select({ email: userSchema.email, name: userSchema.name }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
     const me = person ? handlesOf(person) : [];
     const owed = places.length > 0 ? await viewBySlug(OWED_REPLIES_VIEW, { orgId: places[0]!.id, accountId, userId }) : undefined;

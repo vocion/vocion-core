@@ -3,12 +3,12 @@ import { z } from 'zod';
 
 /**
  * view.save — keep a state query as the person's own saved view
- * (`services/state/views.ts`), optionally read in their brief and their
+ * (`services/state/state.ts`), optionally read in their brief and their
  * "what is waiting on me".
  *
  * Two ways in, one action. The person asks ("keep an eye on overdue invoices
  * over $5k") and their word runs it. Or `query_state` notices they have asked
- * the same question three times in two weeks (`services/state/learnViews.ts`)
+ * the same question three times in two weeks (`services/state/state.ts`)
  * and the agent, in the turn, offers it as a Decision card — the system never
  * files the offer on its own. Always the asker's own view; a schedule or
  * automation built on it is a separate ask on the trust ladder. Reversible:
@@ -48,7 +48,7 @@ export const viewSaveAction: Action<typeof input> = {
     if (!person) {
       return 'A view belongs to a person, and this turn has none behind it. Ask them to sign in to Vocion.';
     }
-    const { checkQuery } = await import('@/services/state/queryState');
+    const { checkQuery } = await import('@/services/state/state');
     const problems = checkQuery(i.query as never);
     return problems.length > 0 ? `That query cannot run: ${problems.map(p => p.message).join('; ')}.` : undefined;
   },
@@ -73,7 +73,7 @@ export const viewSaveAction: Action<typeof input> = {
     if (!person) {
       throw new Error('No Vocion person behind this turn.');
     }
-    const { savePersonView } = await import('@/services/state/views');
+    const { savePersonView } = await import('@/services/state/state');
     const { view, previous } = await savePersonView({
       orgId: ctx.orgId,
       userId: person.userId,
@@ -92,7 +92,7 @@ export const viewSaveAction: Action<typeof input> = {
       throw new Error('This run recorded no view, so there is nothing to undo.');
     }
     const previous = result?.previous as { name: string; description: string; query: Record<string, unknown>; inBrief: boolean; slug: string } | null | undefined;
-    const { deletePersonView } = await import('@/services/state/views');
+    const { deletePersonView } = await import('@/services/state/state');
     await deletePersonView(viewId, userId);
     if (previous) {
       const [{ db }, { stateViewSchema }] = await Promise.all([import('@/libs/DB'), import('@/models/Schema')]);

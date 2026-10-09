@@ -5388,7 +5388,7 @@ export const durableWaitSchema = pgTable(
 );
 
 /**
- * A SAVED VIEW — a named, described state query (`services/state/views.ts`):
+ * A SAVED VIEW — a named, described state query (`services/state/state.ts`):
  * "owed replies", "stale deals", "PRs awaiting my review". Data, not code: a
  * view is a stored `query_state` query plus who it belongs to.
  *
@@ -5429,7 +5429,7 @@ export const stateViewSchema = pgTable(
  * asked — the sets and the filter's facets and values, not the words. Three of
  * the same shape in two weeks, with no view of theirs for it, is the cheap
  * signal that the assistant should offer to save it as their view
- * (`services/state/learnViews.ts`). Kept short: rows older than 30 days are
+ * (`services/state/state.ts`). Kept short: rows older than 30 days are
  * dropped as new ones land.
  */
 export const stateQueryLogSchema = pgTable(

@@ -2,35 +2,30 @@
  * query_state — "what is in this state", for every kind of thing a workspace
  * keeps: owed email replies, meetings to prepare, stale deals, overdue tasks,
  * reviews requested, unpaid invoices, decisions waiting, broken connections.
- * One tool, one shape (`services/state/queryState.ts`), instead of a tool per
+ * One tool, one shape (`services/state/state.ts`), instead of a tool per
  * question.
  *
  * The agent either runs a SAVED VIEW by slug — named, described queries kept
  * as rows, the core ones shipped as data (`libs/state/coreViews.json`), plus
- * the Org's, the workspace's and the person's own (`services/state/views.ts`)
+ * the Org's, the workspace's and the person's own (`services/state/state.ts`)
  * — or composes an ad-hoc query over the declared facets. Each row is citable
  * and lands in the sources sidebar; the output says how fresh the index is.
  *
  * A question the person keeps asking is noticed by its shape
- * (`services/state/learnViews.ts`), and the output tells the agent it may
+ * (`services/state/state.ts`), and the output tells the agent it may
  * offer to save it as the person's view — a Decision the agent raises, never
  * one the system files on its own.
  */
 import type { RuntimeContext } from '../types';
-import type { StateQuery, StateRead, StateRow } from '@/services/state/queryState';
-import type { StateView } from '@/services/state/views';
+import type { StateQuery, StateRead, StateRow, StateView } from '@/services/state/state';
 import { tool } from '@langchain/core/tools';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { describeSet, FACET_SETS, handlesOf } from '@/libs/retrieval/facets';
+import coreViewsData from '@/libs/state/coreViews.json';
 import { DEFAULT_TIME_ZONE, formatDate } from '@/libs/time/zone';
 import { userSchema } from '@/models/Schema';
-import { noteQuery, suggestionNote } from '@/services/state/learnViews';
-import { withLiveGap } from '@/services/state/liveGap';
-import { checkQuery, RECORD_SETS, runStateQuery } from '@/services/state/queryState';
-import { coreViews, viewBySlug, viewsFor } from '@/services/state/views';
-import { actAs } from '@/services/workspace/actAs';
 import { dateStamp, toSearchDocument } from '../search';
 
 /** The facets a row's line shows, beside its title and date. */
@@ -90,20 +85,34 @@ export function renderStateRead(read: StateRead & { live?: { checked: number; er
   ].join('\n');
 }
 
-const SET_IDS = [...FACET_SETS.map(s => s.id), ...RECORD_SETS.map(s => s.id)] as [string, ...string[]];
+/** Vocion's own record kinds (`services/state/state.ts` RECORD_SETS), named here so the tool's import graph stays small. */
+const RECORD_KINDS = [
+  { id: 'vocion.decision', description: 'decisions in the review queue that are the person\'s to make (asks, approvals, proposed actions)' },
+  { id: 'vocion.connection', description: 'connected systems whose last sync failed, with the reason' },
+];
+
+const SET_IDS = [...FACET_SETS.map(s => s.id), ...RECORD_KINDS.map(s => s.id)] as [string, ...string[]];
 
 /**
  * The tool. Present for every agent; `$me` needs a person in the turn.
  * @param ctx - The turn.
  */
 export function queryStateTool(ctx: RuntimeContext) {
-  const views = coreViews().map(v => `${v.slug} (${v.name})`).join(', ');
+  const views = (coreViewsData as { views: Array<{ slug: string; name: string }> }).views.map(v => `${v.slug} (${v.name})`).join(', ');
   const kinds = [
     ...FACET_SETS.map(s => `${s.id} — ${s.noun}s: ${describeSet(s)}`),
-    ...RECORD_SETS.map(s => `${s.id} — ${s.description}`),
+    ...RECORD_KINDS.map(s => `${s.id} — ${s.description}`),
   ].join(' | ');
   return tool(
     async (args) => {
+      // The state services reach the database and the inbox; loaded when the tool runs, not when it is listed.
+      const [{ noteQuery, suggestionNote }, { withLiveGap }, { checkQuery, runStateQuery }, { viewBySlug, viewsFor }, { actAs }] = await Promise.all([
+        import('@/services/state/state'),
+        import('@/services/state/state'),
+        import('@/services/state/state'),
+        import('@/services/state/state'),
+        import('@/services/workspace/actAs'),
+      ]);
       const tz = ctx.timeZone ?? DEFAULT_TIME_ZONE;
       const identity = ctx.userId ? await actAs(ctx.userId, ctx.orgId).catch(() => null) : null;
       const where = { orgId: ctx.orgId, accountId: identity?.accountId ?? null, userId: ctx.userId ?? null };

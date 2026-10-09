@@ -18,8 +18,8 @@
  * new set needs no re-ingest.
  *
  * A filter is read the same way everywhere: `search_knowledge` ranks within
- * it, `query_state` lists it (`services/state/queryState.ts`), and a saved
- * view is a stored filter (`services/state/views.ts`). Every set also has the
+ * it, `query_state` lists it (`services/state/state.ts`), and a saved
+ * view is a stored filter (`services/state/state.ts`). Every set also has the
  * document's own date as `updated_at`.
  *
  * Values may be relative — `{"since": "-14d"}`, `{"until": "+24h"}`, `"now"` —

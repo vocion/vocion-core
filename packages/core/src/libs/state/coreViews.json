@@ -1,5 +1,5 @@
 {
-  "$comment": "Core saved views (services/state/views.ts). Data, not code: each is a stored query_state query, seeded as a `core` row and copied when a person tailors one. `$me` is the person asking; dates may be relative (-14d, +24h, now).",
+  "$comment": "Core saved views (services/state/state.ts). Data, not code: each is a stored query_state query, seeded as a `core` row and copied when a person tailors one. `$me` is the person asking; dates may be relative (-14d, +24h, now).",
   "views": [
     {
       "slug": "owed-replies",

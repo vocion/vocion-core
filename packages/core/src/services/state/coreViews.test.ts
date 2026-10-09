@@ -24,8 +24,8 @@ vi.mock('@/services/inbox/acrossWorkspaces', () => ({
 
 const { db } = await import('@/libs/DB');
 const { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema, stateViewSchema } = await import('@/models/Schema');
-const { runStateQuery, checkQuery } = await import('./queryState');
-const { coreViews, resetCoreViewSeed, viewsFor } = await import('./views');
+const { runStateQuery, checkQuery } = await import('./state');
+const { coreViews, resetCoreViewSeed, viewsFor } = await import('./state');
 const { handlesOf } = await import('@/libs/retrieval/facets');
 
 const ORG = 'org-views-core';
