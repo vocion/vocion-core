@@ -82,8 +82,57 @@ core knows that an extension exists, but not what it does.
 | `branding.whiteLabel()` | `services/branding/OrgBrandService.ts` and the Brand settings page. `true` removes the small "Powered by Vocion" mark that core keeps under an Org's own logo on sign-in and in the sidebar footer. A hook that throws white-labels nothing. See [branding.md](branding.md). |
 | `navSlots['nav.aboveWorkspaceSwitcher']` (client) | Directly above the workspace switcher. Each component receives the sidebar's workspace directory, the same landing-page function as the switcher, and whether the sidebar is collapsed. |
 
-Core also exports these so that an extension's interface matches core's:
+## Exports an extension imports
 
-- `SwitcherRow` and `keepKeyboardDownOnTouch` (`features/dashboard/nav/WorkspaceSwitcher.tsx`)
-- `projectsInOrg` and `workspaceSwitchHref` (`workspaceSwitch.ts`)
-- `inviteUrl` and `CopyLink` (`features/members/InviteDialog.tsx`)
+The enterprise package is compiled inside core's build, so it imports core
+directly through the `@/` alias, not only through the seams above. Every
+module and export it imports is part of core's public surface, the same as a
+seam. Core's CI never builds with the package, and Turbopack fails the whole
+build on a missing export ("Export … doesn't exist in target module"). If you
+remove or rename one of these exports, core's CI stays green and the next
+build with the package fails. This happened when #1280 removed
+`isEmptyProject` from `workspaceSwitch.ts` and the v5.24.0 enterprise build
+failed to compile.
+
+Before you remove, rename or move an export in this list, or change one from a
+value to a type-only export, coordinate the change with the package so it
+ships first or together. Adding exports, and changing anything not on the
+list, needs no coordination. The package's CI also checks it against core
+`main` every night, so a break shows up there before a release.
+
+The list below comes from the package's import check
+(`scripts/check-core-imports.mjs --list`). Regenerate it when the package's
+imports change:
+
+- `@/components/patterns`: `Column`, `ListEmpty`, `ListPage`, `ListRow`, `ListRows`, `ListToolbar`, `Subline`
+- `@/components/ui/badge`: `Badge`
+- `@/components/ui/button`: `Button`
+- `@/components/ui/dialog`: `Dialog`, `DialogContent`, `DialogDescription`, `DialogFooter`, `DialogHeader`, `DialogTitle`
+- `@/components/ui/input`: `Input`
+- `@/components/ui/label`: `Label`
+- `@/components/ui/sheet`: `Sheet`, `SheetContent`, `SheetDescription`, `SheetHeader`, `SheetTitle`
+- `@/features/dashboard/nav/WorkspaceSwitcher`: `WorkspaceSwitcher`
+- `@/features/dashboard/nav/workspaceSwitch`: `SwitcherAccount`, `SwitcherProject`, `WorkspaceSwitcherTargetPath`, `projectAccent`, `projectsInOrg`, `workspaceSwitchHref`
+- `@/features/members/InviteDialog`: `CopyLink`, `inviteUrl`
+- `@/libs/Auth`: `clerkAuth`
+- `@/libs/DB`: `db`
+- `@/libs/I18nNavigation`: `Link`, `usePathname`
+- `@/libs/I18nRouting`: `routing`
+- `@/libs/artifacts/exportPage`: `exportArtifactAsPage`
+- `@/libs/aws/s3`: `getObjectBytes`, `listKeys`, `s3Client`
+- `@/libs/extensions`: `BudgetGuard`, `BudgetGuardInput`, `BudgetGuardRefusal`, `ChargeEvent`, `ChargeObserver`, `ExtensionPageProps`, `ExtensionSlotContext`, `PickerOrgProps`, `VocionClientExtension`, `VocionExtension`
+- `@/libs/links`: `projectSlugProblem`
+- `@/libs/timeAgo`: `ageLabel`
+- `@/libs/tools/artifacts/media`: `mediaBucket`, `mediaDir`
+- `@/libs/tools/artifacts/store`: `artifactsDir`
+- `@/libs/workspace/pageFields`: `formatMoney`
+- `@/models/Schema`: `accountMembershipSchema`, `artifactSchema`, `inviteSchema`, `projectSchema`, `tenantAccountSchema`, `userActivityEventSchema`, `userSchema`
+- `@/routers/ApiError`: `ApiError`
+- `@/routers/AuthGuards`: `guardAuth`
+- `@/services/InviteMail`: `InviteDelivery`, `deliverInvite`
+- `@/services/MembersService`: `PendingInvite`, `createInvite`
+- `@/services/SourceCredentialService`: `isUniqueViolation`
+
+Core also exports `SwitcherRow` and `keepKeyboardDownOnTouch`
+(`features/dashboard/nav/WorkspaceSwitcher.tsx`) so that an extension's picker
+rows match core's. They are not imported today, but treat them the same way.
