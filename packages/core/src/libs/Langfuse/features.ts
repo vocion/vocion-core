@@ -56,6 +56,8 @@ export const FEATURES = {
   RETRIEVAL_INGEST: 'retrieval.ingest',
   /** Optional rerank pass over top-K hybrid candidates. */
   RETRIEVAL_RERANK: 'retrieval.rerank',
+  /** A synced thread's state (who owes whom a reply), labelled once at sync by the classifier (`services/mail/threadLabeller.ts`). */
+  RETRIEVAL_STATE: 'retrieval.state',
   /** Scoped skill-turn executor — one skill, read-only tools, structured output. */
   SKILL_TURN: 'skill.turn',
   /** Per-document candidate extraction inside a source sync's processor stage. */

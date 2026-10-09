@@ -117,7 +117,7 @@ afterAll(async () => {
 describe('gating + input', () => {
   it('is absent without a gmail source, present with one', () => {
     expect(gmailTools(ctxFor(['zoom', 'hubspot']))).toHaveLength(0);
-    expect(gmailTools(ctxFor(['gmail-founder'])).map(t => t.name)).toEqual(['get_gmail_thread']);
+    expect(gmailTools(ctxFor(['gmail-founder'])).map(t => t.name)).toEqual(['get_gmail_thread', 'mail_owed_replies']);
   });
 
   it('requires thread_id or message_id', async () => {

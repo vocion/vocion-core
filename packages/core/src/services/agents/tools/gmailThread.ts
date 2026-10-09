@@ -24,6 +24,7 @@ import { db } from '@/libs/DB';
 import { fetchGmailThreadDoc, resolveThreadIdForMessage } from '@/libs/sources/gmail';
 import { knowledgeDocumentSchema } from '@/models/Schema';
 import { ensureSource, ingestDocument } from '@/services/IngestionService';
+import { mailOwedRepliesTool } from './mailOwedReplies';
 import { firstCredentialed, reassembleDocument, sourcesForConnector } from './zoomTranscript';
 
 /** A source slug that belongs to the Gmail connector family. */
@@ -170,5 +171,5 @@ export function gmailTools(ctx: RuntimeContext) {
     },
   );
 
-  return [getGmailThread];
+  return [getGmailThread, mailOwedRepliesTool(ctx)];
 }

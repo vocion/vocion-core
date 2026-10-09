@@ -13,18 +13,32 @@
 
 import type { RawDoc } from '../search';
 import type { RuntimeContext } from '../types';
+import type { FacetFilter } from '@/libs/retrieval/facets';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { describeFacets, validateFacetFilter } from '@/libs/retrieval/facets';
 import { search } from '@/services/RetrievalService';
 import { renderDocLine, reRankResults, toSearchDocument } from '../search';
 
 export function searchKnowledgeTool(ctx: RuntimeContext) {
   const availableSources = ctx.connectorSources.join(', ');
+  // The facets the agent's sources carry, read from their connectors
+  // (`libs/retrieval/facets.ts`): a source's slug is its connector unless the
+  // workspace named it otherwise.
+  const connectors = new Set([...ctx.connectorSources, ...Object.values(ctx.sourceKinds ?? {})]);
+  const facetNote = describeFacets(connectors);
 
   return tool(
     async (args) => {
-      const { query, source_types, metadata_filters } = args;
+      const { query, source_types, metadata_filters, facets, since } = args;
       const sourceFilter = source_types as string[] | undefined;
+      if (facets) {
+        const problems = validateFacetFilter(facets as FacetFilter);
+        if (problems.length > 0) {
+          return `Facet filter not applied: ${problems.map(p => p.message).join('; ')}. Correct it and search again.`;
+        }
+      }
+      const sinceDate = since && !Number.isNaN(Date.parse(since)) ? new Date(since) : undefined;
 
       // Discovery-call slugging: bias toward the meeting sources when the
       // query is about what was SAID on a call. This narrows rather than
@@ -32,7 +46,7 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       // Granola notes (calls held on Teams/Meet) and excluded HubSpot from any
       // query containing the word "discovery" or "intro".
       let sourceSlugs = sourceFilter;
-      if (!sourceSlugs && /\b(?:call|calls|meeting|meetings|zoom|transcript|recording)\b/i.test(query)) {
+      if (!sourceSlugs && !facets && /\b(?:call|calls|meeting|meetings|zoom|transcript|recording)\b/i.test(query)) {
         sourceSlugs = ctx.connectorSources.filter(s => /^(?:zoom|granola|google-calendar)$/.test(s));
         if (sourceSlugs.length === 0) {
           sourceSlugs = undefined;
@@ -56,6 +70,8 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
           // reRankResults below already order well; drop the LLM pass (also
           // cuts a full model round-trip of latency per search).
           rerank: false,
+          ...(facets ? { facets: facets as FacetFilter } : {}),
+          ...(sinceDate ? { since: sinceDate } : {}),
           onEvent: (e) => {
             // Project SearchEvent -> AgentEvent. The chat UI's
             // ThinkingPanel reads this to animate "Searching ·
@@ -84,7 +100,9 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       }
 
       if (hits.length === 0) {
-        return 'No results found for this query.';
+        return facets
+          ? `Nothing in the synced index matches ${JSON.stringify(facets)}${sinceDate ? ` since ${sinceDate.toISOString()}` : ''}. That is the complete answer for that state: do not search again with other phrases.`
+          : 'No results found for this query.';
       }
 
       // Project SearchHit → RawDoc so the existing rerank + sidebar
@@ -136,11 +154,17 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
     },
     {
       name: 'search_knowledge',
-      description: `Search all ingested knowledge — docs, calls, files, and other connected sources. Use natural language queries; retrieval is hybrid (vector + keyword) so paraphrases and exact terms both work.${availableSources ? ` Available sources: ${availableSources}.` : ''}`,
+      description: `Search all ingested knowledge — docs, calls, files, and other connected sources. Use natural language queries; retrieval is hybrid (vector + keyword) so paraphrases and exact terms both work.${availableSources ? ` Available sources: ${availableSources}.` : ''}${facetNote ? ` ${facetNote}` : ''}`,
       schema: z.object({
         query: z.string().describe('Natural language search query — describe what you want conceptually'),
         source_types: z.array(z.string()).optional().describe(`Optional: limit to specific sources${availableSources ? ` (available: ${availableSources})` : ''}`),
         metadata_filters: z.record(z.string(), z.string()).optional().describe('Optional: filter by document metadata key-value pairs. Example: {"call_type": "discovery"} to find only discovery calls.'),
+        facets: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.object({ since: z.string().optional(), until: z.string().optional() })]))
+          .optional()
+          .describe(facetNote
+            ? 'Optional: filter on state stamped at sync (the facets named above), e.g. {"reply_state": "needs_my_reply", "category": "sales"}. A list matches any of its values. The query then ranks only the matching documents.'
+            : 'Optional: filter on state stamped at sync. None of the connected sources carries any yet.'),
+        since: z.string().optional().describe('Optional: only documents dated at or after this ISO date.'),
       }),
     },
   );

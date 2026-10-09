@@ -29,16 +29,18 @@
  */
 import type { RuntimeContext } from '../types';
 import type { CrossWorkspaceInbox, CrossWorkspaceItem, WorkspaceQueue } from '@/services/inbox/acrossWorkspaces';
+import type { OwedReply } from '@/services/mail/owedReplies';
 import { tool } from '@langchain/core/tools';
 import { and, desc, eq, gte, inArray, isNull, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
 import { DEFAULT_TIME_ZONE, formatDate } from '@/libs/time/zone';
-import { askSchema, notificationSchema } from '@/models/Schema';
+import { askSchema, notificationSchema, userSchema } from '@/models/Schema';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { needsYouItems } from '@/services/InboxService';
+import { readOwedReplies } from '@/services/mail/owedReplies';
 import { actAs } from '@/services/workspace/actAs';
 
 /** How far back an answered-"other" ask still counts as a follow-up owed. */
@@ -51,6 +53,10 @@ type Place = Pick<WorkspaceQueue, 'id' | 'slug' | 'name' | 'accountSlug'>;
 
 export type FollowUp = { id: number; title: string; note: string | null; at: Date; workspace: Place; href: string };
 export type Mention = { id: number; title: string; body: string | null; at: Date; workspace: Place; href: string | null };
+export type OwedMail = OwedReply & { workspace: Place };
+
+/** Owed email replies named in the read; the full list is `mail_owed_replies`. */
+export const OWED_MAIL_TOP = 10;
 
 export type WaitingOnMe = {
   scope: 'workspace' | 'all';
@@ -59,6 +65,10 @@ export type WaitingOnMe = {
   totalOpen: number;
   followUps: FollowUp[];
   mentions: Mention[];
+  /** Email threads in the person's own mailbox where the other side is waiting on them (thread state, filed at sync). */
+  owedMail: OwedMail[];
+  /** All such threads, before the cap. */
+  owedMailTotal: number;
   unavailable: Array<{ workspace: { name: string }; reason: string }>;
 };
 
@@ -91,11 +101,11 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
   const totalOpen = across ? inbox.total : (inbox.workspaces.find(w => w.id === orgId)?.count ?? decisions.length);
 
   if (ids.length === 0) {
-    return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps: [], mentions: [], unavailable: inbox.unavailable };
+    return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps: [], mentions: [], owedMail: [], owedMailTotal: 0, unavailable: inbox.unavailable };
   }
 
   const since = new Date(now.getTime() - FOLLOW_UP_WINDOW_DAYS * 86_400_000);
-  const [askRows, noteRows] = await Promise.all([
+  const [askRows, noteRows, owed] = await Promise.all([
     db
       .select({ id: askSchema.id, orgId: askSchema.orgId, title: askSchema.title, note: askSchema.decisionNote, decidedAt: askSchema.decidedAt, createdAt: askSchema.createdAt })
       .from(askSchema)
@@ -114,6 +124,7 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
       .where(and(inArray(notificationSchema.orgId, ids), eq(notificationSchema.userId, userId), isNull(notificationSchema.readAt)))
       .orderBy(desc(notificationSchema.createdAt))
       .limit(WAITING_TOP),
+    readOwedMail(userId, places, now),
   ]);
 
   const followUps: FollowUp[] = askRows.map((r) => {
@@ -124,7 +135,29 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
     const w = byId.get(r.orgId)!;
     return { id: r.id, title: r.title, body: r.body, at: r.createdAt, workspace: w, href: r.link };
   });
-  return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps, mentions, unavailable: inbox.unavailable };
+  return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps, mentions, owedMail: owed.items, owedMailTotal: owed.total, unavailable: inbox.unavailable };
+}
+
+/**
+ * Replies owed from the person's OWN mailbox in each place: a shared
+ * workspace's mail source may be someone else's inbox, and their owed replies
+ * are not this person's. Never throws; mail is one section of the read.
+ * @param userId - The person.
+ * @param places - The workspaces in reach.
+ * @param now - The clock.
+ */
+async function readOwedMail(userId: string, places: Place[], now: Date): Promise<{ items: OwedMail[]; total: number }> {
+  try {
+    const [person] = await db.select({ email: userSchema.email }).from(userSchema).where(eq(userSchema.id, userId)).limit(1);
+    if (!person?.email) {
+      return { items: [], total: 0 };
+    }
+    const reads = await Promise.all(places.map(async p => ({ p, read: await readOwedReplies({ orgId: p.id, mailbox: person.email.toLowerCase(), limit: OWED_MAIL_TOP, now }) })));
+    const items = reads.flatMap(({ p, read }) => read.items.map(i => ({ ...i, workspace: p })));
+    return { items: items.slice(0, OWED_MAIL_TOP), total: reads.reduce((n, r) => n + r.read.total, 0) };
+  } catch {
+    return { items: [], total: 0 };
+  }
 }
 
 /**
@@ -160,6 +193,14 @@ export function renderWaitingOnMe(w: WaitingOnMe, tz: string = DEFAULT_TIME_ZONE
     out.push(`- ${m.href ? `[${m.title}](${m.href})` : m.title}${where(m.workspace.name)} · ${formatDate(m.at, tz)}${m.body ? ` · ${m.body.replace(/\s+/g, ' ').slice(0, 140)}` : ''}`);
   }
 
+  out.push('', w.owedMail.length > 0 ? `EMAIL REPLIES YOU OWE (${w.owedMailTotal}) — the other side wrote last and is waiting on you, longest-waiting first:` : 'EMAIL REPLIES YOU OWE: none.');
+  for (const m of w.owedMail) {
+    out.push(`- ${m.uri ? `[${m.subject}](${m.uri})` : m.subject} — ${m.counterpart}${where(m.workspace.name)}${m.lastInboundAt ? ` · they wrote ${formatDate(m.lastInboundAt, tz)}` : ''}${m.ask ? ` · ${m.ask}` : ''}`);
+  }
+  if (w.owedMailTotal > w.owedMail.length) {
+    out.push(`- and ${w.owedMailTotal - w.owedMail.length} more: mail_owed_replies lists them all`);
+  }
+
   if (others.length > 0) {
     out.push('', `ALSO OPEN, NOT ON YOU BY NAME (${w.totalOpen - yours.length}) — anyone in the workspace can take these:`);
     for (const d of others.slice(0, 5)) {
@@ -193,7 +234,7 @@ export function waitingOnMeTools(ctx: RuntimeContext) {
     {
       name: 'waiting_on_me',
       description: [
-        'What is waiting on the person you are talking to, read from the records: decisions on them in the review queue (asks, approvals, proposed actions), follow-ups they owe on asks they raised, and their unread mentions and notices — each with a link and how long it has waited, in the order to take it.',
+        'What is waiting on the person you are talking to, read from the records: decisions on them in the review queue (asks, approvals, proposed actions), follow-ups they owe on asks they raised, email replies they owe from their own mailbox, and their unread mentions and notices — each with a link and how long it has waited, in the order to take it.',
         'Call it for "what is waiting on me", "what do I need to do", "my approvals", "my asks", "anything for me" and the like. Never answer those from a knowledge search: these are records, and search cannot see them.',
         'In a personal workspace it covers every workspace the person can reach, in one call; there is no need to ask each workspace.',
       ].join(' '),

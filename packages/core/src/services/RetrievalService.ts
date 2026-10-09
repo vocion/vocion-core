@@ -28,11 +28,14 @@
  * called from the agent's `searchDocs` tool.
  */
 
+import type { SQL } from 'drizzle-orm';
+import type { FacetFilter } from '@/libs/retrieval/facets';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { flushTraces, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { embed } from '@/libs/retrieval/embedder';
+import { facetWhere } from '@/libs/retrieval/facets';
 import {
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
@@ -95,6 +98,16 @@ export type SearchOptions = {
    * Safe to omit for non-interactive callers (evals, batch jobs).
    */
   onEvent?: (event: SearchEvent) => void;
+  /**
+   * Only documents whose facets match (`libs/retrieval/facets.ts`): state
+   * stamped at sync, such as a mail thread's `reply_state`. Applied inside
+   * every arm, so the ranking is over matching documents only, and a third
+   * arm lists the matching documents newest first so a match that ranks
+   * poorly on the words is still found.
+   */
+  facets?: FacetFilter;
+  /** Only documents the source dates at or after this instant. */
+  since?: Date;
 };
 
 export type SearchHit = {
@@ -199,13 +212,16 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
 
     // Run vector + keyword in parallel for hybrid; sequential awaits
     // (the previous shape) double-paid latency for no reason.
+    const docFilter = documentCond(sourceFilter, opts);
+    const filtered = !!(opts.facets && Object.keys(opts.facets).length > 0) || !!opts.since;
     const armResults = await Promise.all([
       (mode === 'vector' || mode === 'hybrid')
-        ? vectorSearch(query, scope, sourceFilter, perArm)
+        ? vectorSearch(query, scope, docFilter, perArm)
         : Promise.resolve([] as RawHit[]),
       (mode === 'keyword' || mode === 'hybrid')
-        ? keywordSearch(query, scope, sourceFilter, perArm)
+        ? keywordSearch(query, scope, docFilter, perArm)
         : Promise.resolve([] as RawHit[]),
+      filtered && docFilter ? filteredRecent(scope, docFilter, perArm) : Promise.resolve([] as RawHit[]),
     ]);
     vectorHits = armResults[0];
     keywordHits = armResults[1];
@@ -214,7 +230,12 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
     // For rerank we pull a larger fused candidate set (2*k) then trim
     // after the model reorders. Keeps the rerank pass meaningful.
     const fuseLimit = opts.rerank ? Math.min(k * 2, 20) : k;
-    const fused = fuse(mode, vectorHits, keywordHits, fuseLimit);
+    // A filtered search fuses the recency list as a third arm: the facets
+    // already chose the documents, so a match must not be lost for ranking
+    // poorly on the words.
+    const fused = armResults[2].length > 0
+      ? fuse('hybrid', fuse(mode, vectorHits, keywordHits, perArm * 2), armResults[2], fuseLimit)
+      : fuse(mode, vectorHits, keywordHits, fuseLimit);
     emit({ type: 'retrieval.fused', kept: fused.length });
     if (fused.length === 0) {
       trace.update({ output: { hits: 0 } });
@@ -288,10 +309,32 @@ async function resolveSourceFilter(opts: SearchOptions): Promise<number[] | null
   return rows.map(r => r.id);
 }
 
+/**
+ * The document-level condition every arm applies, on a document aliased `d`:
+ * the source filter, the facet filter and the date floor. Null when there is
+ * nothing to filter, so an unfiltered search keeps its join-free plan.
+ * @param sourceIds - Resolved source ids, or null for every source.
+ * @param opts - The search options.
+ */
+function documentCond(sourceIds: number[] | null, opts: SearchOptions): SQL | null {
+  const conds: SQL[] = [];
+  if (sourceIds) {
+    conds.push(sql`d.source_id IN (${sql.join(sourceIds.map(id => sql`${id}`), sql`, `)})`);
+  }
+  const facets = facetWhere(opts.facets);
+  if (facets) {
+    conds.push(facets);
+  }
+  if (opts.since) {
+    conds.push(sql`COALESCE(d.last_modified_at, d.ingested_at) >= ${opts.since.toISOString()}`);
+  }
+  return conds.length > 0 ? sql.join(conds, sql` AND `) : null;
+}
+
 async function vectorSearch(
   query: string,
   scope: Scope,
-  sourceIds: number[] | null,
+  docFilter: SQL | null,
   limit: number,
 ): Promise<RawHit[]> {
   const [queryVec] = await embed([query], { orgId: scope.orgId, purpose: 'query' });
@@ -304,13 +347,13 @@ async function vectorSearch(
   const literal = sql.raw(`'[${queryVec.join(',')}]'::vector`);
   const where = scopeCond(scope);
   type Row = { id: number; distance: number };
-  const result = sourceIds
+  const result = docFilter
     ? await db.execute(sql`
         SELECT c.id, (c.embedding <=> ${literal}) AS distance
         FROM ${knowledgeChunkSchema} c
         JOIN ${knowledgeDocumentSchema} d ON d.id = c.document_id
         WHERE ${where}
-          AND d.source_id IN (${sql.join(sourceIds.map(id => sql`${id}`), sql`, `)})
+          AND ${docFilter}
         ORDER BY c.embedding <=> ${literal}
         LIMIT ${limit}
       `)
@@ -331,7 +374,7 @@ async function vectorSearch(
 async function keywordSearch(
   query: string,
   scope: Scope,
-  sourceIds: number[] | null,
+  docFilter: SQL | null,
   limit: number,
 ): Promise<RawHit[]> {
   // websearch_to_tsquery handles user-shaped queries (quotes, OR, -term)
@@ -339,13 +382,13 @@ async function keywordSearch(
   const tsq = sql`websearch_to_tsquery('english', ${query})`;
   const where = scopeCond(scope);
   type Row = { id: number; rank: number };
-  const result = sourceIds
+  const result = docFilter
     ? await db.execute(sql`
         SELECT c.id, ts_rank(c.tsv, ${tsq}) AS rank
         FROM ${knowledgeChunkSchema} c
         JOIN ${knowledgeDocumentSchema} d ON d.id = c.document_id
         WHERE ${where}
-          AND d.source_id IN (${sql.join(sourceIds.map(id => sql`${id}`), sql`, `)})
+          AND ${docFilter}
           AND c.tsv @@ ${tsq}
         ORDER BY rank DESC
         LIMIT ${limit}
@@ -360,6 +403,30 @@ async function keywordSearch(
       `);
   const rows = (result as unknown as { rows: Row[] }).rows;
   return rows.map(r => ({ chunkId: r.id, score: Number(r.rank) }));
+}
+
+/**
+ * The first chunk of each matching document, newest first — the arm that
+ * makes a filtered search complete rather than only well-ranked.
+ * @param scope - Tenant and client scope.
+ * @param docFilter - The document condition (`documentCond`).
+ * @param limit - How many documents.
+ */
+async function filteredRecent(scope: Scope, docFilter: SQL, limit: number): Promise<RawHit[]> {
+  const where = scopeCond(scope);
+  type Row = { id: number };
+  const result = await db.execute(sql`
+    SELECT c.id
+    FROM ${knowledgeChunkSchema} c
+    JOIN ${knowledgeDocumentSchema} d ON d.id = c.document_id
+    WHERE ${where}
+      AND ${docFilter}
+      AND c.chunk_idx = 0
+    ORDER BY COALESCE(d.last_modified_at, d.ingested_at) DESC
+    LIMIT ${limit}
+  `);
+  const rows = (result as unknown as { rows: Row[] }).rows;
+  return rows.map((r, i) => ({ chunkId: r.id, score: 1 / (i + 1) }));
 }
 
 /**
