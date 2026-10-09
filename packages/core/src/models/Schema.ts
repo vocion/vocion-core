@@ -1043,6 +1043,10 @@ export const agentSchema = pgTable(
       turnEffort?: 'auto' | 'quick' | 'standard' | 'deep';
       /** Per-level ceilings, moving the built-in wall-clock and spend ceilings (`effort.ts` ENVELOPES). */
       turnCeilings?: Partial<Record<'quick' | 'standard' | 'deep', { seconds?: number; cents?: number }>>;
+      /** Where teammates do their legwork: the fast model (default) or this agent's own (`services/agents/legwork.ts`). */
+      legworkModel?: 'fast' | 'main';
+      /** Whether calls that read tool results think: off (default) or as the agent always does (`services/agents/legwork.ts`). */
+      legworkThinking?: 'off' | 'agent';
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.
