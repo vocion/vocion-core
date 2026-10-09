@@ -5,7 +5,7 @@ import type { OrgBrandFields } from '@/libs/branding/orgBrand';
 import type { BrandManifest } from '@/libs/workspace/brandSchema';
 import { ImageUp, Loader2, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -62,6 +62,30 @@ export type BrandSettingsProps = {
   /** The server calls; injected so a story can run without one. */
   api: BrandApi;
 };
+
+/**
+ * Small square slots (the top bar, the switcher, the favicon) use the MARK
+ * only, never the wordmark, and nothing is derived from a wordmark. So the
+ * page asks for one when there is a wordmark and no mark, and says so when
+ * the mark given is wide (a wordmark saved as the mark).
+ * @param props - The two logos.
+ * @param props.mark - The mark's URL, if set.
+ * @param props.wordmark - The wordmark's URL, if set.
+ */
+function MarkHint({ mark, wordmark }: { mark?: string; wordmark?: string }) {
+  const t = useTranslations('Brand');
+  const [wide, setWide] = useState<{ src: string; wide: boolean } | null>(null);
+  useEffect(() => {
+    if (!mark) {
+      return;
+    }
+    const img = new Image();
+    img.onload = () => setWide({ src: mark, wide: img.naturalHeight > 0 && img.naturalWidth / img.naturalHeight > 1.4 });
+    img.src = mark;
+  }, [mark]);
+  const message = !mark && wordmark ? t('mark_missing') : mark && wide?.src === mark && wide.wide ? t('mark_wide') : null;
+  return message ? <p data-testid="brand-mark-hint" className="mt-3 text-[12px] font-medium text-foreground">{message}</p> : null;
+}
 
 /**
  * A file as base64, without the data-URI prefix.
@@ -261,6 +285,7 @@ export function BrandSettings({ initial, draft, orgName, poweredBy = true, api }
               </div>
             ))}
           </div>
+          <MarkHint mark={fields.logos.mark} wordmark={fields.logos.wordmark} />
           <p className="mt-3 text-[12px] text-muted-foreground">{t('logo_rules')}</p>
         </DashboardSection>
 

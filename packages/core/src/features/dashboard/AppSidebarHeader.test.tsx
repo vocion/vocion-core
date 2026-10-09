@@ -30,11 +30,12 @@ vi.mock('@/libs/I18nNavigation', () => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }), usePathname: () => '/dashboard' }));
 vi.mock('@/features/notifications/NotificationBell', () => ({ NotificationBell: () => null }));
 vi.mock('@/features/dashboard/chat/AgentSurfaceButton', () => ({ AgentSurfaceButton: () => null }));
-vi.mock('@/features/dashboard/Breadcrumb', () => ({ Breadcrumb: () => null }));
+vi.mock('@/features/dashboard/Breadcrumb', () => ({ Breadcrumb: ({ workspaceName }: { workspaceName: string | null }) => <span data-testid="bar-title">{workspaceName}</span> }));
 vi.mock('./NavigationProgress', () => ({ NavigationProgress: () => null }));
 vi.mock('@/components/ui/sidebar', () => ({ SidebarTrigger: () => null }));
 
 const { AppSidebarHeader } = await import('./AppSidebarHeader');
+const { BrandChromeProvider, OrgBrandProvider } = await import('@/features/branding/BrandContext');
 
 async function openMenu() {
   await render(
@@ -61,7 +62,7 @@ describe('AppSidebarHeader account menu', () => {
     await openMenu();
 
     await expect.element(page.getByText('Current workspace:')).not.toBeInTheDocument();
-    await expect.element(page.getByText('Northwind Builders')).not.toBeInTheDocument();
+    await expect.element(page.getByRole('menu').getByText('Northwind Builders')).not.toBeInTheDocument();
     await expect.element(page.getByRole('menuitem', { name: 'Theme' })).not.toBeInTheDocument();
     await expect.element(page.getByRole('menuitem', { name: 'Workspace settings' })).toBeVisible();
     await expect.element(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
@@ -149,4 +150,42 @@ describe('AppSidebarHeader account menu', () => {
     await expect.element(page.getByText(/Vocion · MPL-2\.0/)).toBeVisible();
     await expect.element(page.getByText(/Apache/)).not.toBeInTheDocument();
   });
+});
+
+/**
+ * The top bar's lead mark sits in a 20px square before the workspace title
+ * and never runs into it, whatever the Org saved as its mark — on a phone,
+ * a tablet and a desktop (founder, 2026-10-09: a wordmark drawn over
+ * "Revenue Team").
+ */
+describe('AppSidebarHeader lead mark', () => {
+  const WIDE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 245 54"><rect width="245" height="54" fill="#f26522"/></svg>')}`;
+  const SQUARE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="#f26522"/></svg>')}`;
+
+  for (const [label, mark] of [['a square mark', SQUARE], ['a wordmark saved as the mark', WIDE], ['no mark at all', undefined]] as const) {
+    for (const width of [390, 768, 1280, 1440]) {
+      it(`${label}: mark and title never overlap at ${width}px`, async () => {
+        await page.viewport(width, 800);
+        await render(
+          <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+            <NextIntlClientProvider locale="en" messages={en}>
+              <OrgBrandProvider value={{ name: 'Northwind', logo: { light: WIDE }, mark: mark ? { light: mark } : {}, accent: null, headingFont: null, poweredBy: true }}>
+                <BrandChromeProvider value={{ lead: 'org', footer: 'powered-by' }}>
+                  <AppSidebarHeader workspace={{ slug: 'revenue', name: 'Revenue Team' }} />
+                </BrandChromeProvider>
+              </OrgBrandProvider>
+            </NextIntlClientProvider>
+          </ThemeProvider>,
+        );
+
+        await expect.element(page.getByTestId('bar-title')).toBeVisible();
+
+        const markBox = page.getByTestId('lead-mark').element().getBoundingClientRect();
+        const titleBox = page.getByTestId('bar-title').element().getBoundingClientRect();
+
+        expect(markBox.width).toBeLessThanOrEqual(20);
+        expect(markBox.right).toBeLessThan(titleBox.left);
+      });
+    }
+  }
 });

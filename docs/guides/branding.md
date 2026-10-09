@@ -27,7 +27,7 @@ shows none.
 | Region | Vocion leads (Vocion Cloud) | The Org leads (a branded single-Org install) |
 |---|---|---|
 | **Top bar**, next to the sidebar toggle (~20px, goes home) | Vocion's mark | The Org's mark |
-| **Switcher chip** | The Org's logo (its mark, else its wordmark); the letter avatar when it has none | Same |
+| **Switcher chip** | The Org's mark; the letter avatar when it has none | Same |
 | **Drawer footer**, under the person | A small Vocion wordmark | "Powered by Vocion" (none when white-labelled) |
 | **Tab title and favicon** | Vocion's | "Northwind · Vocion" and the Org's mark |
 
@@ -41,6 +41,15 @@ Which brand leads is an install setting, `VOCION_LEAD_BRAND`:
 - `vocion` or `org` — forces one.
 
 An Org with no brand never leads; Vocion does.
+
+**Square slots take the mark, never the wordmark.** The top bar, the switcher
+chip, the favicon and avatars use the brand's MARK, the symbol alone, in a
+20px square. The WORDMARK is used only where there is room for it: sign-in,
+the drawer footer, email headers and the brief page header. Nothing is derived
+from a wordmark. A brand with only a wordmark shows its letter in square
+slots, and Brand settings asks for one: "Add a square mark for small spaces".
+A mark that is really a wordmark (wider than about 1.4:1) gets a warning
+there too.
 
 ## Make it yours: from the chat
 

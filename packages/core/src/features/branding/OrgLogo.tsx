@@ -102,26 +102,43 @@ export function VocionWordmark({ className }: { className?: string }) {
 }
 
 /**
- * The install's lead brand as a small mark, ~20px — the top bar's leading
- * edge, next to the sidebar toggle (`libs/branding/chrome.ts`): the Org's
- * mark where the Org leads, Vocion's where Vocion does.
+ * The install's lead brand in the top bar's small square slot, ~20px
+ * (`libs/branding/chrome.ts`): the Org's MARK where the Org leads, Vocion's
+ * where Vocion does. A square slot never draws a wordmark — at 20px it is
+ * unreadable and wide enough to run into the title beside it — so an Org
+ * that has only a wordmark gets its letter here, and Brand settings asks for
+ * a mark. Nothing is derived from the wordmark.
  * @param props - The brand, who leads, and classes.
  * @param props.brand - The Org's brand view, or null.
  * @param props.lead - Whose mark leads.
  * @param props.className - Extra classes.
  */
-export function LeadMark({ brand, lead, className }: { brand: Pick<OrgBrandView, 'name' | 'mark' | 'logo'> | null; lead: 'vocion' | 'org'; className?: string }) {
-  const own = lead === 'org' ? (brand?.mark.light ? brand.mark : brand?.logo.light ? brand.logo : null) : null;
-  const light = own?.light ?? VOCION_PRIMARY_MARK;
-  const dark = own?.dark && own.dark !== light ? own.dark : null;
+export function LeadMark({ brand, lead, className }: { brand: Pick<OrgBrandView, 'name' | 'mark'> | null; lead: 'vocion' | 'org'; className?: string }) {
+  if (lead === 'org' && brand) {
+    const light = brand.mark.light;
+    if (!light) {
+      return (
+        <span data-testid="lead-mark" data-lead="org-letter" aria-hidden className={cn('grid size-5 shrink-0 place-items-center rounded-[5px] bg-foreground text-[11px] leading-none font-semibold text-background', className)}>
+          {(brand.name.trim().charAt(0) || '?').toUpperCase()}
+        </span>
+      );
+    }
+    const dark = brand.mark.dark && brand.mark.dark !== light ? brand.mark.dark : null;
+    return (
+      <span data-testid="lead-mark" data-lead="org" className={cn('grid size-5 shrink-0 place-items-center overflow-hidden', className)}>
+        {/* eslint-disable-next-line next/no-img-element */}
+        <img src={light} alt="" aria-hidden className={cn('size-5 object-contain', dark && 'dark:hidden')} draggable={false} />
+        {dark && (
+          // eslint-disable-next-line next/no-img-element
+          <img src={dark} alt="" aria-hidden className="hidden size-5 object-contain dark:block" draggable={false} />
+        )}
+      </span>
+    );
+  }
   return (
-    <span data-testid="lead-mark" data-lead={own ? 'org' : 'vocion'} className={cn('inline-flex h-5 shrink-0 items-center', className)}>
+    <span data-testid="lead-mark" data-lead="vocion" className={cn('grid h-5 w-7 shrink-0 place-items-center overflow-hidden', className)}>
       {/* eslint-disable-next-line next/no-img-element */}
-      <img src={light} alt="" aria-hidden className={cn('h-5 max-w-16 w-auto object-contain', dark && 'dark:hidden')} draggable={false} />
-      {dark && (
-        // eslint-disable-next-line next/no-img-element
-        <img src={dark} alt="" aria-hidden className="hidden h-5 w-auto max-w-16 object-contain dark:block" draggable={false} />
-      )}
+      <img src={VOCION_PRIMARY_MARK} alt="" aria-hidden className="h-5 w-7 object-contain" draggable={false} />
     </span>
   );
 }
