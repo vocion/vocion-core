@@ -90,8 +90,8 @@ jobs:
       - name: Pull refuses an image with no app-URL label
         run: |
           # An image from before the label, such as one built on a box.
-          docker pull --quiet busybox:1.36
-          docker tag busybox:1.36 localhost:5000/unlabeled:1
+          docker pull --quiet public.ecr.aws/docker/library/busybox:1.36
+          docker tag public.ecr.aws/docker/library/busybox:1.36 localhost:5000/unlabeled:1
           docker push --quiet localhost:5000/unlabeled:1
           docker image rm localhost:5000/unlabeled:1
           if EXPECTED_APP_URL="${APP_URL}" bash infra/aws/pull-app-image.sh localhost:5000/unlabeled:1 > unlabeled.log 2>&1; then
