@@ -54,6 +54,8 @@ export type StateRow = {
   /** Its facets, by name, as stored. */
   facets: Record<string, unknown>;
   sourceSlug: string | null;
+  /** Where it lives, when a read spans workspaces: "Deal Desk · Kestrel Capital" (Personal's reads across Orgs). */
+  where?: string;
 };
 
 export type StateRead = {

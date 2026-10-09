@@ -27,7 +27,7 @@ const {
   userGroupSchema,
   userSchema,
 } = await import('@/models/Schema');
-const { backfillPersonalProjects, ensurePersonalProject, ensurePersonalProjectsForUser, personalSlugCandidates } = await import('./personalProject');
+const { backfillPersonalProjects, ensurePersonalProject, ensurePersonalProjectsForUser, homeAccountFor, personalSlugCandidates } = await import('./personalProject');
 const { actAs } = await import('./actAs');
 const { accessibleProjects, resolveActiveWorkspace } = await import('@/services/WorkspaceAccessService');
 const { listProjectsForUser, resolveProjectForUser } = await import('@/services/ProjectService');
@@ -67,10 +67,11 @@ async function seed() {
     { id: CASS, email: 'cass@northwind.example' },
   ]);
   await db.insert(accountMembershipSchema).values([
-    { accountId: NORTHWIND, userId: ALEX, role: 'member' },
+    // Alex joined Northwind first: it is Alex's home Org.
+    { accountId: NORTHWIND, userId: ALEX, role: 'member', createdAt: new Date('2025-01-01T00:00:00Z') },
     { accountId: NORTHWIND, userId: BRIT, role: 'member' },
     { accountId: NORTHWIND, userId: CASS, role: 'admin' },
-    { accountId: KESTREL, userId: ALEX, role: 'member' },
+    { accountId: KESTREL, userId: ALEX, role: 'member', createdAt: new Date('2026-01-01T00:00:00Z') },
   ]);
   // Shared workspaces made well before anyone's personal one, as on a live
   // deployment: the landing order is oldest first.
@@ -119,18 +120,17 @@ describe('ensurePersonalProject', () => {
     expect(await personalRows(ALEX, NORTHWIND)).toHaveLength(1);
   });
 
-  it('creates exactly one per person per account under concurrent calls', async () => {
+  it('creates exactly one per person under concurrent calls, whichever Org asks', async () => {
     const results = await Promise.all([
       ...Array.from({ length: 8 }, () => ensurePersonalProject(ALEX, NORTHWIND)),
       ...Array.from({ length: 8 }, () => ensurePersonalProject(ALEX, KESTREL)),
       ...Array.from({ length: 8 }, () => ensurePersonalProject(BRIT, NORTHWIND)),
     ]);
 
-    expect(new Set(results.slice(0, 8).map(r => r.id)).size).toBe(1);
-    expect(new Set(results.slice(8, 16).map(r => r.id)).size).toBe(1);
+    expect(new Set(results.slice(0, 16).map(r => r.id)).size).toBe(1);
     expect(new Set(results.slice(16).map(r => r.id)).size).toBe(1);
     expect(await personalRows(ALEX, NORTHWIND)).toHaveLength(1);
-    expect(await personalRows(ALEX, KESTREL)).toHaveLength(1);
+    expect(await personalRows(ALEX, KESTREL)).toHaveLength(0);
     expect(await personalRows(BRIT, NORTHWIND)).toHaveLength(1);
   });
 
@@ -157,16 +157,36 @@ describe('ensurePersonalProject', () => {
     expect(await personalRows(ALEX, NORTHWIND)).toHaveLength(1);
   });
 
-  it('covers every account at sign-in, and the backfill finds nothing left to do', async () => {
+  it('makes ONE Personal per person at sign-in, on their home Org, and the backfill finds nothing left to do', async () => {
     const made = await ensurePersonalProjectsForUser(ALEX);
 
-    expect(made.map(p => p.accountId).sort()).toEqual([KESTREL, NORTHWIND].sort());
+    // Alex is in Northwind and Kestrel: one Personal, on the Org joined first.
+    expect(made).toHaveLength(1);
+    expect(made[0]!.accountId).toBe(await homeAccountFor(ALEX));
 
     const backfill = await backfillPersonalProjects();
 
     // Alex is done; Brit and Cass are created now, and a second run is a no-op.
-    expect(backfill).toEqual({ checked: 4, created: 2 });
-    expect(await backfillPersonalProjects()).toEqual({ checked: 4, created: 0 });
+    expect(backfill).toEqual({ checked: 3, created: 2 });
+    expect(await backfillPersonalProjects()).toEqual({ checked: 3, created: 0 });
+  });
+
+  it('is the same Personal whichever Org asks for it', async () => {
+    const fromNorthwind = await ensurePersonalProject(ALEX, NORTHWIND);
+    const fromKestrel = await ensurePersonalProject(ALEX, KESTREL);
+
+    expect(fromKestrel.id).toBe(fromNorthwind.id);
+  });
+
+  it('moves with its owner when they leave the Org it is on, rather than being lost or duplicated', async () => {
+    const before = (await ensurePersonalProjectsForUser(ALEX))[0]!;
+    await db.delete(accountMembershipSchema).where(and(eq(accountMembershipSchema.userId, ALEX), eq(accountMembershipSchema.accountId, before.accountId)));
+
+    const after = (await ensurePersonalProjectsForUser(ALEX))[0]!;
+
+    expect(after.id).toBe(before.id);
+    expect(after.accountId).not.toBe(before.accountId);
+    expect(after.accountId).toBe(await homeAccountFor(ALEX));
   });
 });
 

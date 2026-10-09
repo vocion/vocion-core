@@ -201,9 +201,16 @@ export async function removeMember(opts: { accountId: string; userId: string }):
       eq(accountMembershipSchema.accountId, opts.accountId),
       eq(accountMembershipSchema.userId, opts.userId),
     ));
-  // Their own connections (mail, calendar, Slack DMs …) leave with them: the
-  // grants are withdrawn at each vendor and deleted, not left behind in a
-  // personal workspace nobody can open any more.
+  // Their one Personal is theirs, not this Org's (`workspace/personalProject.ts`).
+  // Still in another Org: it moves there if it was on this one, connections
+  // and all. In no Org any more: their own connections (mail, calendar,
+  // Slack DMs …) leave with them, withdrawn at each vendor and deleted, not
+  // left behind in a workspace nobody can open.
+  const { homeAccountFor, ensurePersonalProjectsForUser } = await import('@/services/workspace/personalProject');
+  if (await homeAccountFor(opts.userId)) {
+    await ensurePersonalProjectsForUser(opts.userId);
+    return;
+  }
   const { forgetPersonalConnections } = await import('@/services/personal/connections');
   await forgetPersonalConnections(opts.userId, opts.accountId);
 }

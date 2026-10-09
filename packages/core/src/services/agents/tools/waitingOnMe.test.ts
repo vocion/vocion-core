@@ -182,6 +182,26 @@ describe('waiting_on_me', () => {
     expect(out).toContain('UNREAD MENTIONS AND NOTICES: none.');
   });
 
+  it('from a Personal across Orgs, says each item\'s Org, and an opted-out Org only as a count with a link', () => {
+    const out = renderWaitingOnMe({
+      scope: 'all',
+      decisions: [
+        { key: 'a', kind: 'approval', title: 'Approve the Acme freight quote', at: new Date('2026-10-07T10:00:00Z'), href: '/w/supply/dashboard/inbox/ask/1', link: 'https://app.example/w/supply/dashboard/inbox/ask/1', yours: true, yoursBecause: 'raised', workspace: { id: 'p1', slug: 'supply', name: 'Supply Desk', kind: 'shared', accountName: 'Contoso Supply' } },
+        { key: 'b', kind: 'approval', title: 'Approve the Bellwater launch', at: new Date('2026-10-06T10:00:00Z'), href: '/w/factory/dashboard/inbox/ask/2', link: 'https://app.example/w/factory/dashboard/inbox/ask/2', yours: true, yoursBecause: 'raised', workspace: { id: 'p2', slug: 'factory', name: 'Factory', kind: 'shared', accountName: 'Northwind' } },
+      ] as never,
+      totalOpen: 2,
+      followUps: [],
+      mentions: [],
+      views: [],
+      unavailable: [],
+      withheld: [{ accountName: 'Kestrel Capital', accountSlug: 'kestrel', workspace: { name: 'Deal Desk', slug: 'deals' }, count: 3, yours: 1, link: 'https://app.example/w/deals/dashboard/inbox?org=kestrel' }],
+    });
+
+    expect(out).toContain('— Supply Desk · Contoso Supply');
+    expect(out).toContain('— Factory · Northwind');
+    expect(out).toContain('Kestrel Capital › Deal Desk: 3 waiting (1 on you) · [open there](https://app.example/w/deals/dashboard/inbox?org=kestrel)');
+  });
+
   it('refuses to read for someone who is not in the workspace', async () => {
     const [t] = waitingOnMeTools({ ...ctxFor('proj-wom-nowhere', 'shared') });
     const out = String(await t!.invoke({}));

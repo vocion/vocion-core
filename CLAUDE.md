@@ -415,6 +415,17 @@ credential stored under the previous one.
   extension lifts that rule (`orgs.multiOrg`, `src/libs/extensions.ts`;
   `VOCION_ORGS=multi` is the conventional switch it reads). Core alone is
   always single-Org and ships no Org switcher.
+- **One Personal per person per install** (`services/workspace/personalProject.ts`),
+  on their home Org (the Org their Personal lives on; at first, their oldest
+  membership). It reads in place across every Org they belong to, with their
+  own access (`services/personal/reach.ts`, `acrossOrgs.ts`): waiting_on_me,
+  briefs, query_state and asks, each item labelled with its Org. An Org whose
+  "Include in members' Personal" is off (`tenant_account.include_in_personal`)
+  reaches Personal only as counts with links. Results stay in Personal; an ask
+  runs in the asked workspace and is charged there; Personal's own model use
+  (its turns, briefs) is charged to Personal, so the home Org pays. A
+  single-Org install reads its one Org, as before. Old per-Org Personals fold
+  in with `npm run personal-projects:merge` (dry run first, then `--apply`).
 - Tenancy is first-party, not delegated to an identity provider: a
   `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
 - Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`

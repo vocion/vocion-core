@@ -460,7 +460,11 @@
     "invite_emailed": "Email sent to {email}. The link works too:",
     "invite_not_emailed": "Email not sent to {email}:",
     "invite_not_emailed_reason": "{reason}. Copy the link and share it.",
-    "invite_link_label": "Invite link"
+    "invite_link_label": "Invite link",
+    "personal_reach_title": "Include in members' Personal",
+    "personal_reach_on": "Members see this Org's waiting items, briefs and views in their own Personal, labelled with this Org, read with their own access.",
+    "personal_reach_off": "Members' Personal shows only how many items wait here, with a link in. Turn this off when a contract forbids aggregating this Org's work elsewhere.",
+    "personal_reach_failed": "Could not save that. Try again."
   },
   "SignIn": {
     "title": "Welcome back",

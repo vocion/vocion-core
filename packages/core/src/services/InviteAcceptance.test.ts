@@ -146,12 +146,13 @@ describe('acceptInviteAsExistingUser', () => {
     expect(await acceptInviteAsExistingUser('user-sam', 'tok-nothing')).toEqual({ ok: false, status: 404, error: 'Invalid invite token.' });
   });
 
-  it('with access enforced, opens a new member\'s own workspace when they hold no shared one yet, rather than one that would 404', async () => {
+  it('with access enforced, opens a new member\'s one Personal when they hold no shared workspace there yet, rather than one that would 404', async () => {
     await db.insert(inviteSchema).values(invite({ token: 'tok-enforced' }));
     process.env.VOCION_ENFORCE_WORKSPACE_ACCESS = '1';
     try {
       const result = await acceptInviteAsExistingUser('user-sam', 'tok-enforced');
-      const [personal] = await db.select().from(projectSchema).where(and(eq(projectSchema.ownerUserId, 'user-sam'), eq(projectSchema.accountId, 'acct-contoso'), eq(projectSchema.kind, 'personal')));
+      // Their one Personal, wherever it lives: it reads Contoso too.
+      const [personal] = await db.select().from(projectSchema).where(and(eq(projectSchema.ownerUserId, 'user-sam'), eq(projectSchema.kind, 'personal')));
 
       expect(personal).toBeDefined();
       expect(result).toMatchObject({ ok: true, accountId: 'acct-contoso' });

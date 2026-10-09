@@ -29,6 +29,7 @@
  */
 import type { RuntimeContext } from '../types';
 import type { CrossWorkspaceInbox, CrossWorkspaceItem, WorkspaceQueue } from '@/services/inbox/acrossWorkspaces';
+import type { ReachedOrg } from '@/services/personal/reach';
 import type { StateRow } from '@/services/state/state';
 import { tool } from '@langchain/core/tools';
 import { and, desc, eq, gte, inArray, isNull, ne } from 'drizzle-orm';
@@ -41,6 +42,7 @@ import { askSchema, notificationSchema, userSchema } from '@/models/Schema';
 import { listInboxForUser } from '@/services/inbox/acrossWorkspaces';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { needsYouItems } from '@/services/InboxService';
+import { personalReach } from '@/services/personal/reach';
 import { actAs } from '@/services/workspace/actAs';
 
 /** How far back an answered-"other" ask still counts as a follow-up owed. */
@@ -49,7 +51,7 @@ export const FOLLOW_UP_WINDOW_DAYS = 14;
 /** Rows named per section; the rest are a count. */
 export const WAITING_TOP = 15;
 
-type Place = Pick<WorkspaceQueue, 'id' | 'slug' | 'name' | 'accountSlug'>;
+type Place = Pick<WorkspaceQueue, 'id' | 'slug' | 'name' | 'accountSlug'> & { accountName?: string };
 
 export type FollowUp = { id: number; title: string; note: string | null; at: Date; workspace: Place; href: string };
 export type Mention = { id: number; title: string; body: string | null; at: Date; workspace: Place; href: string | null };
@@ -76,6 +78,8 @@ export type WaitingOnMe = {
    */
   views: ViewSection[];
   unavailable: Array<{ workspace: { name: string }; reason: string }>;
+  /** From a Personal: Orgs that keep their items out of it, as counts with a link (`services/personal/reach.ts`). */
+  withheld?: CrossWorkspaceInbox['withheld'];
 };
 
 /**
@@ -87,19 +91,22 @@ export type WaitingOnMe = {
  * @param input.across - Every workspace on the account, not just this one.
  * @param input.now - The clock.
  * @param input.inbox - The cross-workspace queue, when the caller already read it (across only).
+ * @param input.reach
  */
-export async function readWaitingOnMe(input: { userId: string; accountId: string; orgId: string; across: boolean; now?: Date; inbox?: CrossWorkspaceInbox }): Promise<WaitingOnMe> {
+export async function readWaitingOnMe(input: { userId: string; accountId: string; orgId: string; across: boolean; now?: Date; inbox?: CrossWorkspaceInbox; reach?: readonly ReachedOrg[] }): Promise<WaitingOnMe> {
   const { userId, accountId, orgId, across } = input;
   const now = input.now ?? new Date();
   // One reader for both scopes: the cross-workspace queue already tags rows as
   // the person's, orders them and builds their links. In one workspace, only
   // that workspace's queue is read.
+  // Across, from a Personal: every Org the person's Personal reaches, in
+  // place, with their own access in each (`services/personal/reach.ts`). In
+  // one workspace, only that workspace's queue is read.
   const inbox = across && input.inbox
     ? input.inbox
-    : await listInboxForUser(userId, {
-        accountId,
-        ...(across ? {} : { workspaceId: orgId, read: (id: string) => (id === orgId ? needsYouItems(id) : Promise.resolve([])) }),
-      });
+    : across
+      ? await listInboxForUser(userId, { reach: input.reach ?? await personalReach(userId) })
+      : await listInboxForUser(userId, { accountId, workspaceId: orgId, read: (id: string) => (id === orgId ? needsYouItems(id) : Promise.resolve([])) });
   const places: Place[] = inbox.workspaces.filter(w => across || w.id === orgId);
   const byId = new Map(places.map(p => [p.id, p]));
   const ids = [...byId.keys()];
@@ -107,7 +114,7 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
   const totalOpen = across ? inbox.total : (inbox.workspaces.find(w => w.id === orgId)?.count ?? decisions.length);
 
   if (ids.length === 0) {
-    return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps: [], mentions: [], views: [], unavailable: inbox.unavailable };
+    return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps: [], mentions: [], views: [], unavailable: inbox.unavailable, withheld: inbox.withheld };
   }
 
   const since = new Date(now.getTime() - FOLLOW_UP_WINDOW_DAYS * 86_400_000);
@@ -141,7 +148,7 @@ export async function readWaitingOnMe(input: { userId: string; accountId: string
     const w = byId.get(r.orgId)!;
     return { id: r.id, title: r.title, body: r.body, at: r.createdAt, workspace: w, href: r.link };
   });
-  return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps, mentions, views: owed, unavailable: inbox.unavailable };
+  return { scope: across ? 'all' : 'workspace', decisions, totalOpen, followUps, mentions, views: owed, unavailable: inbox.unavailable, withheld: inbox.withheld };
 }
 
 /**
@@ -192,7 +199,16 @@ async function readViews(userId: string, places: Place[], accountId: string, now
 export function renderWaitingOnMe(w: WaitingOnMe, tz: string = DEFAULT_TIME_ZONE): string {
   const yours = w.decisions.filter(d => d.yours);
   const others = w.decisions.filter(d => !d.yours);
-  const where = (name: string) => (w.scope === 'all' ? ` — ${name}` : '');
+  // Every item says where it lives; with more than one Org, which Org too.
+  const orgs = new Set(w.decisions.map(d => d.workspace.accountName).filter(Boolean));
+  const orgOf = new Map(w.decisions.map(d => [d.workspace.name, d.workspace.accountName]));
+  const where = (name: string, org?: string) => {
+    if (w.scope !== 'all') {
+      return '';
+    }
+    const o = org ?? orgOf.get(name);
+    return orgs.size > 1 && o && o !== name ? ` — ${name} · ${o}` : ` — ${name}`;
+  };
   const out: string[] = [
     `Read from the review queue, asks and notifications just now${w.scope === 'all' ? ', across every workspace you can reach' : ', in this workspace'}. This is the complete list: do not search for more, and say "nothing" for an empty section rather than guessing.`,
   ];
@@ -208,12 +224,12 @@ export function renderWaitingOnMe(w: WaitingOnMe, tz: string = DEFAULT_TIME_ZONE
 
   out.push('', w.followUps.length > 0 ? `FOLLOW-UPS YOU OWE (${w.followUps.length}) — your asks that came back with a note to read:` : 'FOLLOW-UPS YOU OWE: none.');
   for (const f of w.followUps) {
-    out.push(`- [${f.title}](${f.href})${where(f.workspace.name)} · answered ${formatDate(f.at, tz)}${f.note ? ` · “${f.note.replace(/\s+/g, ' ').slice(0, 140)}”` : ''}`);
+    out.push(`- [${f.title}](${f.href})${where(f.workspace.name, f.workspace.accountName)} · answered ${formatDate(f.at, tz)}${f.note ? ` · “${f.note.replace(/\s+/g, ' ').slice(0, 140)}”` : ''}`);
   }
 
   out.push('', w.mentions.length > 0 ? `UNREAD MENTIONS AND NOTICES (${w.mentions.length}) — newest first:` : 'UNREAD MENTIONS AND NOTICES: none.');
   for (const m of w.mentions) {
-    out.push(`- ${m.href ? `[${m.title}](${m.href})` : m.title}${where(m.workspace.name)} · ${formatDate(m.at, tz)}${m.body ? ` · ${m.body.replace(/\s+/g, ' ').slice(0, 140)}` : ''}`);
+    out.push(`- ${m.href ? `[${m.title}](${m.href})` : m.title}${where(m.workspace.name, m.workspace.accountName)} · ${formatDate(m.at, tz)}${m.body ? ` · ${m.body.replace(/\s+/g, ' ').slice(0, 140)}` : ''}`);
   }
 
   for (const v of w.views) {
@@ -222,7 +238,7 @@ export function renderWaitingOnMe(w: WaitingOnMe, tz: string = DEFAULT_TIME_ZONE
     for (const r of v.rows) {
       const who = typeof r.facets.counterpart === 'string' ? ` — ${r.facets.counterpart}` : '';
       const ask = typeof r.facets.ask === 'string' && r.facets.ask ? ` · ${r.facets.ask}` : '';
-      out.push(`- ${r.link ? `[${r.title}](${r.link})` : r.title}${who}${where(r.workspace.name)}${r.at ? ` · ${formatDate(r.at, tz)}` : ''}${ask}`);
+      out.push(`- ${r.link ? `[${r.title}](${r.link})` : r.title}${who}${where(r.workspace.name, r.workspace.accountName)}${r.at ? ` · ${formatDate(r.at, tz)}` : ''}${ask}`);
     }
     if (v.total > v.rows.length) {
       out.push(`- and ${v.total - v.rows.length} more: query_state with view "${v.slug}" lists them all`);
@@ -233,6 +249,12 @@ export function renderWaitingOnMe(w: WaitingOnMe, tz: string = DEFAULT_TIME_ZONE
     out.push('', `ALSO OPEN, NOT ON YOU BY NAME (${w.totalOpen - yours.length}) — anyone in the workspace can take these:`);
     for (const d of others.slice(0, 5)) {
       out.push(`- [${d.title}](${d.link})${where(d.workspace.name)} · ${d.kind} · waiting since ${formatDate(d.at, tz)}`);
+    }
+  }
+  if (w.withheld && w.withheld.length > 0) {
+    out.push('', 'IN ORGS THAT KEEP THEIR ITEMS OUT OF PERSONAL — counts only; say the number and give the link, never guess what they are:');
+    for (const h of w.withheld) {
+      out.push(`- ${h.accountName} › ${h.workspace.name}: ${h.count} waiting${h.yours ? ` (${h.yours} on you)` : ''} · [open there](${h.link})`);
     }
   }
   if (w.unavailable.length > 0) {

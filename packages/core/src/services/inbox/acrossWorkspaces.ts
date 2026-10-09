@@ -24,6 +24,7 @@
  */
 
 import type { InboxItem } from '@/services/InboxService';
+import type { ReachedOrg } from '@/services/personal/reach';
 import { workspaceUrl } from '@/libs/links';
 import { needsYouItems } from '@/services/InboxService';
 import { accountsForUser, listProjectsForUser } from '@/services/ProjectService';
@@ -35,7 +36,8 @@ export type InboxWorkspace = NonNullable<InboxItem['workspace']>;
 export type YoursBecause = 'personal' | 'assigned' | 'raised' | null;
 
 export type CrossWorkspaceItem = InboxItem & {
-  workspace: InboxWorkspace;
+  /** Where it waits; `accountName` is its Org, said when a Personal reads across several. */
+  workspace: InboxWorkspace & { accountName?: string };
   /** The row's own detail page, absolute when the app has a public address: `/w/<slug>/dashboard/inbox/…?account=…`. */
   link: string;
   yours: boolean;
@@ -45,6 +47,8 @@ export type CrossWorkspaceItem = InboxItem & {
 export type WorkspaceQueue = InboxWorkspace & {
   accountId: string;
   accountSlug: string;
+  /** The Org's name, so a row read into Personal says which Org it is from. */
+  accountName: string;
   /** Every open decision in the workspace, before the cap. */
   count: number;
   /** How many of them are the person's own. */
@@ -64,7 +68,17 @@ export type CrossWorkspaceInbox = {
   workspaces: WorkspaceQueue[];
   /** Workspaces whose queue could not be read, with the reason. */
   unavailable: Array<{ workspace: InboxWorkspace; reason: string }>;
+  /**
+   * Workspaces in an Org that keeps its items out of its members' Personal
+   * (`services/personal/reach.ts`, mode `counts`): how many wait there and a
+   * link into it, never what they are. Not counted in `total`/`yours`, and
+   * not in `workspaces`, so nothing downstream reads their content.
+   */
+  withheld: WithheldQueue[];
 };
+
+/** A workspace's queue reduced to a count and a door. */
+export type WithheldQueue = { accountName: string; accountSlug: string; workspace: Pick<InboxWorkspace, 'name' | 'slug'>; count: number; yours: number; link: string };
 
 /** Rows kept per workspace. The person's own rows are kept first. */
 export const PER_WORKSPACE_CAP = 50;
@@ -131,17 +145,23 @@ export function byYoursThenAge(a: Pick<CrossWorkspaceItem, 'yours' | 'at' | 'key
  * @param opts.workspaceId - Keep only this workspace's rows; the counts still cover them all.
  * @param opts.cap - Rows kept per workspace.
  * @param opts.read - One workspace's open rows. Defaults to `needsYouItems`.
+ * @param opts.reach
  */
 export async function listInboxForUser(
   userId: string,
-  opts: { accountId?: string; workspaceId?: string; cap?: number; read?: (orgId: string) => Promise<InboxItem[]> } = {},
+  opts: { accountId?: string; workspaceId?: string; cap?: number; read?: (orgId: string) => Promise<InboxItem[]>; reach?: readonly ReachedOrg[] } = {},
 ): Promise<CrossWorkspaceInbox> {
   const cap = opts.cap ?? PER_WORKSPACE_CAP;
   const read = opts.read ?? needsYouItems;
   const [projects, accounts] = await Promise.all([listProjectsForUser(userId), accountsForUser(userId)]);
   const accountSlug = new Map(accounts.map(a => [a.id, a.slug]));
+  const accountName = new Map(accounts.map(a => [a.id, a.name]));
+  // Read into a Personal: only the Orgs it reaches, and those in `counts`
+  // mode only as a count.
+  const mode = opts.reach ? new Map(opts.reach.map(r => [r.accountId, r.mode])) : null;
   const reachable = projects
     .filter(p => !opts.accountId || p.accountId === opts.accountId)
+    .filter(p => !mode || mode.has(p.accountId))
     // The person's own first, then by name: the order the filter chips read in.
     .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'personal' ? -1 : 1));
 
@@ -157,12 +177,26 @@ export async function listInboxForUser(
   const items: CrossWorkspaceItem[] = [];
   const workspaces: WorkspaceQueue[] = [];
   const unavailable: CrossWorkspaceInbox['unavailable'] = [];
+  const withheld: WithheldQueue[] = [];
   for (const { p, workspace, rows, error } of results) {
     if (error !== null) {
       unavailable.push({ workspace, reason: error });
       continue;
     }
     const account = accountSlug.get(p.accountId) ?? '';
+    if (mode?.get(p.accountId) === 'counts') {
+      if (rows.length > 0) {
+        withheld.push({
+          accountName: accountName.get(p.accountId) ?? '',
+          accountSlug: account,
+          workspace: { name: p.name, slug: p.slug },
+          count: rows.length,
+          yours: rows.filter(r => yoursBecause(r, workspace, userId) !== null).length,
+          link: workspaceUrl(p.slug, '/dashboard/inbox', account ? { accountSlug: account, absolute: true } : { absolute: true }),
+        });
+      }
+      continue;
+    }
     const tagged = rows.map((row): CrossWorkspaceItem => {
       const because = yoursBecause(row, workspace, userId);
       const named = account ? { accountSlug: account } : {};
@@ -173,13 +207,13 @@ export async function listInboxForUser(
         // `link` is the same page made absolute, for anything that leaves the app.
         href: workspaceUrl(p.slug, row.href, named),
         link: workspaceUrl(p.slug, row.href, { ...named, absolute: true }),
-        workspace,
+        workspace: { ...workspace, accountName: accountName.get(p.accountId) ?? '' },
         yours: because !== null,
         yoursBecause: because,
       };
     }).sort(byYoursThenAge);
     const yours = tagged.filter(t => t.yours).length;
-    workspaces.push({ ...workspace, accountId: p.accountId, accountSlug: account, count: tagged.length, yours, capped: tagged.length > cap });
+    workspaces.push({ ...workspace, accountId: p.accountId, accountSlug: account, accountName: accountName.get(p.accountId) ?? '', count: tagged.length, yours, capped: tagged.length > cap });
     if (!opts.workspaceId || opts.workspaceId === p.id) {
       items.push(...tagged.slice(0, cap));
     }
@@ -192,6 +226,7 @@ export async function listInboxForUser(
     yours: workspaces.reduce((n, w) => n + w.yours, 0),
     workspaces,
     unavailable,
+    withheld,
   };
 }
 
@@ -210,8 +245,9 @@ export type CrossWorkspaceCount = {
  * @param userId - The person.
  * @param opts - As {@link listInboxForUser}.
  * @param opts.accountId - Only this account's workspaces.
+ * @param opts.reach
  */
-export async function needsYouCountForUser(userId: string, opts: { accountId?: string } = {}): Promise<CrossWorkspaceCount> {
+export async function needsYouCountForUser(userId: string, opts: { accountId?: string; reach?: readonly ReachedOrg[] } = {}): Promise<CrossWorkspaceCount> {
   const inbox = await listInboxForUser(userId, { ...opts, cap: 0 });
   return {
     total: inbox.total,

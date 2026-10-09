@@ -30,7 +30,8 @@ export async function GET() {
     return jsonError('UNAUTHORIZED', 'Sign in first', 401);
   }
   const [everyProject, accounts] = await Promise.all([listProjectsForUser(user.id), accountsForUser(user.id)]);
-  const projects = everyProject.filter(p => p.accountId === user.accountId);
+  // This Org's workspaces, and the person's one Personal wherever it lives.
+  const projects = everyProject.filter(p => p.accountId === user.accountId || p.kind === 'personal');
   const account = accounts.find(a => a.id === user.accountId) ?? null;
   const active = projects.find(p => p.id === user.projectId)?.slug ?? null;
   return NextResponse.json(

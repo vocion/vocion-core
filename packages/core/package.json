@@ -91,7 +91,8 @@
     "artifacts:sweep": "dotenv -c -- tsx src/scripts/sweep-artifacts.ts",
     "artifacts:keep-images": "dotenv -c -- tsx src/scripts/keep-artifact-images.ts",
     "version:write": "node scripts/write-version.mjs",
-    "people:apply": "tsx src/scripts/apply-people.ts"
+    "people:apply": "tsx src/scripts/apply-people.ts",
+    "personal-projects:merge": "dotenv -c -- tsx src/scripts/merge-personal-projects.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
