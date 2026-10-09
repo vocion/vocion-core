@@ -626,7 +626,7 @@ export async function compileAgentForRequest(
      * `EffortCeilings.synthesisDue`), given the sources it holds: from then on
      * the calls that read tool results keep the agent's thinking.
      */
-    synthesisDue?: (turn: { sources: number; rounds: number }) => boolean;
+    synthesisDue?: (turn: { sources: number }) => boolean;
   } = {},
 ): Promise<CompiledAgentGraph> {
   // An overridden model is never cached: the cache is keyed on the agent, and
@@ -697,7 +697,7 @@ export async function compileAgentForRequest(
     middleware: [
       createMemoryDigestMiddleware(),
       ...(opts.handOff ? [createHandOffMiddleware(opts.handOff)] : []),
-      ...(blueprint.stepModel ? [createLegworkThinkingMiddleware(blueprint.stepModel, opts.synthesisDue ? rounds => opts.synthesisDue!({ sources: ctx.evidence?.sources.size ?? 0, rounds }) : undefined)] : []),
+      ...(blueprint.stepModel ? [createLegworkThinkingMiddleware(blueprint.stepModel, opts.synthesisDue ? () => opts.synthesisDue!({ sources: ctx.evidence?.sources.size ?? 0 }) : undefined)] : []),
       // A consult starts from what this turn already has (`runtimeContext.ts`, turn evidence).
       ...(ctx.evidence ? [createEvidenceHandoffMiddleware(ctx.evidence)] : []),
       ...turnMiddleware,

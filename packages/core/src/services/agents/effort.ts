@@ -57,18 +57,13 @@ export type EffortEnvelope = {
    * writes next is most likely the answer.
    */
   evidenceBudget: number;
-  /**
-   * Tool rounds after which the next call counts as the synthesis: a turn that
-   * has looked twice is usually writing its answer next.
-   */
-  synthesisRounds: number;
 };
 
 /** The built-in envelopes. A workspace or agent may move the ceilings (`harness.turnCeilings`). */
 export const ENVELOPES: Record<EffortLevel, EffortEnvelope> = {
-  quick: { level: 'quick', strength: 'fast', thinking: 'off', consults: 'none', fanOut: 3, targetSeconds: 8, ceilingSeconds: 40, ceilingCents: 15, evidenceBudget: 8, synthesisRounds: 2 },
-  standard: { level: 'standard', strength: 'balanced', thinking: 'agent', consults: 'one', fanOut: 5, targetSeconds: 20, ceilingSeconds: 90, ceilingCents: 75, evidenceBudget: 12, synthesisRounds: 2 },
-  deep: { level: 'deep', strength: 'balanced', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500, evidenceBudget: 40, synthesisRounds: 4 },
+  quick: { level: 'quick', strength: 'fast', thinking: 'off', consults: 'none', fanOut: 3, targetSeconds: 8, ceilingSeconds: 40, ceilingCents: 15, evidenceBudget: 8 },
+  standard: { level: 'standard', strength: 'balanced', thinking: 'agent', consults: 'one', fanOut: 5, targetSeconds: 20, ceilingSeconds: 90, ceilingCents: 75, evidenceBudget: 12 },
+  deep: { level: 'deep', strength: 'balanced', thinking: 'high', consults: 'parallel', fanOut: 8, targetSeconds: 150, ceilingSeconds: 600, ceilingCents: 500, evidenceBudget: 40 },
 };
 
 /**
@@ -111,7 +106,7 @@ export const INFER_SYSTEM = [
   'You set how much effort an assistant spends answering one request from a person at work. Pick one level:',
   'quick — a lookup or a short factual answer from one place: what is on my calendar, what is the status of X, find an email address, a yes/no, a greeting.',
   'standard — gather from a few places and synthesise: what do I owe replies to, prepare me for this meeting, what changed on this deal, draft a reply.',
-  'deep — research or analysis across many sources or a long period, a plan, a document, a comparison: research everything on an account since July, audit the pipeline, write a proposal.',
+  'deep — research or analysis across many sources or a long period, a plan, a document, a comparison, or ranking, prioritising or weighing risk across many items: research everything on an account since July, audit the pipeline, write a proposal, rank every open thread by revenue risk and say what to tell each.',
   'When unsure between two, pick the lower one: the person can always ask to dig deeper.',
   'Answer with a JSON object only: {"level": "quick" | "standard" | "deep", "reason": "<at most 8 words>"}.',
 ].join(' ');
@@ -271,19 +266,21 @@ export class EffortCeilings {
 
   /**
    * Whether the turn has gathered enough that its next call is most likely the
-   * synthesis: the turn has taken the envelope's tool rounds, the soft time
-   * target has passed, a ceiling has been reached, or the turn holds more
-   * sources than its evidence budget. Latches: once due, every later call of
-   * the turn is.
+   * synthesis: the soft time target has passed, a ceiling has been reached, or
+   * the turn holds more sources than its evidence budget. Latches: once due,
+   * every later call of the turn is.
+   *
+   * Deliberately no tool-round trigger: measured on a hard ranking question
+   * (#1305), thinking from the second round on doubled a Standard turn
+   * (~23 s → ~51 s) for about one quality point. Standard stays fast; a hard
+   * analytic ask is Deep's job, and Auto sends it there (`INFER_SYSTEM`).
    * @param turn - What the turn has done so far.
    * @param turn.sources - Sources found.
-   * @param turn.rounds - Model calls that asked for tools since the person's message.
    * @param now - The clock.
    */
-  synthesisDue(turn: { sources: number; rounds: number }, now: number = Date.now()): boolean {
+  synthesisDue(turn: { sources: number }, now: number = Date.now()): boolean {
     if (!this.due) {
-      this.due = turn.rounds >= this.envelope.synthesisRounds
-        || now - this.startedAt >= this.envelope.targetSeconds * 1000
+      this.due = now - this.startedAt >= this.envelope.targetSeconds * 1000
         || turn.sources >= this.envelope.evidenceBudget
         || this.reached(now) !== null;
     }
@@ -433,34 +430,15 @@ export function readsToolResults(messages: ReadonlyArray<{ _getType?: () => stri
  * Runs the calls that read tool results on `stepModel` — the agent's model with
  * thinking off — and leaves the opening call alone.
  * @param stepModel - The agent's model, built with thinking off.
+ * @param synthesisDue
  */
-/**
- * Model calls that asked for tools since the person's last message: the turn's
- * tool rounds so far, read off the messages' shape.
- * @param messages - The messages going to the model.
- */
-export function toolRounds(messages: ReadonlyArray<{ _getType?: () => string; getType?: () => string; type?: string; tool_calls?: unknown[] }>): number {
-  let rounds = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]!;
-    const type = typeof m.getType === 'function' ? m.getType() : typeof m._getType === 'function' ? m._getType() : m.type;
-    if (type === 'human') {
-      break;
-    }
-    if (type === 'ai' && (m.tool_calls?.length ?? 0) > 0) {
-      rounds += 1;
-    }
-  }
-  return rounds;
-}
-
-export function createLegworkThinkingMiddleware(stepModel: BaseChatModel, synthesisDue?: (rounds: number) => boolean) {
+export function createLegworkThinkingMiddleware(stepModel: BaseChatModel, synthesisDue?: () => boolean) {
   return createMiddleware({
     name: 'VocionLegworkThinking',
     wrapModelCall: async (request, handler) => {
       // The opening call plans; a call once the turn has gathered enough is
       // most likely the answer. Both keep the agent's thinking.
-      if (!readsToolResults(request.messages as never) || synthesisDue?.(toolRounds(request.messages as never))) {
+      if (!readsToolResults(request.messages as never) || synthesisDue?.()) {
         return handler(request);
       }
       return handler({ ...request, model: stepModel as never });
