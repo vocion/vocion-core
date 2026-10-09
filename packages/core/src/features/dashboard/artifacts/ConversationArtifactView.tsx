@@ -41,6 +41,7 @@ import { useComposerTags } from '@/features/dashboard/chat/tagSearch';
 import { mergeArtifactEvent } from '@/features/dashboard/chat/traceReducer';
 import { useChatCommands } from '@/features/dashboard/chat/useChatCommands';
 import { useChatSession } from '@/features/dashboard/chat/useChatSession';
+import { workBlock } from '@/features/dashboard/chat/work/RunningWork';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { ArtifactPane } from './ArtifactPane';
 import { artifactReducer, initialArtifactPaneState, openArtifact } from './artifactReducer';
@@ -276,7 +277,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                       // What the thread filed reads under its latest turn here
                       // too, not only in the dock (it never loaded on /chat/<id>).
                       conversationId={props.conversationId}
-                      blocks={[decisionBlock(session)]}
+                      blocks={[workBlock(session), decisionBlock(session)]}
                     />
                   )}
               {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}

@@ -5,6 +5,15 @@ import { AgentMessage } from './AgentMessage';
 // The phone-width test below is about CSS — the real stylesheet, not the component tree.
 import '@/styles/global.css';
 
+/**
+ * Level 1 → 2 → 3: the turn's line, then the failed step on it. The error
+ * itself is only ever behind both taps (founder, 2026-10-09).
+ */
+async function openFailedStep() {
+  await userEvent.click(page.getByTestId('work-group').getByRole('button').first());
+  await userEvent.click(page.getByTestId('work-steps').getByRole('button', { name: /failed/ }).first());
+}
+
 describe('AgentMessage inline citations', () => {
   it('renders [n] markers in the prose as tappable citations wired to the handler', async () => {
     const onCitationClick = vi.fn();
@@ -101,7 +110,7 @@ describe('AgentMessage speaker (founder, 2026-10-09: agent avatars in chat)', ()
   });
 });
 
-describe('a tool error is inspectable (2026-09-16)', () => {
+describe('a tool error is inspectable, one tap under the step that failed (2026-10-09)', () => {
   const TRACE = [
     {
       id: 'n1',
@@ -114,7 +123,7 @@ describe('a tool error is inspectable (2026-09-16)', () => {
     },
   ];
 
-  it('renders the badge as a button that opens the trace at the failed step, redacted', async () => {
+  it('the line says it failed in words; the step opens the error, redacted', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -130,13 +139,14 @@ describe('a tool error is inspectable (2026-09-16)', () => {
       />,
     );
 
-    const badge = page.getByTestId('tool-error-badge');
-
-    await expect.element(badge).toBeInTheDocument();
-    // Inert until asked: the failed step is behind the collapsed trace.
+    // No badge on the message: the line itself says what failed.
+    expect(page.getByTestId('tool-error-badge').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('work-group')).toHaveTextContent('Proposal Writer failed');
+    // Folded until asked: neither the steps nor the error are on screen.
+    expect(page.getByTestId('work-steps').elements()).toHaveLength(0);
     expect(page.getByTestId('failed-step').elements()).toHaveLength(0);
 
-    await userEvent.click(badge);
+    await openFailedStep();
 
     const step = page.getByTestId('failed-step');
 
@@ -163,7 +173,7 @@ describe('a tool error is inspectable (2026-09-16)', () => {
       />,
     );
 
-    await userEvent.click(page.getByTestId('tool-error-badge'));
+    await openFailedStep();
     await userEvent.click(page.getByTestId('copy-failure'));
 
     await vi.waitFor(() => expect(written).toHaveLength(1));
@@ -308,7 +318,7 @@ describe('one live line per turn (Chris, 2026-10-08: "Can we combine that into 1
     expect(screen.container.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 
-  it('opens a live group with a failed step by itself', async () => {
+  it('keeps a live group with a failed step folded; the error is two taps in', async () => {
     await render(
       <AgentMessage
         agentName="Revenue"
@@ -318,18 +328,28 @@ describe('one live line per turn (Chris, 2026-10-08: "Can we combine that into 1
       />,
     );
 
-    await expect.element(page.getByTestId('work-steps-live')).toBeInTheDocument();
+    await expect.element(page.getByTestId('streaming-indicator')).toBeInTheDocument();
+    expect(page.getByTestId('work-steps-live').elements()).toHaveLength(0);
+    expect(page.getByText('HubSpot 429').elements()).toHaveLength(0);
+
+    await userEvent.click(page.getByTestId('streaming-indicator').getByRole('button'));
+    const failedRow = page.getByTestId('work-steps-live').getByRole('button', { name: /failed/ });
+
+    await expect.element(failedRow).toBeInTheDocument();
+    // The step says it failed; it does not carry the error on its line.
+    expect(page.getByText('HubSpot 429').elements()).toHaveLength(0);
+
+    await userEvent.click(failedRow);
+
     await expect.element(page.getByTestId('failed-step')).toHaveTextContent('HubSpot 429');
     expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(1);
   });
 });
 
 describe('a tool failure says what failed', () => {
-  // The badge was a way IN to the trace, which is right — but it opened the
-  // trace at the failed step, and a failure arriving as a typed trace node has
-  // no row among the tool runs to open to. So a turn whose visible steps all
-  // succeeded showed a red "Tool error" that led nowhere.
-  it('names the tool and shows its message on click', async () => {
+  // Once a red badge over the message; now the step says it failed, in words,
+  // and the message is behind it (founder, 2026-10-09).
+  it('a legacy run names its failure on the step and shows the message when opened', async () => {
     await render(
       <AgentMessage
         agentName="RevOps Lead"
@@ -344,11 +364,13 @@ describe('a tool failure says what failed', () => {
       />,
     );
 
-    await expect.element(page.getByTestId('tool-error-badge')).toHaveTextContent('render_markdown failed');
+    expect(page.getByTestId('tool-error-badge').elements()).toHaveLength(0);
+    expect(page.getByText(/spec\.md must be a string/).elements()).toHaveLength(0);
 
-    await userEvent.click(page.getByTestId('tool-error-badge'));
+    await userEvent.click(page.getByRole('button', { name: /error/ }));
+    await userEvent.click(page.getByRole('button', { name: 'What went wrong' }));
 
-    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('spec.md must be a string');
+    await expect.element(page.getByText(/spec\.md must be a string/)).toBeInTheDocument();
   });
 
   it('finds a failure that arrived as a typed trace node, not a run', async () => {
@@ -365,9 +387,12 @@ describe('a tool failure says what failed', () => {
       />,
     );
 
-    await userEvent.click(page.getByTestId('tool-error-badge'));
+    await expect.element(page.getByTestId('work-group')).toHaveTextContent('update_artifact failed');
+    expect(page.getByText('artifact 91 not found').elements()).toHaveLength(0);
 
-    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('artifact 91 not found');
+    await openFailedStep();
+
+    await expect.element(page.getByTestId('failed-step')).toHaveTextContent('artifact 91 not found');
   });
 
   it('still says something useful when the failure carried no message', async () => {
@@ -382,9 +407,10 @@ describe('a tool failure says what failed', () => {
       />,
     );
 
-    await userEvent.click(page.getByTestId('tool-error-badge'));
+    await userEvent.click(page.getByRole('button', { name: /error/ }));
+    await userEvent.click(page.getByRole('button', { name: 'What went wrong' }));
 
-    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('failed without giving a reason');
+    await expect.element(page.getByText(/failed without giving a reason/)).toBeInTheDocument();
   });
 
   it('shows no badge when nothing failed', async () => {
@@ -526,7 +552,7 @@ describe('a <scratch> block in a stored text run folds to "Thinking"', () => {
     expect(page.getByTestId('scratch-fold').query()).toBeNull();
   });
 
-  it('a turn that failed outright names itself and opens its reason', async () => {
+  it('a turn that failed outright names itself; its reason is under the step', async () => {
     // What Chris met on a phone: an empty bubble with a red chip reading
     // "error failed" — the node's generic label glued to the word failed —
     // and the reason a tap away with no hover to hint that there was one.
@@ -552,9 +578,13 @@ describe('a <scratch> block in a stored text run folds to "Thinking"', () => {
       />,
     );
 
-    await expect.element(page.getByTestId('tool-error-badge')).toHaveTextContent('This turn failed');
-    // Open already: there is nothing else on screen to read.
-    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('no model credentials');
+    // Never "error failed", and never "→ This turn failed".
+    await expect.element(page.getByTestId('work-group')).toHaveTextContent('This turn failed');
+    expect((await page.getByTestId('work-group').element()).textContent).not.toMatch(/→|error failed/i);
+
+    await openFailedStep();
+
+    await expect.element(page.getByTestId('failed-step')).toHaveTextContent('no model credentials');
   });
 });
 

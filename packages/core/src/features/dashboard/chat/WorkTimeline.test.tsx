@@ -2,7 +2,7 @@ import type { TraceNode } from './types';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
-import { WorkTimeline } from './WorkTimeline';
+import { workSeconds, WorkTimeline } from './WorkTimeline';
 
 const actor = { id: 'revops-lead', kind: 'lead' as const, name: 'RevOps Lead' };
 
@@ -135,22 +135,31 @@ describe('WorkTimeline three-level transcript', () => {
     await expect.element(page.getByText('The angle rests on two sourced facts.')).toBeInTheDocument();
   });
 
-  it('a failure inside a specialist\'s steps opens the live group by itself', async () => {
+  it('a failure inside a specialist\'s steps stays folded until asked', async () => {
     const failed: TraceNode[] = [
       { ...TRACE[1]!, status: 'start' },
       { ...TRACE[2]!, status: 'error', resultDetail: 'precedents.md is locked' },
     ];
     await render(<WorkTimeline runs={[]} streaming trace={failed} activity={null} />);
 
-    await expect.element(page.getByTestId('work-steps-live')).toBeInTheDocument();
-    await expect.element(page.getByTestId('failed-step')).toHaveTextContent('precedents.md is locked');
+    await expect.element(page.getByTestId('streaming-indicator')).toBeInTheDocument();
+    expect(page.getByTestId('work-steps-live').elements()).toHaveLength(0);
+    expect(page.getByText('precedents.md is locked').elements()).toHaveLength(0);
   });
 
-  it('a tool error closes its row as an error with the message', async () => {
-    const errored: TraceNode[] = [{ ...TRACE[3]!, status: 'error', result: 'HubSpot 429' }];
+  it('a tool error closes its row as a failure in words; the message is one tap under it', async () => {
+    const errored: TraceNode[] = [{ ...TRACE[3]!, status: 'error', result: 'HubSpot 429', resultDetail: 'HubSpot 429' }];
     await render(<WorkTimeline runs={[]} streaming trace={errored} activity={null} />);
 
-    await expect.element(page.getByText('HubSpot 429')).toBeInTheDocument();
+    await userEvent.click(page.getByTestId('streaming-indicator').getByRole('button'));
+    const row = page.getByTestId('work-steps-live').getByRole('button', { name: /failed/ });
+
+    await expect.element(row).toBeInTheDocument();
+    expect(page.getByText('HubSpot 429').elements()).toHaveLength(0);
+
+    await userEvent.click(row);
+
+    await expect.element(page.getByTestId('failed-step')).toHaveTextContent('HubSpot 429');
   });
 });
 
@@ -237,5 +246,53 @@ describe('a team answer (founder, 2026-10-09: agent avatars in chat)', () => {
     await userEvent.click(page.getByTestId('work-group').getByRole('button').first());
 
     expect(document.querySelectorAll('[data-testid="work-steps"] [data-slot="agent-dot"]').length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('the finished line says how long the work took (2026-10-09)', () => {
+  const at = Date.parse('2026-10-09T10:00:00.000Z');
+  const timed: TraceNode[] = [
+    { id: 'a', actor, kind: 'search', status: 'done', label: 'Checked 3 workspaces', startedAt: at, endedAt: at + 12_000 },
+    { id: 'b', actor, kind: 'draft', status: 'done', label: 'Drafted 2 replies', startedAt: at + 13_000, endedAt: at + 41_000 },
+  ];
+
+  it('measures from the first step\'s start to the last step\'s landing', () => {
+    expect(workSeconds(timed)).toBe(41);
+    expect(workSeconds([{ id: 'x', actor, kind: 'tool', status: 'done', label: 'Old step' }])).toBeNull();
+  });
+
+  it('puts the duration on the one-line summary, and only the summary', async () => {
+    await render(<WorkTimeline runs={[]} streaming={false} trace={timed} />);
+
+    await expect.element(page.getByTestId('work-took')).toHaveTextContent('41s');
+    // Level 1 only by default: no steps until the line is tapped.
+    expect(page.getByTestId('work-steps').elements()).toHaveLength(0);
+  });
+
+  it('says nothing about time on a turn from before steps were stamped', async () => {
+    await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
+
+    await expect.element(page.getByTestId('work-group')).toBeInTheDocument();
+    expect(page.getByTestId('work-took').elements()).toHaveLength(0);
+  });
+});
+
+describe('a consult is its own folded line (2026-10-09)', () => {
+  const consult: TraceNode[] = [
+    { id: 'd1', actor, kind: 'delegate', status: 'start', label: 'Asking the Kestrel workspace', tool: 'ask_workspace' },
+    { id: 'd1a', parentId: 'd1', actor: { id: 'kestrel', kind: 'specialist', name: 'Kestrel Lead' }, kind: 'search', status: 'done', label: 'Searched the renewal notes' },
+  ];
+
+  it('shows the consult as one line while live; its steps are a tap under it', async () => {
+    await render(<WorkTimeline runs={[]} streaming trace={consult} activity={null} />);
+    await userEvent.click(page.getByTestId('streaming-indicator').getByRole('button'));
+    const list = page.getByTestId('work-steps-live');
+
+    await expect.element(list.getByText('Asking the Kestrel workspace')).toBeInTheDocument();
+    expect(list.getByText('Searched the renewal notes').elements()).toHaveLength(0);
+
+    await userEvent.click(list.getByRole('button', { name: /Asking the Kestrel workspace/ }));
+
+    await expect.element(list.getByText('Searched the renewal notes')).toBeInTheDocument();
   });
 });

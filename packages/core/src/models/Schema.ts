@@ -1953,6 +1953,9 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     labels?: { running: string; done: string };
     confidence?: number;
     citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
+    /** Epoch ms the step started and landed: the folded line's "· 41s". */
+    startedAt?: number;
+    endedAt?: number;
   }>>(),
   /**
    * Per-message Langfuse trace id for the assistant turn that

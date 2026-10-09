@@ -26,6 +26,39 @@ never hide truth*).
   sources") that opens into the curated trace: reasoning, meaningful tool
   steps (plumbing hidden), delegations, citations.
 
+- §2.3 — **Three levels, and what is running** (2026-10-09, after Claude
+  Code's "1 background task stopped, 1 running ›": *"it hides complexity so
+  well, while allowing click to explorability"*). Default density is level 1
+  only.
+  1. **The line.** While a turn works, one line: a plain sentence and the
+     clock, updated in place (`LiveLine`). When it lands, one summary line
+     with how long the work took — "Checked 3 workspaces, consulted Kestrel
+     and drafted 2 replies · 1 failed · 41s". Every step is stamped
+     `startedAt` / `endedAt` by `TraceEmitter.handle`, and the stamps persist
+     in `trace_json`, so the duration survives a reload (`workSeconds`).
+  2. **Steps.** Tapping the line lists the steps, each a sentence a reader
+     says, never a tool name. A failed step says it failed, in words, and
+     carries no error text on its line. A consult (`ask_workspace`, a routed
+     specialist) is its own folded line with the agent's avatar; its steps
+     are a tap under it, live too.
+  3. **Raw detail.** Tapping a step shows its inputs, its output and — only
+     here — its error, with Copy details (`FailureDetail`). There is no error
+     badge on the message any more: a turn that failed outright reads "This
+     turn failed" on its line, and the reason is two taps in.
+
+  **"N running ›".** A chip in the thread, above the active Decision, counts
+  the long and background work behind the conversation ("1 finished, 1
+  running"). It opens a side panel on a desktop and a sheet on a phone: what
+  runs now, with Stop where the run has one (a mission run, a worker run),
+  then a folded "Finished N", each linking to its run. It reads the run
+  records the platform already keeps — `mission_run`, `workflow_run`,
+  `automation_run` (not dry runs), `worker_run` — scoped to the workspace,
+  running now or finished since the conversation began
+  (`services/work/WorkService.ts`, `work.forConversation` / `work.stop`); no
+  table of its own. A source sync is not listed: no row records one in
+  progress. Polled every 10 s while anything runs, and again when a turn
+  lands.
+
 - §2.2 — **Asking another workspace** (2026-10-07). A person's own assistant
   (their personal workspace's lead, `templates/personal/agents/assistant.yaml`)
   reaches the shared workspaces they can act in with `ask_workspace`. The ask
@@ -555,6 +588,7 @@ might read.
 | Stream reducer, session state | `features/dashboard/chat/useChatSession.ts`, `traceReducer.ts` |
 | Composer, queue + interrupt (§12) | `features/dashboard/chat/ChatComposer.tsx`, `queueReducer.ts`, `useSendQueue.ts`, `composerQueue.ts` |
 | Live / folded trace | `features/dashboard/chat/WorkTimeline.tsx` |
+| "N running ›" chip and panel (§2.3) | `features/dashboard/chat/work/RunningWork.tsx`, `services/work/WorkService.ts`, `routers/Work.ts` |
 | Link chips | `features/dashboard/chat/links.ts`, `AgentMessage.tsx` |
 | Feedback | `MessageFeedback.tsx`, `services/ConversationService.ts#setMessageFeedback`, adoption event `chat.feedback` |
 | History + search | `HistoryPopover.tsx`, `services/ConversationService.ts#searchConversations` |

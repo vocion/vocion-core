@@ -38,6 +38,7 @@ import { useAnswerOnConnectReturn } from './useAnswerOnConnectReturn';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 import { usePersonFirstName, WaitingNudge } from './WaitingNudge';
+import { workBlock } from './work/RunningWork';
 
 /**
  * ChatShell — the full-page chat surface.
@@ -467,7 +468,7 @@ function ChatShellInner({
               : (
                   <MessageList
                     // The Decision this thread waits on, as its latest item.
-                    blocks={[decisionBlock(session)]}
+                    blocks={[workBlock(session), decisionBlock(session)]}
                     messages={session.messages}
                     agentName={session.workspaceName}
                     // The workspace speaks through its lead; a specialist's turn is attributed.

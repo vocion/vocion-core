@@ -49,12 +49,16 @@ export function stepHeadline(steps: HeadlineStep[], sources = 0): string {
     // One phrase for the whole artifact pass, named by its last step.
     phrases.push(lower(wrote[wrote.length - 1]!.label));
   }
+  const onlyFailed = phrases.length === 0 && actions.every(s => s.status === 'error' || s.kind === 'search' || (s.tool && ARTIFACT_TOOLS.has(s.tool)));
   for (const s of actions) {
-    if (s.kind === 'search' || (s.tool && ARTIFACT_TOOLS.has(s.tool))) {
+    // A failed step is counted ("· 1 failed"), not composed into the line —
+    // "posted the summary — failed" mid-sentence read as a thing done —
+    // unless failing is all the group did.
+    if (s.kind === 'search' || (s.tool && ARTIFACT_TOOLS.has(s.tool)) || (s.status === 'error' && !onlyFailed)) {
       continue;
     }
     const phrase = s.kind === 'delegate'
-      ? `consulted ${s.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to /, '').replace(/ finished$/, '')}`
+      ? `consulted ${s.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to /, '').replace(/ (?:finished|answered)$/, '')}`
       : lower(s.label);
     if (!phrases.includes(phrase)) {
       phrases.push(phrase);

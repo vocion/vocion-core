@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { AgentDot, AgentDots } from '@/components/ui/agent-dot';
-import { failureOneLiner, failureReport } from '@/libs/chat/redact';
+import { failureHeadline, failureOneLiner, failureReport } from '@/libs/chat/redact';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
 import { fallbackStepLabels } from '@/libs/chat/stepLabels';
 import { useChatAgents } from './ChatAgents';
@@ -69,13 +69,6 @@ export type WorkTimelineProps = {
    * of the flat `runs`/`thinkingText` fallback.
    */
   trace?: TraceNode[];
-  /**
-   * A counter the "Tool error" badge bumps. Each bump opens the trace and
-   * expands the failed step(s) — the badge is the way IN to the failure, not
-   * a decoration over it (CEO, 2026-09-16: *"how do I get details on this
-   * tool error, to share with you?"*).
-   */
-  inspect?: number;
   /** Who this turn was, so a failed step can be copied as a report. */
   failureContext?: FailureReport;
   /**
@@ -193,10 +186,14 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   const input = run.input ?? {};
   const state = run.state ?? 'done';
   if (run.name === 'error') {
-    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: failureOneLiner(String(run.output ?? '')), state: 'error' };
+    return { icon: CircleAlert, kind: 'generic', label: 'Error', drillLabel: 'What went wrong', drill: failureOneLiner(String(run.output ?? '')), state: 'error' };
   }
   const { icon, kind } = kindFor(run.name);
   const { label, detail } = describeToolCall(run.name, input);
+  // A failed step says so on its line; what went wrong is one tap under it.
+  if (state === 'error') {
+    return { icon, kind, label, detail, drillLabel: 'What went wrong', drill: failureOneLiner(String(run.output ?? '')), state };
+  }
   if (run.name === 'lookup_objects' && state === 'done') {
     const s = summarizeRecords(run.output);
     if (s) {
@@ -386,8 +383,10 @@ function CallDetail({ node }: { node: TraceNode }) {
  * @param root0.open - Whether the call detail is showing.
  * @param root0.onToggle - Show or hide the call detail.
  * @param root0.failureContext - Stamped into a failed step's Copy details.
+ * @param root0.icon - Replaces the kind marker (a consult's agent avatar).
+ * @param root0.folds - The row folds steps under it (a consult), so it opens even with no detail of its own.
  */
-function TraceRow({ node, nested, open, onToggle, failureContext }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void; failureContext?: FailureReport }) {
+function TraceRow({ node, nested, open, onToggle, failureContext, icon, folds }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void; failureContext?: FailureReport; icon?: React.ReactNode; folds?: boolean }) {
   const isReason = node.kind === 'reason';
   const drillText = isReason ? node.text?.trim() : undefined;
   // A tool·search·skill node drills into its call detail (tool / input / result).
@@ -397,42 +396,71 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
     typeof node.confidence === 'number' ? `${Math.round(node.confidence * 100)}%` : null,
     node.actor.kind === 'specialist' && !nested ? node.actor.name : null,
   ].filter(Boolean).join(' · ');
-  const label = node.kind === 'delegate' ? `→ ${liveStepLabel(node)}` : liveStepLabel(node);
+  const said = node.status === 'error' ? failureHeadline(node.label) : liveStepLabel(node);
+  const label = node.kind === 'delegate' ? `→ ${said}` : said;
   return (
     <ClaimLine
       id={node.id}
       nested={nested}
-      icon={<TraceMarker node={node} />}
+      icon={icon ?? <TraceMarker node={node} />}
       label={label}
-      detail={[node.detail, suffix].filter(Boolean).join(' · ') || undefined}
-      radius={node.status === 'error' ? failureOneLiner(node.result ?? node.resultDetail) : (node.result ?? (node.resultDetail && node.resultDetail.length <= 60 ? node.resultDetail : undefined))}
+      detail={[lineDetail(node), suffix].filter(Boolean).join(' · ') || undefined}
+      // A failed step says so in words, on its line; the error itself — the
+      // message, the call, Copy details — is one tap deeper, in its detail
+      // (founder, 2026-10-09, after Claude Code: "hides complexity so well,
+      // while allowing click to explorability").
+      radius={node.status === 'error' ? undefined : (node.result ?? (node.resultDetail && node.resultDetail.length <= 60 ? node.resultDetail : undefined))}
       error={node.status === 'error'}
       open={open}
-      onToggle={drillText || hasCallDetail ? onToggle : undefined}
-      // A failure is never folded away: the message (redacted) and the way to
-      // hand it to someone else sit right on the step. Citations under a
-      // search stay visible too — they are what the step found.
-      after={node.status === 'error' || hasCitations
-        ? (
-            <>
-              {node.status === 'error' && <FailureDetail node={node} context={failureContext} />}
-              {hasCitations && <TraceCitations node={node} />}
-            </>
-          )
-        : undefined}
+      onToggle={drillText || hasCallDetail || folds || node.status === 'error' ? onToggle : undefined}
+      // Citations under a search stay visible: they are what the step found.
+      after={hasCitations ? <TraceCitations node={node} /> : undefined}
     >
       {drillText
         ? <span className="block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
-        : hasCallDetail ? <CallDetail node={node} /> : null}
+        : (
+            <>
+              {hasCallDetail && <CallDetail node={node} />}
+              {node.status === 'error' && <FailureDetail node={node} context={failureContext} />}
+            </>
+          )}
     </ClaimLine>
   );
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, inspect = 0, failureContext, elapsed }: WorkTimelineProps) {
-  if (trace && trace.length > 0) {
-    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} inspect={inspect} failureContext={failureContext} elapsed={elapsed} />;
+/**
+ * What a step's line carries beside its claim. A failed step's message is
+ * level-3 detail: when a failure carried its message as `detail` (older
+ * shapes and a turn that failed outright do), the line drops it and the
+ * step's opened detail shows it instead.
+ * @param node - The step.
+ */
+function lineDetail(node: TraceNode): string | undefined {
+  if (node.status === 'error' && !node.result && !node.resultDetail) {
+    return undefined;
   }
-  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} inspect={inspect} elapsed={elapsed} />;
+  return node.detail;
+}
+
+/**
+ * How long a group's work took, in whole seconds: from its first step's start
+ * to its last step's landing. Null when the steps carry no stamps.
+ * @param trace - The group's steps.
+ */
+export function workSeconds(trace: readonly TraceNode[]): number | null {
+  const starts = trace.map(n => n.startedAt).filter((t): t is number => typeof t === 'number');
+  const ends = trace.map(n => n.endedAt).filter((t): t is number => typeof t === 'number');
+  if (starts.length === 0 || ends.length === 0) {
+    return null;
+  }
+  return Math.max(0, Math.round((Math.max(...ends) - Math.min(...starts)) / 1000));
+}
+
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, failureContext, elapsed }: WorkTimelineProps) {
+  if (trace && trace.length > 0) {
+    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} failureContext={failureContext} elapsed={elapsed} />;
+  }
+  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} elapsed={elapsed} />;
 }
 
 /**
@@ -467,7 +495,7 @@ function delegateWho(node: TraceNode, kids: readonly TraceNode[]): { slug?: stri
   return { name: node.label.replace(/^→\s*/, '').replace(/^Delegated to |^Handing off to |^Asked /, '').replace(/ finished$/, '').trim() };
 }
 
-function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext, elapsed: turnElapsed }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport; elapsed?: number }) {
+function TraceTimeline({ trace, streaming, activity, documents = [], failureContext, elapsed: turnElapsed }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; failureContext?: FailureReport; elapsed?: number }) {
   // Level-1 lines expand independently; one control recollapses everything
   // (agent-chat-surface.md §2.1 rule 1).
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
@@ -498,23 +526,6 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
       setThinkingSeconds(elapsed);
     }
   }, [stillThinking, elapsed]);
-  // The badge asked to see the failure: open the trace and every failed step,
-  // including a failure that happened inside a delegate.
-  const failedIds = trace.filter(n => n.status === 'error').map(n => n.id);
-  const failedKey = failedIds.join('|');
-  useEffect(() => {
-    if (inspect <= 0) {
-      return;
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
-    setExpanded(true);
-    const ids = failedKey ? failedKey.split('|') : [];
-    const withParents = ids.flatMap(id => [id, trace.find(n => n.id === id)?.parentId ?? id]);
-    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
-    setOpenIds(new Set(withParents));
-    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
-    setOpenDrill(ids[0] ?? null);
-  }, [inspect, failedKey]);
 
   const thoughtLabel = thinkingSeconds >= 2 ? `Thought for ${thinkingSeconds}s` : 'Thought it through';
 
@@ -551,27 +562,50 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
     // twice). The step that is running says what it is on, and — when the
     // call reports — where it has got to: `Building the document… sheet 7 of 12`.
     const text = activity ?? (live ? liveStepLabel(live) : null) ?? 'Thinking…';
-    // A failure is never folded away: a group with a failed step — its own or
-    // a specialist's under it — opens itself.
-    const liveOpen = expanded || trace.some(n => n.status === 'error');
+    // Folded until asked, failures included: the line names what is
+    // happening; the steps, and any error, are a tap away.
+    const liveOpen = expanded;
     const canOpen = actions.length > 0 || reasons.some(r => r.text?.trim());
     return (
       <div className="my-1.5" data-testid="work-timeline-live">
         <LiveLine text={text} steps={steps} elapsed={turnElapsed ?? elapsed} expanded={liveOpen} onToggle={canOpen ? () => setExpanded(v => !v) : undefined} />
-        {liveOpen && canOpen && <StepList reasons={reasons} actions={actions} childrenOf={childrenOf} thoughtLabel={thoughtLabel} openIds={openIds} toggle={toggle} failureContext={failureContext} testId="work-steps-live" />}
+        {liveOpen && canOpen && (
+          <StepList
+            reasons={reasons}
+            actions={actions}
+            childrenOf={childrenOf}
+            thoughtLabel={thoughtLabel}
+            openIds={openIds}
+            toggle={toggle}
+            failureContext={failureContext}
+            testId="work-steps-live"
+            avatarOf={(n) => {
+              const who = delegateOf(n);
+              return who ? <AgentDot name={who.name} accent={who.accent} size="xs" decorative /> : null;
+            }}
+          />
+        )}
       </div>
     );
   }
 
+  // How long the work took, from the steps' own stamps (absent on turns from
+  // before they were stamped, and then simply not said).
+  const measured = workSeconds(trace);
+  // Under a second is not worth a number on the line.
+  const took = measured !== null && measured >= 1 ? measured : null;
   const summary = [
     `${steps} step${steps === 1 ? '' : 's'}`,
     sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
+    took !== null ? formatElapsed(took) : null,
   ].filter(Boolean).join(' · ');
   // The line says what the work WAS, from the steps' own finished labels.
   // A group of one step is that step — "Searched HubSpot · 12 records" says
   // more than any composition of it.
   const solo = actions.length === 1 && reasons.length === 0 && sources === 0 ? actions[0]! : null;
-  const soloRadius = solo ? (solo.result ?? (solo.resultDetail && solo.resultDetail.length <= 60 ? solo.resultDetail : undefined)) : undefined;
+  // A failed step's message is level-3 detail: the line only says it failed.
+  const soloRadius = solo && solo.status !== 'error' ? (solo.result ?? (solo.resultDetail && solo.resultDetail.length <= 60 ? solo.resultDetail : undefined)) : undefined;
+  const soloSaid = solo ? (solo.status === 'error' ? failureHeadline(solo.label) : solo.label) : null;
   const headline = solo ? null : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool })), sources);
   const failed = actions.some(n => n.status === 'error');
   // A team answer: the teammates asked in this group, each once.
@@ -583,7 +617,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
         type="button"
         onClick={() => setExpanded(v => !v)}
         aria-expanded={expanded}
-        aria-label={`${solo ? solo.label : headline} · ${summary}`}
+        aria-label={`${solo ? soloSaid : headline} · ${summary}`}
         title={summary}
         className={`group/work flex w-full items-center gap-2 py-1 text-left text-xs transition hover:text-foreground ${failed ? 'text-muted-foreground' : 'text-muted-foreground/75'}`}
       >
@@ -596,13 +630,14 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
           {solo
             ? (
                 <>
-                  <span className={solo.status === 'error' ? 'text-[var(--brand-fail)]' : undefined}>{solo.kind === 'delegate' ? `→ ${solo.label}` : solo.label}</span>
-                  {solo.detail && <span className="text-muted-foreground/60">{` · ${solo.detail}`}</span>}
+                  <span className={solo.status === 'error' ? 'text-[var(--brand-fail)]' : undefined}>{solo.kind === 'delegate' && solo.status !== 'error' ? `→ ${soloSaid}` : soloSaid}</span>
+                  {lineDetail(solo) && <span className="text-muted-foreground/60">{` · ${lineDetail(solo)}`}</span>}
                 </>
               )
             : headline}
         </span>
         {solo && soloRadius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">{soloRadius}</span>}
+        {took !== null && <span className="shrink-0 text-muted-foreground/60 tabular-nums" data-testid="work-took">{formatElapsed(took)}</span>}
         <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground/50 transition group-hover/work:text-muted-foreground ${expanded ? 'rotate-90' : ''}`} aria-hidden />
       </button>
       {expanded && (
@@ -637,9 +672,9 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
                   key={n.id}
                   id={n.id}
                   icon={delegateOf(n) ? <AgentDot name={delegateOf(n)!.name} accent={delegateOf(n)!.accent} size="xs" decorative /> : <TraceMarker node={n} />}
-                  label={n.kind === 'delegate' ? `→ ${n.label}` : n.label}
-                  detail={n.detail}
-                  radius={n.status === 'error' ? failureOneLiner(n.result ?? n.resultDetail) : (n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined))}
+                  label={`${n.kind === 'delegate' ? '→ ' : ''}${n.status === 'error' ? failureHeadline(n.label) : n.label}`}
+                  detail={lineDetail(n)}
+                  radius={n.status === 'error' ? undefined : (n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined))}
                   error={n.status === 'error'}
                   open={openIds.has(n.id)}
                   onToggle={() => toggle(n.id)}
@@ -752,8 +787,10 @@ export function LiveLine({ text, steps = 0, elapsed, expanded = false, onToggle,
  * @param root0.toggle - Open or close a row.
  * @param root0.failureContext - Stamped into a failed step's Copy details.
  * @param root0.testId - The list's test id.
+ * @param root0.avatarOf - A consult's agent avatar, for its folded line.
  */
-function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle, failureContext, testId }: {
+function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle, failureContext, testId, avatarOf }: {
+  avatarOf?: (n: TraceNode) => React.ReactNode;
   reasons: TraceNode[];
   actions: TraceNode[];
   childrenOf: (id: string) => TraceNode[];
@@ -777,16 +814,22 @@ function StepList({ reasons, actions, childrenOf, thoughtLabel, openIds, toggle,
           <div className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{reasonText}</div>
         </ClaimLine>
       )}
-      {actions.map(n => (
-        <li key={n.id} className="min-w-0">
-          <ol>
-            <TraceRow node={n} open={openIds.has(n.id)} onToggle={() => toggle(n.id)} failureContext={failureContext} />
-            {childrenOf(n.id).map(k => (
-              <TraceRow key={k.id} node={k} nested open={openIds.has(k.id)} onToggle={() => toggle(k.id)} failureContext={failureContext} />
-            ))}
-          </ol>
-        </li>
-      ))}
+      {actions.map((n) => {
+        // A consult (a teammate asked, a workspace asked) is its own folded
+        // line with the agent's avatar; its steps are a tap under it.
+        const kids = childrenOf(n.id);
+        const open = openIds.has(n.id);
+        return (
+          <li key={n.id} className="min-w-0">
+            <ol>
+              <TraceRow node={n} open={open} onToggle={() => toggle(n.id)} failureContext={failureContext} icon={avatarOf?.(n) ?? undefined} folds={kids.length > 0} />
+              {open && kids.map(k => (
+                <TraceRow key={k.id} node={k} nested open={openIds.has(`drill:${k.id}`)} onToggle={() => toggle(`drill:${k.id}`)} failureContext={failureContext} />
+              ))}
+            </ol>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -853,17 +896,11 @@ function ClaimLine({ id, icon, label, detail, radius, error, nested, open, onTog
   );
 }
 
-function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], inspect = 0, elapsed: turnElapsed }: Omit<WorkTimelineProps, 'trace'>) {
+function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], elapsed: turnElapsed }: Omit<WorkTimelineProps, 'trace'>) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState<number | null>(null);
   const ownElapsed = useElapsed(streaming);
-  useEffect(() => {
-    if (inspect > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
-      setOpen(true);
-    }
-  }, [inspect]);
 
   // Curate: hide plumbing from the trace and the counts.
   const visible = runs.filter(r => !PLUMBING.has(r.name));
@@ -954,7 +991,7 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
                 <li key={i} className="relative py-2 pl-7">
                   <span className="absolute top-2.5 left-0"><Marker node={n} /></span>
                   <div className="text-[13px] leading-snug">
-                    <span className={`font-semibold ${n.state === 'error' ? 'text-[var(--brand-fail)]' : n.kind === 'delegation' ? 'text-brand-amber-deep' : 'text-foreground/90'}`}>{n.label}</span>
+                    <span className={`font-semibold ${n.state === 'error' ? 'text-[var(--brand-fail)]' : n.kind === 'delegation' ? 'text-brand-amber-deep' : 'text-foreground/90'}`}>{n.state === 'error' ? failureHeadline(n.label) : n.label}</span>
                     {n.detail && <span className="ml-1.5 text-muted-foreground">{n.detail}</span>}
                   </div>
                   {n.drill && (

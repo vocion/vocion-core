@@ -85,6 +85,9 @@ export type TraceCitation = {
  */
 export type TraceNode = {
   id: string;
+  /** When the step started and landed (ms since epoch): the folded line says how long the work took. */
+  startedAt?: number;
+  endedAt?: number;
   parentId?: string;
   actor: { id: string; kind: 'lead' | 'specialist'; name: string };
   kind: 'reason' | 'tool' | 'skill' | 'search' | 'delegate' | 'draft';
