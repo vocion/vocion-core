@@ -104,11 +104,14 @@ jobs:
         run: |
           docker network create vocion-e2e
           docker run -d --name vocion-postgres --network vocion-e2e \
-            -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=vocion pgvector/pgvector:pg16
+            -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=vocion public.ecr.aws/docker/library/postgres:16
           for _ in $(seq 1 60); do
             docker exec vocion-postgres pg_isready -U postgres -d vocion >/dev/null 2>&1 && break
             sleep 1
           done
+          # AWS's mirror of the official image, not Docker Hub's rate-limited
+          # pgvector one; a migration needs the `vector` extension.
+          docker exec vocion-postgres sh -c 'apt-get update -qq && apt-get install -y -qq postgresql-16-pgvector >/dev/null'
           REPO_DIR="${GITHUB_WORKSPACE}" POSTGRES_CONTAINER=vocion-postgres POSTGRES_DB=vocion POSTGRES_USER=postgres \
             bash infra/aws/apply-migrations.sh | tail -3
           docker run -d --name vocion-app --network vocion-e2e -p 3008:3000 \
