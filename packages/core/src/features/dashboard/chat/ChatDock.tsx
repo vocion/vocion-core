@@ -836,7 +836,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           {...queueProps}
           {...tagProps}
           onStop={session.handleStop}
-          placeholder={session.composerPlaceholder ?? askPlaceholder}
+          placeholder={session.messages.length === 0 && session.openDecisions.length === 0 ? askPlaceholder : (session.composerPlaceholder ?? askPlaceholder)}
           commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
           // A highlighted passage is something to send on its own.
           armed={(comments?.open.length ?? 0) > 0 || Boolean(effectiveContext?.selection?.text)}

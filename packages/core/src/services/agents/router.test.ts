@@ -95,7 +95,7 @@ describe('chooseAgent', () => {
     const d = chooseAgent({ agents: [a, b], message: 'wiki', leadSlug: 'b-agent', surface: 'chat' })!;
 
     expect(d.chosen).toBe('b-agent');
-    expect(d.reason).toMatch(/is the workspace lead/);
+    expect(d.reason).toMatch(/is the lead/);
   });
 
   it('defaults to the lead when nothing clears the bar, with the reason', () => {
@@ -103,7 +103,7 @@ describe('chooseAgent', () => {
 
     expect(d.chosen).toBe('revenue-lead');
     expect(d.defaulted).toBe(true);
-    expect(d.reason).toMatch(/workspace lead answers/);
+    expect(d.reason).toMatch(/the lead answers/);
     expect(d.candidates.every(c => c.score < MIN_ROUTE_SCORE)).toBe(true);
   });
 

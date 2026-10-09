@@ -53,7 +53,7 @@ const { ChatComposer } = await import('./ChatComposer');
 const PHONE = { width: 390, height: 844 };
 
 const AGENTS = [
-  { slug: 'lead', name: 'Workspace lead', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
+  { slug: 'lead', name: 'Revenue lead', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
   { slug: 'analyst', name: 'Pipeline Analyst', icon: 'bot' as const, placeholder: 'Ask…', role: 'specialist' as const },
 ];
 
