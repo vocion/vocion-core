@@ -30,7 +30,6 @@ import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { useWorkspaceDirectory } from '@/features/dashboard/nav/useWorkspaceDirectory';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { OPEN_MANAGE_VIEW, readNavApp, readNavView, writeNavApp, writeNavView } from '@/features/dashboard/useNavView';
-import { NavSlot } from '@/features/extensions/NavSlot';
 import { appOwningPath, resolveActiveApp, workspaceSwitchPath } from '@/features/navigation/apps';
 import { DASHBOARD_ROUTES, DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { PLUGIN_NAV_WORKSPACE } from '@/features/navigation/pluginNav';
@@ -242,20 +241,18 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     ...Object.entries(directory?.workspacesByApp ?? {}).filter(([, ws]) => ws.some(w => w.projectId === projectId)).map(([id]) => id),
   ];
   const switchTarget: WorkspaceSwitcherTargetPath = (p, from) => workspaceSwitchPath({ pathname: from, activeApp: activeAppId, hereApps: apps.map(a => a.id), targetApps: appsOfProject(p.id), appEntry: activeApp?.entry, coreEntry: coreAppNav?.href ?? from });
-  // Whatever an extension puts above the workspace switcher (nothing without
-  // one) gets the same directory and the same landing page.
+  // ONE control for where you are: the Org and the workspace together. An
+  // extension's Org switcher draws inside it (`nav.workspacePicker.org`),
+  // never as a second row above it.
   const picker = (
-    <>
-      <NavSlot name="nav.aboveWorkspaceSwitcher" directory={directory} targetPath={switchTarget} collapsed={collapsed} />
-      <WorkspaceSwitcherLive
-        directory={directory}
-        only={pickerOnly}
-        onManage={() => pick('manage')}
-        placeholder={pickerForAll ? undefined : t('pick_workspace')}
-        tint={view === 'manage' ? coreAppNav?.tint : activeApp?.tint}
-        targetPath={switchTarget}
-      />
-    </>
+    <WorkspaceSwitcherLive
+      directory={directory}
+      only={pickerOnly}
+      onManage={() => pick('manage')}
+      placeholder={pickerForAll ? undefined : t('pick_workspace')}
+      tint={view === 'manage' ? coreAppNav?.tint : activeApp?.tint}
+      targetPath={switchTarget}
+    />
   );
 
   // Sidebar labels come from the registry's i18n keys (typed against en.json);

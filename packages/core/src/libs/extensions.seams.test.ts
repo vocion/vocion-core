@@ -48,7 +48,6 @@ describe('extensions a package provides', () => {
 
   it('lifts the single-Org rule when any extension says so, ignoring one whose hook throws', () => {
     expect(lib.extensionAllowsMultiOrg()).toBe(true);
-    expect(lib.extensionScopesSwitcherToOrg()).toBe(true);
   });
 
   it('white-labels when an extension says so, ignoring one whose hook throws', () => {
