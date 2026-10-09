@@ -13,54 +13,47 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 /**
- * ONE control says where you are (founder, 2026-10-08: "Double switcher").
- * On a multi-Org deployment it reads "Org › Workspace", so two "Support"
- * workspaces in two Orgs never read the same (vocion-core#128), and just the
- * workspace when it shares its Org's name. A single-Org install (the default)
- * never names an Org.
+ * ONE control says where you are (founder, 2026-10-08: "Double switcher"), and
+ * on a multi-Org deployment it is two levels, iOS style (2026-10-09: "pick
+ * org, then pick workspace on next? For orgs with 1 workspace, I should just
+ * be able to click on the top level entry"). The chip names the workspace
+ * alone, never "S.. › Squatch"; the Org is said inside the picker.
  */
 
 const ACCOUNTS: SwitcherAccount[] = [
   { id: 'acct-metacto', name: 'Metacto', slug: 'metacto' },
   { id: 'acct-contoso', name: 'Contoso', slug: 'contoso' },
 ];
+const PERSONAL: SwitcherProject = { id: 'p-personal', slug: 'personal-1a2b', name: 'Personal', agentCount: 1, accountId: 'acct-metacto', kind: 'personal' };
 const PROJECTS: SwitcherProject[] = [
   { id: 'p-metacto-support', slug: 'support', name: 'Support', agentCount: 2, accountId: 'acct-metacto' },
   { id: 'p-contoso-support', slug: 'support', name: 'Support', agentCount: 2, accountId: 'acct-contoso' },
 ];
+const CONTOSO_OPS: SwitcherProject = { id: 'p-contoso-ops', slug: 'ops', name: 'Ops', agentCount: 1, accountId: 'acct-contoso' };
 
 /**
  * The collapsed switcher on Contoso's "Support".
- * @param accounts - The accounts the person is in.
- * @param orgsMode
+ * @param orgsMode - The deployment's Org mode.
  */
-function renderCollapsed(accounts: SwitcherAccount[], orgsMode: 'single' | 'multi' = 'multi') {
+function renderCollapsed(orgsMode: 'single' | 'multi' = 'multi') {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider defaultOpen={false}>
-        <WorkspaceSwitcher
-          account={{ id: 'acct-contoso', name: 'Contoso' }}
-          accounts={accounts}
-          projects={PROJECTS}
-          activeId="p-contoso-support"
-          collapsed
-          orgsMode={orgsMode}
-          navigate={() => {}}
-        />
+        <WorkspaceSwitcher account={{ id: 'acct-contoso', name: 'Contoso' }} accounts={ACCOUNTS} projects={PROJECTS} activeId="p-contoso-support" collapsed orgsMode={orgsMode} navigate={() => {}} />
       </SidebarProvider>
     </NextIntlClientProvider>,
   );
 }
 
-describe('WorkspaceSwitcher, collapsed', () => {
-  it('names the Org before the workspace on a multi-Org deployment', async () => {
-    await renderCollapsed(ACCOUNTS);
+describe('WorkspaceSwitcher, the chip', () => {
+  it('names the workspace alone, on a multi-Org deployment too', async () => {
+    await renderCollapsed('multi');
 
-    await expect.element(page.getByRole('button', { name: 'Contoso › Support' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Support', exact: true })).toBeInTheDocument();
   });
 
   it('never names an Org on a single-Org install', async () => {
-    await renderCollapsed(ACCOUNTS, 'single');
+    await renderCollapsed('single');
 
     await expect.element(page.getByRole('button', { name: 'Support', exact: true })).toBeInTheDocument();
   });
@@ -71,9 +64,9 @@ describe('WorkspaceSwitcher, collapsed', () => {
  * @param accounts - The accounts the person is in.
  * @param projects - The workspaces it lists.
  * @param orgsMode - The deployment's Org mode.
- * @param extra - More props (an extension's Org header).
+ * @param navigate - Where a switch goes.
  */
-function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], orgsMode: 'single' | 'multi' = 'multi', extra: Partial<React.ComponentProps<typeof WorkspaceSwitcher>> = {}) {
+function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], orgsMode: 'single' | 'multi' = 'multi', navigate: (href: string) => void = () => {}) {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider>
@@ -83,63 +76,96 @@ function renderOpen(accounts: SwitcherAccount[], projects: SwitcherProject[], or
           projects={projects}
           activeId="p-contoso-support"
           defaultOpen
+          side="bottom"
           orgsMode={orgsMode}
-          navigate={() => {}}
-          {...extra}
+          navigate={navigate}
+          details={{ 'p-contoso-ops': { leadName: 'Atlas', lastActiveAt: null, waiting: 2 } }}
         />
       </SidebarProvider>
     </NextIntlClientProvider>,
   );
 }
 
-describe('WorkspaceSwitcher, one Org with a same-name workspace', () => {
-  it('reads as the workspace alone', async () => {
-    const northwind: SwitcherAccount = { id: 'acct-northwind', name: 'Northwind', slug: 'northwind' };
-    await render(
-      <NextIntlClientProvider locale="en" messages={en}>
-        <SidebarProvider>
-          <WorkspaceSwitcher account={northwind} accounts={[northwind]} orgsMode="multi" projects={[{ id: 'p-nw', slug: 'northwind', name: 'Northwind', agentCount: 1, accountId: 'acct-northwind' }]} activeId="p-nw" navigate={() => {}} />
-        </SidebarProvider>
-      </NextIntlClientProvider>,
-    );
+describe('WorkspaceSwitcher, one Org', () => {
+  it('skips the Org level: the workspaces, Personal first, with no Org anywhere', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS, PERSONAL], 'single');
 
-    await expect.element(page.getByTestId('workspace-switcher-where')).toHaveTextContent(/^Northwind$/);
-  });
-});
+    const names = page.getByTestId('switcher-workspace').elements().map(e => e.textContent ?? '');
 
-describe('WorkspaceSwitcher, open', () => {
-  const contosoOps: SwitcherProject = { id: 'p-contoso-ops', slug: 'ops', name: 'Ops', agentCount: 1, accountId: 'acct-contoso' };
-
-  it('lists a one-account person\'s workspaces as before, with no account headings', async () => {
-    await renderOpen([ACCOUNTS[1]!], [PROJECTS[1]!, contosoOps]);
-
-    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
-    expect(page.getByRole('group').elements()).toHaveLength(0);
-    expect(page.getByText('Metacto').elements()).toHaveLength(0);
-  });
-
-  it('shows no Org eyebrow and no Org headings on a single-Org install', async () => {
-    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps], 'single');
-
-    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
-    expect(page.getByRole('group').elements()).toHaveLength(0);
+    expect(names[0]).toMatch(/Personal/);
+    expect(page.getByTestId('switcher-org').elements()).toHaveLength(0);
     expect(page.getByText('Contoso', { exact: true }).elements()).toHaveLength(0);
   });
 
-  it('is one control reading "Org › Workspace", and draws an extension\'s Org header inside the one picker', async () => {
-    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps], 'multi', {
-      renderOrgHeader: (org, { current }) => <button type="button" role="option" aria-selected={current}>{`Org: ${org.name}`}</button>,
-    });
+  it('lists a one-Org person\'s workspaces with what each is', async () => {
+    await renderOpen([ACCOUNTS[1]!], [PROJECTS[1]!, CONTOSO_OPS]);
 
-    // One switch control, not an Org switcher stacked over a workspace switcher.
-    expect(page.getByRole('button', { name: /switch/i }).elements()).toHaveLength(1);
-    await expect.element(page.getByTestId('workspace-switcher-where')).toHaveTextContent('Contoso›Support');
-    await expect.element(page.getByRole('group', { name: 'Org: Metacto' })).toBeVisible();
-    await expect.element(page.getByRole('group', { name: 'Org: Contoso' }).getByRole('option', { name: /Ops/ })).toBeVisible();
+    await expect.element(page.getByRole('option', { name: /Ops/ })).toHaveTextContent(/Atlas · 1 agent/);
+    expect(page.getByTestId('switcher-org').elements()).toHaveLength(0);
+  });
+});
+
+describe('WorkspaceSwitcher, several Orgs', () => {
+  it('opens on Personal, then one row per Org, the current one checked', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS, PERSONAL]);
+
+    const orgs = page.getByTestId('switcher-org');
+
+    await expect.element(page.getByTestId('switcher-workspace').first()).toHaveTextContent(/Personal/);
+    await expect.element(orgs.nth(0)).toHaveTextContent(/Metacto.*Support/);
+    await expect.element(orgs.nth(1)).toHaveTextContent(/Contoso.*2 workspaces/);
+    await expect.element(orgs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    // What waits on the person across the Org.
+    await expect.element(orgs.nth(1).getByTestId('switcher-row-waiting')).toHaveTextContent('2');
+  });
+
+  it('opens an Org\'s one workspace straight from its row', async () => {
+    const navigate = vi.fn();
+    await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS], 'multi', navigate);
+
+    await page.getByTestId('switcher-org').filter({ hasText: 'Metacto' }).click();
+
+    // Its home, Chat: never this page or its query.
+    expect(navigate).toHaveBeenCalledWith('/w/support/dashboard/chat?org=metacto');
+  });
+
+  it('drills into an Org with several, and comes back with ‹ Orgs, ← or Esc', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS]);
+
+    await page.getByTestId('switcher-org').filter({ hasText: 'Contoso' }).click();
+
+    await expect.element(page.getByTestId('switcher-level-title')).toHaveTextContent('Contoso');
+    await expect.element(page.getByRole('option', { name: /Ops/ })).toBeVisible();
+
+    await page.getByTestId('switcher-back').click();
+
+    await expect.element(page.getByTestId('switcher-level-orgs')).toBeVisible();
+
+    // → on an Org drills; Esc comes back without closing.
+    (page.getByTestId('switcher-org').filter({ hasText: 'Contoso' }).element() as HTMLElement).focus();
+    await userEvent.keyboard('{ArrowRight}');
+
+    await expect.element(page.getByTestId('switcher-level-workspaces')).toBeVisible();
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByTestId('switcher-level-orgs')).toBeVisible();
+  });
+
+  it('searches every Org at once, flat, each row saying its Org', async () => {
+    await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS]);
+
+    await page.getByRole('textbox', { name: 'Search workspaces' }).fill('sup');
+
+    const rows = page.getByTestId('switcher-workspace').elements().map(e => e.textContent ?? '');
+
+    expect(rows).toHaveLength(2);
+    expect(rows.join('|')).toMatch(/Support · Metacto/);
+    expect(rows.join('|')).toMatch(/Support · Contoso/);
   });
 
   it('moves through the picker with the arrow keys, from the search box', async () => {
-    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps]);
+    await renderOpen(ACCOUNTS, [...PROJECTS, CONTOSO_OPS]);
 
     await page.getByRole('textbox', { name: 'Search workspaces' }).click();
     await userEvent.keyboard('{ArrowDown}');
@@ -150,17 +176,6 @@ describe('WorkspaceSwitcher, open', () => {
     await userEvent.keyboard('{ArrowDown}');
 
     expect(document.activeElement).toBe(options[1]);
-
-    await userEvent.keyboard('{End}');
-
-    expect(document.activeElement).toBe(options.at(-1));
-  });
-
-  it('groups a two-account person\'s workspaces under each account\'s name', async () => {
-    await renderOpen(ACCOUNTS, [...PROJECTS, contosoOps]);
-
-    await expect.element(page.getByRole('group', { name: 'Metacto' }).getByRole('option', { name: /Support/ })).toBeVisible();
-    await expect.element(page.getByRole('group', { name: 'Contoso' }).getByRole('option', { name: /Ops/ })).toBeVisible();
   });
 });
 

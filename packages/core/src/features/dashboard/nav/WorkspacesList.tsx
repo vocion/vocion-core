@@ -16,7 +16,7 @@ import { client } from '@/libs/Orpc';
 import { relativeLabel } from '@/libs/timeAgo';
 import { cn } from '@/utils/Helpers';
 import { arrangeWorkspaces, rowLine } from './workspacesPage';
-import { crossAccountSlug, projectAccent, workspaceSwitchHref } from './workspaceSwitch';
+import { crossAccountSlug, projectAccent, WORKSPACE_HOME, workspaceSwitchHref } from './workspaceSwitch';
 
 /**
  * ALL WORKSPACES — the switcher's "All workspaces →" (founder, 2026-10-09:
@@ -278,7 +278,7 @@ export function WorkspacesList(props: { initial?: { overview: Overview; waiting:
 
   const hrefFor = useCallback((w: PageWorkspace) => workspaceSwitchHref({
     slug: w.slug,
-    pathname: '/dashboard/chat',
+    pathname: WORKSPACE_HOME,
     locale,
     defaultLocale: routing.defaultLocale,
     accountSlug: crossAccountSlug(w, overview?.account?.id, overview?.accounts ?? []),
@@ -377,7 +377,7 @@ export function WorkspacesList(props: { initial?: { overview: Overview; waiting:
         open={creating}
         onOpenChange={setCreating}
         orgName={multiOrg ? overview?.account?.name ?? null : null}
-        onCreated={slug => (props.navigate ?? (h => window.location.assign(h)))(workspaceSwitchHref({ slug, pathname: '/dashboard/chat', locale, defaultLocale: routing.defaultLocale }))}
+        onCreated={slug => (props.navigate ?? (h => window.location.assign(h)))(workspaceSwitchHref({ slug, pathname: WORKSPACE_HOME, locale, defaultLocale: routing.defaultLocale }))}
       />
     </div>
   );

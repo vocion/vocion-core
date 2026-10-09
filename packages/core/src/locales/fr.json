@@ -76,7 +76,11 @@
     "pick_workspace": "Choisir un espace de travail",
     "app_not_in_workspace": "{app} n'est pas dans cet espace de travail. Choisissez ci-dessus un espace qui l'a, ou ajoutez-la depuis la marketplace.",
     "brand": "Marque",
-    "lead_mark_home": "Accueil {brand}"
+    "lead_mark_home": "Accueil {brand}",
+    "picker_orgs": "Orgs",
+    "picker_workspaces": "{count, plural, one {# espace} other {# espaces}}",
+    "picker_agents": "{count, plural, one {# agent} other {# agents}}",
+    "picker_active": "actif {ago}"
   },
   "Dashboard": {
     "meta_title": "Vocion",

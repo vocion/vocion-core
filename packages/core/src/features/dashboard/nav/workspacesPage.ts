@@ -37,6 +37,9 @@ export type ArrangedWorkspaces<T extends PageWorkspace> = {
   archived: T[];
 };
 
+/** What the order reads off a workspace. */
+type Ranked = Pick<PageWorkspace, 'name' | 'placeholder' | 'agentCount' | 'lastActiveAt'>;
+
 /**
  * 0 for a workspace with something in it, 1 for an empty one, 2 for a
  * placeholder: a placeholder someone merely landed on is still not real.
@@ -54,7 +57,7 @@ export function emptiness(w: Pick<PageWorkspace, 'placeholder' | 'agentCount' | 
  * @param a - A workspace.
  * @param b - Another.
  */
-export function byRecentUse(a: PageWorkspace, b: PageWorkspace): number {
+export function byRecentUse(a: Ranked, b: Ranked): number {
   const empty = emptiness(a) - emptiness(b);
   if (empty !== 0) {
     return empty;
