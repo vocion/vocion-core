@@ -182,3 +182,128 @@ export async function labelThreads(opts: {
   }
   return { labels, counts };
 }
+
+/* ------------------------------------------------------------------ */
+/* Backfill: thread state for mail synced before it existed            */
+/* ------------------------------------------------------------------ */
+
+/** What one labelled thread costs, in cents: ~450 in + ~60 out tokens on Haiku 4.5. */
+export const CENTS_PER_LABEL = 0.08;
+/** Threads per batch: one checkpointed step, one pause after it. */
+export const BACKFILL_BATCH = 50;
+/** The pause between batches, so a backfill never crowds the mailbox's API quota or the model. */
+export const BACKFILL_PAUSE_MS = 2_000;
+
+export type BackfillPlan = {
+  orgId: string;
+  sourceId: number;
+  sourceSlug: string;
+  mailbox: string;
+  windowDays: number;
+  threadIds: string[];
+  /** Threads that already carry a model label (skipped at no cost, unless their last message changed). */
+  alreadyLabelled: number;
+  /** Worst case: every thread not yet labelled needs the model (the headers settle many for free). */
+  maxLabels: number;
+  maxCents: number;
+};
+
+/**
+ * Plan a source's backfill: the threads in the window and the most it can
+ * cost. Lists ids only — no thread is read and no model is called.
+ * @param opts - Which source and how far back.
+ * @param opts.orgId - The workspace.
+ * @param opts.sourceId - The Gmail source.
+ * @param opts.windowDays - How far back (default 30).
+ * @param opts.now - The clock.
+ */
+export async function planThreadStateBackfill(opts: { orgId: string; sourceId: number; windowDays?: number; now?: Date }): Promise<BackfillPlan | null> {
+  const windowDays = opts.windowDays ?? 30;
+  const now = opts.now ?? new Date();
+  const { knowledgeSourceSchema } = await import('@/models/Schema');
+  const [source] = await db.select({ slug: knowledgeSourceSchema.slug, config: knowledgeSourceSchema.configJson, apiTokenId: knowledgeSourceSchema.apiTokenId }).from(knowledgeSourceSchema).where(and(eq(knowledgeSourceSchema.id, opts.sourceId), eq(knowledgeSourceSchema.orgId, opts.orgId))).limit(1);
+  if (!source) {
+    return null;
+  }
+  const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
+  const credentials = await getCredentialsForConnector({ orgId: opts.orgId, connectorSlug: 'gmail', apiTokenId: source.apiTokenId });
+  const { windowThreadIds } = await import('@/libs/sources/gmail');
+  const listed = await windowThreadIds({ orgId: opts.orgId, credentials, after: new Date(now.getTime() - windowDays * 86_400_000) });
+  if (!listed) {
+    return null;
+  }
+  const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', listed.threadIds);
+  const alreadyLabelled = [...prior.values()].filter(p => p.label.labelledBy !== 'rule').length;
+  const maxLabels = listed.threadIds.length - alreadyLabelled;
+  return { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: source.slug, mailbox: listed.mailbox, windowDays, threadIds: listed.threadIds, alreadyLabelled, maxLabels, maxCents: Math.round(maxLabels * CENTS_PER_LABEL * 100) / 100 };
+}
+
+export type BackfillBatchResult = LabelRunCounts & { failed: number; filed: number };
+
+/**
+ * Work out, label and file the state of one batch of threads. Idempotent: a
+ * thread whose last message already carries a model label is reused at no
+ * cost, and filing the same state document again changes nothing.
+ * @param opts - The batch.
+ * @param opts.orgId - The workspace.
+ * @param opts.sourceId - The Gmail source.
+ * @param opts.sourceSlug - Its slug.
+ * @param opts.mailbox - The owner's address.
+ * @param opts.threadIds - The batch's threads.
+ * @param opts.model - Test seam.
+ */
+export async function backfillThreadStateBatch(opts: { orgId: string; sourceId: number; sourceSlug: string; mailbox: string; threadIds: string[]; model?: LabelModel }): Promise<BackfillBatchResult> {
+  const { knowledgeSourceSchema } = await import('@/models/Schema');
+  const [source] = await db.select({ apiTokenId: knowledgeSourceSchema.apiTokenId }).from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, opts.sourceId)).limit(1);
+  const { getCredentialsForConnector } = await import('@/services/SourceCredentialService');
+  const credentials = await getCredentialsForConnector({ orgId: opts.orgId, connectorSlug: 'gmail', apiTokenId: source?.apiTokenId ?? null });
+  const { gmailThreadUrl, threadFactsFor } = await import('@/libs/sources/gmail');
+  const { threadStateDoc } = await import('@/libs/sources/mailThreadState');
+  const { ingestDocument } = await import('@/services/IngestionService');
+  const { facts, failed } = await threadFactsFor({ orgId: opts.orgId, credentials, mailbox: opts.mailbox, threadIds: opts.threadIds });
+  const prior = await priorLabels(opts.orgId, opts.sourceId, 'gmail', facts.map(f => f.threadId));
+  const { labels, counts } = await labelThreads({ orgId: opts.orgId, sourceSlug: opts.sourceSlug, threads: facts, prior, maxLabels: facts.length, ...(opts.model ? { model: opts.model } : {}) });
+  let filed = 0;
+  for (const f of facts) {
+    const label = labels.get(f.threadId);
+    if (label) {
+      await ingestDocument({ orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: opts.sourceSlug }, threadStateDoc(f, label, { connector: 'gmail', uri: gmailThreadUrl(opts.mailbox, f.threadId) }));
+      filed += 1;
+    }
+  }
+  return { ...counts, failed, filed };
+}
+
+/**
+ * The whole backfill for one source, batch by batch, each batch through
+ * `step` (a durable step when run as the `mail.thread-state-backfill` job, so
+ * a restart resumes after the last finished batch) with a pause after it.
+ * Every label is charged to `platform:retrieval.state` as it is made.
+ * @param plan - From `planThreadStateBackfill`.
+ * @param run - How to take a step and pause; inline by default.
+ * @param run.step - Run one named step.
+ * @param run.sleep - Pause.
+ * @param run.log - Progress.
+ * @param run.model - Test seam.
+ */
+export async function runThreadStateBackfill(
+  plan: BackfillPlan,
+  run: { step?: <T>(name: string, fn: () => Promise<T>) => Promise<T>; sleep?: (ms: number) => Promise<void>; log?: (line: string) => void; model?: LabelModel } = {},
+): Promise<BackfillBatchResult> {
+  const step = run.step ?? (<T>(_name: string, fn: () => Promise<T>) => fn());
+  const sleep = run.sleep ?? (ms => new Promise<void>(r => setTimeout(r, ms)));
+  const total: BackfillBatchResult = { threads: 0, byRule: 0, reused: 0, labelled: 0, fallback: 0, failed: 0, filed: 0 };
+  const batches = Math.ceil(plan.threadIds.length / BACKFILL_BATCH);
+  for (let b = 0; b < batches; b++) {
+    const ids = plan.threadIds.slice(b * BACKFILL_BATCH, (b + 1) * BACKFILL_BATCH);
+    const r = await step(`batch-${b}`, () => backfillThreadStateBatch({ orgId: plan.orgId, sourceId: plan.sourceId, sourceSlug: plan.sourceSlug, mailbox: plan.mailbox, threadIds: ids, ...(run.model ? { model: run.model } : {}) }));
+    for (const k of Object.keys(total) as Array<keyof BackfillBatchResult>) {
+      total[k] += r[k];
+    }
+    run.log?.(`thread-state backfill ${plan.sourceSlug} (${plan.orgId}): batch ${b + 1}/${batches} — ${total.filed} filed, ${total.labelled} labelled, ${total.reused} reused, ${total.byRule} by headers, ${total.fallback} left for the next sync, ${total.failed} unreadable; ~${(total.labelled * CENTS_PER_LABEL / 100).toFixed(2)} USD`);
+    if (b < batches - 1) {
+      await sleep(BACKFILL_PAUSE_MS);
+    }
+  }
+  return total;
+}
