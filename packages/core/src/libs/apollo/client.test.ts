@@ -49,11 +49,11 @@ describe('credentials', () => {
     expect(keyFromCredentials(undefined)).toBeUndefined();
   });
 
-  it('names the Sources-page fix when there is no key', () => {
+  it('names the Connectors-page fix when there is no key', () => {
     const failure = noApolloCredentials();
 
     expect(failure).toMatchObject({ ok: false, error: 'no_apollo_credentials' });
-    expect(failure.message).toContain('Sources page');
+    expect(failure.message).toContain('Connectors page');
   });
 });
 
