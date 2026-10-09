@@ -89,8 +89,13 @@ export type HintInput = {
   }>;
   /** What waits on the person. */
   waiting: Array<{ kind: 'approval' | 'ask' | 'fyi'; ageHours: number; blocksRun: boolean }>;
-  /** The next best action, when the workspace has one to suggest. */
-  next?: { key: string; label: string; prompt: string; reason: string } | null;
+  /**
+   * The next best action, when the workspace has one to suggest. With `href`
+   * it opens that page instead of sending `prompt` (a brief that is already
+   * written: "Your morning brief is ready →"); `weight` scales its score for
+   * something that is the person's own and fresh today.
+   */
+  next?: { key: string; label: string; prompt: string; reason: string; href?: string; weight?: number } | null;
   /** This person's dismissals in the last 30 days. */
   dismissed: Array<{ key: string; type: HintType; at: Date }>;
 };
@@ -254,8 +259,8 @@ function nextCandidate(input: HintInput): OpeningHint | null {
     type: 'next',
     label: `${input.next.label} →`,
     reason: input.next.reason,
-    score: BASE.next,
-    action: { kind: 'send', prompt: input.next.prompt },
+    score: BASE.next * (input.next.weight ?? 1),
+    action: input.next.href ? { kind: 'open', href: input.next.href } : { kind: 'send', prompt: input.next.prompt },
   };
 }
 

@@ -27,6 +27,7 @@ describe('deploymentSchedules', () => {
       ['artifact-image-sweep', '17 * * * *'],
       ['durable-prune', '10 4 * * *'],
       ['needs-you-sweep', '*/5 * * * *'],
+      ['personal-rhythm-sweep', '*/5 * * * *'],
     ]));
   });
 
@@ -52,7 +53,7 @@ describe('deploymentSchedules', () => {
     await applyDeploymentSchedules();
 
     expect((await listSchedules()).map(s => s.name).sort()).toEqual(
-      ['artifact-image-sweep', 'durable-prune', 'langfuse-retention', 'mission-run-reaper', 'needs-you-sweep', 'worker-run-reaper'],
+      ['artifact-image-sweep', 'durable-prune', 'langfuse-retention', 'mission-run-reaper', 'needs-you-sweep', 'personal-rhythm-sweep', 'worker-run-reaper'],
     );
 
     flags.workers = false;

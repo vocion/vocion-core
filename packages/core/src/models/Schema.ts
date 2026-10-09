@@ -267,6 +267,18 @@ export const tenantAccountSchema = pgTable(
      */
     personalConnections: boolean('personal_connections').default(true).notNull(),
     /**
+     * Daily briefs (0203, docs/guides/morning-brief.md): whether this Org's
+     * people get a morning brief and an evening wrap at all. On by default;
+     * each person's own times and switches sit under it.
+     */
+    dailyBriefs: boolean('daily_briefs').default(true).notNull(),
+    /**
+     * What this Org's briefs may spend on the model in a day, in cents. Null
+     * takes the deployment's default (`VOCION_BRIEF_DAILY_CENTS`), and no
+     * default means no cap beyond each workspace's own budget.
+     */
+    briefDailyCents: integer('brief_daily_cents'),
+    /**
      * The Org's brand (migration 0199) — the same guide a workspace's
      * brand.yaml is (`libs/workspace/brand.ts`), with its logos kept in the
      * media store. Worn by the sidebar, sign-in, the favicon and mail; a
@@ -5287,6 +5299,40 @@ export const notificationPreferenceSchema = pgTable(
   },
   table => [
     primaryKey({ columns: [table.userId, table.orgId] }),
+  ],
+);
+
+/**
+ * A person's day with their own assistant (0203, docs/guides/morning-brief.md):
+ * when the morning brief and the evening wrap arrive in their Personal
+ * workspace, in their own zone. One row per person per Org, made by the
+ * rhythm sweep for every Personal workspace that has none, so nobody has to
+ * visit a settings page to get a brief. `next_*_at` is the instant the sweep
+ * next delivers each; `last_*_at` the last delivery, which "since you last
+ * looked" reads.
+ */
+export const personalRhythmSchema = pgTable(
+  'personal_rhythm',
+  {
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    /** Local wall-clock time, `HH:MM`. */
+    briefAt: text('brief_at').default('07:30').notNull(),
+    wrapAt: text('wrap_at').default('17:30').notNull(),
+    briefOn: boolean('brief_on').default(true).notNull(),
+    wrapOn: boolean('wrap_on').default(true).notNull(),
+    /** IANA zone; null until the person's browser or a setting names one (the workspace's then). */
+    timeZone: text('time_zone'),
+    nextBriefAt: timestamp('next_brief_at', { mode: 'date' }),
+    nextWrapAt: timestamp('next_wrap_at', { mode: 'date' }),
+    lastBriefAt: timestamp('last_brief_at', { mode: 'date' }),
+    lastWrapAt: timestamp('last_wrap_at', { mode: 'date' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.userId, table.accountId] }),
+    index('personal_rhythm_next_brief_idx').on(table.nextBriefAt),
+    index('personal_rhythm_next_wrap_idx').on(table.nextWrapAt),
   ],
 );
 

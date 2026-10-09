@@ -5,6 +5,7 @@ import {
   LANGFUSE_RETENTION_SCHEDULE_ID,
   MISSION_RUN_REAPER_SCHEDULE_ID,
   NEEDS_YOU_SWEEP_SCHEDULE_ID,
+  PERSONAL_RHYTHM_SWEEP_SCHEDULE_ID,
   WORKER_RUN_REAPER_SCHEDULE_ID,
 } from '@/libs/durable/scheduleIds';
 import { langfuseConfig } from '@/libs/Langfuse';
@@ -31,6 +32,8 @@ import { JOB } from './catalog';
  *   - Needs-you sweep, every five minutes: the clock on every decision
  *     waiting on a person — escalation, defaults at deadlines, held items —
  *     and the resume of runs parked on questions that are now answered.
+ *   - Personal rhythm sweep, every five minutes: each person's morning brief
+ *     and evening wrap that are due, at their own local times.
  */
 
 export const DURABLE_PRUNE_SCHEDULE_ID = 'durable-prune';
@@ -42,6 +45,7 @@ export function deploymentSchedules(): { wanted: ScheduleSpec[]; unwanted: strin
     { name: ARTIFACT_IMAGE_SWEEP_SCHEDULE_ID, cron: '17 * * * *', job: JOB.artifactImageSweep },
     { name: DURABLE_PRUNE_SCHEDULE_ID, cron: '10 4 * * *', job: JOB.durablePrune },
     { name: NEEDS_YOU_SWEEP_SCHEDULE_ID, cron: '*/5 * * * *', job: JOB.needsYouSweep },
+    { name: PERSONAL_RHYTHM_SWEEP_SCHEDULE_ID, cron: '*/5 * * * *', job: JOB.personalRhythmSweep },
   ];
   const unwanted: string[] = [];
   if (externalWorkersEnabled()) {
