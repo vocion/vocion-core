@@ -50,31 +50,33 @@ describe('InviteDialog — mail on', () => {
     await invite('Send invite');
 
     expect(onInvite).toHaveBeenCalledWith('casey@northwind.example', 'member');
-    await expect.element(page.getByText('Emailed to casey@northwind.example. The link works too:')).toBeVisible();
+    await expect.element(page.getByText('Email sent to casey@northwind.example. The link works too:')).toBeVisible();
     await expect.element(page.getByLabelText('Invite link')).toHaveValue(`${window.location.origin}/sign-up?invite=tok-casey`);
     await expect.element(page.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
   });
 
   it('says why the mail did not go, and leaves the link to send by hand', async () => {
-    await openDialog(true, { status: 'failed', reason: 'The email did not go. Copy the link and send it yourself.' });
+    await openDialog(true, { status: 'failed', reason: 'The mail provider did not accept it' });
 
     await invite('Send invite');
 
-    await expect.element(page.getByText('Not emailed to casey@northwind.example.')).toBeVisible();
-    await expect.element(page.getByText('The email did not go. Copy the link and send it yourself.')).toBeVisible();
+    await expect.element(page.getByText('Email not sent to casey@northwind.example:')).toBeVisible();
+    await expect.element(page.getByText('The mail provider did not accept it. Copy the link and share it.')).toBeVisible();
     await expect.element(page.getByLabelText('Invite link')).toHaveValue(`${window.location.origin}/sign-up?invite=tok-casey`);
   });
 });
 
 describe('InviteDialog — mail off', () => {
   it('makes a link to share, and says no email is sent', async () => {
-    await openDialog(false, { status: 'mail-off' });
+    await openDialog(false, { status: 'mail-off', reason: 'This server does not send email' });
 
     await expect.element(page.getByText(/This server sends no email/)).toBeVisible();
 
     await invite('Create link');
 
-    await expect.element(page.getByText('Link for casey@northwind.example')).toBeVisible();
-    await expect.element(page.getByText(/^Emailed to/)).not.toBeInTheDocument();
+    // Never silent: it says the email did not go, why, and to copy the link.
+    await expect.element(page.getByText('Email not sent to casey@northwind.example:')).toBeVisible();
+    await expect.element(page.getByText('This server does not send email. Copy the link and share it.')).toBeVisible();
+    await expect.element(page.getByText(/^Email sent to/)).not.toBeInTheDocument();
   });
 });

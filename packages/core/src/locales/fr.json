@@ -427,7 +427,8 @@
     "revoke_confirm": "Révoquer l'invitation de {email} ? Son lien cessera de fonctionner.",
     "resend_email": "Renvoyer l’e-mail",
     "resent": "L’invitation a été renvoyée par e-mail à {email}.",
-    "reinvited_emailed": "Nouvelle invitation créée pour {email} et envoyée par e-mail.",
+    "reinvited_emailed": "Nouvelle invitation créée pour {email}. E-mail envoyé.",
+    "reinvited_not_emailed": "Nouvelle invitation créée pour {email}. E-mail non envoyé : {reason}. Copiez le lien et partagez-le.",
     "copy_link_short": "Copier le lien",
     "copy": "Copier",
     "done": "Terminé",
@@ -440,9 +441,9 @@
     "invite_sending": "Envoi…",
     "invite_create": "Créer le lien",
     "invite_creating": "Création…",
-    "invite_emailed": "Envoyée par e-mail à {email}. Le lien fonctionne aussi :",
-    "invite_not_emailed": "Non envoyée par e-mail à {email}.",
-    "invite_link_for": "Lien pour {email}",
+    "invite_emailed": "E-mail envoyé à {email}. Le lien fonctionne aussi :",
+    "invite_not_emailed": "E-mail non envoyé à {email} :",
+    "invite_not_emailed_reason": "{reason}. Copiez le lien et partagez-le.",
     "invite_link_label": "Lien d’invitation"
   },
   "SignIn": {

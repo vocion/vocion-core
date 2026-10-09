@@ -86,6 +86,17 @@ function whoWords(emails: readonly string[]): string {
   return `${emails.length} people`;
 }
 
+/**
+ * What became of the invites' emails, in one line: "Email sent", or "Email
+ * not sent: <reason>. Copy the link from Members".
+ * @param invites - The invites this run made.
+ */
+export function deliveryNote(invites: ReadonlyArray<{ email: string; emailed: boolean; emailNotSentReason?: string }>): string {
+  return invites.map(i => (i.emailed
+    ? `Email sent to ${i.email}.`
+    : `Email not sent to ${i.email}: ${i.emailNotSentReason ?? 'unknown reason'}. Copy the link from Members.`)).join(' ');
+}
+
 export const membersInviteAction: Action<typeof membersInviteInput> = {
   id: 'members.invite',
   name: 'Invite teammates',
@@ -134,7 +145,9 @@ export const membersInviteAction: Action<typeof membersInviteInput> = {
     }
     const [{ createInvite }, { deliverInvite }] = await Promise.all([import('@/services/MembersService'), import('@/services/InviteMail')]);
     const members = await alreadyMembers(accountId, input.emails);
-    const invites: Array<{ id: string; email: string; emailed: boolean }> = [];
+    // Each invite says what became of its email, and why when it did not go,
+    // so whoever reads the result (the card, the agent) says the truth.
+    const invites: Array<{ id: string; email: string; emailed: boolean; emailNotSentReason?: string }> = [];
     const skipped: Array<{ email: string; reason: string }> = [];
     for (const email of input.emails) {
       if (members.has(email)) {
@@ -143,9 +156,11 @@ export const membersInviteAction: Action<typeof membersInviteInput> = {
       }
       const invite = await createInvite({ accountId, email, role: input.role, invitedBy: person.userId });
       const delivery = await deliverInvite({ accountId, inviteId: invite.id, email: invite.email, invitedBy: person.userId, requestOrigin: null });
-      invites.push({ id: invite.id, email: invite.email, emailed: delivery.status === 'sent' });
+      invites.push(delivery.status === 'sent'
+        ? { id: invite.id, email: invite.email, emailed: true }
+        : { id: invite.id, email: invite.email, emailed: false, emailNotSentReason: delivery.reason });
     }
-    return { invited: invites.length > 0, invites, skipped, role: input.role, membersHref: MEMBERS_HREF };
+    return { invited: invites.length > 0, invites, skipped, role: input.role, membersHref: MEMBERS_HREF, note: deliveryNote(invites) };
   },
 
   async undo(ctx, _input, result) {

@@ -97,8 +97,10 @@ export const resendInviteRoute = os
       throw ApiError.tooManyRequests(refusal.message, refusal.retryAfterSeconds);
     }
     const delivery = await sendInviteEmail({ accountId, inviteId: input.inviteId, requestOrigin: await requestOrigin() });
-    if (delivery.status === 'failed') {
-      throw ApiError.badRequest(delivery.reason);
+    // Only a send is "sent": anything else is said, with its reason, never
+    // reported as a resend that did not happen.
+    if (delivery.status !== 'sent') {
+      throw ApiError.badRequest(`Email not sent: ${delivery.reason}. Copy the invite link and share it.`);
     }
     return { delivery };
   });

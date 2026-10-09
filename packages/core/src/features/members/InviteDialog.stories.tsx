@@ -70,7 +70,7 @@ export const MailOn: Story = {
 
 /** Mail off, before the link is made. */
 export const MailOff: Story = {
-  args: { emails: false, onInvite: creates({ status: 'mail-off' }) },
+  args: { emails: false, onInvite: creates({ status: 'mail-off', reason: 'This server does not send email' }) },
 };
 
 /** Emailed: the address got "Join Northwind on Vocion"; the link is here too. */
@@ -79,17 +79,17 @@ export const Emailed: Story = {
   play: async (ctx) => {
     const body = await invite(ctx, 'Send invite');
 
-    await expect(await body.findByText('Emailed to casey@kestrel.example. The link works too:')).toBeInTheDocument();
+    await expect(await body.findByText('Email sent to casey@kestrel.example. The link works too:')).toBeInTheDocument();
   },
 };
 
 /** Mail off: the link is the invite, to copy and share. */
 export const LinkToShare: Story = {
-  args: { emails: false, onInvite: creates({ status: 'mail-off' }) },
+  args: { emails: false, onInvite: creates({ status: 'mail-off', reason: 'This server does not send email' }) },
   play: async (ctx) => {
     const body = await invite(ctx, 'Create link');
 
-    await expect(await body.findByText('Link for casey@kestrel.example')).toBeInTheDocument();
+    await expect(await body.findByText('This server does not send email. Copy the link and share it.')).toBeInTheDocument();
   },
 };
 
@@ -97,11 +97,11 @@ export const LinkToShare: Story = {
 export const NotEmailed: Story = {
   args: {
     emails: true,
-    onInvite: creates({ status: 'failed', reason: 'This server does not know its own address (NEXT_PUBLIC_APP_URL), so the link could not be mailed. Copy it instead.' }),
+    onInvite: creates({ status: 'failed', reason: 'This server does not know its own address (NEXT_PUBLIC_APP_URL), so the link could not be mailed' }),
   },
   play: async (ctx) => {
     const body = await invite(ctx, 'Send invite');
 
-    await expect(await body.findByText('Not emailed to casey@kestrel.example.')).toBeInTheDocument();
+    await expect(await body.findByText('Email not sent to casey@kestrel.example:')).toBeInTheDocument();
   },
 };
