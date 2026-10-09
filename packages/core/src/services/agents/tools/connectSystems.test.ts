@@ -65,4 +65,33 @@ describe('connect_system', () => {
     expect(await connectSystem(c, {})).toMatch(/admin/);
     expect(c.emitted).toHaveLength(0);
   });
+
+  it('carries the lead\'s line for every step, not only the first, and says which steps have one', async () => {
+    plan.mockResolvedValue({ candidates: [candidate('github', 'GitHub'), candidate('jira', 'Jira'), candidate('slack', 'Slack')], connected: [], question: null, scope: null, refused: null });
+    const c = ctx();
+
+    const said = await connectSystem(c, {
+      named: ['github', 'jira', 'slack'],
+      steps: [
+        { connector: 'github', why: 'The factory reads your pull requests here.' },
+        { connector: 'jira', why: 'Agents tried to file the Northwind bug three times this week.' },
+        // Not in the walk: dropped rather than carried.
+        { connector: 'hubspot', why: 'Not walked.' },
+      ],
+    });
+    const { connectSystemsInputOfHref } = await import('@/libs/connect/systemsLink');
+    const href = (c.emitted[0] as { card: { href: string } }).card.href;
+
+    expect(connectSystemsInputOfHref(href)).toEqual({
+      named: ['github', 'jira', 'slack'],
+      say: { github: 'The factory reads your pull requests here.', jira: 'Agents tried to file the Northwind bug three times this week.' },
+    });
+    expect(said).toContain('Your lines lead the steps for GitHub, Jira. Slack shows its evidence.');
+  });
+
+  it('hands the lead what agents tried and failed, among each system\'s facts', async () => {
+    plan.mockResolvedValue({ candidates: [{ ...candidate('slack', 'Slack'), evidence: [{ kind: 'tried', times: 3 }] }], connected: [], question: null, scope: null, refused: null });
+
+    expect(await connectSystem(ctx(), { named: ['slack'] })).toContain('- Slack: Agents tried to use it 3 times this week and couldn\'t');
+  });
 });

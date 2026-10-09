@@ -198,7 +198,7 @@ function connectorCandidate(input: HintInput): OpeningHint | null {
         label: `${verb} ${c.name} →`,
         reason: c.state === 'broken' || c.state === 'expired'
           ? `The ${c.name} connection stopped working${c.touchNote ? ` — ${c.touchNote}` : c.recentTouches > 0 ? ', and the team has needed it this week' : ''}.`
-          : c.state === 'needed' ? `${c.neededBy ?? 'An installed app'} reads from ${c.name}.` : `The ${c.name} connection was started and not finished.`,
+          : c.state === 'needed' ? (c.touchNote ? `${c.touchNote}.` : `${c.neededBy ?? 'An installed app'} reads from ${c.name}.`) : `The ${c.name} connection was started and not finished.`,
         score,
         action: { kind: 'send', prompt: `Help me ${verb.toLowerCase()} ${c.name}` },
       };

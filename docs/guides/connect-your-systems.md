@@ -17,8 +17,13 @@ registries, so a connector added there is offered here with no change
 Every way in is a turn first (founder, 2026-10-09): a link into chat with
 `?objective=connect-systems` (`libs/connect/systemsLink.ts`) sends the person's
 own words ("Help me connect the systems GTM uses", `connectSystemsAsk`), and
-the lead's `connect_system` raises the walk-through — with its own title and
-why, composed from the facts the tool hands back.
+the lead's `connect_system` raises the walk-through — with its own title, its
+why, and its own line for **every** step (`steps`: one `{ connector, why }` per
+system), composed from the live facts. `describe_setup` hands the lead each
+unconnected system's facts before the call (what needs it, what agents tried
+and failed, what it unlocks), and `connect_system` hands them back after. The
+lines travel with the walk's link (`say.<connector>`, one trimmed line each),
+and a step the lead wrote no line for shows its evidence.
 
 | Where | What starts it |
 |---|---|
@@ -40,6 +45,19 @@ and shown under the step it put there.
 | An app needs it | An app this workspace added declares it in `setup.connectors` (or in `recommend.connectors`, "reads it", 25) | 60 |
 | Your mail is hosted there | The person's address's MX records match a platform's `discovery.mailHosts` in `libs/platforms/registry.ts`. That platform's `discovery.connectors` are offered. | 40 |
 | Your Org uses it | Other **shared** workspaces of the same Org read it: 15, plus 5 for each further workspace. | 15+ |
+| Agents tried and failed | Tool calls in this workspace that could not run for want of it in the last 7 days ("Agents tried to use it 3 times this week and couldn't"): 30, plus 5 for each further call, up to 4. | 30+ |
+
+**What agents tried and failed** is recorded as the calls fail: the agent loop
+(and the runtime's tool endpoint) reads each tool's result or error with
+`connectorNeededBy` (`libs/connect/connectionNeeded.ts`) and records an
+`agent.connection_needed` adoption event naming the connector and the tool
+(`services/connect/triedAndFailed.ts`); no table of its own. It reads the
+platform's own sentences ("No HubSpot source is connected in this
+workspace…", a credential that expired), never a person's words or an
+agent's reply, and never counts a tool whose job is listing what is not
+connected. The same count is the opening hint's connector boost
+(`recentTouches`): a system agents keep needing is offered as "Connect Slack →
+· Agents tried to use Slack 3 times this week and couldn't."
 
 A system scoring 35 or more is *recommended*: it is preselected and offered
 first.
@@ -148,7 +166,8 @@ it keeps that card's keyboard contract:
   - `connectSystems.test.ts` (the tool).
   - `flow.test.ts`.
   - `mailHost.test.ts`.
-  - `systemsLink.test.ts`.
+  - `systemsLink.test.ts`: the lead's step lines round-trip.
+  - `connectionNeeded.test.ts`, `describeSetup.facts.test.ts`, `services/chat/openingHints.test.ts` (what agents tried and failed).
 - **UI:** `ConnectSystemsFlow.test.tsx` drives the whole walk from the keyboard.
 - **Storybook:** `Chat/ConnectYourSystems`.
 - **End to end:** `npm run e2e:connect-systems`. It covers the Connectors page

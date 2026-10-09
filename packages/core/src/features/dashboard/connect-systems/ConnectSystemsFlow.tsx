@@ -250,6 +250,7 @@ export function ConnectSystemsFlow({ input, decision, onClose, onSomethingElse, 
     <div data-testid="connect-systems" data-phase={state.phase} data-step={stepAt ?? undefined} data-connector={current?.connector}>
       <ConnectSystemsView
         intro={intro}
+        stepLines={input.say}
         state={state.phase === 'error' && !state.reason ? { phase: 'loading' } : state}
         title={title}
         onAnswer={onAnswer}

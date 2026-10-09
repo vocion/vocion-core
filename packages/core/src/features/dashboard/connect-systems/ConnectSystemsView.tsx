@@ -39,6 +39,13 @@ export type ConnectSystemsViewProps = {
    * why): the first step leads with them, the registry's evidence after.
    */
   intro?: string | null;
+  /**
+   * The lead's own line for each system's step, by connector slug, from the
+   * turn that raised the walk (`connect_system`'s `steps`): every step leads
+   * with words composed for this person now, the registry's evidence only
+   * where the lead wrote none.
+   */
+  stepLines?: Record<string, string>;
   /** Typed credential values (secret; held here only until saved). */
   credentialValues: Record<string, string>;
   onCredentialChange: (name: string, value: string) => void;
@@ -217,7 +224,7 @@ export function ConnectSystemsView(props: ConnectSystemsViewProps) {
           {...common}
           id={`connect-${c.connector}-choose`}
           question={`Connect ${c.name}?`}
-          body={state.index === 0 && props.intro ? props.intro : why(c)}
+          body={props.stepLines?.[c.connector] || (state.index === 0 && props.intro ? props.intro : why(c))}
           options={[{ id: 'connect', ...connect, recommended: true }, LATER]}
           submitLabel="Continue"
           onAnswer={a => somethingElse(a, ids => onAnswer(ids[0] === 'later' ? { kind: 'later' } : { kind: 'connect' }))}

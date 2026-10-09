@@ -56,6 +56,15 @@ describe('the opening hint (founder, 2026-10-09)', () => {
     expect(quiet.label).toBe('Connect HubSpot →');
   });
 
+  it('boosts a system agents tried and failed to use this week, and says so', () => {
+    const tried = { slug: 'slack', name: 'Slack', state: 'needed' as const, recentTouches: 3, touchNote: 'Agents tried to use Slack 3 times this week and couldn\'t', href: '/x' };
+    const untried = { ...tried, recentTouches: 0, touchNote: undefined, neededBy: 'Support' };
+    const [top] = openingHints(input({ connectors: [tried] }));
+
+    expect(top).toMatchObject({ type: 'connector', label: 'Connect Slack →', reason: 'Agents tried to use Slack 3 times this week and couldn\'t.' });
+    expect(top!.score).toBeGreaterThan(openingHints(input({ connectors: [untried] }))[0]!.score);
+  });
+
   it('scales attention by count, what blocks a run, and age; an FYI is quieter', () => {
     const fyi = openingHints(input({ waiting: [{ kind: 'fyi', ageHours: 1, blocksRun: false }, { kind: 'fyi', ageHours: 1, blocksRun: false }] }))[0]!;
     const blocking = openingHints(input({ waiting: [{ kind: 'approval', ageHours: 30, blocksRun: true }, { kind: 'fyi', ageHours: 1, blocksRun: false }] }))[0]!;

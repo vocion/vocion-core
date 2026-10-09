@@ -160,6 +160,10 @@ test('from chat: connect_system is one Decision that opens the walk; Later and E
   await expect(card).toHaveCount(1);
   await expect(page.getByTestId('decision-queue')).toHaveText(' · 1 of 2');
 
+  // Every step leads with the lead's own line from this turn, not only the
+  // first (connect_system's `steps`).
+  await expect(card).toContainText('The Northwind support lead tried to file two bugs in Jira this week');
+
   await shot(page, info, '06-chat-card');
   // 2 is Later; then Esc stops the walk where it stands.
   await page.getByTestId('decision-options').focus();
@@ -167,6 +171,9 @@ test('from chat: connect_system is one Decision that opens the walk; Later and E
   await page.keyboard.press('Enter');
 
   await expect(card).toContainText('Connect Notion?');
+  await expect(card).toContainText('Your Kestrel runbooks live in Notion');
+
+  await shot(page, info, '06b-chat-card-second-step');
 
   await page.keyboard.press('Escape');
 
@@ -231,7 +238,7 @@ test('from an app\'s page: one move connects the systems that app reads, and the
   const card = page.getByTestId('decision-card');
 
   // The link asked the lead in the person's words; the lead raised the walk.
-  await expect(page.getByText('Help me connect the systems GTM uses')).toBeVisible();
+  await expect(page.getByTestId('user-message').getByText('Help me connect the systems GTM uses')).toBeVisible();
   await expect(page.getByTestId('decision-eyebrow')).toContainText('GTM setup');
   // Scoped to one app: no question, straight to the first system.
   await expect(card).not.toContainText('Which of these do you use?');

@@ -45,6 +45,16 @@
             "named": [
               "jira",
               "notion"
+            ],
+            "steps": [
+              {
+                "connector": "jira",
+                "why": "The Northwind support lead tried to file two bugs in Jira this week and couldn't."
+              },
+              {
+                "connector": "notion",
+                "why": "Your Kestrel runbooks live in Notion; agents answer from them once it is connected."
+              }
             ]
           }
         }

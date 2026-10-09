@@ -15,13 +15,16 @@
  */
 
 import type { ConfigField } from '@/libs/sources/configFields';
+import { triedLine } from './connectionNeeded';
 
 /** Why a system is on the list, as one typed piece of evidence. */
 export type ConnectEvidence
   = | { kind: 'named' }
     | { kind: 'app'; app: string; appName: string; needed: boolean }
     | { kind: 'mail'; domain: string }
-    | { kind: 'org'; workspaces: number };
+    | { kind: 'org'; workspaces: number }
+    /** Agents' tool calls failed this week for want of it (`services/connect/triedAndFailed.ts`). */
+    | { kind: 'tried'; times: number };
 
 /** How the person connects it from the flow. */
 export type ConnectMethod
@@ -67,6 +70,12 @@ export type ConnectPlanInput = {
   named?: string[];
   /** An app id: plan only the systems that app reads. */
   app?: string;
+  /**
+   * The lead's own line for each system's step, by connector slug, composed
+   * from the live facts at the turn that raised the walk. A step with none
+   * shows its evidence.
+   */
+  say?: Record<string, string>;
 };
 
 /** What a verification found. */
@@ -94,6 +103,8 @@ export function evidenceLine(e: ConnectEvidence): string {
       return `Mail at ${e.domain} is hosted there`;
     case 'org':
       return e.workspaces === 1 ? 'Used in another workspace of your Org' : `Used in ${e.workspaces} other workspaces of your Org`;
+    case 'tried':
+      return triedLine(e.times);
   }
 }
 

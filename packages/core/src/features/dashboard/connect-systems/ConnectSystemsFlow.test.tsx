@@ -117,6 +117,33 @@ describe('ConnectSystemsFlow, keyboard only', () => {
     await expect.element(page.getByText('Connect the 3 I put off')).toBeVisible();
   });
 
+  it('leads every step with the lead\'s own line, not only the first; a step with none shows its evidence', async () => {
+    plan.mockResolvedValueOnce({ ...PLAN, question: null });
+    await render(
+      <ConnectSystemsFlow
+        input={{ named: ['crm', 'tracker', 'wiki'], say: { crm: 'Your pipeline review reads every Northwind deal from here.', tracker: 'Agents tried to file the Kestrel bug here twice this week.' } }}
+        intro="Three systems, then the factory can run."
+        onClose={vi.fn()}
+        verifyBudgetMs={0}
+      />,
+    );
+
+    await expect.element(page.getByRole('heading', { name: 'Connect Northwind CRM?' })).toBeVisible();
+    await expect.element(page.getByText('Your pipeline review reads every Northwind deal from here.')).toBeVisible();
+
+    await userEvent.keyboard('2');
+    await userEvent.keyboard('{Enter}');
+
+    await expect.element(page.getByRole('heading', { name: 'Connect Tracker?' })).toBeVisible();
+    await expect.element(page.getByText('Agents tried to file the Kestrel bug here twice this week.')).toBeVisible();
+
+    await userEvent.keyboard('2');
+    await userEvent.keyboard('{Enter}');
+
+    await expect.element(page.getByRole('heading', { name: 'Connect Wiki?' })).toBeVisible();
+    await expect.element(page.getByText('Used in another workspace of your Org')).toBeVisible();
+  });
+
   it('says when the login window was blocked, on the system, with Try again first', async () => {
     plan.mockResolvedValueOnce({ ...PLAN, question: null, candidates: [PLAN.candidates[0]!] });
     vi.spyOn(window, 'open').mockReturnValue(null);
