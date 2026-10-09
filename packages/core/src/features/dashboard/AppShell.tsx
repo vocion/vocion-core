@@ -50,7 +50,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // restore, re-provision) used to render a fully-EMPTY dashboard with no
   // error — every query scoped to a ghost org. Force a legible re-auth
   // instead of a silent blank workspace.
-  const { orgId, has } = await auth();
+  const { orgId, userId, has } = await auth();
   // Surfaces the workspace switched on (workspace.yaml `surfaces:`), read from
   // the same project row the stale-session guard already fetches.
   let enabledSurfaces: SurfaceId[] = [];
@@ -117,6 +117,11 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // The "Review queue" badge. Counted in SQL, and a failure here must never take
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waitingRead = orgId ? needsYouCount(orgId).catch(() => 0) : Promise.resolve(0);
+  // The "Goals" badge: the person's active goals here, or everywhere from
+  // their Personal. One SQL count; a failure reads as no badge.
+  const goalsRead = orgId && userId
+    ? import('@/services/objectives/GoalService').then(m => m.activeGoalCount({ userId, ...(personalWorkspace ? {} : { orgId }) })).catch(() => 0)
+    : Promise.resolve(0);
   const appNavRead = workspaceAppNav({ orgId: orgId ?? null, enabledPlugins, enabledSurfaces });
   const usageRead = orgId ? shellUsage(orgId) : Promise.resolve(null);
   const blockedRead = orgId ? shellBlockedAgents(orgId) : Promise.resolve([]);
@@ -128,6 +133,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     : Promise.resolve(null);
   const agents = await agentsRead;
   const waiting = await waitingRead;
+  const goalsCount = await goalsRead;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
   // Each row handed to the app that owns it (`workspaceAppNav`): the rail's
   // apps for this workspace, and the core app (Workforce) keeps the rest, in
@@ -179,6 +185,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         enabledSurfaces={byApp.core.surfaces.filter(isSurfaceId)}
         pluginNav={byApp.core.nav}
         needsYouCount={waiting}
+        goalsCount={goalsCount}
         workspacePages={byApp.core.pages}
         apps={byApp.apps}
         gettingStarted={gettingStarted}
