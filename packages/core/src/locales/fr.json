@@ -657,7 +657,9 @@
     "preview_theme": "Thème de l'aperçu",
     "theme_light": "Clair",
     "theme_dark": "Sombre",
-    "preview_help": "La barre latérale et la page de connexion telles que votre équipe les verra. Un petit « Powered by Vocion » reste sous votre logo."
+    "preview_help": "La barre latérale et la page de connexion telles que votre équipe les verra. Un petit « Powered by Vocion » reste sous votre logo.",
+    "mark_missing": "Ajoutez un symbole carré pour les petits espaces : la barre du haut, le sélecteur et l'onglet utilisent le symbole, jamais le logo complet.",
+    "mark_wide": "Ce symbole est large et illisible dans les petits espaces. Ajoutez un symbole carré (le symbole seul)."
   },
   "Connectors": {
     "title": "Connecteurs d'équipe",

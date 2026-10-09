@@ -657,7 +657,9 @@
     "preview_theme": "Preview theme",
     "theme_light": "Light",
     "theme_dark": "Dark",
-    "preview_help": "The sidebar and the sign-in page as your team will see them. A small “Powered by Vocion” mark stays under your logo."
+    "preview_help": "The sidebar and the sign-in page as your team will see them. A small “Powered by Vocion” mark stays under your logo.",
+    "mark_missing": "Add a square mark for small spaces: the top bar, the switcher and the browser tab use the mark, never the wordmark.",
+    "mark_wide": "This mark is wide, so it is unreadable in small spaces. Add a square mark (the symbol alone)."
   },
   "Connectors": {
     "title": "Team connectors",

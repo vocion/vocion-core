@@ -115,7 +115,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
             one brand this region shows (`libs/branding/chrome.ts`): Vocion's
             mark on Vocion Cloud, the Org's on its own branded install. It
             goes home. */}
-        <Link href="/dashboard" aria-label={leadLabel} data-testid="lead-mark-home" className="-ml-1 grid size-11 shrink-0 place-items-center rounded-lg transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none sm:size-8">
+        <Link href="/dashboard" aria-label={leadLabel} data-testid="lead-mark-home" className="-ml-1 inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-lg px-1 transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none sm:h-8 sm:min-w-8">
           <LeadMark brand={orgBrand} lead={chrome.lead} />
         </Link>
         {/* WHICH INSTANCE THIS IS. The favicon and the page title already say
