@@ -10,6 +10,7 @@
  */
 
 import type { VoiceConnector, VoiceProvider } from '@/libs/voice/provider';
+import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { VOICE_CONNECTORS } from '@/libs/voice/connectors';
 
 export type VoiceDeps = {
@@ -35,7 +36,6 @@ async function vaultedCredential(orgId: string, slug: string): Promise<Record<st
     // A revoked source credential falls through to the platform credential.
   }
   try {
-    const { platformForConnectorSlug } = await import('@/libs/platforms/registry');
     const platform = platformForConnectorSlug(slug);
     if (!platform) {
       return null;

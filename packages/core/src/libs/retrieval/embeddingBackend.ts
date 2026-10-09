@@ -21,6 +21,7 @@
  * where it would surface as an opaque database error halfway through a sync.
  */
 
+import type { EmbeddingProviderName } from '@/libs/llm/providers';
 import type { AwsCredentials } from '@/services/ApiTokenService';
 import process from 'node:process';
 import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
@@ -30,6 +31,7 @@ import { db } from '@/libs/DB';
 import { buildBedrockRuntimeClient } from '@/libs/llm/bedrock';
 import { bedrockRegion, resolveBedrockCredentials } from '@/libs/llm/bedrockCredentials';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
+import { EMBEDDING_PROVIDERS } from '@/libs/llm/providers';
 import { projectSchema } from '@/models/Schema';
 
 /**
@@ -43,7 +45,7 @@ import { projectSchema } from '@/models/Schema';
 export const EMBEDDING_DIMENSIONS = 1536;
 
 /** Which vendor produces embeddings. */
-export type EmbeddingProviderName = 'openai' | 'bedrock';
+export type { EmbeddingProviderName };
 
 /** What one embedding request returned. */
 export type EmbeddingBatchResult = {
@@ -126,18 +128,20 @@ export function resolveEmbeddingProvider(stored: WorkspaceEmbeddingConfig = null
   }
   const explicit = process.env.VOCION_EMBEDDING_PROVIDER?.toLowerCase();
   if (explicit) {
-    if (explicit !== 'openai' && explicit !== 'bedrock') {
+    if (!(EMBEDDING_PROVIDERS as readonly string[]).includes(explicit)) {
       throw new Error(
-        `unknown embedding provider "${explicit}"; expected 'openai' or 'bedrock'`,
+        `unknown embedding provider "${explicit}"; expected one of ${EMBEDDING_PROVIDERS.join(', ')}`,
       );
     }
-    return explicit;
+    return explicit as EmbeddingProviderName;
   }
   const inherited = (
     process.env.VOCION_LLM_PROVIDER_EMBEDDER ?? process.env.VOCION_LLM_PROVIDER
   )?.toLowerCase();
-  if (inherited === 'bedrock') {
-    return 'bedrock';
+  // Only a chat vendor that also embeds at 1536 is inherited; Mistral and a
+  // self-hosted server embed at other widths, so they fall to OpenAI.
+  if (inherited === 'bedrock' || inherited === 'azure-openai' || inherited === 'vertex') {
+    return inherited;
   }
   return 'openai';
 }
@@ -145,14 +149,20 @@ export function resolveEmbeddingProvider(stored: WorkspaceEmbeddingConfig = null
 /** Per-provider default model, overridable with `VOCION_EMBEDDING_MODEL`. */
 const DEFAULT_MODELS: Record<EmbeddingProviderName, string> = {
   // 1536-d, which is the width the schema column was built for.
-  openai: 'text-embedding-3-small',
+  'openai': 'text-embedding-3-small',
   // Titan Text Embeddings G1. Chosen over Titan V2 because V2 emits 1024, 512
   // or 256 dimensions and cannot be asked for 1536 — switching to it means a
   // schema migration plus a re-embed of every stored chunk. AWS's own docs
   // disagree about G1's width (the launch blog says 1536, the AI service card
   // says 1024), which is exactly why `assertDimensions` below checks rather
   // than trusts: the first real call settles it, and says so in the error.
-  bedrock: 'amazon.titan-embed-text-v1',
+  'bedrock': 'amazon.titan-embed-text-v1',
+  // A DEPLOYMENT of text-embedding-3-small on the Azure resource, named after
+  // its model by convention. Its vectors are 1536-d, the same as OpenAI's.
+  'azure-openai': 'text-embedding-3-small',
+  // Gemini embedding asked for 1536 dimensions (`outputDimensionality`); its
+  // native width is 3072, which the column cannot hold.
+  'vertex': 'gemini-embedding-001',
 };
 
 /**
@@ -332,5 +342,82 @@ export async function embeddingBackendForOrg(orgId: string): Promise<EmbeddingBa
   if (provider === 'bedrock') {
     return bedrockEmbeddingBackend(orgId, stored);
   }
+  if (provider === 'azure-openai') {
+    return azureEmbeddingBackend(orgId, stored);
+  }
+  if (provider === 'vertex') {
+    return vertexEmbeddingBackend(orgId, stored);
+  }
   return openAiEmbeddingBackend(orgId, stored);
+}
+
+/**
+ * An Azure OpenAI embedding backend: the resource's v1 API, on the org's stored endpoint and key
+ * when it has them and the env's otherwise (`libs/llm/openaiCompatible.ts`). The model is a
+ * deployment name; its vectors are width-checked like every backend's.
+ * @param orgId - The org whose embeddings are being generated.
+ * @param stored - The workspace's authored embedding settings, or null.
+ * @param fetchImpl - Injectable for tests.
+ */
+export async function azureEmbeddingBackend(orgId: string, stored: WorkspaceEmbeddingConfig, fetchImpl?: typeof fetch): Promise<EmbeddingBackend> {
+  const { resolveOpenAIConnection } = await import('@/libs/llm/openaiCompatible');
+  const connection = await resolveOpenAIConnection('azure-openai', orgId);
+  const model = resolveEmbeddingModel('azure-openai', stored);
+  const client = new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL, maxRetries: 0, ...(connection.defaultHeaders ? { defaultHeaders: connection.defaultHeaders } : {}), ...(fetchImpl ? { fetch: fetchImpl } : {}) });
+  return {
+    provider: 'azure-openai',
+    model,
+    batchSize: 100,
+    async embedBatch(texts: string[]): Promise<EmbeddingBatchResult> {
+      const response = await client.embeddings.create({ model, input: texts });
+      const vectors: number[][] = [];
+      for (const item of response.data) {
+        assertDimensions(item.embedding, model);
+        vectors[item.index] = item.embedding;
+      }
+      return { vectors, inputTokens: response.usage?.total_tokens ?? 0 };
+    },
+  };
+}
+
+/**
+ * A Vertex AI embedding backend: Gemini embedding through Vertex's `predict` endpoint, asked
+ * for 1536 dimensions, on the org's stored service account when it has one and the env's
+ * otherwise. One text per request — the model takes one instance at a time.
+ * @param orgId - The org whose embeddings are being generated.
+ * @param stored - The workspace's authored embedding settings, or null.
+ * @param fetchImpl - Injectable for tests.
+ */
+export async function vertexEmbeddingBackend(orgId: string, stored: WorkspaceEmbeddingConfig, fetchImpl: typeof fetch = fetch): Promise<EmbeddingBackend> {
+  const { resolveOpenAIConnection } = await import('@/libs/llm/openaiCompatible');
+  const connection = await resolveOpenAIConnection('vertex', orgId, fetchImpl);
+  const model = resolveEmbeddingModel('vertex', stored);
+  // `…/projects/<p>/locations/<l>/endpoints/openapi` → `…/projects/<p>/locations/<l>/publishers/google/models/<model>:predict`.
+  const predictUrl = `${connection.baseURL.replace(/\/endpoints\/openapi$/, '')}/publishers/google/models/${model.replace(/^google\//, '')}:predict`;
+  return {
+    provider: 'vertex',
+    model,
+    batchSize: 1,
+    async embedBatch(texts: string[]): Promise<EmbeddingBatchResult> {
+      const vectors: number[][] = [];
+      let inputTokens = 0;
+      for (const [i, text] of texts.entries()) {
+        const res = await fetchImpl(predictUrl, {
+          method: 'POST',
+          headers: { 'authorization': `Bearer ${connection.apiKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ instances: [{ content: text }], parameters: { outputDimensionality: EMBEDDING_DIMENSIONS } }),
+        });
+        if (!res.ok) {
+          throw new Error(`Vertex AI embedding answered HTTP ${res.status}`);
+        }
+        const body = await res.json() as { predictions?: { embeddings?: { values?: number[]; statistics?: { token_count?: number } } }[] };
+        const embedding = body.predictions?.[0]?.embeddings;
+        const values = embedding?.values ?? [];
+        assertDimensions(values, model);
+        vectors[i] = values;
+        inputTokens += embedding?.statistics?.token_count ?? 0;
+      }
+      return { vectors, inputTokens };
+    },
+  };
 }

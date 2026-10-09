@@ -13,6 +13,7 @@ import { askFileAction } from './ask-file';
 import { askWithdrawAction } from './ask-withdraw';
 import { chatAddReactionAction } from './chat-add-reaction';
 import { chatReplyInThreadAction } from './chat-reply-in-thread';
+import { deckCreateAction } from './deck-create';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { factoryApprovePlanAction } from './factory-approve-plan';
@@ -36,6 +37,7 @@ import { objectsUpdateMetaAction } from './objects-update-meta';
 import { orgBrandApplyAction } from './org-brand-apply';
 import { orgChangeAction } from './org-change';
 import { personalizationEnrollAction } from './personalization-enroll';
+import { phonePlaceCallAction } from './phone-place-call';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
@@ -120,6 +122,9 @@ registerAction(slackPostMessageAction);
 // chat family's other two writes; both reversible (`libs/actions/chat-*.ts`).
 registerAction(chatReplyInThreadAction);
 registerAction(chatAddReactionAction);
+// Telephony (`phone.place_call`, never automatic) and Gamma decks (`deck.create`).
+registerAction(phonePlaceCallAction);
+registerAction(deckCreateAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);

@@ -10,8 +10,9 @@
  */
 
 import type { LLMProviderName } from '@vocion/sdk';
+import type { CredentialValues } from '@/libs/platforms/registry';
 import { platformForLLMProvider } from '@/libs/platforms/registry';
-import { resolvePlatformKey } from '@/services/ApiTokenService';
+import { resolvePlatformCredential, resolvePlatformKey } from '@/services/ApiTokenService';
 
 /**
  * The org's stored key for whatever platform backs `provider`, or null when it
@@ -43,4 +44,23 @@ export async function resolveOrgProviderKey(
     return null;
   }
   return resolvePlatformKey(orgId, platform.id);
+}
+
+/**
+ * The org's whole stored credential document for `provider`, or null when it has none. For a
+ * provider whose credential is more than a key — Azure's endpoint, Vertex's project, a
+ * self-hosted server's base URL (`./openaiCompatible.ts`). Bedrock is refused, as above: its
+ * pair is read by `resolveBedrockCredentials`.
+ * @param provider - The provider about to be called.
+ * @param orgId - The org the call is being made for.
+ */
+export async function resolveOrgProviderCredential(
+  provider: LLMProviderName,
+  orgId: string,
+): Promise<CredentialValues | null> {
+  const platform = platformForLLMProvider(provider);
+  if (!platform || provider === 'bedrock') {
+    return null;
+  }
+  return resolvePlatformCredential(orgId, platform.id);
 }

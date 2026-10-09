@@ -123,6 +123,21 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   // row before that path ships.
   'gpt-image-1': { inputCentsPerMillion: 500, outputCentsPerMillion: 4000 },
 
+  // Mistral — mistral.ai/pricing, read 2026-10-08, which states Large's rate
+  // and sends the rest to the model cards. Only what the page said is here:
+  // Medium, Small and Embed price at 0 until someone reads their cards.
+  'mistral-large-latest': { inputCentsPerMillion: 50, outputCentsPerMillion: 150 },
+
+  // Gemini (Vertex AI reaches the same models) — ai.google.dev/gemini-api/docs/pricing,
+  // paid tier, prompts up to 200k tokens, read 2026-10-08. Vertex reports them
+  // as `google/<model>`; `canonicalModelId` strips the publisher.
+  'gemini-2.5-pro': { inputCentsPerMillion: 125, outputCentsPerMillion: 1000 },
+  'gemini-2.5-flash': { inputCentsPerMillion: 30, outputCentsPerMillion: 250 },
+
+  // Deliberately NOT priced: a self-hosted model (`openai-compatible`). It
+  // runs on the workspace's own hardware, so its tokens are recorded at 0 —
+  // a token cap still works, a cents cap does not apply.
+  //
   // Deliberately NOT priced: `amazon.titan-embed-text-v1`, the Bedrock
   // embedding default. AWS publishes Titan embedding pricing behind a
   // region-and-model picker we could not read a single figure off on
@@ -172,6 +187,8 @@ export function canonicalModelId(id: string): string {
   return id
     .replace(/^(?:us|eu|apac|global)\./, '')
     .replace(/^anthropic\./, '')
+    // Vertex's OpenAI-compatible endpoint names a model `<publisher>/<model>`.
+    .replace(/^google\//, '')
     .replace(/-v\d+:\d+$/, '');
 }
 

@@ -133,7 +133,7 @@ describe('chatTokenFor', () => {
     vi.doMock('@/libs/notifications/slack', () => ({ slackToken: () => 'xoxb-deployment' }));
     const { chatTokenFor } = await import('../provider');
 
-    await expect(chatTokenFor('org_noco')).resolves.toEqual({ token: 'xoxb-client', from: 'source', sourceSlug: 'slack' });
+    await expect(chatTokenFor('org_noco')).resolves.toEqual({ token: 'xoxb-client', kind: 'slack', from: 'source', sourceSlug: 'slack' });
   });
 
   it('falls back to the deployment token when no source holds one, and to nothing when neither does', async () => {
@@ -144,7 +144,7 @@ describe('chatTokenFor', () => {
     vi.doMock('@/libs/notifications/slack', () => ({ slackToken: () => token.value }));
     const { chatTokenFor, chatProviderFor } = await import('../provider');
 
-    await expect(chatTokenFor('org_1')).resolves.toEqual({ token: 'xoxb-deployment', from: 'deployment', sourceSlug: null });
+    await expect(chatTokenFor('org_1')).resolves.toEqual({ token: 'xoxb-deployment', kind: 'slack', from: 'deployment', sourceSlug: null });
 
     token.value = null;
 

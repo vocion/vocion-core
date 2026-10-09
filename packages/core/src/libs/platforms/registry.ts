@@ -43,6 +43,8 @@ export type CredentialPlatformId
     | 'anthropic'
     | 'vertex'
     | 'azure-openai'
+    | 'mistral'
+    | 'openai-compatible'
     | 'aws'
     | 'custom'
   // A sign-in to an app the workspace builds, for its QA (several per org).
@@ -72,6 +74,12 @@ export type CredentialPlatformId
     | 'amplitude'
     | 'linkedin-ads'
     | 'meta-ads'
+  // Chat and telephony (the chat family): one account each, read by its
+  // connector and spent by its chat surface.
+    | 'discord'
+    | 'twilio'
+    | 'vonage'
+    | 'gamma'
   // Any token-authenticated REST API the workspace declares endpoints for
   // (`libs/sources/rest.ts`). Several per org: one per API.
     | 'rest'
@@ -448,15 +456,20 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
     credentialsShareable: false,
-    // A Vertex credential is a service-account JSON document or a short-lived
-    // access token depending on how the customer authenticates, so there is no
-    // single shape worth enforcing.
+    // Gemini on Vertex AI, reached through Vertex's OpenAI-compatible endpoint
+    // (`libs/llm/openaiCompatible.ts`). The credential is a service-account
+    // JSON key — a fresh access token is minted from it per call — or a bare
+    // access token, which works for its hour and is for trying things out.
     llmProvider: 'vertex',
     toolProvider: null,
     keyPattern: null,
-    keyShapeHint: 'any non-empty credential',
-    helpText: 'A Vertex AI access token or the contents of a service-account JSON key.',
-    fields: singleKeyField('Vertex credential', null, 'any non-empty credential'),
+    keyShapeHint: 'a service-account JSON key (or an access token), plus the project and region',
+    helpText: 'A Google Cloud service account with the Vertex AI User role: paste its whole JSON key. The project defaults to the one in the key; the region defaults to us-central1. Model calls bill your Google Cloud project.',
+    fields: [
+      { name: 'apiKey', label: 'Service-account JSON key', pattern: null, shapeHint: 'is the whole service-account JSON key file (or an access token)', secret: true },
+      { name: 'projectId', label: 'Project ID', pattern: /^[a-z][\w-]{4,}$/, shapeHint: 'is the Google Cloud project id, e.g. northwind-ai', secret: false, optional: true },
+      { name: 'location', label: 'Region', pattern: /^(?:global|[a-z]+-[a-z]+\d)$/, shapeHint: 'is a Vertex region such as us-central1, europe-west4 or global', secret: false, optional: true },
+    ],
   },
   {
     id: 'azure-openai',
@@ -466,13 +479,53 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     credentialsPerOrg: 'one-live',
     connectorSlugs: [],
     credentialsShareable: false,
+    // Reached on the resource's v1 API (`<endpoint>/openai/v1/`) with the
+    // plain OpenAI wire format, so an agent's `model` is the DEPLOYMENT name.
     llmProvider: 'azure-openai',
     toolProvider: null,
-    // Azure resource keys are 32+ hex-ish characters with no prefix.
-    keyPattern: /^[A-Z0-9]{32,}$/i,
-    keyShapeHint: 'at least 32 letters and digits, with no prefix',
-    helpText: 'The key from your Azure OpenAI resource, under Keys and Endpoint.',
-    fields: singleKeyField('Azure OpenAI key', /^[A-Z0-9]{32,}$/i, 'at least 32 letters and digits, with no prefix'),
+    keyPattern: null,
+    keyShapeHint: 'the resource endpoint plus one of its keys',
+    helpText: 'Your Azure OpenAI (or Azure AI Foundry) resource, from Keys and Endpoint: the endpoint and one key. An agent names a deployment as its model. Model calls bill your Azure subscription.',
+    fields: [
+      { name: 'endpoint', label: 'Endpoint', pattern: /^https:\/\/\S+$/i, shapeHint: 'starts with https://, e.g. https://northwind.openai.azure.com', secret: false },
+      // Azure resource keys are 32+ hex-ish characters with no prefix.
+      { name: 'apiKey', label: 'Azure OpenAI key', pattern: /^[A-Z0-9]{32,}$/i, shapeHint: 'at least 32 letters and digits, with no prefix', secret: true },
+    ],
+  },
+  {
+    id: 'mistral',
+    brand: 'mistralai',
+    label: 'Mistral',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: 'mistral',
+    toolProvider: null,
+    // Mistral keys are 32 opaque characters with no prefix.
+    keyPattern: /^\w{20,}$/,
+    keyShapeHint: 'at least 20 letters and digits, with no prefix',
+    helpText: 'Your Mistral API key, from console.mistral.ai → API Keys. Model calls for this workspace bill your Mistral account.',
+    fields: singleKeyField('Mistral key', /^\w{20,}$/, 'at least 20 letters and digits, with no prefix'),
+  },
+  {
+    id: 'openai-compatible',
+    label: 'Self-hosted model (OpenAI-compatible)',
+    keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
+    // Any server that speaks OpenAI's chat-completions API: vLLM
+    // (`vllm serve`), Ollama (`/v1`), LM Studio, a gateway in front of them.
+    llmProvider: 'openai-compatible',
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'the server\'s base URL, and its key when it asks for one',
+    helpText: 'A model server you run that speaks the OpenAI API — vLLM, Ollama, LM Studio. The base URL ends in /v1 (Ollama: http://<host>:11434/v1). The key is optional: leave it blank for a server that asks for none. The model runs on your hardware, so Vocion prices its tokens at zero.',
+    fields: [
+      { name: 'baseUrl', label: 'Base URL', pattern: /^https?:\/\/\S+$/i, shapeHint: 'starts with http:// or https:// and usually ends in /v1', secret: false },
+      { name: 'apiKey', label: 'API key', pattern: null, shapeHint: 'is the key the server expects', secret: true, optional: true },
+    ],
   },
   {
     id: 'aws',
@@ -900,6 +953,112 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     helpText: 'An ElevenLabs API key, from Developers → API Keys. It needs Text to Speech and Voices (read); User (read) lets Test connection show the characters left. Speaking a line spends the account\'s characters, so the usage lands on your own ElevenLabs plan.',
     // `apiKey`: the key `libs/voice/elevenlabs.ts` reads out of the credential.
     fields: singleKeyField('API key', /^\S{16,}$/, 'is an API key with no spaces, at least 16 characters (sk_…)'),
+  },
+  {
+    id: 'discord',
+    brand: 'discord',
+    label: 'Discord',
+    keySource: 'supplied',
+    // `one-live`, like Sentry and Slate: one bot per workspace, and widening
+    // the cap means rebuilding `api_token_org_platform_live_idx`. One bot reads
+    // every channel it was added to, so several discord sources share it.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['discord'],
+    howToConnect: {
+      paste: {
+        credential: 'Bot token',
+        access: ['View Channels', 'Read Message History', 'Send Messages', 'Add Reactions', 'Message Content intent (Bot → Privileged Gateway Intents)', 'The bot has to be in each server you sync'],
+        getItAt: { url: 'https://discord.com/developers/applications', steps: ['Open your application (or make one)', 'Bot → Reset Token, and copy it', 'Turn on Message Content intent', 'Copy the Public Key from General Information to answer /ask'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Discord bot token, and the application\'s public key to answer /ask',
+    helpText: 'A Discord bot token, from the Developer Portal → your application → Bot. The bot reads and replies in the channels of the servers it was added to; turn on the Message Content intent so it can read what was written. The public key (General Information) lets Vocion answer the /ask command.',
+    fields: [
+      { name: 'token', label: 'Bot token', pattern: /^\S{50,}$/, shapeHint: 'is the bot token from the Bot page, with no spaces', secret: true },
+      { name: 'publicKey', label: 'Public key', pattern: /^[0-9a-f]{64}$/i, shapeHint: 'is the 64-character Public Key from General Information', secret: false, optional: true },
+    ],
+  },
+  {
+    id: 'twilio',
+    brand: 'twilio',
+    label: 'Twilio',
+    keySource: 'supplied',
+    // `one-live`: one Twilio account per workspace, asked for with no row id
+    // in hand — a text to a bound number names a workspace, never a row.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['twilio-voice'],
+    howToConnect: {
+      paste: {
+        credential: 'Account SID and auth token',
+        access: ['The account\'s own auth token, or a subaccount\'s'],
+        getItAt: { url: 'https://console.twilio.com', steps: ['Copy the Account SID and Auth Token from Account info on the console home'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an Account SID (AC…) and its auth token',
+    helpText: 'Your Twilio Account SID and auth token, from the console home. Texts, WhatsApp messages and calls from this workspace\'s numbers bill your Twilio account, and the call log and recordings are read with it.',
+    fields: [
+      { name: 'accountSid', label: 'Account SID', pattern: /^AC[0-9a-f]{32}$/i, shapeHint: 'starts with AC followed by 32 letters and digits', secret: false },
+      { name: 'authToken', label: 'Auth token', pattern: /^[0-9a-f]{32}$/i, shapeHint: 'is the 32-character Auth Token from Account info', secret: true },
+    ],
+  },
+  {
+    id: 'vonage',
+    brand: 'vonage',
+    label: 'Vonage',
+    keySource: 'supplied',
+    // `one-live`, for the reason `twilio` is.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['vonage'],
+    howToConnect: {
+      paste: {
+        credential: 'API key and secret',
+        access: ['Signed webhooks on, with its signature secret, to answer texts'],
+        getItAt: { url: 'https://dashboard.nexmo.com/settings', steps: ['Copy the API key and API secret', 'Turn on signed webhooks and copy the signature secret and method'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an API key and secret, plus the signature secret texts are checked with',
+    helpText: 'Your Vonage API key and secret, from the dashboard\'s API settings. Texts from this workspace\'s Vonage numbers bill your account, and the voice call log is read with it. Turn on signed webhooks there and paste the signature secret and method so Vocion can tell a text came from Vonage.',
+    fields: [
+      { name: 'apiKey', label: 'API key', pattern: /^[0-9a-z]{6,}$/i, shapeHint: 'is the API key from API settings, 8 letters and digits', secret: false },
+      { name: 'apiSecret', label: 'API secret', pattern: /^\S{8,}$/, shapeHint: 'is the API secret from API settings', secret: true },
+      { name: 'signatureSecret', label: 'Signature secret', pattern: /^\S{8,}$/, shapeHint: 'is the signature secret from API settings → Signed webhooks', secret: true, optional: true },
+      { name: 'signatureMethod', label: 'Signature method', pattern: /^(?:md5hash|md5|sha1|sha256|sha512)$/i, shapeHint: 'is one of md5hash, md5, sha1, sha256 or sha512, as API settings shows it', secret: false, optional: true },
+    ],
+  },
+  {
+    id: 'gamma',
+    brand: 'gamma',
+    label: 'Gamma',
+    keySource: 'supplied',
+    // `one-live`: one Gamma account per workspace; a deck is made with it.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['gamma'],
+    howToConnect: {
+      paste: {
+        credential: 'API key',
+        access: ['A Gamma Pro, Ultra, Teams or Business plan'],
+        getItAt: { url: 'https://gamma.app/settings', steps: ['Settings → API key → Create API key'] },
+      },
+    },
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Gamma API key (sk-gamma-…)',
+    helpText: 'A Gamma API key, from Gamma\'s settings → API key. Making a deck spends the account\'s Gamma credits, so the usage lands on your own Gamma plan.',
+    fields: singleKeyField('API key', /^\S{16,}$/, 'is a Gamma API key with no spaces (sk-gamma-…)'),
   },
   {
     id: 'strapi',

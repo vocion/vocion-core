@@ -126,8 +126,11 @@ export function gatesForAction(gates: readonly DeclaredGate[], actionIds: readon
  */
 export function vendorOfModel(provider: LangChainProvider | undefined | null, model: string | undefined | null): ModelVendor {
   const id = (model ?? '').toLowerCase();
-  if (provider === 'openai') {
+  if (provider === 'openai' || provider === 'azure-openai') {
     return 'openai';
+  }
+  if (provider === 'mistral') {
+    return 'mistral';
   }
   if (provider === 'anthropic') {
     return 'anthropic';

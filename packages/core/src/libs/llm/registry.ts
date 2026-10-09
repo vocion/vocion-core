@@ -6,6 +6,7 @@ import { anthropicClient } from './anthropic';
 import { bedrockClient, buildBedrockRuntimeClient } from './bedrock';
 import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 import { openaiClient } from './openai';
+import { envConnectionSync, isOpenAICompatibleProvider, resolveOpenAIConnection } from './openaiCompatible';
 import { resolveOrgProviderKey } from './orgKey';
 
 /**
@@ -20,9 +21,10 @@ import { resolveOrgProviderKey } from './orgKey';
  * rotated key take effect on the very next call with nothing to invalidate.
  *
  * Unconfigured providers throw on first use with a clear message about which
- * env var is missing. Vertex + azure-openai are registered as "not yet
- * implemented" placeholders so plugin authors can declare the intent today; we
- * ship the adapters when a real customer needs them.
+ * env var is missing. Azure OpenAI, Mistral, Vertex AI and a self-hosted
+ * OpenAI-compatible server are reached through OpenAI's wire format
+ * (`./openaiCompatible.ts`), on a connection resolved the same way: the org's
+ * stored credential, then the env.
  *
  * Bedrock is not built here — see {@link buildBedrockClientForOrg}. Its
  * credential is an AWS key pair rather than a single string, so it does not fit
@@ -44,8 +46,18 @@ function buildClient(provider: LLMProviderName, apiKey: string): LLMClient {
     case 'bedrock':
     case 'vertex':
     case 'azure-openai':
+    case 'mistral':
+    case 'openai-compatible':
       refuseProvider(provider);
   }
+}
+
+/**
+ * A client on a provider reached through OpenAI's wire format.
+ * @param connection - Where and with what key (`./openaiCompatible.ts`).
+ */
+function buildOpenAICompatibleClient(connection: import('./openaiCompatible').OpenAIConnection): LLMClient {
+  return openaiClient(new OpenAI({ apiKey: connection.apiKey, baseURL: connection.baseURL, ...(connection.defaultHeaders ? { defaultHeaders: connection.defaultHeaders } : {}) }), connection.provider);
 }
 
 /**
@@ -90,7 +102,7 @@ async function buildBedrockClientForOrg(orgId: string): Promise<LLMClient> {
 function refuseProvider(provider: LLMProviderName): never {
   const envVar = envVarFor(provider);
   if (!envVar) {
-    throw new Error(`${provider} provider not yet implemented — coming in Phase 5 with retrieval backends`);
+    throw new Error(`${provider} provider has no single-key client; it is built elsewhere`);
   }
   throw new Error(`${envVar} is not set; cannot construct ${provider} provider`);
 }
@@ -114,6 +126,9 @@ export function getLLMClient(provider: LLMProviderName): LLMClient {
       region: bedrockRegion(),
       credentials: null,
     }));
+  }
+  if (isOpenAICompatibleProvider(provider)) {
+    return buildOpenAICompatibleClient(envConnectionSync(provider));
   }
   const envVar = envVarFor(provider);
   if (!envVar) {
@@ -142,9 +157,11 @@ export async function getLLMClientForOrg(provider: LLMProviderName, orgId: strin
   if (provider === 'bedrock') {
     return buildBedrockClientForOrg(orgId);
   }
-  // Refuse an unimplemented provider before looking for a key. An org can
-  // legitimately have stored a Vertex key — we just have no adapter to hand it
-  // to yet, and building the wrong client would be worse than refusing.
+  if (isOpenAICompatibleProvider(provider)) {
+    return buildOpenAICompatibleClient(await resolveOpenAIConnection(provider, orgId));
+  }
+  // Refuse a provider with no adapter before looking for a key; building the
+  // wrong client would be worse than refusing.
   if (!envVarFor(provider)) {
     refuseProvider(provider);
   }

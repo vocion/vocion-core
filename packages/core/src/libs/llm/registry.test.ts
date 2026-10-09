@@ -61,12 +61,12 @@ describe('getLLMClient', () => {
     expect(() => getLLMClient('anthropic')).toThrow(/ANTHROPIC_API_KEY/);
   });
 
-  it('declares vertex as not-yet-implemented', () => {
-    expect(() => getLLMClient('vertex')).toThrow(/not yet implemented/);
+  it('names the env vars when vertex has no credential', () => {
+    expect(() => getLLMClient('vertex')).toThrow(/VERTEX_CREDENTIALS/);
   });
 
-  it('declares azure-openai as not-yet-implemented', () => {
-    expect(() => getLLMClient('azure-openai')).toThrow(/not yet implemented/);
+  it('names the env vars when azure-openai has no credential', () => {
+    expect(() => getLLMClient('azure-openai')).toThrow(/AZURE_OPENAI_ENDPOINT/);
   });
 
   it('builds a fresh client per call, so no client is ever shared', () => {
@@ -146,10 +146,10 @@ describe('getLLMClientForOrg', () => {
     expect((await getLLMClientForOrg('openai', ORG_A)).provider).toBe('openai');
   });
 
-  it('refuses a provider we have no adapter for, even with a key on file', async () => {
-    await storePlatformKey({ orgId: ORG_A, name: 'v', platform: 'vertex', apiKey: 'some-vertex-credential' });
+  it('says what a stored vertex credential is missing rather than guessing a project', async () => {
+    await storePlatformKey({ orgId: ORG_A, name: 'v', platform: 'vertex', values: { apiKey: 'ya29.fixture-access-token' } });
 
-    await expect(getLLMClientForOrg('vertex', ORG_A)).rejects.toThrow(/not yet implemented/);
+    await expect(getLLMClientForOrg('vertex', ORG_A)).rejects.toThrow(/Vertex needs a project/);
   });
 });
 

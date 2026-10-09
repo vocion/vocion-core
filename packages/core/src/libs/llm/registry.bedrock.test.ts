@@ -54,9 +54,9 @@ describe('getLLMClient for bedrock', () => {
     expect(typeof client.generate).toBe('function');
   });
 
-  it('still refuses a provider that has no adapter', () => {
-    expect(() => getLLMClient('vertex')).toThrow(/not yet implemented/);
-    expect(() => getLLMClient('azure-openai')).toThrow(/not yet implemented/);
+  it('still refuses a provider with no credential anywhere, naming what to set', () => {
+    expect(() => getLLMClient('vertex')).toThrow(/VERTEX_CREDENTIALS/);
+    expect(() => getLLMClient('azure-openai')).toThrow(/AZURE_OPENAI_ENDPOINT/);
   });
 });
 
@@ -85,9 +85,9 @@ describe('getLLMClientForOrg for bedrock', () => {
     expect(client.provider).toBe('bedrock');
   });
 
-  it('still refuses vertex, which has a stored key but no adapter', async () => {
-    await storePlatformKey({ orgId: ORG, name: 'v', platform: 'vertex', apiKey: 'some-vertex-credential' });
+  it('builds vertex on its stored credential, never a bedrock or anthropic client', async () => {
+    await storePlatformKey({ orgId: ORG, name: 'v', platform: 'vertex', values: { apiKey: 'ya29.fixture-access-token', projectId: 'northwind-ai' } });
 
-    await expect(getLLMClientForOrg('vertex', ORG)).rejects.toThrow(/not yet implemented/);
+    expect((await getLLMClientForOrg('vertex', ORG)).provider).toBe('vertex');
   });
 });

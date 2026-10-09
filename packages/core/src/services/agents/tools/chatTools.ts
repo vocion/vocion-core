@@ -43,7 +43,7 @@ function readThreadTool(ctx: RuntimeContext): StructuredToolInterface {
         if (!ref) {
           return JSON.stringify({ ok: false, error: 'Name the message: a permalink to it, or channel_id and ts.' });
         }
-        const provider = await chatProviderFor(ctx.orgId);
+        const provider = await chatProviderFor(ctx.orgId, ref.kind);
         const read = await provider.readThread({ channelId: ref.channelId, threadTs: ref.threadTs ?? ref.ts, limit: args.limit ?? 50 });
         if (!read.ok) {
           return JSON.stringify({ ok: false, error: read.error });
@@ -66,9 +66,9 @@ function readThreadTool(ctx: RuntimeContext): StructuredToolInterface {
       name: CHAT_READ_THREAD_TOOL,
       description: 'A thread in the connected chat, read live: the channel, then every message oldest first with its author, text, id and attached files. Give a permalink to any message in it, or the channel id and the message\'s id. Use it to read an ask as it was written, with who asked and what they attached, before filing or answering it.',
       schema: z.object({
-        permalink: z.string().url().optional().describe('A link to a message in the thread, as the chat writes it (Slack: https://<team>.slack.com/archives/<channel>/p<digits>).'),
+        permalink: z.string().url().optional().describe('A link to a message in the thread, as the chat writes it (Slack: https://<team>.slack.com/archives/<channel>/p<digits>; Discord: https://discord.com/channels/<server>/<channel>/<message>).'),
         channel_id: z.string().optional().describe('The channel, when giving ids instead of a link.'),
-        ts: z.string().optional().describe('The message\'s id in that channel (Slack: its ts, e.g. 1727700000.000100).'),
+        ts: z.string().optional().describe('The message\'s id in that channel (Slack: its ts, e.g. 1727700000.000100; Discord: the message id).'),
         limit: z.number().int().min(1).max(100).optional().describe('How many messages to read (default 50).'),
       }),
     },
@@ -80,7 +80,8 @@ function readFileTool(ctx: RuntimeContext): StructuredToolInterface {
     async (args) => {
       try {
         const { chatProviderFor, messageRefOf } = await import('@/services/chat/provider');
-        const provider = await chatProviderFor(ctx.orgId);
+        const linked = args.permalink ? messageRefOf({ permalink: args.permalink }) : null;
+        const provider = await chatProviderFor(ctx.orgId, linked?.kind ?? (args.file_id && /^\d+:\d+:\d+$/.test(args.file_id) ? 'discord' : undefined));
         let fileId = args.file_id ?? null;
         if (!fileId) {
           const ref = messageRefOf({ permalink: args.permalink });

@@ -141,6 +141,12 @@ export type ChatSurfaceAdapter = {
   id: string;
   /** Verify the platform's request signature against the raw body. */
   verify: (rawBody: string, headers: Headers) => ChatVerification;
+  /**
+   * Verify against the secret of the workspace the request is for, when the secret is the
+   * workspace's own (a Twilio auth token, a Discord app's public key) rather than only the
+   * server's. Reads the binding the body names; a webhook route prefers it to `verify`.
+   */
+  verifyAsync?: (rawBody: string, headers: Headers) => Promise<ChatVerification>;
   /** Turn a parsed JSON payload into a challenge, a message, or a reason to ignore it. */
   parse: (payload: unknown) => ChatParse;
   /**

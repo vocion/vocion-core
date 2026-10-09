@@ -2,27 +2,47 @@ import type { ConversationChannel } from './conversationChannel';
 import { memberByPhone, saidInConversation } from './conversationChannel';
 
 /**
- * A text thread: `sms:<workspace number>:<their number>`. A line goes out as a text from the
- * workspace's number, pictures as links (`libs/surfaces/sms.ts`). A sender is the member whose
- * profile holds the number they texted from (`me.set_phone` keeps it, from chat).
+ * A phone thread: `<surface>:<workspace number>:<their number>`. A line goes out as a message from
+ * the workspace's number on the surface the thread lives on (a text, a WhatsApp message, a text
+ * through Vonage), pictures as links. A sender is the member whose profile holds the number they
+ * wrote from (`me.set_phone` keeps it, from chat). One shape for every medium whose thread is a
+ * person's number, so a new one is one line.
+ * @param surface - The surface id, also the scopeRef prefix.
  */
-export const smsChannel: ConversationChannel = {
-  surface: 'sms',
-  owns: c => (c.scopeRef ?? '').startsWith('sms:'),
-  async say(_orgId, c, text, opts) {
-    const [, workspaceNumber, theirs] = /^sms:([^:]+):(.+)$/.exec(c.scopeRef ?? '') ?? [];
-    if (!workspaceNumber || !theirs) {
-      return false;
-    }
-    const { smsSurface } = await import('@/libs/surfaces/sms');
-    const images = opts.files.map(f => ({ url: f.url, caption: f.caption }));
-    const sent = await smsSurface.reply({ channelId: workspaceNumber, threadRef: theirs }, { text, ...(images.length > 0 ? { images } : {}) });
-    return sent !== null;
-  },
-  alreadySaid: async (_orgId, c, _key, text) => saidInConversation(c.id, text),
-  memberOf: async (orgId, externalUserId) => memberByPhone(orgId, externalUserId),
-  signInHint: () => 'a mobile number on your Vocion profile (in Vocion chat, say "my mobile number is …")',
-};
+export function phoneThreadChannel(surface: string): ConversationChannel {
+  return {
+    surface,
+    owns: c => (c.scopeRef ?? '').startsWith(`${surface}:`),
+    async say(_orgId, c, text, opts) {
+      const prefix = `${surface}:`;
+      const rest = (c.scopeRef ?? '').startsWith(prefix) ? (c.scopeRef ?? '').slice(prefix.length) : '';
+      const [, workspaceNumber, theirs] = /^([^:]+):(.+)$/.exec(rest) ?? [];
+      if (!workspaceNumber || !theirs) {
+        return false;
+      }
+      const { getSurface } = await import('@/libs/surfaces/registry');
+      const adapter = getSurface(surface);
+      if (!adapter) {
+        return false;
+      }
+      const images = opts.files.map(f => ({ url: f.url, caption: f.caption }));
+      const sent = await adapter.reply({ channelId: workspaceNumber, threadRef: theirs }, { text, ...(images.length > 0 ? { images } : {}) });
+      return sent !== null;
+    },
+    alreadySaid: async (_orgId, c, _key, text) => saidInConversation(c.id, text),
+    memberOf: async (orgId, externalUserId) => memberByPhone(orgId, externalUserId),
+    signInHint: () => 'a mobile number on your Vocion profile (in Vocion chat, say "my mobile number is …")',
+  };
+}
+
+/** A text thread through Twilio (`libs/surfaces/sms.ts`). */
+export const smsChannel: ConversationChannel = phoneThreadChannel('sms');
+
+/** A WhatsApp thread through a Twilio WhatsApp sender (`libs/surfaces/whatsapp.ts`). */
+export const whatsappChannel: ConversationChannel = phoneThreadChannel('whatsapp');
+
+/** A text thread through Vonage (`libs/surfaces/vonage.ts`). */
+export const vonageChannel: ConversationChannel = phoneThreadChannel('vonage');
 
 /**
  * The number Vocion texts a person from about a workspace: the account's shared number when it

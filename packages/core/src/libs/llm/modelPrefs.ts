@@ -14,8 +14,8 @@
  *             or adaptive thinking on models that size their own.
  */
 
-/** The vendors a preference can be mapped onto — the same alphabet as `langchain.ts`'s `PrefsProvider`, spelled here so this module never imports the LLM module (the durable executor reaches it). */
-export type PrefsProvider = 'anthropic' | 'openai' | 'bedrock' | 'scripted';
+/** The vendors a preference can be mapped onto — `./providers.ts`'s list (pure data, so this module still never imports the LLM module the durable executor reaches) plus the scripted test provider. */
+export type PrefsProvider = import('./providers').ModelProviderName | 'scripted';
 
 export const MODEL_STRENGTHS = ['fast', 'balanced', 'deep'] as const;
 export type ModelStrength = (typeof MODEL_STRENGTHS)[number];
@@ -29,9 +29,15 @@ export const DEFAULT_MODEL_PREFS: ModelPrefs = { strength: 'balanced', effort: '
 
 /** The vendor's small and large models. `balanced` is deliberately absent: it means "the agent's own". */
 const STRENGTH_MODELS: Record<Exclude<PrefsProvider, 'scripted'>, { fast: string; deep: string }> = {
-  anthropic: { fast: 'claude-haiku-4-5-20251001', deep: 'claude-opus-5' },
-  openai: { fast: 'gpt-4o-mini', deep: 'gpt-4o' },
-  bedrock: { fast: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', deep: 'us.anthropic.claude-opus-5' },
+  'anthropic': { fast: 'claude-haiku-4-5-20251001', deep: 'claude-opus-5' },
+  'openai': { fast: 'gpt-4o-mini', deep: 'gpt-4o' },
+  'bedrock': { fast: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', deep: 'us.anthropic.claude-opus-5' },
+  // Azure routes on deployment names; these assume deployments named after their models.
+  'azure-openai': { fast: 'gpt-4o-mini', deep: 'gpt-4o' },
+  'mistral': { fast: 'mistral-small-latest', deep: 'mistral-large-latest' },
+  'vertex': { fast: 'google/gemini-2.5-flash', deep: 'google/gemini-2.5-pro' },
+  // A self-hosted server runs what it loaded; there is no second model to pick.
+  'openai-compatible': { fast: '', deep: '' },
 };
 
 /** Thinking budgets in tokens, for models that take one. Anthropic's floor is 1024. */
@@ -47,7 +53,7 @@ export function modelForStrength(provider: PrefsProvider, strength: ModelStrengt
   if (strength === 'balanced' || provider === 'scripted') {
     return undefined;
   }
-  return STRENGTH_MODELS[provider][strength];
+  return STRENGTH_MODELS[provider][strength] || undefined;
 }
 
 /**

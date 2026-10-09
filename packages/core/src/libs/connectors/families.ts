@@ -46,7 +46,7 @@ export type ConnectorFamily = 'repo' | 'tracker' | 'chat' | 'finance' | 'people'
 export const FAMILY_KINDS: Record<ConnectorFamily, readonly string[]> = {
   repo: ['github'],
   tracker: ['jira'],
-  chat: ['slack'],
+  chat: ['slack', 'discord'],
   finance: ['stripe', 'quickbooks', 'xero', 'netsuite', 'ramp', 'bill'],
   people: ['gusto', 'rippling', 'workday'],
   // A SQL warehouse, read with one query tool and one schema browser whatever

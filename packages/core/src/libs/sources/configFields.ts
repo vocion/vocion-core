@@ -594,6 +594,57 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
   // A voice is called, never synced: the API key is the whole connection,
   // taken by Connect. Nothing to configure here.
   'elevenlabs': [],
+  // A deck is made when asked, never synced: the API key is the whole connection.
+  'gamma': [],
+
+  // The bot token is the credential, taken by Connect; these narrow what is synced.
+  'discord': [
+    {
+      key: 'channels',
+      label: 'Channel IDs',
+      type: 'stringArray',
+      placeholder: '1203456789012345678',
+      help: 'Optional. Leave blank to sync every text channel the bot can read. In Discord, turn on Developer Mode, then right-click a channel → Copy Channel ID.',
+    },
+    {
+      key: 'pastDays',
+      label: 'Read the last (days)',
+      type: 'number',
+      defaultValue: 30,
+      min: 1,
+      max: 365,
+    },
+  ],
+
+  'twilio-voice': [
+    {
+      key: 'pastDays',
+      label: 'Read the last (days)',
+      type: 'number',
+      defaultValue: 30,
+      min: 1,
+      max: 395,
+      help: 'Twilio keeps call logs for 13 months.',
+    },
+    {
+      key: 'includeRecordings',
+      label: 'Read recordings\' transcripts',
+      type: 'boolean',
+      defaultValue: true,
+      help: 'One more request per call. Only calls Twilio recorded and transcribed have words to read.',
+    },
+  ],
+
+  'vonage': [
+    {
+      key: 'pastDays',
+      label: 'Read the last (days)',
+      type: 'number',
+      defaultValue: 30,
+      min: 1,
+      max: 395,
+    },
+  ],
 
   'posthog': [
     {

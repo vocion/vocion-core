@@ -8,9 +8,9 @@
  * (`chat_read_thread`, `chat.reply_in_thread`, `chat.add_reaction`) and never
  * for a vendor, so a skill written for one workspace reads unchanged in a
  * workspace on another chat. Slack is the first provider
- * (`providers/slack.ts`); Microsoft Teams (a reply chain) and Discord (a
- * thread) are later providers of the same interface, chosen by the source
- * the workspace connected.
+ * (`providers/slack.ts`) and Discord the second (`providers/discord.ts`);
+ * Microsoft Teams (a reply chain) is a later one. The provider is chosen by
+ * the source the workspace connected, or by the link an agent was handed.
  *
  * TWO TOKENS, ONE RULE. A workspace's `slack` SOURCE holds the bot token of
  * the app installed in the workspace being read — for a client, their own
@@ -23,13 +23,25 @@
  */
 
 import type { Buffer } from 'node:buffer';
+import process from 'node:process';
 import { familySourcesForOrg } from '@/libs/connectors/families';
 import { slackToken } from '@/libs/notifications/slack';
 import { getCredentialsForConnector } from '@/services/SourceCredentialService';
+import { parseAnyChatPermalink } from './permalinks';
+import { discordChatProvider } from './providers/discord';
 import { slackChatProvider } from './providers/slack';
 
+/** The chat connector kinds there is a provider for. */
+export type ChatKind = 'slack' | 'discord';
+
 /** A message in a channel, and the thread it belongs to when it is a reply. */
-export type ChatMessageRef = { channelId: string; ts: string; threadTs?: string };
+export type ChatMessageRef = {
+  channelId: string;
+  ts: string;
+  threadTs?: string;
+  /** Which chat the ids belong to, when a link said so. */
+  kind?: ChatKind;
+};
 
 /** One file on a message, named so a reader can decide whether to fetch it. */
 export type ChatFileMeta = { id: string; name: string; mimeType: string; size: number | null };
@@ -59,7 +71,7 @@ export type ChatRead<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export type ChatProvider = {
   /** The connector kind this provider answers for. */
-  kind: 'slack';
+  kind: ChatKind;
   /** A link to a message, as the platform writes it, read back into channel and message ids; null for anything else. */
   parsePermalink: (url: string) => ChatMessageRef | null;
   /** A thread, oldest first: the parent and its replies, or one message when it started no thread. */
@@ -80,40 +92,68 @@ export type ChatProvider = {
   userInfo: (id: string) => Promise<{ id: string; name: string | null; email: string | null } | null>;
 };
 
-/** Which token answers for a workspace, and where it came from. */
-export type ChatToken = { token: string; from: 'source' | 'deployment'; sourceSlug: string | null };
+/** Which token answers for a workspace, which chat it is for, and where it came from. */
+export type ChatToken = { token: string; kind: ChatKind; from: 'source' | 'deployment'; sourceSlug: string | null };
 
 /**
- * The token the chat family uses for a workspace: the first `slack` source's
- * bot token when one is stored, else the deployment's own. Null when there is
- * neither, which is "this deployment has no chat".
- * @param orgId - The workspace.
+ * The deployment's own bot for each chat, read from the env.
+ * @param kind - Which chat.
  */
-export async function chatTokenFor(orgId: string): Promise<ChatToken | null> {
-  const sources = await familySourcesForOrg(orgId, 'chat').catch(() => []);
-  for (const source of sources) {
-    const creds = await getCredentialsForConnector({ orgId, connectorSlug: source.kind, apiTokenId: source.apiTokenId }).catch(() => undefined);
-    const token = creds?.token ?? creds?.accessToken;
-    if (typeof token === 'string' && token.trim()) {
-      return { token: token.trim(), from: 'source', sourceSlug: source.slug };
-    }
-  }
-  const deployment = slackToken();
-  return deployment ? { token: deployment, from: 'deployment', sourceSlug: null } : null;
+function deploymentToken(kind: ChatKind): string | null {
+  return kind === 'slack' ? slackToken() : process.env.DISCORD_BOT_TOKEN?.trim() || null;
 }
 
 /**
- * The chat provider for a workspace. Slack today; the source's kind picks the
- * provider once there is more than one.
+ * The token the chat family uses for a workspace: the first chat source's bot
+ * token when one is stored — of `kind` when the caller names one — else the
+ * deployment's own. Null when there is neither, which is "this deployment has
+ * no chat".
  * @param orgId - The workspace.
- * @throws {Error} When neither a slack source nor the deployment holds a token.
+ * @param kind - The chat the caller needs, when a link already said which.
  */
-export async function chatProviderFor(orgId: string): Promise<ChatProvider> {
-  const token = await chatTokenFor(orgId);
-  if (!token) {
-    throw new Error('This workspace has no chat connected: no slack source holds a token and the deployment has no SLACK_BOT_TOKEN. Connect Slack at /dashboard/connectors.');
+export async function chatTokenFor(orgId: string, kind?: ChatKind): Promise<ChatToken | null> {
+  const sources = await familySourcesForOrg(orgId, 'chat').catch(() => []);
+  for (const source of sources) {
+    const sourceKind = source.kind as ChatKind;
+    if (kind && sourceKind !== kind) {
+      continue;
+    }
+    const creds = await getCredentialsForConnector({ orgId, connectorSlug: source.kind, apiTokenId: source.apiTokenId }).catch(() => undefined);
+    const token = creds?.token ?? creds?.accessToken;
+    if (typeof token === 'string' && token.trim()) {
+      return { token: token.trim().replace(/^Bot\s+/i, ''), kind: sourceKind, from: 'source', sourceSlug: source.slug };
+    }
   }
-  return slackChatProvider(token.token);
+  for (const candidate of kind ? [kind] : (['slack', 'discord'] as const)) {
+    const deployment = deploymentToken(candidate);
+    if (deployment) {
+      return { token: deployment, kind: candidate, from: 'deployment', sourceSlug: null };
+    }
+  }
+  return null;
+}
+
+/**
+ * The provider for one chat, bound to a token.
+ * @param token - The token and the chat it is for.
+ */
+function providerFor(token: ChatToken): ChatProvider {
+  return token.kind === 'discord' ? discordChatProvider(token.token) : slackChatProvider(token.token);
+}
+
+/**
+ * The chat provider for a workspace: the one the source it connected is for,
+ * or — when a link names the chat (`ref.kind`) — that chat's.
+ * @param orgId - The workspace.
+ * @param kind - The chat the caller needs, when a link already said which.
+ * @throws {Error} When neither a chat source nor the deployment holds a token.
+ */
+export async function chatProviderFor(orgId: string, kind?: ChatKind): Promise<ChatProvider> {
+  const token = await chatTokenFor(orgId, kind);
+  if (!token) {
+    throw new Error(`This workspace has no ${kind ?? 'chat'} connected: no chat source holds a token and the deployment has none. Connect ${kind === 'discord' ? 'Discord' : 'Slack or Discord'} at /dashboard/connectors.`);
+  }
+  return providerFor(token);
 }
 
 /**
@@ -122,7 +162,7 @@ export async function chatProviderFor(orgId: string): Promise<ChatProvider> {
  * @param url - A permalink to a message.
  */
 export function parseChatPermalink(url: string): ChatMessageRef | null {
-  return slackChatProvider('').parsePermalink(url);
+  return parseAnyChatPermalink(url);
 }
 
 /**
