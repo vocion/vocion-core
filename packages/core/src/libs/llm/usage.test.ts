@@ -8,7 +8,7 @@
  * simply wrong, in the direction of too cheap, on every turn.
  */
 import { describe, expect, it } from 'vitest';
-import { tokenUsageOf } from './usage';
+import { ONE_HOUR_CACHE_WRITE_KEY, oneHourCacheWritesOf, tokenUsageOf } from './usage';
 
 /**
  * A model response shaped the way LangChain normalises one.
@@ -61,5 +61,27 @@ describe('tokenUsageOf', () => {
   it('is null for a response carrying no usage at all', () => {
     expect(tokenUsageOf({})).toBeNull();
     expect(tokenUsageOf(null)).toBeNull();
+  });
+});
+
+describe('oneHourCacheWritesOf', () => {
+  it('reads the count the caching model stamps on the streaming path', () => {
+    const response = { usage_metadata: { input_tokens: 40_000, output_tokens: 10, input_token_details: { cache_creation: 40_000 } }, response_metadata: { [ONE_HOUR_CACHE_WRITE_KEY]: 36_000 } };
+
+    expect(oneHourCacheWritesOf(response)).toBe(36_000);
+    expect(tokenUsageOf(response)?.cacheWrite1hTokens).toBe(36_000);
+  });
+
+  it('reads Anthropic\'s raw split when the response kept it', () => {
+    const response = { response_metadata: { usage: { cache_creation: { ephemeral_1h_input_tokens: 12_000, ephemeral_5m_input_tokens: 800 } } } };
+
+    expect(oneHourCacheWritesOf(response)).toBe(12_000);
+  });
+
+  it('is zero, and adds nothing to the usage, when the response says nothing', () => {
+    const response = { usage_metadata: { input_tokens: 10, output_tokens: 1 } };
+
+    expect(oneHourCacheWritesOf(response)).toBe(0);
+    expect(tokenUsageOf(response)).not.toHaveProperty('cacheWrite1hTokens');
   });
 });

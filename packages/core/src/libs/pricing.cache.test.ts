@@ -120,3 +120,24 @@ describe('totalTokens', () => {
     expect(totalTokens({ inputTokens: 1_000, cacheReadTokens: 900, cacheWriteTokens: 0, outputTokens: 100 })).toBe(1_100);
   });
 });
+
+describe('tokenCostMicroCents with one-hour cache writes', () => {
+  it('charges the one-hour part at 2x input and the rest of the writes at 1.25x', () => {
+    // 50k written: 40k of it the fixed prefix on the one-hour TTL, 10k the rolling tail on five minutes.
+    const cost = tokenCostMicroCents(MODEL, { inputTokens: 50_000, cacheWriteTokens: 50_000, cacheWrite1hTokens: 40_000 });
+
+    expect(cost).toBe(40_000 * TIER.inputCentsPerMillion * 2 + 10_000 * TIER.inputCentsPerMillion * 1.25);
+  });
+
+  it('charges no more one-hour writes than there were writes', () => {
+    const capped = tokenCostMicroCents(MODEL, { inputTokens: 10_000, cacheWriteTokens: 10_000, cacheWrite1hTokens: 99_000 });
+    const allOneHour = tokenCostMicroCents(MODEL, { inputTokens: 10_000, cacheWriteTokens: 10_000, cacheWrite1hTokens: 10_000 });
+
+    expect(capped).toBe(allOneHour);
+  });
+
+  it('prices writes exactly as before when the response named no one-hour part', () => {
+    expect(tokenCostMicroCents(MODEL, { inputTokens: 10_000, cacheWriteTokens: 10_000 }))
+      .toBe(10_000 * TIER.inputCentsPerMillion * 1.25);
+  });
+});

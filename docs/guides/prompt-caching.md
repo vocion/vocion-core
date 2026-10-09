@@ -102,6 +102,33 @@ This is on for:
 
 OpenAI is untouched: its caching is automatic and has no per-call switch.
 
+### Two lifetimes: the fixed prefix for an hour, the rest for five minutes
+
+An agent call on the direct Anthropic API carries two breakpoints, and they do not live
+equally long:
+
+- **The fixed prefix — tool list and system prompt — is held for one hour.** It is the
+  same bytes on every turn of an agent (the clock line and the person's message sit after
+  it), and turns arrive minutes apart rather than seconds. deepagents marks the end of the
+  system prompt; the caching model gives that mark `ttl: '1h'` (`withLongLivedPrefix` in
+  `libs/llm/promptCache.ts`).
+- **The rolling tail — the conversation so far — is held for five minutes**, through the
+  request-level instruction. The next model call of the same turn reads it within seconds,
+  and nothing reads it after the turn ends.
+
+Measured on a production box over two days (125 first calls of a turn): 33 read the
+prefix inside five minutes, 54 came back between five minutes and an hour and wrote the
+whole ~37k-token prefix again, and 38 came back later than that. A one-hour write costs 2x
+input against 1.25x, so on that mix the prefix bill drops by about 38% and those 54 first
+calls start warm — the first call is the one a person waits through before anything
+streams. `VOCION_PROMPT_CACHE_PREFIX_TTL=5m` puts the prefix back on five minutes.
+
+A one-hour write is charged at 2x. LangChain folds both lifetimes into one
+`cache_creation` count, so the caching model reads Anthropic's own split off the raw
+`message_start` event and stamps it on the response (`cacheWrite1hTokens` in `TokenUsage`);
+`libs/pricing.ts` prices that part at 2x and the rest at 1.25x. Bedrock stays on five
+minutes throughout.
+
 ## What silently does not cache
 
 **A prefix shorter than the model's minimum.** The request succeeds, nothing is cached,
@@ -161,6 +188,12 @@ before the rest is charged at the plain rate (`libs/pricing.ts`).
 A warm run reads roughly: cache write large on the first call, 0 after it; cache read large
 on every call after the first. Cache read 0 on turn 2 means the prefix was under the
 minimum, or it changed.
+
+Every agent turn's trace carries the whole run's numbers in its metadata under `usage`:
+model calls, input, cache read and write, cost, and `cacheHitRate` — the share of the input
+side served from the cache. On a normal multi-step turn that is 0.8 or more; a turn that
+drops well below that, on an agent whose prompt did not just change, has something
+volatile sitting ahead of a breakpoint.
 
 ## When it is worth turning off
 

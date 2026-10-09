@@ -152,6 +152,12 @@ export type TokenUsage = {
    * undercharge every first turn of every run.
    */
   cacheWriteTokens?: number;
+  /**
+   * How many of `cacheWriteTokens` were written on the one-hour TTL, billed at
+   * 2x input instead of 1.25x. A part of `cacheWriteTokens`, never in addition
+   * to it. Absent means every write was a five-minute one.
+   */
+  cacheWrite1hTokens?: number;
 };
 
 /**
@@ -232,9 +238,8 @@ export function tokenCostMicroCents(model: string, usage: TokenUsage): number {
   const inputBilledAtFullRate = Math.max(0, (usage.inputTokens ?? 0) - cacheRead - cacheWrite);
   const input = inputBilledAtFullRate * tier.inputCentsPerMillion;
   const cache = cacheRead * (tier.cacheReadCentsPerMillion ?? tier.inputCentsPerMillion);
-  // 1.25x is the published five-minute cache-write multiplier, and five
-  // minutes is the TTL `libs/llm/promptCache.ts` asks for. A one-hour TTL
-  // would be 2x and needs its own rate before it is used anywhere.
+  // 1.25x is the published five-minute cache-write multiplier, the TTL
+  // `libs/llm/promptCache.ts` asks for on the rolling tail of a turn.
   //
   // It is an Anthropic and Bedrock figure, and it is applied here to any tier
   // that does not name its own rate — OpenAI rows included. That is harmless
@@ -247,7 +252,13 @@ export function tokenCostMicroCents(model: string, usage: TokenUsage): number {
   // signal): this multiplier is hardcoded, undated, and vendor-specific, so
   // it needs a recorded source date and a staleness check like every rate
   // above it. Expect this number to be wrong before the table around it is.
-  const write = cacheWrite * (tier.cacheWriteCentsPerMillion ?? tier.inputCentsPerMillion * 1.25);
+  // The one-hour writes inside that count are the fixed agent prefix
+  // (`prefixCacheTtl` in `libs/llm/promptCache.ts`), priced at the published
+  // one-hour multiplier, 2x input. Clamped to the write total so a provider
+  // that reports the split oddly can never charge more writes than happened.
+  const oneHourWrite = Math.min(cacheWrite, Math.max(0, usage.cacheWrite1hTokens ?? 0));
+  const write = (cacheWrite - oneHourWrite) * (tier.cacheWriteCentsPerMillion ?? tier.inputCentsPerMillion * 1.25)
+    + oneHourWrite * tier.inputCentsPerMillion * 2;
   const output = (usage.outputTokens ?? 0) * tier.outputCentsPerMillion;
   return Math.round(input + cache + write + output);
 }

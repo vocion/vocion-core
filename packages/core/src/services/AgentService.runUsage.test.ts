@@ -18,7 +18,7 @@
 import type { RunUsage } from './AgentService';
 import { describe, expect, it } from 'vitest';
 import { tokenCostMicroCents } from '@/libs/pricing';
-import { addTurnToRunUsage } from './AgentService';
+import { addTurnToRunUsage, runUsageSummary } from './AgentService';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -112,5 +112,28 @@ describe('addTurnToRunUsage', () => {
 
     expect(Number.isNaN(usage.microCents)).toBe(false);
     expect(usage.microCents).toBe(tokenCostMicroCents(MODEL, { inputTokens: 100, outputTokens: 10 }));
+  });
+});
+
+describe('runUsageSummary', () => {
+  it('reports the share of the input side the prompt cache served', () => {
+    const run = emptyRun();
+    addTurnToRunUsage(run, { model: MODEL, inputTokens: 40_000, outputTokens: 100, cacheWriteTokens: 40_000, cacheWrite1hTokens: 36_000 });
+    addTurnToRunUsage(run, { model: MODEL, inputTokens: 45_000, outputTokens: 100, cacheReadTokens: 40_000, cacheWriteTokens: 5_000 });
+
+    const summary = runUsageSummary(run);
+
+    expect(summary).toMatchObject({ modelCalls: 2, inputTokens: 85_000, cacheReadTokens: 40_000, cacheWriteTokens: 45_000, cacheHitRate: 0.471 });
+  });
+
+  it('charges a one-hour write at its own price inside the run total', () => {
+    const run = emptyRun();
+    addTurnToRunUsage(run, { model: MODEL, inputTokens: 40_000, cacheWriteTokens: 40_000, cacheWrite1hTokens: 40_000 });
+
+    expect(run.microCents).toBe(tokenCostMicroCents(MODEL, { inputTokens: 40_000, cacheWriteTokens: 40_000, cacheWrite1hTokens: 40_000 }));
+  });
+
+  it('reads zero, not a division by zero, for a run with no input', () => {
+    expect(runUsageSummary(emptyRun()).cacheHitRate).toBe(0);
   });
 });

@@ -80,17 +80,123 @@ import { ChatAnthropic } from '@langchain/anthropic';
 
 import { ChatBedrockConverse } from '@langchain/aws';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { ONE_HOUR_CACHE_WRITE_KEY } from './usage';
 
 /**
  * How long the vendor should hold the cached prefix.
  *
- * Five minutes is the default on both vendors and the right one for an agent
- * turn: the next turn of the same run follows within seconds, and a cache entry
- * nobody reads back is a write premium paid for nothing. The one-hour TTL costs
- * twice as much to write and only pays off for a prefix reused across separate
- * runs, which is not a shape we have yet.
+ * Five minutes is the default on both vendors and the right one for the
+ * rolling tail of an agent turn: the next model call of the same turn follows
+ * within seconds, and a cache entry nobody reads back is a write premium paid
+ * for nothing. The fixed prefix — tools and system prompt — IS reused across
+ * separate turns, minutes apart, and gets the one-hour TTL instead: see
+ * `prefixCacheTtl`.
  */
 export const DEFAULT_CACHE_CONTROL = { type: 'ephemeral', ttl: '5m' } as const;
+
+/**
+ * How long the vendor holds the agent's FIXED prefix: the tool list and the
+ * system prompt, up to the breakpoint deepagents places at the end of the
+ * system message (`createCacheBreakpointMiddleware`). One hour unless
+ * `VOCION_PROMPT_CACHE_PREFIX_TTL=5m` says otherwise.
+ *
+ * The rolling tail of a turn — the conversation so far — stays on five minutes
+ * (`DEFAULT_CACHE_CONTROL`, the request-level instruction): it is read back
+ * seconds later by the next model call of the same turn, and nobody reads it
+ * after the turn ends.
+ *
+ * The prefix is different. It is byte-identical across every turn of an agent
+ * (the per-turn clock line and the person's message sit after it), and the
+ * gaps between turns are minutes, not seconds. Measured on a production box
+ * over two days (2026-10-07 to 10-09, 125 first calls of a turn): 33 read the
+ * prefix inside five minutes, 54 came back between five minutes and an hour
+ * and wrote the whole ~37k-token prefix again at 1.25x, and 38 came back
+ * later than that. A one-hour write costs 2x instead of 1.25x, so on that mix
+ * the prefix bill drops by about 38% (3.92M to 2.45M input-token equivalents)
+ * and 54 first calls start from a cache hit instead of a cold prefix — the
+ * first call is the one a person waits through before anything streams.
+ *
+ * Anthropic orders mixed TTLs: a one-hour breakpoint must come before any
+ * five-minute one. The system message precedes every message, so marking only
+ * the system prompt's breakpoints keeps that order.
+ */
+export type PrefixCacheTtl = '5m' | '1h';
+
+/** The TTL `withLongLivedPrefix` gives the fixed prefix, from `VOCION_PROMPT_CACHE_PREFIX_TTL`. */
+export function prefixCacheTtl(): PrefixCacheTtl {
+  return (process.env.VOCION_PROMPT_CACHE_PREFIX_TTL ?? '').trim().toLowerCase() === '5m' ? '5m' : '1h';
+}
+
+/**
+ * The messages with every cache breakpoint inside the LEADING system messages
+ * given `ttl`, when the breakpoint named none. A breakpoint that already names
+ * a TTL is the caller's choice and is left alone (`cachedThroughPrefix` marks
+ * its own five-minute points on purpose). A system message further down the
+ * conversation is not touched: a one-hour point after a five-minute one is
+ * refused by the vendor. Returns the same array when nothing changed.
+ * @param messages - The call's messages, as the graph built them.
+ * @param ttl - The prefix TTL.
+ */
+export function withLongLivedPrefix(messages: BaseMessage[], ttl: PrefixCacheTtl = prefixCacheTtl()): BaseMessage[] {
+  if (ttl === '5m') {
+    return messages;
+  }
+  let changed = false;
+  const out: BaseMessage[] = [];
+  let leading = true;
+  for (const message of messages) {
+    leading &&= message.getType() === 'system';
+    if (!leading || !Array.isArray(message.content)) {
+      out.push(message);
+      continue;
+    }
+    let touched = false;
+    const content = message.content.map((block) => {
+      const mark = (block as { cache_control?: { type?: string; ttl?: string } }).cache_control;
+      if (!mark || mark.ttl) {
+        return block;
+      }
+      touched = true;
+      return { ...block, cache_control: { ...mark, ttl } };
+    });
+    if (!touched) {
+      out.push(message);
+      continue;
+    }
+    changed = true;
+    out.push(new SystemMessage({ content: content as never, additional_kwargs: message.additional_kwargs, response_metadata: message.response_metadata, id: message.id, name: message.name }));
+  }
+  return changed ? out : messages;
+}
+
+/** The raw event the stream tap adds after `message_start`, passed through LangChain as a provider event. */
+const ONE_HOUR_WRITE_EVENT = 'vocion_cache_creation_1h';
+
+type RawUsageEvent = { type?: string; message?: { usage?: { cache_creation?: { ephemeral_1h_input_tokens?: number } | null } } };
+
+/**
+ * Wrap the vendor's raw event stream so a `message_start` that wrote one-hour
+ * cache entries is followed by one extra event carrying the count. Keeps the
+ * stream's `controller`, which both LangChain stream paths abort through.
+ * @param stream - The SDK's raw stream.
+ */
+export function tapOneHourCacheWrites<S extends AsyncIterable<unknown>>(stream: S): S {
+  const source = stream as S & { controller?: AbortController };
+  const wrapped = {
+    controller: source.controller,
+    async* [Symbol.asyncIterator]() {
+      for await (const event of source) {
+        yield event;
+        const raw = event as RawUsageEvent;
+        const oneHour = raw.type === 'message_start' ? raw.message?.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0 : 0;
+        if (oneHour > 0) {
+          yield { type: ONE_HOUR_WRITE_EVENT, ephemeral_1h_input_tokens: oneHour };
+        }
+      }
+    },
+  };
+  return wrapped as unknown as S;
+}
 
 /**
  * Whether prompt caching is allowed to be switched on at all in this process.
@@ -119,14 +225,18 @@ export function withCacheControl<T extends object>(options: T): T {
   return { ...options, cache_control: DEFAULT_CACHE_CONTROL };
 }
 
-/** ChatAnthropic that caches the prompt prefix by default. */
+/**
+ * ChatAnthropic that caches the prompt prefix by default: the request-level
+ * five-minute instruction for the rolling tail, and the system prompt's own
+ * breakpoint on `prefixCacheTtl()` (see `withLongLivedPrefix`).
+ */
 export class CachingChatAnthropic extends ChatAnthropic {
   override _generate(
     messages: BaseMessage[],
     options: this['ParsedCallOptions'],
     runManager?: CallbackManagerForLLMRun,
   ): Promise<ChatResult> {
-    return super._generate(messages, withCacheControl(options), runManager);
+    return super._generate(withLongLivedPrefix(messages), withCacheControl(options), runManager);
   }
 
   override async* _streamResponseChunks(
@@ -134,7 +244,7 @@ export class CachingChatAnthropic extends ChatAnthropic {
     options: this['ParsedCallOptions'],
     runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatGenerationChunk> {
-    yield* super._streamResponseChunks(messages, withCacheControl(options), runManager);
+    yield* super._streamResponseChunks(withLongLivedPrefix(messages), withCacheControl(options), runManager);
   }
 
   override async* _streamChatModelEvents(
@@ -142,7 +252,25 @@ export class CachingChatAnthropic extends ChatAnthropic {
     options: this['ParsedCallOptions'],
     runManager?: CallbackManagerForLLMRun,
   ): AsyncGenerator<ChatModelStreamEvent> {
-    yield* super._streamChatModelEvents(messages, withCacheControl(options), runManager);
+    // Per call, so two calls running side by side on one model never mix counts.
+    let oneHourWrites = 0;
+    for await (const event of super._streamChatModelEvents(withLongLivedPrefix(messages), withCacheControl(options), runManager)) {
+      if (event.event === 'provider' && event.name === ONE_HOUR_WRITE_EVENT) {
+        oneHourWrites = (event.payload as { ephemeral_1h_input_tokens?: number }).ephemeral_1h_input_tokens ?? 0;
+        continue;
+      }
+      if (event.event === 'message-finish' && oneHourWrites > 0) {
+        yield { ...event, responseMetadata: { ...event.responseMetadata, [ONE_HOUR_CACHE_WRITE_KEY]: oneHourWrites } };
+        continue;
+      }
+      yield event;
+    }
+  }
+
+  override async createStreamWithRetry(
+    ...args: Parameters<ChatAnthropic['createStreamWithRetry']>
+  ): ReturnType<ChatAnthropic['createStreamWithRetry']> {
+    return tapOneHourCacheWrites(await super.createStreamWithRetry(...args));
   }
 }
 

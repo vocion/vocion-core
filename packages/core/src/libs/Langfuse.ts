@@ -346,6 +346,8 @@ export type LangfuseTurnUsage = {
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** How many of `cacheWriteTokens` were one-hour writes (`libs/llm/promptCache.ts` `prefixCacheTtl`), priced at 2x. */
+  cacheWrite1hTokens?: number;
   /**
    * Whether the call ended by asking for tools, so the turn goes on to run
    * them and call the model again; false for a final answer. Undefined when
@@ -515,6 +517,7 @@ export function createLangfuseCallback(
             outputTokens: normalised?.outputTokens ?? usage?.completionTokens ?? anthropicUsage?.output_tokens,
             cacheReadTokens: normalised?.cacheReadTokens ?? anthropicUsage?.cache_read_input_tokens,
             cacheWriteTokens: normalised?.cacheWriteTokens ?? anthropicUsage?.cache_creation_input_tokens,
+            cacheWrite1hTokens: normalised?.cacheWrite1hTokens,
             askedForTools: askedForToolsOf(firstGen),
           });
         } catch {
