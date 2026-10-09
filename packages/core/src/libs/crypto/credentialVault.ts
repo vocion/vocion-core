@@ -33,6 +33,7 @@
 import { Buffer } from 'node:buffer';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import process from 'node:process';
+import { kmsVault } from './kmsVault';
 import { localVault } from './localVault';
 
 export type EncryptResult = {
@@ -127,27 +128,29 @@ export function aesDecrypt(key: Buffer, ciphertext: Buffer, nonce: Buffer, authT
 let _vault: CredentialVault | null = null;
 
 /**
- * The KMS vault, loaded on first use with a dynamic `import()`.
+ * The KMS vault, built on first use.
  *
  * It used to be a synchronous require of the module. kmsVault imports the
  * database module, which Turbopack bundles as an ASYNC module, and a
  * synchronous require of an async module hands back a pending namespace, so
  * `kmsVault` destructured to undefined and every decrypt on a KMS install
  * threw "t is not a function" — calendar_events, source sync, every
- * connector tool that reads a credential. Every vault method is already
- * async, so awaiting the import costs nothing and keeps the AWS SDK out of
- * installs that never use it.
+ * connector tool that reads a credential. It is a static ESM import now,
+ * which the bundler awaits like `localVault`'s. A dynamic `import()` fixed
+ * the crash too, but it made Turbopack emit two different chunks to one path
+ * ("Two or more assets with different content were emitted to the same output
+ * path") and failed every production build on main (2026-10-09).
  * @param kmsKeyArn - The key that wraps each tenant's data keys.
  */
 export function lazyKmsVault(kmsKeyArn: string): CredentialVault {
   let inner: Promise<CredentialVault> | null = null;
   const load = (): Promise<CredentialVault> => {
     if (!inner) {
-      inner = import('./kmsVault').then((m) => {
-        if (typeof m.kmsVault !== 'function') {
+      inner = Promise.resolve().then(() => {
+        if (typeof kmsVault !== 'function') {
           throw new TypeError('kmsVault module did not export a kmsVault factory');
         }
-        return m.kmsVault({ kmsKeyArn });
+        return kmsVault({ kmsKeyArn });
       });
       // A failed load is retried on the next call rather than cached forever.
       inner.catch(() => {
