@@ -32,6 +32,18 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const cache = new Map<string, { token: string; expiresAt: number }>();
 
 /**
+ * Google refused to refresh a login: the grant was revoked, expired, or its
+ * app is gone. A person's own connection reads this as broken and tells them
+ * (`libs/personal/broken.ts`); `fix` says whether trying later can help.
+ */
+export class GoogleRefreshRefused extends Error {
+  constructor(message: string, public readonly fix: string) {
+    super(message);
+    this.name = 'GoogleRefreshRefused';
+  }
+}
+
+/**
  * Where the OAuth client a refresh runs on came from: pasted with the token,
  * the workspace's Google login app, or the server's env. Each is fixed in a
  * different place, so each refusal names its own.
@@ -50,20 +62,20 @@ type ClientSource = 'pasted' | 'workspace' | 'server';
 function refreshRefusal(error: TokenRequestError, source: ClientSource): Error {
   const fix = refusalFix(error);
   if (fix === 'try-later') {
-    return new Error(`Google could not refresh the access token just now (${error.code}). Try again in a few minutes.`);
+    return new GoogleRefreshRefused(`Google could not refresh the access token just now (${error.code}). Try again in a few minutes.`, fix);
   }
   if (fix === 'check-server-client' && source === 'pasted') {
-    return new Error(`Google refused the pasted OAuth client (${error.code}). An admin needs to paste the client ID and secret again, or log in with Google, on the Connectors page.`);
+    return new GoogleRefreshRefused(`Google refused the pasted OAuth client (${error.code}). An admin needs to paste the client ID and secret again, or log in with Google, on the Connectors page.`, fix);
   }
   if (fix === 'check-server-client' && source === 'workspace') {
-    return new Error(`Google refused this workspace's Google login app (${error.code}), so logging in again will not help. An admin needs to check its client ID and secret on the Developers page.`);
+    return new GoogleRefreshRefused(`Google refused this workspace's Google login app (${error.code}), so logging in again will not help. An admin needs to check its client ID and secret on the Developers page.`, fix);
   }
   if (fix === 'check-server-client') {
-    return new Error(`Google refused this server's OAuth client (${error.code}), so logging in again will not help. An admin needs to check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET on the server.`);
+    return new GoogleRefreshRefused(`Google refused this server's OAuth client (${error.code}), so logging in again will not help. An admin needs to check GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET on the server.`, fix);
   }
-  return new Error(source === 'pasted'
+  return new GoogleRefreshRefused(source === 'pasted'
     ? `Google refused the pasted refresh token (${error.code}). An admin needs to paste a new one, or log in with Google, on the Connectors page.`
-    : `Google would not refresh the login (${error.code}). An admin needs to log in with Google again on the Connectors page.`);
+    : `Google would not refresh the login (${error.code}). An admin needs to log in with Google again on the Connectors page.`, fix);
 }
 
 /**

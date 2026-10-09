@@ -38,6 +38,11 @@ export type RhythmSettings = {
   zoneChosen: boolean;
   nextBriefAt: Date | null;
   nextWrapAt: Date | null;
+  /** Push beyond the app (docs/guides/push-to-you.md). */
+  pushChannels: Array<'slack' | 'sms' | 'email'>;
+  pushMode: 'brief_and_urgent' | 'urgent';
+  quietStart: string | null;
+  quietEnd: string | null;
 };
 
 type Row = typeof personalRhythmSchema.$inferSelect;
@@ -167,11 +172,11 @@ export async function getRhythm(userId: string, accountId: string, now: Date = n
     [row] = await db.select().from(personalRhythmSchema).where(and(eq(personalRhythmSchema.userId, userId), eq(personalRhythmSchema.accountId, accountId))).limit(1);
   }
   const r = row!;
-  return { briefAt: r.briefAt, wrapAt: r.wrapAt, briefOn: r.briefOn, wrapOn: r.wrapOn, timeZone: zoneOf(r), zoneChosen: Boolean(r.timeZone), nextBriefAt: r.nextBriefAt, nextWrapAt: r.nextWrapAt };
+  return { briefAt: r.briefAt, wrapAt: r.wrapAt, briefOn: r.briefOn, wrapOn: r.wrapOn, timeZone: zoneOf(r), zoneChosen: Boolean(r.timeZone), nextBriefAt: r.nextBriefAt, nextWrapAt: r.nextWrapAt, pushChannels: r.pushChannels.filter((c): c is 'slack' | 'sms' | 'email' => c === 'slack' || c === 'sms' || c === 'email'), pushMode: r.pushMode, quietStart: r.quietStart, quietEnd: r.quietEnd };
 }
 
 /** A change to a rhythm. Every field optional; invalid ones are refused. */
-export type RhythmChange = Partial<Pick<RhythmSettings, 'briefAt' | 'wrapAt' | 'briefOn' | 'wrapOn' | 'timeZone'>>;
+export type RhythmChange = Partial<Pick<RhythmSettings, 'briefAt' | 'wrapAt' | 'briefOn' | 'wrapOn' | 'timeZone' | 'pushChannels' | 'pushMode' | 'quietStart' | 'quietEnd'>>;
 
 /**
  * Why a change cannot be saved, or null when it can.
@@ -186,6 +191,14 @@ export function rhythmChangeProblem(change: RhythmChange): string | null {
   }
   if (change.timeZone !== undefined && !isValidTimeZone(change.timeZone)) {
     return 'That is not a time zone this server knows.';
+  }
+  if (change.pushChannels !== undefined && change.pushChannels.some(c => !['slack', 'sms', 'email'].includes(c))) {
+    return 'Push goes to Slack, text or email.';
+  }
+  for (const [label, v] of [['start', change.quietStart], ['end', change.quietEnd]] as const) {
+    if (v !== undefined && v !== null && !isWallClock(v)) {
+      return `Quiet hours ${label} must be HH:MM on a 24-hour clock.`;
+    }
   }
   return null;
 }
@@ -210,8 +223,14 @@ export async function setRhythm(userId: string, accountId: string, change: Rhyth
     wrapOn: change.wrapOn ?? current.wrapOn,
   };
   const timeZone = change.timeZone ?? (current.zoneChosen ? current.timeZone : null);
+  const push = {
+    ...(change.pushChannels !== undefined ? { pushChannels: [...new Set(change.pushChannels)] } : {}),
+    ...(change.pushMode !== undefined ? { pushMode: change.pushMode } : {}),
+    ...(change.quietStart !== undefined ? { quietStart: change.quietStart } : {}),
+    ...(change.quietEnd !== undefined ? { quietEnd: change.quietEnd } : {}),
+  };
   await db.update(personalRhythmSchema)
-    .set({ ...merged, timeZone, ...nextTimes(merged, timeZone ?? current.timeZone, now), updatedAt: sql`now()` })
+    .set({ ...merged, ...push, timeZone, ...nextTimes(merged, timeZone ?? current.timeZone, now), updatedAt: sql`now()` })
     .where(and(eq(personalRhythmSchema.userId, userId), eq(personalRhythmSchema.accountId, accountId)));
   return getRhythm(userId, accountId, now);
 }

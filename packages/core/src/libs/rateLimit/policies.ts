@@ -98,4 +98,10 @@ export const RATE_LIMITS = {
    * keeps presenting bad ones.
    */
   apiAuthFailuresPerIp: { name: 'api-auth-failures:ip', limit: 30, windowSeconds: QUARTER_HOUR, shared: false },
+  /**
+   * Pushes to one person beyond the app — Slack DM, text, email — for their
+   * brief and urgent items (`services/personal/push.ts`). Counted per push,
+   * whatever its channels; past it, the item still lands in the app.
+   */
+  personalPushPerUser: { name: 'personal-push:user', limit: 6, windowSeconds: HOUR, shared: true },
 } as const satisfies Record<string, RateLimitPolicy>;

@@ -112,6 +112,25 @@ export async function deliverRhythm(input: { userId: string; accountId: string; 
     decisionId = raised.view.id;
   }
 
+  if (input.kind === 'brief') {
+    // Beyond the app too, where the person chose (Slack DM, text, email), with a link straight to it.
+    const { pushToPerson } = await import('@/services/personal/push');
+    const { tenantAccountSchema } = await import('@/models/Schema');
+    const [org] = await db.select({ slug: tenantAccountSchema.slug }).from(tenantAccountSchema).where(eq(tenantAccountSchema.id, input.accountId)).limit(1);
+    const firstLine = message.markdown.split('\n')[0]!.replace(/\*\*/g, '');
+    await pushToPerson({
+      userId: input.userId,
+      accountId: input.accountId,
+      kind: 'brief',
+      key: scope,
+      title: 'Your morning brief is ready',
+      body: firstLine,
+      path: `/dashboard/chat?conversation=${conversation.id}`,
+      workspaceSlug: personal.slug,
+      ...(org ? { accountSlug: org.slug } : {}),
+    }, { now }).catch(() => null);
+  }
+
   const stamp = input.kind === 'brief' ? { lastBriefAt: now } : { lastWrapAt: now };
   await db.update(personalRhythmSchema).set(stamp).where(and(eq(personalRhythmSchema.userId, input.userId), eq(personalRhythmSchema.accountId, input.accountId)));
   return { delivered: true, conversationId: conversation.id, orgId: personal.id, decisionId, title: message.title };
