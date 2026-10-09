@@ -39,7 +39,7 @@ export function TeamCluster({ members, href = '/dashboard/teams' }: { members: r
         {rest.map((m, i) => (
           <span
             key={m.slug}
-            className="-ml-2.5 rounded-full ring-2 ring-background motion-safe:animate-in motion-safe:duration-300 motion-safe:fill-mode-both motion-safe:fade-in motion-safe:slide-in-from-left-2"
+            className={cn(i === 0 ? '-ml-1' : '-ml-2.5', 'rounded-full ring-2 ring-background motion-safe:animate-in motion-safe:duration-300 motion-safe:fill-mode-both motion-safe:fade-in motion-safe:slide-in-from-left-2')}
             style={{ zIndex: 9 - i, animationDelay: `${80 + i * 60}ms` }}
             data-testid="team-member"
           >
