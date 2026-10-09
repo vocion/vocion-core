@@ -427,7 +427,8 @@
     "revoke_confirm": "Revoke the invite for {email}? Their link stops working.",
     "resend_email": "Resend email",
     "resent": "Emailed the invite to {email} again.",
-    "reinvited_emailed": "Made a fresh invite for {email} and emailed it.",
+    "reinvited_emailed": "Made a fresh invite for {email}. Email sent.",
+    "reinvited_not_emailed": "Made a fresh invite for {email}. Email not sent: {reason}. Copy the link and share it.",
     "copy_link_short": "Copy link",
     "copy": "Copy",
     "done": "Done",
@@ -440,9 +441,9 @@
     "invite_sending": "Sending…",
     "invite_create": "Create link",
     "invite_creating": "Creating…",
-    "invite_emailed": "Emailed to {email}. The link works too:",
-    "invite_not_emailed": "Not emailed to {email}.",
-    "invite_link_for": "Link for {email}",
+    "invite_emailed": "Email sent to {email}. The link works too:",
+    "invite_not_emailed": "Email not sent to {email}:",
+    "invite_not_emailed_reason": "{reason}. Copy the link and share it.",
     "invite_link_label": "Invite link"
   },
   "SignIn": {

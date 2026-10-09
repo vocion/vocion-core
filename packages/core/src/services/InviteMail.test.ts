@@ -15,11 +15,21 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
+vi.mock('@/libs/Logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 const { db } = await import('@/libs/DB');
 const schema = await import('@/models/Schema');
 const { readSink } = await import('@/libs/mail/sink');
-const { inviteMail, sendInviteEmail } = await import('./InviteMail');
+const { logger } = await import('@/libs/Logger');
+const { deliverInvite, inviteMail, sendInviteEmail } = await import('./InviteMail');
+
+/**
+ * The warning a non-send logs, once the fire-and-forget log has landed.
+ * @param reason - The reason it must carry.
+ */
+async function warned(reason: string): Promise<void> {
+  await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledWith(`invite email not sent: ${reason}`, expect.objectContaining({ reason })));
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 const EXPIRES = new Date('2026-10-22T12:00:00Z');
@@ -28,6 +38,7 @@ const LINK = 'https://app.northwind.example/sign-up?invite=tok-dana';
 let sink: string;
 
 beforeEach(async () => {
+  vi.mocked(logger.warn).mockClear();
   sink = await mkdtemp(join(tmpdir(), 'vocion-invite-mail-'));
   for (const key of ['VOCION_MAIL_ENABLED', 'RESEND_API_KEY', 'VOCION_MAIL_FROM', 'VOCION_MAIL_SINK_DIR', 'AUTH_URL']) {
     vi.stubEnv(key, '');
@@ -86,14 +97,16 @@ describe('inviteMail', () => {
 });
 
 describe('sendInviteEmail', () => {
-  it('sends nothing with mail off', async () => {
-    await expect(sendInviteEmail({ accountId: 'acct-northwind', inviteId: 'inv-dana', requestOrigin: null })).resolves.toEqual({ status: 'mail-off' });
+  it('sends nothing with mail off, and says so in the logs and to the admin', async () => {
+    await expect(sendInviteEmail({ accountId: 'acct-northwind', inviteId: 'inv-dana', requestOrigin: null })).resolves.toEqual({ status: 'mail-off', reason: 'This server does not send email' });
+
+    await warned('This server does not send email');
   });
 
   it('with mail off and the sink on, keeps what would have been sent', async () => {
     vi.stubEnv('VOCION_MAIL_SINK_DIR', sink);
 
-    await expect(sendInviteEmail({ accountId: 'acct-northwind', inviteId: 'inv-dana', requestOrigin: null })).resolves.toEqual({ status: 'mail-off' });
+    await expect(sendInviteEmail({ accountId: 'acct-northwind', inviteId: 'inv-dana', requestOrigin: null })).resolves.toEqual({ status: 'mail-off', reason: 'This server does not send email' });
 
     const [kept] = await readSink(sink);
 
@@ -120,8 +133,10 @@ describe('sendInviteEmail', () => {
 
     await expect(sendInviteEmail({ accountId: 'acct-northwind', inviteId: 'inv-old', requestOrigin: null }))
       .resolves
-      .toEqual({ status: 'failed', reason: 'That invite has expired. Re-invite to make a fresh one.' });
+      .toEqual({ status: 'failed', reason: 'That invite has expired; re-invite to make a fresh one' });
     expect(await readSink(sink)).toHaveLength(0);
+
+    await warned('That invite has expired; re-invite to make a fresh one');
   });
 
   it('refuses an invite from another Org, or one that is gone', async () => {
@@ -144,6 +159,8 @@ describe('sendInviteEmail', () => {
     expect(delivery).toMatchObject({ status: 'failed' });
     expect(delivery.status === 'failed' && delivery.reason).toMatch(/NEXT_PUBLIC_APP_URL/);
     expect(await readSink(sink)).toHaveLength(0);
+
+    await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/^invite email not sent: .*NEXT_PUBLIC_APP_URL/), expect.objectContaining({ hint: expect.stringMatching(/NEXT_PUBLIC_APP_URL/) })));
   });
 
   it('outside production, falls back to the admin\'s own address when none is configured', async () => {
@@ -156,5 +173,38 @@ describe('sendInviteEmail', () => {
     const [mail] = await readSink(sink);
 
     expect(mail!.text).toContain('http://localhost:3000/sign-up?invite=tok-dana');
+  });
+
+  it('with mail on but no sender, names the missing setting rather than claiming a send', async () => {
+    vi.stubEnv('VOCION_MAIL_ENABLED', '1');
+
+    const delivery = await sendInviteEmail({ accountId: 'acct-northwind', inviteId: 'inv-dana', requestOrigin: null });
+
+    expect(delivery).toEqual({ status: 'failed', reason: 'Outbound mail is enabled but RESEND_API_KEY and VOCION_MAIL_FROM are not set' });
+
+    await warned('Outbound mail is enabled but RESEND_API_KEY and VOCION_MAIL_FROM are not set');
+  });
+});
+
+describe('deliverInvite', () => {
+  it('mails the invite with mail on, and logs the send', async () => {
+    vi.stubEnv('VOCION_MAIL_ENABLED', '1');
+    vi.stubEnv('VOCION_MAIL_SINK_DIR', sink);
+    vi.stubEnv('VOCION_RATE_LIMIT', 'off');
+
+    await expect(deliverInvite({ accountId: 'acct-northwind', inviteId: 'inv-dana', email: 'dana@northwind.example', invitedBy: 'usr-sam', requestOrigin: null }))
+      .resolves
+      .toEqual({ status: 'sent' });
+    expect(await readSink(sink)).toHaveLength(1);
+
+    await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith('invite email sent', expect.objectContaining({ inviteId: 'inv-dana' })));
+  });
+
+  it('with mail off, returns the reason and warns, and the invite stands', async () => {
+    await expect(deliverInvite({ accountId: 'acct-northwind', inviteId: 'inv-dana', email: 'dana@northwind.example', invitedBy: 'usr-sam', requestOrigin: null }))
+      .resolves
+      .toEqual({ status: 'mail-off', reason: 'This server does not send email' });
+
+    await warned('This server does not send email');
   });
 });

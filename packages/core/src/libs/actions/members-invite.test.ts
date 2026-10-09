@@ -80,6 +80,19 @@ describe('members.invite', () => {
     expect(await invitesOf(NORTHWIND)).toHaveLength(0);
   });
 
+  it('says, per invite, that its email was not sent and why, when this server sends no mail', async () => {
+    vi.stubEnv('VOCION_MAIL_ENABLED', '');
+    vi.stubEnv('VOCION_MAIL_SINK_DIR', '');
+    try {
+      const result = await membersInviteAction.execute({ orgId: SUPPORT, reviewedBy: DANA }, { emails: ['ana@northwind.example'], role: 'member' });
+
+      expect(result.invites).toEqual([expect.objectContaining({ email: 'ana@northwind.example', emailed: false, emailNotSentReason: 'This server does not send email' })]);
+      expect(result.note).toBe('Email not sent to ana@northwind.example: This server does not send email. Copy the link from Members.');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('mails each invite when this server sends mail, as the Members page does', async () => {
     const sink = await mkdtemp(join(tmpdir(), 'vocion-members-invite-action-'));
     vi.stubEnv('VOCION_MAIL_ENABLED', '1');
@@ -91,6 +104,7 @@ describe('members.invite', () => {
       const result = await membersInviteAction.execute({ orgId: SUPPORT, reviewedBy: DANA }, { emails: ['ana@northwind.example'], role: 'member' });
 
       expect(result.invites).toEqual([expect.objectContaining({ email: 'ana@northwind.example', emailed: true })]);
+      expect(result.note).toBe('Email sent to ana@northwind.example.');
 
       const { readSink } = await import('@/libs/mail/sink');
       const [mail] = await readSink(sink);

@@ -76,16 +76,14 @@ function DeliveryLine({ invite }: { invite: CreatedInvite }) {
       </p>
     );
   }
-  if (invite.delivery.status === 'failed') {
-    return (
-      <p className="text-sm" role="status">
-        <span className="font-medium">{t('invite_not_emailed', { email: invite.email })}</span>
-        {' '}
-        <span className="text-muted-foreground">{invite.delivery.reason}</span>
-      </p>
-    );
-  }
-  return <p className="text-sm font-medium">{t('invite_link_for', { email: invite.email })}</p>;
+  // Mail off or mail that did not go: said, with why, and the link to copy.
+  return (
+    <p className="text-sm" role="status">
+      <span className="font-medium">{t('invite_not_emailed', { email: invite.email })}</span>
+      {' '}
+      <span className="text-muted-foreground">{t('invite_not_emailed_reason', { reason: invite.delivery.reason })}</span>
+    </p>
+  );
 }
 
 export function InviteDialog(props: {

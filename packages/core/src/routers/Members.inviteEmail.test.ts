@@ -72,7 +72,7 @@ describe('members.invite', () => {
   it('with mail off, makes the invite and says it was not emailed', async () => {
     const created = await call<Created>(createInviteRoute, { email: 'Dana@Northwind.example', role: 'member' });
 
-    expect(created).toMatchObject({ email: 'dana@northwind.example', delivery: { status: 'mail-off' } });
+    expect(created).toMatchObject({ email: 'dana@northwind.example', delivery: { status: 'mail-off', reason: 'This server does not send email' } });
     // The sink keeps what would have been sent; nothing was delivered.
     expect((await readSink(sink)).map(m => m.delivered)).toEqual([false]);
   });
@@ -131,6 +131,16 @@ describe('members.resendInvite', () => {
 
     expect(mails).toHaveLength(2);
     expect(mails.every(m => m.to[0] === 'dana@northwind.example')).toBe(true);
+  });
+
+  it('never reports a resend that did not happen: the reason, and to copy the link', async () => {
+    vi.stubEnv('VOCION_MAIL_ENABLED', '1');
+    const created = await call<Created>(createInviteRoute, { email: 'dana@northwind.example', role: 'member' });
+    await db.update(schema.inviteSchema).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.inviteSchema.id, created.id));
+
+    await expect(call(resendInviteRoute, { inviteId: created.id }))
+      .rejects
+      .toMatchObject({ status: 400, message: 'Email not sent: That invite has expired; re-invite to make a fresh one. Copy the invite link and share it.' });
   });
 
   it('reaches only an invite in the admin\'s own Org', async () => {

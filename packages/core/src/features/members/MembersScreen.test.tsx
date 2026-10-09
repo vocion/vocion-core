@@ -104,7 +104,7 @@ beforeEach(() => {
   vi.mocked(client.groups.overview).mockReset().mockResolvedValue(OVERVIEW as never);
   vi.mocked(client.members.list).mockReset().mockResolvedValue(MEMBERS as never);
   vi.mocked(client.members.invites).mockReset().mockResolvedValue([PENDING, EXPIRED] as never);
-  vi.mocked(client.members.invite).mockReset().mockResolvedValue({ ...EXPIRED, id: 'inv-devon-2', expired: false } as never);
+  vi.mocked(client.members.invite).mockReset().mockResolvedValue({ ...EXPIRED, id: 'inv-devon-2', expired: false, delivery: { status: 'mail-off', reason: 'This server does not send email' } } as never);
   vi.mocked(client.members.revokeInvite).mockReset().mockResolvedValue({ ok: true } as never);
   vi.mocked(client.members.inviteDelivery).mockReset().mockResolvedValue({ emails: false } as never);
   vi.mocked(client.members.resendInvite).mockReset().mockResolvedValue({ delivery: { status: 'sent' } } as never);
@@ -144,6 +144,20 @@ describe('invites on the People lane', () => {
 
     // A fresh link for the same address and role.
     await vi.waitFor(() => expect(client.members.invite).toHaveBeenCalledWith({ email: 'devon@contoso.example', role: 'admin' }));
+
+    // And the truth about its email: not sent, why, and to copy the link.
+    await expect.element(page.getByRole('status').filter({ hasText: 'Made a fresh invite for devon@contoso.example. Email not sent: This server does not send email. Copy the link and share it.' })).toBeVisible();
+  });
+
+  it('says a re-invite was emailed only when the email went', async () => {
+    vi.mocked(client.members.inviteDelivery).mockResolvedValue({ emails: true } as never);
+    vi.mocked(client.members.invite).mockResolvedValue({ ...EXPIRED, id: 'inv-devon-2', expired: false, delivery: { status: 'sent' } } as never);
+    await renderScreen();
+
+    await userEvent.click(page.getByRole('button', { name: 'Actions for the invite to devon@contoso.example' }));
+    await userEvent.click(page.getByRole('menuitem', { name: 'Re-invite' }));
+
+    await expect.element(page.getByRole('status').filter({ hasText: 'Made a fresh invite for devon@contoso.example. Email sent.' })).toBeVisible();
   });
 
   it('narrows to the people who have joined, or to the invites, by Status', async () => {

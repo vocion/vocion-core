@@ -116,14 +116,16 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
     void refresh();
   }, [refresh]);
 
-  const run = (fn: () => Promise<unknown>, done?: string) => {
+  // `done` is the notice after it worked: words, or words from what it
+  // returned (a re-invite says whether its email went).
+  const run = <T,>(fn: () => Promise<T>, done?: string | ((result: T) => string)) => {
     setNotice(null);
     startTransition(async () => {
       try {
-        await fn();
+        const result = await fn();
         await refresh();
         setError(null);
-        setNotice(done ?? null);
+        setNotice(typeof done === 'function' ? done(result) : (done ?? null));
       } catch (err) {
         setError(err instanceof Error && err.message ? err.message : 'That did not work.');
       }
@@ -181,10 +183,13 @@ export function MembersScreen(props: { isAdmin: boolean; currentUserId: string }
   };
   // A fresh link for the same address and role; `createInvite` replaces the
   // expired one rather than adding a second, and mails it when mail is on.
+  // The notice says what became of the email, never what was hoped for.
   const reinvite = (invite: InviteRow) => run(() => client.members.invite({
     email: invite.email,
     role: invite.accountRole === 'admin' ? 'admin' : 'member',
-  }), emailsInvites ? t('reinvited_emailed', { email: invite.email }) : undefined);
+  }), created => (created.delivery.status === 'sent'
+    ? t('reinvited_emailed', { email: invite.email })
+    : t('reinvited_not_emailed', { email: invite.email, reason: created.delivery.reason })));
   const resendInvite = (invite: InviteRow) => run(
     () => client.members.resendInvite({ inviteId: invite.inviteId }),
     t('resent', { email: invite.email }),
