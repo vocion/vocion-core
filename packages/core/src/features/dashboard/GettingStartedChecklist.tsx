@@ -2,8 +2,7 @@
 
 import { Check, ChevronRight, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { use, useCallback, useEffect, useState } from 'react';
-import { SidebarContext } from '@/components/ui/useSidebar';
+import { useCallback, useEffect, useState } from 'react';
 import { SETUP_CHANGED_EVENT } from '@/features/dashboard/setupChanged';
 import { chatAskHref } from '@/libs/chat/ask';
 import { Link, usePathname } from '@/libs/I18nNavigation';
@@ -79,15 +78,6 @@ export type GettingStartedChecklistProps = {
  */
 export function GettingStartedChecklist({ initial, onDismiss, live = true }: GettingStartedChecklistProps) {
   const t = useTranslations('Onboarding');
-  // On a phone the drawer gets out of the way, so the person sees their ask go
-  // out and the lead's answer come in.
-  // (Outside a sidebar — a page, a story — there is no drawer to close.)
-  const sidebar = use(SidebarContext);
-  const closeDrawer = () => {
-    if (sidebar?.isMobile) {
-      sidebar.setOpenMobile(false);
-    }
-  };
   const [state, setState] = useState<GettingStartedState | null>(initial);
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -155,7 +145,6 @@ export function GettingStartedChecklist({ initial, onDismiss, live = true }: Get
             <li key={step.id}>
               <Link
                 href={step.done ? DONE_HREF[step.id] : chatAskHref(t(`step_${step.id}_prompt`))}
-                onClick={closeDrawer}
                 className="-mx-1 flex h-7 items-center gap-2 rounded-md px-1 text-[12px] transition-colors hover:bg-surface-hover"
                 data-testid={`getting-started-${step.id}`}
                 data-done={step.done ? 'true' : 'false'}

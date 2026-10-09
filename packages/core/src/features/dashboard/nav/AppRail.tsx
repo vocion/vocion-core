@@ -4,7 +4,6 @@ import type { AppSummary } from '@/features/navigation/apps';
 import { Plus } from 'lucide-react';
 import { LetterTile } from '@/components/ui/letter-tile';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useSidebar } from '@/components/ui/useSidebar';
 import { iconByName } from '@/features/dashboard/iconByName';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
@@ -51,13 +50,6 @@ export function AppRail(props: {
   addHref: string;
   elsewhereLabel: string;
 }) {
-  const { isMobile, setOpenMobile } = useSidebar();
-  const closeSheet = () => {
-    if (isMobile) {
-      setOpenMobile(false);
-    }
-  };
-
   return (
     <nav aria-label={props.label} data-testid="app-rail" className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border pt-4 pb-5">
       {props.apps.map((app) => {
@@ -75,10 +67,7 @@ export function AppRail(props: {
                       aria-current={active ? 'page' : undefined}
                       data-active={active}
                       data-app={app.id}
-                      onClick={() => {
-                        props.onPick(app);
-                        closeSheet();
-                      }}
+                      onClick={() => props.onPick(app)}
                       className={RAIL_BUTTON}
                     >
                       <LetterTile name={app.name} icon={Icon} tint={app.tint} size="sm" />
@@ -105,7 +94,7 @@ export function AppRail(props: {
       })}
       <Tooltip>
         <TooltipTrigger asChild>
-          <Link href={props.addHref} aria-label={props.addLabel} onClick={closeSheet} className={cn(RAIL_BUTTON, 'mt-1')}>
+          <Link href={props.addHref} aria-label={props.addLabel} className={cn(RAIL_BUTTON, 'mt-1')}>
             <LetterTile name={props.addLabel} icon={Plus} size="sm" muted />
           </Link>
         </TooltipTrigger>
